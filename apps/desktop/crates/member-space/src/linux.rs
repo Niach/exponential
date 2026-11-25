@@ -530,6 +530,9 @@ fn first_process(spec: &Spec, parent: libc::pid_t, stop: OwnedFd) -> Step<i32> {
         check(libc::setsid(), "setsid")?;
         check(libc::sethostname(c"space".as_ptr().cast(), 5), "the host name")?;
         private_root(spec)?;
+        // Process ids must differ from an earlier run's: files in the space
+        // (registries, pid files) name them. Best effort.
+        let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", (300 + nonce() / 1000 % 25_000).to_string());
         only_these_fds(stop.as_raw_fd())?;
         give_up_privileges()?;
         check(libc::chdir(c"/space".as_ptr()), "chdir")?;

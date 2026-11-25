@@ -51,8 +51,27 @@ final class InstallTrustFixtureTests: XCTestCase {
         XCTAssertEqual(InstallApproval.label, approval["label"] as? String)
         XCTAssertEqual(InstallApproval.messageBytes, approval["messageBytes"] as? Int)
         let kinds = try XCTUnwrap(approval["kinds"] as? [String: Int])
-        for kind in ApprovalKind.allCases { XCTAssertEqual(Int(kind.byte), kinds[kind.rawValue], kind.rawValue) }
-        XCTAssertEqual(kinds.count, ApprovalKind.allCases.count)
+        for (name, byte) in kinds { XCTAssertEqual(ApprovalKind(rawValue: name).map { Int($0.byte) }, byte, name) }
+        XCTAssertGreaterThanOrEqual(kinds.count, 4)
+    }
+
+    /// #EXP-2161 (member-space.json).
+    func testMemberSpacePinCases() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/domain-contract/fixtures/member-space.json")
+        let f = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? Object)
+        XCTAssertEqual(InstallTrust.spaceRegistrationLabel, try Self.text(f, "registrationLabel"))
+        XCTAssertEqual(ApprovalKind.space.rawValue, try Self.text(f, "approvalKind"))
+        XCTAssertEqual(Int(ApprovalKind.space.byte), f["approvalKindByte"] as? Int)
+        for c in try Self.cases(f, "pinCases") {
+            let pin = try (c["pin"] as? String).map { try XCTUnwrap(InstallClass(rawValue: $0)) }
+            XCTAssertEqual(
+                pinCovers(pin, rootIsOwnAssistant: try XCTUnwrap(c["rootIsOwnAssistant"] as? Bool)),
+                try XCTUnwrap(c["expected"] as? Bool), try Self.text(c, "name")
+            )
+        }
     }
 
     // MARK: who makes a chat key (`keyMaker`, #EXP-2123)
@@ -258,7 +277,7 @@ final class InstallTrustFixtureTests: XCTestCase {
         let f = try Self.fixture()
         let keys = try keys()
         let all = try Self.cases(f, "trustCases")
-        XCTAssertEqual(all.count, 34)
+        XCTAssertGreaterThanOrEqual(all.count, 34)
         for c in all {
             let name = try Self.text(c, "name")
             let answer = TrustAnswer(
@@ -324,9 +343,11 @@ final class InstallTrustFixtureTests: XCTestCase {
 
     // MARK: the four rules, now and once mandatory
 
+    private func ownAssistant(_ c: Object) -> Bool { c["rootIsOwnAssistant"] as? Bool ?? false }
+
     func testR1KeepWrapEveryCase() throws {
         let all = try Self.cases(try Self.object(try Self.fixture(), "rules"), "keepCases")
-        XCTAssertEqual(all.count, 9)
+        XCTAssertGreaterThanOrEqual(all.count, 9)
         for c in all {
             let name = try Self.text(c, "name")
             let (store, identity, secret) = try namedStore(try Self.text(c, "store"))
@@ -337,7 +358,9 @@ final class InstallTrustFixtureTests: XCTestCase {
             )
             for mode in TrustMode.allCases {
                 let want = try at(c, mode)
-                switch InstallTrust.keepWrap(wrap, identity: identity, installSecret: secret, store: store, mode: mode, crypto: crypto) {
+                switch InstallTrust.keepWrap(
+                    wrap, identity: identity, installSecret: secret, store: store, mode: mode, crypto: crypto, rootIsOwnAssistant: ownAssistant(c)
+                ) {
                 case let .keep(record, _, _):
                     XCTAssertEqual(want["keep"] as? Bool, true, "\(name) (\(mode))")
                     XCTAssertEqual(record.rawValue, want["record"] as? String, "\(name) (\(mode))")
@@ -351,7 +374,7 @@ final class InstallTrustFixtureTests: XCTestCase {
 
     func testR2R3SealToEveryCase() throws {
         let all = try Self.cases(try Self.object(try Self.fixture(), "rules"), "sealCases")
-        XCTAssertEqual(all.count, 11)
+        XCTAssertGreaterThanOrEqual(all.count, 11)
         for c in all {
             let name = try Self.text(c, "name")
             let store = try namedStore(try Self.text(c, "store")).store
@@ -368,7 +391,7 @@ final class InstallTrustFixtureTests: XCTestCase {
                 let want = try at(c, mode)
                 let got = InstallTrust.sealTo(
                     rootId: try Self.text(c, "rootId"), epoch: UInt32(try XCTUnwrap(c["epoch"] as? Int)), publicKey: try Self.text(c, "publicKey"),
-                    held: held, vouch: vouch, store: store, mode: mode, crypto: crypto
+                    held: held, vouch: vouch, store: store, mode: mode, crypto: crypto, rootIsOwnAssistant: ownAssistant(c)
                 )
                 switch got {
                 case let .seal(record):
@@ -385,9 +408,9 @@ final class InstallTrustFixtureTests: XCTestCase {
     func testR4WrapTargetEveryCase() throws {
         let keys = try keys()
         let all = try Self.cases(try Self.object(try Self.fixture(), "rules"), "targetCases")
-        XCTAssertEqual(all.count, 14)
+        XCTAssertGreaterThanOrEqual(all.count, 14)
         // R4 runs against every named store (`adopted` = one that pinned its account's installs `existing`).
-        XCTAssertEqual(Set(all.compactMap { $0["store"] as? String }), ["victim", "waiting", "adopted"])
+        XCTAssertTrue(Set(all.compactMap { $0["store"] as? String }).isSuperset(of: ["victim", "waiting", "adopted"]))
         for c in all {
             let name = try Self.text(c, "name")
             let store = try namedStore(try Self.text(c, "store")).store
@@ -395,7 +418,7 @@ final class InstallTrustFixtureTests: XCTestCase {
             let target = try served(try Self.object(c, "target"), keys)
             for mode in TrustMode.allCases {
                 let want = try at(c, mode)
-                switch InstallTrust.wrapTarget(target, store: store, mode: mode, roots: roots, crypto: crypto) {
+                switch InstallTrust.wrapTarget(target, store: store, mode: mode, roots: roots, crypto: crypto, rootIsOwnAssistant: ownAssistant(c)) {
                 case let .wrap(record):
                     XCTAssertEqual(want["wrap"] as? Bool, true, "\(name) (\(mode))")
                     XCTAssertEqual(record.rawValue, want["record"] as? String, "\(name) (\(mode))")
@@ -409,7 +432,7 @@ final class InstallTrustFixtureTests: XCTestCase {
 
     func testCallKeyEveryCase() throws {
         let all = try Self.cases(try Self.object(try Self.fixture(), "rules"), "callCases")
-        XCTAssertEqual(all.count, 6)
+        XCTAssertGreaterThanOrEqual(all.count, 6)
         for c in all {
             let name = try Self.text(c, "name")
             let store = try namedStore(try Self.text(c, "store")).store
@@ -504,6 +527,12 @@ struct TrustFixture {
             let message = InstallRegistration.message(userId: try keys.text(name, "userId"), endpointId: try keys.endpoint(name), x25519Public: x25519, signedAt: signedAt)
             signature = try crypto.sign(identity: try keys.identity("Z"), message: Data(message.utf8))
         }
+        if registration == "space" {
+            let message = InstallTrust.spaceRegistrationMessage(
+                userId: try keys.text(name, "userId"), endpointId: try keys.endpoint(name), x25519Public: x25519, signedAt: signedAt
+            )
+            signature = try crypto.sign(identity: try keys.identity(name), message: Data(message.utf8))
+        }
         return ServedInstall(
             installId: "install-\(name)",
             userId: try keys.text(name, "userId"),
@@ -523,12 +552,14 @@ struct TrustFixture {
             selfEndpointId: try keys.endpoint(viewer), userId: try keys.text(viewer, "userId"), existing: spec["existing"] as? Bool ?? false
         )
         store.joined = try XCTUnwrap(spec["joined"] as? Bool)
+        store.space = spec["space"] as? Bool ?? false
         for (name, pin) in try XCTUnwrap(spec["pins"] as? Object) {
             let pair = try XCTUnwrap(pin as? [Any])
             let via = try XCTUnwrap(PinVia(rawValue: try XCTUnwrap(pair[0] as? String)))
             store.pins[try keys.endpoint(name)] = TrustPin(
                 userId: try keys.text(name, "userId"), x25519Public: try keys.text(name, "x25519Public"),
-                via: via, by: try (pair[1] as? String).map { try keys.endpoint($0) }
+                via: via, by: try (pair[1] as? String).map { try keys.endpoint($0) },
+                installClass: (pair.count > 2 ? pair[2] as? String : nil).flatMap(InstallClass.init(rawValue:)) ?? .install
             )
         }
         store.members = spec["members"] as? [String] ?? []

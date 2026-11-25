@@ -82,6 +82,29 @@ enum class PinVia(val wire: String) {
     }
 }
 
+/** The class of an install (#EXP-2161), as its REGISTRATION says it (which
+ *  label its signature covers), never a served field. `space` = a member's
+ *  private Assistant on a device shared with their team. */
+@Serializable
+enum class InstallClass(val wire: String) {
+    @SerialName("install") Install("install"),
+    @SerialName("space") Space("space"),
+    ;
+
+    companion object {
+        fun of(wire: String): InstallClass? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/** member-space.json `pinCases`: whether a pinned install may take part in a
+ *  root's keys (null = not pinned). A space: only in the member's own
+ *  Assistant conversation. */
+fun pinCovers(pin: InstallClass?, rootIsOwnAssistant: Boolean): Boolean = when (pin) {
+    InstallClass.Install -> true
+    InstallClass.Space -> rootIsOwnAssistant
+    null -> false
+}
+
 @Serializable
 data class TrustPin(
     val userId: String,
@@ -89,6 +112,8 @@ data class TrustPin(
     val via: PinVia,
     /** The approver (`approved`, `reset`); null otherwise. */
     val by: String? = null,
+    /** #EXP-2161: a space's pin covers only the member's own Assistant conversation ([pinCovers]). */
+    @SerialName("class") val installClass: InstallClass = InstallClass.Install,
 )
 
 @Serializable
@@ -111,6 +136,9 @@ data class TrustStore(
      *  account; a build that makes an identity writes that account's store
      *  first, `false`). Consumed by the first reconcile that serves this install. */
     val existing: Boolean = false,
+    /** #EXP-2161: this install IS a member space's (never a phone's): it joins
+     *  only through a `space` approval and never claims, approves, resets or declines. */
+    val space: Boolean = false,
     val pins: Map<String, TrustPin> = emptyMap(),
     /** Every team-mate ever pinned: a new root of one is a Reset, not a first contact. */
     val members: List<String> = emptyList(),
@@ -119,6 +147,10 @@ data class TrustStore(
     /** Per root (lowercase): the highest VERIFIED epoch and what each held epoch is. */
     val roots: Map<String, TrustRootRecord> = emptyMap(),
 ) {
+    /** The pins that may take part in the root's keys. */
+    fun covering(rootIsOwnAssistant: Boolean): List<String> =
+        pins.filterValues { pinCovers(it.installClass, rootIsOwnAssistant) }.keys.toList()
+
     /** The record of a held key; a key the store never saw = `legacy` (decision c). */
     fun record(rootId: String, epoch: Int): KeyRecord = roots[rootId.lowercase()]?.epochs?.get(epoch.toString()) ?: KeyRecord.Legacy
 
@@ -157,6 +189,7 @@ enum class ApprovalKind(val wire: String, val byte: Int) {
     @SerialName("approve") Approve("approve", 2),
     @SerialName("reset") Reset("reset", 3),
     @SerialName("decline") Decline("decline", 4),
+    @SerialName("space") Space("space", 5),
     ;
 
     companion object {
@@ -378,12 +411,28 @@ object InstallTrust {
     fun registrationMessage(userId: String, endpointId: String, x25519Public: String, signedAt: String): String =
         installMessage(userId, endpointId, x25519Public, signedAt)
 
-    /** Whether the row's stored registration binds its user, endpoint id and X25519 key. */
-    fun registrationValid(install: ServedInstall, crypto: TrustCrypto): Boolean {
-        val signature = install.registrationSignature ?: return false
-        val signedAt = install.registrationSignedAt ?: return false
-        val text = registrationMessage(install.userId, install.endpointId, install.x25519Public, signedAt)
-        return crypto.verify(signature, text.toByteArray(Charsets.UTF_8), install.endpointId)
+    /** #EXP-2161 (member-space.json `registrationLabel`). */
+    const val SPACE_REGISTRATION_LABEL = "exp-install-space-v1"
+
+    /** The same lines under the label a member space's install signs: its
+     *  registration never verifies as an ordinary one. */
+    fun spaceRegistrationMessage(userId: String, endpointId: String, x25519Public: String, signedAt: String): String =
+        "$SPACE_REGISTRATION_LABEL\n$userId\n$endpointId\n$x25519Public\n$signedAt"
+
+    /** Whether the row's stored registration binds its user, endpoint id and X25519 key, as an ordinary install's. */
+    fun registrationValid(install: ServedInstall, crypto: TrustCrypto): Boolean =
+        registrationClass(install, crypto) == InstallClass.Install
+
+    /** The class the stored registration proves; null = it stores none, or it verifies under neither label. */
+    fun registrationClass(install: ServedInstall, crypto: TrustCrypto): InstallClass? {
+        val signature = install.registrationSignature ?: return null
+        val signedAt = install.registrationSignedAt ?: return null
+        fun verifies(text: String) = crypto.verify(signature, text.toByteArray(Charsets.UTF_8), install.endpointId)
+        return when {
+            verifies(registrationMessage(install.userId, install.endpointId, install.x25519Public, signedAt)) -> InstallClass.Install
+            verifies(spaceRegistrationMessage(install.userId, install.endpointId, install.x25519Public, signedAt)) -> InstallClass.Space
+            else -> null
+        }
     }
 
     /**
@@ -406,10 +455,24 @@ object InstallTrust {
         // `counted` adds rows that store none (registered before #3394).
         val valid = LinkedHashMap<String, ServedInstall>()
         val counted = LinkedHashMap<String, ServedInstall>()
+        val classes = HashMap<String, InstallClass>()
+        val ownSpaces = HashSet<String>()
         for (install in served.installs) {
-            if (registrationValid(install, crypto)) valid[install.endpointId] = install
-            if (valid.containsKey(install.endpointId) || install.registrationSignature == null) counted[install.endpointId] = install
+            val registered = registrationClass(install, crypto)
+            if (registered == InstallClass.Space) {
+                // Another member's space is nobody's business but theirs.
+                if (install.userId != userId) continue
+                ownSpaces += install.endpointId
+            }
+            if (registered != null) valid[install.endpointId] = install
+            if (valid.containsKey(install.endpointId) || install.registrationSignature == null) {
+                counted[install.endpointId] = install
+                // A row without a stored registration is an ordinary install's.
+                if (registered != null || install.registrationSignature == null) classes[install.endpointId] = registered ?: InstallClass.Install
+            }
         }
+        val classOf = { endpointId: String -> classes[endpointId] ?: InstallClass.Install }
+        val isSpace = { endpointId: String -> classOf(endpointId) == InstallClass.Space }
         val me = counted[self]
 
         // Shrink: what the server no longer lists (or binds) is no longer pinned.
@@ -417,14 +480,18 @@ object InstallTrust {
             if (endpointId == self) continue
             val row = counted[endpointId]
             val pin = pins.getValue(endpointId)
-            if (row == null || row.userId != pin.userId || row.x25519Public != pin.x25519Public) pins.remove(endpointId)
+            if (row == null || row.userId != pin.userId || row.x25519Public != pin.x25519Public || classOf(endpointId) != pin.installClass) {
+                pins.remove(endpointId)
+            }
         }
-        if (me != null) pins[self] = TrustPin(userId, me.x25519Public, PinVia.Self, null)
+        if (me != null) pins[self] = TrustPin(userId, me.x25519Public, PinVia.Self, null, if (before.space) InstallClass.Space else InstallClass.Install)
 
         // The approvals that verify, against the subject as its registration binds it.
         val approvals = served.approvals.filter { approval ->
             val subject = counted[approval.subjectEndpointId] ?: return@filter false
             if (approval.kind == ApprovalKind.Root && approval.approverEndpointId != approval.subjectEndpointId) return@filter false
+            // A space is approved by `space` alone, and approves nothing.
+            if ((approval.kind == ApprovalKind.Space) != isSpace(approval.subjectEndpointId) || isSpace(approval.approverEndpointId)) return@filter false
             InstallApproval.verify(approval.kind, subject, approval.signature, approval.approverEndpointId, crypto)
         }
         val rootSet = approvals.filter { it.kind == ApprovalKind.Root }.map { it.subjectEndpointId }.toSet()
@@ -435,10 +502,10 @@ object InstallTrust {
         // Joining: its own root claim, the chain from its account's root to
         // it, or (decision e) an existing install of an account with no chain.
         if (!joined && me != null) {
-            if (isRoot(self)) {
+            if (!before.space && isRoot(self)) {
                 joined = true
             } else {
-                val path = chain(self, userId, approvals, isRoot, userOf)
+                val path = if (before.space == isSpace(self)) chain(self, userId, approvals, isRoot, userOf) else null
                 if (path != null) {
                     for (endpointId in path) {
                         if (endpointId == self) continue
@@ -446,9 +513,10 @@ object InstallTrust {
                         pins[endpointId] = TrustPin(row.userId, row.x25519Public, PinVia.Chain, null)
                     }
                     joined = true
-                } else if (existing && !ownChain) {
+                } else if (existing && !ownChain && !before.space) {
                     for (install in counted.values) {
-                        if (install.userId != userId || install.endpointId == self || install.approvalRequested) continue
+                        // A space always asks (#EXP-2161).
+                        if (isSpace(install.endpointId) || install.userId != userId || install.endpointId == self || install.approvalRequested) continue
                         pins[install.endpointId] = TrustPin(install.userId, install.x25519Public, PinVia.Existing, null)
                     }
                     joined = true
@@ -460,7 +528,7 @@ object InstallTrust {
 
         // Declines by this account's pinned installs.
         for (approval in approvals) {
-            if (approval.kind != ApprovalKind.Decline) continue
+            if (approval.kind != ApprovalKind.Decline || before.space) continue
             val approver = pins[approval.approverEndpointId]
             if (approver?.userId == userId && approval.subjectEndpointId !in declined) declined += approval.subjectEndpointId
         }
@@ -484,14 +552,16 @@ object InstallTrust {
                     val subject = counted.getValue(approval.subjectEndpointId)
                     if (pins.containsKey(subject.endpointId) || subject.endpointId in declined) continue
                     val approver = pins[approval.approverEndpointId] ?: continue
-                    val pinned = (approval.kind == ApprovalKind.Approve && approver.userId == subject.userId) ||
+                    val sameAccount = (approval.kind == ApprovalKind.Approve || approval.kind == ApprovalKind.Space) && approver.userId == subject.userId
+                    val pinned = (sameAccount && approver.installClass == InstallClass.Install) ||
                         (approval.kind == ApprovalKind.Reset && approver.userId != subject.userId && subject.userId != userId && isRoot(subject.endpointId))
                     if (!pinned) continue
                     pins[subject.endpointId] = TrustPin(
                         subject.userId,
                         subject.x25519Public,
-                        if (approval.kind == ApprovalKind.Approve) PinVia.Approved else PinVia.Reset,
+                        if (sameAccount) PinVia.Approved else PinVia.Reset,
                         approval.approverEndpointId,
+                        classOf(subject.endpointId),
                     )
                     changed = true
                 }
@@ -500,7 +570,7 @@ object InstallTrust {
         }
 
         val rows = mutableListOf<TrustRow>()
-        if (joined) {
+        if (joined && !before.space) {
             for (install in valid.values) {
                 if (pins.containsKey(install.endpointId) || install.endpointId in declined) continue
                 // Own: every install nobody pinned is new (decision e), any
@@ -516,8 +586,10 @@ object InstallTrust {
         }
 
         // A new install claims a root only ALONE (decision e).
-        val alone = served.installs.none { it.userId == userId && it.endpointId != self }
+        // A space is no other install of the account: it can approve nobody.
+        val alone = served.installs.none { it.userId == userId && it.endpointId != self && it.endpointId !in ownSpaces }
         val status = when {
+            before.space -> if (joined) TrustStatus.Trusted else TrustStatus.Waiting
             joined -> if (ownChain) TrustStatus.Trusted else TrustStatus.ClaimRoot
             ownChain || !alone -> TrustStatus.Waiting
             else -> TrustStatus.ClaimRoot
@@ -527,7 +599,7 @@ object InstallTrust {
             isRoot(endpointId) || approvals.any { it.kind == ApprovalKind.Approve && it.subjectEndpointId == endpointId && pins.containsKey(it.approverEndpointId) }
         }
         val onChain = reached(self)
-        val approveExisting = if (joined && (status == TrustStatus.ClaimRoot || onChain)) {
+        val approveExisting = if (joined && !before.space && (status == TrustStatus.ClaimRoot || onChain)) {
             pins.filter { (endpointId, pin) -> pin.via == PinVia.Existing && !reached(endpointId) }.keys.sorted()
         } else {
             emptyList()
@@ -537,7 +609,8 @@ object InstallTrust {
     }
 
     /** The approvals from a root of [userId] down to [target] (`approve`
-     *  only, every approver of [userId]), shortest first; null when none. */
+     *  only, every approver of [userId]; a space's last step is its `space`
+     *  approval), shortest first; null when none. */
     private fun chain(
         target: String,
         userId: String,
@@ -557,7 +630,8 @@ object InstallTrust {
                 return path
             }
             for (approval in approvals) {
-                if (approval.kind != ApprovalKind.Approve || approval.approverEndpointId != at || approval.subjectEndpointId in seen) continue
+                val step = approval.kind == ApprovalKind.Approve || (approval.kind == ApprovalKind.Space && approval.subjectEndpointId == target)
+                if (!step || approval.approverEndpointId != at || approval.subjectEndpointId in seen) continue
                 if (userOf(approval.subjectEndpointId) != userId || isRoot(approval.subjectEndpointId)) continue
                 seen += approval.subjectEndpointId
                 parents[approval.subjectEndpointId] = at
@@ -577,12 +651,22 @@ object InstallTrust {
     /** R1: whether this install keeps a served wrap (of ANY epoch). A
      *  signature that fails, a malformed wrap and one that does not open are
      *  refused in every mode; `record` keeps an unsigned wrap (`unsigned`)
-     *  and one signed by an UNPINNED install that verifies (`refused-would-be`). */
-    fun keepWrap(wrap: HeldTreeKey, identity: ByteArray, installSecret: ByteArray, store: TrustStore, mode: TrustMode, crypto: TrustCrypto): KeepVerdict =
-        when (val verdict = crypto.acceptWrap(wrap, identity, installSecret, store.pins.keys.toList(), mode == TrustMode.Mandatory)) {
+     *  and one signed by an UNPINNED install that verifies (`refused-would-be`).
+     *  #EXP-2161: a wrap signed by a space whose pin does not cover the root
+     *  is refused in every mode. */
+    fun keepWrap(
+        wrap: HeldTreeKey,
+        identity: ByteArray,
+        installSecret: ByteArray,
+        store: TrustStore,
+        mode: TrustMode,
+        crypto: TrustCrypto,
+        rootIsOwnAssistant: Boolean = false,
+    ): KeepVerdict =
+        when (val verdict = crypto.acceptWrap(wrap, identity, installSecret, store.covering(rootIsOwnAssistant), mode == TrustMode.Mandatory)) {
             is WrapAcceptance.Verified -> KeepVerdict.Keep(KeyRecord.Verified, verdict.secret, verdict.treePublicKey)
             is WrapAcceptance.Unsigned -> KeepVerdict.Keep(KeyRecord.Unsigned, verdict.secret, verdict.treePublicKey)
-            is WrapAcceptance.Refused -> if (verdict.reason == WrapRefusal.Unpinned && mode == TrustMode.Record) {
+            is WrapAcceptance.Refused -> if (verdict.reason == WrapRefusal.Unpinned && mode == TrustMode.Record && wrap.signerEndpointId?.let { it in store.pins } != true) {
                 // Is it at least its signer's? Then it is kept, and recorded.
                 val signer = wrap.signerEndpointId
                 if (signer == null) {
@@ -624,7 +708,8 @@ object InstallTrust {
      *  key. Without: a vouch by a pinned install = `verified`; none =
      *  `unsigned` and one by an unpinned install that verifies =
      *  `refused-would-be`, both sealed in `record` mode, refused once
-     *  mandatory; a vouch whose signature fails is refused in every mode. */
+     *  mandatory; a vouch whose signature fails is refused in every mode, as
+     *  is one by a space whose pin does not cover the root (#EXP-2161). */
     fun sealTo(
         rootId: String,
         epoch: Int,
@@ -634,6 +719,7 @@ object InstallTrust {
         store: TrustStore,
         mode: TrustMode,
         crypto: TrustCrypto,
+        rootIsOwnAssistant: Boolean = false,
     ): SealVerdict {
         if (!sealEpochOk(store, rootId, epoch)) return SealVerdict.Refuse(SealRefusal.Rollback)
         if (held != null) {
@@ -645,13 +731,14 @@ object InstallTrust {
         }
         if (vouch == null) return if (mode == TrustMode.Record) SealVerdict.Seal(KeyRecord.Unsigned) else SealVerdict.Refuse(SealRefusal.Unsigned)
         val statement = WrapStatement(rootId, epoch, publicKey, vouch.recipientEndpointId, vouch.wrapped)
-        return when (val refusal = crypto.acceptVouch(statement, vouch.signature, vouch.signerEndpointId, store.pins.keys.toList())) {
+        return when (val refusal = crypto.acceptVouch(statement, vouch.signature, vouch.signerEndpointId, store.covering(rootIsOwnAssistant))) {
             null -> SealVerdict.Seal(KeyRecord.Verified)
             WrapRefusal.Unsigned -> if (mode == TrustMode.Record) SealVerdict.Seal(KeyRecord.Unsigned) else SealVerdict.Refuse(SealRefusal.Unsigned)
             WrapRefusal.Unpinned -> {
                 val own = crypto.acceptVouch(statement, vouch.signature, vouch.signerEndpointId, listOf(vouch.signerEndpointId))
                 when {
                     own != null -> SealVerdict.Refuse(sealRefusal(own))
+                    vouch.signerEndpointId in store.pins -> SealVerdict.Refuse(SealRefusal.Unpinned)
                     mode == TrustMode.Record -> SealVerdict.Seal(KeyRecord.RefusedWouldBe)
                     else -> SealVerdict.Refuse(SealRefusal.Unpinned)
                 }
@@ -679,19 +766,37 @@ object InstallTrust {
      *  that never asked and claims no root is an older build: `legacy`,
      *  wrapped in `record` mode, refused once mandatory. A registration that
      *  does not verify, or a pinned endpoint served with another key, is
-     *  refused always. */
-    fun wrapTarget(target: ServedInstall, store: TrustStore, mode: TrustMode, roots: Set<String> = emptySet(), crypto: TrustCrypto): TargetVerdict {
+     *  refused always. #EXP-2161: a space is a target only while its pin
+     *  covers the root; an unapproved one is refused in every mode. */
+    fun wrapTarget(
+        target: ServedInstall,
+        store: TrustStore,
+        mode: TrustMode,
+        roots: Set<String> = emptySet(),
+        crypto: TrustCrypto,
+        rootIsOwnAssistant: Boolean = false,
+    ): TargetVerdict {
         if (target.endpointId == store.selfEndpointId) return TargetVerdict.Wrap(KeyRecord.Verified)
         if (!store.joined) return TargetVerdict.Refuse(TargetRefusal.NotTrusted)
         store.pins[target.endpointId]?.let { pin ->
             return if (pin.x25519Public == target.x25519Public && pin.userId == target.userId) {
-                TargetVerdict.Wrap(KeyRecord.Verified)
+                if (pinCovers(pin.installClass, rootIsOwnAssistant)) {
+                    TargetVerdict.Wrap(KeyRecord.Verified)
+                } else {
+                    TargetVerdict.Refuse(TargetRefusal.Unapproved)
+                }
             } else {
                 TargetVerdict.Refuse(TargetRefusal.KeyMismatch)
             }
         }
         // An older build that registered before #EXP-1950 kept no signature: legacy too.
-        if (target.registrationSignature != null && !registrationValid(target, crypto)) return TargetVerdict.Refuse(TargetRefusal.Registration)
+        if (target.registrationSignature != null) {
+            when (registrationClass(target, crypto)) {
+                null -> return TargetVerdict.Refuse(TargetRefusal.Registration)
+                InstallClass.Space -> return TargetVerdict.Refuse(TargetRefusal.Unapproved)
+                InstallClass.Install -> Unit
+            }
+        }
         // Decision (e): every own install that existed is pinned (`existing`);
         // one nobody pinned is a New install row, any build: unapproved in every mode.
         if (target.userId == store.userId) return TargetVerdict.Refuse(TargetRefusal.Unapproved)

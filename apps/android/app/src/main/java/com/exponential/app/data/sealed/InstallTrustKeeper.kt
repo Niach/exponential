@@ -87,6 +87,10 @@ class InstallTrustKeeper(
     /** The account's eNet identity on this install (never created here). */
     private val identity: (accountId: String) -> ByteArray?,
     val mode: TrustMode = TrustMode.BUILD,
+    /** #EXP-2161 (member-space.json `pinCases`): whether a root is the
+     *  account's own Assistant conversation (its synced rows); a root it does
+     *  not answer true for has no member space among its readers. */
+    private val ownAssistant: (accountId: String, rootId: String) -> Boolean = { _, _ -> false },
 ) {
     private class Account(
         var store: TrustStore,
@@ -276,7 +280,12 @@ class InstallTrustKeeper(
         val installId = found?.takeIf { it.state == InstallTrustState.Trusted }?.installId ?: throw InstallTrustException("not trusted")
         val seed = identity(accountId) ?: throw InstallTrustException("install not found")
         val subject = found.served[row.endpointId]?.takeIf { it.installId == row.installId } ?: throw InstallTrustException("install not found")
-        val kind = if (row.kind == TrustRow.Kind.Reset) ApprovalKind.Reset else ApprovalKind.Approve
+        val kind = when {
+            row.kind == TrustRow.Kind.Reset -> ApprovalKind.Reset
+            // #EXP-2161: a space is approved as one, never as an install.
+            InstallTrust.registrationClass(subject, crypto) == InstallClass.Space -> ApprovalKind.Space
+            else -> ApprovalKind.Approve
+        }
         val signature = InstallApproval.sign(kind, subject, seed, crypto)
         api.approve(accountId, installId, row.installId, kind, signature)
         sync(accountId, installId)
@@ -323,7 +332,7 @@ class InstallTrustKeeper(
         val seed = identity(accountId) ?: return InstallTrust.KeepVerdict.Refuse(WrapRefusal.Malformed)
         val found = account(accountId) ?: return InstallTrust.KeepVerdict.Refuse(WrapRefusal.Malformed)
         val store = synchronized(lock) { found.store }
-        val verdict = InstallTrust.keepWrap(wrap, seed, installSecret, store, mode, crypto)
+        val verdict = InstallTrust.keepWrap(wrap, seed, installSecret, store, mode, crypto, ownAssistant(accountId, wrap.rootId.lowercase()))
         when (verdict) {
             is InstallTrust.KeepVerdict.Keep -> {
                 log(TrustDecision.Rule.R1, "${wrap.rootId}#${wrap.epoch}", verdict.record.wire)
@@ -369,6 +378,7 @@ class InstallTrustKeeper(
         val store = synchronized(lock) { found.store }
         val verdict = InstallTrust.sealTo(
             rootId.lowercase(), epoch, publicKey, held?.let { it to store.record(rootId, epoch) }, vouch, store, mode, crypto,
+            ownAssistant(accountId, rootId.lowercase()),
         )
         when (verdict) {
             is InstallTrust.SealVerdict.Seal -> log(TrustDecision.Rule.R3, "$rootId#$epoch", verdict.record.wire)
@@ -377,9 +387,11 @@ class InstallTrustKeeper(
         return verdict
     }
 
-    /** R4: whether this install wraps a key for a target the server names
-     *  (`pending`'s pair, a reader of a new key, a rotation, a resign). */
-    fun target(accountId: String, installId: String, x25519Public: String, endpointId: String?, userId: String?): InstallTrust.TargetVerdict {
+    /** R4: whether this install wraps [rootId]'s key for a target the server
+     *  names (`pending`'s pair, a reader of a new key, a rotation, a resign);
+     *  null = a root not known yet: a member space gets its key later, through
+     *  `pending` (#EXP-2161). */
+    fun target(accountId: String, rootId: String?, installId: String, x25519Public: String, endpointId: String?, userId: String?): InstallTrust.TargetVerdict {
         val found = account(accountId) ?: return InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.NotTrusted)
         val (state, own, served, roots, store) = synchronized(lock) { Snap(found.state, found.installId, found.served, found.roots, found.store) }
         if (state == InstallTrustState.Unavailable) return InstallTrust.TargetVerdict.Wrap(KeyRecord.Legacy)
@@ -399,7 +411,7 @@ class InstallTrustKeeper(
         val verdict = if (known != null && known.x25519Public != x25519Public && store.pins[target.endpointId] == null) {
             InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.KeyMismatch)
         } else {
-            InstallTrust.wrapTarget(target, store, mode, roots, crypto)
+            InstallTrust.wrapTarget(target, store, mode, roots, crypto, rootId != null && ownAssistant(accountId, rootId.lowercase()))
         }
         when (verdict) {
             is InstallTrust.TargetVerdict.Wrap -> log(TrustDecision.Rule.R4, installId, verdict.record.wire)

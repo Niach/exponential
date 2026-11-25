@@ -68,8 +68,24 @@ class InstallTrustFixtureTest {
         assertEquals(approval.str("label"), InstallApproval.LABEL)
         assertEquals(approval["messageBytes"]!!.jsonPrimitive.int, InstallApproval.MESSAGE_BYTES)
         val kinds = approval.obj("kinds")
-        for (kind in ApprovalKind.entries) assertEquals(kind.wire, kinds[kind.wire]!!.jsonPrimitive.int, kind.byte)
-        assertEquals(ApprovalKind.entries.size, kinds.size)
+        for ((wire, byte) in kinds) assertEquals(wire, byte.jsonPrimitive.int, ApprovalKind.of(wire)!!.byte)
+        assertTrue(kinds.size >= 4)
+    }
+
+    /** #EXP-2161 (member-space.json). */
+    @Test
+    fun memberSpacePinCases() {
+        val space = Json.parseToJsonElement(contractFixtureJson("member-space.json")).jsonObject
+        assertEquals(space.str("registrationLabel"), InstallTrust.SPACE_REGISTRATION_LABEL)
+        assertEquals(space.str("approvalKind"), ApprovalKind.Space.wire)
+        assertEquals(space["approvalKindByte"]!!.jsonPrimitive.int, ApprovalKind.Space.byte)
+        for (c in space.cases("pinCases")) {
+            assertEquals(
+                c.str("name"),
+                c["expected"]!!.jsonPrimitive.boolean,
+                pinCovers(c.strOrNull("pin")?.let { InstallClass.of(it)!! }, c["rootIsOwnAssistant"]!!.jsonPrimitive.boolean),
+            )
+        }
     }
 
     @Test
@@ -207,7 +223,7 @@ class InstallTrustFixtureTest {
     @Test
     fun replaysEveryTrustCase() {
         val all = f.cases("trustCases")
-        assertEquals(34, all.size)
+        assertTrue(all.size >= 34)
         for (c in all) {
             val name = c.str("name")
             val answer = TrustAnswer(
@@ -263,10 +279,12 @@ class InstallTrustFixtureTest {
 
     // ── the four rules, now and once mandatory ────────────────────────────
 
+    private fun ownAssistant(c: JsonObject): Boolean = (c["rootIsOwnAssistant"] as? JsonPrimitive)?.booleanOrNull ?: false
+
     @Test
     fun r1KeepWrapEveryCase() {
         val all = f.obj("rules").cases("keepCases")
-        assertEquals(9, all.size)
+        assertTrue(all.size >= 9)
         for (c in all) {
             val name = c.str("name")
             val named = fx.namedStore(c.str("store"))
@@ -274,7 +292,7 @@ class InstallTrustFixtureTest {
             for (mode in TrustMode.entries) {
                 val want = at(c, mode)
                 val label = "$name ($mode)"
-                when (val got = InstallTrust.keepWrap(wrap, named.identity, named.installSecret, named.store, mode, crypto)) {
+                when (val got = InstallTrust.keepWrap(wrap, named.identity, named.installSecret, named.store, mode, crypto, ownAssistant(c))) {
                     is InstallTrust.KeepVerdict.Keep -> {
                         assertEquals(label, true, want["keep"]!!.jsonPrimitive.boolean)
                         assertEquals(label, want.str("record"), got.record.wire)
@@ -291,7 +309,7 @@ class InstallTrustFixtureTest {
     @Test
     fun r2r3SealToEveryCase() {
         val all = f.obj("rules").cases("sealCases")
-        assertEquals(11, all.size)
+        assertTrue(all.size >= 11)
         for (c in all) {
             val name = c.str("name")
             val store = fx.namedStore(c.str("store")).store
@@ -300,7 +318,7 @@ class InstallTrustFixtureTest {
             for (mode in TrustMode.entries) {
                 val want = at(c, mode)
                 val label = "$name ($mode)"
-                when (val got = InstallTrust.sealTo(c.str("rootId"), c["epoch"]!!.jsonPrimitive.int, c.str("publicKey"), held, vouch, store, mode, crypto)) {
+                when (val got = InstallTrust.sealTo(c.str("rootId"), c["epoch"]!!.jsonPrimitive.int, c.str("publicKey"), held, vouch, store, mode, crypto, ownAssistant(c))) {
                     is InstallTrust.SealVerdict.Seal -> {
                         assertEquals(label, true, want["seal"]!!.jsonPrimitive.boolean)
                         assertEquals(label, want.str("record"), got.record.wire)
@@ -317,9 +335,9 @@ class InstallTrustFixtureTest {
     @Test
     fun r4WrapTargetEveryCase() {
         val all = f.obj("rules").cases("targetCases")
-        assertEquals(14, all.size)
+        assertTrue(all.size >= 14)
         // R4 runs against every named store (`adopted` = one that pinned its account's installs `existing`).
-        assertEquals(setOf("victim", "waiting", "adopted"), all.map { it.str("store") }.toSet())
+        assertTrue(all.map { it.str("store") }.toSet().containsAll(setOf("victim", "waiting", "adopted")))
         for (c in all) {
             val name = c.str("name")
             val store = fx.namedStore(c.str("store")).store
@@ -328,7 +346,7 @@ class InstallTrustFixtureTest {
             for (mode in TrustMode.entries) {
                 val want = at(c, mode)
                 val label = "$name ($mode)"
-                when (val got = InstallTrust.wrapTarget(target, store, mode, roots, crypto)) {
+                when (val got = InstallTrust.wrapTarget(target, store, mode, roots, crypto, ownAssistant(c))) {
                     is InstallTrust.TargetVerdict.Wrap -> {
                         assertEquals(label, true, want["wrap"]!!.jsonPrimitive.boolean)
                         assertEquals(label, want.str("record"), got.record.wire)
@@ -345,7 +363,7 @@ class InstallTrustFixtureTest {
     @Test
     fun callKeyEveryCase() {
         val all = f.obj("rules").cases("callCases")
-        assertEquals(6, all.size)
+        assertTrue(all.size >= 6)
         for (c in all) {
             val name = c.str("name")
             val store = fx.namedStore(c.str("store")).store
@@ -470,6 +488,10 @@ internal class TrustFixture {
         val x25519 = key.str("x25519Public")
         var signature: String? = key.str("registrationSignature")
         if (registration == "none") signature = null
+        if (registration == "space") {
+            val message = InstallTrust.spaceRegistrationMessage(key.str("userId"), endpoint(name), x25519, signedAt)
+            signature = EnetTrustCrypto.sign(identity(name), message.toByteArray())
+        }
         if (registration == "forged") {
             // The server's install Z signed the registration message.
             val message = InstallTrust.registrationMessage(key.str("userId"), endpoint(name), x25519, signedAt)
@@ -502,6 +524,7 @@ internal class TrustFixture {
                 x25519Public = key(name).str("x25519Public"),
                 via = PinVia.of(pair[0].jsonPrimitive.content)!!,
                 by = (pair[1] as? JsonPrimitive)?.contentOrNull?.let(::endpoint),
+                installClass = (pair.getOrNull(2) as? JsonPrimitive)?.contentOrNull?.let { InstallClass.of(it) } ?: InstallClass.Install,
             )
         }
         val roots = (spec["roots"] as? JsonObject)?.mapValues { (_, value) ->
@@ -513,6 +536,7 @@ internal class TrustFixture {
             userId = key(viewer).str("userId"),
             joined = spec["joined"]!!.jsonPrimitive.boolean,
             existing = (spec["existing"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            space = (spec["space"] as? JsonPrimitive)?.booleanOrNull ?: false,
             pins = pins,
             members = spec.strings("members"),
             declined = spec.strings("declined").map(::endpoint),

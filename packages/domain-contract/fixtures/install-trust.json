@@ -4085,5 +4085,1270 @@
         "epoch": null
       }
     ]
+  },
+  "space": {
+    "$comment": "#EXP-2161 (member-space.json, THE INSTALL). `registrationLabel` replaces `exp-install-v1` in a space's registration; the class of a served row is the label that verifies (`registrationClass`), a row that stores none is ordinary. `kind` (byte `kindByte`) is the approval about a space: by a pinned ordinary install of the SAME account; every other kind from or about a space row is ignored. An own space is pinned `approved` with class `space`, never adopted (decision e), never counted as another install, no chain of its account; a team-mate's is ignored. A store with `space` is the space's own: it joins over root, approve*, one `space` edge to itself; trusted or waiting only, no rows, nothing to approve. keepWrap / sealTo / wrapTarget take rootIsOwnAssistant (`pinCovers`): a space pin outside it, and an unpinned space as a target, are refused in every mode. A pin is [via, by] or [via, by, class].",
+    "registrationLabel": "exp-install-space-v1",
+    "kind": "space",
+    "kindByte": 5,
+    "keys": {
+      "S": {
+        "identity": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+        "userId": "user-me",
+        "endpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0",
+        "installSecret": "b7188b3e8b1c62d598a21aeda5239a5886ee5304c4d694258bbdd16f568433d2",
+        "x25519Public": "OVNNcW-SUOW65g45WIEjlzc3UNDSK8AcvupehhCshWU",
+        "signedAt": "2026-11-24T12:00:00.000Z",
+        "registrationSignature": "nMZhUF9_QjXB6giPhSf4lHnSSsO7nBS8RobpSeSvGIL5TvPppUkpJ9KLFw6ktA1J7-lHSYMGRQc_K_ikv_uXDA",
+        "code": "B0ME9 WYQ4D",
+        "label": "unraid"
+      },
+      "X": {
+        "identity": "6162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80",
+        "userId": "user-mate",
+        "endpointId": "882d0ea3b2864e7a587f3e698cea4459998312e655e05fa5e8b5119d8baac8cd",
+        "installSecret": "ce4820c6d241991eda34d6b7a68a7bbd2b2c0222306708e1ba37278b7f9ee33e",
+        "x25519Public": "DmrjugTXHG_M7ICZlvt5tb9jaqKUeLrSxz3x27VKKkI",
+        "signedAt": "2026-11-24T12:00:00.000Z",
+        "registrationSignature": "bagFnc1GEchJBSqf_k3Tjh8PS-AO6O2nX-Ieeig_AHPP0SYYJ3ni89LmSTEUuAwCdRT68OJrZykKbfdifZqZBA",
+        "code": "00BWT WSD16",
+        "label": "unraid"
+      }
+    },
+    "approval": {
+      "kind": "space",
+      "subject": {
+        "userId": "user-me",
+        "endpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0",
+        "x25519Public": "OVNNcW-SUOW65g45WIEjlzc3UNDSK8AcvupehhCshWU"
+      },
+      "approverEndpointId": "7776e870b93354f2a0b24c23f2a36cc4e80e223218c1b97926fdd018396a2b9b",
+      "message": "6578702f656e65742f696e7374616c6c2d617070726f76616c2f310005d408139dd54d5fe1972b3b26a08bff4e4ec1603122e1a99a98bc0ad602000a3ce7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f039534d716f9250e5bae60e3958812397373750d0d22bc01cbeea5e8610ac8565",
+      "signature": "HE0m6t25wN1oaheoog1GR_-3liOhpbu7eIW4XKqPh0BXvgcu3qO6shRrv3Eu-wJb3XKZOtHqUcMT4-bLCKeFDQ"
+    },
+    "stores": {
+      "withSpace": {
+        "viewer": "A",
+        "joined": true,
+        "pins": {
+          "A": [
+            "self",
+            null
+          ],
+          "S": [
+            "approved",
+            "A",
+            "space"
+          ]
+        }
+      },
+      "withoutSpace": {
+        "viewer": "A",
+        "joined": true,
+        "pins": {
+          "A": [
+            "self",
+            null
+          ]
+        }
+      },
+      "spaceItself": {
+        "viewer": "S",
+        "space": true,
+        "joined": true,
+        "pins": {
+          "S": [
+            "self",
+            null,
+            "space"
+          ],
+          "A": [
+            "chain",
+            null
+          ]
+        }
+      }
+    },
+    "trustCases": [
+      {
+        "name": "an own space asks, whatever existed before: a row, no pin, never adopted",
+        "before": {
+          "viewer": "A",
+          "joined": false,
+          "existing": true,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "claimRoot",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "S"
+          }
+        ]
+      },
+      {
+        "name": "a first install beside a space is alone: it claims the root",
+        "before": {
+          "viewer": "A",
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A",
+            "approvalRequested": true
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [],
+        "after": {
+          "joined": false,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "claimRoot",
+        "rows": []
+      },
+      {
+        "name": "an own space let in by this install: pinned as a space",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "A",
+            "signature": "HE0m6t25wN1oaheoog1GR_-3liOhpbu7eIW4XKqPh0BXvgcu3qO6shRrv3Eu-wJb3XKZOtHqUcMT4-bLCKeFDQ"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "S": [
+              "approved",
+              "A",
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "let in by another pinned install of the account",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "B": [
+              "approved",
+              "A"
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "B"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "B",
+            "approver": "A",
+            "signature": "nMKl5n1z4vmszyiovfe_uuI2f_4v6bEqE54fFAKELVVqg0FRXQJloziDtakfosb9pqrEmPR_s_R38nAowkwkBg"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "B",
+            "signature": "i7VwlWTVoiODk8uHCetb2bCi-zWRLiD6Ob_aun6MTWwDcZiYN65_8Fp7-Fp30STsJCTzKH9xXnTDV1PWwn7aAA"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "B": [
+              "approved",
+              "A"
+            ],
+            "S": [
+              "approved",
+              "B",
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "`approve` about a space is ignored: it still asks",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "S",
+            "approver": "A",
+            "signature": "npJviMAnjuK2diRckCEWjkWBi8yd0jS3Niq-vBGs48CVR3LxQtkUWnev2KuUapF6KrEhNmEVjpxCNh8ubszUAg"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "S"
+          }
+        ]
+      },
+      {
+        "name": "`space` about an ordinary install is ignored: it still asks",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "N",
+            "approvalRequested": true
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "N",
+            "approver": "A",
+            "signature": "jZVw5SZ6w9HiAwur_yUtePBSP-xnSZUTC8w5BCBPWKIoXvdH4UUX89tMjPC8uf3hwk93LnbjwydvyqmfXXTuDw"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "N"
+          }
+        ]
+      },
+      {
+        "name": "`space` by an unpinned install is ignored",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          },
+          {
+            "key": "Z"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "Z",
+            "signature": "Vx9PQEp9PE_PuvNIETpNAmzkxs3W9rrM7ipAVD7cpdqs6zCR65RPe9yOS3wVlG_Gt-dGgu10N5RAmvRBhZrLBg"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "Z"
+          },
+          {
+            "kind": "newInstall",
+            "key": "S"
+          }
+        ]
+      },
+      {
+        "name": "a space approves nothing",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "S": [
+              "approved",
+              "A",
+              "space"
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          },
+          {
+            "key": "N",
+            "approvalRequested": true
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "A",
+            "signature": "HE0m6t25wN1oaheoog1GR_-3liOhpbu7eIW4XKqPh0BXvgcu3qO6shRrv3Eu-wJb3XKZOtHqUcMT4-bLCKeFDQ"
+          },
+          {
+            "kind": "approve",
+            "subject": "N",
+            "approver": "S",
+            "signature": "ErkAYY7D_Nwykt908DyqvnCPCisx2sF-IZT5H6-N2DGmCq84jLaPkFSM6Mygxn7-yqUe7pbYrDkcfSMjJiw6DA"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "S": [
+              "approved",
+              "A",
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "N"
+          }
+        ]
+      },
+      {
+        "name": "a team-mate's space: no pin, no row",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "T1": [
+              "first",
+              null
+            ]
+          },
+          "members": [
+            "user-mate"
+          ]
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "T1"
+          },
+          {
+            "key": "X"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "root",
+            "subject": "T1",
+            "approver": "T1",
+            "signature": "48zmQpvcdRfuaIRnoNG8MFkqcJOcp_2I96ojy6Tpt2EAb8Wd9yhWMw5AXa1qDnbVH1RnG6CLQMSkIWd-IEwOAA"
+          },
+          {
+            "kind": "space",
+            "subject": "X",
+            "approver": "T1",
+            "signature": "iMj0xP8L70e8jRCYC3Nc96oDa6HBpRiRn-7sOomD5hbB-XvbrIznnVB7LLOQGS-dM8bbzJkQ3sZbzTkikT3FBw"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "T1": [
+              "first",
+              null
+            ]
+          },
+          "members": [
+            "user-mate"
+          ]
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "the space is gone: its pin goes",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "S": [
+              "approved",
+              "A",
+              "space"
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "the row came back as an ordinary install: the space's pin goes",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ],
+            "S": [
+              "approved",
+              "A",
+              "space"
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S",
+            "registration": "none"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "a space's approval starts no chain of its account",
+        "before": {
+          "viewer": "N",
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "N",
+            "approvalRequested": true
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "Z",
+            "signature": "Vx9PQEp9PE_PuvNIETpNAmzkxs3W9rrM7ipAVD7cpdqs6zCR65RPe9yOS3wVlG_Gt-dGgu10N5RAmvRBhZrLBg"
+          }
+        ],
+        "after": {
+          "joined": false,
+          "pins": {
+            "N": [
+              "self",
+              null
+            ]
+          },
+          "members": []
+        },
+        "status": "claimRoot",
+        "rows": []
+      },
+      {
+        "name": "the space itself, not let in: it waits, shows nothing",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          }
+        ],
+        "after": {
+          "joined": false,
+          "pins": {
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "waiting",
+        "rows": []
+      },
+      {
+        "name": "the space itself, alone on its account: it never claims a root",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [],
+        "after": {
+          "joined": false,
+          "pins": {
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "waiting",
+        "rows": []
+      },
+      {
+        "name": "the space itself, let in by the root: joined over that path",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "A",
+            "signature": "HE0m6t25wN1oaheoog1GR_-3liOhpbu7eIW4XKqPh0BXvgcu3qO6shRrv3Eu-wJb3XKZOtHqUcMT4-bLCKeFDQ"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "chain",
+              null
+            ],
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "the space itself, let in by a chained install",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "B"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "B",
+            "approver": "A",
+            "signature": "nMKl5n1z4vmszyiovfe_uuI2f_4v6bEqE54fFAKELVVqg0FRXQJloziDtakfosb9pqrEmPR_s_R38nAowkwkBg"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "B",
+            "signature": "i7VwlWTVoiODk8uHCetb2bCi-zWRLiD6Ob_aun6MTWwDcZiYN65_8Fp7-Fp30STsJCTzKH9xXnTDV1PWwn7aAA"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "chain",
+              null
+            ],
+            "B": [
+              "chain",
+              null
+            ],
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "the space itself, `approve` is not `space`: it waits",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "S",
+            "approver": "A",
+            "signature": "npJviMAnjuK2diRckCEWjkWBi8yd0jS3Niq-vBGs48CVR3LxQtkUWnev2KuUapF6KrEhNmEVjpxCNh8ubszUAg"
+          }
+        ],
+        "after": {
+          "joined": false,
+          "pins": {
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "waiting",
+        "rows": []
+      },
+      {
+        "name": "the space itself, let in by an install on no chain: it waits",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": false,
+          "pins": {}
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "Z"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "Z",
+            "signature": "Vx9PQEp9PE_PuvNIETpNAmzkxs3W9rrM7ipAVD7cpdqs6zCR65RPe9yOS3wVlG_Gt-dGgu10N5RAmvRBhZrLBg"
+          }
+        ],
+        "after": {
+          "joined": false,
+          "pins": {
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "waiting",
+        "rows": []
+      },
+      {
+        "name": "the space itself follows its account's later approvals, no team-mate",
+        "before": {
+          "viewer": "S",
+          "space": true,
+          "joined": true,
+          "pins": {
+            "S": [
+              "self",
+              null,
+              "space"
+            ],
+            "A": [
+              "chain",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "B"
+          },
+          {
+            "key": "S"
+          },
+          {
+            "key": "T1"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "B",
+            "approver": "A",
+            "signature": "nMKl5n1z4vmszyiovfe_uuI2f_4v6bEqE54fFAKELVVqg0FRXQJloziDtakfosb9pqrEmPR_s_R38nAowkwkBg"
+          },
+          {
+            "kind": "space",
+            "subject": "S",
+            "approver": "A",
+            "signature": "HE0m6t25wN1oaheoog1GR_-3liOhpbu7eIW4XKqPh0BXvgcu3qO6shRrv3Eu-wJb3XKZOtHqUcMT4-bLCKeFDQ"
+          },
+          {
+            "kind": "root",
+            "subject": "T1",
+            "approver": "T1",
+            "signature": "48zmQpvcdRfuaIRnoNG8MFkqcJOcp_2I96ojy6Tpt2EAb8Wd9yhWMw5AXa1qDnbVH1RnG6CLQMSkIWd-IEwOAA"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "chain",
+              null
+            ],
+            "B": [
+              "approved",
+              "A"
+            ],
+            "S": [
+              "self",
+              null,
+              "space"
+            ]
+          },
+          "members": []
+        },
+        "status": "trusted",
+        "rows": []
+      }
+    ],
+    "keepCases": [
+      {
+        "name": "signed by a space let in, the member's own Assistant",
+        "store": "withSpace",
+        "wrap": {
+          "rootId": "01234567-89ab-4def-8123-456789abcdef",
+          "epoch": 1,
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "keep": true,
+          "record": "verified"
+        },
+        "mandatory": {
+          "keep": true,
+          "record": "verified"
+        }
+      },
+      {
+        "name": "signed by a space let in, another tree",
+        "store": "withSpace",
+        "wrap": {
+          "rootId": "01234567-89ab-4def-8123-456789abcdef",
+          "epoch": 1,
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": false,
+        "now": {
+          "keep": false,
+          "reason": "unpinned"
+        },
+        "mandatory": {
+          "keep": false,
+          "reason": "unpinned"
+        }
+      },
+      {
+        "name": "signed by a space not let in",
+        "store": "withoutSpace",
+        "wrap": {
+          "rootId": "01234567-89ab-4def-8123-456789abcdef",
+          "epoch": 1,
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "keep": true,
+          "record": "refused-would-be"
+        },
+        "mandatory": {
+          "keep": false,
+          "reason": "unpinned"
+        }
+      }
+    ],
+    "sealCases": [
+      {
+        "name": "vouched by a space let in, the member's own Assistant",
+        "store": "withSpace",
+        "rootId": "01234567-89ab-4def-8123-456789abcdef",
+        "epoch": 1,
+        "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+        "held": null,
+        "vouch": {
+          "recipientEndpointId": "7776e870b93354f2a0b24c23f2a36cc4e80e223218c1b97926fdd018396a2b9b",
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "seal": true,
+          "record": "verified"
+        },
+        "mandatory": {
+          "seal": true,
+          "record": "verified"
+        }
+      },
+      {
+        "name": "vouched by a space let in, another tree",
+        "store": "withSpace",
+        "rootId": "01234567-89ab-4def-8123-456789abcdef",
+        "epoch": 1,
+        "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+        "held": null,
+        "vouch": {
+          "recipientEndpointId": "7776e870b93354f2a0b24c23f2a36cc4e80e223218c1b97926fdd018396a2b9b",
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": false,
+        "now": {
+          "seal": false,
+          "reason": "unpinned"
+        },
+        "mandatory": {
+          "seal": false,
+          "reason": "unpinned"
+        }
+      },
+      {
+        "name": "vouched by a space not let in",
+        "store": "withoutSpace",
+        "rootId": "01234567-89ab-4def-8123-456789abcdef",
+        "epoch": 1,
+        "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+        "held": null,
+        "vouch": {
+          "recipientEndpointId": "7776e870b93354f2a0b24c23f2a36cc4e80e223218c1b97926fdd018396a2b9b",
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "seal": true,
+          "record": "refused-would-be"
+        },
+        "mandatory": {
+          "seal": false,
+          "reason": "unpinned"
+        }
+      }
+    ],
+    "targetCases": [
+      {
+        "name": "a space let in, its member's own Assistant",
+        "store": "withSpace",
+        "target": {
+          "key": "S"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "wrap": true,
+          "record": "verified"
+        },
+        "mandatory": {
+          "wrap": true,
+          "record": "verified"
+        }
+      },
+      {
+        "name": "a space let in, another tree",
+        "store": "withSpace",
+        "target": {
+          "key": "S"
+        },
+        "rootIsOwnAssistant": false,
+        "now": {
+          "wrap": false,
+          "reason": "unapproved"
+        },
+        "mandatory": {
+          "wrap": false,
+          "reason": "unapproved"
+        }
+      },
+      {
+        "name": "a space not let in, the member's own Assistant",
+        "store": "withoutSpace",
+        "target": {
+          "key": "S"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "wrap": false,
+          "reason": "unapproved"
+        },
+        "mandatory": {
+          "wrap": false,
+          "reason": "unapproved"
+        }
+      },
+      {
+        "name": "a team-mate's space",
+        "store": "withSpace",
+        "target": {
+          "key": "X"
+        },
+        "rootIsOwnAssistant": false,
+        "now": {
+          "wrap": false,
+          "reason": "unapproved"
+        },
+        "mandatory": {
+          "wrap": false,
+          "reason": "unapproved"
+        }
+      },
+      {
+        "name": "the space itself wraps for its account's install, its own root",
+        "store": "spaceItself",
+        "target": {
+          "key": "A"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "wrap": true,
+          "record": "verified"
+        },
+        "mandatory": {
+          "wrap": true,
+          "record": "verified"
+        }
+      }
+    ]
   }
 }

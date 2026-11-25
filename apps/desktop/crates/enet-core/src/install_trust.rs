@@ -533,9 +533,11 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
     let mut classes: HashMap<&str, InstallClass> = HashMap::new();
     for install in &served.installs {
         let registered = registration_class(install);
-        // Another member's space is nobody's business but theirs; a space's
-        // store counts every class of its own account only for itself.
-        if registered == Some(InstallClass::Space) && install.user_id != store.user_id {
+        // Another member's space is nobody's business but theirs; a space
+        // knows its own account's ordinary installs and itself.
+        let own = install.user_id == store.user_id;
+        let a_space = registered == Some(InstallClass::Space);
+        if (a_space && !own) || (store.space && (!own || (a_space && install.endpoint_id != store.self_endpoint_id))) {
             continue;
         }
         if registered.is_some() {
