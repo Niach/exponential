@@ -18,6 +18,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use domain::chats::{chat_marks, chat_selection_count, ChatMark, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ChatRowWord;
 
+use crate::user_avatar::RowTeam;
 use crate::icons::registry;
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
 
@@ -145,11 +146,6 @@ pub(crate) fn specimen_marks(index: usize) -> Vec<ChatMark> {
 }
 
 pub(crate) fn chat_row(row: &ChatRow, lead: AnyElement, marks: &[ChatMark], cx: &App) -> Div {
-    chat_row_in_team(row, lead, marks, None, cx)
-}
-
-/// [`chat_row`] wearing its team's mark (#EXP-2027, the Chats page).
-pub(crate) fn chat_row_in_team(row: &ChatRow, lead: AnyElement, marks: &[ChatMark], team: Option<AnyElement>, cx: &App) -> Div {
     let theme = cx.theme();
     let unread = row.unread_count > 0;
     let time_color = if row.needs_you {
@@ -213,7 +209,7 @@ pub(crate) fn chat_row_in_team(row: &ChatRow, lead: AnyElement, marks: &[ChatMar
     // #EDE-98: the title's glyphs (`chat_marks`).
     let marks = chat_mark_glyphs(&row.session_id, marks, cx);
     // S-3: a DONE chat stays in the list, the whole row dimmed.
-    chat_row_frame(lead, row.title.clone(), marks, unread, row.time.clone(), time_color, Some(second), team, cx)
+    chat_row_frame(lead, row.title.clone(), marks, unread, row.time.clone(), time_color, Some(second), cx)
         .when(row.dim, |this| this.opacity(CHATS.shell.dim_opacity))
 }
 
@@ -263,7 +259,6 @@ fn chat_row_frame(
     time: String,
     time_color: gpui::Hsla,
     second: Option<Div>,
-    team: Option<AnyElement>,
     cx: &App,
 ) -> Div {
     let theme = cx.theme();
@@ -302,9 +297,6 @@ fn chat_row_frame(
                                 )
                                 .children(marks),
                         )
-                        // #EXP-2027: the row's team mark on the cross-team
-                        // Chats list, before the time.
-                        .children(team.map(|team| h_flex().flex_shrink_0().self_center().child(team)))
                         .child(
                             div()
                                 .flex_shrink_0()
@@ -344,7 +336,6 @@ pub(crate) fn chat_archived_row(count: usize, cx: &App) -> Div {
         false,
         count.to_string(),
         theme.muted_foreground,
-        None,
         None,
         cx,
     )
@@ -516,8 +507,8 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
     agent_chat_row_in_team(row, None, cx)
 }
 
-/// [`agent_chat_row`] wearing its team's mark (#EXP-2027).
-pub(crate) fn agent_chat_row_in_team(row: &domain::chats::AgentChatRow, team: Option<AnyElement>, cx: &App) -> Div {
+/// [`agent_chat_row`] wearing its team's mark on its disc.
+pub(crate) fn agent_chat_row_in_team(row: &domain::chats::AgentChatRow, team: Option<&RowTeam>, cx: &App) -> Div {
     let lead_glyph = agent_avatar_glyph(&row.icon, &row.color, row.assistant, false, GLYPH_PX, cx);
     pinned_chat_row(
         row.session_id.clone().unwrap_or_else(|| row.agent_id.clone()),
@@ -542,8 +533,8 @@ pub(crate) fn app_chat_row(row: &domain::chats::AppChatRow, cx: &App) -> Div {
     app_chat_row_in_team(row, None, cx)
 }
 
-/// [`app_chat_row`] wearing its team's mark (#EXP-2027).
-pub(crate) fn app_chat_row_in_team(row: &domain::chats::AppChatRow, team: Option<AnyElement>, cx: &App) -> Div {
+/// [`app_chat_row`] wearing its team's mark on its disc.
+pub(crate) fn app_chat_row_in_team(row: &domain::chats::AppChatRow, team: Option<&RowTeam>, cx: &App) -> Div {
     let lead_glyph = crate::icons::app_icon(row.icon.as_deref(), row.color.as_deref())
         .with_size(px(GLYPH_PX))
         .into_any_element();
@@ -576,7 +567,7 @@ fn pinned_chat_row(
     unread_count: usize,
     needs_you: bool,
     busy: bool,
-    team: Option<AnyElement>,
+    team: Option<&RowTeam>,
     cx: &App,
 ) -> Div {
     let lead = div()
@@ -601,8 +592,8 @@ fn pinned_chat_row(
                     .border_color(cx.theme().muted)
                     .bg(theme::tokens::YELLOW.to_hsla()),
             )
-        })
-        .into_any_element();
+        });
+    let lead = crate::user_avatar::with_team_mark(lead, CHATS.shell.lead_disc, team, crate::user_avatar::card_ground(), cx);
     let as_chat = ChatRow {
         session_id,
         team_id: String::new(),
@@ -627,7 +618,7 @@ fn pinned_chat_row(
         wall: None,
         dim: false,
     };
-    chat_row_in_team(&as_chat, lead, &[], team, cx)
+    chat_row(&as_chat, lead, &[], cx)
 }
 
 /// A Chats list section header (`copy.sections`).

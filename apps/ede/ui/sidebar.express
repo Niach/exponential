@@ -5,8 +5,8 @@
 # start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first:
 # /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json
 # `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's
-# rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs
-# you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that
+# rail (`agent:claude`, `agent:codex`, with THE count badge as `ide:badge:count:<tone>:<label>|<glyph>`,
+# else its working dot as `ide:badge:dot:green|<glyph>`); a press opens the chat (ede_chat {sessionId}: eDE's chat on that
 # session, on a Local desktop and on a team alike; the Exponential app's session
 # (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document
 # too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new;
@@ -26,7 +26,8 @@
 # ide-sidebar.express): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List
 # over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + =
 # ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an
-# opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind:
+# opacity Box; a shared one wears its team's mark on its glyph, the IDE paints it; trailing the green
+# online dot, the hover gear = ide_gear {kind: device}; a press = ide_open {kind:
 # device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and
 # ONE reorderable List (ide_tree_list over /shell/ide/tree, maxDepth 3, key id, its move = ide_move
 # with the List's {id, before|after|into} as payload) holding every team's rows and, after them, the
@@ -35,11 +36,11 @@
 # (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team
 # {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click
 # Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the
-# item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder
+# count badge (the rows it hides) and the item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder
 # {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind:
 # item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from
 # sidebar (ide_session {team, id} with {value: remove}). An Active row (kind active) opens its chat
-# (ide_open {kind: active, id: its root}) and wears its team's mark. The host functions: ede_chat,
+# (ide_open {kind: active, id: its root}) and wears its team's mark on its glyph. The host functions: ede_chat,
 # ede_start_menu, ede_launch, ede_switcher. #EXP-2124 (domain-contract sidebar-menus.json): ide_nav
 # opens with the viewer's Assistant (id assistant: its name, the brand mark the IDE paints, its count;
 # a press opens its chat) and EVERY row has a right-click Menu (openOn contextmenu) whose items are its
@@ -122,8 +123,7 @@ ide_device_mine_mark = Icon(name=$mark, size="sm", visible=and(values=[cond(if=$
 ide_device_mine_gear = Button(label="Device settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: "device", id: $id})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
 ide_device_other_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {kind: "separator"}, {label: "Settings", value: "settings", icon: "nav-settings"}], side="bottom", align="start", openOn="contextmenu", children=[ide_device_other_row], on={select: Event("ide_menu", {kind: "device", id: $id})}, visible=and(values=[eq(a=$kind, b="device"), eq(a=$menu, b="device-other"), not(value=cond(if=$editing, then=true, else=false)), not(value=cond(if=$muted, then=true, else=false))]))
 ide_device_other_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_device_other_trailing"}, on={press: Event("ide_open", {kind: "device", id: $id})})
-ide_device_other_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_other_mark, ide_device_other_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_device_other_mark = Icon(name=$mark, size="sm", visible=and(values=[cond(if=$mark, then=true, else=false), not(value=cond(if=$hover, then=true, else=false))]))
+ide_device_other_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_other_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_device_other_gear = Button(label="Device settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: "device", id: $id})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
 ide_device_mine_muted_dim = Box(style={display: "flex", flexDirection: "column", opacity: 0.5}, children=[ide_device_mine_muted_menu], visible=and(values=[eq(a=$kind, b="device"), eq(a=$menu, b="device-mine"), not(value=cond(if=$editing, then=true, else=false)), cond(if=$muted, then=true, else=false)]))
 ide_device_mine_muted_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Rename", value: "rename", icon: "ui-edit"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {kind: "separator"}, {label: "Settings", value: "settings", icon: "nav-settings"}], side="bottom", align="start", openOn="contextmenu", children=[ide_device_mine_muted_row], on={select: Event("ide_menu", {kind: "device", id: $id})})
@@ -134,8 +134,7 @@ ide_device_mine_muted_gear = Button(label="Device settings", icon="nav-settings"
 ide_device_other_muted_dim = Box(style={display: "flex", flexDirection: "column", opacity: 0.5}, children=[ide_device_other_muted_menu], visible=and(values=[eq(a=$kind, b="device"), eq(a=$menu, b="device-other"), not(value=cond(if=$editing, then=true, else=false)), cond(if=$muted, then=true, else=false)]))
 ide_device_other_muted_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {kind: "separator"}, {label: "Settings", value: "settings", icon: "nav-settings"}], side="bottom", align="start", openOn="contextmenu", children=[ide_device_other_muted_row], on={select: Event("ide_menu", {kind: "device", id: $id})})
 ide_device_other_muted_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_device_other_muted_trailing"}, on={press: Event("ide_open", {kind: "device", id: $id})})
-ide_device_other_muted_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_other_muted_mark, ide_device_other_muted_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_device_other_muted_mark = Icon(name=$mark, size="sm", visible=and(values=[cond(if=$mark, then=true, else=false), not(value=cond(if=$hover, then=true, else=false))]))
+ide_device_other_muted_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_other_muted_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_device_other_muted_gear = Button(label="Device settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: "device", id: $id})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
 ide_device_edit = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", minHeight: "$control.rowCompact", paddingLeft: "$spacing.xl", paddingRight: "$spacing.md", borderRadius: "$radius.md"}, children=[ide_device_edit_icon, ide_device_name], visible=and(values=[eq(a=$kind, b="device"), cond(if=$editing, then=true, else=false)]))
 ide_device_edit_icon = Icon(name=$icon, size="sm")
@@ -157,7 +156,8 @@ ide_team_more_button = Button(label="Team actions", icon="ui-more", variant="gho
 ide_team_fold = Icon(name=$foldIcon, size="sm", tone="neutral")
 ide_folder_menu = Menu(items=[{label: "Rename", value: "rename", icon: "ui-edit"}, {label: "Ungroup", value: "ungroup", icon: "ui-minus"}], side="bottom", align="start", openOn="contextmenu", children=[ide_folder_row], on={select: Event("ide_folder", {section: "team", team: $team, id: $id})}, visible=and(values=[eq(a=$kind, b="folder"), not(value=cond(if=$editing, then=true, else=false))]))
 ide_folder_row = Row(title=$title, icon=$icon, density="compact", pressable=true, depth=1, slots={trailing: "ide_folder_trailing"}, on={press: Event("ide_folder", {section: "team", team: $team, id: $id, action: "fold"})})
-ide_folder_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_folder_count, ide_folder_fold], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_folder_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_folder_dot, ide_folder_count, ide_folder_fold], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_folder_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
 ide_folder_count = Text(text=$meta, variant="caption", style={color: "$color.mutedForeground"}, visible=cond(if=$meta, then=true, else=false))
 ide_folder_fold = Icon(name=$foldIcon, size="sm", tone="neutral")
 ide_folder_edit = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", minHeight: "$control.rowCompact", paddingLeft: "$spacing.xl", paddingRight: "$spacing.md", borderRadius: "$radius.md"}, children=[ide_folder_edit_icon, ide_folder_name], visible=and(values=[eq(a=$kind, b="folder"), cond(if=$editing, then=true, else=false)]))
@@ -227,27 +227,19 @@ ide_active_head = Box(style={display: "flex", flexDirection: "row", alignItems: 
 ide_active_label = Text(text="Active", variant="caption", style={flexGrow: 1, color: "$color.mutedForeground"})
 ide_active_delete_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {label: "Add to sidebar", value: "add-to-sidebar", icon: "ui-add"}, {kind: "separator"}, {label: "Delete", value: "delete", icon: "ui-delete", destructive: true}], side="bottom", align="start", openOn="contextmenu", children=[ide_active_delete_row], on={select: Event("ide_menu", {kind: "active-session", id: $session, team: $team})}, visible=and(values=[eq(a=$kind, b="active"), eq(a=$menu, b="active-delete")]))
 ide_active_delete_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_active_delete_trailing"}, on={press: Event("ide_open", {kind: "active", id: $session})})
-ide_active_delete_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_delete_team, ide_active_delete_unread, ide_active_delete_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_active_delete_team = Icon(name=$teamMark, size="sm", visible=cond(if=$teamMark, then=true, else=false))
-ide_active_delete_unread = Icon(name=$unreadIcon, size="sm", visible=cond(if=$unreadIcon, then=true, else=false))
+ide_active_delete_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_delete_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_active_delete_device = Icon(name=$deviceIcon, size="sm", visible=cond(if=$deviceIcon, then=true, else=false))
 ide_active_delete_placed_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {kind: "separator"}, {label: "Delete", value: "delete", icon: "ui-delete", destructive: true}], side="bottom", align="start", openOn="contextmenu", children=[ide_active_delete_placed_row], on={select: Event("ide_menu", {kind: "active-session", id: $session, team: $team})}, visible=and(values=[eq(a=$kind, b="active"), eq(a=$menu, b="active-delete-placed")]))
 ide_active_delete_placed_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_active_delete_placed_trailing"}, on={press: Event("ide_open", {kind: "active", id: $session})})
-ide_active_delete_placed_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_delete_placed_team, ide_active_delete_placed_unread, ide_active_delete_placed_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_active_delete_placed_team = Icon(name=$teamMark, size="sm", visible=cond(if=$teamMark, then=true, else=false))
-ide_active_delete_placed_unread = Icon(name=$unreadIcon, size="sm", visible=cond(if=$unreadIcon, then=true, else=false))
+ide_active_delete_placed_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_delete_placed_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_active_delete_placed_device = Icon(name=$deviceIcon, size="sm", visible=cond(if=$deviceIcon, then=true, else=false))
 ide_active_keep_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}, {label: "Add to sidebar", value: "add-to-sidebar", icon: "ui-add"}], side="bottom", align="start", openOn="contextmenu", children=[ide_active_keep_row], on={select: Event("ide_menu", {kind: "active-session", id: $session, team: $team})}, visible=and(values=[eq(a=$kind, b="active"), eq(a=$menu, b="active")]))
 ide_active_keep_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_active_keep_trailing"}, on={press: Event("ide_open", {kind: "active", id: $session})})
-ide_active_keep_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_keep_team, ide_active_keep_unread, ide_active_keep_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_active_keep_team = Icon(name=$teamMark, size="sm", visible=cond(if=$teamMark, then=true, else=false))
-ide_active_keep_unread = Icon(name=$unreadIcon, size="sm", visible=cond(if=$unreadIcon, then=true, else=false))
+ide_active_keep_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_keep_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_active_keep_device = Icon(name=$deviceIcon, size="sm", visible=cond(if=$deviceIcon, then=true, else=false))
 ide_active_keep_placed_menu = Menu(items=[{label: "Open", value: "open", icon: "ui-arrow-right"}, {label: "Open in new tab", value: "open-new-tab", icon: "ui-external-link"}, {kind: "separator"}, {label: "Copy link", value: "copy-link", icon: "ui-link"}], side="bottom", align="start", openOn="contextmenu", children=[ide_active_keep_placed_row], on={select: Event("ide_menu", {kind: "active-session", id: $session, team: $team})}, visible=and(values=[eq(a=$kind, b="active"), eq(a=$menu, b="active-placed")]))
 ide_active_keep_placed_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_active_keep_placed_trailing"}, on={press: Event("ide_open", {kind: "active", id: $session})})
-ide_active_keep_placed_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_keep_placed_team, ide_active_keep_placed_unread, ide_active_keep_placed_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
-ide_active_keep_placed_team = Icon(name=$teamMark, size="sm", visible=cond(if=$teamMark, then=true, else=false))
-ide_active_keep_placed_unread = Icon(name=$unreadIcon, size="sm", visible=cond(if=$unreadIcon, then=true, else=false))
+ide_active_keep_placed_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_keep_placed_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
 ide_active_keep_placed_device = Icon(name=$deviceIcon, size="sm", visible=cond(if=$deviceIcon, then=true, else=false))
 ide_prs = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[ide_prs_head, ide_prs_tree], visible=not(value=eq(a=len(value=$/shell/ide/prs), b=0)))
 ide_prs_head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", height: 24, paddingLeft: "$spacing.xs"}, children=[ide_prs_label], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))

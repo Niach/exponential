@@ -61,6 +61,7 @@ impl DraftsView {
         &self,
         index: usize,
         draft: &domain::rows::IssueDraftRow,
+        team: Option<&crate::user_avatar::RowTeam>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -130,7 +131,13 @@ impl DraftsView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .child(crate::icons::resolved_status_icon(&status, cx).with_size(px(16.))),
+                    .child(crate::user_avatar::with_team_mark(
+                        crate::icons::resolved_status_icon(&status, cx).with_size(px(16.)),
+                        16.,
+                        team,
+                        crate::user_avatar::card_ground(),
+                        cx,
+                    )),
             )
             .child(
                 div()
@@ -205,10 +212,11 @@ impl Render for DraftsView {
                 cx,
             ))
         } else {
+            let marks = crate::chats_view::team_marks(cx);
             let rows: Vec<gpui::AnyElement> = drafts
                 .iter()
                 .enumerate()
-                .map(|(index, draft)| self.draft_row(index, draft, cx))
+                .map(|(index, draft)| self.draft_row(index, draft, crate::chats_view::row_team(&marks, draft.team_id.as_deref()), cx))
                 .collect();
             // ×4: a filled group band with NO count (CLAUDE.md "Lists ×4"),
             // like the web Drafts list.

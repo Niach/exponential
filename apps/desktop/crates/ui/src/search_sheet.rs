@@ -78,6 +78,8 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::OpenSearch;
 use crate::icons::registry;
+use crate::chats_view::row_team;
+use crate::user_avatar::{with_team_mark, RowTeam};
 use crate::navigation::{screen_team_id, nav_for_window, navigate, Screen};
 use crate::picker::search_list::{self, IssueHit, SearchListState};
 
@@ -798,11 +800,16 @@ fn section_header(id: &str, label: &str, count: usize, loading: bool, cx: &App) 
         .into_any_element()
 }
 
+/// A chat hit's team.
+fn root_team(root_id: &str, cx: &App) -> Option<String> {
+    crate::session_data::session(root_id, cx)?.team_id
+}
+
 /// #EDE-99: a Chats row's body = the Picker row's (web `PickerItemBody`,
-/// [`crate::picker::picker_item_body`]): the concept icon, the root's title
+/// [`crate::picker::picker_item_body`]): the concept icon (its team's mark on it), the root's title
 /// over the hit's snippet (its matches painted by the genUI highlight,
 /// text-highlight.json: every match, no current), the muted date trailing.
-fn chat_row_body(row: &GlobalChatRow, cx: &App) -> gpui::AnyElement {
+fn chat_row_body(row: &GlobalChatRow, team: Option<&RowTeam>, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let icon = registry::concept_by_name(&row.icon).unwrap_or(registry::SEARCH_CHAT);
@@ -819,7 +826,7 @@ fn chat_row_body(row: &GlobalChatRow, cx: &App) -> gpui::AnyElement {
         .min_w_0()
         .items_center()
         .gap_2()
-        .child(Icon::new(icon).size(px(14.)).flex_shrink_0().text_color(muted))
+        .child(with_team_mark(Icon::new(icon).size(px(14.)).flex_shrink_0().text_color(muted), 14., team, theme.popover, cx))
         .child(
             v_flex()
                 .flex_1()
@@ -884,6 +891,7 @@ impl Render for SearchSheetView {
                 .when(busy, |row| row.child(crate::feedback::inline_spinner(cx)))
                 .into_any_element()
         });
+        let marks = crate::chats_view::team_marks(cx);
         let issue_rows: Vec<gpui::AnyElement> = self
             .hits
             .iter()
@@ -892,11 +900,13 @@ impl Render for SearchSheetView {
                 let position = lead + ix;
                 shell(("issue-hit", ix).into(), position, cx)
                     .child(search_list::issue_row_body(
-                        Some(
-                            crate::icons::resolved_status_icon(&hit.status, cx)
-                                .xsmall()
-                                .into_any_element(),
-                        ),
+                        Some(with_team_mark(
+                            crate::icons::resolved_status_icon(&hit.status, cx).xsmall(),
+                            12.,
+                            row_team(&marks, crate::queries::issue_team_id(cx, &hit.issue_id).as_deref()),
+                            cx.theme().popover,
+                            cx,
+                        )),
                         hit.identifier.clone(),
                         hit.title.clone(),
                         None,
@@ -922,7 +932,7 @@ impl Render for SearchSheetView {
                             children.push(
                                 shell(("search-list-chat-row", ix).into(), position, cx)
                                     .h(px(spec.row.chat_height))
-                                    .child(chat_row_body(&chat.row, cx))
+                                    .child(chat_row_body(&chat.row, row_team(&marks, root_team(&chat.row.root_id, cx).as_deref()), cx))
                                     .into_any_element(),
                             );
                         }

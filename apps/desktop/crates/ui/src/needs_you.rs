@@ -2,8 +2,9 @@
 //! web `packages/ui/src/needs-you.tsx` + `hooks/use-needs-you.ts`, iOS ExpCore
 //! NeedsYou.swift, Android domain/NeedsYou.kt): every plan and question waiting
 //! on the viewer and (#EXP-1699) every PR ready to merge. The model is
-//! `domain::needs_you::needs_you` over the team's conversation DIGESTS (never a
-//! transcript: EXP-1380), sessions and pull requests; the rail shows the entry
+//! `domain::needs_you::needs_you`, read ONCE over every member team's and the
+//! Assistant home's conversation DIGESTS (never a transcript: EXP-1380),
+//! sessions and pull requests; the rail shows the entry
 //! while a row exists, [`NeedsYouView`] the one reading column in the content
 //! card. A press opens the chat by the row's `opens`; an `approval`-mode ready
 //! PR row's press is THE status pill's Needs approval confirm (#EXP-1710).
@@ -35,21 +36,25 @@ use domain::waiting_cards::WAITING_CARDS;
 
 use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
-use crate::navigation::{screen_team_id, nav_for_window, Navigation};
+use crate::navigation::{nav_for_window, Navigation};
+use crate::user_avatar::{card_ground, with_team_mark, RowTeam};
 
 /// The page's reading column (the Chats page's, web `max-w-3xl`).
 const COLUMN_W: f32 = 768.;
+
+/// A row's leading glyph.
+const GLYPH_PX: f32 = 16.;
 
 fn is_waiting_kind(card: Option<&serde_json::Value>) -> bool {
     matches!(card.and_then(|card| card.get("kind")).and_then(|kind| kind.as_str()), Some("plan" | "question" | "ask"))
 }
 
 /// One session's share of the fold's input: its row, and the waiting cards
-/// of its digest. `None` = not in the team's list.
+/// of its digest. `None` = not in the list.
 type SessionShare = Option<(NeedsYouSessionInput, Vec<NeedsYouMessageInput>)>;
 
-fn session_share(session: &domain::rows::SessionRow, team_id: &str, team_ids: &[String], me: Option<&str>, cx: &App) -> SessionShare {
-    if !crate::session_data::in_team_or_personal(session, team_id, team_ids, me) {
+fn session_share(session: &domain::rows::SessionRow, team_ids: &[String], me: Option<&str>, cx: &App) -> SessionShare {
+    if !crate::session_data::in_teams_or_personal(session, team_ids, me) {
         return None;
     }
     let agents = Store::global(cx).collections().agents.read(cx);
@@ -97,14 +102,13 @@ fn session_share(session: &domain::rows::SessionRow, team_id: &str, team_ids: &[
 /// titles its root off the links, issues and agents).
 #[derive(Clone, PartialEq, Eq)]
 struct SharesKey {
-    team_id: String,
     me: Option<String>,
     team_ids: Vec<String>,
     sessions: gpui::EntityId,
 }
 
 /// #PERF-3: each session's share, kept per sessions write: a write derives
-/// the shares of the rows it names, never the team's every row.
+/// the shares of the rows it names, never every row.
 #[derive(Default)]
 struct Shares {
     key: Option<SharesKey>,
@@ -122,10 +126,8 @@ struct Shares {
     generation: u64,
     /// The fold's session list, patched in place per write (never cloned),
     /// and each id's place in it.
-    team: Vec<NeedsYouSessionInput>,
+    listed: Vec<NeedsYouSessionInput>,
     place: HashMap<String, usize>,
-    /// The team's PRs as the fold reads them, per change of the PRs.
-    pulls: Option<(Rc<Vec<domain::rows::PullRequestRow>>, Vec<NeedsYouPullRequestInput>)>,
 }
 
 impl Shares {
@@ -133,15 +135,15 @@ impl Shares {
     fn place_share(&mut self, id: &str) {
         let input = self.shares.get(id).and_then(|(share, _)| share.as_ref()).map(|(input, _)| input.clone());
         match (self.place.get(id).copied(), input) {
-            (Some(at), Some(input)) => self.team[at] = input,
+            (Some(at), Some(input)) => self.listed[at] = input,
             (None, Some(input)) => {
-                self.place.insert(id.to_string(), self.team.len());
-                self.team.push(input);
+                self.place.insert(id.to_string(), self.listed.len());
+                self.listed.push(input);
             }
             (Some(at), None) => {
                 self.place.remove(id);
-                self.team.swap_remove(at);
-                if let Some(moved) = self.team.get(at) {
+                self.listed.swap_remove(at);
+                if let Some(moved) = self.listed.get(at) {
                     self.place.insert(moved.id.clone(), at);
                 }
             }
@@ -151,25 +153,21 @@ impl Shares {
 }
 
 thread_local! {
-    /// Per team (#FEED-232 folds every synced team's rows, the picker's
-    /// counts and the app icon's badge).
-    static SHARES: std::cell::RefCell<HashMap<String, Shares>> = Default::default();
+    static SHARES: std::cell::RefCell<Shares> = Default::default();
 }
 
 /// The shares brought up to the store; answers their generation.
-fn shares_generation(team_id: &str, me: Option<&str>, cx: &App) -> u64 {
+fn shares_generation(me: Option<&str>, cx: &App) -> u64 {
     let collections = Store::global(cx).collections();
     let sessions = collections.sessions.read(cx);
     let agents = collections.agents.read(cx);
     let links = collections.session_issues.read(cx);
     let issues = collections.issues.read(cx);
-    // #EXP-1714: plus the viewer's personal-team sessions (their global
-    // Assistant's conversation).
     let team_ids = crate::session_data::synced_team_ids(cx);
     // A whole read only where no row says what moved: the first one, another
-    // store, team or viewer, the synced teams themselves (which sessions
+    // store or viewer, the synced teams themselves (which sessions
     // count as personal), or a change log that no longer reaches back.
-    let key = SharesKey { team_id: team_id.to_string(), me: me.map(str::to_string), team_ids: team_ids.clone(), sessions: collections.sessions.entity_id() };
+    let key = SharesKey { me: me.map(str::to_string), team_ids: team_ids.clone(), sessions: collections.sessions.entity_id() };
     let revisions = [sessions.revision(), agents.revision(), links.revision(), issues.revision()];
     let ids = |keys: Vec<&sync::protocol::RowKey>| -> Vec<String> {
         keys.into_iter()
@@ -179,9 +177,8 @@ fn shares_generation(team_id: &str, me: Option<&str>, cx: &App) -> u64 {
             })
             .collect()
     };
-    SHARES.with(|teams| {
-        let mut teams = teams.borrow_mut();
-        let cache = teams.entry(team_id.to_string()).or_default();
+    SHARES.with(|cache| {
+        let cache = &mut *cache.borrow_mut();
         let changed = (cache.key.as_ref() == Some(&key))
             .then(|| {
                 Some((
@@ -192,7 +189,7 @@ fn shares_generation(team_id: &str, me: Option<&str>, cx: &App) -> u64 {
                 ))
             })
             .flatten();
-        let share_of = |row: &domain::rows::SessionRow| (session_share(row, team_id, &team_ids, me, cx), row.device_id.clone());
+        let share_of = |row: &domain::rows::SessionRow| (session_share(row, &team_ids, me, cx), row.device_id.clone());
         match changed {
             Some((written_sessions, written_agents, written_links, written_issues)) => {
                 let mut stale: std::collections::HashSet<String> = written_sessions.into_iter().collect();
@@ -234,7 +231,7 @@ fn shares_generation(team_id: &str, me: Option<&str>, cx: &App) -> u64 {
                 let _span = tracing::trace_span!("needs_you.shares_whole").entered();
                 cache.shares = sessions.iter().map(|row| (row.id.clone(), share_of(row))).collect();
                 cache.links = links.iter().map(|link| (link.id.clone(), (link.session_id.clone(), link.issue_id.clone()))).collect();
-                cache.team.clear();
+                cache.listed.clear();
                 cache.place.clear();
                 let ids: Vec<String> = sessions.iter().map(|row| row.id.clone()).collect();
                 for id in ids {
@@ -251,23 +248,41 @@ fn shares_generation(team_id: &str, me: Option<&str>, cx: &App) -> u64 {
 
 /// The fold's sessions and their waiting cards (tests).
 #[cfg(test)]
-fn session_inputs(team_id: &str, _me: Option<&str>, cx: &App) -> (Vec<NeedsYouSessionInput>, Vec<NeedsYouMessageInput>) {
-    with_input(team_id, 0, cx, |input| (input.sessions.clone(), input.messages.clone()))
+fn session_inputs(cx: &App) -> (Vec<NeedsYouSessionInput>, Vec<NeedsYouMessageInput>) {
+    with_input(0, cx, |input| (input.sessions.clone(), input.messages.clone()))
 }
 
 /// THE fold's input off the store, lent to `f`: the session list is the
-/// kept one (#PERF-3), the waiting cards and the PRs read off the shares.
-fn with_input<R>(team_id: &str, now: i64, cx: &App, f: impl FnOnce(&NeedsYouInput) -> R) -> R {
+/// kept one (#PERF-3), the waiting cards read off the shares. The PRs are
+/// the `approval` teams' (#EXP-1710: an `auto` team's wait for nobody).
+fn with_input<R>(now: i64, cx: &App, f: impl FnOnce(&NeedsYouInput) -> R) -> R {
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    shares_generation(team_id, me.as_deref(), cx);
-    let pulls = crate::session_data::team_pulls(team_id, cx);
-    let merge_mode = Store::global(cx).collections().teams.read(cx).get(team_id).map(|row| row.merge_mode().to_string());
+    shares_generation(me.as_deref(), cx);
+    let pull_requests = ready_pulls(cx);
     let group_chat_ids = crate::session_data::group_chat_ids(cx);
-    let input = SHARES.with(|teams| {
-        let mut teams = teams.borrow_mut();
-        let cache = teams.entry(team_id.to_string()).or_default();
-        if !cache.pulls.as_ref().is_some_and(|(at, _)| Rc::ptr_eq(at, &pulls)) {
-            let rows = pulls
+    let input = SHARES.with(|cache| {
+        let cache = &mut *cache.borrow_mut();
+        let messages: Vec<NeedsYouMessageInput> = cache
+            .listed
+            .iter()
+            .filter_map(|session| cache.shares.get(&session.id))
+            .filter_map(|(share, _)| share.as_ref())
+            .flat_map(|(_, waiting)| waiting.iter().cloned())
+            .collect();
+        NeedsYouInput { now, me, sessions: std::mem::take(&mut cache.listed), messages, pull_requests, merge_mode: None, group_chat_ids }
+    });
+    let answer = f(&input);
+    SHARES.with(|cache| cache.borrow_mut().listed = input.sessions);
+    answer
+}
+
+/// The PRs of the member teams whose merge mode is not `auto`.
+fn ready_pulls(cx: &App) -> Vec<NeedsYouPullRequestInput> {
+    merge_modes(cx)
+        .into_iter()
+        .filter(|(_, mode)| mode != domain::contract::TEAM_MERGE_MODE_AUTO)
+        .flat_map(|(team, _)| {
+            crate::session_data::team_pulls(&team, cx)
                 .iter()
                 .map(|pull| NeedsYouPullRequestInput {
                     id: pull.id.clone(),
@@ -279,36 +294,15 @@ fn with_input<R>(team_id: &str, now: i64, cx: &App, f: impl FnOnce(&NeedsYouInpu
                     base_pull_request_id: pull.base_pull_request_id.clone(),
                     created_at: pull.created_at.clone().unwrap_or_default(),
                 })
-                .collect();
-            cache.pulls = Some((pulls.clone(), rows));
-        }
-        let messages: Vec<NeedsYouMessageInput> = cache
-            .team
-            .iter()
-            .filter_map(|session| cache.shares.get(&session.id))
-            .filter_map(|(share, _)| share.as_ref())
-            .flat_map(|(_, waiting)| waiting.iter().cloned())
-            .collect();
-        NeedsYouInput {
-            now,
-            me,
-            sessions: std::mem::take(&mut cache.team),
-            messages,
-            pull_requests: cache.pulls.as_mut().map(|(_, rows)| std::mem::take(rows)).unwrap_or_default(),
-            merge_mode,
-            group_chat_ids,
-        }
-    });
-    let answer = f(&input);
-    SHARES.with(|teams| {
-        let mut teams = teams.borrow_mut();
-        let cache = teams.entry(team_id.to_string()).or_default();
-        cache.team = input.sessions;
-        if let Some((_, rows)) = cache.pulls.as_mut() {
-            *rows = input.pull_requests;
-        }
-    });
-    answer
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Each member team and its merge mode.
+fn merge_modes(cx: &App) -> Vec<(String, String)> {
+    let Some(store) = Store::try_global(cx) else { return Vec::new() };
+    store.collections().teams_sorted(cx).into_iter().map(|team| (team.id.clone(), team.merge_mode().to_string())).collect()
 }
 
 /// A stuck PR's row: its PR and its actions (merge-train.json `stuckRow`).
@@ -318,7 +312,7 @@ pub(crate) struct StuckPr {
     pub actions: Vec<StuckAction>,
 }
 
-/// THE team's Needs you rows; `stuck` = the stuck PRs' actions by row id
+/// THE Needs you rows; `stuck` = the stuck PRs' actions by row id
 /// (the PR's id).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NeedsYouRows {
@@ -326,11 +320,11 @@ pub(crate) struct NeedsYouRows {
     pub stuck: HashMap<String, StuckPr>,
 }
 
-/// The team's stuck PRs (merge-train `stuckRow`): a live PR of a chat
+/// The member teams' stuck PRs (merge-train `stuckRow`): a live PR of a chat
 /// whose opener (`pull_requests.session_id`, else the root) is held by the
 /// limits, or waits on a fix while its device is offline (that devices row's
 /// `last_seen_at`).
-fn stuck_rows(team_id: &str, input: &NeedsYouInput, owner: bool, cx: &App) -> Vec<(NeedsYouRow, StuckPr)> {
+fn stuck_rows(owners: &[(String, bool)], input: &NeedsYouInput, cx: &App) -> Vec<(NeedsYouRow, StuckPr)> {
     let store = Store::global(cx);
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
@@ -338,7 +332,8 @@ fn stuck_rows(team_id: &str, input: &NeedsYouInput, owner: bool, cx: &App) -> Ve
     let names: HashMap<&str, &str> = input.sessions.iter().map(|session| (session.id.as_str(), session.name.as_str())).collect();
     let mut rows = Vec::new();
     for pull in collections.pull_requests.read(cx).iter() {
-        if pull.team_id.as_deref() != Some(team_id) || !(pull.is_open() || pull.state.as_deref() == Some(domain::contract::PR_STATE_DRAFT)) {
+        let Some(owner) = owners.iter().find(|(team, _)| pull.team_id.as_deref() == Some(team.as_str())).map(|(_, owner)| *owner) else { continue };
+        if !(pull.is_open() || pull.state.as_deref() == Some(domain::contract::PR_STATE_DRAFT)) {
             continue;
         }
         let Some(root_id) = pull.root_session_id.as_deref() else { continue };
@@ -423,13 +418,13 @@ pub(crate) fn with_stuck_rows(base: Vec<NeedsYouRow>, stuck: Vec<(NeedsYouRow, S
 
 #[derive(Clone, PartialEq, Eq)]
 struct RowsKey {
-    team_id: String,
     /// The shares' generation (the sessions, the agents that name them, the
     /// links and issues that title them), the PRs, the devices.
     revisions: [u64; 3],
-    /// #PERF-10: the team's merge mode (a rename of the team folds nothing).
-    merge_mode: Option<String>,
-    owner: bool,
+    /// #PERF-10: each member team's merge mode (a rename of a team folds
+    /// nothing), and whether the viewer owns it.
+    teams: Vec<(String, String)>,
+    owners: Vec<(String, bool)>,
     /// #EXP-1990: the team agents' group chats (an agent row naming one
     /// moves no share).
     group_chat_ids: Vec<String>,
@@ -437,97 +432,62 @@ struct RowsKey {
     minute: i64,
 }
 
-/// Per team: #FEED-232's team picker asks for every team.
 #[derive(Default)]
-struct RowsMemo(HashMap<String, (RowsKey, Rc<NeedsYouRows>)>);
+struct RowsMemo(Option<(RowsKey, Rc<NeedsYouRows>)>);
 
 impl gpui::Global for RowsMemo {}
 
-/// THE team's rows, memoised per store change and minute: the rail asks every
-/// frame.
-pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
+/// THE rows, ONE read over every member team and the viewer's personal home
+/// (nav-badges.json NEEDS YOU: never team by team, so an ask mirrored into
+/// the Assistant's chat is one row with its origin), memoised per store
+/// change and minute: the rail asks every frame.
+pub(crate) fn rows_in_all_teams(cx: &mut App) -> Rc<NeedsYouRows> {
     let Some(store) = Store::try_global(cx) else {
         return Rc::new(NeedsYouRows::default());
     };
-    let owner = crate::settings::is_owner(cx, team_id);
+    let teams = merge_modes(cx);
+    let owners: Vec<(String, bool)> = teams.iter().map(|(team, _)| (team.clone(), crate::settings::is_owner(cx, team))).collect();
     let collections = store.collections();
     let now = crate::session_data::now_ms();
     // #PERF-3: a sessions write folds again only when it moved a share of
     // the input (a session's row as the fold reads it, its waiting cards).
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let shares = tracing::trace_span!("needs_you.shares").in_scope(|| shares_generation(team_id, me.as_deref(), cx));
+    let shares = tracing::trace_span!("needs_you.shares").in_scope(|| shares_generation(me.as_deref(), cx));
     let key = RowsKey {
-        team_id: team_id.to_string(),
         revisions: [
             shares,
             collections.pull_requests.read(cx).revision(),
             collections.devices.read(cx).revision(),
         ],
-        merge_mode: collections.teams.read(cx).get(team_id).map(|row| row.merge_mode().to_string()),
-        owner,
+        teams,
+        owners,
         group_chat_ids: crate::session_data::group_chat_ids(cx),
         minute: now / 60_000,
     };
-    if let Some((cached, rows)) = cx.default_global::<RowsMemo>().0.get(team_id) {
+    if let Some((cached, rows)) = &cx.default_global::<RowsMemo>().0 {
         if *cached == key {
             return rows.clone();
         }
     }
     let _span = tracing::trace_span!("needs_you.fold").entered();
-    let rows = Rc::new(with_input(team_id, now, cx, |input| {
-        let stuck = stuck_rows(team_id, input, owner, cx);
-        with_stuck_rows(needs_you(input), stuck)
-    }));
-    cx.global_mut::<RowsMemo>().0.insert(team_id.to_string(), (key, rows.clone()));
+    let rows = Rc::new(with_input(now, cx, |input| with_stuck_rows(needs_you(input), stuck_rows(&key.owners, input, cx))));
+    cx.global_mut::<RowsMemo>().0 = Some((key, rows.clone()));
     rows
 }
 
-/// #FEED-232: every synced team's needs-you rows' length (the team picker,
-/// the OS app icon).
-/// #EXP-2027 (sidebar-tree.json): Needs you spans every member team.
-pub(crate) fn rows_in_all_teams(cx: &mut App) -> NeedsYouRows {
-    let teams: Vec<String> = Store::try_global(cx).map(|store| store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect()).unwrap_or_default();
-    let lists: Vec<Rc<NeedsYouRows>> = teams.iter().map(|team| rows_in_team(team, cx)).collect();
-    merge_team_rows(lists.iter().map(|rows| rows.as_ref()))
-}
-
-/// #EXP-2082: every team's list holds the viewer's own sessions in their
-/// personal team (the Assistant's conversation, `in_team_or_personal`), so
-/// the all-teams list keeps each row ONCE (by its message), in first-seen
-/// order, as web's.
-fn merge_team_rows<'a>(lists: impl IntoIterator<Item = &'a NeedsYouRows>) -> NeedsYouRows {
-    let mut out = NeedsYouRows::default();
-    let mut seen = std::collections::HashSet::new();
-    for rows in lists {
-        for row in &rows.rows {
-            if seen.insert(row.message_id.clone()) {
-                out.rows.push(row.clone());
-            }
-        }
-        out.stuck.extend(rows.stuck.iter().map(|(k, v)| (k.clone(), v.clone())));
-    }
-    out
-}
-
-/// #EXP-2082: the Needs you total (the rail badge, the app icon): the
-/// all-teams rows, each once ([`merge_team_rows`]); never the sum of the
-/// per-team counts, which counts the viewer's personal-team rows per team.
-/// #EXP-1950: plus the installs waiting for this install's approval.
-pub(crate) fn total_count(cx: &mut App) -> usize {
-    rows_in_all_teams(cx).rows.len() + crate::install_approval::pending_count(cx)
-}
-
-pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
-    let Some(store) = Store::try_global(cx) else {
-        return Default::default();
-    };
-    let teams: Vec<String> = store.collections().teams.read(cx).iter().map(|team| team.id.clone()).collect();
-    // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
-    let pending = crate::install_approval::pending_count(cx);
-    teams.into_iter().map(|team| {
-        let count = rows_in_team(&team, cx).rows.len() + pending;
-        (team, count)
-    }).collect()
+/// THE counts (`nav_badges::needs_you_counts`): the total (the rail's Needs
+/// you, the app icon) and each member team's share (its row): a row counts
+/// in its session's team; the Assistant's and the installs waiting for this
+/// install's approval (#EXP-1950) in none.
+pub(crate) fn counts(cx: &mut App) -> domain::nav_badges::NeedsYouCounts {
+    let rows = rows_in_all_teams(cx);
+    let teams = crate::session_data::synced_team_ids(cx);
+    let of_rows: Vec<Option<String>> = rows.rows.iter().map(|row| crate::session_data::session(&row.session_id, cx).and_then(|session| session.team_id)).collect();
+    domain::nav_badges::needs_you_counts(
+        of_rows.iter().map(Option::as_deref),
+        teams.iter().map(String::as_str),
+        crate::install_approval::pending_count(cx),
+    )
 }
 
 /// What a row's press does (#EXP-1710): an `approval`-mode ready PR row
@@ -597,9 +557,9 @@ pub(crate) fn second_line(row: &NeedsYouRow) -> String {
 /// needs-you tone hanging from the top, line 1 the title (medium, truncated) +
 /// the age muted trailing, line 2 the chat, muted, truncated. The caller hangs
 /// the press. `actions` = a stuck PR's Button sm row, under line 2. `team` =
-/// #EXP-2027: its team's mark right after the title (the list spans every
-/// team; the Assistant's rows wear none).
-pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<AnyElement>, actions: Option<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
+/// its team's mark on the glyph (the list spans every team; the Assistant's
+/// rows wear none).
+pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<&RowTeam>, actions: Option<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     crate::surface::flat_row()
         .id(SharedString::from(format!("{}-{}", NEEDS_YOU.test_ids.row, row.message_id)))
@@ -610,7 +570,13 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<AnyElement>, actions
         .gap_3()
         .px_3()
         .py_2()
-        .child(div().flex_shrink_0().mt(px(2.)).child(Icon::new(row_glyph(row.kind)).with_size(px(16.)).text_color(theme::tokens::YELLOW.to_hsla())))
+        .child(div().flex_shrink_0().mt(px(2.)).child(with_team_mark(
+            Icon::new(row_glyph(row.kind)).with_size(px(GLYPH_PX)).text_color(theme::tokens::YELLOW.to_hsla()),
+            GLYPH_PX,
+            team,
+            card_ground(),
+            cx,
+        )))
         .child(
             v_flex()
                 .flex_1()
@@ -630,7 +596,6 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<AnyElement>, actions
                                 .text_color(theme.foreground)
                                 .child(SharedString::from(row.title.clone())),
                         )
-                        .children(team)
                         .child(div().flex_1())
                         .child(div().flex_shrink_0().pl_2().text_xs().text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
                 )
@@ -698,7 +663,7 @@ fn linked_others(pull_request_id: &str, cx: &App) -> usize {
 pub(crate) fn needs_you_list(
     rows: &[NeedsYouRow],
     stuck: &HashMap<String, StuckPr>,
-    team_of: &dyn Fn(&NeedsYouRow) -> Option<AnyElement>,
+    team_of: &dyn Fn(&NeedsYouRow) -> Option<RowTeam>,
     cx: &App,
 ) -> AnyElement {
     if rows.is_empty() {
@@ -712,7 +677,7 @@ pub(crate) fn needs_you_list(
         .children(rows.iter().map(|row| {
             let open = row.clone();
             let press = row_press(row, stuck);
-            needs_you_row(row, team_of(row), stuck.get(&row.message_id).map(stuck_actions), cx)
+            needs_you_row(row, team_of(row).as_ref(), stuck.get(&row.message_id).map(stuck_actions), cx)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| press_row(&open, press, window, cx))
@@ -720,9 +685,6 @@ pub(crate) fn needs_you_list(
         }))
         .into_any_element()
 }
-
-/// The size of a row's team mark (web `needs-you.tsx`).
-const TEAM_MARK_PX: f32 = 14.;
 
 /// THE page in the content card (no header, wide).
 pub struct NeedsYouView {
@@ -759,7 +721,7 @@ impl Render for NeedsYouView {
             let marks = crate::chats_view::team_marks(cx);
             let team_of = |row: &NeedsYouRow| {
                 let team = crate::session_data::session(&row.session_id, cx).and_then(|session| session.team_id);
-                crate::chats_view::team_mark_of(&marks, team.as_deref(), TEAM_MARK_PX)
+                crate::chats_view::row_team(&marks, team.as_deref()).cloned()
             };
             (!(rows.rows.is_empty() && trust_shown)).then(|| needs_you_list(&rows.rows, &rows.stuck, &team_of, cx))
         } else {
@@ -809,20 +771,6 @@ mod tests {
 
     fn dated(id: &str, kind: NeedsYouKind, created_at: &str) -> NeedsYouRow {
         NeedsYouRow { message_id: id.into(), created_at: created_at.into(), ..row(kind, "") }
-    }
-
-    /// #EXP-2082: the Assistant's question shows in every team's list (its
-    /// session sits in the personal team); the all-teams list keeps it once.
-    #[test]
-    fn the_all_teams_list_keeps_a_personal_team_row_once() {
-        let a = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-a", NeedsYouKind::Question, "2026-11-24T00:00:00Z")], stuck: HashMap::new() };
-        let b = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-b", NeedsYouKind::Plan, "2026-11-23T00:00:00Z")], stuck: HashMap::new() };
-        let merged = merge_team_rows([&a, &b]);
-        let ids: Vec<&str> = merged.rows.iter().map(|row| row.message_id.as_str()).collect();
-        assert_eq!(ids, ["q-assistant", "q-a", "q-b"]);
-        // The badge counts these rows (3), never the per-team sum (4).
-        assert_eq!(merged.rows.len(), 3);
-        assert_eq!(a.rows.len() + b.rows.len(), 4);
     }
 
     /// #EXP-1710 (web `withStuckRows`): a stuck PR replaces its ready row
@@ -965,6 +913,16 @@ mod incremental_tests {
         row
     }
 
+    fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(collection: &gpui::Entity<sync::Collection<T>>, rows: serde_json::Value, cx: &mut gpui::App) {
+        collection.update(cx, |c, cx| {
+            for row in rows.as_array().unwrap() {
+                let row: T = serde_json::from_value(row.clone()).unwrap();
+                c.seed(sync::ShapeRow::key(&row), row);
+            }
+            cx.notify();
+        });
+    }
+
     /// #PERF-3: the shares kept per sessions write equal a whole read of
     /// the store after every kind of write.
     #[gpui::test]
@@ -972,6 +930,10 @@ mod incremental_tests {
         cx.update(|cx| {
             let store = Store::open(cx, None, None);
             cx.set_global(store);
+        });
+        cx.update(|cx| {
+            let c = Store::global(cx).collections().clone();
+            seed(&c.teams, json!([{"id": "t1", "name": "One", "slug": "one"}, {"id": "t2", "name": "Two", "slug": "two"}]), cx);
         });
         let rows: Vec<serde_json::Value> = (0..30)
             .flat_map(|n| {
@@ -990,9 +952,9 @@ mod incremental_tests {
                     messages.sort_by(|a, b| a.id.cmp(&b.id));
                     (team, messages)
                 };
-                let incremental = sorted(super::session_inputs("t1", Some("u1"), cx));
+                let incremental = sorted(super::session_inputs(cx));
                 super::SHARES.with(|cache| *cache.borrow_mut() = Default::default());
-                let full = sorted(super::session_inputs("t1", Some("u1"), cx));
+                let full = sorted(super::session_inputs(cx));
                 (incremental, full)
             })
         };
@@ -1027,17 +989,7 @@ mod incremental_tests {
                 f(&c, cx);
             })
         };
-        fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(collection: &gpui::Entity<sync::Collection<T>>, rows: serde_json::Value, cx: &mut gpui::App) {
-            collection.update(cx, |c, cx| {
-                for row in rows.as_array().unwrap() {
-                    let row: T = serde_json::from_value(row.clone()).unwrap();
-                    c.seed(sync::ShapeRow::key(&row), row);
-                }
-                cx.notify();
-            });
-        }
         with(cx, &|c, cx| {
-            seed(&c.teams, json!([{"id": "t1", "name": "One", "slug": "one"}, {"id": "t2", "name": "Two", "slug": "two"}]), cx);
             seed(&c.agents, json!([{"id": "a1", "team_id": "t1", "name": "Reviewer"}]), cx);
             seed(&c.boards, json!([{"id": "b1", "team_id": "t1", "name": "App", "slug": "app", "prefix": "APP"}]), cx);
             seed(&c.issues, json!([{"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash", "status": "in_progress"}]), cx);
@@ -1060,5 +1012,40 @@ mod incremental_tests {
             let (a, b) = both(cx);
             assert_eq!(a, b, "after {what}");
         }
+    }
+
+    /// nav-badges.json NEEDS YOU: ONE read: an ask mirrored into the
+    /// Assistant's chat counts once, in its origin's team; the Assistant's
+    /// own in no team; another member's home never.
+    #[gpui::test]
+    fn the_counts_take_each_row_once_in_its_own_team(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let c = Store::global(cx).collections().clone();
+            seed(&c.teams, json!([{"id": "t1", "name": "One", "slug": "one"}, {"id": "t2", "name": "Two", "slug": "two"}]), cx);
+        });
+        let wait = |id: &str, card: serde_json::Value| json!({"id": id, "authorKind": "agent", "body": "Asks: Ship it?", "card": card, "createdAt": "2026-11-08T10:00:00Z", "answeredAt": null});
+        let question = json!({"kind": "question", "question": "Ship it?", "options": [{"label": "Yes"}]});
+        write(
+            json!([
+                session("a", None, "t1", json!({"digest": {"waits": [wait("qa", question.clone())]}})),
+                session("b", None, "t2", json!({"digest": {"waits": [wait("qb", question.clone())]}})),
+                session("home", None, "personal", json!({"user_id": null, "digest": {"waits": [
+                    wait("mirror", json!({"kind": "ask", "sessionId": "a", "messageId": "qa"})),
+                    wait("own", question.clone()),
+                ]}})),
+            ]),
+            cx,
+        );
+        let counts = cx.update(|cx| super::counts(cx));
+        // Nobody is signed in here: no home at all.
+        assert_eq!((counts.total, counts.teams["t1"], counts.teams["t2"]), (2, 1, 1));
+        // The home's rows, as the signed-in viewer's share reads them.
+        let team_ids = vec!["t1".to_string(), "t2".to_string()];
+        let home: domain::rows::SessionRow = serde_json::from_value(json!({"id": "home", "team_id": "personal", "user_id": "u1"})).unwrap();
+        assert!(crate::session_data::in_teams_or_personal(&home, &team_ids, Some("u1")));
+        assert!(!crate::session_data::in_teams_or_personal(&home, &team_ids, Some("u2")));
+        assert!(!crate::session_data::in_teams_or_personal(&home, &[], Some("u1")));
     }
 }

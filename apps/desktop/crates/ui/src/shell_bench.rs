@@ -58,9 +58,7 @@ fn shell_header() {
     let region = cx.update(|cx| handle.entity(cx).expect("the header"));
     cx.update_window(window, |_, window, cx| {
         let nav = nav_for_window(window, cx);
-        let mut live = std::collections::BTreeMap::new();
-        live.insert("t2".to_string(), 3usize);
-        region.update(cx, |region, cx| region.refresh(&nav, &live, cx));
+        region.update(cx, |region, cx| region.refresh(&nav, cx));
     })
     .expect("the window");
     for _ in 0..4 {
@@ -482,7 +480,7 @@ fn sample() -> IdeSidebarInput {
             },
             IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: false, owner: true, needs_you: 2, items: vec![item("board", "b9", "Site")], layout: Vec::new() },
         ],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true, team_mark: Some("ui-team".into()), team: Some("t1".into()) }],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], team_mark: Some("ui-team".into()), team: Some("t1".into()) }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
         closed: Vec::new(),
         editing_folder: None,
