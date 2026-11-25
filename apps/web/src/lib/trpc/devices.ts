@@ -23,7 +23,7 @@ import {
 import { z } from "zod"
 import { MEMBER_SPACE, mayOptIn } from "@exp/domain-contract/member-space"
 import { assertNotAgentApiKeySession } from "@/lib/auth/api-key-kind"
-import { assertOutsideSpace } from "@/lib/spaces/context"
+import { assertOutsideSpace, spaceOf } from "@/lib/spaces/context"
 import { endInvalidSpacesInTx, endSpacesInTx, finishEndedSpaces, spaceIdsOf, spacesOnHosts, type EndedSpace } from "@/lib/spaces/end"
 import { isSpaceDeviceId } from "@/lib/spaces/grant"
 import { TRPCError } from "@trpc/server"
@@ -653,7 +653,10 @@ export async function visibleDeviceRows(
   ownerNames: Map<string, { id: string; name: string }>
 }> {
   // #EXP-2161: a member space is never listed as a device.
-  const own = await db.select().from(devices).where(and(eq(devices.userId, userId), isNull(devices.spaceHostId)))
+  // Through a space the member's own machines are none of its targets.
+  const own = spaceOf(userId)
+    ? []
+    : await db.select().from(devices).where(and(eq(devices.userId, userId), isNull(devices.spaceHostId)))
   if (!teamId) return { rows: own, ownerNames: new Map() }
   const shared = await db
     .select({ device: devices, ownerName: users.name })

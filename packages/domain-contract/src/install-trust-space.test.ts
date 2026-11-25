@@ -47,7 +47,7 @@ function served(spec: InstallSpec): ServedInstall {
   }
 }
 
-type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[] }
+type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[]; knownSpaces?: string[] }
 function build(spec: StoreSpec): TrustStore {
   const viewer = keys[spec.viewer]!
   const store = emptyTrustStore(viewer.endpointId, viewer.userId, spec.existing ?? false)
@@ -64,6 +64,7 @@ function build(spec: StoreSpec): TrustStore {
     }
   }
   store.members = spec.members ?? []
+  if (spec.knownSpaces) store.knownSpaces = spec.knownSpaces.map((name) => keys[name]!.endpointId)
   return store
 }
 const stores = space.stores as unknown as Record<string, StoreSpec>
@@ -112,6 +113,8 @@ describe(`install-trust.json space (#EXP-2161)`, () => {
       expect(pins, c.name).toEqual(c.after.pins as unknown as typeof pins)
       expect(view.store.members, c.name).toEqual(c.after.members)
       expect(view.rows.map((row) => ({ kind: row.kind as string, key: nameOf(row.endpointId) })), c.name).toEqual(c.rows)
+      const known = (c.after as { knownSpaces?: string[] }).knownSpaces
+      if (known) expect((view.store.knownSpaces ?? []).map(nameOf), c.name).toEqual(known)
       if (view.store.space) expect(view.approveExisting, c.name).toEqual([])
     }
   })

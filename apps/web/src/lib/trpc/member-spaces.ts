@@ -117,6 +117,8 @@ export const memberSpacesRouter = router({
           .from(devices)
           .where(and(eq(devices.userId, userId), sql`${devices.spaceHostId} IS NOT NULL`))
           .limit(1)
+        // Its row first: a device pick (`agents.update`) waits for this one.
+        await tx.select({ id: agents.id }).from(agents).where(and(eq(agents.ownerId, userId), eq(agents.role, `assistant`))).for(`update`)
         const assistant = await findAssistant(tx, userId)
         // Idempotent: already there (through another team now, if so).
         if (current && current.spaceHostId === host.id && assistant?.deviceId === current.deviceId) {
@@ -282,7 +284,7 @@ async function memberNames(exec: Reader, userIds: readonly string[]): Promise<Ma
 }
 
 /** The spaces of `where` the caller may see and end: hosted on their device,
- *  or running through a team they own. */
+ *  or picked through a team they own. */
 async function manageable(exec: Reader, userId: string, where: Parameters<typeof spaceRows>[1]) {
   const rows = await spaceRows(exec, where)
   if (rows.length === 0) return []
@@ -297,7 +299,6 @@ async function manageable(exec: Reader, userId: string, where: Parameters<typeof
   return rows.filter(
     (space) =>
       space.hostUserId === userId ||
-      (space.spaceTeamId !== null && owned.has(space.spaceTeamId)) ||
-      space.teamIds.some((teamId) => owned.has(teamId))
+      (space.spaceTeamId !== null && owned.has(space.spaceTeamId))
   )
 }

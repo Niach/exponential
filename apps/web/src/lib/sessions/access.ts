@@ -4,7 +4,8 @@ import { db } from "@/db/connection"
 import { sessions, type Session } from "@/db/schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import type { Db } from "@/lib/sessions/tx"
-import { spaceOf } from "@/lib/spaces/context"
+import { sessionDeviceOwner } from "@/lib/sessions/host"
+import { assertSpaceDevice, deviceRestrictedUser, spaceOf } from "@/lib/spaces/context"
 import { rootInSpace } from "@/lib/spaces/grant"
 
 export { assertDeviceHost, isSessionPrincipal, sessionDeviceOwner } from "@/lib/sessions/host"
@@ -54,6 +55,13 @@ async function assertSpaceReaches(userId: string, session: Pick<Session, `id` | 
   if (space && !(await rootInSpace(database, space, session.rootId ?? session.id, `reach`))) throw notFound()
 }
 
+/** #EXP-2161 (TEAMS): through a space (or a chat one started) nothing runs on
+ *  a machine of its member's own: such a session is read, never driven. */
+export async function assertSpaceMaySteer(session: Pick<Session, `deviceId` | `userId` | `teamId`>, database: Db = db): Promise<void> {
+  if (!deviceRestrictedUser()) return
+  assertSpaceDevice({ ownerId: await sessionDeviceOwner(session, database), deviceId: session.deviceId })
+}
+
 /** Posting, answering, stopping, ending: the same rule as reading (shared
  *  → any member; else the starter). Re-checks membership so a caller
  *  holding a stale row cannot act after removal. */
@@ -65,6 +73,7 @@ export async function assertCanSteer(userId: string, session: Session): Promise<
     })
   }
   await assertSpaceReaches(userId, session)
+  await assertSpaceMaySteer(session)
   const member = await getTeamMember(userId, session.teamId)
   if (!member) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })

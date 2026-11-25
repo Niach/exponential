@@ -1,6 +1,7 @@
 // #EXP-2161 (install-trust.json `space`, member-space.json): the REAL web
 // InstallTrust + KeyHolder over a member space's install: it asks for spaces,
 // Approve signs `space`, the pin covers the own Assistant conversation alone.
+import type { RootMark, RootSight } from "@exp/domain-contract/member-space"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/install-trust.json" with { type: "json" }
 import { MEMBER_SPACE, pinCovers } from "@exp/domain-contract/member-space"
@@ -37,12 +38,13 @@ function served(spec: { key: string; approvalRequested?: boolean; registration?:
   }
 }
 
-type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[] }
+type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[]; knownSpaces?: string[] }
 function build(spec: StoreSpec): TrustStore {
   const viewer = keys[spec.viewer]!
   const store = emptyTrustStore(viewer.endpointId, viewer.userId, spec.existing ?? false)
   store.joined = spec.joined
   store.members = spec.members ?? []
+  if (spec.knownSpaces) store.knownSpaces = spec.knownSpaces.map((name) => keys[name]!.endpointId)
   for (const [name, pin] of Object.entries(spec.pins)) {
     const [via, by, kind] = pin as [PinVia, string | null, string | undefined]
     const { userId, x25519Public, endpointId } = keys[name]!
@@ -53,7 +55,7 @@ function build(spec: StoreSpec): TrustStore {
 
 async function installTrust(
   answer: { installs: ServedInstall[]; approvals: ServedApproval[] },
-  opts: { store?: TrustStore; mode?: TrustMode; ownAssistant?: (rootId: string) => boolean } = {}
+  opts: { store?: TrustStore; mode?: TrustMode; ownAssistant?: (rootId: string) => boolean; see?: (rootId: string) => RootSight } = {}
 ) {
   const calls = { trust: [] as unknown[], approve: [] as { kind: string; subjectInstallId: string; signature: string }[], revoke: [] as unknown[] }
   const api: TrustApi = {
@@ -65,9 +67,9 @@ async function installTrust(
   }
   const io = memoryTrustStore()
   if (opts.store) await io.put(keys.A!.userId, opts.store)
-  const trust = new InstallTrust(keys.A!.userId, `install-A`, bytes(keys.A!.identity), { api, io, mode: opts.mode, ownAssistant: opts.ownAssistant })
+  const trust = new InstallTrust(keys.A!.userId, `install-A`, bytes(keys.A!.identity), { api, io, mode: opts.mode, see: opts.see ?? ((id) => (opts.ownAssistant ? (opts.ownAssistant(id) ? `assistant` : `other`) : `unknown`)) })
   await trust.load()
-  return { trust, calls }
+  return { trust, calls, io }
 }
 
 const approval = (kind: ApprovalKind, subject: string, approver: string): ServedApproval => ({
@@ -118,6 +120,43 @@ describe(`install-trust.json space on the web`, () => {
     expect(calls.approve).toEqual([{ installId: `install-A`, subjectInstallId: `install-S`, kind: MEMBER_SPACE.approvalKind, signature: space.approval.signature }])
     await trust.remove(row)
     expect(calls.revoke).toEqual([{ installId: `install-S` }])
+  })
+
+  it(`rootMarkCases through the pin store, kept over a reload`, async () => {
+    for (const c of MEMBER_SPACE.rootMarkCases) {
+      let sight: RootSight = `unknown`
+      const spec = space.stores.withSpace as unknown as StoreSpec
+      const store = build(spec)
+      if (c.mark) store.rootMarks = { r: c.mark as RootMark }
+      if ((c as { keyed?: boolean }).keyed) store.roots = { r: { verifiedEpoch: 1, epochs: { 1: `verified` } } }
+      let { trust, io } = await installTrust({ installs: [], approvals: [] }, { store, see: () => sight })
+      let epoch = 1
+      for (const step of c.steps as Array<{ see: RootSight; record?: boolean; counts: boolean; mark: RootMark | null }>) {
+        sight = step.see
+        // A record judges first, as `keep` does.
+        const counts = trust.ownAssistant(`r`)
+        if (step.record) trust.record(`r`, ++epoch, `verified`)
+        expect(counts, c.name).toBe(step.counts)
+        expect(trust.store.rootMarks?.r ?? null, c.name).toBe(step.mark)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        const again = new InstallTrust(keys.A!.userId, `install-A`, bytes(keys.A!.identity), { api: {} as TrustApi, io, see: () => sight })
+        await again.load()
+        trust = again
+      }
+    }
+  })
+
+  it(`a root that never counts: not the space's wrap, vouch or target, whatever the rows say now, nor by addressing the Assistant`, async () => {
+    const c = space.sealCases.find((entry) => entry.rootIsOwnAssistant && entry.store === `withSpace`)!
+    let sight: RootSight = `other`
+    const { trust } = await installTrust({ installs: [], approvals: [] }, { store: build(space.stores.withSpace as unknown as StoreSpec), mode: `record`, see: () => sight })
+    trust.ownAssistant(c.rootId)
+    sight = `assistant`
+    expect(trust.seal({ ...c, held: null })).toMatchObject({ seal: false })
+    expect(trust.seal({ ...c, held: null }, true)).toMatchObject({ seal: false })
+    const wrap = space.keepCases.find((entry) => entry.rootIsOwnAssistant)!.wrap
+    trust.ownAssistant(wrap.rootId)
+    expect(trust.keep(wrap, bytes(keys.A!.installSecret))).toMatchObject({ keep: false })
   })
 
   it(`keepCases, sealCases, targetCases through the own-Assistant lookup`, async () => {
