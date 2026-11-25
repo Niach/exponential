@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { isGroupChat } from "@/lib/agents/group-chat"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
-import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
+import { briefAwaitsMessage, composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
 import { agents, attachments, issues, messages, sessionIssues, sessions, teams, userVoiceSettings, type Session } from "@/db/schema"
 import { ASSISTANT } from "@exp/domain-contract/agent-settings"
@@ -89,8 +89,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  team, the conversation not `shared`): only then may the device attach
    *  `get_screenshots`. */
   screenMemory: boolean
-  /** #EXP-2119 (session-brief.json AWAITS): nothing to say at the launch (a
-   *  group chat): the device starts the engine without a first prompt. */
+  /** #EXP-2119, #EXP-2142 (session-brief.json AWAITS): nothing to say at the
+   *  launch (a group chat, a chat a call's key source created): the device
+   *  starts the engine without a first prompt. */
   awaitsMessage: boolean
   /** #EXP-1961: a CALL session (voice-call.json `callSession`): its brief
    *  has the Call section and its launch adds the voice section. */
@@ -156,7 +157,10 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const voicePolicy = await isVoiceConversation(session)
   return {
     brief: composeBrief(input),
-    awaitsMessage: groupChat && input.issues.length === 0,
+    awaitsMessage: briefAwaitsMessage(input, {
+      conversation: session.agentId !== null && session.parentId === null,
+      sealedText,
+    }),
     call: session.voiceCall !== null,
     sealedText,
     sealedAttachments,

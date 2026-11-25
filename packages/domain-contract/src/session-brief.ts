@@ -126,3 +126,13 @@ export function composeBrief(input: BriefInput): string {
   if (sections.length === 0) return fixture.empty
   return cutToBytes(sections.join(`\n\n`), contractJson.sessionsSend.briefMaxBytes)
 }
+
+/** #EXP-2142 (`awaitsCases`): nothing to say at the launch: the device starts
+ *  the engine with no first prompt and the first message is its first turn.
+ *  `conversation` = a ROOT agent conversation. */
+export function briefAwaitsMessage(
+  input: BriefInput,
+  facts: { conversation: boolean; sealedText: string | null }
+): boolean {
+  return facts.conversation && !facts.sealedText && composeBrief(input) === fixture.empty
+}
