@@ -1066,6 +1066,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if doctor_json.is_some() {
                         sent_doctor = Some(doctor_key.clone());
                     }
+                    // #EXP-2154: a team's agents hear of a low disk (opt-in).
+                    let repos = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).repos_root_path();
+                    coding::disk_alert::beat(&ctx.trpc, &ctx.data_dir, &repos, &device_id);
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
                     // it) — clear it, or the daemon polls GitHub every 5 min

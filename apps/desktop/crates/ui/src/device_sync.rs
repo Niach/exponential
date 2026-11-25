@@ -878,6 +878,13 @@ fn beat(
             if let Some((_, key)) = &doctor_write {
                 lock_recover(sent_status).doctor_key = Some(key.clone());
             }
+            // #EXP-2154: a team's agents hear of a low disk (opt-in).
+            coding::disk_alert::beat(
+                &snapshot.trpc,
+                &snapshot.data_dir,
+                &snapshot.settings.repos_root_path(),
+                &snapshot.device_id,
+            );
             // #FEED-164 TWINS UPGRADE: an old twin pick becomes its
             // connector id first, so the reconcile below pushes it (the hub
             // adopts the file as `settings_moved`).
