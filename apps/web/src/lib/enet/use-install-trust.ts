@@ -52,11 +52,12 @@ export function useInstallTrust(): InstallTrustView {
 
 /** DEV-ONLY (never in a production build): `?specimen=install-approval`
  *  draws the fixture's New install and Reset rows, `?specimen=install-waiting`
- *  this install waiting with its code (the catalogue's views). */
+ *  this install waiting with its code (the catalogue's views),
+ *  `?specimen=space-approval` a member space's install row (#EXP-2161). */
 function specimen(): InstallTrustView | undefined {
   if (isProductionBuild || typeof window === `undefined`) return undefined
   const which = new URLSearchParams(window.location.search).get(`specimen`)
-  if (which !== `install-approval` && which !== `install-waiting`) return undefined
+  if (which !== `install-approval` && which !== `install-waiting` && which !== `space-approval`) return undefined
   const keys = fixture.keys
   const row = (kind: TrustRow[`kind`], name: `N` | `T3`): TrustRow => ({
     kind,
@@ -66,6 +67,10 @@ function specimen(): InstallTrustView | undefined {
     label: keys[name].label,
     code: keys[name].code,
   })
+  if (which === `space-approval`) {
+    const { endpointId, userId, label, code } = fixture.space.keys.S
+    return { ...NONE, status: `trusted`, rows: [{ kind: `newInstall`, installId: `install-S`, endpointId, userId, label, code }] }
+  }
   return which === `install-approval`
     ? { ...NONE, status: `trusted`, rows: [row(`newInstall`, `N`), row(`reset`, `T3`)] }
     : { ...NONE, status: `waiting`, code: keys.N.code }

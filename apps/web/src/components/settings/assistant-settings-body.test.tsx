@@ -14,12 +14,13 @@ const state = vi.hoisted(() => ({
   home: null as Record<string, unknown> | null,
   page: vi.fn((_props: Record<string, unknown>) => null),
   deviceRows: [] as Array<Record<string, unknown>>,
+  teams: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `me` } } }) }))
 vi.mock(`@/hooks/use-ensure-assistant`, () => ({ useEnsureAssistant: () => state.assistantId }))
-vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRow: () => ({ agent: state.agent }) }))
-vi.mock(`@/hooks/use-team-data`, () => ({ useTeamById: () => state.home }))
+vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRow: () => ({ agent: state.agent }), useAllAgentRows: () => [] }))
+vi.mock(`@/hooks/use-team-data`, () => ({ useTeamById: () => state.home, useTeamMemberships: () => ({ myTeams: state.teams, memberships: [] }) }))
 vi.mock(`@/hooks/use-team-permissions`, () => ({ useTeamPermissions: () => ({ isOwner: false }) }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/lib/collections`, () => ({ deviceCollection: { id: `devices` }, userCollection: { id: `users` } }))
@@ -81,6 +82,20 @@ describe(`Settings › Assistant, the team-less page`, () => {
     state.agent = null
     mount()
     expect(screen.queryByTestId(`agent-settings-page`)).toBeNull()
+  })
+
+  it(`no machine of one's own: a team device can still be picked (#EXP-2161), none = connect a desktop`, () => {
+    state.assistantId = null
+    state.agent = null
+    state.teams = [{ id: `t-a`, name: `Acme`, kind: `team` }]
+    mount()
+    expect(screen.getByText(`Connect a desktop to set up your Assistant`)).toBeTruthy()
+    cleanup()
+    state.deviceRows = [{ id: `r1`, deviceId: `srv`, userId: `mate`, label: `unraid`, kind: `server`, lastSeenAt: new Date(), assistantTeamIds: [`t-a`], spaceHostId: null }]
+    mount()
+    expect(screen.getByText(`Device`).closest(`button`)!.textContent).toContain(`Pick a device`)
+    state.deviceRows = []
+    state.teams = []
   })
 })
 

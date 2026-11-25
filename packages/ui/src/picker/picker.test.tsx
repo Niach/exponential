@@ -70,6 +70,28 @@ describe(`Picker (EXP-1029 contract)`, () => {
   })
 })
 
+describe(`Picker sections (#EXP-2161)`, () => {
+  it(`rows with a section sit under its heading after the plain rows; a pick listed twice is checked twice`, () => {
+    render(
+      <Picker
+        mode="single"
+        items={[
+          { value: `t1:s`, label: `unraid`, section: `Acme` },
+          { value: `mac`, label: `Mac` },
+          { value: `t2:s`, label: `unraid`, section: `Beta`, checked: true },
+        ]}
+        value="t1:s"
+        onChange={vi.fn()}
+        trigger={trigger}
+      />
+    )
+    open()
+    expect(rows().map((row) => row.textContent)).toEqual([`Mac`, `unraid`, `unraid`])
+    expect([...document.querySelectorAll(`[cmdk-group-heading]`)].map((el) => el.textContent)).toEqual([`Acme`, `Beta`])
+    expect(document.querySelectorAll(`[data-selected-glyph=check]`)).toHaveLength(2)
+  })
+})
+
 describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
   it(`opens a popover anchored at the trigger on a pointer device`, () => {
     setViewport(1280)

@@ -18,6 +18,7 @@ import { awaitKeyHolder, currentKeyHolder } from "./current-key-holder"
 import { SEALED_BODY_PREFIX } from "@exp/domain-contract/sealed-content"
 import { NoKeyError, sealAnswerInput, sendSealed, type SealDeps, type SealSessionRow } from "./seal-send"
 import { openCardCached } from "./sealed-open"
+import { ownAssistantAgent } from "./own-assistant"
 
 type TrpcOptions = Parameters<typeof trpc.sessions.send.mutate>[1]
 
@@ -47,6 +48,7 @@ function sealDeps(): SealDeps {
     // a personal team no issue belongs to).
     issueIdsByIdentifier: (teamId, identifiers, pickedTeamIds) =>
       issueIdsInTeams(chatTeamIds(teamId, pickedTeamIds), identifiers),
+    ownAssistantAgent: (agentId) => ownAssistantAgent(agentId, currentKeyHolder()?.userId ?? holder?.userId ?? ``),
     sendTarget: (target) => trpc.sessions.sendTarget.query(target, quiet),
     publicKey: async (rootId) => (await trpc.sessionKeys.publicKeys.query({ rootIds: [rootId] }, quiet))[0],
     requestKey: (rootId) => trpc.sessionKeys.requestKey.mutate({ rootId }, quiet),
