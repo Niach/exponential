@@ -407,6 +407,13 @@ impl LocalRuns {
         self.live.lock().expect("live").contains_key(session_id)
     }
 
+    /// Does a live run of this process have a turn in flight?
+    pub fn any_turn(&self) -> bool {
+        let live: Vec<String> = self.live.lock().expect("live").keys().cloned().collect();
+        let hub = self.hub.lock().expect("hub");
+        hub.sessions.values().any(|session| session.busy && live.iter().any(|id| *id == session.id.to_string()))
+    }
+
     /// The worker: wakes on a store delta (a session or message changed:
     /// reconcile) or a run's event (into the hub), never on a clock; a quiet
     /// second sweeps the runs whose process went away.

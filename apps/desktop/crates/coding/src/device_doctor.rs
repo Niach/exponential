@@ -50,6 +50,9 @@ pub const KEY_MEMORY: &str = "memory";
 /// #EXP-1892: the storage row of writers a full disk refuses (see
 /// [`add_disk_writes`]).
 pub const KEY_DISK_WRITES: &str = "disk_writes";
+/// #EXP-2144: the storage row of a newer build that waits for its restart
+/// (see [`add_app_update`]).
+pub const KEY_APP_UPDATE: &str = "app_update";
 /// #EXP-1514: the row under the computer-use switch that says whether this
 /// desktop gives a run an agent space (see [`ComputerState::Supported`]).
 pub const KEY_AGENT_SPACE: &str = "agent_space";
@@ -624,6 +627,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     add_cargo_sweep(&mut doctor, crate::cargo_target_gc::last_sweep(data_dir).as_ref());
     add_memory(&mut doctor, crate::memory_pressure::throttled_slice().as_ref());
     add_disk_writes(&mut doctor, eagent::disk_health::failing());
+    add_app_update(&mut doctor, updater::pending::get().as_ref(), std::time::SystemTime::now());
     // NEW-59: the displays ride every doctor (register + heartbeat), so the
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
@@ -776,6 +780,37 @@ pub fn add_disk_writes_at(doctor: &mut DeviceDoctor, writers: &str, since: &str)
     let mut row = item(KEY_DISK_WRITES, DoctorGroup::Storage, DoctorState::Action).detail(disk_writes_failing(writers, since));
     row.label = Some(DISK_WRITES_LABEL.to_string());
     doctor.items.push(row);
+}
+
+/// #EXP-2144: the row of a newer build this device knows and does not run
+/// yet: grey while it waits for a pause, a warning (no pill, never a
+/// blocker) once it waits past [`updater::restart::DRAIN_AFTER`]. None = no
+/// row.
+pub fn add_app_update(
+    doctor: &mut DeviceDoctor,
+    pending: Option<&updater::pending::Pending>,
+    now: std::time::SystemTime,
+) {
+    let Some(pending) = pending else { return };
+    let overdue = now.duration_since(pending.since).is_ok_and(|waited| waited >= updater::restart::DRAIN_AFTER);
+    let since = pending.since.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+    add_app_update_at(doctor, &pending.version, &local_time(since), overdue);
+}
+
+/// [`add_app_update`] with the time already formatted (pure).
+pub fn add_app_update_at(doctor: &mut DeviceDoctor, version: &str, since: &str, overdue: bool) {
+    let state = if overdue { DoctorState::Action } else { DoctorState::Off };
+    let mut row = item(KEY_APP_UPDATE, DoctorGroup::Storage, state).detail(app_update_pending(version, since));
+    row.label = Some(APP_UPDATE_LABEL.to_string());
+    doctor.items.push(row);
+}
+
+/// The fixture's `appUpdateLabel`.
+pub const APP_UPDATE_LABEL: &str = "App update";
+
+/// The fixture's `appUpdatePending` template.
+pub fn app_update_pending(version: &str, since: &str) -> String {
+    format!("{version} pending since {since}")
 }
 
 /// The fixture's `diskWritesLabel`.
@@ -1454,6 +1489,25 @@ mod tests {
         assert_eq!(
             row.detail.as_deref(),
             Some(copy["diskWritesFailing"].as_str().unwrap().replace("{writers}", "log, state").replace("{when}", "16 Nov 18:45").as_str())
+        );
+        // #EXP-2144: a newer build this device does not run yet.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_app_update(&mut doctor, None, std::time::SystemTime::now());
+        assert!(doctor.items.is_empty(), "up to date, no row");
+        let since = std::time::SystemTime::UNIX_EPOCH;
+        let pending = updater::pending::Pending { version: "0.14.182".into(), since };
+        add_app_update(&mut doctor, Some(&pending), since + updater::restart::DRAIN_AFTER - std::time::Duration::from_secs(1));
+        add_app_update(&mut doctor, Some(&pending), since + updater::restart::DRAIN_AFTER);
+        assert_eq!((doctor.items[0].state, doctor.items[1].state), (DoctorState::Off, DoctorState::Action));
+        let mut doctor = DeviceDoctor { items: Vec::new(), ..doctor };
+        add_app_update_at(&mut doctor, "0.14.182", "25 Nov 07:56", true);
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_APP_UPDATE, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!((row.action, row.parent.as_deref()), (None, None));
+        assert_eq!(row.label.as_deref(), copy["appUpdateLabel"].as_str());
+        assert_eq!(
+            row.detail.as_deref(),
+            Some(copy["appUpdatePending"].as_str().unwrap().replace("{version}", "0.14.182").replace("{when}", "25 Nov 07:56").as_str())
         );
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),

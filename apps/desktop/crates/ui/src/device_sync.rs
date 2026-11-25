@@ -128,6 +128,15 @@ pub(crate) fn inflight_logins(cx: &mut App) -> Arc<Mutex<HashSet<String>>> {
     state.read(cx).inflight_logins.clone()
 }
 
+/// #EXP-2144: a device command's work runs here (an agent sign-in, an agent
+/// CLI's update, a prune): a restart would orphan it.
+pub(crate) fn command_running(cx: &App) -> bool {
+    cx.try_global::<DeviceSyncGlobal>().is_some_and(|global| {
+        let state = global.0.read(cx);
+        state.worker_busy.load(Ordering::SeqCst) || state.inflight_logins.lock().is_ok_and(|claims| !claims.is_empty())
+    })
+}
+
 /// Release a finished login's claim (its tab exited, or it never started).
 /// A redelivery after this legitimately re-runs it — the command is only
 /// still pending if `completeCommand` never landed.

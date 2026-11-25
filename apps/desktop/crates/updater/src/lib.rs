@@ -34,6 +34,7 @@ use sha2::Digest as _;
 pub mod app_shot;
 pub mod feed;
 pub mod install;
+pub mod pending;
 pub mod restart;
 
 /// GitHub rejects API/asset calls without a User-Agent.
