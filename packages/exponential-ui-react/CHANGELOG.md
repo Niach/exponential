@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.22.0 (2026-11-25)
+
+- `@checks` (#AXC-19, the A2UI 1.0 key for a component's checks) is read through the core's reducer; `checks` still reads. A ScrollArea without `direction` scrolls vertically (#EXP-1939), and an Embed's nested surface fills it (#EXP-1769, the shared base CSS).
+- Motion, Canvas and the VoiceWave web helpers are imported from `@exponential_app/eui/web/motion` (they left `@exponential_app/eui/web`).
 - A hosted Popover / Menu follows its anchor (#EXP-2047): while `popupHost` holds it, a move or a resize of its anchor calls `popupHost.mount` again with the same owner and the anchor's new box instead of closing it (`watchAnchor`'s `onMoved`); a scroll or the anchor going still closes it. `interactions-fixture.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843): TreeGuides reads its resolved `depth` through the core's `treeGuideDepth` (a finite number floored, never below 0; a numeric STRING is 0 now, as in the Rust core); `list-reorder.test.tsx` renders a templated folder tree whose rows bind `depth`.
 - `highlight` on Text and Markdown (#EDE-95): the matches paint through the CSS Custom Highlight API (`paintHighlights`, `::highlight(xui-match)` / `(xui-match-current)` in base-css), no DOM change; `highlight.test.tsx` replays `fixtures/text-highlight.json` `markdownCases` through the rendered DOM.

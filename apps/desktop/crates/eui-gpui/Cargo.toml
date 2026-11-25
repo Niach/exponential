@@ -1,6 +1,6 @@
 [package]
 name = "eui-gpui"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "genUI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
@@ -43,7 +43,7 @@ vendored-spinner = []
 # #LOGS-2: lag spans (no subscriber = no cost).
 tracing = "0.1"
 # #AXC-12: `express` = the Express wire format (`transport::WireFormat`).
-eui-core = { path = "../eui-core", version = "0.21.0", features = ["express"] }
+eui-core = { path = "../eui-core", version = "0.22.0", features = ["express"] }
 gpui.workspace = true
 gpui-component.workspace = true
 # EXP-1557: the switch's behaviour primitive (`gpui_base::Switch`) under

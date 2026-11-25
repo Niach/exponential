@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.22.0 (2026-11-25)
+
+- `@checks` (#AXC-19, the A2UI 1.0 key for a component's checks) is read through the core's reducer; `checks` still reads. A ScrollArea without `direction` scrolls vertically (#EXP-1939), and an Embed's nested surface fills it (#EXP-1769, the shared base CSS; `browser/embed.test.ts`).
+- Motion, Canvas and the VoiceWave web helpers are imported from `@exponential_app/eui/web/motion` (they left `@exponential_app/eui/web`).
 - A hosted Popover / Menu follows its anchor (#EXP-2047), React's (`watchAnchor`'s `onMoved` → `popupHost.mount` again); `overlay-anchor.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843), React's (`treeGuideDepth`); `list-reorder.test.tsx`.
 - `highlight` on Text and Markdown (#EDE-95), React's (`paintHighlights`); `highlight.test.tsx`.

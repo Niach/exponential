@@ -1,6 +1,6 @@
 [package]
 name = "exponential-ui-ffi"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "The UniFFI facade over eui-core for the SwiftUI and Compose painters: a coarse Surface object (messages in, frames out, measurement in batches), shipped inside the Swift and Kotlin packages as an xcframework / .so."
@@ -33,7 +33,7 @@ descriptions = ["eui-core/descriptions"]
 [dependencies]
 # #AXC-12: `express` always (the Express inference format: ExpressDecoder,
 # compile / decompile; the prompt needs `descriptions` too).
-eui-core = { path = "../eui-core", version = "0.21.0", default-features = false, features = ["express"] }
+eui-core = { path = "../eui-core", version = "0.22.0", default-features = false, features = ["express"] }
 # EXP-1604: the Motion engine (MotionPlayer); no raster (natives paint the list).
 eui-motion = { path = "../eui-motion", version = "0.1.0", default-features = false }
 # The version already in apps/desktop/Cargo.lock (the FFI facade), ONE uniffi in the tree.
