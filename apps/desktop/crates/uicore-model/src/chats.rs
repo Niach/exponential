@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ide::{agent_dot, IdeDot};
+use crate::ide::{count_label, row_badge, IdeTone};
 
 /// The rail keeps this many chats.
 pub const CHATS_MAX: usize = 20;
@@ -20,18 +20,23 @@ pub struct ChatInput {
     pub agent: Option<String>,
     pub needs_you: bool,
     pub busy: bool,
-    pub unread: bool,
+    /// The root's unread agent messages (chats.json `unreadCount`).
+    pub unread_count: usize,
     /// The last activity, ISO 8601.
     pub at: String,
 }
 
-/// What the document binds: the glyph names the agent, the dot the IDE's.
+/// What the document binds: the glyph names the agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatRow {
     pub id: String,
     pub title: String,
     pub icon: String,
-    pub dot: Option<IdeDot>,
+    /// THE count badge (nav-badges.json `rowBadge`): its label, `None` = none.
+    pub count: Option<String>,
+    pub tone: Option<IdeTone>,
+    /// The working mark (live state is no badge).
+    pub working: bool,
 }
 
 fn icon(agent: Option<&str>) -> &'static str {
@@ -51,11 +56,15 @@ pub fn chat_rows(chats: &[ChatInput]) -> Vec<ChatRow> {
         .take(CHATS_MAX)
         .map(|c| {
             let title = c.title.trim();
+            let badge = row_badge(c.unread_count, c.needs_you);
+            let count = count_label(badge.count);
             ChatRow {
                 id: c.id.clone(),
                 title: if title.is_empty() { "Untitled".into() } else { title.into() },
                 icon: icon(c.agent.as_deref()).into(),
-                dot: agent_dot(c.needs_you, c.busy).or(c.unread.then_some(IdeDot::Primary)),
+                tone: count.is_some().then_some(badge.tone),
+                count,
+                working: c.busy,
             }
         })
         .collect()

@@ -21,6 +21,7 @@ import { CHATS_LIST_COPY, chatRowWordText } from "@exp/domain-contract/session-t
 
 import { rowBadge } from "@exp/domain-contract/nav-badges"
 import { Badge } from "./badge"
+import { TeamCorner, type RowTeam } from "./team-avatar"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
 import { agentGlyph, getAppIcon } from "./board-icons"
@@ -151,6 +152,7 @@ export function ChatLeadDisc({
   agent,
   selected = false,
   badge,
+  team = null,
   avatar,
   className,
 }: {
@@ -163,6 +165,9 @@ export function ChatLeadDisc({
   selected?: boolean
   /** #EXP-1388: the touch selection badge (`ChatSelectBadge`). */
   badge?: ReactNode
+  /** The row's team mark (nav-badges.json `teamMark`); the selection check
+   *  takes its corner. */
+  team?: RowTeam | null
   className?: string
 }) {
   const size = CHATS_SHELL.leadDisc
@@ -195,6 +200,7 @@ export function ChatLeadDisc({
           )}
         />
       )}
+      {team && <TeamCorner team={team} lead={size} />}
       {badge}
     </span>
   )
@@ -230,7 +236,6 @@ function ChatRowText({
   waiting = null,
   wall = null,
   marks = [],
-  team = null,
   className,
 }: {
   title: string
@@ -245,8 +250,6 @@ function ChatRowText({
   wall?: ChatWallWord | null
   /** #EDE-98: the title's glyphs (chats.json `chatMarks`). */
   marks?: readonly ChatMark[]
-  /** #EXP-2027: the row's team mark on a cross-team list (md+). */
-  team?: ReactNode
   className?: string
 }) {
   const unread = unreadCount > 0
@@ -276,7 +279,6 @@ function ChatRowText({
             </span>
             <ChatMarks marks={marks} />
           </span>
-          {team && <span className="flex shrink-0 items-center self-center">{team}</span>}
           <span
             className={cn(
               `shrink-0 text-xs tabular-nums`,
@@ -339,8 +341,8 @@ export function ChatRow({
   ...props
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: ChatRowModel
-  /** #EXP-2027: the row's team mark on a cross-team list (md+). */
-  team?: ReactNode
+  /** #EXP-2027: the row's team mark on a cross-team list . */
+  team?: RowTeam | null
   agent?: string | null
   /** #NEW-49: the root's `sessionWaiting` (the `waiting` word's labels). */
   waiting?: string | null
@@ -438,6 +440,7 @@ export function ChatRow({
         lead={row.lead}
         agent={agent}
         selected={isSelected}
+        team={team}
         badge={isSelected ? <ChatSelectBadge className="md:hidden" /> : undefined}
       />
       <ChatRowText
@@ -450,7 +453,6 @@ export function ChatRow({
         waiting={waiting}
         wall={wall}
         marks={marks}
-        team={team}
         className={isSelected ? `max-md:border-transparent` : undefined}
       />
     </button>
@@ -522,8 +524,8 @@ export function AgentChatRowButton({
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: AgentChatRow
   onOpen?: (agentId: string) => void
-  /** #EXP-2027: the agent's team mark on a cross-team list (md+). */
-  team?: ReactNode
+  /** #EXP-2027: the agent's team mark on a cross-team list . */
+  team?: RowTeam | null
   /** Over selectable rows: the same inset and (wide) the checkbox column's
    *  room, so the discs line up. */
   aligned?: boolean
@@ -547,14 +549,13 @@ export function AgentChatRowButton({
       )}
     >
       {aligned && <span aria-hidden className="hidden size-4 shrink-0 md:block" />}
-      <ChatLeadDisc lead={lead} agent={null} avatar={<AgentAvatar agent={row} className="size-6" />} />
+      <ChatLeadDisc lead={lead} agent={null} team={team} avatar={<AgentAvatar agent={row} className="size-6" />} />
       <ChatRowText
         title={row.name}
         time={row.time}
         needsYou={row.needsYou}
         unreadCount={row.unreadCount}
         preview={row.preview}
-        team={team}
       />
     </button>
   )
@@ -583,8 +584,8 @@ export function AppChatRowButton({
 }: Omit<ComponentProps<`button`>, `onClick`> & {
   row: AppChatRow
   onOpen?: (slug: string) => void
-  /** #EXP-2027: the app's team mark on a cross-team list (md+). */
-  team?: ReactNode
+  /** #EXP-2027: the app's team mark on a cross-team list . */
+  team?: RowTeam | null
   aligned?: boolean
 }) {
   const lead: ChatLead = row.needsYou ? `needs_you` : `waiting`
@@ -605,6 +606,7 @@ export function AppChatRowButton({
       <ChatLeadDisc
         lead={lead}
         agent={null}
+        team={team}
         avatar={<AppChatGlyph icon={row.icon} color={row.color} />}
       />
       <ChatRowText
@@ -613,7 +615,6 @@ export function AppChatRowButton({
         needsYou={row.needsYou}
         unreadCount={row.unreadCount}
         preview={row.preview}
-        team={team}
       />
     </button>
   )
@@ -680,12 +681,12 @@ export function ChatList({
   wallOf?: (sessionId: string) => ChatWallWord | null
   /** #EDE-98: a root's title glyphs (chats.json `chatMarks`). */
   marksOf?: (sessionId: string) => readonly ChatMark[]
-  /** #EXP-2027: a row's team mark on a cross-team list (md+), else null. */
-  teamOf?: (sessionId: string) => ReactNode
+  /** #EXP-2027: a row's team mark on a cross-team list, else null. */
+  teamOf?: (sessionId: string) => RowTeam | null
   /** #EXP-2027: an agent row's team mark (by agent id), else null. */
-  agentTeamOf?: (agentId: string) => ReactNode
+  agentTeamOf?: (agentId: string) => RowTeam | null
   /** #EXP-2027: an app row's team mark (by app id), else null. */
-  appTeamOf?: (appId: string) => ReactNode
+  appTeamOf?: (appId: string) => RowTeam | null
   /** #EXP-2027: a chat row's press (its drag onto a sidebar list). */
   onRowPointerDown?: (sessionId: string, event: ReactPointerEvent<HTMLButtonElement>) => void
   loading?: boolean

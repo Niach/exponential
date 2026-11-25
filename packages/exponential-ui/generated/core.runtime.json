@@ -5429,6 +5429,22 @@
           "bindable": true
         }
       }
+    },
+    "AvatarBadge": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "one",
+      "slots": [
+        "badge"
+      ],
+      "props": {
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        }
+      }
     }
   }
 }
