@@ -30,7 +30,7 @@ describe(`sessionOwnHandoff`, () => {
         pending.map((r) => ({ id: r.id, type: `message` })),
         { sent: new Set(), held: new Set(), echoed: sessionEchoedPending({ rows: c.input.rows, feed }) }
       )
-      expect(drawn.map((r) => r.id)).toEqual(pending.map((r) => r.id).filter((id) => !c.expected.includes(id)))
+      expect(drawn.map((r) => r.id)).toEqual(pending.map((r) => r.id).filter((id) => !(c.expected as string[]).includes(id)))
     })
   }
 
