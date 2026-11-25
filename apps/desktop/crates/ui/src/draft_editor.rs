@@ -348,6 +348,12 @@ impl DraftEditor {
         self.latest = Some(snapshot);
     }
 
+    /// Tests: the last upsert sent.
+    #[cfg(test)]
+    pub(crate) fn sent_for_test(&self) -> Option<DraftSave> {
+        self.last_written.clone()
+    }
+
     /// The attachment count [`crate::drafts::has_content`] reads: uploaded,
     /// pending and queued files all count (the first upload ensures the row
     /// anyway), and a reopened draft whose list has not landed counts as
