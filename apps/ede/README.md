@@ -71,7 +71,9 @@ click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
 `ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle; `{sessionId}`
 opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
-`ede_history {action: undo|reset}` (the shell documents' history);
+`ede_history {action: undo|reset}` (the shell documents' history),
+`ede_account {action: sign-out}`, `ede_install {action: approve|remove, id, code}`
+(#EDE-226);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
@@ -160,6 +162,39 @@ stays on screen; `git -C <dir> log` shows `Edit taskbar.express` commits after
 the factory ones. `exponential-shell --windowed` opens normal windows instead
 (macOS, any desktop); `--popup` opens every popup document right away and
 `--exit-after <ms>` quits, for the headless check.
+
+### The login's account (#EDE-226)
+
+One Exponential account per eDE login. The shell signs in and out; the
+HOLDER, the app `exponential-device.service` starts, keeps the account's
+install, its keys, the device and the coding sessions (its data directory,
+`~/.local/share/exponential`, unchanged).
+
+- **Sign in:** `connect.express`, shown at the first login with no account
+  (`connect-shown` beside `compositor.toml` says it was) and from Settings,
+  the switcher and the app's login (`exponential-shell-connect.sock`). The
+  app is the `exponential://` handler where it is installed (the only one: a
+  second makes the portal ask a snap browser's person) and hands a sign-in's
+  return on to the shell; without the app the shell is, on this desktop alone
+  (`~/.config/exponential-mimeapps.list`).
+- **Everyone follows** `accounts.json` and the token files: the shell, the app
+  and the CLI daemon watch them (`api::AuthStore::watch`), no restart.
+- **Sign out** (Settings, Account; the app's own is the same): the holder ends
+  the runs, revokes its install (and the CLI daemon's), ends the session and
+  removes the token, the keys and its stores; the shell removes its own sync
+  store and moves to Local. No holder: the shell does it.
+- **Install approval** (`install-trust.json`): the holder writes what its pin
+  store yields to `accounts/<id>/install-state.json` (0600); the shell draws it
+  in Needs you, Connect and Settings. Approve / Remove go to the holder's
+  socket with the code the person compared; it acts only on a row of its own
+  with that code. No `exponential://` link is such a command
+  (`api::holder`).
+- **Lock:** only the lock client's surfaces are drawn, so no notification
+  shows; the account, the sessions and the spaces go on. No call rings on a
+  desktop today (a ring is a phone's call to an agent this desktop speaks
+  for), so there is none to answer on the lock.
+- **Log out of eDE:** the device unit stops; the next login's holder claims
+  its sessions again.
 
 ## Run it nested (Cinnamon/X11)
 

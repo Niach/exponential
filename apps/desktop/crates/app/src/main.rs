@@ -288,6 +288,8 @@ fn main() {
         // (headless verification, dev-only) or a warm-start resume of the
         // persisted account — else the team boots to the login surface.
         ui::bootstrap_session(cx);
+        // #EDE-226: eDE's shell signs in and out (its Connect, its Settings).
+        ui::follow_accounts(cx);
 
         // Update check (§11.2, EXP-68): at launch and periodically while
         // running; non-blocking, offline-safe; flips a global the Shell

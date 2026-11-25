@@ -109,6 +109,16 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+/// The endpoint id (lowercase hex of the ed25519 public key) of the eNet
+/// identity stored in `path` (32 secret bytes, hex); `None`: no such file,
+/// or not an identity.
+pub fn stored_endpoint_id(path: &Path) -> Option<String> {
+    use ring::signature::KeyPair as _;
+    let seed = unhex(&fs::read_to_string(path).ok()?)?;
+    let pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).ok()?;
+    Some(hex(pair.public_key().as_ref()))
+}
+
 /// The daemon's machine key (minted on first call, under the same
 /// machine-wide lock as the ids). `None` = the file is there but unreadable,
 /// or the disk refused the first write: register without a proof.

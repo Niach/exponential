@@ -70,6 +70,7 @@ pub mod billing;
 pub mod comments;
 pub mod composer_drafts;
 pub mod error;
+pub mod holder;
 pub mod http;
 pub mod installs;
 pub mod issue_drafts;

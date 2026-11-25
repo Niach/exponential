@@ -39,6 +39,7 @@ pub const EXTENSION: &str = "ede";
 /// compile error. Which of them a document may call is still its
 /// `surface.functions` (Tier C).
 pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
+    ("ede_account", &["action"]),
     ("ede_alt_tab_select", &["window"]),
     ("ede_chat", &["action", "agentId", "answer", "insert", "key", "messageId", "prompt", "query", "replyId", "sessionId", "step", "text"]),
     ("ede_close", &["window"]),
@@ -47,6 +48,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_connect", &["action", "instance"]),
     ("ede_focus", &["window"]),
     ("ede_history", &["action"]),
+    ("ede_install", &["action", "code", "id"]),
     ("ede_issue", &["identifier", "source", "sourceId"]),
     ("ede_launch", &["app", "command", "new"]),
     ("ede_lock", &[]),
