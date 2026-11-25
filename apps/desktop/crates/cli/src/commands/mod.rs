@@ -7,6 +7,7 @@ pub mod devices;
 pub mod doctor;
 pub mod login;
 pub mod mcp;
+pub mod members;
 pub mod motion;
 pub mod remote;
 pub mod run;

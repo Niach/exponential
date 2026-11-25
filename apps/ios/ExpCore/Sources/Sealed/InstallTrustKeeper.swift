@@ -116,6 +116,10 @@ public actor InstallTrustKeeper {
     private let persistence: TrustStorePersistence
     private let identity: @Sendable () -> Data?
     public let mode: TrustMode
+    /// #EXP-2161 (member-space.json `pinCases`): whether a root is the
+    /// account's own Assistant conversation (its synced rows); a root it does
+    /// not answer true for has no member space among its readers.
+    private let ownAssistant: @Sendable (_ accountId: String, _ rootId: String) -> Bool
     private var accounts: [String: Account] = [:]
     private var cachedEndpoint: (identity: Data, endpointId: String)?
     public private(set) var decisions: [TrustDecision] = []
@@ -125,8 +129,10 @@ public actor InstallTrustKeeper {
         crypto: TrustCrypto,
         persistence: TrustStorePersistence,
         identity: @escaping @Sendable () -> Data?,
-        mode: TrustMode = .build
+        mode: TrustMode = .build,
+        ownAssistant: @escaping @Sendable (_ accountId: String, _ rootId: String) -> Bool = { _, _ in false }
     ) {
+        self.ownAssistant = ownAssistant
         self.api = api
         self.crypto = crypto
         self.persistence = persistence
@@ -288,7 +294,15 @@ public actor InstallTrustKeeper {
     public func approve(accountId: String, row: TrustRow) async throws {
         guard let found = account(accountId), found.state == .trusted, let installId = found.installId else { throw InstallTrustError.notTrusted }
         guard let seed = identity(), let subject = found.served[row.endpointId], subject.installId == row.installId else { throw InstallTrustError.installNotFound }
-        let kind: ApprovalKind = row.kind == .reset ? .reset : .approve
+        let kind: ApprovalKind
+        if row.kind == .reset {
+            kind = .reset
+        } else if InstallTrust.registrationClass(subject, crypto: crypto) == .space {
+            // #EXP-2161: a space is approved as one, never as an install.
+            kind = .space
+        } else {
+            kind = .approve
+        }
         let signature = try InstallApproval.sign(kind, subject: subject, identity: seed, crypto: crypto)
         try await api.approve(accountId: accountId, installId: installId, subjectInstallId: row.installId, kind: kind, signature: signature)
         await sync(accountId: accountId, installId: installId)
@@ -328,7 +342,10 @@ public actor InstallTrustKeeper {
     /// R1: whether a served wrap is kept, recorded in the store.
     public func keep(accountId: String, wrap: HeldTreeKey, installSecret: Data) -> InstallTrust.KeepVerdict {
         guard let seed = identity(), let found = account(accountId) else { return .refuse(.malformed) }
-        let verdict = InstallTrust.keepWrap(wrap, identity: seed, installSecret: installSecret, store: found.store, mode: mode, crypto: crypto)
+        let verdict = InstallTrust.keepWrap(
+            wrap, identity: seed, installSecret: installSecret, store: found.store, mode: mode, crypto: crypto,
+            rootIsOwnAssistant: ownAssistant(accountId, wrap.rootId.lowercased())
+        )
         switch verdict {
         case let .keep(kept, _, _):
             log(.r1, "\(wrap.rootId)#\(wrap.epoch)", kept.rawValue)
@@ -372,7 +389,8 @@ public actor InstallTrustKeeper {
         let verdict = InstallTrust.sealTo(
             rootId: rootId.lowercased(), epoch: key.epoch, publicKey: key.publicKey,
             held: held.map { (secret: $0, record: found.store.record(rootId: rootId, epoch: key.epoch)) },
-            vouch: key.vouch, store: found.store, mode: mode, crypto: crypto
+            vouch: key.vouch, store: found.store, mode: mode, crypto: crypto,
+            rootIsOwnAssistant: ownAssistant(accountId, rootId.lowercased())
         )
         switch verdict {
         case let .seal(record): log(.r3, "\(rootId)#\(key.epoch)", record.rawValue)
@@ -383,7 +401,9 @@ public actor InstallTrustKeeper {
 
     /// R4: whether this install wraps a key for a target the server names
     /// (`pending`'s pair, a reader of a new key, a rotation, a resign).
-    public func target(accountId: String, installId: String, x25519Public: String, endpointId: String?, userId: String?) -> InstallTrust.TargetVerdict {
+    /// `rootId` nil = a root not known yet: a member space gets its key later,
+    /// through `pending` (#EXP-2161).
+    public func target(accountId: String, rootId: String? = nil, installId: String, x25519Public: String, endpointId: String?, userId: String?) -> InstallTrust.TargetVerdict {
         guard let found = account(accountId) else { return .refuse(.notTrusted) }
         if found.state == .unavailable { return .wrap(record: .legacy) }
         if installId == found.installId { return .wrap(record: .verified) }
@@ -403,7 +423,10 @@ public actor InstallTrustKeeper {
         if let known, known.x25519Public != x25519Public, found.store.pins[served.endpointId] == nil {
             verdict = .refuse(.keyMismatch)
         } else {
-            verdict = InstallTrust.wrapTarget(served, store: found.store, mode: mode, roots: found.roots, crypto: crypto)
+            verdict = InstallTrust.wrapTarget(
+                served, store: found.store, mode: mode, roots: found.roots, crypto: crypto,
+                rootIsOwnAssistant: rootId.map { ownAssistant(accountId, $0.lowercased()) } ?? false
+            )
         }
         switch verdict {
         case let .wrap(record): log(.r4, installId, record.rawValue)

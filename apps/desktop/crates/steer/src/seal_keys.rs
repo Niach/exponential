@@ -317,14 +317,17 @@ impl KeyHolder {
             return Err(SealError::KeyMakerWaits);
         }
         let readers: Vec<(String, String)> =
-            readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(install_id, x25519, None)).collect();
+            readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(None, install_id, x25519, None)).collect();
         sealing::seal_new_root(&self.inner.install_id, &self.inner.install_public, &readers)
     }
 
-    /// #EXP-1950 R4: whether this holder wraps for `install_id` (no keeper = as before).
-    fn may_wrap(&self, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>) -> bool {
+    /// #EXP-1950 R4: whether this holder wraps `root_id`'s key for
+    /// `install_id` (no keeper = as before). None = a root the same send
+    /// makes: a member space gets its key through `pending`, once the root
+    /// is known to be the member's own Assistant conversation (#EXP-2161).
+    fn may_wrap(&self, root_id: Option<&str>, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>) -> bool {
         match self.trust() {
-            Some(trust) => matches!(trust.target(install_id, x25519_public, endpoint_id, None), TargetVerdict::Wrap(_)),
+            Some(trust) => matches!(trust.target(root_id, install_id, x25519_public, endpoint_id, None), TargetVerdict::Wrap(_)),
             None => true,
         }
     }
@@ -476,7 +479,7 @@ impl KeyHolder {
             let Ok(target) = public_key_from_b64(&pair.target_x25519_public) else { continue };
             // #EXP-1950 R4: only pinned targets (and older builds of
             // team-mates, recorded `legacy`); never a waiting install's.
-            if !self.may_wrap(&pair.target_install_id, &pair.target_x25519_public, pair.target_endpoint_id.as_deref()) {
+            if !self.may_wrap(Some(&pair.root_id), &pair.target_install_id, &pair.target_x25519_public, pair.target_endpoint_id.as_deref()) {
                 continue;
             }
             match wrap_tree_key(&target, &secret) {
@@ -800,7 +803,7 @@ impl KeyHolder {
             } else {
                 let Some((endpoint_id, x25519_text)) = lookup.as_ref().and_then(|lookup| lookup(target)) else { continue };
                 // #EXP-1950 R4.
-                if !self.may_wrap(target, &x25519_text, Some(&endpoint_id)) {
+                if !self.may_wrap(Some(&job.root_id), target, &x25519_text, Some(&endpoint_id)) {
                     continue;
                 }
                 let Ok(x25519) = public_key_from_b64(&x25519_text) else { continue };
@@ -994,7 +997,7 @@ impl SealService for KeyHolder {
         let readers = lock(&self.inner.device_readers).clone();
         let readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
         // #EXP-1950 R4: a new root's seal wraps only for allowed targets.
-        readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(install_id, x25519, None)).collect()
+        readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(None, install_id, x25519, None)).collect()
     }
 
     fn check_seal(&self, root_id: &str, epoch: u32, public: &[u8; 32], vouch: Option<&serde_json::Value>) -> Result<(), SealError> {

@@ -298,7 +298,17 @@ final class AppDependencies: @unchecked Sendable {
                 api: installsApi,
                 crypto: trustCrypto,
                 persistence: trustPersistence,
-                identity: { identityStore.load() }
+                identity: { identityStore.load() },
+                // #EXP-2161: the one root a member space takes part in.
+                ownAssistant: { accountId, rootId in
+                    guard let me = auth.accounts.first(where: { $0.id == accountId })?.userId,
+                          let pool = try? db.pool(forAccountId: accountId) else { return false }
+                    return (try? pool.read { db in
+                        guard let root = try SessionEntity.fetchOne(db, key: rootId), root.parentId == nil, root.userId == me,
+                              let agentId = root.agentId, let agent = try AgentDefinitionEntity.fetchOne(db, key: agentId) else { return false }
+                        return agent.isAssistant && agent.ownerId == me
+                    }) ?? false
+                }
             )
         }
         let treeKeyHolder = TreeKeyHolder(

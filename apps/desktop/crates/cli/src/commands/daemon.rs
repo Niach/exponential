@@ -401,8 +401,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
         ctx.account.email,
         ctx.account.instance_url
     );
+    // #EXP-2161: this IS a member's space: what belongs to the host (runners,
+    // calls, updates, sign-ins, the account's other features) is left out.
+    let space = api::member_spaces::active();
     // #LOGS-2: the server's monitoring config (cached for the next start).
-    observability::connect(&ctx.account.instance_url, Some(&ctx.account.user_id));
+    if !space {
+        observability::connect(&ctx.account.instance_url, Some(&ctx.account.user_id));
+    }
 
     // EXP-746: ONE registry decision for every end this process issues.
     // Installed before any session can launch (first caller wins,
@@ -412,7 +417,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // records name this device), held at once so nothing expires while the
     // rows load, settled once they are in sync (the loop below); with the
     // switch off they are destroyed instead. Never the desktop app's.
-    let mut adoption = Some(coding::session_teardown::start_spaces(
+    let mut adoption = (!space).then(|| coding::session_teardown::start_spaces(
         &ctx.data_dir,
         &device_id,
         coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).computer_use,
@@ -486,7 +491,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let check_in = Arc::new(AtomicBool::new(false));
     // #EXP-1617 (Q6): the team's opted-in GitHub repos, served as Actions runners.
-    crate::actions_runner::spawn(Arc::clone(&ctx));
+    if !space {
+        crate::actions_runner::spawn(Arc::clone(&ctx));
+    }
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
@@ -552,9 +559,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
     // #EXP-1918: started at boot, the unit has no screen until someone
     // signs in; the first probe and the loop below take the session over.
-    crate::session_env::adopt();
+    if !space {
+        crate::session_env::adopt();
+    }
     let (mut advertised, mut doctor) = probe_agents(&ctx);
-    maybe_fetch_codex(&ctx, &doctor_soon);
+    if !space {
+        maybe_fetch_codex(&ctx, &doctor_soon);
+    }
     // What the two jsonb columns last SENT said: a beat attaches a map only
     // when it actually changed, so the steady-state body stays tiny and
     // `agent_usage_at` (which the server stamps on every write) does not move
@@ -590,7 +601,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         let node = steer::enet::InstallNode::start(
             runtime.handle(),
             steer::enet::InstallSpec {
-                kind: steer::enet::InstallKind::Daemon,
+                kind: if space { steer::enet::InstallKind::Space } else { steer::enet::InstallKind::Daemon },
                 user_id: ctx.account.user_id.clone(),
                 device_id: Some(device_id.clone()),
                 label: Some(device_label.clone()),
@@ -604,6 +615,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
             Arc::clone(&ctx.trpc) as Arc<dyn steer::enet::InstallRegistry>,
             Arc::new(move || synced_team_ids(&teams)),
         );
+        // #EXP-2161: the one root a member space takes part in. A space's own
+        // trees are nothing else (its key reaches no other).
+        node.set_own_assistant(if space {
+            Arc::new(|_: &str| true)
+        } else {
+            let (rows, me) = (Arc::clone(&pickup), ctx.account.user_id.clone());
+            Arc::new(move |root_id: &str| {
+                let Some(store) = rows.store() else { return false };
+                let Some(root) = session_row(&store, &root_id.to_ascii_lowercase()) else { return false };
+                let agents: Vec<domain::rows::AgentDefRow> = read_shape_rows(&store, "agents");
+                domain::agent_settings::is_own_assistant_root(&root, &agents, &me)
+            })
+        });
         // VAPP-43 STORED REPLAY: this machine's journals, read under the
         // access rule of the synced `sessions` rows.
         let rows = Arc::clone(&pickup);
@@ -635,7 +659,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     });
     // #EXP-1858: speech on a server: the call host of the agents that run
     // here (headless; the worker only while one does, see `voice_host`).
-    let voice = runtime.as_ref().and_then(|runtime| {
+    let voice = runtime.as_ref().filter(|_| !space).and_then(|runtime| {
         let (teams, rows) = (Arc::clone(&pickup), Arc::clone(&pickup));
         crate::voice_host::spawn(crate::voice_host::Deps {
             trpc: Arc::clone(&ctx.trpc),
@@ -661,6 +685,25 @@ fn run_daemon(args: &[String]) -> CommandResult {
             beat_soon: Arc::clone(&check_in),
         })
     });
+    // #EXP-2161: the members' Assistants this server runs for its teams.
+    let members = (!space).then(|| {
+        crate::members::Members::spawn(crate::members::Deps {
+            data_dir: ctx.data_dir.clone(),
+            device_id: device_id.clone(),
+            instance_url: ctx.account.instance_url.clone(),
+            account_id: ctx.account.id.clone(),
+            api: Arc::clone(&ctx.trpc) as _,
+            status: {
+                let status = agent_status.clone();
+                Box::new(move || status.latest().unwrap_or_default())
+            },
+            beat_soon: Arc::clone(&check_in),
+        })
+    });
+    if let Some(members) = &members {
+        members.reconcile();
+    }
+    let mut space_report = None;
     let mut enet_teams = synced_team_ids(&pickup);
     let mut last_team_check = Instant::now();
     // `register` only SEEDS the label (it never stomps a rename); an
@@ -669,7 +712,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // service-baked flag doesn't replay on every restart and stomp a web
     // rename (a failed rename leaves the latch unwritten and retries on the
     // next start).
-    if let Some(label) = &explicit_label {
+    if let Some(label) = explicit_label.as_ref().filter(|_| !space) {
         let latch = applied_label_file(&ctx.data_dir);
         let last_applied = std::fs::read_to_string(&latch).ok();
         if last_applied.as_deref().map(str::trim) != Some(label.as_str()) {
@@ -760,6 +803,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // deltas), never here.
         std::thread::sleep(Duration::from_secs(1));
 
+        if let Some(enet) = enet.as_ref().filter(|_| space) {
+            crate::space::report(enet, &mut space_report);
+        }
         // EXP-1457: a team joined or left re-reads the eNet allowlist.
         if let Some(enet) = &enet {
             if last_team_check.elapsed() >= TEAM_CHECK {
@@ -1010,7 +1056,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // 30s would be pure sync noise. "Changed" is the accounts
             // IDENTITY (`accounts_key`, `checked_at` excluded — the
             // collector restamps it every pass) and the usage JSON.
-            let status = agent_status.latest();
+            // #EXP-2161: a space reports its host's logins and their usage.
+            let status = if space { Some(crate::space::host_status()) } else { agent_status.latest() };
             let accounts_json = status.as_ref().and_then(|status| status.accounts_json());
             let usage_json = status.as_ref().and_then(|status| status.usage_json());
             let accounts_key = status
@@ -1025,6 +1072,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 include_optional && accounts_key.is_some() && accounts_key != sent_accounts;
             let send_usage = include_optional && usage_text.is_some() && usage_text != sent_usage;
             // EXP-1196: the readiness block rides only when its items moved.
+            // #EXP-2161: every beat and nudge (a nudge beats) reconciles.
+            if let Some(members) = &members {
+                members.reconcile();
+            }
             let device_doctor = {
                 let settings =
                     coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
@@ -1040,6 +1091,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 // #EXP-1858: the `speech` row while an agent runs here.
                 if let Some(voice) = &voice {
                     voice.add_doctor(&mut device);
+                }
+                // #EXP-2161: whether members' Assistants can run here.
+                if let Some(members) = &members {
+                    members.add_doctor(&mut device);
                 }
                 device
             };
@@ -1086,7 +1141,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     // #EXP-2154: a team's agents hear of a low disk (opt-in).
                     let repos = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).repos_root_path();
-                    coding::disk_alert::beat(&ctx.trpc, &ctx.data_dir, &repos, &device_id);
+                    if !space {
+                        coding::disk_alert::beat(&ctx.trpc, &ctx.data_dir, &repos, &device_id);
+                    }
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
                     // it) — clear it, or the daemon polls GitHub every 5 min
@@ -1112,7 +1169,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                             &mut registration,
                         );
                     }
-                    if result.update_requested && pending_update.is_none() {
+                    if result.update_requested && !space && pending_update.is_none() {
                         if live_now > 0 {
                             log::info!(
                                 "update requested from the web — {live_now} live session(s) hold it until they pause, at most {}m",
@@ -1143,6 +1200,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // cadence, not just the slow doctor tick.
                         device_worker.send(DeviceWork::ReconcileLocal).ok();
                     }
+                }
+                // #EXP-2161: the key is gone (the space ended, or a newer
+                // key): the host knows which.
+                Err(api::ApiError::Unauthorized) if space => {
+                    log::warn!("the space key was refused: stopping");
+                    crate::space::unauthorized();
+                    SHUTDOWN.store(true, Ordering::SeqCst);
+                }
+                Err(api::ApiError::UpgradeRequired) if space => {
+                    log::warn!("devices.heartbeat: HTTP 426 (the host updates)");
                 }
                 Err(api::ApiError::UpgradeRequired) => {
                     // EXP-641: the min-version gate. Not a transient — the
@@ -1184,7 +1251,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             pending_update = Some(PendingUpdate::new(UpdateTrigger::Now));
         }
         // Scheduled auto-update check (settings-gated + persisted throttle).
-        if pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
+        if !space && pending_update.is_none() && last_update_poll.elapsed() >= Duration::from_secs(60) {
             last_update_poll = Instant::now();
             if super::update::auto_check_due(
                 &ctx.data_dir,
@@ -1231,7 +1298,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-641 / EXP-1489: below the server's floor (CLIENT_MIN_VERSION)
         // the update is armed at once and overrides a parked one: it waits
         // for no session.
-        if !pending_update.is_some_and(|pending| pending.trigger == UpdateTrigger::Gated)
+        if !space
+            && !pending_update.is_some_and(|pending| pending.trigger == UpdateTrigger::Gated)
             && gated_update_due(gated.load(Ordering::SeqCst), last_gated_attempt, Instant::now())
         {
             last_gated_attempt = Some(Instant::now());
@@ -1293,6 +1361,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // Nothing starts beside the suspends.
                         coding::pickup::hold_turns(true);
                         suspend_for_restart(&sessions, trigger);
+                        // #EXP-2161: the spaces come back on the new build.
+                        if let Some(members) = &members {
+                            members.stop_all();
+                        }
                         if let Some(handle) = control.take() {
                             handle.stop();
                         }
@@ -1300,6 +1372,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // new binary's startup sees its own pid there.
                         super::update::exec_self();
                         // exec only returns on failure — keep running.
+                        if let Some(members) = &members {
+                            members.resume();
+                        }
                     }
                     Ok(other) => {
                         log::info!("update check: {other:?}");
@@ -1361,7 +1436,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // re-probes with its screen at once.
         if last_session_env.elapsed() >= SESSION_ENV_RECHECK {
             last_session_env = Instant::now();
-            if crate::session_env::adopt() {
+            if !space && crate::session_env::adopt() {
                 doctor_soon.store(true, Ordering::SeqCst);
             }
         }
@@ -1389,7 +1464,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
             device_worker.send(DeviceWork::ReportWorktrees).ok();
             let (agents, report) = probe_agents(&ctx);
             doctor = report;
-            maybe_fetch_codex(&ctx, &doctor_soon);
+            if !space {
+                maybe_fetch_codex(&ctx, &doctor_soon);
+            }
             // #EXP-1941: caps reach the server only inside a register.
             if caps_changed(registration.caps.as_deref(), &device_caps(&advertised)) {
                 log::info!("the device caps changed: registering again");
@@ -1438,6 +1515,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // --- Quit sweep (desktop parity): hang up, kill live children (their
     // supervisors end the rows), reap PTY escapees, drop the pidfile. ------
     log::info!("daemon stopping");
+    // #EXP-2161: the spaces save and stop beside this daemon's own sweep
+    // (a service stop has one time limit); nothing is deleted.
+    let members_down = members.clone().map(|members| std::thread::spawn(move || members.stop_all()));
     if let Some(proxy) = &viewer_proxy {
         proxy.stop();
     }
@@ -1506,8 +1586,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if let Some(store) = pickup.store().filter(|_| synced.ready(SWEEP_SHAPES)) {
         sweep_scratch_dirs(&ctx, open_rows_here(&store, &device_id));
     }
+    if let Some(down) = members_down {
+        let _ = down.join();
+    }
     let _ = std::fs::remove_file(pidfile(&ctx.data_dir));
-    Ok(ExitCode::SUCCESS)
+    Ok(if space { crate::space::exit_code() } else { ExitCode::SUCCESS })
 }
 
 /// One doctor pass → what the relay/registry hears, plus the report itself.
@@ -1633,7 +1716,9 @@ fn register_device(
     let caps = device_caps(advertised);
     // FEED-154: prove the machine key on every register; the server pins the
     // first proven key per machine id, and only its holder may share it.
-    let key = api::device_identity::cli_device_key(&ctx.data_dir);
+    // #EXP-2161: a space is no machine of its own (never shared).
+    let space = api::member_spaces::active();
+    let key = if space { None } else { api::device_identity::cli_device_key(&ctx.data_dir) };
     let proof = key
         .as_ref()
         .map(|key| key.proof(&ctx.account.user_id, device_id, &coding::now_iso()));
@@ -1644,7 +1729,7 @@ fn register_device(
     let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings))
         .expect("defaults serialize cannot fail");
     let accounts =
-        doctor.agent_accounts_with_profiles(&settings, &ctx.data_dir, &coding::now_iso());
+        if space { crate::space::host_status().accounts } else { doctor.agent_accounts_with_profiles(&settings, &ctx.data_dir, &coding::now_iso()) };
     let agent_accounts = (!accounts.is_empty())
         .then(|| serde_json::to_value(&accounts).ok())
         .flatten();
@@ -2347,6 +2432,13 @@ fn start_agent_status(
     report: &coding::DoctorReport,
     then_beat: Option<&Arc<AtomicBool>>,
 ) {
+    // #EXP-2161: a space reports its host's collection, never its own.
+    if api::member_spaces::active() {
+        if let Some(flag) = then_beat {
+            flag.store(true, Ordering::SeqCst);
+        }
+        return;
+    }
     let data_dir = ctx.data_dir.clone();
     let report = report.clone();
     let then_beat = then_beat.map(Arc::clone);
@@ -2494,6 +2586,10 @@ fn push_local_defaults(
     let settings_path = coding::Settings::default_path(&ctx.data_dir);
     let wire = serde_json::to_value(coding::defaults_wire(settings))
         .expect("defaults serialize cannot fail");
+    // #EXP-2161: a space's defaults are the host's and the member's, not its own.
+    if api::member_spaces::active() {
+        return;
+    }
     let expected = api::devices::ExpectedStamp::Expect(marker.synced_at.as_deref());
     match api::devices::set_launch_defaults(&ctx.trpc, device_id, &wire, expected) {
         Ok(result) if result.conflict => {
@@ -2549,6 +2645,11 @@ fn run_device_command(
 ) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let (ok, message) = match command.kind.as_str() {
+        // #EXP-2161: a space keys its trees and nothing else on command: no
+        // sign-in, removal, update, CI or forge job of the machine.
+        other if api::member_spaces::active() && other != "tree_key" => {
+            (false, "Not available in a member's space.".to_string())
+        }
         // EXP-484: a sign-in on this machine, requested from anywhere. The
         // PTY lives for minutes, so the host owns its own thread and its own
         // completion — this arm never falls through to the one below.
@@ -3049,6 +3150,15 @@ const DAEMON_SHAPES: &[&str] = &[
     "agents",
 ];
 
+/// #EXP-2161: in a member's space only what its key syncs.
+fn daemon_shapes() -> &'static [&'static str] {
+    static SPACE: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    if !api::member_spaces::active() {
+        return DAEMON_SHAPES;
+    }
+    SPACE.get_or_init(|| DAEMON_SHAPES.iter().copied().filter(|shape| api::member_spaces::shape_allowed(shape)).collect())
+}
+
 /// EXP-1457: how often the 1Hz loop looks for a team change.
 const TEAM_CHECK: Duration = Duration::from_secs(30);
 
@@ -3134,7 +3244,7 @@ fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Syn
         // Call-time token access (§5.7) — never captured once, so a refresh
         // mid-run is picked up by the next poll.
         token: ctx.auth.token_provider_fn(&ctx.account.id),
-        shapes: Some(DAEMON_SHAPES),
+        shapes: Some(daemon_shapes()),
     };
     match manager.start_account(config) {
         Ok(_) => {

@@ -16,10 +16,12 @@ mod commands;
 mod context;
 mod ecode_jobs;
 mod launch;
+mod members;
 mod prefs;
 mod registry;
 mod session_env;
 mod session_host;
+mod space;
 mod term;
 mod voice_host;
 
@@ -47,7 +49,8 @@ fn print_stderr(record: &log::Record) {
 fn install_logger(command: &str, rest: &[String]) {
     use std::io::IsTerminal as _;
     let level = coding::logging::level_from_env();
-    let is_daemon = command == "daemon"
+    let in_space = space::is_space_command(command);
+    let is_daemon = in_space || command == "daemon"
         && !matches!(
             rest.first().map(String::as_str),
             Some("install" | "uninstall" | "status")
@@ -82,6 +85,10 @@ fn install_logger(command: &str, rest: &[String]) {
     // #LOGS-2: from the cached server config (no network here); the daemon
     // connects once it knows its account. Off unless the server and the
     // person (`exponential diagnostics`, `EXP_DIAGNOSTICS=0`) both say on.
+    // #EXP-2161: a member's space sends no diagnostics of its own.
+    if in_space {
+        return;
+    }
     observability::init(observability::Setup {
         product: observability::Product::Cli,
         version: cli_version().to_string(),
@@ -112,6 +119,7 @@ Commands:
                                           Sessions, newest first
   sessions show|log|message|stop|end <id> Inspect, tail (--follow), message, interrupt or end one
   agents [list|message|new]               Your teams' agents: message one, start a new conversation
+  members                                 Members whose Assistant runs on this server: state, approval code
   mcp serve                               MCP server (stdio) for your own clients: end-to-end encrypted
                                           through the daemon or desktop app on this machine
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
@@ -182,6 +190,9 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // #EXP-2161: the launcher of a member's space (it forks, so before any
+    // thread), and the test inside one.
+    member_space::run_if_requested();
     // EXP-2060: first, before any thread: an inherited SIG_IGN of the
     // termination signals becomes a no-op handler, so every git this host
     // runs starts at the defaults through posix_spawn, never a fork of it.
@@ -219,6 +230,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("");
     let rest = &args[1.min(args.len())..];
+    if space::is_space_command(command) {
+        api::member_spaces::enter();
+    }
     install_logger(command, rest);
 
     // First interactive run: ask once whether to keep the CLI current
@@ -258,6 +272,9 @@ fn main() -> ExitCode {
         "agents" => commands::agents::run(rest),
         "sessions" => commands::sessions::run(rest),
         "mcp" => commands::mcp::run(rest),
+        "members" => commands::members::run(rest),
+        "__space-daemon" => space::daemon(),
+        "__space-save" => space::save(),
         "motion" => commands::motion::run(rest),
         "bundle" => commands::bundle::run(rest),
         "daemon" => commands::daemon::run(rest),

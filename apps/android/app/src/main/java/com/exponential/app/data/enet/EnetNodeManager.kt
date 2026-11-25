@@ -16,6 +16,7 @@ import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.sealed.EnetTrustCrypto
 import com.exponential.app.data.sealed.HolderApi
+import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.sealed.InstallTrustKeeper
 import com.exponential.app.data.sealed.SealedFfi
 import com.exponential.app.data.sealed.SealedKeys
@@ -35,9 +36,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -72,6 +75,7 @@ class EnetNodeManager @Inject constructor(
     private val identities: EnetIdentityStore,
     private val treeKeys: TreeKeyStore,
     private val sessionKeys: SessionKeysApi,
+    private val dbs: DatabaseHolder,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -79,6 +83,9 @@ class EnetNodeManager @Inject constructor(
     private val nodes = ConcurrentHashMap<String, InstallNode>()
     private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
     private val installIds = ConcurrentHashMap<String, String>()
+
+    // #EXP-2161: per account, the member's own Assistant conversations (synced rows).
+    private val ownAssistants = ConcurrentHashMap<String, Set<String>>()
 
     /**
      * #EXP-1950 (install-trust.json): the pin store and the four rules of
@@ -91,6 +98,7 @@ class EnetNodeManager @Inject constructor(
         crypto = EnetTrustCrypto,
         persistence = treeKeys.trust,
         identity = { accountId -> identities.vault.identity(accountId, create = false) },
+        ownAssistant = { accountId, rootId -> ownAssistants[accountId]?.contains(rootId) == true },
     )
 
     // #EDE-114: the registry lists each account's node last loaded, per team
@@ -128,9 +136,39 @@ class EnetNodeManager @Inject constructor(
                 wake.trySend(Unit)
             }
         }
+        scope.launch {
+            auth.accounts
+                .map { list -> list.filter { it.token != null && it.userId != null }.associate { it.id to it.userId!! } }
+                .distinctUntilChanged()
+                .collectLatest(::followOwnAssistants)
+        }
         scope.launch { loop() }
         scope.launch { holderLoop() }
         registerNetworkCallback()
+    }
+
+    /** #EXP-2161 (member-space.json `pinCases` `rootIsOwnAssistant`): the roots
+     *  each account started with the Assistant it owns. */
+    private suspend fun followOwnAssistants(accounts: Map<String, String>): Unit = coroutineScope {
+        ownAssistants.keys.retainAll(accounts.keys)
+        for ((accountId, userId) in accounts) {
+            launch {
+                try {
+                    val db = dbs.database(accountId)
+                    combine(db.sessionDao().rawObserveAgentsNoDigest(), db.agentDefinitionDao().observeAll()) { roots, agents ->
+                        val mine = agents.filter { it.isAssistant && it.ownerId == userId }.map { it.id }.toSet()
+                        roots.filter { it.parentId == null && it.userId == userId && it.agentId in mine }.map { it.id.lowercase() }.toSet()
+                    }.distinctUntilChanged().collect { own ->
+                        ownAssistants[accountId] = own
+                        holderWake.trySend(Unit)
+                    }
+                } catch (err: CancellationException) {
+                    throw err
+                } catch (err: Exception) {
+                    Log.w(TAG, "own Assistant roots: ${err.javaClass.simpleName}")
+                }
+            }
+        }
     }
 
     /**
