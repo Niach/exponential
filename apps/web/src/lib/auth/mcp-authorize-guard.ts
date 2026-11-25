@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { oauthClients } from "@/db/schema"
+import { cimdOptions, metadataClientHost } from "./mcp-oauth-config"
 
 // Pre-flight for GET /api/auth/oauth2/authorize (and its 1.6 alias
 // /api/auth/mcp/authorize), run before better-auth sees the request. Two jobs:
@@ -23,7 +24,9 @@ export async function guardMcpAuthorize(
   const clientId = url.searchParams.get(`client_id`)
   const redirectUri = url.searchParams.get(`redirect_uri`)
 
-  if (clientId) {
+  // #NEW-141: a client named by its metadata document's URL never went stale:
+  // the provider reads the document (a first contact, a new callback) itself.
+  if (clientId && !(metadataClientHost(clientId) && cimdOptions())) {
     const [client] = await db
       .select({
         redirectUris: oauthClients.redirectUris,

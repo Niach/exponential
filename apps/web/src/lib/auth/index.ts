@@ -10,8 +10,9 @@ import {
   emailOTP,
   genericOAuth,
 } from "better-auth/plugins"
+import { cimd } from "@better-auth/cimd"
 import { mcp } from "@better-auth/mcp"
-import { mcpOAuthOptions } from "./mcp-oauth-config"
+import { cimdOptions, mcpOAuthOptions } from "./mcp-oauth-config"
 import { apiKey } from "@better-auth/api-key"
 import { passkey } from "@better-auth/passkey"
 import { creem } from "@creem_io/better-auth"
@@ -172,6 +173,8 @@ if (
 // EXP-857: a code burns after this many wrong tries (the plugin's
 // `allowedAttempts`; the EXP-1026 name gate reads the same bound).
 const EMAIL_OTP_ALLOWED_ATTEMPTS = 5
+
+const clientMetadata = cimdOptions()
 
 export const auth = betterAuth({
   // The token endpoints are server-only (see DISABLED_AUTH_PATHS).
@@ -719,6 +722,7 @@ export const auth = betterAuth({
     // Endpoints live under /api/auth/oauth2/*; /api/auth/mcp/* stays as an
     // alias (routes/api/auth/$.ts) for clients that cached the 1.6 metadata.
     mcp(mcpOAuthOptions()),
+    ...(clientMetadata ? [cimd(clientMetadata)] : []),
     ...(oidcProviders.length > 0
       ? [
           genericOAuth({

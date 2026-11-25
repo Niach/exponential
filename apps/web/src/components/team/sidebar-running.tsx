@@ -15,7 +15,7 @@ import {
   SidebarMenuItem,
   SidebarMenuTrailing,
   SessionRowDevice,
-  TeamAvatar,
+  TeamLead,
   chatRunMarkState,
   useSidebar,
   type MenuSessionProps,
@@ -243,18 +243,19 @@ export function SidebarRunningSection({
                   data-testid={`sidebar-running-${row.sessionId}`}
                   {...menuProps(SIDEBAR_ACTIVE_MENU_KIND, row.sessionId)}
                 >
-                  <ChatRunMark row={row} />
+                  <TeamLead team={team} lead={14} ground="bg-sidebar">
+                    <ChatRunMark row={row} />
+                  </TeamLead>
                   <SidebarRunningTitle title={row.title} unread={row.unread} />
                 </SidebarMenuButton>
                 {/* EXP-1318: the root's device, trailing — EXP-1477: in the
                     rail's one trailing column; #EXP-2027: the team's mark
-                    beside it. */}
-                <SidebarMenuTrailing className="gap-1.5">
-                  {device && <SessionRowDevice icon={device.icon} name={device.name} />}
-                  <span title={team.name} data-testid="running-team-mark" className="flex">
-                    <TeamAvatar iconUrl={team.iconUrl} size={14} />
-                  </span>
-                </SidebarMenuTrailing>
+                    on the run mark. */}
+                {device && (
+                  <SidebarMenuTrailing>
+                    <SessionRowDevice icon={device.icon} name={device.name} />
+                  </SidebarMenuTrailing>
+                )}
               </SidebarMenuItem>
             )
           })}

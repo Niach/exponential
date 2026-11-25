@@ -505,9 +505,11 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     }
     let variants = responsive_variants(&node.props);
     let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new(), built: Vec::new() };
-    // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
+    // #VAPP-284: `{childCount}` = the author's children (an alternative root's test);
+    // `{slotCount}` = the author's slots.
     let mut vars = IndexMap::new();
     vars.insert("childCount".to_string(), crate::json::number(node.children.len() as f64));
+    vars.insert("slotCount".to_string(), crate::json::number(node.slots.as_ref().map_or(0, |s| s.len()) as f64));
     let ctx = ExprContext { id: &node.id, props: &base_props, vars, types: view.components.get(&node.component).map(|d| &d.props) };
     let alternative = def.alternatives.iter().find(|a| matches!(eval_condition_value(Some(&a.if_), &ctx), Decided::Bool(true)));
     let mut root = match alternative {
@@ -587,22 +589,26 @@ fn expand_tree(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut
 }
 
 /// #VAPP-277: hand `props` to every `component` node under `node` (a nested
-/// `macro_` node ends the walk), never over an author-set prop.
-fn pass_down(node: &mut UiNode, macro_: &str, component: &str, props: &Props) {
+/// `macro_` node ends the walk), never over an author-set prop (`style`
+/// the same, key by key).
+fn pass_down(node: &mut UiNode, macro_: &str, component: &str, props: &Props, style: Option<&Props>) {
     if node.component == macro_ {
         return;
     }
     for child in &mut node.children {
-        crate::deep(|| pass_down(child, macro_, component, props));
+        crate::deep(|| pass_down(child, macro_, component, props, style));
     }
     for child in node.slots.iter_mut().flat_map(|s| s.values_mut()) {
-        crate::deep(|| pass_down(child, macro_, component, props));
+        crate::deep(|| pass_down(child, macro_, component, props, style));
     }
     if node.component == component {
         for (k, v) in props {
             if !v.is_null() && !node.props.contains_key(k) {
                 node.props.insert(k.clone(), v.clone());
             }
+        }
+        if style.is_some() {
+            node.style = merge_style(style, node.style.as_ref());
         }
     }
 }
@@ -620,12 +626,16 @@ fn apply_passes(node: &mut UiNode, def: &MacroDef) {
             continue;
         }
         let Some(Value::Object(props)) = eval_value(&Value::Object(pass.props.clone()), &ctx) else { continue };
-        handed.push((pass.slot.clone(), pass.component.clone(), props));
+        let style = match pass.style.as_ref().and_then(|s| eval_value(&Value::Object(s.clone()), &ctx)) {
+            Some(Value::Object(style)) => Some(style),
+            _ => None,
+        };
+        handed.push((pass.slot.clone(), pass.component.clone(), props, style));
     }
     let macro_ = node.component.clone();
-    for (slot, component, props) in handed {
+    for (slot, component, props, style) in handed {
         if let Some(target) = node.slots.as_mut().and_then(|s| s.get_mut(&slot)) {
-            pass_down(target, &macro_, &component, &props);
+            pass_down(target, &macro_, &component, &props, style.as_ref());
         }
     }
 }

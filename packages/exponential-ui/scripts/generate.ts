@@ -833,7 +833,7 @@ function componentCases(): ComponentCase[] {
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
   `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
-  `CountBadge`, `MessageStatus`,
+  `CountBadge`, `MessageStatus`, `AvatarBadge`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -973,6 +973,12 @@ function treeCases(): ComponentCase[] {
   ]
 }
 
+/** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
+const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
+/** nav-badges.json `teamMark`: a row's lead with its team's mark on the corner. */
+const avatarBadge = (size: string, lead: NestedNode, badge: NestedNode): NestedNode => ({ id: `avatar_badge`, component: `AvatarBadge`, props: { size }, children: [lead], slots: { badge } })
+const teamGlyph = (): NestedNode => ({ id: `team`, component: `Icon`, props: { name: `ui-team`, label: `Acme` } })
+
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
@@ -1049,6 +1055,13 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `tail · end`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Ship it once CI is green.`, side: `out`, time: `22:44`, status: `read`, tail: `end` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia` } } } } },
     { label: `tail · down`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `A plan is ready for you.`, side: `out`, tail: `down` }, style: { width: 360, paddingBottom: 10 } } },
   ],
+  // The nav-badges.json `teamMark` sizes, each on its lead: an avatar, then an icon disc and an image mark.
+  AvatarBadge: [
+    ...([[`sm`, `sm`], [`default`, `default`], [`lg`, `lg`]] as const).map(([size, avatar]) => ({ label: `size · ${size}`, node: avatarBadge(size, { id: `avatar`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada`, size: avatar } }, teamGlyph()) })),
+    { label: `disc`, node: avatarBadge(`default`, { id: `disc`, component: `Box`, style: { display: `flex`, alignItems: `center`, justifyContent: `center`, width: 32, height: 32, borderRadius: `$radius.full`, backgroundColor: `$color.muted` }, children: [{ id: `glyph`, component: `Icon`, props: { name: `nav-chats` } }] }, teamGlyph()) },
+    { label: `badge · image`, node: avatarBadge(`lg`, { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia`, size: `lg` } }, { id: `team`, component: `Image`, props: { alt: `Acme`, src: AVATAR_PICTURE } }) },
+    { label: `badge · avatar`, node: avatarBadge(`lg`, { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia`, size: `lg` } }, { id: `other`, component: `Avatar`, props: { name: `Bob`, seed: `demo-bob` } }) },
+  ],
   // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
   MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),
   CallSurface: [
@@ -1083,8 +1096,6 @@ const foldChildren = (selected?: string): NestedNode[] => [
 ]
 const FOLD_ON = { press: { event: { name: `select`, context: { page: `issues` } } }, change: { event: { name: `fold` } } }
 const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => ({ id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, open }, on: FOLD_ON, children: foldChildren(`statuses`), ...extra })
-/** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
-const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
 /** VAPP-163: cases a specimen shows AFTER its generated ones (past the cap),
  *  each pinning a cross-renderer drift the spezl drafts found: a styled
  *  Heading on a band (the author's style beats the Heading recipe), the
@@ -2195,8 +2206,21 @@ function messageBubbleCases(): ComponentCase[] {
   ]
 }
 
+/** Every AvatarBadge size × a badge of every kind its `$pass` sizes (an
+ *  author's own style wins), and one it only clips. */
+function avatarBadgeCases(): ComponentCase[] {
+  const lead: NestedNode = { id: `avatar`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada` } }
+  const badges: Record<string, NestedNode> = {
+    icon: teamGlyph(),
+    image: { id: `team`, component: `Image`, props: { alt: `Acme` } },
+    avatar: { id: `other`, component: `Avatar`, props: { name: `Bob`, seed: `demo-bob` }, style: { opacity: 0.5, width: 12 } },
+    box: { id: `dot`, component: `Box`, style: { width: 8, height: 8 } },
+  }
+  return [`sm`, `default`, `lg`].flatMap((size) => Object.entries(badges).map(([kind, badge]) => ({ name: `AvatarBadge/${size}+${kind}`, node: avatarBadge(size, lead, badge) })))
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
+  return [...all, ...boundMacroCases(), ...avatarBadgeCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })

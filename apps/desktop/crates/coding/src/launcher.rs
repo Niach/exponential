@@ -1721,12 +1721,16 @@ fn attach_computer_use(
         let granted = match place {
             // Row 5 when the screen was the place and cannot be driven
             // (asked only then); rows 1 and 4 say nothing.
-            Place::None => return Placed::None(undrivable),
+            Place::None => {
+                epilot::note_cannot_run(session_id, undrivable.as_deref());
+                return Placed::None(undrivable);
+            }
             Place::Person => machine.grant(session_id, label).map(|grant| (grant, Placed::Person)),
             Place::Space => machine.grant_space(session_id, label, had_space).map(|grant| (grant, Placed::Space)),
         };
         match granted {
             Ok((grant, placed)) => {
+                epilot::note_cannot_run(session_id, None);
                 crate::mcp_servers::attach_computer(team_mcp, &grant);
                 if placed == Placed::Space {
                     crate::session_teardown::saw_space_row(session_id);
@@ -1735,7 +1739,9 @@ fn attach_computer_use(
             }
             Err(reason) => {
                 log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
-                Placed::None(None)
+                // #FEED-313: the run is told why, never silently without.
+                epilot::note_cannot_run(session_id, Some(&reason));
+                Placed::None(Some(reason))
             }
         }
     })
@@ -4778,7 +4784,9 @@ mod tests {
         let options = session_launch_options(&on, &base_options(), &deps.settings);
         let mut mcp = ResolvedMcp::default();
         let placed = crate::computer_place::with_machine(Rc::new(Refusing), || attach_computer_use(&deps, &options, &mut mcp, "s-refused", "EXP-1", false));
-        assert_eq!(placed, crate::computer_place::Placed::None(None));
+        // #FEED-313: the run is told why, and its end says it when it says nothing.
+        assert_eq!(placed, crate::computer_place::Placed::None(Some("no free port".to_string())));
+        assert_eq!(epilot::cannot_run("s-refused").as_deref(), Some("no free port"));
         assert_eq!(mcp, ResolvedMcp::default());
     }
 

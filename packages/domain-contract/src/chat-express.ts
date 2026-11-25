@@ -10,7 +10,6 @@
 // read-aloud, copy) uses the pure `plainProse` instead, no SDK needed.
 import fixture from "../fixtures/chat-express.json" with { type: "json" }
 
-export const CHAT_EXPRESS = fixture
 export const EXPRESS_LIMITS = fixture.limits
 export const EXPRESS_COPY = fixture.copy
 export const EXPRESS_REPLY_EVENT = fixture.replyEvent

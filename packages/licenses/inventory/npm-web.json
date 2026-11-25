@@ -1975,6 +1975,25 @@
       ]
     },
     {
+      "name": "@better-auth/cimd",
+      "version": "1.7.15",
+      "declared": "MIT",
+      "licenses": [
+        "MIT"
+      ],
+      "homepage": "https://www.better-auth.com/docs/plugins/cimd",
+      "copyright": [
+        "Copyright (c) 2024 - present, Bereket Engida"
+      ],
+      "texts": [
+        {
+          "spdx": "MIT",
+          "source": "LICENSE.md",
+          "body": "The MIT License (MIT)\nCopyright (c) 2024 - present, Bereket Engida\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the “Software”), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,\nDAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,\nARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE."
+        }
+      ]
+    },
+    {
       "name": "@better-auth/core",
       "version": "1.7.15",
       "declared": "MIT",

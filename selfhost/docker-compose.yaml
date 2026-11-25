@@ -16,6 +16,8 @@ services:
   web:
     image: ghcr.io/niach/exponential-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    mem_limit: ${WEB_MEMORY_LIMIT:-2g}
+    memswap_limit: ${WEB_MEMORY_LIMIT:-2g}
     # .env flows through wholesale so optional subsystems (SMTP_*, GOOGLE_*,
     # GITHUB_APP_*, STEER_RELAY_*, ...) work without editing this file; the
     # explicit environment block below wins for the in-network URLs.
@@ -56,6 +58,8 @@ services:
     # to this one without a dump (INSTALL.md, "Semantic issue search").
     image: ghcr.io/niach/exponential-postgres:18-pgvector0.8.7
     restart: unless-stopped
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-2g}
+    memswap_limit: ${POSTGRES_MEMORY_LIMIT:-2g}
     environment:
       POSTGRES_DB: exponential
       POSTGRES_USER: postgres
@@ -81,6 +85,8 @@ services:
     # Pinned like the dev stack — bump deliberately, never track latest.
     image: electricsql/electric:1.8.1
     restart: unless-stopped
+    mem_limit: ${ELECTRIC_MEMORY_LIMIT:-2g}
+    memswap_limit: ${ELECTRIC_MEMORY_LIMIT:-2g}
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/exponential?sslmode=disable
       # Safe ONLY because this service is never published to the host — every
@@ -93,6 +99,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
     environment:
       # Default ":80" serves plain HTTP on localhost. Set DOMAIN in .env to a
       # real hostname and Caddy provisions HTTPS automatically (APP_URL must
@@ -121,6 +129,8 @@ services:
     profiles: [steer]
     image: ghcr.io/niach/exponential-steer-relay:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
     environment:
       # Deliberately NOT `:?` — compose interpolates the whole file even when
       # the profile is inactive.
@@ -129,6 +139,21 @@ services:
       # appends the real client address to X-Forwarded-For — this keys the
       # relay's per-IP connect rate limits to that address.
       TRUST_PROXY: true
+
+  # Optional: `docker compose --profile embedder up -d`. The one process that
+  # holds the search embedding model; pair it with ISSUE_EMBEDDER_URL +
+  # ISSUE_EMBEDDER_SECRET in .env. Without it the web container embeds itself.
+  # Never publish a port for it.
+  embedder:
+    profiles: [embedder]
+    image: ghcr.io/niach/exponential-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # Loading peaks near 0.9 GB, 0.7 GB while loaded, 30 MB otherwise.
+    mem_limit: ${EMBEDDER_MEMORY_LIMIT:-1g}
+    memswap_limit: ${EMBEDDER_MEMORY_LIMIT:-1g}
+    environment:
+      EXPONENTIAL_ROLE: embedder
+      ISSUE_EMBEDDER_SECRET: ${ISSUE_EMBEDDER_SECRET:-}
 
 configs:
   caddyfile:

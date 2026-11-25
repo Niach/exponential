@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
-import { boardIconValues } from "@exp/db-schema/domain"
 import { PICKABLE_ICONS, SEMANTIC_ICONS } from "@exp/icons"
 import chatListFixture from "@exp/domain-contract/fixtures/chat-list.json"
 import { ICON_COMPONENTS } from "./icons.generated"
@@ -12,7 +11,7 @@ import { ICON_COMPONENTS } from "./icons.generated"
 // same art instead of each substituting its own native glyph.
 export const BOARD_ICON_COMPONENTS: Record<BoardIcon, LucideIcon> =
   Object.fromEntries(
-    boardIconValues.map((name) => [name, ICON_COMPONENTS[name]])
+    PICKABLE_ICONS.map((name) => [name, ICON_COMPONENTS[name]])
   ) as Record<BoardIcon, LucideIcon>
 
 export const BOARD_ICON_OPTIONS = PICKABLE_ICONS.map((name) => ({

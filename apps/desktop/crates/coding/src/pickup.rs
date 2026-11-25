@@ -1080,7 +1080,8 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// reads `Message from <name> (member <userId>): <body>`
 /// (`domain::transcript_grouping::member_input`), `<name>` = the author's
 /// synced name, else `copy.formerMember`. Only this prompt wears it: the
-/// row's body is never rewritten.
+/// row's body is never rewritten. #FEED-312: a builtin command (`/new`) is
+/// acted on, so it stays bare ([`is_new_conversation`] reads it).
 pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &MemberInputs) -> String {
     let text = input_body_text(message, sessions);
     if let Some(key) = input_tag(message) {
@@ -1091,6 +1092,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &Membe
         Some(author)
             if message.is_from_user()
                 && action_card(message).is_none()
+                && !domain::transcript_grouping::is_steer_command(&text)
                 && members.group_chats.contains(&message.session_id) =>
         {
             members.word(author, &text)
@@ -4219,8 +4221,10 @@ fn hand(
     let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
     for message in messages {
         let body = message.body.clone().unwrap_or_default();
-        // An answered tool card is the person's answer.
-        if message.is_from_user() || is_answered_tool_card(message) {
+        // An answered tool card is the person's answer. #FEED-298: a firing
+        // (a schedule tick, an event: an `event` card the server authors as
+        // the member so every device delivers it) is no person's turn.
+        if (message.is_from_user() && input_tag(message).is_none()) || is_answered_tool_card(message) {
             engine.deliver(message.id.clone(), body);
         } else {
             engine.deliver_wake(message.id.clone(), body);
@@ -5381,6 +5385,13 @@ mod tests {
         assert_eq!(input_text(&by("p1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("c1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("g1", "u-mira", "Ship it"), &sessions, &MemberInputs::default()), "Ship it");
+        // #FEED-312: a command stays the command the device acts on.
+        for command in ["/new", " /new\n", "/compact keep the plan", "/model opus"] {
+            let row = by("g1", "u-mira", command);
+            let body = input_text(&row, &sessions, &members);
+            assert_eq!(body, command);
+            assert_eq!(is_new_conversation(&MessageRow { body: Some(body), ..row }), command.trim() == "/new");
+        }
         // A message without an author keeps its body.
         assert_eq!(input_text(&message("m1", "g1", "t"), &sessions, &members), "body of m1");
         // A trigger's event card keeps its tag, an action card its form,
@@ -6802,14 +6813,22 @@ mod tests {
             author_session_id: Some("child-1".to_string()),
             ..message("w1", "s1", "2026-10-02T00:00:02Z")
         };
+        // #FEED-298: a schedule tick, authored as the member by the server
+        // (so every device delivers it), is no person's turn either.
+        let tick = MessageRow {
+            body: Some("Schedule `0 * * * *` fired.".to_string()),
+            card: Some(serde_json::json!({"kind": "event", "event": "trigger_fired", "triggerId": "t1", "name": null})),
+            ..message("t1", "s1", "2026-10-02T00:00:05Z")
+        };
         let rows = vec![
             report("r1", "s1", "child-1", "done"),
             wake,
+            tick,
             message("m1", "s1", "2026-10-02T00:00:09Z"),
         ];
-        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "m1"]);
-        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "m1"]);
-        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1"]);
+        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1", "t1"]);
     }
 
     /// #FEED-237: the pickup acks each person message it RECEIVED once

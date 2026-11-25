@@ -54,6 +54,8 @@ pub const SESSIONS_TOOL: &str = "exponential_sessions";
 /// the read tool still takes them from a first-party caller, so both seal.
 pub const SESSIONS_WRITE_TOOL: &str = "exponential_sessions_write";
 pub const SELF_TOOL: &str = "exponential_session_self";
+/// The server's bound on `sessions end {summary}`, sealed or not.
+const END_SUMMARY_MAX: usize = 4000;
 
 /// The transform of ONE launched session (the caller of every call).
 pub struct SealingTransform {
@@ -62,6 +64,8 @@ pub struct SealingTransform {
     trpc: Option<Arc<TrpcClient>>,
     /// New-root seals sent and not yet adopted, by public key.
     new_roots: Mutex<HashMap<String, NewRootSeal>>,
+    /// #FEED-311: the PERSON's own client on this device, no session.
+    outside: bool,
 }
 
 impl SealingTransform {
@@ -72,7 +76,42 @@ impl SealingTransform {
             service.keyring().note_root(session_id, root_id);
             service.keyring().note_root(root_id, root_id);
         }
-        Self { session_id: session_id.to_string(), root_id: root_id.to_string(), trpc, new_roots: Mutex::default() }
+        Self { session_id: session_id.to_string(), root_id: root_id.to_string(), trpc, new_roots: Mutex::default(), outside: false }
+    }
+
+    /// #FEED-311: the transform of the person's own MCP client or script on
+    /// this device (`client_mcp`): no session, so no tree of its own.
+    pub fn outside(trpc: Option<Arc<TrpcClient>>) -> Self {
+        Self { session_id: String::new(), root_id: String::new(), trpc, new_roots: Mutex::default(), outside: true }
+    }
+
+    /// #FEED-311: what an outside client may not send. A session's own tools
+    /// have no session to act on here; and an install that waits for
+    /// approval (install-trust.json) seals nothing on a client's behalf:
+    /// refused per call, before anything leaves the device.
+    fn check_outside(&self, tool: &str, op: &str, args: &Value) -> Result<(), String> {
+        let content = match (tool, op) {
+            (SHOW_TOOL, _) | (SELF_TOOL, "suggest") | (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "escalate") => {
+                return Err(OUTSIDE_SESSION_TOOL.to_string());
+            }
+            (SEND_TOOL, _) => ["text", "name", "answer"].iter().any(|key| args.get(key).is_some_and(|v| !v.is_null())),
+            (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "end") => args.get("summary").is_some_and(|v| !v.is_null()),
+            _ => false,
+        };
+        if !content {
+            return Ok(());
+        }
+        let service = sealing::sealer().map_err(|err| match err {
+            SealError::NoService => no_holder("", "The message", ""),
+            err => refused("The message", &err),
+        })?;
+        if let Some(code) = sealing::install_waiting() {
+            return Err(outside_waiting(Some(&code)));
+        }
+        if !service.makes_keys() {
+            return Err(outside_waiting(sealing::install_waiting().as_deref()));
+        }
+        Ok(())
     }
 
     fn root_for(&self, session_id: &str) -> Option<String> {
@@ -446,7 +485,21 @@ impl SealingTransform {
         Ok(out)
     }
 
+    /// #FEED-313: a run that ends without a word although computer use could
+    /// not run says why: the last refusal is its summary.
+    fn end_words(&self, mut args: Value) -> Value {
+        let silent = args.get("summary").and_then(Value::as_str).is_none_or(|summary| summary.trim().is_empty());
+        let own = args.get("id").and_then(Value::as_str).is_none_or(|id| id == self.session_id);
+        if let (true, true, Some(reason)) = (silent, own, epilot::cannot_run(&self.session_id)) {
+            if let Some(obj) = args.as_object_mut() {
+                obj.insert("summary".to_string(), json!(format!("Computer use could not run: {reason}")));
+            }
+        }
+        args
+    }
+
     fn seal_end(&self, args: Value) -> Result<Value, String> {
+        let args = self.end_words(args);
         let Some(summary) = args.get("summary").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
             return Ok(args);
         };
@@ -485,10 +538,37 @@ impl SealingTransform {
             })
             .collect();
         let mut out = json!({ "op": "end", "sealedReport": sealed, "copies": copies });
+        // #FEED-313: the report reaches the listeners; the session's own chat
+        // gets the same words as its closing message, sealed as a body.
+        if let Some(body) = self.closing_body(&root, summary) {
+            out["summary"] = json!(body);
+        }
         if let Some(id) = args.get("id") {
             out["id"] = id.clone();
         }
         Ok(out)
+    }
+
+    /// `summary` sealed for the chat it closes, cut where its envelope would
+    /// pass the server's bound on a summary (the report carries it whole).
+    fn closing_body(&self, root: &str, summary: &str) -> Option<String> {
+        let mut text = summary.to_string();
+        loop {
+            match self.seal_text(root, &text) {
+                Ok(body) if body.len() <= END_SUMMARY_MAX => return Some(body),
+                Ok(_) => {
+                    let keep = text.chars().count() * 3 / 4;
+                    if keep == 0 {
+                        return None;
+                    }
+                    text = text.chars().take(keep).chain(['…']).collect();
+                }
+                Err(err) => {
+                    log::warn!("gateway: the end's closing message for {root} could not be sealed ({err}); its report goes alone");
+                    return None;
+                }
+            }
+        }
     }
 
     /// tRPC `sessions.listeners {sessionId}`: the wake_on listener trees.
@@ -689,6 +769,11 @@ impl SealingTransform {
         if let Some(root) = out.get("rootId").and_then(Value::as_str) {
             service.keyring().note_root(target, root);
         }
+        // #FEED-311: a person's message is no agent-to-agent one: it reaches
+        // its device over the shape.
+        if self.outside {
+            return;
+        }
         let deliver_to = out.get("deliverTo").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value::<DeliverTo>(v.clone()).ok());
         let message_id = out.get("messageId").and_then(Value::as_str);
         let (Some(deliver_to), Some(message_id)) = (deliver_to, message_id) else { return };
@@ -722,6 +807,9 @@ impl GatewayTransform for SealingTransform {
 
     fn request_with(&self, tool: &str, args: Value, upstream: &dyn GatewayUpstream) -> Result<Value, String> {
         let op = args.get("op").and_then(Value::as_str).unwrap_or_default().to_string();
+        if self.outside {
+            self.check_outside(tool, &op, &args)?;
+        }
         match (tool, op.as_str()) {
             (SEND_TOOL, _) => {
                 let args = if args.get("answer").is_some_and(Value::is_object) && args.get("sessionId").is_some() {
@@ -787,6 +875,16 @@ impl GatewayTransform for SealingTransform {
         }
         result
     }
+}
+
+/// #FEED-311: a session's own tool, called by a client that is no session.
+pub const OUTSIDE_SESSION_TOOL: &str = "Only an Exponential session can call this tool; nothing was sent.";
+
+/// #FEED-311: an outside client's send on an install that waits for approval.
+fn outside_waiting(code: Option<&str>) -> String {
+    log::warn!("gateway: a local client's send was refused: this install waits for approval");
+    let code = code.map(|code| format!(" · {code}")).unwrap_or_default();
+    format!("This device waits for approval{code}. Nothing was sent. Approve it under Needs you on a device you already use, then send again.")
 }
 
 #[derive(serde::Deserialize)]
@@ -1999,7 +2097,10 @@ mod tests {
         // end: a sealed report + a copy for the listener's tree.
         call(&grant, SESSIONS_TOOL, json!({ "op": "end", "summary": "Merged it" }));
         let sent = calls_of(&server, SESSIONS_TOOL).pop().unwrap();
-        assert!(sent.get("summary").is_none() && !sent.to_string().contains("Merged it"), "{sent}");
+        assert!(!sent.to_string().contains("Merged it"), "{sent}");
+        // #FEED-313: the own chat's closing message, the same words.
+        let closing = sealing::open_body_text("root-1", sent["summary"].as_str().expect("the closing message")).unwrap();
+        assert_eq!(closing, "Merged it");
         let report = sealing::open_card("root-1", &sent["sealedReport"]).card;
         assert_eq!(report, json!({ "kind": "report", "sessionId": "child-1", "status": "ended", "final": true, "summary": "Merged it" }));
         let copy = &sent["copies"][0];
@@ -2010,8 +2111,23 @@ mod tests {
         // #VAPP-293: the write twin's end seals the same way.
         call(&grant, SESSIONS_WRITE_TOOL, json!({ "op": "end", "summary": "Twin end" }));
         let sent = calls_of(&server, SESSIONS_WRITE_TOOL).pop().unwrap();
-        assert!(sent.get("summary").is_none() && !sent.to_string().contains("Twin end"), "{sent}");
+        assert!(!sent.to_string().contains("Twin end"), "{sent}");
         assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], "Twin end");
+
+        // #FEED-313: a long summary's closing message stays within the
+        // server's bound; the report carries it whole.
+        let long = "x".repeat(3900);
+        call(&grant, SESSIONS_TOOL, json!({ "op": "end", "summary": long }));
+        let sent = calls_of(&server, SESSIONS_TOOL).pop().unwrap();
+        assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], long);
+        assert!(sent["summary"].as_str().unwrap().len() <= 4000);
+
+        // #FEED-313: a silent end after computer use could not run says why.
+        epilot::note_cannot_run("child-1", Some("The person's screen is locked."));
+        call(&grant, SESSIONS_WRITE_TOOL, json!({ "op": "end" }));
+        let sent = calls_of(&server, SESSIONS_WRITE_TOOL).pop().unwrap();
+        assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], "Computer use could not run: The person's screen is locked.");
+        epilot::note_cannot_run("child-1", None);
 
         // suggest: one card envelope per card.
         call(&grant, SELF_TOOL, json!({ "op": "suggest", "replies": ["Ship it"], "tasks": [{ "title": "Tests", "text": "Cover it" }] }));

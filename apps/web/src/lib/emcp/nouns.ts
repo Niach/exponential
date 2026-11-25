@@ -6,6 +6,7 @@ import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
+import { mentionIssues, mentionQuery } from "./mentions"
 import { compactViewResult, isViewListOp } from "./view-results"
 import { guardDestructiveCall } from "./delete-guard"
 import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
@@ -118,7 +119,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `comments`,
     label: `comments`,
     group: `work`,
-    blurb: `Comments on an issue (plain GFM; replies one level deep; audience reporter emails a widget reporter; a report's reporter sees only that report).`,
+    blurb: `Comments on an issue (plain GFM; one reply level; audience reporter emails a widget reporter; a report's reporter sees only that report).`,
     alwaysLoad: true,
     ops: { list: `comments_list`, create: `comments_create`, update: `comments_update`, delete: `comments_delete` },
   },
@@ -126,7 +127,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `pr`,
     label: `pull requests`,
     group: `work`,
-    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files. Every reply carries checks (the PR's CI); CI finishing wakes the PR's session, so never poll GitHub.`,
+    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files. Replies carry checks (the PR's CI); CI finishing wakes the PR's session: never poll GitHub.`,
     alwaysLoad: true,
     ops: {
       open: `pr_open`,
@@ -635,7 +636,7 @@ export function registerNounTools(
   access: McpAccess,
   sessionId: string | null = null,
   gates: McpToolGates = ALL_MCP_TOOL_GATES
-) {
+): Map<string, LegacyTool> {
   const legacy = collectLegacyTools(user, request, access, sessionId, gates)
   // The worst-case surface, so every op's parameters are described for
   // every caller (descriptions never depend on the gates).
@@ -689,7 +690,14 @@ export function registerNounTools(
         ...(viewMeta ?? {}),
         ...(spec.alwaysLoad ? ALWAYS_LOAD_META : {}),
       }
+      // #NEW-141: an MCP Apps host opens the issues view (its entrypoints) and
+      // searches mentions without an `op`; a session never does.
+      const openOp = sessionId === null && half.read && spec.name === `issues` ? `show` : null
       const twinRef = twin ? { name: twin.name, ops: twin.ops } : undefined
+      const opSchema = z.enum(accepted as [string, ...string[]], {
+        error: (issue) =>
+          typeof issue.input === `string` ? unknownOp(spec, issue.input, half.ops, twinRef) : undefined,
+      })
       server.registerTool(
         half.name,
         {
@@ -697,19 +705,14 @@ export function registerNounTools(
           description: nounDescription(spec, legacy, everything, { ops: half.ops, twin: twin?.name, read: half.read }),
           // The op enum's own refusal names a moved op's new home (the SDK
           // validates before the handler runs).
-          inputSchema: z
-            .object({
-              op: z.enum(accepted as [string, ...string[]], {
-                error: (issue) =>
-                  typeof issue.input === `string` ? unknownOp(spec, issue.input, half.ops, twinRef) : undefined,
-              }),
-            })
-            .passthrough(),
+          inputSchema: z.object({ op: openOp ? opSchema.optional() : opSchema }).passthrough(),
           annotations: half.annotations,
           ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         } as never,
         (async (args: Record<string, unknown>, extra: unknown) => {
-          const { op, ...rest } = args
+          const { op = openOp, ...rest } = args
+          const query = openOp && args.op === undefined ? mentionQuery(rest) : null
+          if (query !== null) return mentionIssues(legacy, query, extra)
           if (!accepted.includes(String(op))) return err(new Error(unknownOp(spec, String(op), half.ops, twinRef)))
           const tool = routes.get(String(op))
           if (tool === undefined) return err(new Error(unknownOp(spec, String(op), half.ops, twinRef)))
@@ -744,4 +747,5 @@ export function registerNounTools(
       )
     }
   }
+  return legacy
 }
