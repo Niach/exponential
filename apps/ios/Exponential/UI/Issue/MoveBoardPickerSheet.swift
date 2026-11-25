@@ -19,6 +19,7 @@ import SwiftUI
 struct MoveBoardPicker: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(TeamState.self) private var teamState: TeamState?
     @State private var layout = SidebarLayoutModel()
 
     let boards: [BoardEntity]
@@ -30,16 +31,21 @@ struct MoveBoardPicker: View {
     var title: String = "Move to board"
     let onSelect: (BoardEntity) -> Void
 
-    private var teamId: String? { boards.first?.teamId }
+    /// One team's boards fold into its folders; a list over several teams is
+    /// flat, in the caller's order, each row with its team's name (#EXP-2125).
+    private var showsTeam: Bool { Set(boards.map(\.teamId)).count > 1 }
+    private var teamId: String? { showsTeam ? nil : boards.first?.teamId }
 
-    /// The sidebar's default order: sortOrder, then name.
-    private var ordered: [BoardEntity] {
-        boards.sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+    /// The sidebar's default order (`BoardOrder`).
+    private var ordered: [BoardEntity] { showsTeam ? boards : BoardOrder.sorted(boards) }
+
+    private func row(_ board: BoardEntity) -> BoardPickerBoard {
+        BoardPickerBoard(board, teamName: showsTeam ? teamState?.team(board.teamId)?.name : nil)
     }
 
     var body: some View {
         BoardPicker(
-            boards: ordered.map(BoardPickerBoard.init),
+            boards: ordered.map(row),
             value: selectedId,
             onChange: { picked in
                 guard let board = boards.first(where: { $0.id == picked }) else { return }

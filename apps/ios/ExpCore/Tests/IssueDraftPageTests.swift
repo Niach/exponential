@@ -164,6 +164,55 @@ final class IssueDraftPageTests: XCTestCase {
         }
     }
 
+    // #EXP-2125: the board picker over every team, and what a pick does.
+
+    private func rows(_ key: String) throws -> [[String: Any]] {
+        let root = try JSONSerialization.jsonObject(with: try Data(contentsOf: fixtureURL)) as? [String: Any]
+        return try XCTUnwrap(root?[key] as? [[String: Any]])
+    }
+
+    func testBoards() throws {
+        for c in try rows("boards") {
+            let teams = try XCTUnwrap(c["teams"] as? [[String: String]]).map {
+                (id: $0["id"] ?? "", name: $0["name"] ?? "", kind: $0["kind"] ?? "")
+            }
+            let got = IssueDraftPage.boards(
+                teams: teams, boards: try XCTUnwrap(c["boards"] as? [[String: Any]]), only: c["only"] as? String
+            ) { ($0["id"] as! String, $0["teamId"] as! String, ($0["sortOrder"] as? NSNumber)?.doubleValue) }
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            XCTAssertEqual(got.boards.map { $0["id"] as? String }, expected["boards"] as? [String], "\(c["case"] ?? "")")
+            XCTAssertEqual(got.showTeam, expected["showTeam"] as? Bool, "\(c["case"] ?? "")")
+        }
+    }
+
+    func testPicks() throws {
+        func fields(_ row: [String: Any]) throws -> IssueDraftPage.PickFields {
+            .init(
+                teamId: try XCTUnwrap(row["teamId"] as? String), boardId: try XCTUnwrap(row["boardId"] as? String),
+                statusId: row["statusId"] as? String, labelIds: try XCTUnwrap(row["labelIds"] as? [String]),
+                assigneeId: row["assigneeId"] as? String, assigneeAgentId: row["assigneeAgentId"] as? String
+            )
+        }
+        for c in try rows("picks") {
+            let board = try XCTUnwrap(c["board"] as? [String: String])
+            let got = IssueDraftPage.pick(
+                try fields(try XCTUnwrap(c["draft"] as? [String: Any])),
+                board: (board["id"] ?? "", board["teamId"] ?? ""), soleMemberId: c["soleMemberId"] as? String
+            )
+            XCTAssertEqual(got, try fields(try XCTUnwrap(c["expected"] as? [String: Any])), "\(c["case"] ?? "")")
+        }
+    }
+
+    /// A default board: ties by id, never the order the boards arrived in.
+    func testDefaultBoardTie() {
+        XCTAssertEqual(
+            AppIntentsModel.board(
+                boards: [.init(id: "b-2", sortOrder: 0), .init(id: "b-1", sortOrder: 0)], lastBoardId: nil, pickedId: nil
+            ),
+            "b-1"
+        )
+    }
+
     func testInboxDotTable() throws {
         let cases = try fixture().inboxDot
         XCTAssertFalse(cases.isEmpty)

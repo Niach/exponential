@@ -148,6 +148,75 @@ public enum IssueDraftPage {
         !creating && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - Boards (#EXP-2125)
+
+    /// TS `issueDraftBoards`: the boards the picker offers, in its order
+    /// (the teams by name, in each the boards by sortOrder, ties by id);
+    /// `showTeam` = the rows say their team. `only` holds the list to one
+    /// team (a chat's, a parent's, a share's).
+    public static func boards<Board>(
+        teams: [(id: String, name: String, kind: String)], boards: [Board], only: String? = nil,
+        key: (Board) -> (id: String, teamId: String, sortOrder: Double?)
+    ) -> (boards: [Board], showTeam: Bool) {
+        let keyed = boards.map { (board: $0, key: key($0)) }
+        let teamIds = SidebarTree.teams(teams).filter { only == nil || $0 == only }
+        let offered = teamIds.flatMap { teamId in
+            keyed.filter { $0.key.teamId == teamId }.sorted {
+                BoardOrder.precedes(($0.key.sortOrder, $0.key.id), ($1.key.sortOrder, $1.key.id))
+            }
+        }
+        return (offered.map(\.board), Set(offered.map(\.key.teamId)).count > 1)
+    }
+
+    public static func boards(
+        teams: [TeamEntity], boards: [BoardEntity], only: String? = nil
+    ) -> (boards: [BoardEntity], showTeam: Bool) {
+        Self.boards(
+            teams: teams.map { (id: $0.id, name: $0.name, kind: "team") }, boards: boards, only: only,
+            key: { ($0.id, $0.teamId, $0.sortOrder) }
+        )
+    }
+
+    /// What a board pick moves.
+    public struct PickFields: Equatable, Sendable {
+        public var teamId: String
+        public var boardId: String
+        /// nil = the team's Backlog.
+        public var statusId: String?
+        public var labelIds: [String]
+        public var assigneeId: String?
+        public var assigneeAgentId: String?
+
+        public init(
+            teamId: String, boardId: String, statusId: String?, labelIds: [String], assigneeId: String?,
+            assigneeAgentId: String?
+        ) {
+            self.teamId = teamId
+            self.boardId = boardId
+            self.statusId = statusId
+            self.labelIds = labelIds
+            self.assigneeId = assigneeId
+            self.assigneeAgentId = assigneeAgentId
+        }
+    }
+
+    /// TS `issueDraftPick`: the draft's own team = the board alone; another
+    /// team = the draft moves there and what belongs to a team goes.
+    /// `soleMemberId` = the picked board's team's only member, else nil.
+    public static func pick(
+        _ draft: PickFields, board: (id: String, teamId: String), soleMemberId: String?
+    ) -> PickFields {
+        var next = draft
+        next.boardId = board.id
+        guard board.teamId != draft.teamId else { return next }
+        next.teamId = board.teamId
+        next.statusId = nil
+        next.labelIds = []
+        next.assigneeId = soleMemberId
+        next.assigneeAgentId = nil
+        return next
+    }
+
     /// EXP-1231: what the synced store says about this page's draft.
     public enum Fate: Equatable, Sendable {
         /// Still a draft (or not synced yet): keep editing.
