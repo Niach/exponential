@@ -500,13 +500,13 @@ impl LocalSessions {
                 // Stamped HERE, not in the spawned task: a resume that
                 // re-enters the dir while this sits in the queue keeps it.
                 let requested_at = std::time::SystemTime::now();
-                let kept_row = sync::Store::try_global(cx).is_some_and(|store| {
+                let editor = sync::Store::try_global(cx).is_some_and(|store| {
                     let sessions = store.collections().sessions.read(cx);
-                    sessions.get(&session_id).is_some_and(|row| !row.is_app_editor())
+                    sessions.get(&session_id).is_some_and(|row| row.is_app_editor())
                 });
                 cx.background_executor()
                     .spawn(async move {
-                        purge_ended_scratch(&data_dir, &session_id, &worktree, requested_at, kept_row);
+                        purge_ended_scratch(&data_dir, &session_id, &worktree, requested_at, editor);
                     })
                     .detach();
             }
@@ -668,19 +668,19 @@ struct RefresherEntry {
 
 /// EXP-764: purge one ended repo-less run, its steer journal with it.
 /// #EXP-2138: a team agent's run (its record says so, EXP-1292) keeps its
-/// dir, record and journal while its row is `kept_row`: still synced, ended or
-/// not, and no app's editor. The group chat move ends and detaches a chat whose
-/// engine is live here, and its member can still write in it. A row that is
-/// gone (the chat, its agent or its team deleted) and an editor purge whole.
+/// dir, record and journal, however it ended. The group chat move ends,
+/// detaches and unshares its chats: one a teammate started then leaves this
+/// host's synced rows, so a row that is missing here says nothing about a
+/// deletion. An app's `editor` (its row says so) purges whole.
 fn purge_ended_scratch(
     data_dir: &Path,
     session_id: &str,
     worktree: &Path,
     requested_at: std::time::SystemTime,
-    kept_row: bool,
+    editor: bool,
 ) {
     let agent = coding::run_registry::get(data_dir, session_id).is_some_and(|record| record.kind.is_persistent());
-    if agent && kept_row {
+    if agent && !editor {
         log::info!("scratch purge [{session_id}] {}: kept, a team agent's", worktree.display());
         return;
     }
@@ -1806,16 +1806,16 @@ mod tests {
         assert!(!holds_branch("exp/EXP-1", ""));
     }
     /// #EXP-2138: a run the server ended (`killed`) is no kept workspace: a
-    /// plain repo-less chat and a deleted agent's are purged whole, a team
-    /// agent's chat whose row is still there keeps everything.
+    /// plain repo-less chat and an app's editor are purged whole, a team
+    /// agent's chat keeps everything, its row synced here or not.
     #[test]
     fn an_ended_agent_keeps_its_journal() {
         assert!(!engine::keeps_workspace(coding::pickup::KILL_OUTCOME));
         let data_dir = std::env::temp_dir().join(format!("exp-ui-agent-journal-{}", uuid::Uuid::new_v4().simple()));
-        for (id, kind, kept_row, kept) in [
-            ("moved-agent", "agent", true, true),
-            ("deleted-agent", "agent", false, false),
-            ("chat", "thread", true, false),
+        for (id, kind, editor, kept) in [
+            ("team-agent", "agent", false, true),
+            ("editor", "agent", true, false),
+            ("chat", "thread", false, false),
         ] {
             let cwd = coding::scratch::scratch_root(&data_dir).join(id).join(id);
             std::fs::create_dir_all(&cwd).unwrap();
@@ -1829,7 +1829,7 @@ mod tests {
             let journal = steer::journal_path(&data_dir, id).unwrap();
             std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
             std::fs::write(&journal, "{}\n").unwrap();
-            purge_ended_scratch(&data_dir, id, &cwd, std::time::SystemTime::now(), kept_row);
+            purge_ended_scratch(&data_dir, id, &cwd, std::time::SystemTime::now(), editor);
             assert_eq!(journal.is_file(), kept, "{id}");
             assert_eq!(coding::run_registry::get(&data_dir, id).is_some(), kept, "{id}");
             assert_eq!(cwd.is_dir(), kept, "{id}");
