@@ -8480,6 +8480,15 @@
           }
         }
       ]
+    },
+    "AvatarBadge": {
+      "tile": [
+        {
+          "style": {
+            "backgroundColor": "$color.background"
+          }
+        }
+      ]
     }
   }
 }
