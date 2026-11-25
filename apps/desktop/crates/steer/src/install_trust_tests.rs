@@ -911,24 +911,26 @@ fn a_joined_install_the_honest_server_refuses_does_not_remember_it() {
 #[test]
 fn a_joined_install_rotates_a_stranded_root_it_holds_no_secret_of() {
     let _global = lock(&GLOBAL);
+    // A real root id: a wrap signature binds it (a malformed one goes unsigned).
+    const STRANDED: &str = "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5";
     let (server, holder, _keeper) = install_n(true, true);
     // Keyed by a waiting install before the rule: no approved reader holds epoch 1.
     let stranded = enet_core::sealed::generate_tree_key();
-    lock(&server.roots).insert("stranded".into(), (1, stranded.public_key()));
+    lock(&server.roots).insert(STRANDED.into(), (1, stranded.public_key()));
     // Not stranded and not held: not this install's (as before).
-    lock(&server.due).push(("stranded".into(), 1, false));
+    lock(&server.due).push((STRANDED.into(), 1, false));
     assert_eq!(holder.rotate_due(), 0);
     assert!(server.creates() == 0);
     // Named stranded: rotated WITHOUT the old secret, its own wrap.
     lock(&server.due).clear();
-    lock(&server.due).push(("stranded".into(), 1, true));
+    lock(&server.due).push((STRANDED.into(), 1, true));
     assert_eq!(holder.rotate_due(), 1);
     let create = lock(&server.creates)[0].clone();
-    assert_eq!((create.root_id.as_str(), create.epoch), ("stranded", 2));
+    assert_eq!((create.root_id.as_str(), create.epoch), (STRANDED, 2));
     assert_eq!(create.wraps.iter().map(|w| w.install_id.as_str()).collect::<Vec<_>>(), ["install-N"]);
     assert!(create.wraps[0].signature.is_some(), "its own signed wrap");
-    assert!(holder.keyring().secret("stranded", 2).is_some());
-    assert!(holder.keyring().secret("stranded", 1).is_none());
+    assert!(holder.keyring().secret(STRANDED, 2).is_some());
+    assert!(holder.keyring().secret(STRANDED, 1).is_none());
     // Already rotated: nothing again.
     assert_eq!(holder.rotate_due(), 0);
     assert_eq!(server.creates(), 1);
