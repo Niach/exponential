@@ -44,7 +44,8 @@ jobs:
   # desktop check runs on the Mint (warm sccache) when it is up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The path-filtered jobs run only when the PR (or the train's diff from
   # base_sha) touches what they build; a bare workflow_dispatch runs them all.
@@ -566,7 +567,8 @@ jobs:
     needs: [pick, changes]
     if: needs.changes.outputs.ios == 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/ios-core.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # #EXP-1680: the app target's Release compile (test-ios.yml), which until now
   # only release-suite.yml ran, so app-target Swift merged uncompiled and held
@@ -578,7 +580,8 @@ jobs:
     uses: ./.github/workflows/test-ios.yml
     with:
       compile_only: true
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # #VAPP-268: the iOS runner (ios-runner.yml: the Swift capabilities, RunnerKit's
   # swift test, the generated project's simulator build). INFORMATIONAL like
@@ -587,7 +590,8 @@ jobs:
     needs: [pick, changes]
     if: needs.changes.outputs.ios_runner == 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/ios-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
   # (pixman renders into memory, real Wayland clients over a socketpair), so
@@ -830,7 +834,8 @@ jobs:
     with:
       conformance_only: true
       skip_swift: true
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The SwiftUI renderer's conformance pass on the Mac runner. REQUIRED by
   # `gate` when the PR touches what Swift compiles (`changes.swift`: the Swift
@@ -853,7 +858,8 @@ jobs:
     with:
       conformance_only: true
       swift_only: true
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The same pass, INFORMATIONAL, for the other eUI PRs: not in `gate`'s
   # needs, and PR_MAC_LEGS=off skips it. PR runs only, like eui-swift.
@@ -864,7 +870,8 @@ jobs:
     with:
       conformance_only: true
       swift_only: true
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # EXP-1429: the gpui version policy (the gpui-pre snapshot, the
   # gpui-component release, the toolchain) agrees across the desktop workspace, the
@@ -936,6 +943,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: The release trust boundary (EXP-2151)
+        run: bash .github/scripts/release-trust.sh
       - env:
           VERSION: 1.7.12
           SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

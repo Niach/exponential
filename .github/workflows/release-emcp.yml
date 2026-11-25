@@ -27,10 +27,6 @@ env:
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -48,27 +44,22 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: [version, pick]
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    needs: version
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: ./.github/actions/apt-mirror
-        if: runner.environment == 'github-hosted'
       - name: Linux system deps
-        if: runner.environment == 'github-hosted'
         # No GUI: rustls on ring only (emcp turns no aws-lc on).
         run: |
           sudo apt-get install -y \
             libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Cargo tests (eMCP)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p emcp --features codemode

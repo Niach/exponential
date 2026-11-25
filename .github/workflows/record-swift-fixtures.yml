@@ -23,7 +23,8 @@ permissions:
 jobs:
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   record:
     needs: pick
