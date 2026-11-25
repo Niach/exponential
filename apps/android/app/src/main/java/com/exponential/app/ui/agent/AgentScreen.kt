@@ -89,7 +89,7 @@ import com.exponential.app.ui.components.picker.SkillPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
-import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
@@ -319,9 +319,6 @@ fun AgentScreen(
     val headline = AgentComposerPrompt.headline(promptSubject)
     // The reason the composer cannot start right now (iOS `blocker` parity);
     // null when it can, or when the only thing missing is the message itself.
-    val signedOut = DomainContract.codingAgentValues.filter { agent ->
-        onlineDevices.orEmpty().any { agent in it.unauthedAgentIds }
-    }
     val blocker: String? = when {
         teamId == null -> "Pick a team first."
         // NEW-3: a DM needs no device of mine (the agent's runs it).
@@ -329,11 +326,7 @@ fun AgentScreen(
         // The pool is still resolving (steer config / the devices shape's
         // first snapshot): no verdict yet, so no "no desktop" note either.
         device == null && candidateDevices == null -> null
-        device == null -> if (signedOut.isNotEmpty()) {
-            "${signedOut.joinToString(", ")} not signed in on your machines. Sign in on the machine first."
-        } else {
-            "No desktop online. Open the Exponential desktop app to start a session."
-        }
+        device == null -> LaunchDeviceRules.noDeviceNote(launch.agent, onlineDevices.orEmpty())
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
         multiRepo -> "Pick issues from a single repository per session."
         overCap -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
