@@ -2611,8 +2611,10 @@ impl ChatScreenView {
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let state = domain::composer_agent_row::composer_agent_row(&defs, me.as_deref(), self.agent_pick.as_deref());
         let view = cx.entity().downgrade();
+        let marks = crate::chats_view::team_marks(cx);
         crate::chat_list::composer_agent_row(
             &state,
+            &marks,
             std::rc::Rc::new(move |pick: String, _: &mut Window, cx: &mut App| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |this, cx| this.pick_agent(pick, cx));
