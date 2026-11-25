@@ -169,7 +169,7 @@ public final class SessionSealer: @unchecked Sendable {
             var own = root.flatMap { $0.teamId.isEmpty ? nil : $0.teamId }
             if own == nil {
                 switch input {
-                case let .newChat(teamId, _, _, _, _, _, _, _): own = teamId
+                case let .newChat(teamId, _, _, _, _, _, _, _, _): own = teamId
                 case let .agent(agentId, _, _, _, _, _):
                     own = try String.fetchOne(db, sql: #"SELECT "team_id" FROM "agents" WHERE "id" = ?"#, arguments: [agentId])
                 case let .app(appId, _, _, _, _, _, _):
