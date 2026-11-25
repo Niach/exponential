@@ -488,6 +488,154 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
     expect((await as(r.member).memberSpaces.mine()).space).toMatchObject({ status: `waiting`, endpointId: next.endpointId })
   })
 
+  const grantOf = async (r: { member: string; spaceId: string }) => (await loadSpaceGrant(db, r.member, r.spaceId))!
+  /** A send as the space's agent makes it (MCP, its conversation speaking). */
+  async function asAgent(r: Awaited<ReturnType<typeof running>>, input: Record<string, unknown>) {
+    const { sendSession } = await import(`@/lib/sessions/send`)
+    return runInSpace(await grantOf(r), () => sendSession({ userId: r.member, input: { text: `go`, ...input } as never, callerSessionId: r.root.id, viaMcp: true }))
+  }
+  /** One op of the MCP surface, as the space's agent. */
+  async function tool(r: Awaited<ReturnType<typeof running>>, legacy: string, args: Record<string, unknown> = {}) {
+    const { collectLegacyTools } = await import(`@/lib/emcp/nouns`)
+    const gated = await authenticateMcpRequest(bearer((await r.caller.users.mintPersonalApiKey({ purpose: `agent`, sessionId: r.root.id })).key))
+    if (`response` in gated) throw new Error(`refused`)
+    return runInSpace(gated.space!, () =>
+      collectLegacyTools(gated.caller.user as never, gated.request, gated.caller.access, r.root.id, gated.caller.gates).get(`exponential_${legacy}`)!.handler(args, {})
+    )
+  }
+  const said = (result: { isError?: boolean; content: unknown[] }) => `${result.isError ? `error: ` : ``}${(result.content[0] as { text: string }).text}`
+
+  it(`deviceCases: through a space nothing runs on the member's own machines`, async () => {
+    const r = await running({ key: false })
+    const server = await device(r.member, [r.teamId], { label: `mine` })
+    await db.update(devices).set({ isDefault: true }).where(eq(devices.id, r.laptop.id))
+    const { SPACE_DEVICE_MESSAGE } = await import(`@/lib/spaces/context`)
+    const refusal = (promise: Promise<unknown>) => promise.then(() => `ok`, (error: Error) => error.message)
+    for (const [name, input] of [
+      [`a root in the personal team`, { teamId: r.root.teamId, deviceId: r.laptop.deviceId }],
+      [`a root in a space team, the own shared server`, { teamId: r.teamId, deviceId: server.deviceId }],
+      [`a child`, { parentId: r.root.id, teamId: r.root.teamId, deviceId: r.laptop.deviceId }],
+      [`a child on the own shared server`, { parentId: r.root.id, teamId: r.teamId, deviceId: server.deviceId }],
+    ] as const) {
+      expect(await refusal(asAgent(r, input)), name).toBe(SPACE_DEVICE_MESSAGE)
+    }
+    // No device named: never a default one.
+    expect(await refusal(asAgent(r, { teamId: r.teamId }))).not.toBe(`ok`)
+    // Another account's machine, shared with the team: fine, and marked.
+    const { sessionId } = await asAgent(r, { teamId: r.teamId, deviceId: r.host.deviceId })
+    expect((await session(sessionId)).viaSpace).toBe(true)
+    expect((await session(r.root.id)).viaSpace).toBe(false)
+    // That chat keeps the rule: its host starts nothing on the member's machines.
+    const { sendSession } = await import(`@/lib/sessions/send`)
+    const fromChat = (input: Record<string, unknown>) =>
+      sendSession({ userId: r.hostOwner, input: { text: `go`, ...input } as never, callerSessionId: sessionId, viaMcp: true })
+    expect(await refusal(fromChat({ teamId: r.teamId, deviceId: server.deviceId }))).toBe(SPACE_DEVICE_MESSAGE)
+    expect(await refusal(fromChat({ parentId: sessionId, deviceId: server.deviceId }))).toBe(SPACE_DEVICE_MESSAGE)
+    const next = await fromChat({ teamId: r.teamId, deviceId: r.host.deviceId })
+    expect((await session(next.sessionId)).viaSpace).toBe(true)
+    // The member moved one of them to their laptop: the space reads, never drives it.
+    await db.update(sessions).set({ deviceId: r.laptop.deviceId }).where(eq(sessions.id, sessionId))
+    expect(await refusal(asAgent(r, { sessionId }))).toBe(SPACE_DEVICE_MESSAGE)
+    const grant = await grantOf(r)
+    expect(await refusal(runInSpace(grant, () => as(r.member).sessions.end({ sessionId })))).toBe(SPACE_DEVICE_MESSAGE)
+    expect(await refusal(runInSpace(grant, () => as(r.member).sessions.configure({ sessionId, model: `opus` } as never)))).toBe(SPACE_DEVICE_MESSAGE)
+    // A move of its own child there.
+    const { sessionId: child } = await asAgent(r, { parentId: r.root.id, teamId: r.root.teamId, deviceId: r.deviceId })
+    expect(await refusal(asAgent(r, { sessionId: child, deviceId: r.laptop.deviceId }))).not.toBe(`ok`)
+    expect((await session(child)).deviceId).toBe(r.deviceId)
+    // The member's own machines are not even listed.
+    const { visibleDeviceRows } = await import(`@/lib/trpc/devices`)
+    expect((await runInSpace(grant, () => visibleDeviceRows(db, r.member, r.teamId))).rows.map((d) => d.id)).toEqual([r.host.id])
+    // The person's own start is as ever.
+    expect(await code(as(r.member).sessions.send({ text: `mine`, teamId: r.teamId, deviceId: server.deviceId } as never))).toBe(`ok`)
+  })
+
+  it(`tools: an allowlist over every recorded op; a new op is refused by default`, async () => {
+    const { collectLegacyTools, legacyNameOfRow, SPACE_TOOL_MESSAGE } = await import(`@/lib/emcp/nouns`)
+    const r = await running({ key: false })
+    const listed = MEMBER_SPACE.tools.map((name) => legacyNameOfRow(name))
+    expect(listed.filter((name) => name === null)).toEqual([])
+    const gated = await authenticateMcpRequest(bearer((await r.caller.users.mintPersonalApiKey({ purpose: `agent`, sessionId: r.root.id })).key))
+    if (`response` in gated) throw new Error(`refused`)
+    const all = collectLegacyTools(gated.caller.user as never, gated.request, gated.caller.access, r.root.id)
+    let refused = 0
+    for (const [name, entry] of all) {
+      if (listed.includes(name)) continue
+      refused++
+      expect(said(await runInSpace(gated.space!, () => entry.handler({}, {}))), name).toContain(SPACE_TOOL_MESSAGE)
+    }
+    expect(refused).toBeGreaterThan(40)
+    // What executes later or stands outside the space is never on the list.
+    for (const name of MEMBER_SPACE.tools) {
+      expect(name).not.toMatch(/^(agents|prompts|skills|mcp_servers|apps|events|teams|boards|statuses|repositories|devices|people)_(create|update|delete|upsert|publish|emit|add|remove|set|configure|handoff|records|access|render|screenshot|account|invites|members|restore)/)
+    }
+    // A listed one works.
+    expect(said(await tool(r, `boards_list`, { teamId: r.teamId }))).not.toContain(SPACE_TOOL_MESSAGE)
+    const { appsToolProvider } = await import(`@/lib/emcp/apps-broker`)
+    const broker = await runInSpace(gated.space!, () => appsToolProvider(gated.caller, gated.request))
+    expect(broker instanceof Response && broker.status).toBe(403)
+  })
+
+  it(`no other agent or app is spoken to, and an assignment wakes none`, async () => {
+    const r = await running({ key: false })
+    const [bot] = await db.insert(agents).values({ teamId: r.teamId, name: `Bot`, instructions: ``, deviceId: r.host.deviceId, ownerId: r.hostOwner, role: `agent` }).returning()
+    expect(await code(asAgent(r, { agentId: bot!.id }))).toBe(`FORBIDDEN`)
+    expect(await code(asAgent(r, { appId: crypto.randomUUID() }))).toBe(`FORBIDDEN`)
+    const { postAgentInputInTx } = await import(`@/lib/agents/triggers`)
+    const grant = await grantOf(r)
+    expect(await code(runInSpace(grant, () => db.transaction((tx) => postAgentInputInTx(tx, bot!, r.member, `x`, { triggerId: null, eventId: null, name: `issue.assigned` }))))).toBe(`FORBIDDEN`)
+    expect(await db.select().from(sessions).where(eq(sessions.agentId, bot!.id))).toEqual([])
+  })
+
+  it(`the end: its watches go, and what a session wrote there unread is never run`, async () => {
+    const { sessionWatches } = await import(`@/db/schema`)
+    const r = await running({ key: false })
+    await as(r.member).sessions.send({ agentId: r.agentId, text: `mine` } as never)
+    const later = new Date(Date.now() + 3_600_000).toISOString()
+    await asAgent(r, { sessionId: r.root.id, text: `later, as the member`, wakeOn: [`at:${later}`] })
+    expect((await db.select().from(sessionWatches).where(eq(sessionWatches.sessionId, r.root.id))).length).toBeGreaterThan(0)
+    await as(r.member).agents.update({ id: r.agentId, deviceId: r.laptop.deviceId })
+    expect(await db.select().from(sessionWatches).where(eq(sessionWatches.sessionId, r.root.id))).toEqual([])
+    const rows = await db.select().from(messages).where(eq(messages.rootId, r.root.id))
+    expect(rows.find((m) => m.body === `mine`)!.consumedAt).toBeNull()
+    expect(rows.find((m) => m.body.startsWith(`later`))!.consumedAt).not.toBeNull()
+  })
+
+  it(`agents.update races request: never an Assistant off a space that lives on`, async () => {
+    for (let i = 0; i < 8; i++) {
+      const s = await scene({ request: false })
+      const desk = await device(s.member, [], { deviceId: `desk-${id8()}`, kind: `desktop` })
+      await Promise.all([
+        as(s.member).memberSpaces.request({ deviceId: s.host.deviceId, teamId: s.teamId }).catch(() => null),
+        as(s.member).agents.update({ id: s.agentId, deviceId: desk.deviceId }).catch(() => null),
+      ])
+      const agent = (await findAssistant(db, s.member))!
+      const spaces = await db.select().from(devices).where(and(eq(devices.userId, s.member), sql`space_host_id IS NOT NULL`))
+      expect(spaces.map((d) => d.deviceId)).toEqual(agent.deviceId.startsWith(`space-`) ? [agent.deviceId] : [])
+    }
+  }, 60_000)
+
+  it(`attachments: an upload nothing carries is its member's own`, async () => {
+    const { attachments } = await import(`@/db/schema`)
+    const { attachmentInSpace } = await import(`@/lib/spaces/shapes`)
+    const r = await running({ key: false })
+    const grant = await grantOf(r)
+    const upload = async (uploaderId: string) =>
+      (await db.insert(attachments).values({ teamId: r.teamId, uploaderId, filename: `a.png`, contentType: `image/png`, sizeBytes: 1, storageKey: `k-${id8()}`, url: `/x` } as never).returning({ id: attachments.id }))[0]!.id
+    expect(await attachmentInSpace(db, grant, { attachmentId: await upload(r.member) })).toBe(true)
+    expect(await attachmentInSpace(db, grant, { attachmentId: await upload(r.hostOwner) })).toBe(false)
+  })
+
+  it(`a team owner's Remove reaches only spaces picked through their team`, async () => {
+    const r = await running({ key: false })
+    const boss = await user()
+    const third = await team(boss, r.hostOwner, r.member)
+    await db.update(devices).set({ sharedTeamIds: [r.teamId, r.other, third].sort(), assistantTeamIds: [r.teamId, third].sort() }).where(eq(devices.id, r.host.id))
+    expect((await as(boss).memberSpaces.forDevice({ id: r.host.id })).members).toEqual([])
+    expect(await code(as(boss).memberSpaces.remove({ spaceId: r.spaceId }))).toBe(`NOT_FOUND`)
+    expect(await row(r.spaceId)).toBeTruthy()
+  })
+
   const causes: Array<[string, (r: Awaited<ReturnType<typeof running>>) => Promise<unknown>]> = [
     [`unshared`, (r) => as(r.hostOwner).devices.setShared({ deviceId: r.host.deviceId, teamId: r.teamId, shared: false })],
     [`unshared`, (r) => as(r.teamOwner).devices.dropShare({ id: r.host.id, teamId: r.teamId })],

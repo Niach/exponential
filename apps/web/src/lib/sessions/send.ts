@@ -1,3 +1,4 @@
+import { assertSpaceDevice, currentSpace, deviceRestrictedUser, runViaSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
 import { assertAssistantHasDevice, assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
@@ -61,6 +62,7 @@ import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import { SEALED_CARD_PLAIN_ANSWER_MESSAGE } from "@/lib/sessions/card-answer"
 import {
   assertCanSteer,
+  assertSpaceMaySteer,
   isSessionPrincipal,
   loadSessionForUser,
   sessionDeviceOwner,
@@ -250,6 +252,15 @@ export const DEVICE_NOT_SHARED_MESSAGE = `This device is not yours and not share
  * that runs it (the host).
  */
 export async function resolveSessionDevice(
+  ...args: Parameters<typeof findSessionDevice>
+): Promise<{ shared: boolean; ownerId: string }> {
+  const device = await findSessionDevice(...args)
+  // #EXP-2161 (TEAMS): through a space, never a machine of its member's own.
+  assertSpaceDevice({ ownerId: device.ownerId, deviceId: args[2] })
+  return device
+}
+
+async function findSessionDevice(
   userId: string,
   teamId: string,
   deviceId: string,
@@ -577,6 +588,14 @@ async function postSendMessage(
   const sealUserId = uploaderIds[0]!
   // #EXP-2161: the device went since the send was checked.
   await assertTreeHasDevice(tx, session.rootId)
+  if (deviceRestrictedUser()) {
+    const [row] = await tx
+      .select({ deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
+      .from(sessions)
+      .where(eq(sessions.id, session.id))
+      .limit(1)
+    if (row) await assertSpaceMaySteer(row, tx)
+  }
   // #EXP-1720/#EXP-2027: the turn's Teams pick becomes the root's scope, even with nothing to post.
   const scope = input.scopeTeamIds === undefined ? undefined : await applyTeamsPick(tx, session, authorId, input.scopeTeamIds)
   let text = input.text ?? ``
@@ -996,6 +1015,22 @@ export async function sendSession(args: {
 
 async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
+  // #EXP-2161: a chat a space started keeps the device rule for life.
+  const [root] =
+    caller && !currentSpace()
+      ? await db.select({ viaSpace: sessions.viaSpace, userId: sessions.userId }).from(sessions).where(eq(sessions.id, caller.rootId)).limit(1)
+      : []
+  return root?.viaSpace ? runViaSpace(root.userId, () => sendSessionAs(args, caller)) : sendSessionAs(args, caller)
+}
+
+async function sendSessionAs(
+  args: Parameters<typeof sendSession>[0],
+  caller: Session | null
+): Promise<SessionsSendResult & { txid: number }> {
+  // #EXP-2161: through a space no other agent or app is spoken to.
+  if (deviceRestrictedUser() && (args.input.agentId || args.input.appId)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_KEY_MESSAGE })
+  }
   const starter = effectiveStarter(args.userId, caller)
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
@@ -2158,6 +2193,7 @@ async function startRoot(
       userId,
       deviceId,
       startedByAgentId,
+      viaSpace: deviceRestrictedUser() !== null,
       // NEW-1: the root WORKS: the composer's picks are its own.
       ...runnerFields(input, null, await gatedComputerUse(tx, computerUse, deviceId, device.ownerId)),
       mcpServerIds,

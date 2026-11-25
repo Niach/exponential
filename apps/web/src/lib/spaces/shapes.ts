@@ -2,7 +2,7 @@
 // reads over REST. Everything not named here is refused.
 import { eq } from "drizzle-orm"
 import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
-import { messages } from "@/db/schema"
+import { attachments, messages } from "@/db/schema"
 import { andClauses, buildWhereClause } from "@/lib/auth/shape-where"
 import type { SpaceGrant } from "@/lib/spaces/context"
 import { rootInSpace, spaceRootIds, spaceSessionIds, type SpaceReader } from "@/lib/spaces/grant"
@@ -26,16 +26,21 @@ export async function spaceShapeWhere(space: SpaceGrant, table: string, where: s
 }
 
 /** Whether the space may read this attachment: an issue's (its team is
- *  checked), a message's in its own trees, an upload without an owner; never
+ *  checked), a message's in its own trees, an upload of the member's nothing carries yet; never
  *  a draft's or an app record's. */
 export async function attachmentInSpace(
   exec: SpaceReader,
   space: SpaceGrant,
-  attachment: { issueId?: string | null; draftId?: string | null; messageId?: string | null; appId?: string | null }
+  attachment: { attachmentId?: string; issueId?: string | null; draftId?: string | null; messageId?: string | null; appId?: string | null }
 ): Promise<boolean> {
   if (attachment.draftId || attachment.appId) return false
   if (attachment.issueId) return true
-  if (!attachment.messageId) return true
+  if (!attachment.messageId) {
+    // An upload nothing carries yet: its member's own.
+    if (!attachment.attachmentId) return false
+    const [row] = await exec.select({ uploaderId: attachments.uploaderId }).from(attachments).where(eq(attachments.id, attachment.attachmentId)).limit(1)
+    return row?.uploaderId === space.userId
+  }
   const [message] = await exec.select({ rootId: messages.rootId }).from(messages).where(eq(messages.id, attachment.messageId)).limit(1)
   return !!message?.rootId && rootInSpace(exec, space, message.rootId, `own`)
 }

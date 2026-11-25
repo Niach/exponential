@@ -458,7 +458,7 @@ export const agentsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const agent = await loadOwnedAgent(userId, input.id)
+      let agent = await loadOwnedAgent(userId, input.id)
       // #EXP-2161 (member-space.json, PICKING): only `memberSpaces.request`
       // puts the Assistant on a space; a space's own key moves it nowhere.
       if (input.deviceId !== undefined && input.deviceId !== agent.deviceId) {
@@ -510,6 +510,11 @@ export const agentsRouter = router({
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
+        // #EXP-2161: a `memberSpaces.request` may have moved it since it was
+        // read: the device it leaves is the one it has NOW.
+        const [fresh] = await tx.select().from(agents).where(eq(agents.id, agent.id)).for(`update`)
+        if (!fresh) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+        agent = fresh
         // #EXP-1259: the new device is read under its share lock.
         const moved =
           input.deviceId !== undefined && input.deviceId !== `` && input.deviceId !== agent.deviceId

@@ -1,3 +1,5 @@
+import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
+import { currentSpace } from "@/lib/spaces/context"
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { registerExponentialTools } from "./tools"
@@ -401,6 +403,10 @@ export function legacyNameOfRow(row: string): string | null {
   return null
 }
 
+/** #EXP-2161: the recorded tools a member space's agent may use. */
+const SPACE_TOOLS: ReadonlySet<string> = new Set(MEMBER_SPACE.tools.flatMap((row) => legacyNameOfRow(row) ?? []))
+export const SPACE_TOOL_MESSAGE = `This is not available while your Assistant runs on a team device: it would outlive it or act outside it`
+
 /** Every recorded (EXP-988) tool this caller gets, by wire name. */
 export function collectLegacyTools(
   user: McpUser,
@@ -416,6 +422,13 @@ export function collectLegacyTools(
     },
   }
   registerExponentialTools(recorder as never, user, request, access, sessionId, gates)
+  // #EXP-2161 (member-space.json `tools`): through a member space an op runs
+  // only when it is on the list; one nobody listed is refused.
+  for (const [name, tool] of tools) {
+    if (SPACE_TOOLS.has(name)) continue
+    const handler = tool.handler
+    tool.handler = async (args, extra) => (currentSpace() ? err(new Error(SPACE_TOOL_MESSAGE)) : handler(args, extra))
+  }
   return tools
 }
 

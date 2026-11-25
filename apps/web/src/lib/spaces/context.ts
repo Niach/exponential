@@ -41,6 +41,25 @@ export function spaceOf(userId: string): SpaceGrant | null {
   return space && space.userId === userId ? space : null
 }
 
+const ownMachines = new AsyncLocalStorage<string>()
+
+/** #EXP-2161 (TEAMS): `run` speaks for a chat of `userId` a space started:
+ *  it keeps the device rule (`sessions.via_space`). */
+export const runViaSpace = <T>(userId: string, run: () => T): T => ownMachines.run(userId, run)
+
+/** The member whose own machines this request may never run anything on. */
+export const deviceRestrictedUser = (): string | null => currentSpace()?.userId ?? ownMachines.getStore() ?? null
+
+export const SPACE_DEVICE_MESSAGE = `A member's space runs nothing on the member's own machines`
+
+/** `deviceCases`: the machine `ownerId` runs may be used by this request. */
+export function assertSpaceDevice(device: { ownerId: string; deviceId: string | null }): void {
+  const member = deviceRestrictedUser()
+  if (!member || device.ownerId !== member) return
+  if (device.deviceId && device.deviceId === currentSpace()?.deviceId) return
+  throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_DEVICE_MESSAGE })
+}
+
 /** `teamIds` of `userId`, as this request may use them. */
 export function narrowTeamIds(userId: string, teamIds: string[]): string[] {
   const space = spaceOf(userId)
