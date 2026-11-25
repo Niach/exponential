@@ -132,6 +132,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     eligibleIssues: [],
     checkedIssues: [],
     toggleIssue: vi.fn(),
+    teamOf: () => null,
     agentRow: null,
     recipient: null,
     pickRecipient: vi.fn(),
