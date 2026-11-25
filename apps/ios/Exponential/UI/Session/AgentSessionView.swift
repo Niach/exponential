@@ -481,6 +481,10 @@ struct AgentSessionView: View {
             .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds) { _, _ in teamsDraft.reseed() }
             .onChange(of: session.id) { _, _ in teamsDraft.reseed() }
             .task(id: session.viaAppId) { await observeViaApp() }
+            // This client's own lost connection: the synced tail stands in.
+            .onChange(of: model != nil && SyncDebug.shared.disconnected.contains(accountId), initial: true) { _, offline in
+                if model?.clientOffline != offline { model?.clientOffline = offline }
+            }
             .task(id: "\(session.id)|\(model == nil)|\(chatTeamIds)") { await loadMcpPick() }
             // #EXP-2079: the `/` prompts of the chat's teams, team by team.
             .task(id: chatTeamIds) {
@@ -1004,10 +1008,8 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Nothing here scrolls: a tap puts the composer's keyboard away
-        // (the Assistant tab's bar comes back with it).
-        .contentShape(Rectangle())
-        .onTapGesture { UIApplication.endEditing() }
+        // Nothing here scrolls (the Assistant tab's bar comes back with it).
+        .dismissesKeyboard()
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the

@@ -179,7 +179,7 @@ struct TeamTreeList: View {
         let editing = row.kind == .folder && tree.editingFolder == row.id
         HStack(spacing: 0) {
             HStack(spacing: compact ? 10 : 12) {
-                glyph(row).frame(width: glyphSize, height: glyphSize)
+                glyph(row).fixedGlyphs().frame(width: glyphSize, height: glyphSize)
                 if editing {
                     nameField(row)
                 } else {
@@ -272,6 +272,7 @@ struct TeamTreeList: View {
                 .contentShape(Rectangle())
                 .onTapGesture { tap(row) }
         }
+        .fixedGlyphs()
         .padding(.trailing, compact ? 8 : 16)
     }
 

@@ -37,6 +37,7 @@ export function pendingRow(row: TrustRow, title: string): NestedNode {
         id: `install-${row.installId}-actions`,
         component: `Stack`,
         props: { direction: `horizontal`, gap: `sm` },
+        style: { paddingHorizontal: `$spacing.md`, paddingBottom: `$spacing.md` },
         children: [
           {
             id: `install-${row.installId}-approve`,

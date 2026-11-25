@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 extension UIApplication {
@@ -9,5 +10,17 @@ extension UIApplication {
     /// over unrelated screens (EXP-246).
     static func endEditing() {
         shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+extension View {
+    /// A chat area that does not scroll: a tap or a drag puts the keyboard
+    /// away, as scrolling a transcript does.
+    func dismissesKeyboard() -> some View {
+        contentShape(Rectangle())
+            .onTapGesture { UIApplication.endEditing() }
+            .simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { drag in
+                if drag.translation.height > 10 { UIApplication.endEditing() }
+            })
     }
 }
