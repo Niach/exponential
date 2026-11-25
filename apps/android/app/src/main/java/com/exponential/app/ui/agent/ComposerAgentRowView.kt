@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,11 +27,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.AgentBubbleDisc
+import com.exponential.app.ui.components.TeamMarkedLead
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -53,8 +59,15 @@ internal fun ComposerAgentRowView(
     state: ComposerAgentRow.State<SessionTree.AgentRow>,
     onPick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** The viewer's teams, for the marks ([ComposerAgentRow.teamMarks]). */
+    teams: List<TeamEntity> = emptyList(),
 ) {
     val size = ComposerAgentRow.SIZE.dp
+    val marks = remember(state.agents, teams) {
+        val byId = teams.associateBy { it.id }
+        val marked = ComposerAgentRow.teamMarks(state.agents).toSet()
+        state.agents.filter { it.agentId in marked }.mapNotNull { agent -> byId[agent.teamId]?.let { agent.agentId to it } }.toMap()
+    }
     Column(modifier = modifier.fillMaxWidth().testTag(ComposerAgentRow.TEST_ID_ROW)) {
         Text(
             state.label,
@@ -71,11 +84,13 @@ internal fun ComposerAgentRowView(
         ) {
             state.agents.forEach { agent ->
                 val picked = state.selected == agent.agentId
+                val team = marks[agent.agentId]
                 OptionCircle(
                     id = agent.agentId,
-                    name = agent.name,
+                    name = if (team == null) agent.name else "${agent.name}, ${team.name}",
                     picked = picked,
                     onPick = onPick,
+                    team = team,
                 ) {
                     AgentBubbleDisc(
                         icon = agent.icon,
@@ -133,18 +148,27 @@ private fun OptionCircle(
     name: String,
     picked: Boolean,
     onPick: (String) -> Unit,
+    team: TeamEntity? = null,
     content: @Composable () -> Unit,
 ) {
-    Box(
+    // The mark hangs past the circle, so it stands outside its clip.
+    TeamMarkedLead(
+        team,
+        size = ComposerAgentRow.SIZE.dp,
         modifier = Modifier
-            .clip(CircleShape)
-            .clickable(role = Role.RadioButton) { onPick(id) }
-            .semantics {
+            .clearAndSetSemantics {
                 contentDescription = name
                 selected = picked
-            }
-            .testTag(ComposerAgentRow.optionTestId(id)),
-    ) { content() }
+                role = Role.RadioButton
+                testTag = ComposerAgentRow.optionTestId(id)
+                onClick {
+                    onPick(id)
+                    true
+                }
+            },
+    ) {
+        Box(Modifier.clip(CircleShape).clickable { onPick(id) }) { content() }
+    }
 }
 
 /** The row's input: the launch data's [SessionTree.listAgents] rows (already

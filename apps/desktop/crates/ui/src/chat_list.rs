@@ -645,6 +645,7 @@ pub(crate) type OnAgentPick = Rc<dyn Fn(String, &mut Window, &mut App)>;
 /// (`temporaryIcon`) last; scrolls sideways; `rowToCard` over the card.
 pub(crate) fn composer_agent_row(
     state: &domain::composer_agent_row::ComposerAgentRowState<'_>,
+    marks: &crate::chats_view::TeamMarks,
     on_pick: OnAgentPick,
     cx: &App,
 ) -> AnyElement {
@@ -654,7 +655,10 @@ pub(crate) fn composer_agent_row(
     // Web `size-5` inside the 40 px bubble (composer-agent-row.tsx).
     let glyph_size = 20.;
     let mut circles: Vec<AnyElement> = Vec::new();
-    let mut option = |id: String, name: String, glyph: AnyElement| {
+    // #EXP-2136: same-named agents of two teams wear their team's mark.
+    let marked = domain::composer_agent_row::composer_agent_team_marks(&state.agents);
+    let mut option = |id: String, name: String, team: Option<&crate::user_avatar::RowTeam>, glyph: AnyElement| {
+        let name = team.map_or(name.clone(), |team| format!("{name}, {}", team.name));
         let selected = state.selected == id;
         let ring = selected.then_some(theme.foreground);
         let on_pick = on_pick.clone();
@@ -669,7 +673,14 @@ pub(crate) fn composer_agent_row(
                 .cursor_pointer()
                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))
                 .on_click(move |_, window, cx| on_pick(pick.clone(), window, cx))
-                .child(agent_circle(spec.size, spec.ring_width, spec.ring_gap, ring, glyph, cx))
+                .child(crate::user_avatar::with_team_mark(
+                    &id,
+                    agent_circle(spec.size, spec.ring_width, spec.ring_gap, ring, glyph, cx),
+                    spec.size,
+                    team,
+                    crate::user_avatar::card_ground(),
+                    cx,
+                ))
                 .into_any_element(),
         );
     };
@@ -682,13 +693,14 @@ pub(crate) fn composer_agent_row(
             glyph_size,
             cx,
         );
-        option(agent.id.clone(), agent.name.clone().unwrap_or_default(), glyph);
+        let team = marked.contains(&agent.id.as_str()).then(|| crate::chats_view::row_team(marks, agent.team_id.as_deref())).flatten();
+        option(agent.id.clone(), agent.name.clone().unwrap_or_default(), team, glyph);
     }
     let dotted = Icon::new(registry::concept_by_name(&spec.temporary_icon).unwrap_or(registry::UI_ICON_PLACEHOLDER))
         .with_size(px(glyph_size))
         .text_color(theme.muted_foreground)
         .into_any_element();
-    option(spec.temporary_id.clone(), spec.copy.temporary.clone(), dotted);
+    option(spec.temporary_id.clone(), spec.copy.temporary.clone(), None, dotted);
     v_flex()
         .id(SharedString::from(spec.test_ids.row.clone()))
         .w_full()
@@ -709,6 +721,8 @@ pub(crate) fn composer_agent_row(
                 .w_full()
                 .gap(px(spec.gap))
                 .overflow_x_scroll()
+                // The marks hang 4 px out of their circles.
+                .when(!marked.is_empty(), |row| row.pb(px(4.)))
                 .children(circles),
         )
         .into_any_element()
