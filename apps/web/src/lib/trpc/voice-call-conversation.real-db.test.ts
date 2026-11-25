@@ -10,7 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, devices, installs, messages, sessionKeys, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
-import { generateTreeKey, STALE_TREE_REFUSAL, wrapTreeKey } from "@exp/domain-contract/sealed-content"
+import { generateTreeKey, sealBody, STALE_TREE_REFUSAL, wrapTreeKey } from "@exp/domain-contract/sealed-content"
 
 process.env.BETTER_AUTH_SECRET ||= `call-conversation-test-secret`
 
@@ -38,6 +38,8 @@ if (!ready.ok) console.info(`[voice-call-conversation.real-db] skipped: ${ready.
 const { voiceRouter } = await import(`@/lib/trpc/voice`)
 const { sessionKeysRouter } = await import(`@/lib/trpc/session-keys`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
+const { sendSession } = await import(`@/lib/sessions/send`)
 const { mintCallId } = await import(`@/lib/voice-call-id`)
 const { createTreeKeyInTx } = await import(`@/lib/sessions/tree-keys`)
 
@@ -149,6 +151,22 @@ describe.skipIf(!ready.ok)(`#EXP-1941 voice.callConversation`, () => {
       rotationDue: false,
       vouch: null,
     })
+  })
+
+  it(`#EXP-2142: the chat it made awaits its message: the device launches with no first turn`, async () => {
+    const w = await world()
+    const seal = w.mine.seal()
+    const out = await voice(w.me).callConversation({ agentId: w.agentId, callId: w.sealedId(), deviceId: w.deviceId, seal })
+    expect(await composeSessionBrief(out.rootId)).toMatchObject({
+      awaitsMessage: true,
+      sealedText: null,
+      // An older device's first turn.
+      brief: `Wait for the next message.`,
+    })
+    // The caller's words are there before the device reads its brief: the Request.
+    const text = sealBody(seal.publicKey, 1, `what's new?`)
+    expect((await sendSession({ userId: w.me, input: { agentId: w.agentId, text } })).sessionId).toBe(out.rootId)
+    expect(await composeSessionBrief(out.rootId)).toMatchObject({ awaitsMessage: false, sealedText: text })
   })
 
   it(`Enable: startCall seals for a claim and the device's call-seal cap, and only that id opens the chat of a first call`, async () => {

@@ -918,6 +918,51 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     actions
 }
 
+/// #EXP-2144: this host drains for an update's restart (see
+/// [`hold_turns`]).
+static TURNS_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// #EXP-2144: hold new turns back on this host (`updater::restart`'s drain),
+/// or let them go again. What is held stays where it is (a queued row, an
+/// unconsumed message), so the next pass, or the process after the restart,
+/// starts it. Returns whether that changed.
+pub fn hold_turns(hold: bool) -> bool {
+    TURNS_HELD.swap(hold, std::sync::atomic::Ordering::SeqCst) != hold
+}
+
+/// Whether [`hold_turns`] holds new turns back.
+pub fn turns_held() -> bool {
+    TURNS_HELD.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+impl PickupAction {
+    /// Would this start a turn (or reach into the running one as a steer)?
+    /// An answer to an open card does not: the running turn waits for it.
+    pub fn starts_turn(&self) -> bool {
+        match self {
+            Self::Launch { .. }
+            | Self::Resume { .. }
+            | Self::Revive { .. }
+            | Self::Continue { .. }
+            | Self::Deliver { .. }
+            | Self::DeliverAnswer { .. }
+            | Self::Switch { .. } => true,
+            Self::Revoke { .. }
+            | Self::Answer { .. }
+            | Self::Kill { .. }
+            | Self::Release { .. }
+            | Self::HandOff { .. } => false,
+        }
+    }
+}
+
+/// While [`turns_held`], a pass keeps only what starts no turn.
+pub fn drop_held_turns(actions: &mut Vec<PickupAction>) {
+    if turns_held() {
+        actions.retain(|action| !action.starts_turn());
+    }
+}
+
 /// EXP-849: the profile a live session must move to — its row names an
 /// account (non-empty) that is not the one its engine was launched for.
 /// The login the engine already runs on is planned at once (the switch
@@ -1080,7 +1125,8 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// reads `Message from <name> (member <userId>): <body>`
 /// (`domain::transcript_grouping::member_input`), `<name>` = the author's
 /// synced name, else `copy.formerMember`. Only this prompt wears it: the
-/// row's body is never rewritten.
+/// row's body is never rewritten. #FEED-312: a builtin command (`/new`) is
+/// acted on, so it stays bare ([`is_new_conversation`] reads it).
 pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &MemberInputs) -> String {
     let text = input_body_text(message, sessions);
     if let Some(key) = input_tag(message) {
@@ -1091,6 +1137,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &Membe
         Some(author)
             if message.is_from_user()
                 && action_card(message).is_none()
+                && !domain::transcript_grouping::is_steer_command(&text)
                 && members.group_chats.contains(&message.session_id) =>
         {
             members.word(author, &text)
@@ -4219,8 +4266,10 @@ fn hand(
     let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
     for message in messages {
         let body = message.body.clone().unwrap_or_default();
-        // An answered tool card is the person's answer.
-        if message.is_from_user() || is_answered_tool_card(message) {
+        // An answered tool card is the person's answer. #FEED-298: a firing
+        // (a schedule tick, an event: an `event` card the server authors as
+        // the member so every device delivers it) is no person's turn.
+        if (message.is_from_user() && input_tag(message).is_none()) || is_answered_tool_card(message) {
             engine.deliver(message.id.clone(), body);
         } else {
             engine.deliver_wake(message.id.clone(), body);
@@ -4529,6 +4578,32 @@ mod tests {
     /// idle with no engine and nothing pending, is revived; a chat, a
     /// child, another device's row, a queued/ended row, a live or in-flight
     /// one and one the registry holds are not.
+    /// #EXP-2144: while a host drains, nothing that starts a turn leaves a
+    /// pass; ends and card answers do, and the plan itself still holds every
+    /// message for the pass after.
+    #[test]
+    fn held_turns_stay_planned_and_unexecuted() {
+        let deliver = || PickupAction::Deliver { session_id: "s".into(), messages: vec![message("m", "s", "1")] };
+        let kill = || PickupAction::Kill { session_id: "s".into() };
+        let answer = || PickupAction::Answer {
+            session_id: "s".into(),
+            message_id: "m".into(),
+            question_id: "q".into(),
+            card: serde_json::json!({}),
+        };
+        let launch = || PickupAction::Launch { session: session("q", "queued", "d", "1") };
+        let all = || vec![kill(), launch(), deliver(), answer()];
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert_eq!(actions, all());
+        assert!(hold_turns(true));
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert!(hold_turns(false));
+        assert!(!hold_turns(false), "unchanged");
+        assert_eq!(actions, vec![kill(), answer()]);
+    }
+
     #[test]
     fn plan_revives_a_persistent_root_once_its_device_is_back() {
         let running = agent("a1", SESSION_STATUS_RUNNING);
@@ -5381,6 +5456,13 @@ mod tests {
         assert_eq!(input_text(&by("p1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("c1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("g1", "u-mira", "Ship it"), &sessions, &MemberInputs::default()), "Ship it");
+        // #FEED-312: a command stays the command the device acts on.
+        for command in ["/new", " /new\n", "/compact keep the plan", "/model opus"] {
+            let row = by("g1", "u-mira", command);
+            let body = input_text(&row, &sessions, &members);
+            assert_eq!(body, command);
+            assert_eq!(is_new_conversation(&MessageRow { body: Some(body), ..row }), command.trim() == "/new");
+        }
         // A message without an author keeps its body.
         assert_eq!(input_text(&message("m1", "g1", "t"), &sessions, &members), "body of m1");
         // A trigger's event card keeps its tag, an action card its form,
@@ -6802,14 +6884,22 @@ mod tests {
             author_session_id: Some("child-1".to_string()),
             ..message("w1", "s1", "2026-10-02T00:00:02Z")
         };
+        // #FEED-298: a schedule tick, authored as the member by the server
+        // (so every device delivers it), is no person's turn either.
+        let tick = MessageRow {
+            body: Some("Schedule `0 * * * *` fired.".to_string()),
+            card: Some(serde_json::json!({"kind": "event", "event": "trigger_fired", "triggerId": "t1", "name": null})),
+            ..message("t1", "s1", "2026-10-02T00:00:05Z")
+        };
         let rows = vec![
             report("r1", "s1", "child-1", "done"),
             wake,
+            tick,
             message("m1", "s1", "2026-10-02T00:00:09Z"),
         ];
-        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "m1"]);
-        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "m1"]);
-        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1"]);
+        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1", "t1"]);
     }
 
     /// #FEED-237: the pickup acks each person message it RECEIVED once

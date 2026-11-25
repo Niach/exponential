@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use coding::device_doctor::SpeechState;
 use coding::sealing::{self, NewRootSeal, SealError};
-use etalk::call::host::{CallHost, HostEffect, HostInput, HostStart};
+use etalk::call::host::{CallHost, HostEffect, HostInput, HostReport, HostStart};
 use etalk::call::{call_ring_random, VOICE_CALL};
 use etalk::voice::{reply_to_speak, VoiceContext, VoiceMessage};
 
@@ -210,7 +210,8 @@ pub trait Net: Send {
     /// source adopted the root; the answer comes back as [`Input::Session`].
     fn ask_call_session(&self, call_id: String, agent_id: String);
     /// #EXP-1961: the hang-up of a call with its own session.
-    fn call_ended(&self, session: String);
+    /// EXP-2110: `report` = what the host knows of the end.
+    fn call_ended(&self, session: String, report: Option<HostReport>);
     /// The rows of `root` (opened), for the reply watch: EXP-1930 only those
     /// created at or after `since` (None = all, once at the answer).
     fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow>;
@@ -508,7 +509,7 @@ impl Host {
         if !self.call.as_ref().is_some_and(|call| call.call_id == call_id) {
             for effect in CallHost::session_after_end(call_id, session) {
                 if let HostEffect::CallEnded { session } = effect {
-                    self.net.call_ended(session);
+                    self.net.call_ended(session, None);
                 }
             }
             return;
@@ -650,7 +651,7 @@ impl Host {
                     let key = call.host.is_turn().then(|| etalk::call::turn_message_id(&call.call_id));
                     self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text, key);
                 }
-                HostEffect::CallEnded { session } => self.net.call_ended(session),
+                HostEffect::CallEnded { session } => self.net.call_ended(session, call.host.report().cloned()),
                 // A server has no screen: the caller got the code.
                 HostEffect::Toast { .. } => {}
             }
@@ -879,7 +880,12 @@ impl Host {
         let Some(root) = call.host.session().map(str::to_string).or_else(|| call.root.clone()) else { return };
         // EXP-1930: only the call's own rows, never the whole conversation.
         let rows = self.net.messages(&root, Some(&call.armed_at));
-        let fresh: Vec<domain::rows::MessageRow> = rows.into_iter().filter(|row| call.seen.insert(row.id.clone())).collect();
+        // #EXP-2142: a row whose key is not here yet is looked at again, never
+        // taken as seen (nor its placeholder said).
+        let fresh: Vec<domain::rows::MessageRow> = rows
+            .into_iter()
+            .filter(|row| row.body.as_deref() != Some(coding::sealing::LOCKED_TEXT) && call.seen.insert(row.id.clone()))
+            .collect();
         if fresh.is_empty() {
             return;
         }
@@ -1221,10 +1227,11 @@ impl Net for DaemonNet {
         });
     }
 
-    fn call_ended(&self, session: String) {
+    fn call_ended(&self, session: String, report: Option<HostReport>) {
+        let report = report.and_then(|report| serde_json::to_value(report).ok());
         let deps = Arc::clone(&self.deps);
         let _ = std::thread::Builder::new().name("voice-ended".into()).spawn(move || {
-            if let Err(err) = api::voice::voice_call_ended(&deps.trpc, &session) {
+            if let Err(err) = api::voice::voice_call_ended(&deps.trpc, &session, report.as_ref()) {
                 log::warn!("[voice] the call's end did not reach the server: {err}");
             }
         });
@@ -1632,7 +1639,7 @@ mod tests {
         fn ask_call_session(&self, call_id: String, agent_id: String) {
             self.log.push(format!("session {call_id} {agent_id}"));
         }
-        fn call_ended(&self, session: String) {
+        fn call_ended(&self, session: String, _: Option<HostReport>) {
             self.log.push(format!("ended {session}"));
         }
         fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {
@@ -2840,6 +2847,32 @@ mod tests {
         assert_eq!(sealing::seal_body_for_tree("root-without-holder-2120", "the secret words"), Err(SealError::NoService));
         sealing::note_clear_tree("clear-root-2120");
         assert_eq!(sealing::seal_body_for_tree("clear-root-2120", "hi"), Err(SealError::ClearTree));
+    }
+
+    /// #EXP-2142: a reply that arrives before its key is said once it opens,
+    /// never as the placeholder and never missed.
+    #[test]
+    fn a_locked_reply_is_said_once_its_key_is_here() {
+        let mut rig = Rig::ready();
+        rig.handle(Input::TurnRing { call_id: "c1".into(), agent_id: "agent-1".into(), phrase: "Hey Ops".into() });
+        rig.handle(Input::Answered(Answered {
+            call_id: "c1".into(),
+            agent: agent(),
+            link: Box::new(FakeLink(rig.link.clone())),
+            voice: etalk::VoiceChoice { language: "de".into(), ..Default::default() },
+            root: Some("root-1".into()),
+            session: None,
+        }));
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        rig.handle(Input::Worker(etalk::Event::Said { id: "call-1".into(), text: "Wie spät ist es?".into() }));
+        rig.speech.take();
+        rig.rows.lock().unwrap().push(row("r1", "agent", coding::sealing::LOCKED_TEXT, "2099-01-01T00:00:00Z"));
+        rig.advance(REPLY_POLL);
+        assert!(rig.speech.take().is_empty(), "the placeholder is never said");
+        rig.rows.lock().unwrap()[0].body = Some("Es ist drei Uhr.".into());
+        rig.advance(REPLY_POLL);
+        assert_eq!(rig.speech.take(), ["speak r1 Es ist drei Uhr."]);
     }
 
     /// EXP-1930 (voice-hosts-8): the reply watch reads only the rows since

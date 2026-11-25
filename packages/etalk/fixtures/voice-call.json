@@ -445,6 +445,271 @@
     {"name": "FEED-276: landed, its Prepare still running at the bound: ready (the opening queues behind it)", "start": {"id": "call-1", "language": "en", "remote": true, "random": 0, "device": "mint", "voice": "fetching"}, "events": [{"at": 0, "t": "begin"}, {"at": 0, "t": "listening"}, {"at": 100, "t": "level", "level": 0.5}, {"at": 1000, "t": "voice", "clip": "installed", "preparing": true}, {"at": 3000, "t": "tick"}, {"at": 8000, "t": "tick"}], "effects": [[{"do": "listen", "id": "call-1", "language": "en", "remote": true, "ringMs": 0}], [], [], [], [{"do": "event", "event": {"t": "rang"}}], [{"do": "event", "event": {"t": "ready"}}, {"do": "event", "event": {"t": "replyFinished"}}]], "phase": "listening"},
     {"name": "FEED-276: the clip failed: the built-in voice at once", "start": {"id": "call-1", "language": "en", "remote": true, "random": 0, "device": "mint", "voice": "failed"}, "events": [{"at": 0, "t": "begin"}, {"at": 0, "t": "listening"}], "effects": [[{"do": "listen", "id": "call-1", "language": "en", "remote": true, "ringMs": 0}], [{"do": "event", "event": {"t": "ready"}}]], "phase": "ringing", "nextDue": 3000}
   ],
+  "record": {
+    "$comment": "EXP-2110: ONE DURABLE RECORD PER STREAMED CALL (`voice_calls`, server-only: no shape, no client sync, no UI). Metadata only: the call id and its tag (the first eight hex digits, the tag in every log), member, team, agent, target device, the caller's platform and app version, mode, sealed or clear, instants (minted, host ticket, rang, paired, first host audio, ended), the host's `answeredMs`, who ended it (`endedBy`) and why (`reason`), the host's own view (`hostEndedBy`, `hostReason`) and the relay's frame counts. NEVER a word, a caption, a name or a frame. WRITTEN BY: the server at the mint and the host ticket; the host with `voice.callEnded {report}`; the RELAY closes it: it keeps every ended call in memory until the server acknowledged it, and the server collects (`POST /calls/reports {ack}`, the relay's secret-gated admin surface) each minute and after a host's hang-up report. Storing is idempotent and happens before the ack. A refused ring (`device_offline`, `busy`) is a record too. THE SWEEP (`callRecordClose`, `closeCases`) closes a record no report will come for, `endedBy` = `server`: first match wins: younger than `closeAfterMs` = open; the relay did not answer (or has no such route) = open until `noReportAfterMs`, then `no_report`; live there = open; the relay started after the mint and the call never reached this process = `relay_restarted`; never rang = `not_dialled`; else `no_report`. A later report of the relay replaces what the sweep wrote. A peer's own `call_end` reason that is no code reads `other`. A host that `failed` the call ended it (`failed:<code>`). RETENTION: `retentionDays` after the mint (the device-command sweep's hourly pass); deleting the account or the team deletes the rows. READ BY: the team's owners (`voice.callRecords`), and support by tag (`voice.callRecordsByTag`, instance admins). The relay's process-wide counters are kept per process in `steer_relay_boots`, same collection, same retention. A call a desktop runs itself has no server call id and no record.",
+    "retentionDays": 30,
+    "closeAfterMs": 120000,
+    "noReportAfterMs": 4200000,
+    "closeCases": [
+      { "name": "a fresh call is left alone", "input": { "ageMs": 119999, "rang": false, "relay": { "live": false, "startedAfterMint": true, "sameBoot": false } }, "expected": null },
+      { "name": "live on the relay", "input": { "ageMs": 3600000, "rang": true, "relay": { "live": true, "startedAfterMint": false, "sameBoot": true } }, "expected": null },
+      { "name": "the caller never dialled its ticket", "input": { "ageMs": 120000, "rang": false, "relay": { "live": false, "startedAfterMint": false, "sameBoot": false } }, "expected": "not_dialled" },
+      { "name": "the relay restarted under a live call", "input": { "ageMs": 120000, "rang": true, "relay": { "live": false, "startedAfterMint": true, "sameBoot": false } }, "expected": "relay_restarted" },
+      { "name": "the relay restarted before anyone saw the call ring", "input": { "ageMs": 120000, "rang": false, "relay": { "live": false, "startedAfterMint": true, "sameBoot": false } }, "expected": "relay_restarted" },
+      { "name": "minted before the restart, rang on the new process, its report lost", "input": { "ageMs": 120000, "rang": true, "relay": { "live": false, "startedAfterMint": true, "sameBoot": true } }, "expected": "no_report" },
+      { "name": "rang and is gone without a report", "input": { "ageMs": 120000, "rang": true, "relay": { "live": false, "startedAfterMint": false, "sameBoot": true } }, "expected": "no_report" },
+      { "name": "the relay does not answer: the call may still run", "input": { "ageMs": 4199999, "rang": true, "relay": null }, "expected": null },
+      { "name": "the relay does not answer, past the longest call", "input": { "ageMs": 4200000, "rang": true, "relay": null }, "expected": "no_report" }
+    ]
+  },
+  "log": {
+    "$comment": "EXP-2111: A CALLER'S OWN LOG LINES AND ITS ONE FAILURE EVENT, the same ×3 (web `CallLog` in @exp/etalk, Android `VoiceCall.CallLog`, iOS `VoiceCall.CallLog`; each replays `cases`). One `CallLog` per call, fed by the caller's driver: every machine input with the state before it and what `callerStep` answered (`input`), and what only the driver sees (`note`): `ticket {callId, fallback, sealed}`, `socketOpen`, `up` / `down` (one frame each way), `silent {ms}` (a dead path), `dialFailed`, `noSeal`, `audioFailed`. A line is `call <tag>: <text>`; the tag = the first eight characters of the call id (the tag of the relay's and the server's lines and of `record`), `-` before the ticket. An input that changes nothing and asks nothing is no line; captions, beats, mute and speaker are no line. Every `N ms` counts from the start. A call ends in ONE line (`release`): `by` + `reason`: End call here = `here hung_up`; `call_end` = `far` + its reason (none = `hung_up`); the host's `end` / `hungUp` = `far`; its `failed` = `host` + its code; the relay's `error` / `bye` = `relay` + its code; the socket going away = `link socket_closed`; an own failure or the hold's refusal = `here` + its code (none = `dropped`), the ring's bound = `here unavailable`, a refused `startCall` = `server refused` (never its words: they name a device). A reason that is no code (`codePattern`) reads `other`, an empty one `dropped`. WHERE IT GOES: Android logcat (tag `VoiceCall`), iOS the unified log (category `voice-call`), web the console; on all three a diagnostics breadcrumb while `Send diagnostics` is on. THE EVENT: one warning `Voice call ended: <reason>` (grouped by `reason`) for a call that ended any other way than `quiet`, with the end line's fields, through the same diagnostics consent and tunnel; off = nothing. NEVER a word of the call, a caption, an agent's or a device's name or id, a URL.",
+    "message": "Voice call ended: {reason}",
+    "codePattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$",
+    "quiet": ["hung_up", "refused", "not_granted", "busy", "meeting"],
+    "cases": [
+      {
+        "name": "a call hung up here: every stage, no event",
+        "steps": [
+          { "at": 1000, "input": { "t": "start", "device": "mint", "language": "en", "fallback": true } },
+          { "at": 1010, "input": { "t": "held", "ok": true } },
+          { "at": 1200, "note": { "n": "ticket", "callId": "8D4C4E3E-1111-4222-8333-444455556666", "fallback": true, "sealed": false } },
+          { "at": 1200, "input": { "t": "ticket", "device": "mint", "fallback": true } },
+          { "at": 1300, "note": { "n": "socketOpen" } },
+          { "at": 1400, "input": { "t": "frame", "frame": { "t": "call_ready" } } },
+          { "at": 1450, "input": { "t": "frame", "frame": { "t": "call_ready" } } },
+          { "at": 1500, "note": { "n": "up" } },
+          { "at": 1520, "note": { "n": "up" } },
+          { "at": 2000, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "rang" } } } },
+          { "at": 2100, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "rang" } } } },
+          { "at": 2500, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "ready" } } } },
+          { "at": 2600, "note": { "n": "down" } },
+          { "at": 3000, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "said", "text": "a secret" } } } },
+          { "at": 3100, "input": { "t": "frame", "frame": { "t": "call_alive" } } },
+          { "at": 3200, "input": { "t": "mute" } },
+          { "at": 5000, "input": { "t": "end" } },
+          { "at": 5001, "note": { "n": "down" } }
+        ],
+        "lines": [
+          "call -: started (fallback true)",
+          "call -: the microphone is held",
+          "call 8d4c4e3e: ticket after 200 ms (fallback true, sealed false)",
+          "call 8d4c4e3e: the relay socket is open after 300 ms",
+          "call 8d4c4e3e: call_ready: the host joined after 400 ms",
+          "call 8d4c4e3e: the first microphone frame went out after 500 ms",
+          "call 8d4c4e3e: the host rang",
+          "call 8d4c4e3e: the host's voice is ready",
+          "call 8d4c4e3e: answered after 1500 ms",
+          "call 8d4c4e3e: the host's first audio frame came after 1600 ms",
+          "call 8d4c4e3e: ended by=here reason=hung_up stage=paired phase=thinking answered=true lasted=4000 ms sealed=false up=2 down=1 last_down=2400 ms ago"
+        ],
+        "end": null
+      },
+      {
+        "name": "a path gone silent: dropped, one event",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 100, "note": { "n": "ticket", "callId": "4410cd11-1111-4222-8333-444455556666", "fallback": false, "sealed": true } },
+          { "at": 100, "input": { "t": "ticket", "sealed": true } },
+          { "at": 200, "input": { "t": "frame", "frame": { "t": "call_ready" } } },
+          { "at": 300, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "ready" } } } },
+          { "at": 400, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "rang" } } } },
+          { "at": 500, "note": { "n": "down" } },
+          { "at": 600, "note": { "n": "up" } },
+          { "at": 30700, "note": { "n": "silent", "ms": 30100 } },
+          { "at": 30700, "input": { "t": "failed", "code": "dropped" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call 4410cd11: ticket after 100 ms (fallback false, sealed true)",
+          "call 4410cd11: call_ready: the host joined after 200 ms",
+          "call 4410cd11: the host's voice is ready",
+          "call 4410cd11: the host rang",
+          "call 4410cd11: answered after 400 ms",
+          "call 4410cd11: the host's first audio frame came after 500 ms",
+          "call 4410cd11: the first microphone frame went out after 600 ms",
+          "call 4410cd11: the path went silent: nothing from the relay for 30100 ms",
+          "call 4410cd11: ended by=here reason=dropped stage=paired phase=listening answered=true lasted=30700 ms sealed=true up=1 down=1 last_down=30200 ms ago"
+        ],
+        "end": { "tag": "4410cd11", "by": "here", "reason": "dropped", "stage": "paired", "phase": "listening", "answered": true, "sealed": true, "lastedMs": 30700, "upFrames": 1, "downFrames": 1, "lastDownMs": 30200 }
+      },
+      {
+        "name": "the relay ends it: idle",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 20, "input": { "t": "frame", "frame": { "t": "call_ready" } } },
+          { "at": 30, "input": { "t": "frame", "frame": { "t": "call_end", "reason": "idle" } } },
+          { "at": 40, "input": { "t": "closed" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: call_ready: the host joined after 20 ms",
+          "call -: ended by=far reason=idle stage=paired phase=ringing answered=false lasted=30 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "far", "reason": "idle", "stage": "paired", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 30, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "the far side hung up: no event",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 30, "input": { "t": "frame", "frame": { "t": "call_end" } } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=far reason=hung_up stage=dialed phase=ringing answered=false lasted=30 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": null
+      },
+      {
+        "name": "a reason that is no code never leaves",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 30, "input": { "t": "frame", "frame": { "t": "call_end", "reason": "what was said" } } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=far reason=other stage=dialed phase=ringing answered=false lasted=30 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "far", "reason": "other", "stage": "dialed", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 30, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "the host failed it; the microphone stayed silent",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 20, "input": { "t": "frame", "frame": { "t": "call_ready" } } },
+          { "at": 30, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "noSound" } } } },
+          { "at": 40, "input": { "t": "frame", "frame": { "t": "call_event", "event": { "t": "failed", "code": "unavailable" } } } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: call_ready: the host joined after 20 ms",
+          "call -: the host hears no sound from this microphone",
+          "call -: ended by=host reason=unavailable stage=paired phase=ringing answered=false lasted=40 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "host", "reason": "unavailable", "stage": "paired", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 40, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "the relay refused the ring: no answer",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 9000, "input": { "t": "frame", "frame": { "t": "error", "code": "no_answer" } } },
+          { "at": 9001, "input": { "t": "frame", "frame": { "t": "bye", "outcome": "no_answer" } } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=relay reason=no_answer stage=dialed phase=ringing answered=false lasted=9000 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "relay", "reason": "no_answer", "stage": "dialed", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 9000, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "busy is no event",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 20, "input": { "t": "frame", "frame": { "t": "error", "code": "busy" } } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=relay reason=busy stage=dialed phase=ringing answered=false lasted=20 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": null
+      },
+      {
+        "name": "the socket went away",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "ticket" } },
+          { "at": 20, "input": { "t": "closed" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=link reason=socket_closed stage=dialed phase=ringing answered=false lasted=20 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "link", "reason": "socket_closed", "stage": "dialed", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 20, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "the audio did not start, the dial failed, no seal: lines before the own failure",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "note": { "n": "audioFailed" } },
+          { "at": 11, "note": { "n": "dialFailed" } },
+          { "at": 12, "note": { "n": "noSeal" } },
+          { "at": 13, "input": { "t": "failed", "code": "no_microphone" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: the call audio did not start",
+          "call -: the dial failed",
+          "call -: the call cannot be sealed here",
+          "call -: ended by=here reason=no_microphone stage=asking phase=ringing answered=false lasted=13 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "here", "reason": "no_microphone", "stage": "asking", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 13, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "the ring's bound",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 300000, "input": { "t": "ringTimeout" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=here reason=unavailable stage=asking phase=ringing answered=false lasted=300000 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "here", "reason": "unavailable", "stage": "asking", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 300000, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      },
+      {
+        "name": "a refused start never says its words; a refused microphone is the person's own answer",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 0, "input": { "t": "held", "ok": true } },
+          { "at": 10, "input": { "t": "refused", "message": "mint is offline" } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: the microphone is held",
+          "call -: ended by=server reason=refused stage=asking phase=ringing answered=false lasted=10 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": null
+      },
+      {
+        "name": "the hold refused without a code",
+        "steps": [
+          { "at": 0, "input": { "t": "start", "device": "mint" } },
+          { "at": 5, "input": { "t": "held", "ok": false } }
+        ],
+        "lines": [
+          "call -: started (fallback false)",
+          "call -: ended by=here reason=dropped stage=holding phase=ringing answered=false lasted=5 ms sealed=false up=0 down=0 last_down=never"
+        ],
+        "end": { "tag": "-", "by": "here", "reason": "dropped", "stage": "holding", "phase": "ringing", "answered": false, "sealed": false, "lastedMs": 5, "upFrames": 0, "downFrames": 0, "lastDownMs": null }
+      }
+    ]
+  },
   "callSession": {
     "$comment": "EXP-1961 (2026-11-18, phases 2 and 3 of #EXP-1943, decided by Danny): A CALL RUNS IN ITS OWN CALL SESSION, A CHILD OF THE CHAT. WHICH CHAT: the caller's conversation with the called agent (the one `sessions.send {agentId}` reaches; created if missing). START: the HOST asks for it while it rings: `voice.callSession({agentId, callId})` (tRPC only, never MCP; the member's own call: the agent must be one they may call, `memberAgent`), so a desktop that runs the call locally (it never calls `voice.startCall`) and a caller of any age get the same call session; the host asks once per call (a reconnect asks again with the same callId). #EXP-1981: a STREAMED call names the ring's call id; a call a desktop runs itself sends NO callId (never an empty one: the input takes it absent or non-empty). A SEALED call (#EXP-1941) asks once its key source has adopted the chat's root (a first call's chat is created there): the daemon as soon as that root is known, before the caller's first frame opened; the IDE when the call begins, after it. Its `ready` waits for that answer as it waits for the opening line (a pickup at `openingWaitMs` without it counts as silent), nothing is spoken from the chat meanwhile, what is said meanwhile is held and sent once it answered (into the call session, or the chat on null; into the chat when the call ends first), a session that answers after the hang-up is told the hang-up (`voice.callEnded`), and null takes the old path at once; the opening line, the utterances and the reply watch then follow the call session exactly as in a clear call. It picks with pure `callSessionPick(prev, nowMs)` (`pickCases`) over the chat's newest call child `prev` ({status, endedAtMs} of its `sessions.voice_call`; null = none): no call child, or an ENDED one = `start`; a live one whose call is running (`endedAtMs` null: a reconnect) or ended at most `resumeMs` ago = `resume`; one ended longer ago = `replace` (that one ends now, quietly: no second report, then `start`). `start` = `sessions.send {parentId: chat, name: title.en}` (a server line, legal in a keyed tree) with the `request` text ({language} = the agent's Voice language name, `languageNames`, English when unset) as its first message, the child marked as a call (`sessions.voice_call` = {callId, startedAt, segmentStartedAt, endedAt: null, durationMs: 0, summaryPending: false, readUpTo: now}; the mark is the server's, like `meeting: true`: never on the wire). It runs on the chat's device with the chat's runner (a child's usual inheritance), sealed with the tree's key like everything in the tree (#EXP-1941). Its brief (session-brief.json `callCases`): the Request, then a Call section instead of Parent (the chat's title and id, the recent plaintext messages, the open work); its launch adds the voice section (coding `skill.rs`, `brief.call`). `resume` = the same row: `segmentStartedAt` = now, `endedAt` null, `summaryPending` false, and the `resumeText` as its next message (an idle session wakes; a turn still running takes it at its next edge). Both answer {sessionId, chatId, resumed}; a chat whose call session cannot start (the tree is full, the device refused) answers null and the host falls back to the old path (utterances into the chat). OPENING (#FEED-275, no fixed greeting any more): the call session's FIRST reply after the `request` (or the `resumeText`) is the agent's own opening line, written and synthesized during the ring. Pure `callOpening(readyAtMs, openingAtMs, nowMs)` (`openingCases`, the Rust hosts replay it): ready = the host's `ready` (the voice is in, `hostVoice`); before ready = `wait`; an opening already in at ready, or arriving within `openingWaitMs` after it = `speak` (said in the agent's voice, shown as its line); none by `readyAtMs + openingWaitMs` = `listen`: the host picks up silently on Listening and that call's opening is never spoken (it stays in the transcript). NO FIXED GREETING (#EXP-1966): `copy.greeting` is gone and `answered` goes straight to listening on all four platforms; a call without its own session (an older server, no chat yet) picks up silently too. The host still steps `replyFinished` at the pickup, so an older caller whose machine still shows the greeting at `answered` leaves it at once and shows Listening. A late opening after a silent pickup is dropped only while nothing was said yet (a later reply answers the caller). DURING THE CALL: each utterance is a person message into the CALL SESSION (sealed with the tree's key as before, #EXP-1930); the host reads aloud the call session's replies, never the chat's. #EXP-2015: the Speaking banner of a call session's reply (voice.json: Dock `Banner`, Stop) shows in the CHAT's Dock, where the call runs (the call session's own view has no Dock). Before an utterance lands, the server copies the CHAT's messages newer than `readUpTo` (a person's, and the chat agent's own plain replies; no cards, nothing the call session wrote) into the call session as pending input authored by the chat (`Message from <chat> (session <id>): …`, a sealed body as a byte copy: same tree, same key), in order, then the utterance, and moves `readUpTo`: the call reads what was typed in the chat before its next answer, and typing in the chat never wakes the call. #EXP-2014: the call session's own server lines (the `resumeText`, the `endedText`) carry no copy: the chat's catch-up waits for the next utterance, so the reply to the `resumeText` answers it alone and is the opening line, never a reply to a chat message. The call does small things itself (look-ups, filing an issue); bigger work it sends to the chat (`exponential_sessions_send` to its parent). Its turn replies never reach the chat (eagent bus.json: a call child's turn is skipped for its parent). HANG-UP: the host calls `voice.callEnded({sessionId, callId})` once per hang-up (either side, a drop too): `endedAt` = now, `durationMs` += now - `segmentStartedAt` (`durationCases`, pure `callDuration`), `summaryPending` = true, and the `endedText` ({minutes} = `callTimer` of this segment) as the call session's next message. Its next reply is the call's summary: delivered to the chat as a WAKING `report` card {kind: report, sessionId, summary, final: false, call: {startedAt, endedAt, durationMs}} (bus.json; a sealed summary rides as the body, its card summary empty), `summaryPending` cleared. The session then idles for the resume window; the next call past it ends it (`replace`). FOR THE UI (phase 4, not here): a call session is `sessions.voice_call` non-null (synced in the sessions shape): running = `endedAt` null; the card in the chat is the child's `session` card (posted at start) plus each `report` card with `call`; duration = `durationMs` (+ the running segment).",
     "resumeMs": 600000,

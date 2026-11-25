@@ -15,8 +15,8 @@ const uuid = z.string().uuid()
 // these. Refusals THROW (the toast).
 export const pullRequestsRouter = router({
   /** EXP-1709: a person's Merge (approval mode's Needs approval) queues the
-   *  PR (its stack with it); it never merges directly. `stack` is accepted
-   *  for old clients and ignored. */
+   *  PR; it never merges directly. `stack` = the stack confirm: the PR and
+   *  every PR beneath it (#FEED-307: never one above it). */
   merge: authedProcedure
     .input(z.object({ pullRequestId: uuid, stack: z.boolean().optional() }))
     .mutation(
@@ -27,7 +27,7 @@ export const pullRequestsRouter = router({
         const pr = await prTeam(input.pullRequestId)
         await assertTeamMember(ctx.session.user.id, pr.teamId)
         const { approvePullRequest } = await import(`@/lib/merge-train/worker`)
-        await approvePullRequest(input.pullRequestId)
+        await approvePullRequest(input.pullRequestId, { stack: input.stack === true })
         return { merged: false, queued: true }
       }
     ),
@@ -39,7 +39,7 @@ export const pullRequestsRouter = router({
     await assertTeamOwner(ctx.session.user.id, pr.teamId)
     const { mergeNowPullRequest } = await import(`@/lib/merge-train/worker`)
     // #FEED-293: the force is recorded (who, which checks were red).
-    const now = await mergeNowPullRequest(input.pullRequestId, { by: ctx.session.user.id })
+    const now = await mergeNowPullRequest(input.pullRequestId, { by: ctx.session.user.id, stack: true })
     return { ok: true as const, refused: now.refused }
   }),
 

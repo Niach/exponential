@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.exponential.app.BuildConfig
+import com.exponential.app.Observability
 import com.exponential.app.data.api.STEER_CLIENT
 import com.exponential.app.data.api.StartCallResult
 import com.exponential.app.data.api.VoiceApi
@@ -355,6 +356,11 @@ class VoiceCallController @Inject constructor(
 
         override fun log(message: String) {
             Log.i(TAG, message)
+            Observability.callLine(message)
+        }
+
+        override fun callFailed(end: VoiceCall.CallLog.End) {
+            Observability.callFailed(end)
         }
     }
 

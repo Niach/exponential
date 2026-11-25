@@ -9,6 +9,7 @@
 
 import {
   captureException,
+  captureMessage,
   close,
   consoleLoggingIntegration,
   init,
@@ -77,6 +78,18 @@ export async function stopSdk(): Promise<void> {
 
 export function captureError(error: unknown): void {
   captureException(error)
+}
+
+export interface SdkNotice {
+  message: string
+  fingerprint: string[]
+  tags: Record<string, string>
+  extra: Record<string, unknown>
+}
+
+/** EXP-2111: an event that is no exception (a warning). */
+export function captureNotice({ message, ...context }: SdkNotice): void {
+  captureMessage(message, { level: `warning`, ...context })
 }
 
 export function setSdkUser(id: string | null): void {

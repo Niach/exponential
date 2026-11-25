@@ -285,6 +285,7 @@ import {
   steerNoFeedInputs,
   steerNoFeedState,
   steerOfflineLine,
+  steerTailUnreachable,
 } from "@exp/domain-contract/steer-enet"
 import { syncedTailMessages } from "@/lib/steer-synced-tail"
 
@@ -891,8 +892,12 @@ export function AgentSessionView({
         messages: sessionMessages.map(toTreeMessage),
         max: Number.POSITIVE_INFINITY,
         // An EMPTY feed takes it only while the live transcript cannot be
-        // loaded (the OFFLINE LINE's condition).
-        unreachable: sessionEnded ? deviceOffline && phase.kind === `ended` : device.online === false,
+        // loaded (#EXP-2138: the last dial said NO FEED, whatever the row).
+        unreachable: steerTailUnreachable({
+          ended: sessionEnded,
+          noFeed: phase.kind === `starting` || (deviceOffline && phase.kind === `ended`),
+          deviceOffline: device.online === false,
+        }),
       })
         .map((message) => message.id)
         .filter((id) => !handoff.ids.has(id)),
@@ -1562,6 +1567,10 @@ export function AgentSessionView({
       },
       missing: () => {
         if (deepLink) settleDeepLink?.(deepLink, `missing`)
+      },
+      // #FEED-298: a card far above pages in while pages keep landing.
+      progress: (at) => {
+        if (deepLink) deepLinks?.touch?.(deepLink, at)
       },
     }
   )

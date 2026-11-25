@@ -1,8 +1,5 @@
 import Foundation
 import Observation
-import os
-
-private let logger = Logger(subsystem: "at.exponential", category: "voice-call")
 
 // #EXP-1993: the phone's call as the app runs it. `VoiceCall.Caller` decides
 // (voice-call.json `caller`); `VoiceCallDriver` does each effect through
@@ -62,6 +59,7 @@ public protocol CallPathWatch: AnyObject, Sendable {
     func beat()
     /// `callPathDead`.
     func dead() -> Bool
+    func silentMs() -> Int
 }
 
 public protocol CallTimer {
@@ -98,6 +96,8 @@ public protocol CallPlatform: AnyObject {
     func every(ms: Int, _ body: @escaping @MainActor () -> Void) -> CallTimer
     /// While a call shows, the screen never dims on its own.
     func keepAwake(_ awake: Bool)
+    /// EXP-2111: where the calls' log lines go.
+    var logSink: CallLogSink { get }
 }
 
 /// A socket's frames, off the main actor: a sealed call's are opened HERE,
@@ -107,15 +107,22 @@ public final class CallInbound: Sendable {
     private let seal: CallSeal?
     private let audio: CallAudio?
     private let watch: CallPathWatch
+    private let log: VoiceCall.CallLog
     private let onText: @Sendable (String) -> Void
     private let onClosed: @Sendable () -> Void
 
-    init(seal: CallSeal?, audio: CallAudio?, watch: CallPathWatch, onText: @escaping @Sendable (String) -> Void, onClosed: @escaping @Sendable () -> Void) {
+    init(seal: CallSeal?, audio: CallAudio?, watch: CallPathWatch, log: VoiceCall.CallLog, onText: @escaping @Sendable (String) -> Void, onClosed: @escaping @Sendable () -> Void) {
         self.seal = seal
         self.audio = audio
         self.watch = watch
+        self.log = log
         self.onText = onText
         self.onClosed = onClosed
+    }
+
+    /// The socket connected.
+    public func opened() {
+        log.note(.socketOpen)
     }
 
     public func text(_ text: String) {
@@ -125,6 +132,7 @@ public final class CallInbound: Sendable {
 
     public func data(_ frame: Data) {
         watch.heard()
+        log.note(.down)
         if let opened = seal == nil ? frame : seal?.inbound(frame: frame) { audio?.receive(opened) }
     }
 
@@ -157,6 +165,10 @@ public final class CallLiveness: CallPathWatch, @unchecked Sendable {
 
     public func dead() -> Bool {
         lock.withLock { VoiceCall.callPathDead(alive: alive, silentMs: Int(Date().timeIntervalSince(heardAt) * 1000)) }
+    }
+
+    public func silentMs() -> Int {
+        lock.withLock { Int(Date().timeIntervalSince(heardAt) * 1000) }
     }
 }
 
@@ -195,6 +207,8 @@ public final class VoiceCallDriver {
     @ObservationIgnored private var socket: CallSocket?
     @ObservationIgnored private var audio: CallAudio?
     @ObservationIgnored private var seal: CallSeal?
+    /// EXP-2111 (voice-call.json `log`): this call's lines and its one event.
+    @ObservationIgnored private var log: VoiceCall.CallLog
 
     private struct Asked: Sendable {
         let agentId: String
@@ -208,6 +222,7 @@ public final class VoiceCallDriver {
 
     public init(platform: CallPlatform) {
         self.platform = platform
+        log = VoiceCall.CallLog(platform.logSink)
     }
 
     // MARK: - Commands
@@ -217,6 +232,7 @@ public final class VoiceCallDriver {
     public func start(agentId: String, keys: CallKeySource?, device: String, language: String?, fallback: Bool) {
         guard state.phase == .hidden else { return }
         generation += 1
+        log = VoiceCall.CallLog(platform.logSink)
         asked = Asked(agentId: agentId, keys: keys)
         send(.start(device: device, language: language, fallback: fallback))
     }
@@ -247,7 +263,9 @@ public final class VoiceCallDriver {
         defer { stepping = false }
         while !inbox.isEmpty {
             let before = state.phase
-            let stepped = VoiceCall.Caller.step(caller, inbox.removeFirst())
+            let next = inbox.removeFirst()
+            let stepped = VoiceCall.Caller.step(caller, next)
+            log.input(next, before: caller, after: stepped.state, effects: stepped.effects)
             caller = stepped.state
             if state.phase != before { level = 0 }
             if state.phase == .hidden {
@@ -287,6 +305,7 @@ public final class VoiceCallDriver {
                     if generation != self?.generation { audio.stop() }
                 } catch {
                     guard let self, generation == self.generation else { return }
+                    self.log.note(.audioFailed)
                     self.send(.failed(code: error as? CallAudioError == .noMicrophone ? "no_microphone" : "dropped", told: false))
                 }
             }
@@ -348,6 +367,7 @@ public final class VoiceCallDriver {
                 sealed = Sealed(callId: ticket.callId, agentId: asked.agentId, deviceId: deviceId, target: sealTarget, keys: keys)
             }
             self.dialling = Dialling(url: url, sealed: sealed)
+            self.log.note(.ticket(callId: ticket.callId, fallback: ticket.fallback ?? false, sealed: sealed != nil))
             // EXP-1857: the server's answer names the device that speaks.
             self.send(.ticket(device: ticket.device, fallback: ticket.fallback, sealed: sealed != nil))
         }
@@ -372,9 +392,13 @@ public final class VoiceCallDriver {
             )
             made = platform.makeSeal(sealed, io: io)
             // Never resumed: nothing connected.
-            guard made != nil else { return send(.failed(code: "dropped", told: false)) }
+            guard made != nil else {
+                log.note(.noSeal)
+                return send(.failed(code: "dropped", told: false))
+            }
         }
         let seal = made
+        let log = log
         self.socket = socket
         self.seal = seal
         let watch = platform.watchPath()
@@ -383,14 +407,15 @@ public final class VoiceCallDriver {
         // `idleTimeoutMs` is dead: the call ends dropped.
         watchTimer = platform.every(ms: 1000) { [weak self] in
             guard let self, generation == self.generation, watch.dead() else { return }
-            logger.info("call path went silent")
+            log.note(.silent(ms: watch.silentMs()))
             self.send(.failed(code: "dropped", told: false))
         }
         let audio = platform.makeAudio(
             // A sealed call's ONE gate: a frame leaves only through the sealer.
             onUplink: { frame in
-                guard let seal else { return socket.send(audio: frame) }
-                if let sealed = seal.uplink(frame) { socket.send(audio: sealed) }
+                guard let sent = seal == nil ? frame : seal?.uplink(frame) else { return }
+                socket.send(audio: sent)
+                log.note(.up)
             },
             onLevel: { [weak self] level, speaking in
                 Task { @MainActor in
@@ -408,7 +433,7 @@ public final class VoiceCallDriver {
         )
         self.audio = audio
         socket.resume(CallInbound(
-            seal: seal, audio: audio, watch: watch,
+            seal: seal, audio: audio, watch: watch, log: log,
             onText: { [weak self] text in
                 Task { @MainActor in
                     guard let self, generation == self.generation, let frame = VoiceCall.Caller.Frame(text: text) else { return }
@@ -418,7 +443,6 @@ public final class VoiceCallDriver {
             onClosed: { [weak self] in
                 Task { @MainActor in
                     guard let self, generation == self.generation else { return }
-                    logger.info("call socket closed without an end")
                     self.send(.closed)
                 }
             }

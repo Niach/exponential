@@ -47,8 +47,8 @@ describe(`MCP Apps (EXP-1183)`, () => {
 
   it(`binds tools to their view; only the list advertises an entrypoint`, () => {
     expect(mcpAppToolMeta(`issues`)).toEqual({
-      ui: { resourceUri: `ui://exponential/issues` },
-      "openai/ui": { entrypoints: [{ type: `global` }] },
+      ui: { resourceUri: `ui://exponential/issues`, visibility: [`model`, `app`] },
+      "openai/ui": { entrypoints: [{ type: `global` }, { type: `thread` }] },
     })
     for (const view of [`inbox`, `devices`] as const) {
       expect(mcpAppToolMeta(view)).toEqual({
@@ -72,6 +72,7 @@ describe(`MCP Apps (EXP-1183)`, () => {
       const { contents } = await resource.read()
       expect(contents[0].mimeType).toBe(MCP_APP_MIME_TYPE)
       expect(contents[0].text).toContain(`<meta name="exp-view"`)
+      expect(JSON.stringify(contents[0])).toContain(`"openai/ui":{"availableDisplayModes":["inline","fullscreen"],"preferredDisplayMode":"inline"}`)
       expect(JSON.stringify(contents[0])).toContain(`"resourceDomains":["https://app.example"`)
     }
   })

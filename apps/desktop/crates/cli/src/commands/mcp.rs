@@ -24,6 +24,10 @@ use crate::term;
 const USAGE: &str = "\
 Usage: exponential mcp <command> [--team <team-id|slug>]
 
+  serve                 An MCP server (stdio) for your own clients, e.g.
+                        `claude mcp add exponential -- exponential mcp serve`:
+                        end-to-end encrypted through the daemon or desktop app
+                        that runs on this machine
   list                  Your teams' MCP servers and your connection to each
   connect <server>      Connect an OAuth server (opens the web settings page)
   set-secret <server>   Store your key for a server that takes one (read from
@@ -43,6 +47,11 @@ pub fn run(args: &[String]) -> CommandResult {
     let sub = args.first().map(String::as_str).unwrap_or("");
     let rest = &args[1.min(args.len())..];
     match sub {
+        "serve" => {
+            reject_unknown_flags(rest)?;
+            coding::client_mcp::run_stdio(context::data_dir());
+            Ok(ExitCode::SUCCESS)
+        }
         "list" => list(rest),
         "connect" => connect(rest),
         "set-secret" => set_secret(rest),

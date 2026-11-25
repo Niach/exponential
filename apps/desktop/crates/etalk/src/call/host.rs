@@ -10,7 +10,7 @@
 //! the server. The rings, the worker's lifecycle, the reply watch's reads
 //! and the network stay theirs.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
     call_opening, call_ring_ms, call_step, call_voice_ready, call_wire_event, CallEvent, CallOpening, CallPhase, CallState, CallVoice, CallVoiceReady,
@@ -246,6 +246,19 @@ pub enum HostEffect {
     Toast { text: String },
 }
 
+/// EXP-2110 (voice-call.json `record`): what the host knows of its call's
+/// end, as `voice.callEnded {report}` carries it: codes and a duration, never
+/// a word.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostReport {
+    pub by: String,
+    pub reason: String,
+    /// From the ring's start; absent = never answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answered_ms: Option<u64>,
+}
+
 /// The code a `ListenFailed` fails the call with (None = `downloading`: a
 /// voice still downloading keeps ringing).
 pub fn listen_failed_code(reason: ListenFailure) -> Option<&'static str> {
@@ -313,6 +326,8 @@ pub struct CallHost {
     turn_phrase: Option<String>,
     turn: TurnHostState,
     turn_sent_at: Option<u64>,
+    /// EXP-2110: set when it ended.
+    report: Option<HostReport>,
 }
 
 /// #FEED-268: who ended a call and why, as the end line names it
@@ -373,6 +388,7 @@ impl CallHost {
             turn_phrase: start.turn,
             turn: TurnHostState::default(),
             turn_sent_at: None,
+            report: None,
         }
     }
 
@@ -383,6 +399,11 @@ impl CallHost {
         let Some(session) = session else { return Vec::new() };
         log::info!("[voice] call {label}: its session {session} came after the hang-up");
         vec![HostEffect::CallEnded { session }]
+    }
+
+    /// EXP-2110: the ended call's report (None = it still runs).
+    pub fn report(&self) -> Option<&HostReport> {
+        self.report.as_ref()
     }
 
     /// The worker's call id.
@@ -903,6 +924,11 @@ impl CallHost {
         // #FEED-268: ONE line that says who ended it, why and how far it got.
         let (by, reason) = ended_by(&event, self.remote);
         let phase = self.state.phase;
+        self.report = Some(HostReport {
+            by: by.to_string(),
+            reason: reason.clone(),
+            answered_ms: self.answered_at.map(|at| at.saturating_sub(self.started.unwrap_or(at))),
+        });
         self.step(event, now, out);
         log::info!(
             "[voice] call {}: ended by={by} reason={reason} phase={phase:?} answered={} lasted={} ms listening={} heard={} utterances={} replies={}",
@@ -943,6 +969,29 @@ mod tests {
         assert_eq!(by(CallEvent::End, true), ("host", "hung_up".to_string()));
         assert_eq!(by(CallEvent::End, false), ("user", "hung_up".to_string()));
         assert_eq!(by(CallEvent::Failed("unavailable".into()), true), ("host", "failed:unavailable".to_string()));
+    }
+
+    /// EXP-2110: the report `voice.callEnded` carries: codes and a duration,
+    /// there once the call ended.
+    #[test]
+    fn an_ended_call_has_a_report() {
+        let mut call = CallHost::new(HostStart {
+            id: "call-1".into(),
+            call_id: None,
+            language: "en".into(),
+            remote: true,
+            random: 0.0,
+            device: "mint".into(),
+            fallback: false,
+            session: None,
+            voice: CallVoice::None,
+            turn: None,
+        });
+        call.handle(HostInput::Begin, 100);
+        assert_eq!(call.report(), None);
+        call.handle(HostInput::HungUp { reason: Some("idle".into()) }, 5_100);
+        let report = call.report().expect("ended");
+        assert_eq!(serde_json::to_value(report).unwrap(), serde_json::json!({ "by": "relay", "reason": "idle" }));
     }
 
     /// One event of a `hostCases` row, at its instant.

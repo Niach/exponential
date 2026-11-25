@@ -354,6 +354,7 @@ async fn the_view_keeps_streaming_over_the_relay_when_enet_dies_and_moves_back_t
         Arc::new(FakeControl(relay_url.clone())),
         Arc::new(|| {}),
         Arc::new(|_| {}),
+        Arc::new(|_| {}),
     );
     wait_until("the device announced tunnel: 1", || relay.seen.online_tunnel.load(Ordering::SeqCst)).await;
     let session_id = format!("sess-tunnel-{}", std::process::id());

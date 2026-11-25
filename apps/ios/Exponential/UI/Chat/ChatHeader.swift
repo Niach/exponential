@@ -30,9 +30,25 @@ struct ChatHeader<Title: View, Trailing: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: CGFloat(HeaderActions.gap)) { trailing() }
         }
+        // One row of fixed height: its glyphs and text keep their size.
+        .dynamicTypeSize(.large)
         .padding(.leading, CGFloat(Measures.paddingX))
         .padding(.trailing, 16)
         .frame(maxWidth: .infinity, minHeight: CGFloat(Measures.row), maxHeight: CGFloat(Measures.row), alignment: .leading)
+        .clearsWindowControls()
+    }
+}
+
+private extension View {
+    /// An iPad window's own controls sit over its top leading corner:
+    /// the row stands under them.
+    @ViewBuilder
+    func clearsWindowControls() -> some View {
+        if #available(iOS 26.0, *) {
+            containerCornerOffset(.top, sizeToFit: true)
+        } else {
+            self
+        }
     }
 }
 

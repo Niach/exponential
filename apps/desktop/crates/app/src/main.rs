@@ -65,6 +65,12 @@ fn main() {
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();
     }
+    // #FEED-311: `<binary> mcp` = the stdio MCP server of the person's own
+    // clients, forwarding to the key holder of the running app.
+    if std::env::args().nth(1).is_some_and(|arg| arg == "mcp") {
+        coding::client_mcp::run_stdio(api::default_data_dir());
+        return;
+    }
     // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
     // per app): the voice model and the audio device, killable by the host.
     if etalk::requested() {

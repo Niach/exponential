@@ -21,6 +21,7 @@ import { gatedChecks, isFailingCheck, trainChecksState } from "@exp/domain-contr
 import type { RepositoryCiConfig } from "@exp/db-schema"
 import { withRepoRequired } from "@/lib/ci/required"
 import {
+  baseChecks,
   composeBatch,
   MERGE_TRAIN_LIMITS,
   conflictText,
@@ -225,11 +226,43 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
             status: pullRequestChecks.status,
             conclusion: pullRequestChecks.conclusion,
             required: pullRequestChecks.required,
+            startedAt: pullRequestChecks.startedAt,
+            createdAt: pullRequestChecks.createdAt,
           })
           .from(pullRequestChecks)
           .where(inArray(pullRequestChecks.pullRequestId, ids))
   const checks = new Map<string, typeof rows>()
   for (const row of rows) checks.set(row.pullRequestId, [...(checks.get(row.pullRequestId) ?? []), row])
+  // #FEED-307 (`baseChecks`): what those rows say about the base as it is now
+  // (a retarget voids the required runs before it). `reported` = CI ran.
+  const reported = new Set<string>()
+  for (const pr of prs) {
+    const based = baseChecks({
+      required: required.get(pr.base) ?? [],
+      baseChangedAt: pr.mergeBaseChangedAt?.toISOString() ?? null,
+      checks: (checks.get(pr.id) ?? []).map((row) => ({ name: row.name, startedAt: (row.startedAt ?? row.createdAt).toISOString(), row })),
+    })
+    checks.set(pr.id, based.counted.map((check) => check.row))
+    if (based.reported) reported.add(pr.id)
+  }
+  // #FEED-307: the PRs based on a live PR of the repo, or on one that landed
+  // and whose retarget is still to come (a closed parent is no stack).
+  const parentIds = [...new Set(prs.flatMap((pr) => (pr.basePullRequestId ? [pr.basePullRequestId] : [])))]
+  const parents =
+    parentIds.length === 0
+      ? []
+      : await db
+          .select({ id: pullRequests.id })
+          .from(pullRequests)
+          .where(
+            and(
+              inArray(pullRequests.id, parentIds),
+              eq(pullRequests.repositoryId, repo.id),
+              ne(pullRequests.state, `closed`)
+            )
+          )
+  const stackParents = new Set(parents.map((parent) => parent.id))
+  const stacked = new Set(prs.flatMap((pr) => (pr.basePullRequestId && stackParents.has(pr.basePullRequestId) ? [pr.id] : [])))
   // #EXP-1862 (merge-train.json `gating`): our own CI's checks of these PRs
   // are informational unless the repo names them required.
   const own =
@@ -247,7 +280,7 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
   }
   // #FEED-282: the repo reports CI on its PRs (any check row on another
   // PR of it in the last two weeks): a fresh PR without rows waits for them.
-  const bare = prs.some((pr) => pr.state === `open` && !checks.has(pr.id))
+  const bare = prs.some((pr) => pr.state === `open` && !reported.has(pr.id))
   const [seen] = !bare
     ? []
     : await db
@@ -256,10 +289,10 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
         .innerJoin(pullRequests, eq(pullRequests.id, pullRequestChecks.pullRequestId))
         .where(and(eq(pullRequests.repositoryId, repo.id), sql`${pullRequests.createdAt} > now() - interval '14 days'`))
         .limit(1)
-  return { tree, modes, checks, required, informational, ciSeen: seen !== undefined }
+  return { tree, modes, checks, reported, stacked, required, informational, ciSeen: seen !== undefined }
 }
 
-function waitOf(pr: PrRow, { tree, modes, checks, required, informational }: ReadinessInputs): MergeWait | null {
+function waitOf(pr: PrRow, { tree, modes, checks, stacked, required, informational }: ReadinessInputs): MergeWait | null {
   const rows = checks.get(pr.id) ?? []
   const names = required.get(pr.base) ?? []
   return mergeWait({
@@ -272,6 +305,8 @@ function waitOf(pr: PrRow, { tree, modes, checks, required, informational }: Rea
     ),
     mode: modes.get(pr.teamId) ?? `auto`,
     approved: pr.mergeApprovedAt !== null,
+    stacked: stacked.has(pr.id),
+    withStack: pr.mergeWithStack,
   })
 }
 
@@ -284,7 +319,7 @@ async function noChecksHold(
   forge: Forge,
   now: Date
 ): Promise<`no_checks` | `conflict` | `wait` | null> {
-  if ((inputs.checks.get(pr.id)?.length ?? 0) > 0 || pr.state !== `open` || pr.mergeNow) return null
+  if (inputs.reported.has(pr.id) || pr.state !== `open` || pr.mergeNow) return null
   const expected = (inputs.required.get(pr.base)?.length ?? 0) > 0
   // #FEED-282: no required names but CI on the repo: wait out the grace.
   // #EXP-2090: a repo whose CI is new has no other PR reporting it; only a
@@ -341,7 +376,7 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
       }
     }
     // #FEED-221: CI showed up on a head held for having none.
-    if (pr.mergeState === `held` && (inputs.checks.get(pr.id)?.length ?? 0) > 0) {
+    if (pr.mergeState === `held` && inputs.reported.has(pr.id)) {
       const released = await stepPullRequest(pr.id, { type: `checks_appeared` }, { base, now })
       if (released) pr.mergeState = released.state
     }
@@ -717,13 +752,17 @@ async function stillLandable(id: string, runId: string, live: { draft: boolean }
   return !!row && row.mergeState === `testing` && row.mergeTrainId === runId && row.state === `open` && row.mergeHold === null
 }
 
-/** The required checks of a PR's head all green (a lone unit's tested_sha). */
+/** The required checks of a PR's head all green, on the base it has now
+ *  (a lone unit's tested_sha). */
 async function provenHead(pr: PrRow, head: string): Promise<boolean> {
   const rows = await db
-    .select({ required: pullRequestChecks.required, status: pullRequestChecks.status, conclusion: pullRequestChecks.conclusion, headSha: pullRequestChecks.headSha })
+    .select({ required: pullRequestChecks.required, status: pullRequestChecks.status, conclusion: pullRequestChecks.conclusion, headSha: pullRequestChecks.headSha, startedAt: pullRequestChecks.startedAt, createdAt: pullRequestChecks.createdAt })
     .from(pullRequestChecks)
     .where(eq(pullRequestChecks.pullRequestId, pr.id))
   const required = rows.filter((r) => r.required && r.headSha === head)
+  // #FEED-307: a run from before a retarget proves nothing on the new base.
+  const changed = pr.mergeBaseChangedAt
+  if (changed && required.some((r) => (r.startedAt ?? r.createdAt) < changed)) return false
   return required.length > 0 && required.every((r) => r.status === `completed` && PASSING.has(r.conclusion ?? ``))
 }
 
@@ -895,19 +934,21 @@ function unitsOf(
 ): { units: PrRow[][]; train: TrainUnit[] } {
   const units = buildUnits(prs)
   const numberOf = new Map(prs.map((pr) => [pr.id, pr.number]))
-  const train = units.map((unit) => ({
-    members: unit.map((pr) => {
+  const train = units.map((unit) => {
+    // #FEED-307: a Merge now unit is its forced bottom with the members
+    // forced with it: nothing else lands untested.
+    const mergeNow = unit[0]!.mergeNow
+    return { mergeNow, members: unit.map((pr) => {
       // #EXP-1711: a tree-shaped stack's ready prefix follows parents.
       const parent = pr.basePullRequestId ? numberOf.get(pr.basePullRequestId) : undefined
       return {
         number: pr.number,
-        ready: eligible(pr),
+        ready: eligible(pr) && (!mergeNow || pr.mergeNow),
         readyAt: pr.mergeReadyAt?.toISOString() ?? null,
         ...(parent !== undefined ? { parent } : {}),
       }
-    }),
-    mergeNow: unit.some((pr) => pr.mergeNow),
-  }))
+    }) }
+  })
   return { units, train }
 }
 
@@ -1199,15 +1240,16 @@ export interface MergeNowResult {
   red: string[]
 }
 
-/** An owner's Merge now: next, alone, untested (a stack lands whole), past
- *  its own red checks; `by` = who forced it (#FEED-293: recorded with the
+/** An owner's Merge now: next, alone, untested (`stack`: its stack lands
+ *  whole; without it only this PR, #FEED-307), past its own red checks; `by` = who forced it (#FEED-293: recorded with the
  *  red checks, named in the merged line). A draft is refused, and so is a
  *  person's Hold when `keepPersonHolds` (an agent's force, #FEED-283). */
 export async function mergeNowPullRequest(
   pullRequestId: string,
-  opts: { keepPersonHolds?: boolean; by?: string | null } = {}
+  opts: { keepPersonHolds?: boolean; by?: string | null; stack?: boolean } = {}
 ): Promise<MergeNowResult> {
-  const ids = await stackOf(pullRequestId)
+  const line = await stackLine(pullRequestId)
+  const ids = opts.stack ? await stackOf(pullRequestId) : [pullRequestId]
   const rows = await db
     .select({ id: pullRequests.id, number: pullRequests.number, state: pullRequests.state, mergeState: pullRequests.mergeState, mergeHold: pullRequests.mergeHold })
     .from(pullRequests)
@@ -1219,6 +1261,7 @@ export async function mergeNowPullRequest(
     // #FEED-283: an agent's `pr merge {force}` never lifts a person's Hold
     // (only that person's Resume does): a held stack stays as it is.
     personHold: opts.keepPersonHolds === true && rows.some((row) => row.mergeState === `held` && row.mergeHold === `person`),
+    stackedOn: opts.stack ? null : (line[1]?.number ?? null),
   })
   const checks = await db
     .select({ pullRequestId: pullRequestChecks.pullRequestId, name: pullRequestChecks.name, status: pullRequestChecks.status, conclusion: pullRequestChecks.conclusion, required: pullRequestChecks.required })
@@ -1238,27 +1281,47 @@ export async function mergeNowPullRequest(
   return { refused: null, red: redOf(pullRequestId) }
 }
 /** #FEED-233 (merge-train.json `merge_now`): an agent's plain `pr merge`
- *  (a person asked for it) re-queues a stack held by the limits (bounces,
+ *  (a person asked for it) re-queues a PR (`stack`: its whole stack) held by the limits (bounces,
  *  timeout, no_checks, conflict) like Needs you Retry; a person's Hold
  *  stays. Then it approves like Needs approval. */
-export async function queuePullRequest(pullRequestId: string, now: Date = new Date()): Promise<void> {
-  const ids = await stackOf(pullRequestId)
+export async function queuePullRequest(pullRequestId: string, opts: { stack?: boolean; now?: Date } = {}): Promise<void> {
+  const now = opts.now ?? new Date()
+  const ids = opts.stack ? await stackOf(pullRequestId) : [pullRequestId]
   const held = await db
     .select({ id: pullRequests.id, base: pullRequests.base })
     .from(pullRequests)
     .where(and(inArray(pullRequests.id, ids), eq(pullRequests.mergeState, `held`), ne(pullRequests.mergeHold, `person`)))
   for (const pr of held) await stepPullRequest(pr.id, { type: `resume` }, { base: pr.base, now })
-  await approvePullRequest(pullRequestId, now)
+  await approve(ids, opts.stack === true, now)
+  mergeTrainEdge({ pullRequestId })
 }
 
-/** `approval` mode: a person's Needs approval (then it queues). */
-export async function approvePullRequest(pullRequestId: string, now: Date = new Date()): Promise<void> {
-  const ids = await stackOf(pullRequestId)
+/** `approval` mode: a person's Needs approval (then it queues). `stack` =
+ *  their stack confirm: it and every PR beneath it land together; the PRs
+ *  above stay open (#FEED-307, stack-merge-choice.json `staysOpen`). */
+export async function approvePullRequest(pullRequestId: string, opts: { stack?: boolean; now?: Date } = {}): Promise<void> {
+  const ids = opts.stack ? (await stackLine(pullRequestId)).map((pr) => pr.id) : [pullRequestId]
+  await approve(ids, opts.stack === true, opts.now ?? new Date())
+  mergeTrainEdge({ pullRequestId })
+}
+
+async function approve(ids: string[], withStack: boolean, now: Date): Promise<void> {
+  if (withStack) await db.update(pullRequests).set({ mergeWithStack: true }).where(inArray(pullRequests.id, ids))
   await db
     .update(pullRequests)
     .set({ mergeApprovedAt: now })
     .where(and(inArray(pullRequests.id, ids), sql`${pullRequests.mergeApprovedAt} IS NULL`))
-  mergeTrainEdge({ pullRequestId })
+}
+
+/** A PR and the live PRs beneath it, top first (cycle-safe). */
+async function stackLine(pullRequestId: string): Promise<Array<Pick<PrRow, `id` | `number`>>> {
+  const [pr] = await db.select({ repositoryId: pullRequests.repositoryId }).from(pullRequests).where(eq(pullRequests.id, pullRequestId)).limit(1)
+  const byId = new Map((pr ? await livePrs(pr.repositoryId) : []).map((row) => [row.id, row]))
+  const line: PrRow[] = []
+  for (let at = byId.get(pullRequestId); at && !line.includes(at); at = at.basePullRequestId ? byId.get(at.basePullRequestId) : undefined) {
+    line.push(at)
+  }
+  return line
 }
 
 /** The live PRs of the stack a PR belongs to (itself when alone). */

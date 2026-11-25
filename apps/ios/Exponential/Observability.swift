@@ -48,6 +48,31 @@ enum Observability {
         SentrySDK.setUser(id.map { User(userId: $0) })
     }
 
+    /// EXP-2111: a call's log line as a breadcrumb (never a word of the call).
+    /// Inert while the SDK is off; any thread.
+    nonisolated static func callLine(_ line: String) {
+        guard SentrySDK.isEnabled else { return }
+        let crumb = Breadcrumb(level: .info, category: "call")
+        crumb.message = line
+        SentrySDK.addBreadcrumb(crumb)
+    }
+
+    /// EXP-2111: the ONE event of a call that ended any other way than a hang-up.
+    nonisolated static func callFailed(_ end: VoiceCall.CallLog.End) {
+        guard SentrySDK.isEnabled else { return }
+        SentrySDK.capture(message: end.message) { scope in
+            scope.setLevel(.warning)
+            scope.setFingerprint(["voice-call-end", end.reason])
+            scope.setTags([
+                "call_tag": end.tag, "call_by": end.by, "call_reason": end.reason, "call_stage": end.stage, "call_phase": end.phase,
+            ])
+            scope.setExtras([
+                "answered": end.answered, "sealed": end.sealed, "lastedMs": end.lastedMs,
+                "upFrames": end.upFrames, "downFrames": end.downFrames, "lastDownMs": end.lastDownMs ?? "never",
+            ] as [String: Any])
+        }
+    }
+
     private static func apply(_ cached: Monitoring.Cached?) {
         let wanted = cached.flatMap { $0.config.isActive && Monitoring.sendDiagnostics() ? $0 : nil }
         guard wanted != running else { return }
