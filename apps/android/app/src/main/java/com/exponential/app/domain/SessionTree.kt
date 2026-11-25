@@ -1781,7 +1781,7 @@ object SessionTree {
         val depth: Int = 0,
         val parentId: String? = null,
         val rootId: String = sessionId,
-        /** EXP-1323: bold title (the tree's newest agent message is newer
+        /** EXP-1323: bold title (the root's newest agent message is newer
          *  than the viewer's read of the root). */
         val unread: Boolean = false,
         /** #FEED-263: [treeWall] (the fixture sets it only when one holds). */
@@ -1813,13 +1813,12 @@ object SessionTree {
         now: String? = null,
     ): List<ChatsListGroup> {
         val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: 0L) }
-        val rootOf = sessions.associate { it.id to it.rootId }
-        val newestAgentInTree = HashMap<String, Long>()
+        // Exactly chats.json `unreadCount` > 0: the Chats badge never counts a
+        // row that shows none.
+        val newestAgent = HashMap<String, Long>()
         for (message in messages) {
-            if (message.authorKind != DomainContract.messageAuthorKindAgent) continue
-            val at = ms(message.createdAt) ?: 0L
-            val rootId = rootOf[message.sessionId] ?: continue
-            newestAgentInTree[rootId] = maxOf(newestAgentInTree[rootId] ?: 0L, at)
+            if (!Chats.countsUnread(message)) continue
+            newestAgent[message.sessionId] = maxOf(newestAgent[message.sessionId] ?: 0L, ms(message.createdAt) ?: 0L)
         }
         fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
         // #ERR-28: converted and indexed once: titles are resolved per row below.
@@ -1860,7 +1859,7 @@ object SessionTree {
                 depth = 0,
                 parentId = null,
                 rootId = root.id,
-                unread = unreadAt(newestAgentInTree[root.id], root.id),
+                unread = unreadAt(newestAgent[root.id], root.id),
                 wall = treeWall(tree),
             )
             // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
@@ -1932,16 +1931,11 @@ object SessionTree {
         // root outside the archive (a root that needs you counts anyway).
         val archived = reads.filter { !it.archivedAt.isNullOrEmpty() }.mapTo(HashSet()) { it.sessionId }
         val readAt = reads.associate { it.sessionId to it.readAt }
-        val rootOf = HashMap<String, String>(sessions.size)
-        for (session in sessions) rootOf[session.id] = session.rootId
         val rootIds = roots.mapTo(HashSet()) { it.id }
         val newestAgent = HashMap<String, Long>()
         for (message in messages) {
-            if (message.authorKind != DomainContract.messageAuthorKindAgent) continue
-            val rootId = rootOf[message.sessionId] ?: continue
-            if (rootId !in rootIds) continue
-            val at = ms(message.createdAt) ?: 0L
-            newestAgent[rootId] = maxOf(newestAgent[rootId] ?: 0L, at)
+            if (message.sessionId !in rootIds || !Chats.countsUnread(message)) continue
+            newestAgent[message.sessionId] = maxOf(newestAgent[message.sessionId] ?: 0L, ms(message.createdAt) ?: 0L)
         }
         fun unread(rootId: String): Boolean {
             if (rootId in archived) return false
@@ -2077,7 +2071,7 @@ object SessionTree {
                     icon = it.icon ?: ListCopy.AGENT_DEFAULT_ICON,
                     color = it.color ?: ListCopy.AGENT_DEFAULT_COLOR,
                     busy = live && conversation!!.busy,
-                    needsYou = live && conversation!!.needsInput,
+                    needsYou = conversation != null && sessionAsks(conversation),
                     assistant = it.isAssistant,
                     groupChatId = it.groupChatId?.takeIf { id -> id.isNotEmpty() },
                 )

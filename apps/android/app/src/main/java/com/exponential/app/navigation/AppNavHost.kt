@@ -69,6 +69,7 @@ import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
 import com.exponential.app.data.ShellState
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
@@ -1444,7 +1445,7 @@ private fun AuthenticatedNav(
         PhoneDock(
             selected = lit.value,
             newOpen = newOpen,
-            chatsBadge = chatsBadge,
+            badges = dockBadges(chatsVm, assistant, chatsBadge),
             onSelect = { tab ->
                 if (tab == "new") {
                     newOpen = !newOpen
@@ -1458,6 +1459,21 @@ private fun AuthenticatedNav(
         )
     }
     }
+}
+
+/** The dock's badges by tab; read only while the bar shows. */
+@Composable
+private fun dockBadges(
+    chats: ChatsViewModel,
+    assistant: kotlinx.coroutines.flow.StateFlow<AssistantRef?>,
+    chatsBadge: NavBadges.Badge,
+): Map<String, NavBadges.Badge> {
+    val ref by assistant.collectAsStateWithLifecycle()
+    val rows by chats.rowBadges.collectAsStateWithLifecycle()
+    return mapOf(
+        "chats" to chatsBadge,
+        "assistant" to (rows[ref?.sessionId] ?: NavBadges.NONE),
+    )
 }
 
 /** A page the docked bar stands on, its content kept above the bar. */

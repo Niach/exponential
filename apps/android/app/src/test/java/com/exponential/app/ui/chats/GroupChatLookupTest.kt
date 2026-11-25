@@ -90,17 +90,19 @@ class GroupChatLookupTest {
             id = "q1", sessionId = "g2", authorKind = "agent", authorId = null, body = "", card = card,
             answeredAt = null, consumedAt = null, createdAt = "2027-01-15T07:00:00.000Z", authorSessionId = "g2",
         )
-        fun fold(groupChatId: String?) = needsYouFold(
+        fun fold(groupChatId: String?) = needsYouRead(
             sessions = listOf(session("g2", "ag2", "u-owner")),
             links = emptyList(),
             issues = emptyList(),
             messages = listOf(ask),
             definitions = listOf(SessionTree.AgentDefinition("ag2", "t1", "Release", null, null, 0.0, groupChatId = groupChatId)),
             pullRequests = emptyList(),
-            team = "t1",
+            teams = listOf(com.exponential.app.data.db.TeamEntity(id = "t1", name = "T1", slug = "t1", createdAt = "", updatedAt = "")),
+            owned = emptySet(),
+            devices = emptyList(),
             me = "u-me",
             now = 1_800_000_000_000L,
-        )
+        ).rows
         // A teammate's private conversation (no group chat): never the viewer's.
         assertEquals(emptyList<String>(), fold(null).map { it.messageId })
         // The agent's group chat: every member's.

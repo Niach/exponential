@@ -46,9 +46,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -86,14 +88,24 @@ private fun tabTestTag(tab: String): String = when (tab) {
     else -> Chats.TestIds.TAB_SETTINGS
 }
 
+/** A tab's name to assistive tech, its count included. */
+private fun dockLabel(tab: String, badge: NavBadges.Badge): String {
+    val count = NavBadges.countBadgeLabel(badge.count)
+    val label = Chats.Copy.TABS.getValue(tab)
+    return if (count.isEmpty()) label else "$label, $count"
+}
+
+/** How far the disc's badge hangs past the disc's own box. */
+private val BADGE_HANG: Dp = 2.dp
+
 @Composable
 fun PhoneDock(
     /** The lit tab (`shell.pages`), null while none is; while New is open only New lights. */
     selected: String?,
     /** The New popup is up: its cell lights and wears `openIcon`. */
     newOpen: Boolean,
-    /** THE count badge on Chats, over every team. */
-    chatsBadge: NavBadges.Badge,
+    /** THE count badges (nav-badges.json), by tab: Chats, Teams, the Assistant's disc. */
+    badges: Map<String, NavBadges.Badge>,
     onSelect: (tab: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -125,7 +137,7 @@ fun PhoneDock(
                         tab = tab,
                         icon = if (tab == "new" && newOpen) ExpIcons.byConcept(Chats.Shell.NewMenu.OPEN_ICON) ?: ExpIcons.uiClose else tabIcon(tab),
                         selected = if (tab == "new") newOpen else !newOpen && selected == tab,
-                        badge = if (tab == "chats") chatsBadge else NavBadges.NONE,
+                        badge = badges[tab] ?: NavBadges.NONE,
                         onClick = { onSelect(tab) },
                     )
                 }
@@ -133,6 +145,7 @@ fun PhoneDock(
         }
         AssistantDisc(
             selected = !newOpen && selected == "assistant",
+            badge = badges["assistant"] ?: NavBadges.NONE,
             onClick = { onSelect("assistant") },
             modifier = Modifier.align(Alignment.TopCenter),
         )
@@ -157,7 +170,7 @@ private fun RowScope.DockCell(
             .testTag(tabTestTag(tab))
             .semantics(mergeDescendants = true) {
                 this.selected = selected
-                contentDescription = label
+                contentDescription = dockLabel(tab, badge)
             }
             .clickable(role = Role.Tab, interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -188,44 +201,54 @@ private fun RowScope.DockCell(
 }
 
 @Composable
-private fun AssistantDisc(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun AssistantDisc(selected: Boolean, badge: NavBadges.Badge, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val dock = Chats.Shell.Dock
     val outer = (dock.DISC + dock.RING * 2).dp
     val ground = DesignTokens.Palette.Background
     val foreground = MaterialTheme.colorScheme.onSurface
-    Box(
-        modifier = modifier
-            .size(outer)
-            .drawBehind {
-                if (selected) {
-                    val ring = size.width / 2f
-                    val glow = ring + dock.GLOW.dp.toPx()
-                    drawCircle(
-                        Brush.radialGradient(
-                            0f to foreground.copy(alpha = 0.12f),
-                            ring / glow to foreground.copy(alpha = 0.12f),
-                            1f to Color.Transparent,
-                            center = center,
+    // Over the disc, never clipped by it: its corner, as on the FAB.
+    Box(modifier) {
+        Box(
+            modifier = Modifier
+                .size(outer)
+                .drawBehind {
+                    if (selected) {
+                        val ring = size.width / 2f
+                        val glow = ring + dock.GLOW.dp.toPx()
+                        drawCircle(
+                            Brush.radialGradient(
+                                0f to foreground.copy(alpha = 0.12f),
+                                ring / glow to foreground.copy(alpha = 0.12f),
+                                1f to Color.Transparent,
+                                center = center,
+                                radius = glow,
+                            ),
                             radius = glow,
-                        ),
-                        radius = glow,
-                    )
+                        )
+                    }
+                    drawCircle(ground)
                 }
-                drawCircle(ground)
-            }
-            .padding(dock.RING.dp)
-            .clip(CircleShape)
-            .background(DesignTokens.Palette.Card)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
-            .testTag(Chats.TestIds.TAB_ASSISTANT)
-            .semantics {
-                this.selected = selected
-                contentDescription = Chats.Copy.TABS.getValue("assistant")
-            }
-            .clickable(role = Role.Tab, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        ExponentialMark(size = dock.MARK.dp, tint = foreground)
+                .padding(dock.RING.dp)
+                .clip(CircleShape)
+                .background(DesignTokens.Palette.Card)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
+                .testTag(Chats.TestIds.TAB_ASSISTANT)
+                .semantics {
+                    this.selected = selected
+                    contentDescription = dockLabel("assistant", badge)
+                }
+                .clickable(role = Role.Tab, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            ExponentialMark(size = dock.MARK.dp, tint = foreground)
+        }
+        CountBadge(
+            badge,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = BADGE_HANG - dock.RING.dp, y = dock.RING.dp - BADGE_HANG)
+                .clearAndSetSemantics { testTag = "${Chats.TestIds.TAB_ASSISTANT}-badge" },
+        )
     }
 }
 

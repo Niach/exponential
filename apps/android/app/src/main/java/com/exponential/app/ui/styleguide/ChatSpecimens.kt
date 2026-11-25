@@ -339,7 +339,7 @@ private fun SpecimenDock(selected: String, modifier: Modifier = Modifier, newOpe
     PhoneDock(
         selected = selected,
         newOpen = newOpen,
-        chatsBadge = com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Attention),
+        badges = mapOf("chats" to com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Attention)),
         onSelect = {},
         modifier = modifier,
     )

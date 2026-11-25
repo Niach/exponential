@@ -126,7 +126,7 @@ fun ChatsScreen(
     val agentRows by viewModel.agentRows.collectAsStateWithLifecycle()
     val appRows by viewModel.appRows.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
-    val needsYouRows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    val needsYou by viewModel.needsYou.collectAsStateWithLifecycle()
     // #EXP-1950: installs waiting for this install's approval count as Needs you rows.
     val trust by trustViewModel.snapshot.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
@@ -189,7 +189,7 @@ fun ChatsScreen(
                 agentOf = { facts[it]?.agent },
                 marksOf = { facts[it]?.marks.orEmpty() },
                 teamOf = { rowTeams[it] },
-                needsYouCount = needsYouRows.size + trust.rows.size,
+                needsYouCount = needsYou.counts(trust.installs).total,
                 onOpenNeedsYou = onOpenNeedsYou,
                 onOpenChat = onOpenChat,
                 onLongPressChat = { row ->
@@ -428,131 +428,4 @@ fun ChatsContent(
         }
     }
     }
-}
-
-/** A chat: its state mark, the title (it names the issue, EXP-1316: no
- *  identifier slot; EXP-1339: no lock), then a spinner while busy or an
- *  amber dot when it needs you. EXP-1309/1318: on the Chats tab
- *  ([chatsTab], web `ChatsListView`) the row ends on ONE quiet [word]
- *  (`merged` = no text), and its state moves into the lead (web `rowLead`): the
- *  badged mark when it needs you (EXP-1344: beats busy), the working mark
- *  while busy, the emerald `prOpen` glyph while the root has ANY open PR (a
- *  stacked one too) / the violet `prMerged` one when it has only merged ones
- *  (NEW-41, [prLead]), else the mark (dimmed with no word). */
-@Composable
-internal fun ChatListRow(
-    row: SessionTree.ChatsListRow,
-    meta: ChatRowMeta?,
-    onClick: () -> Unit,
-    chatsTab: Boolean = false,
-    word: SessionTree.ChatRowWord? = null,
-    prLead: ChatRowPrLead? = null,
-    /** #NEW-49: the root's sessionWaiting (the `waiting` word's labels). */
-    waiting: String? = null,
-) {
-    val state = SessionTree.chatRowMarkState(row.needsYou, row.busy)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .flatRow()
-            .clickable(onClick = onClick)
-            .testTag(SessionTree.ListCopy.TEST_ID_ROW)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (chatsTab) {
-            ChatsTabLead(row, meta?.agent, word, prLead)
-        } else {
-            AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            // EXP-1323: unread news = a bold title ×4.
-            Text(
-                row.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (row.unread) FontWeight.SemiBold else null,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag(if (row.unread) "chats-row-unread" else "chats-row-title"),
-            )
-        }
-        // EXP-1339: no lock on a list row; `merged` has no text (its lead
-        // alone turns pr-merged violet).
-        if (chatsTab && word != null) SessionTree.chatRowWordText(word, waiting)?.let { QuietWord(word, it) }
-        // EXP-1318 ×4: the ROOT's device, last (after the word),
-        // its icon as the Devices screen draws it; unknown device = none.
-        meta?.device?.let { device ->
-            Icon(
-                deviceIcon(device.icon, device.isServer),
-                contentDescription = device.name,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(14.dp).testTag("chats-row-device"),
-            )
-        }
-        when {
-            chatsTab -> Unit
-            row.needsYou -> NeedsYouDot()
-            row.busy -> InlineSpinner()
-        }
-    }
-}
-
-/** Web `rowLead`: a Chats-tab row's state, in its lead. */
-@Composable
-private fun ChatsTabLead(
-    row: SessionTree.ChatsListRow,
-    agent: String?,
-    word: SessionTree.ChatRowWord?,
-    prLead: ChatRowPrLead?,
-) {
-    // EXP-1344 ×4: chatRowMarkState FIRST, at every depth: the amber badge
-    // BEATS busy (a parked plan/question keeps the device busy). NEW-41
-    // (`chat-list.json`, web `rowLead`): then the PR glyph off the root's
-    // PRs themselves, not its word: any open PR (`stack` too) = emerald,
-    // else any merged one = violet.
-    val mark = SessionTree.chatRowMarkState(row.needsYou, row.busy)
-    when {
-        mark == SessionTree.SessionState.NeedsYou ->
-            AgentRunMark(agent = agent, state = SessionTree.SessionState.NeedsYou, size = 14.dp, badgeSize = 6.dp)
-        mark == SessionTree.SessionState.Working -> AgentWorkingMark(agent = agent, size = 14.dp)
-        prLead == ChatRowPrLead.Open ->
-            Icon(ExpIcons.prOpen, contentDescription = null, tint = DesignTokens.Semantic.Green, modifier = Modifier.size(14.dp))
-        prLead == ChatRowPrLead.Merged ->
-            Icon(ExpIcons.prMerged, contentDescription = null, tint = DesignTokens.Avatar.Violet, modifier = Modifier.size(14.dp))
-        else -> AgentRunMark(
-            agent = agent,
-            state = if (word == null) SessionTree.SessionState.Done else SessionTree.SessionState.Idle,
-            size = 14.dp,
-            badgeSize = 6.dp,
-        )
-    }
-}
-
-/** EXP-1309: a row's ONE quiet trailing word (`stack` wears its glyph). */
-@Composable
-private fun QuietWord(word: SessionTree.ChatRowWord, text: String) {
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.testTag("chats-row-word"),
-    ) {
-        if (word == SessionTree.ChatRowWord.Stack) {
-            Icon(ExpIcons.prStack, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
-        }
-        Text(text, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** The amber dot a row carries while it waits on a person. */
-@Composable
-private fun NeedsYouDot() {
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(DesignTokens.Semantic.Yellow, CircleShape)
-            .testTag("chats-row-needs-you"),
-    )
 }
