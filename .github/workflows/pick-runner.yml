@@ -13,6 +13,12 @@ name: pick-runner
 # never has: RUNNER_STATUS_TOKEN is a fine-grained token with exactly that.
 # Without the secret every job takes the fallback.
 #
+# Release trust (#EXP-2151): only pull requests and branches may land on the
+# self-hosted machines, whose caches any same-repo PR job can write. A tag, a
+# master ref (its jobs can write the master caches every ref reads) and the
+# release-suite always get GitHub-hosted, whatever is online. The release
+# builds (build-*.yml, release-e*.yml) never call this at all.
+#
 # Overflow: the Mint has two runners, and a burst of pushes queued its jobs
 # 16 min at p90, 24 at p95 (2026-11-03..07) while it sat ~46% busy on
 # average. When the exp-linux jobs already waiting would take more than
@@ -60,9 +66,12 @@ jobs:
           LINUX_FALLBACK: ${{ inputs.linux-fallback }}
           MAC_FALLBACK: ${{ inputs.mac-fallback }}
           LINUX_OVERFLOW: ${{ inputs.linux-overflow }}
+          RELEASE: ${{ github.ref_type == 'tag' || github.ref == 'refs/heads/master' || github.workflow == 'release-suite' }}
         run: |
           runners='{"runners":[]}'
-          if [ -n "$GH_TOKEN" ]; then
+          if [ "$RELEASE" = true ]; then
+            echo "a release or master ref: GitHub-hosted"
+          elif [ -n "$GH_TOKEN" ]; then
             runners="$(gh api "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" 2>/dev/null)" \
               || { echo "::warning::RUNNER_STATUS_TOKEN cannot list runners: GitHub-hosted fallback"; runners='{"runners":[]}'; }
           fi

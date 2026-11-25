@@ -11,9 +11,6 @@ on:
       matrix:
         type: string
         required: true
-      linux-runner:
-        type: string
-        default: '"ubuntu-24.04"'
 
 jobs:
   build:
@@ -22,7 +19,8 @@ jobs:
       # Built by build-desktop.yml's `setup` job — one leg per (OS × selected
       # channel). See the matrix comment there.
       matrix: ${{ fromJson(inputs.matrix) }}
-    runs-on: ${{ matrix.os == 'ubuntu-24.04' && fromJSON(inputs.linux-runner) || matrix.os }}
+    runs-on: ${{ matrix.os }}
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     # Windows is the newest, least-proven target — don't let it block a
     # macOS/Linux release. Remove once a few releases have shipped green.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -39,16 +37,9 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
             librsvg2-bin file wget
       - uses: dtolnay/rust-toolchain@stable
-      # Saves on master only, which never runs this: a tag or release ref's
-      # entry no other ref can read, 1.3-2.2 GB per OS, evicted the master
-      # seeds (2026-11-20). So these builds compile cold.
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          workspaces: apps/desktop
-          key: ${{ matrix.channel }}
-          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Cargo features for channel
         id: feat
         shell: bash

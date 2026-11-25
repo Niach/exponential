@@ -36,6 +36,7 @@ jobs:
     # (the whole point of building here), the same Xcode the MacBook and
     # test-ios use (.github/scripts/select-xcode.sh).
     runs-on: xcode-27
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     # Clean archive + export + TestFlight upload is ~35 min; past this the
     # build is wedged (a provisioning prompt, a stalled ASC upload), and a
     # release job must not sit on a runner for six hours.
@@ -93,11 +94,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       # #PERF-11: the app's ONE Rust library (genUI's core, the Engine's record
       # outbox #VAPP-272, the FULL eNet node VAPP-40 / EXP-1457) linked into
       # ExpCore, plus the header-only link stubs of the ExponentialUI and

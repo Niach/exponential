@@ -53,6 +53,7 @@ concurrency:
 jobs:
   compose:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/master' && 'train' || '' }}
     timeout-minutes: 30
     env:
       TRAIN_ID: ${{ inputs.train_id }}
