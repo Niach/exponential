@@ -35,8 +35,7 @@ descriptions = []
 # #AXC-12: the Express inference format (`express` module): a2ui-express
 # compiles an agent's Express into the A2UI messages the reducer takes.
 # On by default (every SDK reads Express, and the conformance suite
-# `host-express` needs it); the crate publishes once a2ui-express is on
-# crates.io (crates.io refuses a git-only dependency).
+# `host-express` needs it).
 express = ["dep:a2ui-express"]
 
 [dependencies]
@@ -70,9 +69,10 @@ unicode-normalization = "0.1"
 # VAPP-124: stacker has no Android or iOS stack-limit backend; `src/stack.rs`
 # asks pthread there.
 # #AXC-12: the Express compiler (Niach/a2ui-express-compiler-rust, public),
-# pinned to a rev (df5a7cb: compile, decompile, streaming, the compact prompt); its runtime deps are serde, serde_json (preserve_order)
-# and thiserror, all already in the tree.
-a2ui-express = { git = "https://github.com/Niach/a2ui-express-compiler-rust", rev = "df5a7cbf344cc236dab345af7c6af4fb9c257486", optional = true }
+# from crates.io, A2UI 1.0 only; the trailing `rev` is the commit the version
+# was released from, which scripts/build-express-wasm.sh builds the web's wasm
+# from. Its runtime deps are all already in the tree.
+a2ui-express = { version = "=0.3.0", optional = true } # rev = "e97537e05088236ef987771a127011b24280e872"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 libc = "0.2"

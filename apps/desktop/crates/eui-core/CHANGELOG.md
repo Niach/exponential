@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `express`: a2ui-express 0.3.0 from crates.io (A2UI 1.0 only) instead of a git rev.
 - **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. Removed: `ACCEPT_V09`, the `upgrade09` module, `PACKAGE_FORMAT_VERSION_09`, `RouteOptions::accept_v09`.
 - **Breaking.** A2UI 1.0 re-pinned at upstream `main@a23b19c4` (2026-11-25), the `@` envelope keys (#VAPP-289): a component entry writes `@catalogId`, `@accessibility`, `@metadata` and `@checks` (a nested card node carries the same four at node level, next to `props`, its checks included). A bare `catalogId`, `accessibility`, `metadata` or `checks` is an ordinary prop of a component whose catalog declares one; on any other component the entry is refused (INVALID_MESSAGE at that key, naming the `@` key), `@` + bare together too. The normalized `UiNode` is unchanged (`props.checks`, `accessibility`, `metadata`). `NestedNode.checks` is new; `NestedNode` / `FlatComponent` read `@accessibility`, `@catalogId` and `@metadata`.
 - `formatString` reads `${fn(name: value)}` calls: named args (quoted strings, numbers, booleans, null, `${…}`, calls, pointers), resolved against the catalog the enclosing call resolved to; a literal `${` is `\${`; a malformed or failing call fails the template (`format_template`).
