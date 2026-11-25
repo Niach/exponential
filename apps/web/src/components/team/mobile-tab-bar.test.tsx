@@ -27,6 +27,7 @@ vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => h.navigate,
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) => select({ location: { pathname: h.pathname } }),
 }))
+vi.mock(`@/lib/collections`, () => ({ sidebarLayoutCollection: { preload: () => Promise.resolve() } }))
 vi.mock(`@/lib/last-visited`, () => ({ readLastVisited: () => h.last }))
 vi.mock(`@/hooks/use-chrome-height-var`, () => ({ useChromeHeightVar: () => () => {} }))
 vi.mock(`@/hooks/use-mobile-chrome`, () => ({ useMobileChrome: () => ({ bulkBarPresent: h.bulk }) }))

@@ -1,5 +1,10 @@
 package com.exponential.app.ui.chat
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -118,7 +123,9 @@ fun ChatHeader(
     marks: List<String> = emptyList(),
 ) {
     HeaderEdgeChrome {
-        Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
+        Column(modifier = modifier.fillMaxWidth().statusBarsPadding()
+            // Landscape: clear of the camera cutout and a side navigation bar, like the transcript.
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).testTag("chat-header")) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

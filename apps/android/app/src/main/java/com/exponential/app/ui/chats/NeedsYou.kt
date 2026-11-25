@@ -229,7 +229,7 @@ fun NeedsYouPageContent(
     val shell = LocalPageHeaderActions.current
     LazyColumn(
         modifier = modifier.fillMaxSize().navigationBarsPadding().testTag(NeedsYou.TestIds.LIST),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
     ) {
         item(key = "__header__") {
             PageHeader(

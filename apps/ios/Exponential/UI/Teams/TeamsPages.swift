@@ -17,7 +17,7 @@ struct TreeRowLabel<Glyph: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             glyph
-                .frame(width: 24, height: 24)
+                .frame(minWidth: 24, minHeight: 24)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.body)
