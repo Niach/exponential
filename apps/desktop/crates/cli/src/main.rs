@@ -111,6 +111,9 @@ Commands:
   sessions [--device <d>] [--status <s>] [--agents]
                                           Sessions, newest first
   sessions show|log|message|stop|end <id> Inspect, tail (--follow), message, interrupt or end one
+  agents [list|message|new]               Your teams' agents: message one, start a new conversation
+  mcp serve                               MCP server (stdio) for your own clients: end-to-end encrypted
+                                          through the daemon or desktop app on this machine
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
   motion import|compile|decompile|check|render <file>
                                           Motion: convert, validate and preview animations
@@ -252,6 +255,7 @@ fn main() -> ExitCode {
         "code" => commands::code::run(rest),
         "run" => commands::run::run(rest),
         "devices" => commands::devices::run(rest),
+        "agents" => commands::agents::run(rest),
         "sessions" => commands::sessions::run(rest),
         "mcp" => commands::mcp::run(rest),
         "motion" => commands::motion::run(rest),
