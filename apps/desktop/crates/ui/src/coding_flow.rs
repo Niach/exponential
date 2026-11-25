@@ -669,7 +669,8 @@ struct RefresherEntry {
 /// record and steer journal stay (a deleted chat's go through
 /// `steer::held_gone`, never on a missing row). A team agent's run (its record
 /// says so, EXP-1292) keeps its dir too, unless it is an app's `editor`: the
-/// group chat move ends and detaches a chat whose engine is live here.
+/// group chat move ends, detaches and unshares a chat whose engine is live here
+/// (so its row may be missing without having been deleted).
 fn purge_ended_scratch(
     data_dir: &Path,
     session_id: &str,
