@@ -1501,13 +1501,43 @@ impl SteerSessionView {
         })
     }
 
+    /// #EXP-2122 (composer-menu.json `teamsPick`): a PLAIN root's own team,
+    /// for its starter (its Teams pick: that team and the others picked).
+    fn plain_team(&self, cx: &App) -> Option<String> {
+        let row = self.row.as_ref()?;
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        (row.is_root() && row.agent_id.is_none() && row.app_id.is_none() && me.is_some() && row.user_id == me).then(|| row.team_id.clone()).flatten()
+    }
+
+    /// The Teams pick as the "+" row and the chips hold it; `None` = this
+    /// composer has none.
+    fn teams_shown(&self, teams: &[crate::teams_pick::PickTeam], cx: &App) -> Option<crate::teams_pick::TeamsPick> {
+        if self.to_assistant(cx) {
+            return Some(self.teams_picked.clone());
+        }
+        let own = self.plain_team(cx)?;
+        Some(Some(crate::teams_pick::plain_teams_pick(&own, self.teams_seed.as_deref(), self.teams_picked.as_deref(), teams).shown))
+    }
+
+    /// What the next send carries as `scopeTeamIds` (`None` = left out).
+    fn teams_scope(&self, cx: &App) -> Option<Option<Vec<String>>> {
+        if self.to_assistant(cx) {
+            return Some(self.teams_picked.clone());
+        }
+        let own = self.plain_team(cx)?;
+        crate::teams_pick::plain_teams_pick(&own, self.teams_seed.as_deref(), self.teams_picked.as_deref(), &crate::teams_pick::pick_teams(cx)).scope
+    }
+
     /// #EXP-1715: a changed Teams pick lands on this composer.
     fn teams_change(&self, cx: &gpui::Context<Self>) -> crate::teams_pick::OnTeamsPick {
         let view = cx.entity().downgrade();
         std::rc::Rc::new(move |next, _window, cx| {
             if let Some(view) = view.upgrade() {
                 view.update(cx, |this, cx| {
-                    this.teams_picked = next;
+                    this.teams_picked = match this.plain_team(cx) {
+                        Some(own) => Some(crate::teams_pick::plain_others(&own, next, &crate::teams_pick::pick_teams(cx))),
+                        None => next,
+                    };
                     cx.notify();
                 });
             }
@@ -4715,8 +4745,8 @@ impl SteerSessionView {
             return;
         };
         // #EXP-1715: every turn to the viewer's Assistant carries its Teams
-        // pick (null = every team); never another session's.
-        let scope = self.to_assistant(cx).then(|| self.teams_picked.clone());
+        // pick (null = every team); #EXP-2122: a plain root's once changed.
+        let scope = self.teams_scope(cx);
         // #FEED-204: an ended editor root's send to another device.
         let editor_move = self.editor_device.as_ref().and_then(crate::device_move::EditorDevice::move_target);
         // #EXP-1729: an ended editor root's held Account / Model picks ride

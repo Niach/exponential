@@ -113,6 +113,32 @@ pub(crate) fn next_teams_pick(next: &[String], teams: &[PickTeam]) -> TeamsPick 
     (!kept.is_empty() && kept.len() != teams.len()).then_some(kept)
 }
 
+/// #EXP-2122 (`plainCases`, TS `plainTeamsPick`): a plain root's pick: its
+/// own team always, the others from the composer's `picked` (`None` =
+/// untouched: the stored ones). `scope` = the next send's `scopeTeamIds`
+/// (`None` = left out, `Some(None)` = its own team only).
+pub(crate) struct PlainTeamsPick {
+    pub shown: Vec<String>,
+    pub scope: Option<Option<Vec<String>>>,
+}
+
+pub(crate) fn plain_teams_pick(own: &str, stored: Option<&[String]>, picked: Option<&[String]>, teams: &[PickTeam]) -> PlainTeamsPick {
+    let ordered = |ids: &[String]| -> Vec<String> {
+        teams.iter().filter(|team| team.id != own && ids.contains(&team.id)).map(|team| team.id.clone()).collect()
+    };
+    let stored = ordered(stored.unwrap_or_default());
+    let others = picked.map_or_else(|| stored.clone(), ordered);
+    PlainTeamsPick {
+        shown: teams.iter().filter(|team| team.id == own || others.contains(&team.id)).map(|team| team.id.clone()).collect(),
+        scope: (others != stored).then(|| (!others.is_empty()).then_some(others)),
+    }
+}
+
+/// A plain root's changed pick (`None` = every team) as its `picked`.
+pub(crate) fn plain_others(own: &str, next: TeamsPick, teams: &[PickTeam]) -> Vec<String> {
+    next.unwrap_or_else(|| teams.iter().map(|team| team.id.clone()).collect()).into_iter().filter(|id| id != own).collect()
+}
+
 /// A row's toggle; `None` = refused (the last checked team stays).
 pub(crate) fn toggle_team(picked: Option<&[String]>, teams: &[PickTeam], id: &str) -> Option<TeamsPick> {
     let mut next = picked_team_ids(picked, teams);
@@ -293,6 +319,17 @@ mod tests {
         let pick = &fixture["teamsPick"];
         assert_eq!(pick["copy"]["all"], COPY_ALL);
         assert_eq!(pick["copy"]["many"], COPY_MANY);
+        let ids = |value: &serde_json::Value| -> TeamsPick {
+            value.as_array().map(|ids| ids.iter().map(|id| id.as_str().unwrap().to_string()).collect())
+        };
+        let plain = pick["plainCases"].as_array().unwrap();
+        assert!(!plain.is_empty());
+        for case in plain {
+            let got = plain_teams_pick(case["own"].as_str().unwrap(), ids(&case["stored"]).as_deref(), ids(&case["picked"]).as_deref(), &teams_of(&case["teams"]));
+            assert_eq!(Some(got.shown), ids(&case["expected"]["shown"]), "{}", case["name"]);
+            let scope = &case["expected"]["scope"];
+            assert_eq!(got.scope, (scope.as_str() != Some("unchanged")).then(|| ids(scope)), "{}", case["name"]);
+        }
         let cases = pick["valueCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
