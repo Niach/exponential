@@ -39,6 +39,7 @@ import at.exponential.ui.model.SurfaceOptions
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.domain.CardSurface
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.domain.expandTeamLink
