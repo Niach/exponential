@@ -35,7 +35,6 @@ import {
 } from "@exp/domain-contract/sealed-content"
 import {
   agents,
-  devices,
   installs,
   mcpServers,
   messages,
@@ -223,7 +222,8 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const teamA = await team([me, mate])
       const teamB = await team([me])
       const deviceId = `dev-${id8()}`
-      await db.insert(devices).values({ userId: me, deviceId, label: `desk`, kind: `desktop`, lastSeenAt: new Date(), sharedTeamIds: [teamA] } as never)
+      // Raw: that schema has no columns a later migration adds (#EXP-2161).
+      await db.execute(sql`INSERT INTO devices (user_id, device_id, label, kind, shared_team_ids) VALUES (${me}, ${deviceId}, 'desk', 'desktop', ARRAY[${teamA}]::uuid[])`)
       const myPhone = await install(me)
       const matePhone = await install(mate)
       const [skA, skB, skB2] = [await skill(teamA, `alpha`), await skill(teamB, `beta`), await skill(teamB, `gamma`)]
