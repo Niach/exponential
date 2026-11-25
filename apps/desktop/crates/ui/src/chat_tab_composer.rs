@@ -253,12 +253,13 @@ const TEAM_KEY: &str = "team:";
 
 /// `/chatFiles`: the Assistant's picked teams (a subset only) lead the
 /// strip, then the staged files: an image's own picture (`data:`), else
-/// its glyph; every chip removable.
-pub(crate) fn strip(teams: &[&crate::teams_pick::PickTeam], files: &[StripFile]) -> Value {
+/// its glyph; every chip removable but a `fixed` team's (a plain chat's own,
+/// [`crate::teams_pick::removable_chips`]).
+pub(crate) fn strip(teams: &[&crate::teams_pick::PickTeam], removable: &[&str], files: &[StripFile]) -> Value {
     use base64::Engine as _;
     let mut items: Vec<Value> = teams
         .iter()
-        .map(|team| json!({"key": format!("{TEAM_KEY}{}", team.id), "label": team.name, "image": team.icon_url.clone().unwrap_or_default(), "icon": "ui-team"}))
+        .map(|team| json!({"key": format!("{TEAM_KEY}{}", team.id), "label": team.name, "image": team.icon_url.clone().unwrap_or_default(), "icon": "ui-team", "fixed": !removable.contains(&team.id.as_str())}))
         .collect();
     items.extend(files.iter().map(|file| {
         let picture = if !file.is_file && file.bytes.len() <= CHIP_PICTURE_MAX {
@@ -692,15 +693,19 @@ impl SteerSessionView {
     fn composer_frame(&mut self, cx: &mut gpui::Context<Self>) -> ComposerFrame {
         let draft = self.input.read(cx).value().to_string();
         let menu = self.composer_menu(&draft, cx);
-        let teams = if self.to_assistant(cx) { crate::teams_pick::pick_teams(cx) } else { Vec::new() };
-        let chips = crate::teams_pick::chip_teams(self.teams_picked.as_deref(), &teams);
+        let teams = crate::teams_pick::pick_teams(cx);
+        let picked = self.teams_shown(&teams, cx).flatten();
+        let chips = crate::teams_pick::chip_teams(picked.as_deref(), &teams);
         let files: Vec<StripFile> = self
             .pending_images
             .items()
             .iter()
             .map(|item| StripFile { key: item.key, filename: &item.filename, content_type: &item.content_type, bytes: &item.preview.bytes, is_file: item.is_file })
             .collect();
-        let files = strip(&chips, &files);
+        let own = self.plain_team(cx);
+        let owner = own.as_deref().map_or(crate::teams_pick::PickOwner::Assistant, crate::teams_pick::PickOwner::Root);
+        let ids: Vec<&str> = chips.iter().map(|team| team.id.as_str()).collect();
+        let files = strip(&chips, &crate::teams_pick::removable_chips(owner, &ids), &files);
         let ring = !self.source.read_only() && !self.session_over() && crate::usage_bar::context_percent(self.usage().as_ref()).is_some();
         let input = uicore_model::chat::ChatInput {
             session_id: Some(self.session_id.to_string()),
@@ -818,7 +823,9 @@ impl SteerSessionView {
             .unwrap_or_default();
         let account_switch = self.composer_account_switch(cx);
         let editor_runner = self.editor_runner.as_ref().filter(|_| !self.configurable());
-        let to_assistant = self.to_assistant(cx);
+        // composer-menu.json `teams`: the Assistant's and a plain root's.
+        let pick_teams = crate::teams_pick::pick_teams(cx);
+        let teams_shown = self.teams_shown(&pick_teams, cx);
         // #EXP-1793: an agent chat's MCP servers (the conversation's pick).
         let mcp_servers = self.mcp.as_ref().map(|mcp| mcp.servers.as_slice()).unwrap_or_default();
         let rows = composer_menu_rows(
@@ -830,8 +837,8 @@ impl SteerSessionView {
                 account: account_switch.is_some() || editor_runner.is_some(),
                 model: self.configurable() || editor_runner.is_some(),
                 prompts: !prompts.is_empty(),
-                assistant: to_assistant,
-                teams: to_assistant && crate::teams_pick::several_teams(cx),
+                assistant: teams_shown.is_some(),
+                teams: teams_shown.is_some() && pick_teams.len() > 1,
                 ..ComposerMenuConditions::default()
             },
         );
@@ -859,9 +866,8 @@ impl SteerSessionView {
                     true,
                 ),
                 Row::Teams => {
-                    let teams = crate::teams_pick::pick_teams(cx);
-                    let picked = self.teams_picked.as_deref();
-                    let items = teams
+                    let picked = teams_shown.as_ref().and_then(|picked| picked.as_deref());
+                    let items = pick_teams
                         .iter()
                         .map(|team| ChatPlusItem {
                             label: team.name.clone(),
@@ -993,9 +999,10 @@ impl SteerSessionView {
                 Some(StripKey::File(key)) => self.remove_pending(key, window, cx),
                 Some(StripKey::Team(id)) => {
                     let teams = crate::teams_pick::pick_teams(cx);
-                    let rest: Vec<String> = crate::teams_pick::chip_teams(self.teams_picked.as_deref(), &teams).iter().filter(|team| team.id != id).map(|team| team.id.clone()).collect();
+                    let picked = self.teams_shown(&teams, cx).flatten();
+                    let rest: Vec<String> = crate::teams_pick::chip_teams(picked.as_deref(), &teams).iter().filter(|team| team.id != id).map(|team| team.id.clone()).collect();
                     let next = if rest.is_empty() { None } else { crate::teams_pick::next_teams_pick(&rest, &teams) };
-                    (self.teams_change(cx))(next, window, cx);
+                    self.set_teams(next, cx);
                 }
                 None => {}
             },
@@ -1162,8 +1169,8 @@ impl SteerSessionView {
             }
             PlusAction::Team(id) => {
                 let teams = crate::teams_pick::pick_teams(cx);
-                if let Some(next) = crate::teams_pick::toggle_team(self.teams_picked.as_deref(), &teams, &id) {
-                    (self.teams_change(cx))(next, window, cx);
+                if let Some(next) = crate::teams_pick::toggle_team(self.teams_shown(&teams, cx).flatten().as_deref(), &teams, &id) {
+                    self.set_teams(next, cx);
                 }
             }
             PlusAction::Device(id) => {
@@ -1312,14 +1319,15 @@ mod tests {
             StripFile { key: 1, filename: "shot.png", content_type: "image/png", bytes: &[1, 2, 3], is_file: false },
             StripFile { key: 2, filename: "log.txt", content_type: "text/plain", bytes: &[4], is_file: true },
         ];
-        let strip = strip(&[&team], &files);
+        let strip = strip(&[&team], &["t1"], &files);
+        assert_eq!(super::strip(&[&team], &[], &[])["items"][0]["fixed"], true);
         assert_eq!(strip["open"], true);
         let items = strip["items"].as_array().unwrap();
-        assert_eq!(items[0], json!({"key": "team:t1", "label": "Core", "image": "", "icon": "ui-team"}));
+        assert_eq!(items[0], json!({"key": "team:t1", "label": "Core", "image": "", "icon": "ui-team", "fixed": false}));
         assert_eq!(items[1]["image"], "data:image/png;base64,AQID");
         assert_eq!(items[1]["icon"], "image");
         assert_eq!(items[2], json!({"key": "2", "label": "log.txt", "image": "", "icon": "file"}));
-        assert_eq!(super::strip(&[], &[]), json!({"open": false, "items": []}));
+        assert_eq!(super::strip(&[], &[], &[]), json!({"open": false, "items": []}));
         assert_eq!(strip_key("team:t1"), Some(StripKey::Team("t1".into())));
         assert_eq!(strip_key("7"), Some(StripKey::File(7)));
         assert_eq!(strip_key("x"), None);
@@ -1484,3 +1492,7 @@ mod perf_tests {
         assert!(cx.update(|cx| super::implement_issue_items("t2", cx)).is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "steer_teams_live_tests.rs"]
+mod teams_live_tests;

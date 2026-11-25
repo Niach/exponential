@@ -168,7 +168,7 @@ public enum ComposerMenu {
         Row(id: .addFile, kind: .item, label: "Photo or file", codexLabel: nil, icon: "ui-attach", surfaces: everywhere, when: []),
         Row(id: .implementIssue, kind: .submenu, label: "Issue", codexLabel: nil, icon: "editor-issue-ref", surfaces: everywhere, when: []),
         Row(id: .prompts, kind: .submenu, label: "Prompts", codexLabel: nil, icon: "coding-command", surfaces: everywhere, when: [.prompts]),
-        Row(id: .teams, kind: .submenu, label: "Teams", codexLabel: nil, icon: "ui-team", surfaces: [.launch, .agent], when: [.assistant, .teams]),
+        Row(id: .teams, kind: .submenu, label: "Teams", codexLabel: nil, icon: "ui-team", surfaces: everywhere, when: [.assistant, .teams]),
         nil,
         Row(id: .device, kind: .submenu, label: "Device", codexLabel: nil, icon: "nav-devices", surfaces: everywhere, when: [.device]),
         Row(id: .account, kind: .submenu, label: "Account", codexLabel: nil, icon: "settings-account", surfaces: everywhere, when: [.account]),
@@ -305,6 +305,24 @@ public enum ComposerMenu {
         let chosen = teamsPickChips(picked, teams: teams).map(\.id)
         let rest = chosen.filter { $0 != id }
         return rest.isEmpty ? nil : nextTeamsPick(rest, teams: teams)
+    }
+
+    /// #EXP-2122 (`plainCases`, TS `plainTeamsPick`): a plain root's pick: its
+    /// own team always, the others from the composer's `picked` (nil =
+    /// untouched: the stored ones). `scope` = the next send's `scopeTeamIds`
+    /// (nil = left out; `.allTeams` = null, its own team only).
+    public static func plainTeamsPick(
+        own: String, stored: [String]?, picked: [String]?, teams: [PickTeam]
+    ) -> (shown: [String], scope: TeamsScope?) {
+        func ordered(_ ids: [String]) -> [String] {
+            teams.filter { $0.id != own && ids.contains($0.id) }.map(\.id)
+        }
+        let before = ordered(stored ?? [])
+        let others = picked.map(ordered) ?? before
+        return (
+            teams.filter { $0.id == own || others.contains($0.id) }.map(\.id),
+            others == before ? nil : others.isEmpty ? .allTeams : .teams(others)
+        )
     }
 
     /// The Implement submenu's footer button once something is picked.

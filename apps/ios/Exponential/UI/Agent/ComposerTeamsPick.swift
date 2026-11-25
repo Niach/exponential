@@ -2,8 +2,8 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
-/// Teams pick, which teams a turn may touch. The "+" › Teams page = THE
+/// #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's (and
+/// #EXP-2122 a plain chat's) Teams pick, which teams a turn may touch. The "+" › Teams page = THE
 /// multi picker rows over the viewer's teams (the team switcher's order:
 /// the team's mark + name, the check trailing); nothing picked = every team
 /// (nil). While the pick is a subset, the picked teams ride as the
@@ -14,12 +14,41 @@ struct ComposerTeamsBinding {
     /// nil = every team.
     let picked: [String]?
     let onChange: ([String]?) -> Void
+    /// The next send's `scopeTeamIds`; nil = left out (#EXP-2122: a plain
+    /// chat's unchanged pick).
+    let scope: TeamsScope?
+
+    /// The Assistant's (and Home's) pick: every send carries it.
+    init(teams: [ComposerMenu.PickTeam], picked: [String]?, onChange: @escaping ([String]?) -> Void) {
+        self.teams = teams
+        self.picked = picked
+        self.onChange = onChange
+        scope = TeamsScope(picked)
+    }
+
+    /// #EXP-2122 (`plainTeamsPick`): a plain chat's pick for `root`, its own
+    /// team always in it; `onPick` takes the other teams. nil = not the
+    /// viewer's plain root (an agent's, an app's, a child, another member's).
+    init?(
+        root: SessionEntity?, me: String?, draft: AgentSettings.TeamsPickDraft, teams: [ComposerMenu.PickTeam],
+        onPick: @escaping ([String]) -> Void
+    ) {
+        guard let root, root.parentId == nil, root.agentId?.isEmpty ?? true, root.appId?.isEmpty ?? true,
+              !root.teamId.isEmpty, root.userId == me, teams.contains(where: { $0.id == root.teamId })
+        else { return nil }
+        let own = root.teamId
+        let pick = ComposerMenu.plainTeamsPick(
+            own: own, stored: root.scopeTeamIds, picked: draft.picked(stored: root.scopeTeamIds), teams: teams
+        )
+        self.teams = teams
+        picked = pick.shown
+        scope = pick.scope
+        // Every team checked again (nil) = each id stored.
+        onChange = { next in onPick((next ?? teams.map(\.id)).filter { $0 != own }) }
+    }
 
     /// The "+" Teams row's value (`teamsPickValue`).
     var value: String { ComposerMenu.teamsPickValue(picked, teams: teams) }
-
-    /// The next send's `scopeTeamIds`.
-    var scope: TeamsScope { TeamsScope(picked) }
 
     /// The viewer's synced teams as pick rows.
     static func teams(_ rows: [TeamEntity]) -> [ComposerMenu.PickTeam] {

@@ -44,7 +44,7 @@ describe(`ExpressMessage`, () => {
   })
 
   it(`splits prose, the block's surface in THE surface card frame, prose; the time on the last prose`, () => {
-    render(<ExpressMessage rowKey="m:m1" text={BLOCK} final messageId="m1" renderProse={prose} fallback={null} />)
+    const { container } = render(<ExpressMessage rowKey="m:m1" text={BLOCK} final messageId="m1" renderProse={prose} fallback={null} />)
     const runs = screen.getAllByTestId(`prose`)
     expect(runs.map((r) => r.textContent)).toEqual([`Here is the build:`, `Ship it?`])
     expect(runs.map((r) => [r.dataset.first, r.dataset.last])).toEqual([
@@ -53,6 +53,8 @@ describe(`ExpressMessage`, () => {
     ])
     expect(screen.getByTestId(`express-block`).dataset.status).toBe(`ok`)
     expect(screen.getByTestId(`surface-card`).textContent).toContain(`Build 1482 is green`)
+    // #EXP-2122: the row fills the column, never its text's width.
+    expect(container.querySelector(`[data-slot="express-row"]`)?.classList.contains(`w-full`)).toBe(true)
   })
 
   it(`a press posts the event with its block origin`, () => {
