@@ -194,10 +194,10 @@ object SidebarMenus {
     }
 
     /** A device's card: the verbs that lead somewhere on a phone (it has no
-     *  device page; the settings sheet is its owner's). */
+     *  device page, so no Open; Settings is its owner's). */
     fun phoneDeviceMenu(mine: Boolean): List<List<String>> =
         phoneMenuGroups("device", Input(mine = mine))
-            .map { group -> group.filter { mine || it == "copy-link" } }
+            .map { group -> group.filter { it != "open" && (mine || it == "copy-link") } }
             .filter { it.isNotEmpty() }
 
     /** `sidebarPhoneMenu`: [phoneMenuGroups] flattened with separators. */
