@@ -224,6 +224,16 @@ time it looked. A hard quota per runner needs root (overlay2 on ext4 has no
 project quota), so the bound is one job's own target. Check:
 `docker ps --format '{{.Names}} {{.Size}}'`, about 4 GB idle.
 
+**Before a runner is recreated**, compare it with the new image: a recreate
+drops whatever jobs left in the container's own layer. `docker exec <c>
+dpkg-query -W -f '${Package}\n'` against the same in `docker run --rm
+--entrypoint sh <image>`, its env, and `docker diff <c>`. On 2026-11-25 that
+was 183 packages beyond the image (all from the ede and eui jobs' apt lines,
+now in the Dockerfile; everything in /etc, /usr and /var belongs to them), env
+the same but the compose settings, and caches: the Android SDK + NDK (3 GB, the
+android job reinstalls it), `~/.m2`, `~/.config`. An idle runner can be between
+two jobs or already assigned one: wait for an empty queue.
+
 **The sccache stays CI's own.** It is one volume for both runners, 15 GB, and
 release builds (`desktop-build.yml`, `build-android.yml`) read what PR jobs
 wrote. A host session must never use it (or the other way round): a compiler
