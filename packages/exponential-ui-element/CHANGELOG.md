@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.22.0 (2026-11-25)
+
+- `@checks` (#AXC-19), the vertical default of a ScrollArea without `direction` (#EXP-1939) and the Embed fill (#EXP-1769) come through the core and the Solid painter.
 - `highlight` on Text, Markdown, MessageBubble and Row (#EDE-95): through the Solid painter.
 - `forcedStates` property (#EXP-1781): host-only FORCED interaction states, paint only, through the Solid painter.
 - `accessibility.selected` / `.expanded` (#EXP-1629): through the Solid painter.

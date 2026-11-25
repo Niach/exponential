@@ -3619,7 +3619,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "a2ui-express",
  "cosmic-text",
@@ -3636,7 +3636,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -3812,7 +3812,7 @@ dependencies = [
 
 [[package]]
 name = "exponential-ui-ffi"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "eui-core",
  "eui-motion",
