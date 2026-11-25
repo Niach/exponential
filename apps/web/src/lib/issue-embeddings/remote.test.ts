@@ -114,6 +114,16 @@ describe(`the client`, () => {
     expect(localEmbedderStats()).toMatchObject({ loaded: false, loads: 0, queued: 0 })
   })
 
+  it(`a query that times out (a stopped container swallows the connect) is logged once and rests`, async () => {
+    const log = vi.spyOn(console, `error`).mockImplementation(() => {})
+    useRemote(`http://embedder:3000`)
+    const fetchSpy = vi.spyOn(globalThis, `fetch`).mockRejectedValue(new DOMException(`The operation timed out.`, `TimeoutError`))
+    expect(await embedQuery(`login`)).toBeNull()
+    expect(await embedQuery(`logout`)).toBeNull()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(log).toHaveBeenCalledExactlyOnceWith(`[issue-embeddings] embedder service: The operation timed out.`)
+  })
+
   it(`an embedder killed mid-request (OOM) is null`, async () => {
     useRemote(await listen())
     embed.mockImplementation(() => new Promise(() => {}))
