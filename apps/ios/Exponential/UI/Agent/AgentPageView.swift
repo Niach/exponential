@@ -284,6 +284,7 @@ struct AgentPageView: View {
     /// team agents (icon in colour), the dotted Temporary session circle.
     private func agentRow(_ composer: AgentComposerModel) -> some View {
         let state = agentRowState(composer)
+        let marked = ComposerAgentRow.teamMarks(state.agents)
         let items = state.agents.map { agent in
             ComposerAgentRowView.Item(
                 id: agent.id,
@@ -291,7 +292,9 @@ struct AgentPageView: View {
                 glyph: agent.isAssistant ? .brand : .icon(
                     BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
                     Color(hex: agent.color) ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white
-                )
+                ),
+                team: marked.contains(agent.id)
+                    ? teamState.team(agent.teamId).map { .init(name: $0.name, iconUrl: $0.iconUrl) } : nil
             )
         } + [.temporary]
         return ComposerAgentRowView(label: state.label, items: items, selected: state.selected) { id in
