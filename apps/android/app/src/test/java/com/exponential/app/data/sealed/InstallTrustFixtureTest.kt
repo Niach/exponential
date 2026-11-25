@@ -139,6 +139,7 @@ class InstallTrustFixtureTest {
         val actions = lines[1]
         assertEquals("install-install-T3-actions", actions.str("id"))
         assertEquals(mapOf("direction" to "horizontal", "gap" to "sm"), actions.obj("props").strings())
+        assertEquals(mapOf("paddingHorizontal" to "\$spacing.md", "paddingBottom" to "\$spacing.md"), actions.obj("style").strings())
         val parts = actions.cases("children")
         assertEquals(listOf("Button", "Button"), parts.map { it.str("component") })
         assertEquals(listOf("install-install-T3-approve", "install-install-T3-remove"), parts.map { it.str("id") })

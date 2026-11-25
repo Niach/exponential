@@ -14,6 +14,7 @@ struct SettingsLinkRow<Leading: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             leading
+                .fixedGlyphs()
                 .frame(width: 22)
             Text(title)
                 .font(.body)
@@ -244,6 +245,7 @@ struct SettingsTabView: View {
         HStack(spacing: 12) {
             AppIcon(AppIcons.settingsServers, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedGlyphs()
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayName)

@@ -2222,8 +2222,7 @@ private struct AgentChatEmpty: View {
             } else {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { UIApplication.endEditing() }
+                    .dismissesKeyboard()
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
