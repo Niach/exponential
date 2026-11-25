@@ -72,6 +72,29 @@ pub fn draft_fate(seen: bool, present: bool, created_issue_id: Option<&str>) -> 
     }
 }
 
+/// #EXP-2125 (TS `issueDraftBoards`): the board picker over every member
+/// team's boards (`(id, team id, sort order)`): the teams by name, each
+/// team's boards by sortOrder, ties by id; `only` = that team's alone (a
+/// chat's). `show_team` = the rows say their team.
+pub fn draft_boards<'a>(
+    teams: &[crate::sidebar_tree::SidebarTeamInput],
+    boards: &[(&'a str, &'a str, Option<f64>)],
+    only: Option<&str>,
+) -> (Vec<&'a str>, bool) {
+    let mut out = Vec::new();
+    let mut shown_teams = 0;
+    for team in crate::sidebar_tree::sidebar_teams(teams) {
+        if only.is_some_and(|only| only != team) {
+            continue;
+        }
+        let mut own: Vec<_> = boards.iter().filter(|(_, board_team, _)| *board_team == team).collect();
+        own.sort_by(|a, b| a.2.unwrap_or(f64::INFINITY).total_cmp(&b.2.unwrap_or(f64::INFINITY)).then_with(|| a.0.cmp(b.0)));
+        shown_teams += usize::from(!own.is_empty());
+        out.extend(own.into_iter().map(|(id, ..)| *id));
+    }
+    (out, shown_teams > 1)
+}
+
 /// EXP-1212: what an exit asks before it happens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DraftPrompt {
@@ -137,6 +160,25 @@ mod tests {
         assert_eq!(leave.as_object().unwrap().len(), 4, "a new string needs a test");
         assert_eq!(copy["discardedElsewhere"].as_str(), Some(DISCARDED_ELSEWHERE));
         assert_eq!(copy.as_object().unwrap().len(), 7, "a new string needs a test");
+    }
+
+    /// #EXP-2125: the fixture's `boards`, every row.
+    #[test]
+    fn draft_boards_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["boards"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let teams: Vec<crate::sidebar_tree::SidebarTeamInput> = serde_json::from_value(case["teams"].clone()).unwrap();
+            let boards: Vec<_> = case["boards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|board| (board["id"].as_str().unwrap(), board["teamId"].as_str().unwrap(), board["sortOrder"].as_f64()))
+                .collect();
+            let (ids, show_team) = draft_boards(&teams, &boards, case["only"].as_str());
+            assert_eq!(serde_json::json!({"boards": ids, "showTeam": show_team}), case["expected"], "{}", case["case"]);
+        }
     }
 
     /// EXP-1272: the fixture's `exitPrompt` table, every row.

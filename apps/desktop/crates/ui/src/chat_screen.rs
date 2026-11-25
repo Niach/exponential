@@ -1310,7 +1310,7 @@ impl ChatScreenView {
     /// #EXP-1715: the picked teams as the strip's chips (a subset only).
     fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if self.plain_chat(cx) {
-            let picked = self.plain_picked().filter(|picked| picked.len() > 1)?;
+            let picked = self.plain_picked()?;
             let teams = crate::teams_pick::pick_teams(cx);
             let view = cx.entity().downgrade();
             let on_change: crate::teams_pick::OnTeamsPick = Rc::new(move |next, window, cx| {
