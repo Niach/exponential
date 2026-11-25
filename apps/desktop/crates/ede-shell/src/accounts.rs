@@ -21,7 +21,53 @@ pub struct Workspaces {
     /// #EDE-65: the picked team (`switcher.json` beside `desktops.json`);
     /// a Local desktop is the desktops index's.
     current_path: PathBuf,
+    /// #EDE-223: what the watch on `accounts.json` saw change.
+    changes: flume::Receiver<api::AuthEvent>,
     demo: bool,
+}
+
+/// #EDE-223: where the shell starts. One account per eDE login (#EDE-221):
+/// with it signed in and no saved choice, its team; the team list arrives
+/// with the first sync, so the start waits for it instead of settling on Local.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StartOn {
+    /// A Local desktop (the index's current): no account, or the saved pick.
+    Local(SwitcherEntry),
+    /// A team that is listed now (the saved one, else the account's first).
+    Team(SwitcherEntry),
+    /// Not listed yet: pick it once its account's teams arrive.
+    Wait(Pending),
+}
+
+/// #EDE-223: a pick that waits for the teams: the saved team, else the
+/// first team of the account (by name, the switcher's order).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Pending {
+    pub team: Option<String>,
+    pub account: Option<String>,
+}
+
+impl Pending {
+    /// The team to pick among `entries`, once it is listed.
+    pub fn resolve(&self, entries: &[SwitcherEntry]) -> Option<String> {
+        let teams = || entries.iter().filter(|e| e.kind == uicore_model::SwitcherKind::Team);
+        match (&self.team, &self.account) {
+            (Some(team), _) => teams().find(|e| &e.id == team).map(|e| e.id.clone()),
+            (None, Some(account)) => teams().find(|e| e.account.as_ref() == Some(account)).map(|e| e.id.clone()),
+            (None, None) => None,
+        }
+    }
+
+    pub fn is_some(&self) -> bool {
+        self.team.is_some() || self.account.is_some()
+    }
+}
+
+/// #EDE-65: the pick `switcher.json` remembers (None = never picked).
+#[derive(Debug, Clone, PartialEq)]
+enum Saved {
+    Local,
+    Team(String),
 }
 
 /// The shapes the shell syncs per account: the teams the switcher lists;
@@ -72,8 +118,53 @@ impl Workspaces {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local").join("share"))
             .join("exponential-desktop");
+        Ok(Self::with(desktops, auth, data_dir, config_dir.join("switcher.json"), demo))
+    }
+
+    /// [`Self::open`] over given parts (the tests: a temporary data directory).
+    fn with(desktops: elocal::Desktops, auth: Arc<api::AuthStore>, data_dir: PathBuf, current_path: PathBuf, demo: bool) -> Self {
         let sync = Arc::new(SyncManager::new().on_unauthorized(auth.unauthorized_handler_fn()));
-        Ok(Self { desktops, auth, sync, data_dir, current_path: config_dir.join("switcher.json"), demo })
+        // #EDE-223: a sign-in or sign-out in another process (the app, the
+        // CLI) shows up while the shell runs; the demo has no accounts.
+        let changes = if demo { flume::unbounded().1 } else { auth.watch(std::time::Duration::from_secs(2)) };
+        Self { desktops, auth, sync, data_dir, current_path, changes, demo }
+    }
+
+    /// #EDE-223: the accounts that signed in or out in another process.
+    pub fn account_changes(&self) -> flume::Receiver<api::AuthEvent> {
+        self.changes.clone()
+    }
+
+    /// #EDE-223: a signed-out account's sync stops (its store stays on disk).
+    pub fn stop_account(&self, account_id: &str) {
+        self.sync.stop_account(account_id);
+    }
+
+    /// #EDE-223: where the shell starts ([`StartOn`]). The demo: the index's
+    /// current (its `EDE_SHELL_DEMO_TEAM`).
+    pub fn start_on(&self) -> Option<StartOn> {
+        let local = self.current_local();
+        if self.demo {
+            return local.map(|e| if e.kind == uicore_model::SwitcherKind::Team { StartOn::Team(e) } else { StartOn::Local(e) });
+        }
+        let pending = match read_saved(&self.current_path) {
+            Some(Saved::Local) => None,
+            Some(Saved::Team(team)) => Some(Pending { team: Some(team), account: None }),
+            // One account per eDE login: the first signed-in one.
+            None => self.auth.signed_in_accounts().first().map(|a| Pending { team: None, account: Some(a.id.clone()) }),
+        };
+        let Some(pending) = pending else { return local.map(StartOn::Local) };
+        let entries = self.entries();
+        Some(match pending.resolve(&entries).and_then(|id| entries.into_iter().find(|e| e.kind == uicore_model::SwitcherKind::Team && e.id == id)) {
+            Some(team) => StartOn::Team(team),
+            None => StartOn::Wait(pending),
+        })
+    }
+
+    /// #EDE-223: nothing saved in `switcher.json` (a sign-in while on Local
+    /// then moves the shell onto the account's team).
+    pub fn nothing_saved(&self) -> bool {
+        !self.demo && read_saved(&self.current_path).is_none()
     }
 
     /// The change stream of the accounts' team stores.
@@ -166,15 +257,6 @@ impl Workspaces {
         Some(SwitcherEntry::local(&entry.id, &entry.name))
     }
 
-    /// #EDE-65: the team picked last, to pick again once its account's
-    /// teams are listed (None = the Local desktop the index names).
-    pub fn saved_team(&self) -> Option<String> {
-        if self.demo {
-            return None;
-        }
-        read_saved_team(&self.current_path)
-    }
-
     /// #EDE-65: remembers the pick across logins (a Local pick forgets the team).
     pub fn save_current(&self, entry: &SwitcherEntry) {
         if self.demo {
@@ -182,6 +264,14 @@ impl Workspaces {
         }
         if let Err(e) = write_current(&self.current_path, entry) {
             tracing::warn!("switcher.json: {e}");
+        }
+    }
+
+    /// #EDE-223: forgets the pick (a sign-out's move to Local is no choice:
+    /// the next sign-in starts on its team again).
+    pub fn forget_current(&self) {
+        if !self.demo {
+            let _ = std::fs::remove_file(&self.current_path);
         }
     }
 
@@ -250,13 +340,28 @@ impl Workspaces {
     }
 }
 
-fn read_saved_team(path: &Path) -> Option<String> {
+fn read_saved(path: &Path) -> Option<Saved> {
     let value: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
-    (value["kind"] == "team").then(|| value["id"].as_str().map(str::to_string)).flatten().filter(|id| !id.is_empty())
+    match value["kind"].as_str()? {
+        "team" => value["id"].as_str().filter(|id| !id.is_empty()).map(|id| Saved::Team(id.to_string())),
+        "local" => Some(Saved::Local),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+fn read_saved_team(path: &Path) -> Option<String> {
+    match read_saved(path)? {
+        Saved::Team(id) => Some(id),
+        Saved::Local => None,
+    }
 }
 
 fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {
     // The account too (#EDE-65): the Exponential app starts on the team's own account.
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     std::fs::write(path, serde_json::json!({"kind": entry.kind, "id": entry.id, "account": entry.account}).to_string())
 }
 
@@ -359,6 +464,81 @@ mod tests {
         write_current(&path, &SwitcherEntry::local("local", "Local")).unwrap();
         assert_eq!(read_saved_team(&path), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// #EDE-223: a temporary data directory with one signed-in account,
+    /// its token, its synced `teams` and one Local desktop.
+    fn signed_in(dir: &Path, teams: &[(&str, &str)]) -> (Workspaces, api::accounts::Account) {
+        let data = dir.join("exponential");
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        let user = api::login::AuthUser { id: "user-1".into(), email: "danny@example.com".into(), name: None, is_admin: None, onboarding_completed_at: None };
+        let account = auth.sign_in("http://localhost:3000", "tok", &user).unwrap();
+        let desktops = elocal::Desktops::open(data.join("desktops")).unwrap();
+        let workspaces = Workspaces::with(desktops, auth, dir.join("shell"), dir.join("switcher.json"), false);
+        if !teams.is_empty() {
+            let db = dir.join("teams.sqlite");
+            let store = Arc::new(sync::store::ShapeStore::open(&db).unwrap());
+            let spec = sync::shapes::shape_by_name("teams").unwrap();
+            let rows: Vec<sync::protocol::ShapeMessage> = teams
+                .iter()
+                .map(|(id, name)| sync::protocol::ShapeMessage::Insert { key: sync::protocol::RowKey::Single(id.to_string()), value: serde_json::json!({"id": id, "name": name}).as_object().unwrap().clone() })
+                .collect();
+            store.apply_batch(spec, &rows, None).unwrap();
+            workspaces.manager().adopt_store(&account.id, store, db);
+        }
+        (workspaces, account)
+    }
+
+    #[test]
+    fn a_signed_in_account_starts_on_its_team_not_on_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let (workspaces, account) = signed_in(dir.path(), &[("t2", "Side project"), ("t1", "Acme")]);
+        assert_eq!(workspaces.desktops.active().len(), 1, "one Local desktop");
+        assert_eq!(workspaces.start_on(), Some(StartOn::Team(SwitcherEntry::team("t1", "Acme", &account.id, "danny@example.com"))));
+        // A saved Local pick stays the person's choice.
+        let local = workspaces.current_local().unwrap();
+        workspaces.save_current(&local);
+        assert_eq!(workspaces.start_on(), Some(StartOn::Local(local)));
+        // A saved team wins over the account's first.
+        workspaces.save_current(&SwitcherEntry::team("t2", "Side project", &account.id, "danny@example.com"));
+        assert!(matches!(workspaces.start_on(), Some(StartOn::Team(e)) if e.id == "t2"));
+    }
+
+    #[test]
+    fn before_the_first_sync_the_start_waits_for_the_account_s_team() {
+        let dir = tempfile::tempdir().unwrap();
+        let (workspaces, account) = signed_in(dir.path(), &[]);
+        let pending = Pending { team: None, account: Some(account.id.clone()) };
+        assert_eq!(workspaces.start_on(), Some(StartOn::Wait(pending.clone())));
+        let local = workspaces.current_local().unwrap();
+        assert_eq!(pending.resolve(&[local.clone()]), None, "never settles on Local");
+        assert_eq!(pending.resolve(&[local, SwitcherEntry::team("t9", "Other", "a2", "w@example.com"), SwitcherEntry::team("t1", "Acme", &account.id, "danny@example.com")]).as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn accounts_json_written_after_open_shows_up_in_the_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("exponential");
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        let workspaces = Workspaces::with(elocal::Desktops::open(data.join("desktops")).unwrap(), auth, dir.path().join("shell"), dir.path().join("switcher.json"), false);
+        assert!(matches!(workspaces.start_on(), Some(StartOn::Local(_))), "no account: Local");
+        // Another process signs in on the same data directory.
+        let other = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        let user = api::login::AuthUser { id: "user-1".into(), email: "danny@example.com".into(), name: None, is_admin: None, onboarding_completed_at: None };
+        let account = other.sign_in("http://localhost:3000", "tok", &user).unwrap();
+        let change = workspaces.account_changes().recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(change, api::AuthEvent::SignedIn { account_id: account.id.clone() });
+        assert_eq!(workspaces.signed_in(), vec![(account.id.clone(), "danny@example.com".to_string())]);
+        let spec = sync::shapes::shape_by_name("teams").unwrap();
+        let store = Arc::new(sync::store::ShapeStore::open(&dir.path().join("teams.sqlite")).unwrap());
+        store.apply_batch(spec, &[sync::protocol::ShapeMessage::Insert { key: sync::protocol::RowKey::Single("t1".into()), value: serde_json::json!({"id": "t1", "name": "Acme"}).as_object().unwrap().clone() }], None).unwrap();
+        workspaces.manager().adopt_store(&account.id, store, dir.path().join("teams.sqlite"));
+        assert!(workspaces.entries().iter().any(|e| e.id == "t1" && e.account.as_deref() == Some(account.id.as_str())));
+        // And a sign-out there.
+        other.sign_out(&account.id);
+        let change = workspaces.account_changes().recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(change, api::AuthEvent::SignedOut { account_id: account.id });
+        assert!(workspaces.entries().iter().all(|e| e.kind == uicore_model::SwitcherKind::Local));
     }
 
     #[test]

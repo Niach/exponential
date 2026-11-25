@@ -380,8 +380,9 @@ struct Shell {
     share: share::Share,
     /// The Local desktop opened for a share (its store, blobs, identity).
     local: Option<Arc<elocal::LocalDesktop>>,
-    /// A team to make current once the account's teams shape carries it.
-    pending_pick: Option<String>,
+    /// A team to make current once the account's teams shape carries it
+    /// (#EDE-223: or the signed-in account's first team).
+    pending_pick: accounts::Pending,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
     /// EXP-1513: the chat's Claude Code setup (install + its own sign-in)
@@ -1447,8 +1448,46 @@ fn share_done(shell: &SharedShell, shared: elocal::share::Shared, cx: &mut App) 
         }
         shell.borrow_mut().local = None;
     }
-    shell.borrow_mut().pending_pick = Some(shared.team_id);
+    shell.borrow_mut().pending_pick = accounts::Pending { team: Some(shared.team_id), account: None };
     switcher_refresh_entries(shell, cx);
+}
+
+/// #EDE-223: `accounts.json` moved under the shell (the app or the CLI signed
+/// in or out): the account's sync starts or stops, Settings' Account page
+/// follows; a sign-in with nothing saved moves a Local start onto the
+/// account's team once listed, a sign-out leaves its team for Local.
+fn account_changed(shell: &SharedShell, event: api::AuthEvent, cx: &mut App) {
+    tracing::info!(?event, "accounts.json changed");
+    match &event {
+        api::AuthEvent::SignedIn { account_id } => {
+            let account = shell.borrow().workspaces.account(account_id);
+            if let Some(account) = account {
+                shell.borrow().workspaces.start_account(&account);
+            }
+            let wait = shell.borrow().workspaces.nothing_saved() && on_local(shell) && !shell.borrow().pending_pick.is_some();
+            if wait {
+                shell.borrow_mut().pending_pick = accounts::Pending { team: None, account: Some(account_id.clone()) };
+            }
+        }
+        api::AuthEvent::SignedOut { account_id } | api::AuthEvent::Unauthorized { account_id } => {
+            shell.borrow().workspaces.stop_account(account_id);
+            let pending = shell.borrow().pending_pick.account.as_ref() == Some(account_id);
+            if pending {
+                shell.borrow_mut().pending_pick = accounts::Pending::default();
+            }
+            let left = shell.borrow().model.switcher.current.account.as_ref() == Some(account_id);
+            if left {
+                switcher_refresh_entries(shell, cx);
+                let local = shell.borrow().workspaces.current_local();
+                if let Some(local) = local {
+                    switcher_picked(shell, uicore_model::SwitcherKind::Local, &local.id, cx);
+                }
+                shell.borrow().workspaces.forget_current();
+            }
+        }
+    }
+    let accounts = shell.borrow().workspaces.accounts_json();
+    shell.borrow_mut().feed.set("/accounts", accounts);
 }
 
 /// `Local`, then `Local 2`, `Local 3`… among the desktops that exist.
@@ -1469,10 +1508,10 @@ fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
     if entries.is_empty() {
         return;
     }
-    let pending = shell.borrow().pending_pick.clone().filter(|id| entries.iter().any(|e| e.kind == uicore_model::SwitcherKind::Team && &e.id == id));
+    let pending = shell.borrow().pending_pick.resolve(&entries);
     dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
     if let Some(id) = pending {
-        shell.borrow_mut().pending_pick = None;
+        shell.borrow_mut().pending_pick = accounts::Pending::default();
         switcher_picked(shell, uicore_model::SwitcherKind::Team, &id, cx);
     }
 }
@@ -2288,6 +2327,11 @@ fn on_local(shell: &SharedShell) -> bool {
 /// The chat on the current Local desktop, its runner started once (#EDE-58).
 fn chat_local(shell: &SharedShell) -> bool {
     if !on_local(shell) {
+        return false;
+    }
+    // #EDE-223: the start waits for the signed-in account's team: its
+    // Assistant, never the CLI on the machine under the account's name.
+    if shell.borrow().pending_pick.account.is_some() {
         return false;
     }
     let Some(desktop) = local_desktop(shell) else { return false };
@@ -4130,6 +4174,7 @@ fn main() {
     };
     workspaces.start_sync();
     let team_deltas = workspaces.deltas();
+    let account_changes = workspaces.account_changes();
     let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();
     let (urls_tx, urls_rx) = mpsc::channel::<String>();
     if !demo {
@@ -4181,6 +4226,8 @@ fn main() {
         let mut chat = match (demo, on_team) {
             (true, false) if setup.is_none() => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
+            // #EDE-223: a Local start's home is the CLI on the machine.
+            _ if matches!(workspaces.start_on(), Some(accounts::StartOn::Local(_))) => local_runs::local_home(""),
             _ => local_runs::assistant_home(),
         };
         // #EDE-65 lane O: the "+" (Photo or file; the prompts arrive with a team's rows).
@@ -4231,15 +4278,33 @@ fn main() {
         if !entries.is_empty() {
             model = reduce(&model, &ShellEvent::SwitcherSet { entries });
         }
-        if let Some(current) = workspaces.current_local() {
-            model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
-        }
-        let saved_team = workspaces.saved_team();
-        // A start on a Local desktop: a running Exponential app follows it too.
-        if saved_team.is_none() && !demo {
-            if let Some(current) = workspaces.current_local() {
-                accounts::ide_follow(current.kind, &current.id);
+        // #EDE-223: the signed-in account's team (or the saved pick); a team
+        // not synced yet waits on Local, and the app is left where it is.
+        let start_on = workspaces.start_on();
+        let mut pending_pick = accounts::Pending::default();
+        let start = match start_on {
+            Some(accounts::StartOn::Local(entry)) => {
+                // A start on a Local desktop: a running Exponential app follows it too.
+                if !demo {
+                    accounts::ide_follow(entry.kind.clone(), &entry.id);
+                }
+                Some(entry)
             }
+            Some(accounts::StartOn::Team(entry)) => {
+                if !demo {
+                    accounts::ide_follow(entry.kind.clone(), &entry.id);
+                }
+                Some(entry)
+            }
+            Some(accounts::StartOn::Wait(pending)) => {
+                tracing::info!(?pending, "the start waits for the account's teams");
+                pending_pick = pending;
+                workspaces.current_local()
+            }
+            None => None,
+        };
+        if let Some(current) = start {
+            model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
@@ -4312,7 +4377,7 @@ fn main() {
             share,
             local: None,
             // #EDE-65: the team picked last, once its account's teams are listed.
-            pending_pick: saved_team,
+            pending_pick,
             chat_local: None,
             chat_setup: cli_setup::Step::Idle,
             chat_setup_rx: None,
@@ -4537,6 +4602,12 @@ fn main() {
                     }
                     let feed = s.borrow().connect.feed();
                     s.borrow_mut().feed.set("/connecting", feed);
+                    dirty = true;
+                }
+                // #EDE-223: a sign-in or sign-out in another process.
+                while let Ok(event) = account_changes.try_recv() {
+                    cx.update(|cx| account_changed(&s, event, cx));
+                    teams_changed = true;
                     dirty = true;
                 }
                 while let Ok(event) = share_rx.try_recv() {

@@ -61,11 +61,20 @@ impl LocalChat {
     }
 
     /// The agent row like a team's (my Assistant first) and their glyphs.
+    /// #EDE-223: the desktop's Assistant row is the CLI on this machine, so
+    /// it is named for it (Claude Code, its mark), never the account's
+    /// Assistant with the Exponential mark.
     pub fn agents(&self) -> (Vec<ChatAgentInput>, HashMap<String, crate::team_chat::AgentGlyph>) {
         let rows = self.agent_rows();
         let team_id = self.desktop.executor.team_id().to_string();
         let me = self.desktop.executor.identity().user_id;
-        (crate::team_chat::agent_inputs(&rows, &team_id, &[&team_id], &me), crate::team_chat::agent_glyphs(&rows, &team_id, &[&team_id], &me))
+        let mut inputs = crate::team_chat::agent_inputs(&rows, &team_id, &[&team_id], &me);
+        let (name, icon) = local_face(&self.agent);
+        for input in inputs.iter_mut().filter(|a| rows.iter().any(|r| r.id == a.id && r.is_assistant())) {
+            input.name = name.into();
+            input.icon = icon.into();
+        }
+        (inputs, crate::team_chat::agent_glyphs(&rows, &team_id, &[&team_id], &me))
     }
 
     /// The composer's text: a message into the chat's session, else a new one.
@@ -126,7 +135,7 @@ impl LocalChat {
     /// chat the domain builds from the desktop's store, drawn as bubbles
     /// (the desktop's own agent is an agent chat).
     pub fn input(&self) -> ChatInput {
-        let mut input = assistant_home();
+        let mut input = local_home(&self.agent);
         let (agents, _) = self.agents();
         if !agents.is_empty() {
             input.agent_id = agents.first().map(|a| a.id.clone());
@@ -266,6 +275,29 @@ pub fn assistant_home() -> ChatInput {
     }
 }
 
+/// #EDE-223: a Local desktop's home: its own agent is the CLI on this
+/// machine (`cli`, empty = none usable yet: Claude Code, the one the setup
+/// installs), named and marked for it.
+pub fn local_home(cli: &str) -> ChatInput {
+    let (name, icon) = local_face(cli);
+    let mut input = assistant_home();
+    input.title = name.into();
+    input.icon = icon.into();
+    for agent in input.agents.iter_mut() {
+        agent.name = name.into();
+        agent.icon = icon.into();
+    }
+    input
+}
+
+/// #EDE-223: the name and mark of a Local desktop's agent: its CLI's.
+pub fn local_face(cli: &str) -> (&'static str, &'static str) {
+    match eagent::agent::CodingAgent::parse(cli).unwrap_or_default() {
+        eagent::agent::CodingAgent::Claude => ("Claude Code", "brand-claude"),
+        eagent::agent::CodingAgent::Codex => ("Codex", "brand-codex"),
+    }
+}
+
 pub const ASSISTANT_ID: &str = "assistant";
 const ASSISTANT: &str = "Assistant";
 const ASSISTANT_ICON: &str = "brand-exponential";
@@ -295,9 +327,10 @@ pub fn demo_input() -> ChatInput {
             ChatRowInput::Marker { id: "e2".into(), label: "Merged PR #412".into(), group: None },
             message("x2", "agent", "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.", "08:41"),
         ],
-        ..assistant_home()
+        ..local_home("claude")
     };
-    crate::chat::demo_group(&mut input.rows, ASSISTANT_ICON, "Assistant");
+    let (name, icon) = local_face("claude");
+    crate::chat::demo_group(&mut input.rows, icon, name);
     // The relay: another session's message, its name above the bubble.
     if let Some(ChatRowInput::Message { name, group: Some(group), .. }) = input.rows.last_mut() {
         *name = Some("Fix the sign-in redirect".into());
@@ -324,6 +357,12 @@ mod tests {
     fn the_home_offers_the_assistant_and_the_demo_is_a_conversation() {
         let home = chat_view(&super::assistant_home());
         assert_eq!((home.face, home.agent_row.label.as_str()), (ChatFace::Home, "To Assistant"));
+        // #EDE-223: a Local desktop's home is the CLI on the machine, never the account's Assistant.
+        let local = chat_view(&super::local_home("claude"));
+        assert_eq!(local.agent_row.label, "To Claude Code");
+        assert_eq!(super::local_home("").agents[0].icon, "brand-claude");
+        assert_eq!(super::local_home("codex").agents[0].name, "Codex");
+        assert!(super::local_home("claude").agents.iter().all(|a| a.icon != crate::team_chat::ASSISTANT_ICON));
         let demo = chat_view(&super::demo_input());
         assert_eq!(demo.face, ChatFace::Conversation);
         assert_eq!(demo.rows.len(), 6);
