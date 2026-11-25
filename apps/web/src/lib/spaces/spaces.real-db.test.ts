@@ -171,6 +171,11 @@ afterAll(async () => {
   if (!ready.ok) return
   if (made.users.length) {
     const ids = sql.raw(`('${made.users.join(`','`)}')`)
+    // The spaces end as the product ends them (another suite's watchdog may too).
+    await db.transaction(async (tx) => {
+      const left = await tx.select({ id: devices.id }).from(devices).where(and(inArray(devices.userId, made.users), sql`space_host_id IS NOT NULL`))
+      await endSpacesInTx(tx, left.map((d) => d.id), `accountDeleted`)
+    })
     await db.execute(sql`DELETE FROM agents WHERE owner_id IN ${ids}`)
     await db.execute(sql`DELETE FROM teams WHERE owner_id IN ${ids}`)
     if (made.teams.length) await db.delete(teams).where(inArray(teams.id, made.teams))
@@ -543,6 +548,10 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
     const { sessionId: child } = await asAgent(r, { parentId: r.root.id, teamId: r.root.teamId, deviceId: r.deviceId })
     expect(await refusal(asAgent(r, { sessionId: child, deviceId: r.laptop.deviceId }))).not.toBe(`ok`)
     expect((await session(child)).deviceId).toBe(r.deviceId)
+    // Nor by the member: what a host could have written resumes nowhere else.
+    expect(await code(as(r.member).sessions.send({ sessionId: child, text: `x`, deviceId: r.laptop.deviceId } as never))).toBe(`PRECONDITION_FAILED`)
+    await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, child))
+    expect(await code(as(r.member).sessions.send({ sessionId: child, text: `x`, deviceId: r.laptop.deviceId } as never))).toBe(`PRECONDITION_FAILED`)
     // The member's own machines are not even listed.
     const { visibleDeviceRows } = await import(`@/lib/trpc/devices`)
     expect((await runInSpace(grant, () => visibleDeviceRows(db, r.member, r.teamId))).rows.map((d) => d.id)).toEqual([r.host.id])
@@ -614,6 +623,65 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
       expect(spaces.map((d) => d.deviceId)).toEqual(agent.deviceId.startsWith(`space-`) ? [agent.deviceId] : [])
     }
   }, 60_000)
+
+  /** Runs these at once; a deadlock (or any database error) fails. */
+  async function together(...runs: Array<() => Promise<unknown>>): Promise<void> {
+    const settled = await Promise.allSettled(runs.map((run) => run()))
+    for (const outcome of settled) {
+      if (outcome.status === `fulfilled`) continue
+      const error = outcome.reason as { code?: string; message?: string; cause?: { code?: string; message?: string } }
+      const reason = `${error.code} ${error.message} ${error.cause?.code} ${error.cause?.message}`
+      expect(reason).not.toMatch(/40P01|deadlock|Failed query/)
+    }
+  }
+
+  it(`lock order: a tick and a first message on one fresh conversation, 25 times`, async () => {
+    const { fireScheduledTriggers } = await import(`@/lib/agents/triggers`)
+    for (let i = 0; i < 25; i++) {
+      const s = await scene()
+      await db
+        .update(agents)
+        .set({ triggers: [{ kind: `schedule`, id: `t1`, cron: `* * * * *`, enabled: true }] as never, triggerState: { t1: { checkedAt: new Date(Date.now() - 600_000).toISOString() } } as never })
+        .where(eq(agents.id, s.agentId))
+      await together(
+        () => fireScheduledTriggers(),
+        () => as(s.member).sessions.send({ agentId: s.agentId, text: `one` } as never),
+        () => as(s.member).sessions.send({ agentId: s.agentId, text: `two` } as never),
+        () => fireScheduledTriggers()
+      )
+      expect(await db.select({ id: sessions.id }).from(sessions).where(and(eq(sessions.agentId, s.agentId), eq(sessions.userId, s.member)))).toHaveLength(1)
+      await db.update(agents).set({ triggers: [] }).where(eq(agents.id, s.agentId))
+    }
+  }, 120_000)
+
+  it(`lock order: picks, ends, messages, a tick and a device change at once, 25 times`, async () => {
+    const { fireScheduledTriggers } = await import(`@/lib/agents/triggers`)
+    for (let i = 0; i < 25; i++) {
+      const r = await running({ key: false })
+      await as(r.member).sessions.send({ agentId: r.agentId, text: `start` } as never)
+      await as(r.member).sessions.send({ text: `x`, parentId: r.root.id, teamId: r.root.teamId, deviceId: r.deviceId } as never)
+      const ends = [
+        () => as(r.hostOwner).devices.setAssistantTeam({ deviceId: r.host.deviceId, teamId: r.teamId, allowed: false }),
+        () => as(r.hostOwner).memberSpaces.remove({ spaceId: r.spaceId }),
+        () => as(r.hostOwner).devices.setShared({ deviceId: r.host.deviceId, teamId: r.teamId, shared: false }),
+        () => as(r.member).installs.revoke({ installId: r.install.installId }),
+      ]
+      await together(
+        ends[i % 4]!,
+        ends[(i + 1) % 4]!,
+        () => as(r.member).agents.update({ id: r.agentId, deviceId: r.laptop.deviceId }),
+        () => as(r.member).memberSpaces.request({ deviceId: r.host.deviceId, teamId: r.teamId }),
+        () => as(r.member).sessions.send({ agentId: r.agentId, text: `two` } as never),
+        () => as(r.member).sessions.send({ sessionId: r.root.id, text: `three` } as never),
+        () => r.caller.sessions.reply({ sessionId: r.root.id, body: `four` }),
+        () => fireScheduledTriggers(),
+        () => endInvalidSpaces()
+      )
+      const agent = (await findAssistant(db, r.member))!
+      const spaces = await db.select().from(devices).where(and(eq(devices.userId, r.member), sql`space_host_id IS NOT NULL`))
+      expect(spaces.map((d) => d.deviceId)).toEqual(agent.deviceId.startsWith(`space-`) ? [agent.deviceId] : [])
+    }
+  }, 180_000)
 
   it(`attachments: an upload nothing carries is its member's own`, async () => {
     const { attachments } = await import(`@/db/schema`)
@@ -707,6 +775,25 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
     expect(await count(r.root.id)).toBe(held)
   })
 
+  /** The Assistant is on the laptop: a new conversation, the old one over. */
+  async function startsFresh(r: Awaited<ReturnType<typeof running>>) {
+    const { SPACE_CHAT_OVER } = await import(`@/lib/spaces/no-device`)
+    const held = await count(r.root.id)
+    const { sessionId } = await as(r.member).sessions.send({ agentId: r.agentId, text: `hello` } as never)
+    expect(sessionId).not.toBe(r.root.id)
+    expect(await session(sessionId)).toMatchObject({ deviceId: r.laptop.deviceId, agentId: r.agentId, status: `queued` })
+    expect(await count(sessionId)).toBe(1)
+    for (const input of [
+      { sessionId: r.root.id, text: SEALED },
+      { sessionId: r.root.id, text: SEALED, deviceId: r.laptop.deviceId },
+      { parentId: r.root.id, text: `child`, deviceId: r.laptop.deviceId },
+    ]) {
+      expect(await as(r.member).sessions.send(input as never).then(() => `ok`, (error: Error) => error.message)).toBe(SPACE_CHAT_OVER)
+    }
+    expect(await count(r.root.id)).toBe(held)
+    expect(await session(r.root.id)).toMatchObject({ status: `ended`, agentId: null })
+  }
+
   async function leave(owner: string, teamId: string, userId: string) {
     const [membership] = await db.select().from(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     return as(owner).teamMembers.remove({ memberId: membership!.id } as never)
@@ -731,29 +818,22 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
       expect(root.sealRotateEpoch).toBe(1)
       expect((await session(child)).status).toBe(`ended`)
       const agent = (await findAssistant(db, r.member))!
-      if (cause === `picked`) {
-        expect(agent.deviceId).toBe(r.laptop.deviceId)
-        expect(root).toMatchObject({ agentId: r.agentId, deviceId: r.laptop.deviceId, status: `queued` })
-        // The conversation's key still reaches the member's own machines only.
-        expect([...(await treeReaders(db, root)).keys()]).toEqual([r.phone.installId])
-      } else {
-        expect(agent.deviceId).toBe(``)
-        expect(root).toMatchObject({ agentId: r.agentId, status: `idle`, busy: false })
-      }
+      expect(root).toMatchObject({ agentId: null, status: `ended`, busy: false, deviceId: r.deviceId })
+      // The old conversation's key reaches the member's own installs only.
+      expect([...(await treeReaders(db, root)).keys()]).toEqual([r.phone.installId])
+      expect(agent.deviceId).toBe(cause === `picked` ? r.laptop.deviceId : ``)
       const said = (await notices(r.member)).slice(before)
       const silent = MEMBER_SPACE.silentCauses.includes(cause)
       expect(said.filter((title) => title === MEMBER_SPACE_COPY.ended.replace(`{device}`, `unraid`))).toHaveLength(silent ? 0 : 1)
       if (cause !== `deviceRemoved` && at !== 7) expect(nudges).toContain(`${r.hostOwner}:${r.host.deviceId}`)
       // Idempotent.
       expect(await db.transaction((tx) => endSpacesInTx(tx, [r.spaceId], `removed`))).toEqual([])
-      if (silent) return
+      if (silent) return startsFresh(r)
       expect(await as(r.member).memberSpaces.mine()).toEqual({ space: null, ended: true })
       await refusesEverything(r)
-      // An own device: the same conversation goes on.
+      // An own device: a new conversation, and the old one goes on nowhere.
       await as(r.member).agents.update({ id: r.agentId, deviceId: r.laptop.deviceId })
-      expect(await session(r.root.id)).toMatchObject({ agentId: r.agentId, deviceId: r.laptop.deviceId, status: `queued` })
-      const { sessionId } = await as(r.member).sessions.send({ agentId: r.agentId, text: SEALED } as never)
-      expect(sessionId).toBe(r.root.id)
+      await startsFresh(r)
     })
   }
 

@@ -1,7 +1,7 @@
 // #EXP-2161 (domain-contract member-space.json, THE END): a member space
 // ends in ONE transaction with whatever withdrew it. Its keys go, its install
 // is revoked, the trees it read are due for rotation, the sessions of its
-// trees end (the conversation root goes idle), the Assistant has no device
+// trees end, the Assistant has no device
 // and the row goes. Idempotent: a space that is gone ends nothing. Callers
 // run `finishEndedSpaces` after commit (kills, the host's nudge, the notice).
 import { and, eq, inArray, isNotNull, isNull, like, ne, or, sql, type SQL } from "drizzle-orm"
@@ -32,19 +32,36 @@ export interface EndedSpace {
 
 const host = alias(devices, `ended_host`)
 
-/** Every session of these trees ends but the roots, which go idle. */
-async function endTreesInTx(tx: Tx, rootIds: readonly string[], now: Date): Promise<void> {
-  if (rootIds.length === 0) return
+/** These trees end, their Assistant's conversation detached from it
+ *  (readable, as the Assistant move kept the dropped ones): the next message
+ *  starts a fresh one, with its own key and no history of this one. */
+export async function detachTreesInTx(tx: Tx, rootIds: readonly string[], now: Date): Promise<string[]> {
+  if (rootIds.length === 0) return []
   for (const rootId of [...rootIds].sort()) await lockTreeRows(tx, rootId)
   const ended = await tx
     .update(sessions)
-    .set({ status: `ended`, endedAt: now, busy: false, background: false, needsInput: false, blocked: null, updatedAt: now })
-    .where(and(inArray(sessions.rootId, [...rootIds]), or(isNotNull(sessions.parentId), isNull(sessions.agentId)), ne(sessions.status, `ended`)))
+    .set({
+      status: `ended`,
+      endedAt: sql`coalesce(${sessions.endedAt}, ${now.toISOString()}::timestamptz)`,
+      busy: false,
+      background: false,
+      needsInput: false,
+      blocked: null,
+      updatedAt: now,
+    })
+    .where(and(inArray(sessions.rootId, [...rootIds]), ne(sessions.status, `ended`)))
     .returning({ id: sessions.id })
-  await tx
-    .update(sessions)
-    .set({ status: `idle`, busy: false, background: false, needsInput: false, blocked: null, updatedAt: now })
-    .where(and(inArray(sessions.id, [...rootIds]), isNull(sessions.parentId), isNotNull(sessions.agentId), ne(sessions.status, `ended`)))
+  const ids = ended.map((row) => row.id)
+  await closeAskMirrorsOf(tx, ids, now)
+  await forgetWatched(tx, ids)
+  await tx.update(sessions).set({ agentId: null }).where(and(inArray(sessions.rootId, [...rootIds]), isNotNull(sessions.agentId)))
+  return ids
+}
+
+/** The trees of a space that ends. */
+async function endTreesInTx(tx: Tx, rootIds: readonly string[], now: Date): Promise<void> {
+  if (rootIds.length === 0) return
+  await detachTreesInTx(tx, rootIds, now)
   // Nothing the machine planted runs later, on whatever device is next: what
   // the trees wait on goes, and every unread input a session wrote there (its
   // agent speaking in its member's name too) is spent unread.
@@ -54,8 +71,6 @@ async function endTreesInTx(tx: Tx, rootIds: readonly string[], now: Date): Prom
     .update(messages)
     .set({ consumedAt: now, updatedAt: now })
     .where(and(inArray(messages.rootId, [...rootIds]), isNotNull(messages.authorSessionId), isNull(messages.consumedAt)))
-  await closeAskMirrorsOf(tx, [...ended.map((row) => row.id), ...rootIds], now)
-  await forgetWatched(tx, ended.map((row) => row.id))
 }
 
 /** Deletes the keys that carry `spaceId`: the space's own and the agent keys
@@ -95,7 +110,7 @@ export async function endSpacesInTx(tx: Tx, spaceIds: readonly string[], cause: 
       )
     )
     .orderBy(agents.id)
-    .for(`update`)
+    .for(`no key update`)
   const rows = await tx
     .select({
       spaceId: devices.id,
@@ -129,8 +144,6 @@ export async function endSpacesInTx(tx: Tx, spaceIds: readonly string[], cause: 
     if (installIds.length > 0) {
       await tx.update(installs).set({ revokedAt: now }).where(and(inArray(installs.id, installIds), isNull(installs.revokedAt)))
     }
-    await endTreesInTx(tx, rootIds, now)
-    await deleteSpaceKeys(tx, row.userId, row.spaceId)
     const [conversation] = rootIds.length
       ? await tx
           .select({ id: sessions.id })
@@ -138,6 +151,8 @@ export async function endSpacesInTx(tx: Tx, spaceIds: readonly string[], cause: 
           .where(and(inArray(sessions.id, rootIds), isNull(sessions.parentId), isNotNull(sessions.agentId)))
           .limit(1)
       : []
+    await endTreesInTx(tx, rootIds, now)
+    await deleteSpaceKeys(tx, row.userId, row.spaceId)
     // Never a fallback to another device: the page asks for one.
     await tx
       .update(agents)

@@ -4,20 +4,18 @@
 // `remove` list and end them (the device's owner, a team owner).
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, arrayContains, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, arrayContains, eq, inArray, isNull, sql } from "drizzle-orm"
 import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
 import { auth } from "@/lib/auth"
 import { agents, devices, installs, sessions, teamMembers, users } from "@/db/schema"
 import { ensureAssistant, findAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 import { assertNotAgentApiKeySession } from "@/lib/auth/api-key-kind"
 import { assertTeamMember } from "@/lib/auth/membership"
-import { closeAskMirrorsOf, forgetWatched } from "@/lib/sessions/bus"
 import { lockDeviceShares, SHARING_ORDER } from "@/lib/sessions/host"
 import { relayKillTargets, treeKillTargets, type KillTarget } from "@/lib/sessions/lifecycle"
-import { lockTreeRows } from "@/lib/sessions/locks"
 import type { Tx } from "@/lib/sessions/tx"
 import { assertOutsideSpace } from "@/lib/spaces/context"
-import { deleteSpaceKeys, endSpacesInTx, finishEndedSpaces, spaceIdsOf, spacesOnHosts, type EndedSpace } from "@/lib/spaces/end"
+import { deleteSpaceKeys, detachTreesInTx, endSpacesInTx, finishEndedSpaces, spaceIdsOf, spacesOnHosts, type EndedSpace } from "@/lib/spaces/end"
 import { approvedSpaceInstallIds, SPACE_INSTALL_KIND, spaceRows } from "@/lib/spaces/grant"
 import { authedProcedure, generateTxId, router } from "@/lib/trpc"
 import { nudgeDevice } from "@/lib/trpc/devices"
@@ -45,25 +43,8 @@ async function detachConversationInTx(tx: Tx, assistantId: string, userId: strin
       .where(and(eq(sessions.agentId, assistantId), eq(sessions.userId, userId), isNull(sessions.parentId)))
   ).map((row) => row.id)
   if (roots.length === 0) return []
-  for (const rootId of [...roots].sort()) await lockTreeRows(tx, rootId)
   const kills = await treeKillTargets(tx, roots)
-  const ended = await tx
-    .update(sessions)
-    .set({
-      status: `ended`,
-      endedAt: sql`coalesce(${sessions.endedAt}, ${now.toISOString()}::timestamptz)`,
-      busy: false,
-      background: false,
-      needsInput: false,
-      blocked: null,
-      updatedAt: now,
-    })
-    .where(and(inArray(sessions.rootId, roots), ne(sessions.status, `ended`)))
-    .returning({ id: sessions.id })
-  const ids = ended.map((row) => row.id)
-  await closeAskMirrorsOf(tx, ids, now)
-  await forgetWatched(tx, ids)
-  await tx.update(sessions).set({ agentId: null }).where(inArray(sessions.rootId, roots))
+  await detachTreesInTx(tx, roots, now)
   return kills
 }
 
@@ -118,7 +99,7 @@ export const memberSpacesRouter = router({
           .where(and(eq(devices.userId, userId), sql`${devices.spaceHostId} IS NOT NULL`))
           .limit(1)
         // Its row first: a device pick (`agents.update`) waits for this one.
-        await tx.select({ id: agents.id }).from(agents).where(and(eq(agents.ownerId, userId), eq(agents.role, `assistant`))).for(`update`)
+        await tx.select({ id: agents.id }).from(agents).where(and(eq(agents.ownerId, userId), eq(agents.role, `assistant`))).for(`no key update`)
         const assistant = await findAssistant(tx, userId)
         // Idempotent: already there (through another team now, if so).
         if (current && current.spaceHostId === host.id && assistant?.deviceId === current.deviceId) {
