@@ -6,7 +6,6 @@ import {
   MESSAGE_BODY_MAX,
   PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_UPLOAD_SCHEME,
-  type CardSurface,
   type MessageCard,
   type PlanCardPicture,
   type PlanCardQuestion,
