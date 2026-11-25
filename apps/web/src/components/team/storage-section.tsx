@@ -171,12 +171,12 @@ export function TeamStorageSection({
           trailing={
             <Pill
               mode="action"
-              disabled={sweepCandidateCount === 0 || sweeping}
+              // #EXP-2115: the server refuses the sweep until it is safe.
+              disabled
               onClick={() => setSweepConfirmOpen(true)}
             >
               <CleanIcon />
-              Sweep unreferenced images
-              {sweepCandidateCount > 0 ? ` (${sweepCandidateCount})` : ``}
+              Sweep paused
             </Pill>
           }
         />
