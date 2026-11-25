@@ -177,34 +177,40 @@ struct TeamTreeList: View {
     @ViewBuilder
     private func rowView(_ row: SidebarTree.PhoneRow) -> some View {
         let editing = row.kind == .folder && tree.editingFolder == row.id
-        HStack(spacing: compact ? 10 : 12) {
-            glyph(row).frame(width: glyphSize, height: glyphSize)
-            if editing {
-                nameField(row)
-            } else {
-                Text(title(row))
-                    .font(compact ? .system(size: 15) : .body)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+        HStack(spacing: 0) {
+            HStack(spacing: compact ? 10 : 12) {
+                glyph(row).frame(width: glyphSize, height: glyphSize)
+                if editing {
+                    nameField(row)
+                } else {
+                    Text(title(row))
+                        .font(compact ? .system(size: 15) : .body)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if !editing { trailing(row) }
             }
-            Spacer(minLength: 4)
-            if !editing { trailing(row) }
+            .padding(.leading, compact ? 8 : 16)
+            .padding(.trailing, row.kind == .team ? 4 : compact ? 8 : 16)
+            .padding(.vertical, compact ? 4 : 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .glassLongPress(
+                onTap: editing ? nil : { tap(row) },
+                onHold: { if !editing { menu = MenuTarget(row: row, part: .menu) } }
+            )
+            .accessibilityElement(children: editing ? .contain : .combine)
+            .accessibilityLabel(title(row))
+            .accessibilityValue(value(row))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "Actions") { menu = MenuTarget(row: row, part: .menu) }
+            .accessibilityIdentifier(testId(row))
+            if row.kind == .team { teamButtons(row) }
         }
-        .padding(.leading, compact ? 8 : 16)
-        .padding(.trailing, compact ? 8 : 16)
-        .padding(.vertical, compact ? 4 : 8)
         .frame(minHeight: compact ? 36 : 48)
-        .contentShape(Rectangle())
+        .fixedSize(horizontal: false, vertical: true)
         .flatRowIf(compact, isActive: isSelected(row))
-        .glassLongPress(
-            onTap: editing ? nil : { tap(row) },
-            onHold: { if !editing { menu = MenuTarget(row: row, part: .menu) } }
-        )
-        .accessibilityElement(children: row.kind == .team || editing ? .contain : .combine)
-        .accessibilityLabel(title(row))
-        .accessibilityValue(value(row))
-        .accessibilityAction(named: "Actions") { menu = MenuTarget(row: row, part: .menu) }
-        .accessibilityIdentifier(testId(row))
     }
 
     private func testId(_ row: SidebarTree.PhoneRow) -> String {
@@ -237,13 +243,6 @@ struct TeamTreeList: View {
         switch row.kind {
         case .team:
             CountBadge(badge(row))
-            rowButton(AppIcons.uiAdd, label: "\(SidebarMenus.copy[.new] ?? ""): \(title(row))", testId: "team-new-\(row.id)") {
-                menu = MenuTarget(row: row, part: .add)
-            }
-            rowButton(AppIcons.uiMore, label: "Team actions: \(title(row))", testId: "team-actions-\(row.id)") {
-                menu = MenuTarget(row: row, part: .more)
-            }
-            chevron(row)
         case .folder:
             if !row.open {
                 Text("\(row.count)")
@@ -255,6 +254,23 @@ struct TeamTreeList: View {
         case .item:
             CountBadge(badge(row))
         }
+    }
+
+    /// header-actions.json `rows.team`: +, `…`, then the fold chevron.
+    private func teamButtons(_ row: SidebarTree.PhoneRow) -> some View {
+        HStack(spacing: 4) {
+            rowButton(AppIcons.uiAdd, label: "\(SidebarMenus.copy[.new] ?? ""): \(title(row))", testId: "team-new-\(row.id)") {
+                menu = MenuTarget(row: row, part: .add)
+            }
+            rowButton(AppIcons.uiMore, label: "Team actions: \(title(row))", testId: "team-actions-\(row.id)") {
+                menu = MenuTarget(row: row, part: .more)
+            }
+            chevron(row)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture { tap(row) }
+        }
+        .padding(.trailing, compact ? 8 : 16)
     }
 
     private func chevron(_ row: SidebarTree.PhoneRow) -> some View {
@@ -493,17 +509,7 @@ struct TeamTreeList: View {
     // MARK: - Layout writes
 
     private func addFolder(_ teamId: String) {
-        let id = newId()
-        tree.setTeamOpen(teamId, true)
-        layout(teamId) { items, entries in
-            SidebarFolders.Writes(
-                upserts: [.init(
-                    id: id, kind: .folder, targetId: nil, parentId: nil, name: SidebarFolders.defaultFolderName,
-                    sortOrder: Double(SidebarFolders.tree(items: items, entries: entries).count + 1)
-                )],
-                deletes: [], createdFolderId: id
-            )
-        }
+        layout(teamId) { SidebarFolders.appendFolder(items: $0, entries: $1, newFolderId: newId()) }
     }
 
     private func move(_ row: SidebarTree.PhoneRow, _ move: SidebarFolders.Move) {

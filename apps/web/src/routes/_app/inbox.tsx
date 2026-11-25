@@ -32,7 +32,7 @@ function PhoneInbox() {
   const router = useRouter()
   const unread = useUnreadNotificationCount()
   return (
-    <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)]">
       <MobileDetailHeader
         title={CHATS_COPY.inbox}
         onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/chats` }))}

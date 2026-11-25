@@ -215,7 +215,7 @@ private struct BoardMenuHost: View {
                     message: "It and its issues disappear for the whole team. An owner can bring it back in team settings.",
                     actions: [
                         GlassAlertAction("Cancel", role: .outline, isCancel: true, id: "cancel") {},
-                        GlassAlertAction("Archive", id: "archive", action: archive),
+                        GlassAlertAction("Archive", id: "archive") { archive() },
                     ]
                 )
             }

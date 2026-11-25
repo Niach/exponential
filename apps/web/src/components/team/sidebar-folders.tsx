@@ -201,7 +201,7 @@ export function SidebarFolderRows({
                 )}
               </SidebarMenuButton>
               {!editing && (
-                <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-xs text-muted-foreground`, density === `touch` && `right-4`)}>
+                <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-xs text-muted-foreground`, density === `touch` && `right-4 justify-end`)}>
                   {!row.open && <span className="tabular-nums">{row.count}</span>}
                   <ChevronIcon className={cn(`size-4 transition-transform`, row.open && `rotate-90`)} />
                 </SidebarMenuTrailing>

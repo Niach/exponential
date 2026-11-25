@@ -236,7 +236,7 @@ export function PhoneSettingsRoot({ teamSlug }: { teamSlug: string }) {
     return item ? [item] : []
   })
   return (
-    <div className="h-full overflow-y-auto" data-testid="phone-settings">
+    <div className="h-full overflow-y-auto max-md:h-dvh" data-testid="phone-settings">
       <div
         className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 ${PAGE_END_CLEARANCE}`}
       >

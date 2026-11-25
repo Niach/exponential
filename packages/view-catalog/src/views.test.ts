@@ -73,6 +73,7 @@ const PINNED_RECIPES = [
   `openOnboardingJoin`,
   `openOnboardingInvite`,
   `openOnboardingDevices`,
+  `openTeamsRowMenu`,
   `openAppPreviewTab`,
   `openAppExport`,
   `openAppImport`,

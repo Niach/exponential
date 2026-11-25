@@ -70,7 +70,7 @@ export function PhoneTeams({ me, teamSlug }: { me: string; teamSlug?: string }) 
   const emptyId = phoneTeamsEmpty(teams.map((team) => ({ id: team.id, count: counts.get(team.id) ?? -1 })))
   const empty = teams.find((team) => team.id === emptyId)
   return (
-    <div className="h-full overflow-y-auto" data-testid="phone-teams" data-scroll-restoration-id="phone-teams">
+    <div className="h-full overflow-y-auto max-md:h-dvh" data-testid="phone-teams" data-scroll-restoration-id="phone-teams">
       <div className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 ${PAGE_END_CLEARANCE}`}>
         <MobilePageHeader
           title={CHATS_COPY.headers.teams}

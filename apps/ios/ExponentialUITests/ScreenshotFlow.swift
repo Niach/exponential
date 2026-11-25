@@ -780,31 +780,31 @@ extension XCTestCase {
         expect(page, within: Wait.nav, "\(identifier) never showed its root")
     }
 
-    /// Teams › the seeded team's page.
+    /// The Teams tab with the seeded team's tree unfolded.
     @MainActor
     func showTeam(_ app: XCUIApplication, _ name: String = "Acme") {
         showTab(app, "tab-teams", root: "teams-page")
         let row = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'team-row-' AND label BEGINSWITH %@", name)
+            NSPredicate(format: "identifier BEGINSWITH 'team-row-' AND label == %@", name)
         ).firstMatch
         expect(row, within: Wait.firstSync, "Teams lists no \(name)")
-        row.tap()
-        expect(anyElement(app, identified: "team-page"), within: Wait.nav, "\(name) opened no team page")
+        if row.value as? String == "Collapsed" { row.tap() }
     }
 
-    /// A row of the team's tree by its name, through its folder when it sits
-    /// in one (`team-page` is up).
+    /// A leaf of the tree by its name (its folder unfolded).
     @MainActor
     func treeRow(_ app: XCUIApplication, _ kind: String, _ name: String) -> XCUIElement {
         let row = app.buttons.matching(
             NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "tree-row-\(kind)", name)
         ).firstMatch
-        if row.waitForExistence(timeout: Wait.sync) { return row }
-        let folders = app.buttons.matching(identifier: "tree-row-folder")
-        for index in 0..<folders.count {
+        if row.waitForExistence(timeout: Wait.sync) {
+            for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+            return row
+        }
+        let folders = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sidebar-folder-'"))
+        for index in 0..<folders.count where folders.element(boundBy: index).value as? String == "Collapsed" {
             folders.element(boundBy: index).tap()
             if row.waitForExistence(timeout: 2) { return row }
-            goBack(app)
         }
         return row
     }

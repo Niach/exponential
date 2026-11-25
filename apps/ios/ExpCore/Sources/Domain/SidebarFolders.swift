@@ -275,6 +275,17 @@ public enum SidebarFolders {
         return materialize(tree, entries, deletes, newFolderId)
     }
 
+    /// New folder: an empty one at the end (its name is edited next).
+    public static func appendFolder(items: [String], entries: [Entry], newFolderId: String) -> Writes {
+        Writes(
+            upserts: [EntryWrite(
+                id: newFolderId, kind: .folder, targetId: nil, parentId: nil, name: defaultFolderName,
+                sortOrder: Double(tree(items: items, entries: entries).count + 1)
+            )],
+            deletes: [], createdFolderId: newFolderId
+        )
+    }
+
     /// The entries after `writes` (the optimistic overlay, web
     /// `applySidebarWrites`).
     public static func apply(_ writes: Writes, to entries: [Entry]) -> [Entry] {

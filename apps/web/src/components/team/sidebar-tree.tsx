@@ -781,7 +781,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         <TeamAvatar iconUrl={team.iconUrl} size={touch ? 20 : 16} />
         <span className="min-w-0 flex-1 truncate">{team.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-muted-foreground`, touch && `right-4`)}>
+      <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-muted-foreground`, touch && `right-4 justify-end`)}>
         {needsYou > 0 && (
           <Badge
             count={needsYou}

@@ -158,7 +158,7 @@ function BoardPage() {
       />
     </div>
   ) : (
-    <div className="flex shrink-0 items-center pt-3 pr-4">
+    <div className="flex shrink-0 items-start pt-3 pr-4">
       <div className="min-w-0 flex-1">
         <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: 0 }} onChange={setChip} />
       </div>
@@ -168,7 +168,7 @@ function BoardPage() {
 
   if (chip === `mine`) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div className="relative flex h-full flex-col max-md:h-dvh">
         {chips}
         <div ref={setMineBulkSlot} className="contents" />
         <div className="min-h-0 flex-1 max-md:pt-4">
@@ -180,7 +180,7 @@ function BoardPage() {
 
   if (chip === `drafts`) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div className="relative flex h-full flex-col max-md:h-dvh">
         {chips}
         <div className={`min-h-0 flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE}`}>
           <DraftsList
@@ -195,7 +195,7 @@ function BoardPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col max-md:h-dvh">
       {chips}
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
