@@ -72,6 +72,8 @@ export interface WatchdogRun {
   recordsMigrated: number
   /** #VAPP-220: app automation schedules run this tick. */
   hookNoncesPruned: number
+  /** EXP-2110: voice call records written from the relay's reports, or closed without one. */
+  callReports: { stored: number; closed: number }
   /** #VAPP-239: device-routed upstream calls past their life. */
   deviceCallsPruned: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
@@ -833,6 +835,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     deviceCallsPruned: await import(`@/lib/emcp/upstream/device-call`).then((m) => m.pruneDeviceCalls(now)).catch((err) => {
       console.error(`[watchdog] device calls failed`, err)
       return 0
+    }),
+    // EXP-2110: the voice calls that ended on the relay, into `voice_calls`.
+    callReports: await import(`@/lib/voice-call-records`).then((m) => m.collectCallReports()).catch((err) => {
+      console.error(`[watchdog] call reports failed`, err)
+      return { stored: 0, closed: 0 }
     }),
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes
     // wakes its PR's session once (no runner picked it up).

@@ -3398,6 +3398,7 @@ dependencies = [
  "windows-sys 0.59.0",
  "x11rb",
  "xkeysym",
+ "zbus",
 ]
 
 [[package]]

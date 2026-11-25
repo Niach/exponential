@@ -2105,8 +2105,15 @@
     {
       "idx": 300,
       "version": "7",
-      "when": 1795624404256,
-      "tag": "0300_data_migrations",
+      "when": 1795618744793,
+      "tag": "0300_strong_rumiko_fujikawa",
+      "breakpoints": true
+    },
+    {
+      "idx": 301,
+      "version": "7",
+      "when": 1795632892261,
+      "tag": "0301_data_migrations",
       "breakpoints": true
     }
   ]

@@ -57,6 +57,10 @@ use windows_sys::Win32::System::Ole::{
     CF_BITMAP, CF_DIB, CF_DIBV5, CF_DSPBITMAP, CF_DSPENHMETAFILE, CF_DSPMETAFILEPICT, CF_ENHMETAFILE, CF_METAFILEPICT,
     CF_OEMTEXT, CF_OWNERDISPLAY, CF_PALETTE, CF_TEXT, CF_UNICODETEXT,
 };
+use windows_sys::Win32::System::RemoteDesktop::{
+    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW, WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION,
+    WTS_SESSIONSTATE_LOCK,
+};
 use windows_sys::Win32::System::Threading::{
     GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -456,6 +460,31 @@ fn foreground() -> HWND {
 }
 
 impl Backend for Win32 {
+    fn screen_locked(&self) -> bool {
+        let mut info: *mut u16 = null_mut();
+        let mut size = 0u32;
+        // SAFETY: both out pointers are ours; the buffer is freed below.
+        let ok = unsafe {
+            WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSSessionInfoEx, &mut info, &mut size)
+        };
+        if ok == 0 || info.is_null() {
+            return false;
+        }
+        let mut locked = false;
+        if size as usize >= size_of::<WTSINFOEXW>() {
+            // SAFETY: the call filled a WTSINFOEXW of that size; level 1 is
+            // the only layout it has.
+            let info = unsafe { std::ptr::read_unaligned(info.cast::<WTSINFOEXW>()) };
+            if info.Level == 1 {
+                // SAFETY: `Level` 1 says which union member it is.
+                locked = unsafe { info.Data.WTSInfoExLevel1.SessionFlags } == WTS_SESSIONSTATE_LOCK as i32;
+            }
+        }
+        // SAFETY: the buffer WTSQuerySessionInformationW allocated.
+        unsafe { WTSFreeMemory(info.cast()) };
+        locked
+    }
+
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
         let mut monitors: Vec<HMONITOR> = Vec::new();
         // SAFETY: the callback only pushes into `monitors`, which outlives

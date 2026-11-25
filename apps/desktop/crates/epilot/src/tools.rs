@@ -242,6 +242,7 @@ impl Screen {
         let mut state = work_screen::state_of(&displays, windows.as_deref().unwrap_or_default(), picked);
         // Fail closed (#1295 review): no list = no focus or fullscreen read.
         state.windows_read = windows.is_ok();
+        state.locked = backend.screen_locked();
         let work = work_screen::work_displays(&state);
         Ok(Screen { displays, windows, state, work })
     }
@@ -929,6 +930,8 @@ pub(crate) mod tests {
         pub fail_lock: bool,
         /// A fullscreen game focused on display B.
         pub gaming: bool,
+        /// #FEED-313: the person's screen is locked.
+        pub locked: bool,
         /// The window list fails (#1295 review: input fails closed).
         pub no_windows: bool,
         pub clip: Mutex<FakeClip>,
@@ -1027,6 +1030,9 @@ pub(crate) mod tests {
     }
 
     impl Backend for FakeBackend {
+        fn screen_locked(&self) -> bool {
+            self.locked
+        }
         fn person_holds_button(&self) -> bool {
             self.holding.load(Ordering::SeqCst)
         }
@@ -1439,6 +1445,28 @@ pub(crate) mod tests {
         // A path whose size reads 0 and never ends: the read is bounded too.
         #[cfg(unix)]
         assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+    }
+
+    /// #FEED-313: behind a locked screen every seat call but `wait` says
+    /// so, and nothing is driven, shot or locked; a space is not the person's.
+    #[test]
+    fn a_locked_screen_refuses_every_seat_call_but_wait_and_says_why() {
+        let backend = FakeBackend { locked: true, ..Default::default() };
+        let engage = || panic!("never the person's input");
+        let mut display = None;
+        let mut run = |backend: &FakeBackend, name: &str, args: Value| {
+            call(backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: None, engage: &engage })
+        };
+        for (name, args) in [("screenshot", json!({})), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({})), ("type", json!({ "text": "a" }))] {
+            let refused = run(&backend, name, args);
+            assert_eq!(refused["isError"], true, "{name}: {refused}");
+            assert_eq!(refused["structuredContent"]["kind"], "screenLocked", "{name}");
+            assert!(refused["content"][0]["text"].as_str().unwrap().starts_with("The person's screen is locked"), "{refused}");
+        }
+        assert_eq!(run(&backend, "wait", json!({ "seconds": 0 }))["isError"], Value::Null);
+        assert!(backend.log.lock().unwrap().is_empty(), "nothing done on the screen");
+        let space = FakeBackend { locked: true, space: Some(1), ..Default::default() };
+        assert_eq!(run(&space, "screenshot", json!({}))["isError"], Value::Null);
     }
 
     /// #EXP-1514 (`spaceGateCases`, row 11): with the pick Agent space only

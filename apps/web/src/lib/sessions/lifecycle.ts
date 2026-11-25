@@ -305,7 +305,11 @@ export async function endSession(args: {
       ...subtree.map((row) => row.id),
       ...listeners.map((listener) => listener.id),
     ])
-    if (!sealedReport && live && closing && !summaryDropped) await postAgentMessage(tx, session, closing)
+    // #FEED-313: a sealed report reaches its listeners only: beside it the
+    // device sends the summary sealed as a body too, so the session's own
+    // chat says why it ended (a plaintext one never joins a sealed report).
+    const closingLine = sealedReport && closing && !isSealedBody(closing) ? null : closing
+    if (live && closingLine && !summaryDropped) await postAgentMessage(tx, session, closingLine)
     const endedIds = await endRowsInTx(tx, subtree, {
       id: session.id,
       summary: summaryDropped ? null : args.summary,
