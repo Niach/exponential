@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type * as React from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import type { Board, Issue } from "@/db/schema"
-import { issueCollection, sessionCollection } from "@/lib/collections"
+import type { App, Board, Device, Issue } from "@/db/schema"
+import { appCollection, deviceCollection, issueCollection, sessionCollection } from "@/lib/collections"
 import {
   AgentRunMark,
   conceptIcon,
+  getBoardIcon,
   Button,
   LiveDot,
   Menu,
@@ -14,8 +15,16 @@ import {
   menuProps,
   StripChip,
   StripOverflowButton,
+  type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
+import { SIDEBAR_TREE_COPY, sidebarTeams } from "@exp/domain-contract/sidebar-tree"
+import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
+import type { Team } from "@/db/schema"
+import { useTeamMemberships } from "@/hooks/use-team-data"
+import { newTabMenuEntries } from "@/components/team/sidebar-menus"
+import { useSidebarAssistant } from "@/hooks/use-sidebar-assistant"
 import {
   closeTabs,
   isNewRunPath,
@@ -24,10 +33,11 @@ import {
   routePathFromLocation,
   tabHref,
   tabKey,
+  tabTeam,
   type WorkTab,
+  type WorkTabPage,
 } from "@/lib/work-tabs"
 import {
-  openNewRunPage,
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
@@ -42,6 +52,9 @@ import {
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { ChatRunMark, chatRunMarkState } from "@/components/team/sidebar-running"
 import { AgentIcon } from "@/components/team/sidebar-agents"
+import { AppIcon } from "@/components/team/sidebar-apps"
+import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
@@ -55,7 +68,10 @@ import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 //     title), chats (the agent mark — the spark while it works, amber
 //     while it needs you — + the chat title), agents' channels (the
 //     agent's icon in its color + its name) and raw sessions (the mark +
-//     the session's name);
+//     the session's name); #EXP-2124: pages too — Home (the New session
+//     tab: the Home nav icon + `Home`), Needs you, Chats, Drafts (their nav
+//     icon + label), a device (its glyph + name), a board (its icon in its
+//     color + name) and an app (its icon + name);
 //   * the ACTIVE chip is derived from the URL — never stored;
 //   * every chip closes — its ×, a middle click, and Close / Close others /
 //     Close all all reach it;
@@ -64,8 +80,9 @@ import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 //   * EXP-1334: every chip is THE strip chip (`StripChip`), the chat
 //     header's chip box — one tab component for both strips;
 //   * EXP-1255: a chip's × shows only while the tab is hovered (or the × has
-//     keyboard focus); a ghost "+" after the last tab opens the New session
-//     tab — the home composer (`openNewRunPage`, Alt/Option+T too).
+//     keyboard focus); #EXP-2124: a ghost "+" after the last tab opens THE
+//     new-tab menu (the Assistant, then New › per team); Alt/Option+T opens
+//     Home's tab directly (`openNewRunPage`).
 //     Switching tabs never animates.
 
 /** The work-tab chips' context-menu kind (`menuProps`). */
@@ -73,11 +90,22 @@ const TAB_MENU_KIND = `work-tab`
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 const UiAddIcon = conceptIcon(`ui-add`)
-// The New session tab's lead: the Agent entry's concept (the sidebar's).
-const NewRunIcon = conceptIcon(`action-chat`)
+// #EXP-2124: the New session tab IS Home's: the Home nav concept (the
+// sidebar's).
+const NewRunIcon = conceptIcon(`nav-home`)
+const DeviceDefaultIcon = conceptIcon(`ui-device-default`)
 
-/** EXP-1255: the New session chip's title. */
-export const NEW_RUN_TAB_TITLE = `New session`
+/** The page tabs' leads + titles: the sidebar's nav entries. */
+const PAGE_CHIPS: Record<WorkTabPage, { icon: React.ComponentType<{ className?: string }>; title: string }> = {
+  "needs-you": { icon: conceptIcon(`nav-needs-you`), title: NEEDS_YOU_COPY.entry },
+  chats: { icon: conceptIcon(`nav-chats`), title: CHATS_COPY.title },
+  drafts: { icon: NavDraftsIcon, title: DRAFTS_LABEL },
+}
+
+/** EXP-1255: the New session chip's title (#EXP-2124: Home's). */
+export const NEW_RUN_TAB_TITLE = SIDEBAR_TREE_COPY.home
+/** #EXP-2124: the + of the strip opens THE new-tab menu. */
+export const NEW_TAB_MENU_TITLE = `New tab`
 
 interface ChipModel {
   key: string
@@ -104,7 +132,12 @@ function ChipTitle({ title }: { title: string | null }) {
 export function WorkTabsStrip({
   teams,
   boards,
+  team,
+  teamSlug,
 }: {
+  /** The layout's team: the Assistant's chat route runs under it. */
+  team: Team | null | undefined
+  teamSlug: string
   /** Every member team. */
   teams: readonly WorkTabsTeam[]
   /** Every member team's boards. */
@@ -117,7 +150,7 @@ export function WorkTabsStrip({
   const tabTeamIds = useMemo(
     () =>
       [
-        ...new Set(state.tabs.flatMap((tab) => (tab.kind === `new` ? [] : [tab.teamId]))),
+        ...new Set(state.tabs.flatMap((tab) => tabTeam(tab)?.teamId ?? [])),
       ].sort(),
     [state.tabs]
   )
@@ -162,6 +195,35 @@ export function WorkTabsStrip({
         : undefined,
     [sessionIds.join(`,`)]
   )
+  const appIds = useMemo(
+    () => [...new Set(state.tabs.flatMap((tab) => (tab.kind === `app` ? [tab.appId] : [])))].sort(),
+    [state.tabs]
+  )
+  const { data: appRows } = useLiveQuery(
+    (query) =>
+      appIds.length > 0
+        ? query.from({ a: appCollection }).where(({ a }) => inArray(a.id, appIds))
+        : undefined,
+    [appIds.join(`,`)]
+  )
+  const appsById = useMemo(
+    () => new Map(((appRows ?? []) as App[]).filter((row) => !row.deletedAt).map((row) => [row.id, row])),
+    [appRows]
+  )
+  const hasDeviceTabs = state.tabs.some((tab) => tab.kind === `device`)
+  const { data: deviceRows } = useLiveQuery(
+    (query) => (hasDeviceTabs ? query.from({ d: deviceCollection }) : undefined),
+    [hasDeviceTabs]
+  )
+  /** A device by its LOGICAL id (the device page's param; the row id too). */
+  const devicesById = useMemo(() => {
+    const map = new Map<string, Device>()
+    const rows = (deviceRows ?? []) as Device[]
+    for (const row of rows) map.set(row.id, row)
+    for (const row of rows) map.set(row.deviceId, row)
+    return map
+  }, [deviceRows])
+  const deviceGlyph = useDeviceGlyphs()
   const issuesById = useMemo(
     () => new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row])),
     [issueRows]
@@ -199,9 +261,15 @@ export function WorkTabsStrip({
     () => new Map((boards ?? []).map((board) => [board.id, board.slug])),
     [boards]
   )
+  const boardsById = useMemo(
+    () => new Map((boards ?? []).map((board) => [board.id, board])),
+    [boards]
+  )
   /** A tab's team slug: the team's current one, else the one it opened under. */
-  const tabTeamSlug = (tab: WorkTab): string | null =>
-    tab.kind === `new` ? null : (slugByTeam.get(tab.teamId) ?? (tab.teamSlug || null))
+  const tabTeamSlug = (tab: WorkTab): string | null => {
+    const owner = tabTeam(tab)
+    return owner ? (slugByTeam.get(owner.teamId) ?? (owner.teamSlug || null)) : null
+  }
 
   const tabs = state.tabs
 
@@ -232,12 +300,31 @@ export function WorkTabsStrip({
             tabTeamSlug(tab) === path.teamSlug
           )
         }
+        case `page`:
+          return tab.kind === `page` && tab.page === path.page
+        case `device`:
+          return (
+            tab.kind === `device` &&
+            (tab.deviceId === path.deviceId || devicesById.get(path.deviceId)?.deviceId === tab.deviceId)
+          )
+        case `board`:
+          return (
+            tab.kind === `board` &&
+            boardSlugById.get(tab.boardId) === path.boardSlug &&
+            tabTeamSlug(tab) === path.teamSlug
+          )
+        case `app`:
+          return (
+            tab.kind === `app` &&
+            appsById.get(tab.appId)?.slug === path.appSlug &&
+            tabTeamSlug(tab) === path.teamSlug
+          )
       }
     })
     return match ? tabKey(match) : null
     // `tabTeamSlug` reads `slugByTeam`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, tabs, issuesById, boardSlugById, slugByTeam])
+  }, [pathname, tabs, issuesById, boardSlugById, slugByTeam, devicesById, appsById])
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
@@ -250,6 +337,57 @@ export function WorkTabsStrip({
           title: NEW_RUN_TAB_TITLE,
           lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
         }
+      case `page`: {
+        const page = PAGE_CHIPS[tab.page]
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: page.title,
+          lead: <page.icon className="size-3.5 text-muted-foreground" />,
+        }
+      }
+      case `device`: {
+        const device = devicesById.get(tab.deviceId)
+        const Glyph = deviceGlyph(tab.deviceId)?.icon ?? DeviceDefaultIcon
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: device ? device.label || device.deviceId : null,
+          lead: device ? (
+            <Glyph className="size-3.5 text-muted-foreground" />
+          ) : (
+            <LiveDot tone="muted" />
+          ),
+        }
+      }
+      case `board`: {
+        const board = boardsById.get(tab.boardId)
+        const BoardGlyph = board ? getBoardIcon(board) : null
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: board ? board.name : null,
+          lead:
+            board && BoardGlyph ? (
+              <BoardGlyph className="size-3.5 shrink-0" style={{ color: board.color }} />
+            ) : (
+              <LiveDot tone="muted" />
+            ),
+        }
+      }
+      case `app`: {
+        const app = appsById.get(tab.appId)
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: app ? app.name : null,
+          lead: app ? <AppIcon app={app} className="size-3.5" /> : <LiveDot tone="muted" />,
+        }
+      }
       case `chat`: {
         const entry = chatsById.get(tab.chatId)
         return {
@@ -403,12 +541,30 @@ export function WorkTabsStrip({
           ? { boardSlug, identifier: issue.identifier }
           : null
       },
-      (teamId) => slugByTeam.get(teamId) ?? null
+      (teamId) => slugByTeam.get(teamId) ?? null,
+      (boardId) => boardSlugById.get(boardId) ?? null,
+      (appId) => appsById.get(appId)?.slug ?? null
     )
     if (href) void navigate(href as never)
   }
 
-  const openNewRun = () => openNewRunPage(navigate)
+  // #EXP-2124: THE new-tab menu: the Assistant, then New › per team in the
+  // sidebar's order (a chat for every member; agent, app, board for owners).
+  const me = authSession?.user?.id
+  const assistant = useSidebarAssistant(team, teamSlug, me)
+  const { myTeams, memberships } = useTeamMemberships(me)
+  const newTabEntries = useMemo((): MenuEntry[] => {
+    const byId = new Map(myTeams.map((row) => [row.id, row as Team]))
+    const order = sidebarTeams(
+      myTeams.map((row) => ({ id: row.id, name: row.name, kind: (row as { kind?: string }).kind ?? `team` }))
+    )
+    return newTabMenuEntries({
+      assistant,
+      teams: order.flatMap((id) => (byId.has(id) ? [byId.get(id) as Team] : [])),
+      owners: new Set(memberships.filter((m) => m.role === `owner`).map((m) => m.teamId)),
+      go: (href) => void navigate({ href }),
+    })
+  }, [assistant, myTeams, memberships, navigate])
 
   const allKeys = chips.map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {
@@ -555,18 +711,26 @@ export function WorkTabsStrip({
               }
             />
           )}
-          <Button
-            ref={plusRef}
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label={NEW_RUN_TAB_TITLE}
-            title={NEW_RUN_TAB_TITLE}
-            data-testid="work-tabs-new-run"
-            onClick={openNewRun}
-          >
-            <UiAddIcon />
-          </Button>
+          <Menu
+            align="start"
+            aria-label={NEW_TAB_MENU_TITLE}
+            title={NEW_TAB_MENU_TITLE}
+            data-testid="work-tabs-new-menu"
+            entries={newTabEntries}
+            trigger={
+              <Button
+                ref={plusRef}
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={NEW_TAB_MENU_TITLE}
+                title={NEW_TAB_MENU_TITLE}
+                data-testid="work-tabs-new-run"
+              >
+                <UiAddIcon />
+              </Button>
+            }
+          />
         </div>
       </div>
     </MenuGestureHost>

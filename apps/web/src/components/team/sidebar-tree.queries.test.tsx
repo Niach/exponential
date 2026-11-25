@@ -86,6 +86,12 @@ vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => vi.fn(),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
+vi.mock(`@/hooks/use-open-new-draft`, () => ({ useOpenNewDraft: () => () => {} }))
+vi.mock(`@/components/chat/chat-menu`, () => ({
+  useAgentSends: () => null,
+  useCanDeleteChat: () => false,
+  useChatActions: () => ({ requestDelete: () => {}, dialog: null }),
+}))
 vi.mock(`@/components/team/sidebar-shared`, () => ({ NavCountBadge: () => null }))
 vi.mock(`@/hooks/use-device-glyphs`, () => ({ useDeviceGlyphs: () => () => null }))
 vi.mock(`@/hooks/use-team-data`, () => ({ useTeamBoards: () => [] }))

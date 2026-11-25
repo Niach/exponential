@@ -3,14 +3,14 @@ import { Link } from "@tanstack/react-router"
 import { agentChatRows } from "@exp/domain-contract/chats"
 import { rowBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import {
-  AGENT_ROW_MENU_KIND,
   Badge,
   ExponentialLogo,
-  getActionIcon,
-  menuProps,
+  agentGlyph,
+  BoardGlyph,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
+  type MenuTargetProps,
 } from "@exp/ui"
 import type { AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
@@ -22,8 +22,8 @@ import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use
 // team's list: its icon in its color + its name, and (#FEED-232) THE count
 // badge `rowBadge` of the viewer's conversation with it (unread agent
 // messages, yellow while it needs you; busy alone = no badge). A row opens the
-// agent's channel; its right-click / long-press is THE session screen menu
-// (#FEED-239: no gear). #FEED-239 / #EXP-1837: the host lists
+// agent's channel; its right-click / long-press is THE sidebar table's
+// `agent` menu (#EXP-2124, sidebar-menus.json; #FEED-239: no gear). #FEED-239 / #EXP-1837: the host lists
 // `railAgents(agents, apps)`: an app's agent is listed as its app only, and
 // the viewer's Assistant is THE FAB (`assistant-fab.tsx`), never a row here.
 
@@ -42,8 +42,7 @@ export function AgentIcon({
       <ExponentialLogo variant="light" className={cn(`size-4 shrink-0 text-foreground`, className)} />
     )
   }
-  const Icon = getActionIcon({ icon: agent.icon })
-  return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
+  return <BoardGlyph board={agentGlyph(agent)} className={className} />
 }
 
 /** #FEED-232: each agent row's count badge (`rowBadge` over the viewer's
@@ -89,11 +88,12 @@ function AgentBadge({ badge }: { badge: CountBadgeValue | undefined }) {
 }
 
 /** #EXP-2027: an agent's row in its team's list (sidebar-tree.json `teamItems`):
- *  its icon in its color + its name opening its channel, THE agent menu on
- *  right-click, its count badge trailing. */
+ *  its icon in its color + its name opening its channel, THE table's agent
+ *  menu on right-click, its count badge trailing. */
 export function SidebarAgentRow({
   agent,
   teamSlug,
+  menu,
   active,
   badge,
   itemProps,
@@ -101,6 +101,8 @@ export function SidebarAgentRow({
 }: {
   agent: AgentRow
   teamSlug: string
+  /** #EXP-2124: the row's context-menu target (`menuProps`). */
+  menu: MenuTargetProps
   active: boolean
   /** #FEED-232: `useAgentBadges`'s value for this agent. */
   badge: CountBadgeValue | undefined
@@ -115,8 +117,7 @@ export function SidebarAgentRow({
           to="/t/$teamSlug/agents/$agentId"
           params={{ teamSlug, agentId: agent.agentId }}
           data-testid="agents-row"
-          // Chat 58cb32df: THE agent menu on right-click / long-press.
-          {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
+          {...menu}
         >
           <AgentIcon agent={agent} />
           <span className="min-w-0 flex-1 truncate">{agent.name}</span>

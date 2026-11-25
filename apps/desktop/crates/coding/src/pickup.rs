@@ -397,6 +397,15 @@ impl MemberInputs {
             .collect();
         Self { group_chats, names }
     }
+
+    /// `text` as `user_id`'s: the synced name, else `copy.formerMember`.
+    fn word(&self, user_id: &str, text: &str) -> String {
+        let name = self
+            .names
+            .get(user_id)
+            .map_or(domain::transcript_grouping::copy().former_member.as_str(), String::as_str);
+        domain::transcript_grouping::member_input(name, user_id, text)
+    }
 }
 
 /// What the host must do. Ordered: kills first, then launches/resumes, then
@@ -673,7 +682,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         .iter()
         .copied()
         .filter(|m| is_answered_tool_card(m) && !awaits_key(m))
-        .map(|m| MessageRow { body: Some(answered_card_text(m)), ..m.clone() })
+        .map(|m| MessageRow { body: Some(answered_card_input(m, input.member_inputs)), ..m.clone() })
         .collect();
     let mut answered: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
     for card in &answered_cards {
@@ -1006,6 +1015,19 @@ pub fn answered_card_text(message: &MessageRow) -> String {
     message.card.as_ref().map(domain::plan_card::answer_text).unwrap_or_default()
 }
 
+/// #EXP-2119 (transcript-grouping.json MEMBER INPUTS): [`answered_card_text`]
+/// as the agent gets it: in a team agent's GROUP CHAT root the member who
+/// answered (the server's clear `answeredBy`; absent = a session answered)
+/// words it like their message ([`input_text`]).
+pub fn answered_card_input(message: &MessageRow, members: &MemberInputs) -> String {
+    let text = answered_card_text(message);
+    let by = message.card.as_ref().and_then(|card| card.get("answeredBy")).and_then(serde_json::Value::as_str);
+    match by.filter(|id| !id.is_empty()) {
+        Some(by) if members.group_chats.contains(&message.session_id) => members.word(by, &text),
+        _ => text,
+    }
+}
+
 /// EXP-1280: a plan card answered `approved`.
 fn card_approved(card: &serde_json::Value) -> bool {
     card.get("kind").and_then(serde_json::Value::as_str) == Some("plan")
@@ -1071,11 +1093,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &Membe
                 && action_card(message).is_none()
                 && members.group_chats.contains(&message.session_id) =>
         {
-            let name = members
-                .names
-                .get(author)
-                .map_or(domain::transcript_grouping::copy().former_member.as_str(), String::as_str);
-            domain::transcript_grouping::member_input(name, author, &text)
+            members.word(author, &text)
         }
         _ => text,
     }
@@ -1436,6 +1454,10 @@ fn fetch_brief_waiting(
         }
         let request = opened.unwrap_or_else(|| crate::sealing::LOCKED_TEXT.to_string());
         brief.brief = brief_with_request(&brief.brief, &request_with_attachments(&request, &brief.sealed_attachments));
+    }
+    // #EXP-2119 (AWAITS): the `empty` text is only an older device's turn.
+    if brief.awaits_message {
+        brief.brief.clear();
     }
     Ok(brief)
 }
@@ -5403,6 +5425,36 @@ mod tests {
             .collect();
         assert_eq!(delivered, ["Message from Mira Chen (member u-mira): Ship it"]);
         assert_eq!(pending.body.as_deref(), Some("Ship it"));
+        // #EXP-2119: a card's answer reads as the member who answered it;
+        // a session's answer, and any answer outside a group chat, as before.
+        let answer = |root: &str, by: Option<&str>| {
+            let mut card = serde_json::json!({"kind": "question", "question": "Which?", "options": ["a"], "answers": ["a"]});
+            if let Some(by) = by {
+                card["answeredBy"] = serde_json::json!(by);
+            }
+            tool_card("q1", root, card)
+        };
+        assert_eq!(
+            answered_card_input(&answer("g1", Some("u-mira")), &members),
+            "Message from Mira Chen (member u-mira): Answer to \"Which?\": a"
+        );
+        assert_eq!(answered_card_input(&answer("g1", None), &members), "Answer to \"Which?\": a");
+        assert_eq!(answered_card_input(&answer("c1", Some("u-mira")), &members), "Answer to \"Which?\": a");
+        let card = answer("g1", Some("u-mira"));
+        let actions = plan(PickupInput {
+            device_id: DEV,
+            sessions: &rows,
+            messages: std::slice::from_ref(&card),
+            live: &live,
+            in_flight: &HashSet::new(),
+            revive_held: &HashSet::new(),
+            moves: &[],
+            member_inputs: &MemberInputs::new(&rows, &agents, &users),
+        });
+        assert!(
+            matches!(actions.as_slice(), [PickupAction::DeliverAnswer { text, .. }] if text == "Message from Mira Chen (member u-mira): Answer to \"Which?\": a"),
+            "{actions:?}"
+        );
     }
 
     #[test]
@@ -6208,6 +6260,42 @@ mod tests {
                 path.trim_start_matches("/api/trpc/").to_string()
             })
             .collect()
+    }
+
+    /// #EXP-2119 (session-brief.json AWAITS): a group chat's brief says
+    /// nothing: no first prompt at the claim, on a revive or on a wake; the
+    /// pending message is the first turn. Without the field (an older
+    /// server) the `empty` text is sent as before.
+    #[test]
+    fn a_brief_that_awaits_its_message_launches_without_a_prompt() {
+        let brief = |awaits: &str| {
+            format!(r#"{{"result":{{"data":{{"brief":"Wait for the next message.","teamPrompt":null,"agentInstructions":null,"parentBranch":null{awaits}}}}}}}"#)
+        };
+        for (field, prompt) in [(r#","awaitsMessage":true"#, None), ("", Some("Wait for the next message.".to_string()))] {
+            let dir = temp_dir("pickup-awaits");
+            let (base, _requests) = canned_server_recording(vec![
+                (200, CLAIM_OK.to_string()),
+                (200, brief(field)),
+                (200, RESOLVE_NONE.to_string()),
+                (200, SKILLS_NONE.to_string()),
+            ]);
+            let host = host(&base, &dir.0, |_| {});
+            launch_queued(&session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z"), &host.deps).unwrap();
+            assert_eq!(host.spawned.lock().unwrap().iter().map(|s| s.prompt.clone()).collect::<Vec<_>>(), [prompt], "{field}");
+        }
+        // A wake with no conversation left: the message alone is the turn.
+        let dir = temp_dir("pickup-awaits-wake");
+        let (base, _requests) = canned_server_recording(vec![
+            (200, brief(r#","awaitsMessage":true"#)),
+            (200, RESOLVE_NONE.to_string()),
+            (200, SKILLS_NONE.to_string()),
+            (200, r#"{"result":{"data":{"txid":"1"}}}"#.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let row = session("sess-1", "idle", DEV, "2026-10-01T00:00:00Z");
+        resume_session(&row, &[message("m1", "sess-1", "2026-10-01T00:00:01Z")], &host.deps).unwrap();
+        assert_eq!(host.spawned.lock().unwrap()[0].prompt.as_deref(), Some("body of m1"));
     }
 
     #[test]

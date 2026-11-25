@@ -62,8 +62,9 @@ export const DEVICE_SEALING_FLOOR = `0.14.96`
 export function clientFloors(platform: ClientPlatform): readonly string[] {
   const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
   // #EXP-1990 (agent-settings.json `groupChat.clientFloor`): older builds
-  // look up a team agent's chat per (agent, viewer) and lose the group chat.
-  const group = agentGroupChatsOn() && platform !== `cli` ? [GROUP_CHAT_CLIENT_FLOOR[platform]] : []
+  // look up a team agent's chat per (agent, viewer) and lose the group chat;
+  // an older daemon words no member into its turns (#EXP-2119).
+  const group = agentGroupChatsOn() ? [GROUP_CHAT_CLIENT_FLOOR[platform]] : []
   return [...sealing, ASSISTANT_CLIENT_FLOOR[platform], ...group]
 }
 

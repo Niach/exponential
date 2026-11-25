@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { BoardGlyph } from "./board-glyph"
+import { agentGlyph } from "./board-icons"
 import { cn } from "./cn"
 import { ExponentialLogo } from "./exponential-logo"
 import { conceptIcon } from "./icons.generated"
@@ -75,7 +76,7 @@ export function ComposerAgentRow<T extends ComposerAgentRowAgent>({
               <ExponentialLogo variant="light" size={size / 2} className="text-foreground" />
             ) : (
               <BoardGlyph
-                board={{ icon: agent.icon ?? undefined, color: agent.color ?? undefined }}
+                board={agentGlyph(agent)}
                 className="size-5"
               />
             )}

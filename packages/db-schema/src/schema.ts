@@ -2435,6 +2435,10 @@ export const sessionKeys = pgTable(
     // (kept when `created_by_install_id` goes null). Both null = unsigned.
     signature: varchar({ length: 86 }),
     signerEndpointId: varchar(`signer_endpoint_id`, { length: 64 }),
+    // #EXP-2119 (sealed-content.json OLDER EPOCHS): the tree public key of a
+    // SUPERSEDED epoch, stamped by the rotation. Null = the root's current
+    // epoch, or superseded before this column existed.
+    treePublicKey: varchar(`tree_public_key`, { length: 43 }),
     createdAt: timestamp(`created_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),

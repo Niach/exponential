@@ -9647,7 +9647,7 @@
       "id": "sidebar-tree",
       "group": "coding",
       "title": "Sidebar",
-      "blurb": "#EXP-2027 (sidebar-tree.json): ONE tree, no active team: Home, Needs you and Drafts while they count, Chats, Devices (each device a row), then the Teams label and one folder row per team holding its boards, agents, apps and placed chats in the member's own folders; Active across every team at the bottom.",
+      "blurb": "#EXP-2027 (sidebar-tree.json): ONE tree, no active team: #EXP-2124 the Assistant (its name + the brand mark), Home, Needs you and Drafts while they count, Chats, Devices (each device a row), then the Teams label and one folder row per team holding its boards, agents, apps and placed chats in the member's own folders; Active across every team at the bottom.",
       "order": 89,
       "web": {
         "route": "/home",
@@ -9660,7 +9660,7 @@
       "notes": {
         "web": "md+ only: phones have the Teams tab (#EXP-2109).",
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
-        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
+        "desktop": "#EXP-2027 / #EXP-2124: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json), the viewer's Assistant first; every row's right-click is its kind's menu of sidebar-menus.json.",
         "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
         "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
@@ -9676,7 +9676,7 @@
       "id": "sidebar-team-menu",
       "group": "coding",
       "title": "Sidebar · team menu",
-      "blurb": "#EXP-2027 (sidebar-tree.json `teamMenu`): a team row's … (or a right-click): New › Board, Agent, App (owners) and Session, New folder, Settings.",
+      "blurb": "#EXP-2124: a team row's … (or a right-click), THE sidebar menu table's `team`: New › Chat, Agent, App, Board (the last three for owners), New folder, Settings.",
       "order": 90,
       "web": {
         "route": "/home",
@@ -9689,7 +9689,7 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
-        "desktop": "#EXP-2027: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too.",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=team` right-clicks the first team row (THE table's `team` row, New › THE New list; its hover `…` opens the same menu).",
         "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
         "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
@@ -9699,7 +9699,103 @@
           "value": "home"
         },
         "env": {
-          "EXP_DEV_TEAM_MENU": "1"
+          "EXP_DEV_SIDEBAR_MENU": "team"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "new-tab-menu",
+      "group": "coding",
+      "title": "Tab strip · new-tab menu",
+      "blurb": "#EXP-2124: the tab strip's + opens THE new-tab menu: the Assistant (its name + the brand mark), then one row per team in sidebar order, each a submenu: Chat for every member, Agent, App, Board for an owner.",
+      "order": 102,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openNewTabMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2124: `EXP_DEV_NEW_TAB_MENU` presses the tab strip's +: the Assistant, then each team with THE New list as its submenu.",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_NEW_TAB_MENU": "1"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "sidebar-device-menu",
+      "group": "coding",
+      "title": "Sidebar · device menu",
+      "blurb": "#EXP-2124: a device row's right-click, THE sidebar menu table's `device`: Open, Open in new tab, Rename (the viewer's own device) and Copy link, Settings.",
+      "order": 103,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSidebarDeviceMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=device` right-clicks the first device row (THE table's `device` row).",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_SIDEBAR_MENU": "device"
+        },
+        "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "sidebar-board-menu",
+      "group": "coding",
+      "title": "Sidebar · board menu",
+      "blurb": "#EXP-2124: a board row's right-click, THE sidebar menu table's `board`: Open, Open in new tab, New issue, Copy link, Move to folder ›, Settings, Archive last.",
+      "order": 104,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSidebarBoardMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=board` right-clicks the first board row (THE table's `board` row, Move to folder › the team's folders).",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_SIDEBAR_MENU": "board"
         },
         "anchorDelayMs": 1200
       }

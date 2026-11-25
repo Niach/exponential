@@ -1,0 +1,1 @@
+ALTER TABLE "session_keys" ADD COLUMN "tree_public_key" varchar(43);

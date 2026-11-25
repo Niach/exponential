@@ -85,14 +85,18 @@ export async function loadCardForAnswer(
 
 /** Stamp `card` + `answered_at` while still unanswered; needs-you clears
  *  once nothing else waits on a person. `claimed` = this call stamped it.
+ *  `answeredBy` = the PERSON who answered (null = a session or the device):
+ *  the clear field the device words the answer's author from (#EXP-2119).
  */
 export async function stampAnsweredCardInTx(
   tx: Tx,
   messageId: string,
   sessionId: string,
-  card: MessageCard
+  answered: MessageCard,
+  answeredBy: string | null
 ): Promise<boolean> {
   const now = new Date()
+  const card = answeredBy ? { ...answered, answeredBy } : answered
   const claimed = await tx
     .update(messages)
     .set({ card, answeredAt: now, updatedAt: now })
@@ -124,11 +128,12 @@ export async function stampAnsweredCard(
   database: typeof db,
   messageId: string,
   sessionId: string,
-  card: MessageCard
+  card: MessageCard,
+  answeredBy: string | null = null
 ): Promise<{ claimed: boolean; txid: number }> {
   return database.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const claimed = await stampAnsweredCardInTx(tx, messageId, sessionId, card)
+    const claimed = await stampAnsweredCardInTx(tx, messageId, sessionId, card, answeredBy)
     return { claimed, txid }
   })
 }
@@ -143,7 +148,8 @@ export async function answerSessionCardInTx(
   tx: Tx,
   target: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,
   input: SessionAnswerInput,
-  callerId: string | null = null
+  callerId: string | null = null,
+  personId: string | null = null
 ): Promise<{ messageId: string }> {
   // #NEW-79: a session never answers a voice conversation's proposal card
   // (an agent would approve its own calls); its member does, in person.
@@ -178,7 +184,7 @@ export async function answerSessionCardInTx(
   if (message.answeredAt) throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
   const answered = answeredCard(message.card as MessageCard | null, input)
   if (!answered.ok) throw new TRPCError({ code: answered.code, message: answered.message })
-  const claimed = await stampAnsweredCardInTx(tx, message.id, target.id, answered.card)
+  const claimed = await stampAnsweredCardInTx(tx, message.id, target.id, answered.card, callerId ? null : personId)
   if (!claimed) throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
   return { messageId: message.id }
 }

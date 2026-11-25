@@ -200,7 +200,9 @@ describe(`AgentSessionView Trace transcript`, () => {
   it(`an ended row no device fed names the machine holding its transcript (VAPP-171)`, () => {
     const detail = `buildbox is offline. The transcript lives on that machine.`
     snapshot = snap({ phase: { kind: `ended`, detail }, deviceOffline: true, connected: false })
+    hostOnline = false
     render(<AgentSessionView session={{ ...session, status: `ended` } as SessionRow} />)
+    hostOnline = true
     expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(detail)
   })
 
@@ -224,7 +226,8 @@ describe(`AgentSessionView Trace transcript`, () => {
   for (const c of enetFixture.noFeed) {
     it(`NO FEED, empty transcript: ${c.name} = ${c.state}`, () => {
       const offline = `buildbox is offline. The transcript lives on that machine.`
-      hostOnline = !(c as { deviceOffline?: boolean }).deviceOffline
+      const host = c as { deviceOffline?: boolean; deviceOnline?: boolean }
+      hostOnline = c.ended ? host.deviceOnline === true : !host.deviceOffline
       snapshot = c.ended
         ? snap({ phase: { kind: `ended`, detail: offline }, deviceOffline: true, connected: false })
         : snap({ phase: { kind: `starting` }, connected: false })

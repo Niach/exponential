@@ -81,7 +81,7 @@ GPU with livekit-wakeword's prod settings (25k samples, 100k steps, medium model
 ## In Exponential
 
 `etalk-engine`'s wake path (`wake.rs`) hears each phrase through a
-`WakeDetector`: `ModelDetector` when the phrase has a published model whose
+`WakeDetector`: `SetDetector` when the phrase has a published model whose
 files are ready, else `TranscriptMatcher` (Parakeet on each Silero segment's
 start, unchanged). Fixture: `packages/etalk/fixtures/talk-listen.json`
 `wake.detector`. Exponential's own phrases (`Hey {agent}`, typed ones) have no

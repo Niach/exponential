@@ -169,15 +169,13 @@ describe(`checkClientVersion`, () => {
     })
     const floor = GROUP_CHAT_CLIENT_FLOOR
     const below = (version: string) => version.replace(/\d+$/, (patch) => String(Number(patch) - 1))
-    for (const platform of [`desktop`, `android`, `ios`] as const) {
+    for (const platform of [`desktop`, `android`, `ios`, `cli`] as const) {
       const res = checkClientVersion(req(`${platform}/${below(floor[platform])}`))
       expect(res?.status).toBe(426)
       expect(await res?.json()).toMatchObject({ platform, min: floor[platform] })
       expect(checkClientVersion(req(`${platform}/${floor[platform]}`))).toBeNull()
     }
-    // The CLI daemon looks nothing up per member: no group chat floor,
-    // only the Assistant's; unset still gates nothing.
-    expect(checkClientVersion(req(`cli/${ASSISTANT_CLIENT_FLOOR.cli}`))).toBeNull()
+    // Unset still gates nothing.
     delete process.env.CLIENT_MIN_VERSION_IOS
     expect(checkClientVersion(req(`ios/0.1.0`))).toBeNull()
   })
