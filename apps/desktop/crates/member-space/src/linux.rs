@@ -7,7 +7,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::{net, Spec, HOST_DIR, PROBE_ARG, PROGRAM, SPACE_HOME, TOOLS_DIR};
+use crate::{net, Spec, HOST_DIR, INIT_ARG, PROBE_ARG, PROGRAM, SPACE_HOME, TOOLS_DIR};
 
 /// The launcher's exit code when the space could not be built.
 const SETUP_FAILED: i32 = 125;
@@ -136,7 +136,7 @@ fn home_dir() -> Option<PathBuf> {
     }
 }
 
-fn exclusive(host: &Path) -> Step<OwnedFd> {
+pub(crate) fn exclusive(host: &Path) -> Step<OwnedFd> {
     let path = cstr(&host.join(".running"))?;
     let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o600) };
     check(fd, "the space's lock")?;
@@ -186,8 +186,21 @@ fn launch() -> Step<i32> {
         Err(_) => return Ok(wait_code(child)),
     };
     drop(tun_out);
-    // The host asks for the end (a `stop` line) or is gone (end of file).
-    let grace = Duration::from_secs(spec.grace_secs);
+    // The host asks for the end (a `stop` line) or is gone: end of file, or
+    // (whoever else may hold its pipe open) another parent.
+    let host = unsafe { libc::getppid() };
+    let stop = std::sync::Arc::new(std::sync::Mutex::new(Some(stop_out)));
+    let end = move || drop(stop.lock().unwrap_or_else(|p| p.into_inner()).take());
+    {
+        let end = end.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if unsafe { libc::getppid() } != host {
+                end();
+                return;
+            }
+        });
+    }
     std::thread::spawn(move || {
         let mut line = String::new();
         let mut stdin = io::stdin().lock();
@@ -197,9 +210,7 @@ fn launch() -> Step<i32> {
             }
             line.clear();
         }
-        drop(stop_out);
-        std::thread::sleep(grace + Duration::from_secs(5));
-        unsafe { libc::kill(child, libc::SIGKILL) };
+        end();
     });
     std::thread::spawn(move || {
         let code = wait_code(child);
@@ -277,6 +288,11 @@ fn receive_fd(socket: &OwnedFd) -> Step<OwnedFd> {
 fn enter(spec: &Spec, parent: libc::pid_t, tun_in: OwnedFd, stop: OwnedFd) -> Step<i32> {
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
+        // The host's control pipe stays with the launcher: nothing that can
+        // be seen from inside the space has it open.
+        let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC);
+        check(null, "/dev/null")?;
+        check(libc::dup2(null, 0), "stdin")?;
         if libc::getppid() != parent {
             return Err("the launcher is gone".into());
         }
@@ -302,18 +318,50 @@ fn enter(spec: &Spec, parent: libc::pid_t, tun_in: OwnedFd, stop: OwnedFd) -> St
         drop((tun, tun_in));
         // The parent-death signal is cleared by a change of credentials.
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
-        let me = libc::getpid();
+        // Not traceable and its /proc entries not its user's, from here on
+        // (the maps above are written by then) and in what it forks.
+        check(libc::prctl(libc::PR_SET_DUMPABLE, 0), "dumpable")?;
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGCHLD);
+        check(libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()), "signals")?;
         let first = libc::fork();
         check(first, "fork")?;
         if first == 0 {
-            let code = first_process(spec, me, stop).unwrap_or_else(|err| {
-                eprintln!("member-space: {err}");
-                SETUP_FAILED
-            });
-            libc::_exit(code);
+            drop(stop);
+            let err = first_process(spec).err().unwrap_or_default();
+            eprintln!("member-space: {err}");
+            libc::_exit(SETUP_FAILED);
         }
-        drop(stop);
-        Ok(wait_code(first))
+        // Outside the space's PID namespace: ends it when the host says so.
+        // SIGTERM to its first process (which passes it on), then SIGKILL,
+        // which takes every process of the namespace with it.
+        let signals = libc::signalfd(-1, &set, libc::SFD_CLOEXEC | libc::SFD_NONBLOCK);
+        check(signals, "signals")?;
+        let grace = Duration::from_secs(spec.grace_secs);
+        let mut stopping: Option<Instant> = None;
+        loop {
+            let mut fds = [
+                libc::pollfd { fd: signals, events: libc::POLLIN, revents: 0 },
+                // Once seen, the closed socket is not asked again.
+                libc::pollfd { fd: if stopping.is_some() { -1 } else { stop.as_raw_fd() }, events: libc::POLLIN, revents: 0 },
+            ];
+            libc::poll(fds.as_mut_ptr(), 2, if stopping.is_some() { 200 } else { -1 });
+            let mut info: libc::signalfd_siginfo = std::mem::zeroed();
+            libc::read(signals, (&mut info as *mut libc::signalfd_siginfo).cast(), std::mem::size_of_val(&info));
+            let mut status = 0;
+            let got = libc::waitpid(first, &mut status, libc::WNOHANG);
+            if got == first {
+                return Ok(if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 128 + libc::WTERMSIG(status) });
+            }
+            if fds[1].revents != 0 && stopping.is_none() {
+                libc::kill(first, libc::SIGTERM);
+                stopping = Some(Instant::now());
+            }
+            if stopping.is_some_and(|since| since.elapsed() >= grace) {
+                libc::kill(first, libc::SIGKILL);
+            }
+        }
     }
 }
 
@@ -496,9 +544,9 @@ fn private_root(spec: &Spec) -> Step<()> {
         mkdir(&target, 0o755)?;
         mount(Path::new("tmpfs"), &target, "tmpfs", libc::MS_NOSUID | libc::MS_NODEV, options)
     };
-    tmpfs("tmp", "mode=1777,size=4g")?;
-    tmpfs("var/tmp", "mode=1777,size=1g")?;
-    tmpfs("run", "mode=755,size=16m")?;
+    tmpfs("tmp", "mode=1777,size=512m")?;
+    tmpfs("var/tmp", "mode=1777,size=128m")?;
+    tmpfs("run", "mode=755,size=4m")?;
     mkdir(&new.join("proc"), 0o755)?;
     mount(Path::new("proc"), &new.join("proc"), "proc", libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC, "")?;
     devices(&old.join("dev"), &new.join("dev"))?;
@@ -523,7 +571,7 @@ fn devices(old: &Path, new: &Path) -> Step<()> {
     mkdir(&new.join("pts"), 0o755)?;
     mount(Path::new("devpts"), &new.join("pts"), "devpts", libc::MS_NOSUID | libc::MS_NOEXEC, "newinstance,ptmxmode=0666,mode=620")?;
     mkdir(&new.join("shm"), 0o1777)?;
-    mount(Path::new("tmpfs"), &new.join("shm"), "tmpfs", libc::MS_NOSUID | libc::MS_NODEV, "mode=1777,size=1g")?;
+    mount(Path::new("tmpfs"), &new.join("shm"), "tmpfs", libc::MS_NOSUID | libc::MS_NODEV, "mode=1777,size=256m")?;
     for (link, target) in [
         ("ptmx", "pts/ptmx"),
         ("fd", "/proc/self/fd"),
@@ -538,36 +586,62 @@ fn devices(old: &Path, new: &Path) -> Step<()> {
 
 // ── the space's processes ─────────────────────────────────────────────────
 
-/// PID 1 of the space: builds the root, gives up every privilege, starts the
-/// program, reaps, and ends it when the host says so.
-fn first_process(spec: &Spec, parent: libc::pid_t, stop: OwnedFd) -> Step<i32> {
+/// PID 1 of the space: builds the root, gives up every privilege and EXECS
+/// the space's own read-only copy of the binary as its init. (A fork of the
+/// launcher that stayed would carry the host's binary as its `exe`, through
+/// the host's writable mount.)
+fn first_process(spec: &Spec) -> Step<()> {
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
-        // In the new PID namespace the parent reads 0; its death before the
-        // line above is seen on the stop socket.
-        let _ = parent;
         check(libc::setsid(), "setsid")?;
         check(libc::sethostname(c"space".as_ptr().cast(), 5), "the host name")?;
         private_root(spec)?;
         // Process ids must differ from an earlier run's: files in the space
         // (registries, pid files) name them. Best effort.
         let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", (300 + nonce() / 1000 % 25_000).to_string());
-        only_these_fds(stop.as_raw_fd())?;
+        check(libc::syscall(libc::SYS_close_range, 3, u32::MAX, 0) as libc::c_int, "descriptors")?;
         give_up_privileges()?;
         check(libc::chdir(c"/space".as_ptr()), "chdir")?;
         libc::umask(0o077);
-
-        let argv: Vec<CString> = std::iter::once(PROGRAM.to_string()).chain(spec.args.iter().cloned()).map(|arg| c(&arg)).collect();
+        let args = [PROGRAM, INIT_ARG].into_iter().map(str::to_string).chain(spec.args.iter().cloned());
+        let argv: Vec<CString> = args.map(|arg| c(&arg)).collect();
         let envp: Vec<CString> = spec.env.iter().map(|(key, value)| c(&format!("{key}={value}"))).collect();
-        let pointers = |list: &[CString]| -> Vec<*const libc::c_char> {
-            list.iter().map(|text| text.as_ptr()).chain(std::iter::once(std::ptr::null())).collect()
-        };
-        let (argv_p, envp_p) = (pointers(&argv), pointers(&envp));
+        let (argv, envp) = (pointers(&argv), pointers(&envp));
+        libc::execve(argv[0], argv.as_ptr(), envp.as_ptr());
+        Err(os("the program"))
+    }
+}
 
+fn pointers(list: &[CString]) -> Vec<*const libc::c_char> {
+    list.iter().map(|text| text.as_ptr()).chain(std::iter::once(std::ptr::null())).collect()
+}
+
+/// The init of a space (PID 1, inside, unprivileged): starts the program,
+/// passes SIGTERM on, reaps, ends with it. Its descriptors are the standard
+/// streams; it can neither be traced nor looked into (`/proc/1`).
+pub fn init_main() -> ! {
+    let code = init().unwrap_or_else(|err| {
+        eprintln!("member-space: {err}");
+        SETUP_FAILED
+    });
+    std::process::exit(code)
+}
+
+fn init() -> Step<i32> {
+    unsafe {
+        check(libc::prctl(libc::PR_SET_DUMPABLE, 0), "dumpable")?;
+        check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
+        if libc::getpid() != 1 {
+            return Err("not a space".into());
+        }
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
         libc::sigaddset(&mut set, libc::SIGCHLD);
+        libc::sigaddset(&mut set, libc::SIGTERM);
         check(libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()), "signals")?;
+        let argv: Vec<CString> = std::iter::once(PROGRAM.to_string()).chain(std::env::args().skip(2)).map(|arg| c(&arg)).collect();
+        let envp: Vec<CString> = std::env::vars().map(|(key, value)| c(&format!("{key}={value}"))).collect();
+        let (argv, envp) = (pointers(&argv), pointers(&envp));
         let program = libc::fork();
         check(program, "fork")?;
         if program == 0 {
@@ -576,25 +650,18 @@ fn first_process(spec: &Spec, parent: libc::pid_t, stop: OwnedFd) -> Step<i32> {
                 libc::signal(signal, libc::SIG_DFL);
             }
             libc::setpgid(0, 0);
-            let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY);
-            libc::dup2(null, 0);
-            libc::execve(argv_p[0], argv_p.as_ptr(), envp_p.as_ptr());
+            libc::execve(argv[0], argv.as_ptr(), envp.as_ptr());
             eprintln!("member-space: the program: {}", io::Error::last_os_error());
             libc::_exit(SETUP_FAILED);
         }
-        let signals = libc::signalfd(-1, &set, libc::SFD_CLOEXEC | libc::SFD_NONBLOCK);
+        let signals = libc::signalfd(-1, &set, libc::SFD_CLOEXEC);
         check(signals, "signals")?;
-        let grace = Duration::from_secs(spec.grace_secs);
-        let mut stopping: Option<Instant> = None;
         loop {
-            let mut fds = [
-                libc::pollfd { fd: signals, events: libc::POLLIN, revents: 0 },
-                // Once seen, the closed socket is not asked again.
-                libc::pollfd { fd: if stopping.is_some() { -1 } else { stop.as_raw_fd() }, events: libc::POLLIN, revents: 0 },
-            ];
-            libc::poll(fds.as_mut_ptr(), 2, if stopping.is_some() { 200 } else { -1 });
             let mut info: libc::signalfd_siginfo = std::mem::zeroed();
             libc::read(signals, (&mut info as *mut libc::signalfd_siginfo).cast(), std::mem::size_of_val(&info));
+            if info.ssi_signo == libc::SIGTERM as u32 {
+                libc::kill(program, libc::SIGTERM);
+            }
             loop {
                 let mut status = 0;
                 let got = libc::waitpid(-1, &mut status, libc::WNOHANG);
@@ -606,33 +673,36 @@ fn first_process(spec: &Spec, parent: libc::pid_t, stop: OwnedFd) -> Step<i32> {
                     return Ok(if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 128 + libc::WTERMSIG(status) });
                 }
             }
-            if fds[1].revents != 0 && stopping.is_none() {
-                libc::kill(program, libc::SIGTERM);
-                stopping = Some(Instant::now());
-            }
-            if stopping.is_some_and(|since| since.elapsed() >= grace) {
-                return Ok(128 + libc::SIGKILL);
-            }
         }
     }
 }
 
-/// Standard streams and `keep` only: nothing of the host is inherited.
-fn only_these_fds(keep: RawFd) -> Step<()> {
-    let close = |from: u32, to: u32| -> Step<()> {
-        if from > to {
-            return Ok(());
-        }
-        check(unsafe { libc::syscall(libc::SYS_close_range, from, to, 0) } as libc::c_int, "descriptors")
-    };
-    close(3, (keep - 1) as u32)?;
-    close((keep + 1) as u32, u32::MAX)
+/// The processes and threads of one space (counted in its own user
+/// namespace, from Linux 5.14 on; before that the limit would count the
+/// host's own too and is not set).
+const MAX_PROCESSES: u64 = 4096;
+const MAX_FILES: u64 = 65_536;
+
+fn per_namespace_limits() -> bool {
+    let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+    let mut parts = release.split(['.', '-']).map(|part| part.parse::<u32>().unwrap_or(0));
+    (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= (5, 14)
 }
 
 fn give_up_privileges() -> Step<()> {
     unsafe {
         let none = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
         check(libc::setrlimit(libc::RLIMIT_CORE, &none), "limits")?;
+        let limit = |kind, value: u64| -> Step<()> {
+            let mut now: libc::rlimit = std::mem::zeroed();
+            check(libc::getrlimit(kind, &mut now), "limits")?;
+            let value = value.min(now.rlim_max);
+            check(libc::setrlimit(kind, &libc::rlimit { rlim_cur: value, rlim_max: value }), "limits")
+        };
+        limit(libc::RLIMIT_NOFILE, MAX_FILES)?;
+        if per_namespace_limits() {
+            limit(libc::RLIMIT_NPROC, MAX_PROCESSES)?;
+        }
         for capability in 0..64 {
             // Unknown ones answer EINVAL.
             libc::prctl(libc::PR_CAPBSET_DROP, capability, 0, 0, 0);
@@ -877,6 +947,28 @@ fn probe_inside() -> Step<()> {
             return Err(format!("{read_only} is writable"));
         }
     }
+    // No process may name a program this code could change (a setuid bit on
+    // the host's binary), nor show its descriptors.
+    for entry in std::fs::read_dir("/proc").map_err(|err| format!("/proc: {err}"))?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let exe = c(&format!("/proc/{name}/exe"));
+        unsafe {
+            if libc::open(exe.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC) >= 0 {
+                return Err(format!("the program of process {name} is writable"));
+            }
+            // The mode it has: changes nothing where it is wrongly allowed.
+            let mut now: libc::stat = std::mem::zeroed();
+            if libc::stat(exe.as_ptr(), &mut now) == 0 && libc::chmod(exe.as_ptr(), now.st_mode & 0o7777) == 0 {
+                return Err(format!("the program of process {name} can be changed"));
+            }
+        }
+        if name != std::process::id().to_string() && std::fs::read_dir(format!("/proc/{name}/fd")).is_ok() {
+            return Err(format!("the descriptors of process {name} are visible"));
+        }
+    }
     if unsafe { libc::unshare(libc::CLONE_NEWUSER) } == 0 {
         return Err("a new namespace is allowed".into());
     }
@@ -897,3 +989,93 @@ fn probe_inside() -> Step<()> {
     Ok(())
 }
 
+
+// ── the end of a directory ────────────────────────────────────────────────
+
+/// Deletes `dir` and everything in it, whatever modes and depth its writer
+/// chose. No link is followed, no path is longer than two names, no more than
+/// a few descriptors are open: every directory found inside is first moved up
+/// beside the others. Nobody may write it any more (its space is gone).
+pub fn remove_tree(dir: &Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(io::Error::other("no directory"));
+    };
+    let fail = |result: libc::c_int| if result < 0 { Err(io::Error::last_os_error()) } else { Ok(result) };
+    let directory = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let open = |at: RawFd, name: &CStr| -> io::Result<OwnedFd> {
+        // Its writer may have closed it: opened up by descriptor, never by a
+        // path that could lead elsewhere.
+        let handle = unsafe { OwnedFd::from_raw_fd(fail(libc::openat(at, name.as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC))?) };
+        let link = c(&format!("/proc/self/fd/{}", handle.as_raw_fd()));
+        unsafe {
+            fail(libc::chmod(link.as_ptr(), 0o700))?;
+            Ok(OwnedFd::from_raw_fd(fail(libc::openat(at, name.as_ptr(), directory))?))
+        }
+    };
+    let parent = cstr(parent).map_err(io::Error::other)?;
+    let parent = unsafe { OwnedFd::from_raw_fd(fail(libc::open(parent.as_ptr(), directory & !libc::O_NOFOLLOW))?) };
+    let name = CString::new(name.as_bytes()).map_err(io::Error::other)?;
+    let top = match open(parent.as_raw_fd(), &name) {
+        Ok(top) => top,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    let entries = |at: &OwnedFd| -> io::Result<Vec<CString>> {
+        std::fs::read_dir(format!("/proc/self/fd/{}", at.as_raw_fd()))?
+            .take(4096)
+            .map(|entry| CString::new(entry?.file_name().as_bytes()).map_err(io::Error::other))
+            .collect()
+    };
+    // True = it was no directory and is gone.
+    let unlink = |at: &OwnedFd, name: &CStr| -> io::Result<bool> {
+        if unsafe { libc::unlinkat(at.as_raw_fd(), name.as_ptr(), 0) } == 0 {
+            return Ok(true);
+        }
+        let err = io::Error::last_os_error();
+        if matches!(err.raw_os_error(), Some(libc::EISDIR | libc::EPERM)) { Ok(false) } else { Err(err) }
+    };
+    let mut moved = 0u64;
+    loop {
+        let names = entries(&top)?;
+        if names.is_empty() {
+            break;
+        }
+        for name in names {
+            if unlink(&top, &name)? {
+                continue;
+            }
+            let at = open(top.as_raw_fd(), &name)?;
+            loop {
+                let inside = entries(&at)?;
+                if inside.is_empty() {
+                    break;
+                }
+                for inner in inside {
+                    if unlink(&at, &inner)? {
+                        continue;
+                    }
+                    drop(open(at.as_raw_fd(), &inner)?);
+                    // Up beside the others, under a name nothing there has.
+                    loop {
+                        moved += 1;
+                        let up = c(&format!(".gone-{moved}"));
+                        let (from, to) = (at.as_raw_fd(), top.as_raw_fd());
+                        let done = unsafe { libc::syscall(libc::SYS_renameat2, from, inner.as_ptr(), to, up.as_ptr(), libc::RENAME_NOREPLACE) };
+                        if done == 0 {
+                            break;
+                        }
+                        let err = io::Error::last_os_error();
+                        if err.kind() != io::ErrorKind::AlreadyExists {
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+            drop(at);
+            fail(unsafe { libc::unlinkat(top.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) })?;
+        }
+    }
+    fail(unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) })?;
+    Ok(())
+}

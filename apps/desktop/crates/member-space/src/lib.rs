@@ -17,7 +17,12 @@
 //!   `docker.sock`, no session bus, no SSH agent.
 //!
 //! Inside: no capabilities, `no_new_privs`, no new namespaces, a seccomp
-//! filter over the kernel's rarely needed corners, no inherited descriptor.
+//! filter over the kernel's rarely needed corners, no inherited descriptor
+//! but the two output pipes; PID 1 is this binary EXEC'd from the space's own
+//! read-only copy and not dumpable, so no process there names the host's
+//! binary or the host's control pipe. The launcher and its child stay
+//! outside; the child ends the space when the launcher is told to, is gone,
+//! or has another parent than the host daemon.
 //!
 //! THE NETWORK is the space's own network namespace, so no service on the
 //! host's loopback and no abstract socket of the host exists there at all.
@@ -39,6 +44,8 @@ pub mod net;
 
 /// The launcher's argv[1].
 pub const LAUNCHER_ARG: &str = "__member-space";
+/// The init of a space (PID 1), inside.
+pub const INIT_ARG: &str = "__member-space-init";
 /// Run by [`probe`] inside a throwaway space.
 pub const PROBE_ARG: &str = "__member-space-probe";
 
@@ -137,6 +144,33 @@ pub fn probe(exe: &Path) -> Result<(), String> {
     }
 }
 
+/// Deletes a space's directory, whatever its member left in it: links are
+/// never followed, closed modes and any depth are no obstacle. Only once
+/// [`quiet`] holds its lock.
+pub fn remove_tree(dir: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::remove_tree(dir)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::fs::remove_dir_all(dir)
+    }
+}
+
+/// The lock of a space that runs nowhere (`host` = its `host/` directory):
+/// held, no launcher of it lives and none can start. Err = it is alive.
+#[cfg(target_os = "linux")]
+pub fn quiet(host: &Path) -> Result<std::os::fd::OwnedFd, String> {
+    linux::exclusive(host)
+}
+
+/// No space runs on another OS.
+#[cfg(not(target_os = "linux"))]
+pub fn quiet(_host: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 /// Runs the launcher or the probe when this process was started as one
 /// (first thing in `main`, before any thread). Never returns then.
 pub fn run_if_requested() {
@@ -145,6 +179,12 @@ pub fn run_if_requested() {
         Some(LAUNCHER_ARG) => {
             #[cfg(target_os = "linux")]
             linux::launcher_main();
+            #[cfg(not(target_os = "linux"))]
+            std::process::exit(1);
+        }
+        Some(INIT_ARG) => {
+            #[cfg(target_os = "linux")]
+            linux::init_main();
             #[cfg(not(target_os = "linux"))]
             std::process::exit(1);
         }

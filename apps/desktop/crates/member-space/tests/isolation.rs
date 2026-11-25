@@ -98,7 +98,11 @@ mod linux {
             return;
         }
         println!("probe ... ok");
-        let tests: [(&str, fn()); 9] = [
+        let tests: [(&str, fn()); 13] = [
+            ("no_process_names_a_writable_program", no_process_names_a_writable_program),
+            ("the_control_pipe_is_not_inside", the_control_pipe_is_not_inside),
+            ("a_fork_bomb_is_bounded", a_fork_bomb_is_bounded),
+            ("a_hostile_tree_is_removed", a_hostile_tree_is_removed),
             ("one_run_at_a_time", one_run_at_a_time),
             ("a_group_signal_still_saves", a_group_signal_still_saves),
             ("sees_nothing_of_the_host", sees_nothing_of_the_host),
@@ -109,10 +113,13 @@ mod linux {
             ("dies_with_its_host", dies_with_its_host),
             ("a_link_is_no_directory", a_link_is_no_directory),
         ];
+        let mut failed = 0;
         for (name, test) in tests {
-            test();
-            println!("{name} ... ok");
+            let ok = std::panic::catch_unwind(test).is_ok();
+            failed += usize::from(!ok);
+            println!("{name} ... {}", if ok { "ok" } else { "FAILED" });
         }
+        assert_eq!(failed, 0, "{failed} failed");
     }
 
     fn sees_nothing_of_the_host() {
@@ -208,6 +215,78 @@ mod linux {
         assert_eq!(beat(), before, "the space's processes are gone");
     }
 
+    /// Review finding 3: PID 1 was a fork of the launcher, its exe the host's
+    /// binary through the host's writable mount.
+    fn no_process_names_a_writable_program() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dirs = Dirs::new("exe");
+        // A copy stands for the host's binary: the test must not chmod itself.
+        let copy = dirs.0.join("launcher");
+        std::fs::copy(exe(), &copy).unwrap();
+        std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut spec = dirs.spec(&args(&["exe"]));
+        spec.tools = vec![("exponential".into(), copy.clone())];
+        let mut child = member_space::command(&copy).spawn().unwrap();
+        child.stdin.as_mut().unwrap().write_all(spec_line(&spec).as_bytes()).unwrap();
+        let (code, out, err) = finish(child);
+        assert_eq!((code, out.trim()), (Some(0), "ok"), "{err}");
+        assert_eq!(std::fs::metadata(&copy).unwrap().permissions().mode() & 0o7777, 0o755, "the host's binary");
+    }
+
+    /// Finding 4: the host's control pipe was PID 1's stdin.
+    fn the_control_pipe_is_not_inside() {
+        let dirs = Dirs::new("pipe");
+        let mut child = launch(&dirs.spec(&args(&["pipe"])));
+        started(&dirs);
+        // Whatever the space opened, the host's end closing ends it.
+        drop(child.stdin.take());
+        let (code, out, err) = finish(child);
+        assert!(code.is_some(), "it ended: {err}");
+        assert_eq!(out.trim(), "ok", "{err}");
+    }
+
+    /// Finding 8.
+    fn a_fork_bomb_is_bounded() {
+        let dirs = Dirs::new("bomb");
+        let (code, out, err) = finish(launch(&dirs.spec(&args(&["bomb"]))));
+        assert_eq!(code, Some(0), "{err}");
+        let started: u32 = out.trim().parse().unwrap();
+        assert!(started > 100 && started < 5000, "{started} processes");
+    }
+
+    /// Finding 5: what a member leaves behind is deleted, links never followed.
+    fn a_hostile_tree_is_removed() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dirs = Dirs::new("tree");
+        let root = dirs.0.join("a");
+        let outside = dirs.0.join("hostdata/keep");
+        std::fs::write(&outside, "x").unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("data/link")).unwrap();
+        std::os::unix::fs::symlink(dirs.0.join("hostdata"), root.join("data/dirlink")).unwrap();
+        let closed = root.join("data/closed/inner");
+        std::fs::create_dir_all(&closed).unwrap();
+        std::fs::write(closed.join("f"), "x").unwrap();
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(closed.parent().unwrap(), std::fs::Permissions::from_mode(0)).unwrap();
+        // Deeper than any path and any descriptor table.
+        unsafe {
+            let here = libc::open(c".".as_ptr(), libc::O_RDONLY);
+            std::env::set_current_dir(root.join("data")).unwrap();
+            for _ in 0..3000 {
+                assert_eq!(libc::mkdir(c"deeeeeeeep".as_ptr(), 0o700), 0);
+                assert_eq!(libc::chdir(c"deeeeeeeep".as_ptr()), 0);
+            }
+            libc::fchdir(here);
+            libc::close(here);
+        }
+        member_space::remove_tree(&root).unwrap();
+        assert!(!root.exists());
+        assert_eq!(std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777, 0o640);
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "x");
+        member_space::remove_tree(&root).unwrap();
+    }
+
     fn one_run_at_a_time() {
         let dirs = Dirs::new("lock");
         let mut first = launch(&dirs.spec(&args(&["wait"])));
@@ -269,6 +348,9 @@ mod linux {
                     println!("{}", String::from_utf8_lossy(&std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default()));
                 }
             }
+            "exe" => exes(),
+            "pipe" => pipe(),
+            "bomb" => bomb(),
             "net" => net(&args[1..]),
             "wait" | "stubborn" | "beat" => run(&args[0]),
             other => panic!("{other}"),
@@ -316,6 +398,80 @@ mod linux {
         // Ordinary programs run.
         assert!(std::process::Command::new("/bin/sh").args(["-c", "true"]).status().unwrap().success());
         println!("ok");
+    }
+
+    fn pids() -> Vec<String> {
+        std::fs::read_dir("/proc")
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.bytes().all(|b| b.is_ascii_digit()))
+            .collect()
+    }
+
+    fn exes() {
+        let c = |text: String| std::ffi::CString::new(text).unwrap();
+        for pid in pids() {
+            for name in [format!("/proc/{pid}/exe"), "/proc/self/exe".into(), "/exp/bin/exponential".into()] {
+                unsafe {
+                    let path = c(name.clone());
+                    assert_eq!(libc::chmod(path.as_ptr(), 0o4777), -1, "chmod {name}");
+                    assert!(libc::open(path.as_ptr(), libc::O_WRONLY) < 0, "write {name}");
+                    assert!(libc::open(path.as_ptr(), libc::O_RDWR) < 0, "write {name}");
+                    assert_eq!(libc::truncate(path.as_ptr(), 0), -1, "truncate {name}");
+                }
+            }
+            if pid != std::process::id().to_string() {
+                assert!(std::fs::read_dir(format!("/proc/{pid}/fd")).is_err(), "/proc/{pid}/fd");
+                assert!(std::fs::read(format!("/proc/{pid}/environ")).is_err(), "/proc/{pid}/environ");
+                assert!(std::fs::read_dir(format!("/proc/{pid}/root/usr")).is_err(), "/proc/{pid}/root");
+            }
+        }
+        println!("ok");
+    }
+
+    fn pipe() {
+        // Hold what may be the host's pipe open for good, both ways.
+        let mut held = Vec::new();
+        for pid in pids() {
+            for fd in 0..16 {
+                let path = format!("/proc/{pid}/fd/{fd}");
+                let is_null = std::fs::read_link(&path).is_ok_and(|to| to == Path::new("/dev/null"));
+                if let Ok(file) = std::fs::OpenOptions::new().write(true).read(true).open(&path) {
+                    if !is_null && pid != std::process::id().to_string() {
+                        held.push(file);
+                    }
+                }
+            }
+        }
+        println!("{}", if held.is_empty() { "ok" } else { "held" });
+        std::fs::write("/space/started", "x").unwrap();
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    fn bomb() {
+        let mut started = 0u32;
+        let mut children = Vec::new();
+        unsafe {
+            while started < 6000 {
+                let pid = libc::fork();
+                if pid == 0 {
+                    libc::pause();
+                    libc::_exit(0);
+                }
+                if pid < 0 {
+                    break;
+                }
+                children.push(pid);
+                started += 1;
+            }
+            for pid in children {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        println!("{started}");
     }
 
     fn hello(addr: SocketAddr) -> bool {
