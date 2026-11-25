@@ -141,6 +141,12 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             let placeholder = &*crate::sealed::PLACEHOLDER;
             ChatRowInput::Pill { id: id.clone(), icon: placeholder.icon.clone(), label: placeholder.text(*reason).to_string() }
         }
+        // Not A2UI 1.0: the title caption alone (no icon: never a pressable
+        // row), over [`unread_marker`].
+        SessionChatRow::Surface { id, title, surface, .. } if !surface.readable() => {
+            let title = title.as_deref().map(str::trim).filter(|title| !title.is_empty())?;
+            ChatRowInput::Card { id: id.clone(), icon: String::new(), title: title.into(), text: String::new(), target: None, surface: None, group: None }
+        }
         SessionChatRow::Surface { id, session_id, title, surface } => ChatRowInput::Card {
             id: id.clone(),
             icon: "ui-widget".into(),
@@ -850,8 +856,10 @@ mod tests {
         let old = || CardSurface { version: None, ..card_surface() };
         let show = SessionChatRow::Surface { id: "m1".into(), session_id: "s".into(), title: Some("Report".into()), surface: old() };
         let drawn = rows(&[show], &HashMap::new(), |_| None, None);
-        let [ChatRowInput::Card { title, surface: None, .. }, ChatRowInput::Marker { id, label, .. }] = drawn.as_slice() else { panic!("{drawn:?}") };
-        assert_eq!((title.as_str(), id.as_str()), ("Report", "m1!"));
+        let [ChatRowInput::Card { title, icon, surface: None, target: None, .. }, ChatRowInput::Marker { id, label, .. }] = drawn.as_slice() else { panic!("{drawn:?}") };
+        assert_eq!((title.as_str(), icon.as_str(), id.as_str()), ("Report", "", "m1!"));
+        let untitled = SessionChatRow::Surface { id: "m2".into(), session_id: "s".into(), title: None, surface: old() };
+        assert!(matches!(rows(&[untitled], &HashMap::new(), |_| None, None).as_slice(), [ChatRowInput::Marker { .. }]));
         assert_eq!(label, &crate::chat_express::CHAT_EXPRESS.copy.block_failed);
     }
 
