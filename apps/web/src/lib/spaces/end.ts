@@ -8,7 +8,7 @@ import { and, eq, inArray, isNotNull, isNull, like, ne, or, sql, type SQL } from
 import { alias } from "drizzle-orm/pg-core"
 import { MEMBER_SPACE, MEMBER_SPACE_COPY, type SpaceEndCause } from "@exp/domain-contract/member-space"
 import { apikeys } from "@/db/auth-schema"
-import { agents, devices, installs, sessions } from "@/db/schema"
+import { agents, devices, installs, messages, sessions, sessionWatches } from "@/db/schema"
 import { parseApiKeyMetadata } from "@/lib/auth/api-key-kind"
 import { closeAskMirrorsOf, forgetWatched } from "@/lib/sessions/bus"
 import { relayKillTargets, treeKillTargets, type KillTarget } from "@/lib/sessions/lifecycle"
@@ -45,6 +45,15 @@ async function endTreesInTx(tx: Tx, rootIds: readonly string[], now: Date): Prom
     .update(sessions)
     .set({ status: `idle`, busy: false, background: false, needsInput: false, blocked: null, updatedAt: now })
     .where(and(inArray(sessions.id, [...rootIds]), isNull(sessions.parentId), isNotNull(sessions.agentId), ne(sessions.status, `ended`)))
+  // Nothing the machine planted runs later, on whatever device is next: what
+  // the trees wait on goes, and every unread input a session wrote there (its
+  // agent speaking in its member's name too) is spent unread.
+  const tree = tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, [...rootIds]))
+  await tx.delete(sessionWatches).where(inArray(sessionWatches.sessionId, tree))
+  await tx
+    .update(messages)
+    .set({ consumedAt: now, updatedAt: now })
+    .where(and(inArray(messages.rootId, [...rootIds]), isNotNull(messages.authorSessionId), isNull(messages.consumedAt)))
   await closeAskMirrorsOf(tx, [...ended.map((row) => row.id), ...rootIds], now)
   await forgetWatched(tx, ended.map((row) => row.id))
 }
@@ -75,6 +84,18 @@ export async function deleteSpaceKeys(
 /** Ends these spaces (devices row ids). Returns the ones this call ended. */
 export async function endSpacesInTx(tx: Tx, spaceIds: readonly string[], cause: SpaceEndCause): Promise<EndedSpace[]> {
   if (spaceIds.length === 0) return []
+  // The Assistants first: `agents.update` takes its row, then the space's.
+  await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.role, `assistant`),
+        inArray(agents.ownerId, tx.select({ userId: devices.userId }).from(devices).where(and(inArray(devices.id, [...spaceIds]), isNotNull(devices.spaceHostId))))
+      )
+    )
+    .orderBy(agents.id)
+    .for(`update`)
   const rows = await tx
     .select({
       spaceId: devices.id,

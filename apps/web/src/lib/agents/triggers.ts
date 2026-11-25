@@ -1,3 +1,5 @@
+import { deviceRestrictedUser, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
+import { TRPCError } from "@trpc/server"
 import { assistantWithoutDevice } from "@/lib/spaces/no-device"
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm"
 import { memberChatsChanged } from "@/lib/agents/assistant-chat"
@@ -88,6 +90,8 @@ export async function postAgentInputInTx(
   body: string | ((conversation: Session) => string),
   card: { triggerId: string | null; eventId: string | null; name: string | null; issueId?: string | null }
 ): Promise<{ ownerId: string; deviceId: string } | null> {
+  // #EXP-2161: a space's write wakes no agent in its member's name.
+  if (deviceRestrictedUser() === userId) throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_KEY_MESSAGE })
   const { session, created } = await conversationInTx(tx, agent, userId)
   const text = typeof body === `function` ? body(session) : body
   // #EXP-1849: a fresh app root opens with the app brief, like the editor's.

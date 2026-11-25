@@ -121,8 +121,9 @@ const serve = ({ request }: { request: Request }) => {
     createContext: async () => {
       // FEED-76: a scoped `expu_` key is MCP-only — unauthenticated here,
       // but named so the 401 explains itself instead of reading as a dead key.
-      const { session, keyScope, keyKind, keySpaceId } = await resolveMcpCredential(request)
-      if (keyScope) return { db, request, session: null, scopedKey: true as const }
+      const { session, keyScope, keyKind, keySessionId, keySpaceId } = await resolveMcpCredential(request)
+      // #EXP-2028: a session-bound key is MCP-only too (`resolveSession`).
+      if (keyScope || keySessionId) return { db, request, session: null, scopedKey: true as const }
       // #EXP-2161: a member space's own key, while its space lives (401
       // after); an agent key minted through one is MCP-only.
       if (keySpaceId) {

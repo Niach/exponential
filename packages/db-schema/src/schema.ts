@@ -2327,6 +2327,10 @@ export const sessions = pgTable(
     // and reading): nobody keys it (`sessionKeys.create` / an inline `seal`
     // refused), writers send plaintext. Every other tree is sealed. SYNCED.
     clearTree: boolean(`clear_tree`).notNull().default(false),
+    // #EXP-2161 (member-space.json, TEAMS): ROOT rows only: started through a
+    // member space. Nothing it starts ever runs on its member's own machines.
+    // Server-only.
+    viaSpace: boolean(`via_space`).notNull().default(false),
     // #EXP-1730 (one-tree model): the list digest of this session's messages
     // (domain-contract `conversationDigest`), mirrored from its kind-session
     // conversation by trigger `mirror_conversation_digest` until phase B
