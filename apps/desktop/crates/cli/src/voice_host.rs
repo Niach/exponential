@@ -998,6 +998,8 @@ trait UtteranceWire {
     fn new_root(&self) -> Result<NewRootSeal, SealError>;
     /// The root a [`Self::new_root`] key keyed: its secret is kept.
     fn adopt(&self, root: &str, seal: &NewRootSeal);
+    /// EXP-1859: the chat's key as the server has it: (epoch, public key).
+    fn stored_key(&self, agent_id: &str) -> Option<(u32, String)>;
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError>;
 }
 
@@ -1026,6 +1028,12 @@ impl UtteranceWire for DaemonWire<'_> {
             Some(service) => service.adopt(root, seal),
             None => sealing::adopt_new_root(root, seal),
         }
+    }
+
+    fn stored_key(&self, agent_id: &str) -> Option<(u32, String)> {
+        let target = api::sessions::send_target(&self.0.trpc, Some(agent_id), None).ok()?;
+        note_target(&target);
+        Some((target.epoch?, target.public_key?))
     }
 
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
@@ -1132,7 +1140,12 @@ fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgen
         input.client_message_id = key.map(str::to_string);
         let err = match wire.send(&input) {
             Ok(out) => {
-                if let Some(seal) = seal {
+                // EXP-1859: a keyed send may be answered with the row the other
+                // end stored: the chat then has ITS key, never this one.
+                let other = |seal: &NewRootSeal| {
+                    key.is_some() && wire.stored_key(&agent.id).is_some_and(|(epoch, public)| epoch == seal.epoch && public != seal.public_key)
+                };
+                if let Some(seal) = seal.filter(|seal| !other(seal)) {
                     wire.adopt(&out.session_id, &seal);
                 }
                 return Delivered::Sent(out.session_id);
@@ -2704,6 +2717,8 @@ mod tests {
         refuse_first: bool,
         sends: std::cell::RefCell<Vec<api::sessions::SendInput>>,
         adopted: std::cell::RefCell<Vec<String>>,
+        /// The chat's key as the server has it: "own" = the one sent inline.
+        stored: Option<&'static str>,
     }
 
     impl Wire {
@@ -2746,12 +2761,29 @@ mod tests {
         fn adopt(&self, root: &str, _: &NewRootSeal) {
             self.adopted.borrow_mut().push(root.into());
         }
+        fn stored_key(&self, _: &str) -> Option<(u32, String)> {
+            let own = self.sends.borrow().last().and_then(|input| input.seal.as_ref().map(|seal| seal.public_key.clone()));
+            Some((1, if self.stored? == "own" { own? } else { "another".into() }))
+        }
         fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
             self.sends.borrow_mut().push(input.clone());
             if self.refuse || (self.refuse_first && input.session_id.is_none()) {
                 return Err(api::ApiError::Http { status: 400, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() });
             }
             Ok(api::sessions::SendOutput { session_id: input.session_id.clone().unwrap_or_else(|| "root-new".into()), ..Default::default() })
+        }
+    }
+
+    /// EXP-1859: a turn's keyed send answered with the row its caller stored
+    /// never adopts this host's key over the chat's; its own (or one the
+    /// server does not tell) it keeps, and an ordinary call asks nothing.
+    #[test]
+    fn a_deduped_utterance_never_adopts_its_own_key() {
+        for (key, stored, adopts) in [(Some("turn-c1"), Some("other"), false), (Some("turn-c1"), Some("own"), true), (Some("turn-c1"), None, true), (None, Some("other"), true)] {
+            let wire = Wire { stored, ..Wire::naming(&[None]) };
+            assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, "Status?", key), Delivered::Sent("root-new".into()));
+            assert_eq!(wire.adopted.borrow().len(), usize::from(adopts), "{key:?} {stored:?}");
+            assert_eq!(wire.sends.borrow()[0].client_message_id.as_deref(), key);
         }
     }
 

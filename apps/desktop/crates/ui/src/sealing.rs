@@ -562,7 +562,7 @@ fn send_sealed(
         let mut wire = input.clone();
         let seal = seal_send(writer, &mut wire, &resolve(writer, input, target, fresh)).map_err(no_key)?;
         let out = send(&wire)?;
-        if let Some(seal) = seal {
+        if let Some(seal) = seal.filter(|seal| keyed_the_tree(writer, &wire, &out, seal)) {
             writer.adopt(&out.session_id, &seal);
         }
         Ok(out)
@@ -588,6 +588,24 @@ fn send_sealed(
         }),
         other => other,
     }
+}
+
+/// EXP-1859: a keyed send (`clientMessageId`) may be answered with the row
+/// another send stored, whose key the tree then has: adopting this one's
+/// would close the chat here. Kept unless the server names ANOTHER key for
+/// its epoch (unknown = kept: it may be the tree's only copy).
+fn keyed_the_tree(writer: &dyn Writer, wire: &SendInput, out: &SendOutput, seal: &NewRootSeal) -> bool {
+    if wire.client_message_id.is_none() {
+        return true;
+    }
+    let Ok(TreeFacts { root_id, key: Some((epoch, public)), .. }) = writer.tree_of(&out.session_id) else { return true };
+    let own = enet_core::sealed::public_key_from_b64(&seal.public_key).ok();
+    if epoch != seal.epoch || own == Some(public) {
+        return true;
+    }
+    log::info!("[sealing] {root_id}: another send keyed the chat: this one's key is dropped");
+    writer.note_key(&root_id, epoch, public);
+    false
 }
 
 /// An answer's sealing facts: the card's tree and, for a SEALED card, the
@@ -945,6 +963,64 @@ mod tests {
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}
+    }
+
+    /// EXP-1859: a keyed send into a chat another send created meanwhile is
+    /// answered with that send's row: this one's key never replaces the chat's
+    /// (it would lock it here). Its own key, or a key the server does not
+    /// tell, is kept; an unkeyed send is never asked about.
+    #[test]
+    fn a_deduped_send_never_adopts_its_own_key() {
+        struct Chat {
+            stored: Result<(u32, [u8; 32]), ()>,
+            own: contract::TreeKey,
+            did: Mutex<Vec<String>>,
+        }
+        impl Writer for Chat {
+            fn seal_body(&self, _: &str, _: &str) -> Result<String, String> {
+                unreachable!()
+            }
+            fn seal_card(&self, _: &str, _: &Value) -> Result<Value, String> {
+                unreachable!()
+            }
+            fn new_root(&self, _: Option<&str>) -> Result<NewRootSeal, String> {
+                Ok(NewRootSeal { install_id: "me".into(), public_key: self.own.public_key(), epoch: 1, wraps: Vec::new(), secret: self.own.secret })
+            }
+            fn adopt(&self, root: &str, _: &NewRootSeal) {
+                self.did.lock().unwrap().push(format!("adopt {root}"));
+            }
+            fn send_target(&self, _: Option<&str>, _: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+                Ok(api::sessions::SendTarget::default())
+            }
+            fn note_key(&self, root: &str, epoch: u32, _: [u8; 32]) {
+                self.did.lock().unwrap().push(format!("key {root}@{epoch}"));
+            }
+            fn tree_of(&self, session: &str) -> Result<TreeFacts, String> {
+                self.did.lock().unwrap().push(format!("get {session}"));
+                let key = self.stored.map_err(|()| "offline".to_string())?;
+                Ok(TreeFacts { root_id: session.into(), clear: false, key: Some(key) })
+            }
+        }
+        let own = contract::generate_tree_key;
+        let cases: [(bool, fn(&contract::TreeKey) -> Result<(u32, [u8; 32]), ()>, &[&str]); 5] = [
+            (true, |_| Ok((1, [7; 32])), &["get s1", "key s1@1"]),
+            (true, |own| Ok((1, own.public)), &["get s1", "adopt s1"]),
+            (true, |_| Ok((2, [7; 32])), &["get s1", "adopt s1"]),
+            (true, |_| Err(()), &["get s1", "adopt s1"]),
+            (false, |_| Ok((1, [7; 32])), &["adopt s1"]),
+        ];
+        for (index, (keyed, stored, did)) in cases.into_iter().enumerate() {
+            let own = own();
+            let chat = Chat { stored: stored(&own), own, did: Mutex::new(Vec::new()) };
+            let input = SendInput { client_message_id: keyed.then(|| "turn-c1".into()), ..agent_send() };
+            let target = target_for(&input, &|_| None, || None);
+            let out = deliver(&chat, &input, &target, true, &mut |wire| {
+                assert!(wire.seal.is_some(), "{index}: a first chat's key rides inline");
+                Ok(SendOutput { session_id: "s1".into(), ..SendOutput::default() })
+            });
+            assert!(out.is_ok(), "{index}");
+            assert_eq!(*chat.did.lock().unwrap(), did, "{index}");
+        }
     }
 
     fn stale_fixture() -> (Value, contract::TreeKey) {

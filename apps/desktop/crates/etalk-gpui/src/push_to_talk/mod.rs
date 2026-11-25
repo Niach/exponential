@@ -963,6 +963,7 @@ impl PushToTalk {
     /// the phrase's start) when the dial is refused, when `call_ready` has not
     /// come within `turnDialMs`, or on a failure before the host's `said`.
     fn dial_turn(&mut self, id: String, agent_id: String, phrase: String, cx: &mut Context<Self>) {
+        crate::speak_replies::drop_turn(&agent_id, cx);
         self.turn_dial = Some(TurnDial { id: id.clone(), call_id: None, agent_id: agent_id.clone(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
         let Some(connecting) = host::host(cx).and_then(|host| host.dial_turn(&agent_id, &phrase, cx)) else {
             log::info!("[voice] wake turn {id}: nothing to dial through: heard here");
@@ -1108,6 +1109,7 @@ impl PushToTalk {
                     match &event {
                         etalk::call::CallEvent::Said(_) => {
                             turn.said = true;
+                            crate::speak_replies::drop_turn(&turn.agent_id, cx);
                             // The turn is over: the frames go on as silence
                             // (the relay's idle clock), never the microphone.
                             if let Some(link) = turn.link.as_ref() {
@@ -1970,6 +1972,67 @@ mod tests {
         assert_eq!(phase(cx), PttPhase::Speaking);
         rig.worker(etalk::Event::Finished { id: "r1".into(), stopped: false }, cx);
         assert_eq!(phase(cx), PttPhase::Spoken);
+    }
+
+    /// EXP-1859 (a first chat its host created): the reply synced before this
+    /// desktop could read it is spoken once it opens, and the capsule follows.
+    #[gpui::test]
+    async fn a_reply_that_opens_later_is_spoken(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{Row, SENT, TEAM_AGENT, TEAM_CONVERSATION};
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some(TEAM_AGENT.into()) }, cx);
+        let row = |id: &str, author_kind, second: u32| Row { id: id.into(), author_kind, body: String::new(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(TEAM_CONVERSATION) };
+        rig.row(row(SENT, "user", 5), cx);
+        rig.row(row("r1", "agent", 6), cx);
+        cx.update(|cx| global(cx).unwrap().update(cx, |this, _| this.turn_key = Some("turn-c-9".into())));
+        rig.worker(etalk::Event::Heard { id: "wake-1".into(), text: "Status?".into() }, cx);
+        assert!(rig.spoken().is_empty());
+        assert_eq!(phase(cx), PttPhase::Thinking);
+        rig.open_row("r1", "All green.", cx);
+        assert_eq!(rig.spoken(), ["r1"]);
+        assert_eq!(phase(cx), PttPhase::Speaking);
+        rig.open_row("r1", "All green.", cx);
+        assert!(rig.spoken().is_empty(), "once");
+    }
+
+    /// EXP-1859: a dialled turn is over any older turn still waiting in that
+    /// agent's chat: its reply plays from the call only. Another agent's
+    /// waiting turn stays.
+    #[gpui::test]
+    async fn a_dialled_turns_reply_is_never_read_here_too(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{Row, CONVERSATION, TEAM_AGENT, TEAM_CONVERSATION};
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        let row = |id: &str, session_id, second: u32| Row { id: id.into(), author_kind: "agent", body: "All green.".into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(session_id) };
+        for (round, at_said) in [false, true].into_iter().enumerate() {
+            let second = 10 * (round as u32 + 1);
+            cx.update(|cx| {
+                if !at_said {
+                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx);
+                }
+                global(cx).unwrap().update(cx, |this, cx| this.dial_turn("wake-1".into(), TEAM_AGENT.into(), "Hey Team".into(), cx));
+                let turn = TurnDial { id: "wake-1".into(), call_id: Some("c-1".into()), agent_id: TEAM_AGENT.into(), link: Some(Box::new(TurnLink::default())), held: Vec::new(), ready: true, answered: true, said: false, replying: false };
+                global(cx).unwrap().update(cx, |this, _| this.turn_dial = Some(turn));
+                if at_said {
+                    // Armed meanwhile (an older send answered late).
+                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx);
+                }
+            });
+            turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "said", "text": "Status?" })), cx);
+            rig.requests();
+            rig.row(row(&format!("r{round}"), TEAM_CONVERSATION, second), cx);
+            turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "replyStarted", "text": "All green." })), cx);
+            turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "replyFinished" })), cx);
+            turn_event(DialLinkEvent::Ended { reason: None }, cx);
+            cx.update(crate::messages_changed);
+            cx.run_until_parked();
+            assert!(rig.spoken().is_empty(), "played by the call, at said: {at_said}");
+        }
+        cx.update(|cx| {
+            crate::speak_replies::voice_turn(CONVERSATION, crate::test_support::AGENT, cx);
+            crate::speak_replies::drop_turn(TEAM_AGENT, cx);
+        });
+        rig.row(row("other", CONVERSATION, 40), cx);
+        assert_eq!(rig.spoken(), ["other"], "another agent's turn");
     }
 
     /// EXP-1859: a turn that fell back after its call connected is sent under

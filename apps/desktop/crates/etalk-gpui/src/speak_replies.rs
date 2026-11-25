@@ -249,6 +249,12 @@ impl Gate {
             if !arming && self.seen.contains(row.id) {
                 return;
             }
+            // EXP-1859: a reply this desktop cannot read yet (a new chat's key
+            // is on its way) is looked at when it can.
+            let unread = row.message.author_kind == Some(etalk::voice::AUTHOR_KIND_AGENT) && !row.message.has_card && row.message.body.is_none_or(|body| body.trim().is_empty());
+            if !arming && unread {
+                return;
+            }
             let first = self.seen.insert(row.id.to_string());
             if arming {
                 if let Some(created) = row.message.created_at {
@@ -676,6 +682,17 @@ pub fn voice_turn(session_id: &str, agent_id: &str, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, _| {
             this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), agent_id: agent_id.to_string(), at: std::time::Instant::now() });
+        });
+    }
+}
+
+/// EXP-1859: a DIALLED turn with `agent_id` (its reply plays from the call):
+/// an older turn still waiting in that chat is over, so no reply of it is
+/// read here too.
+pub(crate) fn drop_turn(agent_id: &str, cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, _| {
+            this.voice_turn.take_if(|turn| turn.agent_id == agent_id);
         });
     }
 }

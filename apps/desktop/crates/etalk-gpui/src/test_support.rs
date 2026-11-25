@@ -309,6 +309,13 @@ impl Rig {
         cx.run_until_parked();
     }
 
+    /// EXP-1859: row `id` opens (its chat's key came).
+    pub(crate) fn open_row(&self, id: &str, body: &str, cx: &mut gpui::TestAppContext) {
+        self.state.borrow_mut().rows.iter_mut().find(|row| row.id == id).expect("a row").body = body.into();
+        cx.update(crate::messages_changed);
+        cx.run_until_parked();
+    }
+
     /// What the worker was asked since the last look.
     pub(crate) fn requests(&self) -> Vec<etalk::Request> {
         std::mem::take(&mut *self.requests.lock().unwrap())
