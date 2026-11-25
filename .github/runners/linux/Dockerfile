@@ -11,6 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libpipewire-0.3-dev librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
 
+# What the ede and eui-rust jobs install (with recommends, as they do). The
+# desktop job needs mesa-vulkan-drivers (EXP_REQUIRE_GPU) without installing
+# it: until #EXP-2150 it found what another job had left in the container, and
+# the first recreated runner failed it.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      dbus fontconfig fonts-noto-color-emoji libclang-dev libdrm-dev libegl1 \
+      libgbm-dev libinput-dev libpixman-1-dev libseat-dev libudev-dev \
+      mesa-vulkan-drivers pipewire wireplumber xwayland \
+    && rm -rf /var/lib/apt/lists/*
+
 # Jobs skip Swatinem/rust-cache on self-hosted: sccache on a persistent
 # volume replaces it.
 ARG SCCACHE_VERSION=v0.18.0
