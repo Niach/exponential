@@ -909,6 +909,168 @@ fn x11_windows_get_the_title_bar_unless_motif_hints_say_none() {
     assert_eq!(framed(bare), None, "Motif no-decorations keeps none");
 }
 
+/// The compositor's geometry of the X11 window `win`.
+#[cfg(feature = "xwayland")]
+fn x11_geometry(h: &Harness, win: u32) -> Rectangle<i32, smithay::utils::Logical> {
+    h.with(move |ede| {
+        let w = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).cloned().unwrap();
+        ede.desk.space.element_geometry(&w).unwrap()
+    })
+}
+
+/// The size the X server holds for `win`: what the client was told.
+#[cfg(feature = "xwayland")]
+fn x_server_size(conn: &x11rb::rust_connection::RustConnection, win: u32) -> (i32, i32) {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    let g = conn.get_geometry(win).unwrap().reply().unwrap();
+    (g.width as i32, g.height as i32)
+}
+
+/// A client drawing its own chrome (Steam) under a press at `from`:
+/// `_NET_WM_MOVERESIZE` in `direction` (0 = top-left … 4 = bottom-right,
+/// 8 = move), then the pointer drags to `to` until the window is `want`,
+/// and lets go.
+#[cfg(feature = "xwayland")]
+fn x11_moveresize(h: &Harness, conn: &x11rb::rust_connection::RustConnection, win: u32, direction: u32, from: (f64, f64), to: (f64, f64), want: Rectangle<i32, smithay::utils::Logical>) {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{ClientMessageEvent, ConnectionExt as _, EventMask},
+    };
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    let root = conn.setup().roots[0].root;
+    let atom = conn.intern_atom(false, b"_NET_WM_MOVERESIZE").unwrap().reply().unwrap().atom;
+    let msg = ClientMessageEvent::new(32, win, atom, [from.0 as u32, from.1 as u32, direction, 1, 1]);
+    conn.send_event(false, root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, msg).unwrap();
+    conn.flush().unwrap();
+    // The message arrives asynchronously: moving to `to` again is the same
+    // gesture (the grab reads from its start), so repeat until it lands.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut step = 0;
+    loop {
+        step += 1;
+        h.with(move |ede| ede.pointer_motion_to(to.into(), 1 + step));
+        let geo = x11_geometry(h, win);
+        if geo == want {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the window never became {want:?}: {geo:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 1000));
+}
+
+/// Waits until the X server holds `size` for `win`.
+#[cfg(feature = "xwayland")]
+#[track_caller]
+fn wait_for_x_size(conn: &x11rb::rust_connection::RustConnection, win: u32, size: (i32, i32)) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while x_server_size(conn, win) != size {
+        assert!(Instant::now() < deadline, "the client was never told {size:?}: {:?}", x_server_size(conn, win));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// #EDE-222: Steam draws its own chrome and asks for a resize with
+/// `_NET_WM_MOVERESIZE`; from the bottom-right corner the window grows
+/// with the pointer, its top-left corner stays.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_client_resizes_itself_from_the_bottom_right_corner() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    assert_eq!(geo.size, (320, 240).into());
+    let from = ((geo.loc.x + geo.size.w - 3) as f64, (geo.loc.y + geo.size.h - 3) as f64);
+    let want = Rectangle::new(geo.loc, (420, 300).into());
+    x11_moveresize(&h, &conn, win, 4, from, (from.0 + 100.0, from.1 + 60.0), want);
+    wait_for_x_size(&conn, win, (420, 300));
+    assert_eq!(x11_geometry(&h, win), want, "it stays after the release");
+}
+
+/// #EDE-222: from the top-left corner the opposite corner stays put; the
+/// window moves as it grows (X11 has no commit to fix the place up after).
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_client_resizes_itself_from_the_top_left_corner() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 3) as f64, (geo.loc.y + 3) as f64);
+    let want = Rectangle::new((geo.loc.x - 50, geo.loc.y - 40).into(), (370, 280).into());
+    x11_moveresize(&h, &conn, win, 0, from, (from.0 - 50.0, from.1 - 40.0), want);
+    wait_for_x_size(&conn, win, (370, 280));
+}
+
+/// #EDE-222: the client's `WM_NORMAL_HINTS` minimum holds; shrinking from
+/// the top-left stops there with the bottom-right corner where it was.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_resize_stops_at_the_clients_minimum_size() {
+    use x11rb::{connection::Connection, properties::WmSizeHints};
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let mut hints = WmSizeHints::new();
+    hints.min_size = Some((300, 200));
+    hints.set_normal_hints(&conn, win).unwrap().check().unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.with(move |ede| ede.desk.space.elements().find_map(|w| w.x11_surface().filter(|x| x.window_id() == win).and_then(|x| x.min_size()))) != Some((300, 200).into()) {
+        assert!(Instant::now() < deadline, "the compositor never read the hints");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 3) as f64, (geo.loc.y + 3) as f64);
+    let want = Rectangle::new((geo.loc.x + 20, geo.loc.y + 40).into(), (300, 200).into());
+    x11_moveresize(&h, &conn, win, 0, from, (from.0 + 100.0, from.1 + 100.0), want);
+    wait_for_x_size(&conn, win, (300, 200));
+}
+
+/// #EDE-222: direction 8 of the same message still moves the window.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_client_still_moves_itself() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 100) as f64, (geo.loc.y + 10) as f64);
+    let want = Rectangle::new((geo.loc.x - 120, geo.loc.y + 70).into(), geo.size);
+    x11_moveresize(&h, &conn, win, 8, from, (from.0 - 120.0, from.1 + 70.0), want);
+}
+
+/// #EDE-222: an X11 window in eDE's frame resizes from the band around it,
+/// as a Wayland one does (README, Tier A).
+#[cfg(feature = "xwayland")]
+#[test]
+fn a_framed_x11_window_resizes_from_the_band() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, None);
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + geo.size.w + 3) as f64, (geo.loc.y + geo.size.h / 2) as f64);
+    let hit = h.with(move |ede| ede.frame_under(from.into()).map(|(_, hit)| hit));
+    assert_eq!(hit, Some(ede_compositor::frames::Hit::Edge(ede_compositor::grabs::ResizeEdge::RIGHT)), "3 px outside the right edge is the band");
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    drag_to(&h, from, (from.0 + 80.0, from.1 + 30.0));
+    // The geometry follows the X server's ConfigureNotify, asynchronously.
+    wait_for_x_size(&conn, win, (400, 240));
+    let want = Rectangle::new(geo.loc, (400, 240).into());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while x11_geometry(&h, win) != want {
+        assert!(Instant::now() < deadline, "only the width follows a right-edge drag: {:?}", x11_geometry(&h, win));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// #EDE-16: a window that leaves decorations to the compositor gets a
 /// title bar above its geometry, tiles under it, closes from its button;
 /// one that insists on its own gets none.
