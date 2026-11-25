@@ -2639,7 +2639,7 @@ mod tests {
     fn a_turn_call_keeps_the_audio_while_the_engines_load() {
         for cancel in [false, true] {
             let harness = Harness::new();
-            harness.probe.downloads.lock().unwrap().0 = 12;
+            harness.probe.downloads.lock().unwrap().0 = usize::MAX;
             harness.listening.begin_call("c1", true);
             harness.send(Job::Call { id: "c1".into(), language: "en".into(), remote: true, turn: Some("Clip1".into()) });
             for chunk in [phrase(0.8), phrase(0.6), tone(1.5, 0.0)].concat().chunks(3200) {
@@ -2648,10 +2648,11 @@ mod tests {
             if cancel {
                 harness.listening.end("c1");
                 harness.send(Job::Hangup { id: "c1".into() });
-                std::thread::sleep(Duration::from_millis(600));
+                harness.probe.downloads.lock().unwrap().0 = 0;
                 assert!(without_levels(&harness.close()).is_empty(), "cancelled: nothing heard, nothing answered");
                 continue;
             }
+            harness.probe.downloads.lock().unwrap().0 = 0;
             let events = harness.said(1);
             assert!(said(&events)[0].to_lowercase().contains("clip2"), "{:?}", said(&events));
             harness.close();
