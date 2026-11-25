@@ -257,9 +257,10 @@ final class Round9Tests: XCTestCase {
     func testPictures() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["VAPP289_SHOTS"] != nil, "VAPP289_SHOTS unset")
         func field(_ id: String, _ component: String, _ label: String, _ path: String?, _ extra: [String: Any]) -> [String: Any] {
-            var p: [String: Any] = ["label": label, "name": id, "validateOn": "submit"]
-            if let path { p["checks"] = [["condition": ["@path": path]]] }
-            return ["id": id, "component": component, "props": p.merging(extra) { _, b in b }]
+            let p: [String: Any] = ["label": label, "name": id, "validateOn": "submit"]
+            var node: [String: Any] = ["id": id, "component": component, "props": p.merging(extra) { _, b in b }]
+            if let path { node["@checks"] = [["condition": ["@path": path]]] }
+            return node
         }
         func result(_ severity: String, _ message: String?) -> JSONValue {
             var r: [String: JSONValue] = ["valid": .bool(false), "severity": .string(severity)]

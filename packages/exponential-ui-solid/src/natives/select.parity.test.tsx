@@ -30,7 +30,7 @@ describe(`select: variants`, () => {
     it(`${tag}: inside a Form, invalid after submit`, async () =>
       expectParity(
         {
-          tree: { id: `f`, component: `Form`, children: [sel({ ...variant, value: { "@path": `/v` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/v` } } }, message: `Pick a board` }] })] } as unknown as NestedNode,
+          tree: { id: `f`, component: `Form`, children: [{ ...sel({ ...variant, value: { "@path": `/v` } }), "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/v` } } }, message: `Pick a board` }] }] } as unknown as NestedNode,
           data: { v: `` },
           theme: `exponential`,
         },

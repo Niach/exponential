@@ -25,6 +25,15 @@ describe(`buildSurfaceCard (results)`, () => {
     expect(isPrPictureCard(buildSurfaceCard({ surface, result: true }))).toBe(true)
   })
 
+  // A2UI 1.0 (round 9 §5.1, §13): a node's checks sit at node level.
+  it(`takes a nested node's @checks, refuses the bare key`, () => {
+    const input = { id: `a`, component: `Input`, props: { label: `A`, name: `a`, value: { "@path": `/a` } } }
+    const checks = [{ condition: { "@call": `required`, args: { value: { "@path": `/a` } } }, message: `Needed` }]
+    const form = (field: Record<string, unknown>) => ({ version: `1.0`, root: { id: `f`, component: `Form`, props: { name: `f` }, children: [field] }, data: { a: `` } })
+    expect(buildSurfaceCard({ surface: form({ ...input, "@checks": checks }) }).surface.root).toEqual(form({ ...input, "@checks": checks }).root)
+    expect(() => buildSurfaceCard({ surface: form({ ...input, checks }) })).toThrow(/@checks/)
+  })
+
   it(`a label declared twice is refused`, () => {
     expect(() => buildSurfaceCard({ surface, pictures: [{ label: `a` }, { label: `a` }] })).toThrow(/declared twice/)
   })

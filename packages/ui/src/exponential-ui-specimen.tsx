@@ -56,7 +56,7 @@ const FIELD_STATES: NestedNode = {
     [`email`, `Email`, `ada@`, `/error`],
     [`password`, `Password`, `hunter2`, `/warning`],
     [`nickname`, `Nickname`, `ada`, `/info`],
-  ].map(([id, label, value, path]) => ({ id: id!, component: `Input`, props: { label, name: id, value, validateOn: `submit`, checks: [{ condition: { "@path": path } }] } })),
+  ].map(([id, label, value, path]) => ({ id: id!, component: `Input`, props: { label, name: id, value, validateOn: `submit` }, "@checks": [{ condition: { "@path": path } }] })),
 } as NestedNode
 const FIELD_STATE_DATA = {
   error: { valid: false, severity: `error`, message: `Not an email` },

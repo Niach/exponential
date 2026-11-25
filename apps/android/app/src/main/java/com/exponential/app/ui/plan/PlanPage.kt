@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.exponential.app.ui.components.ImageActionsBox
 import com.exponential.app.ui.components.imageBytesForSrc
+import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
