@@ -74,6 +74,12 @@ pub fn local_doctor(settings: &coding::Settings, data_dir: &Path, deep: bool) ->
         let missing = device_doctor::read_key_holder(data_dir);
         device_doctor::add_key_holder(&mut doctor, missing.is_none(), missing.flatten().as_deref());
     }
+    // #EXP-2161: a hand-typed `doctor` starts the test space itself.
+    if deep && cfg!(target_os = "linux") {
+        if let Ok(exe) = super::update::running_exe() {
+            device_doctor::add_member_space(&mut doctor, &member_space::probe(&exe));
+        }
+    }
     doctor
 }
 

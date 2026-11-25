@@ -422,7 +422,7 @@ class InstallTrustAttackTest {
         assertEquals(InstallTrustState.Unavailable, keeper.snapshot(account).state)
         assertEquals(
             InstallTrust.TargetVerdict.Wrap(KeyRecord.Legacy),
-            keeper.target(account, "install-Z", fx.key("Z").str("x25519Public"), null, null),
+            keeper.target(account, null, "install-Z", fx.key("Z").str("x25519Public"), null, null),
         )
     }
 

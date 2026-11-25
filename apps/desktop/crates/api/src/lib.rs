@@ -77,6 +77,7 @@ pub mod issues;
 pub mod labels;
 pub mod login;
 pub mod mcp_clients;
+pub mod member_spaces;
 pub mod mcp_servers;
 pub mod mcp_tools;
 pub mod notifications;

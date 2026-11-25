@@ -30,6 +30,8 @@ engine = { path = "../engine" }
 # `sync-cli.sqlite`) — engine only, the gpui collections seam stays off.
 sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
+# #EXP-2161: members' Assistants on a server shared with their team.
+member-space = { path = "../member-space" }
 updater = { path = "../updater" }
 observability = { path = "../observability" }
 # #EXP-1616: eCode's own git: the device jobs of its forge (`ecode_job`) and

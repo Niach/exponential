@@ -56,7 +56,7 @@ fn build_store(fx: &Value, spec: &Value) -> TrustStore {
         let by = pin[1].as_str().map(|by| text(&key(fx, by)["endpointId"]).to_string());
         store.pins.insert(
             text(&k["endpointId"]).into(),
-            Pin { user_id: text(&k["userId"]).into(), x25519_public: text(&k["x25519Public"]).into(), via, by },
+            Pin { user_id: text(&k["userId"]).into(), x25519_public: text(&k["x25519Public"]).into(), via, by, class: InstallClass::Install },
         );
     }
     store.members = spec["members"].as_array().map_or_else(Vec::new, |m| m.iter().map(|u| text(u).to_string()).collect());
@@ -259,7 +259,7 @@ fn r1_keep_cases_now_and_once_mandatory() {
             signer_endpoint_id: w["signerEndpointId"].as_str(),
         };
         for (mode, at) in modes() {
-            let got = keep_wrap(&wrap, &identity(&fx, viewer), &hex32(&key(&fx, viewer)["installSecret"]), &store, mode);
+            let got = keep_wrap(&wrap, &identity(&fx, viewer), &hex32(&key(&fx, viewer)["installSecret"]), &store, mode, false);
             let got = match got {
                 KeepVerdict::Keep { record, .. } => serde_json::json!({ "keep": true, "record": record.as_str() }),
                 KeepVerdict::Refuse(reason) => serde_json::json!({ "keep": false, "reason": reason.as_str() }),
@@ -276,7 +276,7 @@ fn r2_r3_seal_cases_now_and_once_mandatory() {
         let store = store_named(&fx, text(&c["store"]));
         let vouch: Option<Vouch> = c["vouch"].is_object().then(|| serde_json::from_value(c["vouch"].clone()).unwrap());
         for (mode, at) in modes() {
-            let got = seal_to(text(&c["rootId"]), c["epoch"].as_u64().unwrap() as u32, text(&c["publicKey"]), held(c), vouch.as_ref(), &store, mode);
+            let got = seal_to(text(&c["rootId"]), c["epoch"].as_u64().unwrap() as u32, text(&c["publicKey"]), held(c), vouch.as_ref(), &store, mode, false);
             let got = match got {
                 SealVerdict::Seal(record) => serde_json::json!({ "seal": true, "record": record.as_str() }),
                 SealVerdict::Refuse(reason) => serde_json::json!({ "seal": false, "reason": reason.as_str() }),
@@ -293,7 +293,7 @@ fn r4_target_cases_now_and_once_mandatory() {
         let store = store_named(&fx, text(&c["store"]));
         let roots: HashSet<String> = c["roots"].as_array().unwrap().iter().map(|n| text(&key(&fx, text(n))["endpointId"]).to_string()).collect();
         for (mode, at) in modes() {
-            let got = match wrap_target(&served(&fx, &c["target"]), &store, mode, &roots) {
+            let got = match wrap_target(&served(&fx, &c["target"]), &store, mode, &roots, false) {
                 TargetVerdict::Wrap(record) => serde_json::json!({ "wrap": true, "record": record.as_str() }),
                 TargetVerdict::Refuse(reason) => serde_json::json!({ "wrap": false, "reason": reason.as_str() }),
             };
@@ -382,5 +382,145 @@ fn key_maker_every_case_by_name() {
         let b = |k: &str| case[k].as_bool().unwrap_or(false);
         let epoch = stranded_rotation_epoch(n("flagged"), n("current"), b("held"), b("stranded"), b("joined"), b("left"));
         assert_eq!(epoch, n("epoch"), "{}", text(&case["name"]));
+    }
+}
+
+// ── #EXP-2161: member spaces (`space`, member-space.json) ─────────────────
+
+fn member_space() -> Value {
+    serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/member-space.json")).unwrap()
+}
+
+/// install-trust-space.test.ts: the fixture's keys and the section's.
+fn space_fixture() -> Value {
+    let mut fx = fixture();
+    let keys = fx["space"]["keys"].clone();
+    for (name, key) in keys.as_object().unwrap() {
+        fx["keys"][name] = key.clone();
+    }
+    fx
+}
+
+fn space_store(fx: &Value, spec: &Value) -> TrustStore {
+    let mut store = build_store(fx, spec);
+    store.space = spec["space"].as_bool().unwrap_or(false);
+    for (name, pin) in spec["pins"].as_object().unwrap() {
+        if pin[2] == "space" {
+            store.pins.get_mut(text(&key(fx, name)["endpointId"])).unwrap().class = InstallClass::Space;
+        }
+    }
+    store
+}
+
+#[test]
+fn pin_cases_replay() {
+    let fx = member_space();
+    for c in fx["pinCases"].as_array().unwrap() {
+        let pin = match c["pin"].as_str() {
+            Some("space") => Some(InstallClass::Space),
+            Some("install") => Some(InstallClass::Install),
+            _ => None,
+        };
+        assert_eq!(pin_covers(pin, c["rootIsOwnAssistant"].as_bool().unwrap()), c["expected"].as_bool().unwrap(), "{}", text(&c["name"]));
+    }
+    assert_eq!(fx["registrationLabel"], SPACE_REGISTRATION_LABEL);
+    assert_eq!(fx["approvalKind"], ApprovalKind::Space.as_str());
+    assert_eq!(fx["approvalKindByte"], ApprovalKind::Space.byte());
+}
+
+#[test]
+fn space_registrations_and_the_approval_vector() {
+    let fx = space_fixture();
+    for (name, k) in fx["space"]["keys"].as_object().unwrap() {
+        let message = space_registration_message(text(&k["userId"]), text(&k["endpointId"]), text(&k["x25519Public"]), text(&k["signedAt"]));
+        assert_eq!(b64url_encode(&identity(&fx, name).sign(message.as_bytes())), text(&k["registrationSignature"]));
+        let row = served(&fx, &serde_json::json!({ "key": name }));
+        assert_eq!(registration_class(&row), Some(InstallClass::Space));
+        assert!(!registration_valid(&row), "a space install never verifies as an ordinary one");
+        assert_eq!(install_code(text(&k["endpointId"])).as_deref(), k["code"].as_str());
+    }
+    let v = &fx["space"]["approval"];
+    let s = &v["subject"];
+    let subject = ApprovalSubject { user_id: text(&s["userId"]), endpoint_id: text(&s["endpointId"]), x25519_public: text(&s["x25519Public"]) };
+    assert_eq!(HEXLOWER.encode(&approval_message(ApprovalKind::Space, &subject).unwrap()), text(&v["message"]));
+    assert_eq!(sign_approval(&identity(&fx, "A"), ApprovalKind::Space, &subject).as_deref(), v["signature"].as_str());
+    assert!(verify_approval(ApprovalKind::Space, &subject, text(&v["signature"]), text(&v["approverEndpointId"])));
+    assert!(!verify_approval(ApprovalKind::Approve, &subject, text(&v["signature"]), text(&v["approverEndpointId"])));
+}
+
+#[test]
+fn space_trust_cases_replay() {
+    let fx = space_fixture();
+    let name_of = |endpoint: &str| {
+        fx["keys"].as_object().unwrap().iter().find(|(_, k)| k["endpointId"] == endpoint).map(|(name, _)| name.clone()).unwrap()
+    };
+    for c in fx["space"]["trustCases"].as_array().unwrap() {
+        let name = text(&c["name"]);
+        let view = reconcile_trust(&space_store(&fx, &c["before"]), &answer_of(&fx, c));
+        assert_eq!(view.status.as_str(), text(&c["status"]), "{name}");
+        assert_eq!(Some(view.store.joined), c["after"]["joined"].as_bool(), "{name}");
+        let pins: serde_json::Map<String, Value> = view
+            .store
+            .pins
+            .iter()
+            .map(|(endpoint, pin)| {
+                let mut row = vec![serde_json::json!(pin.via.as_str()), serde_json::json!(pin.by.as_deref().map(name_of))];
+                if pin.class == InstallClass::Space {
+                    row.push(serde_json::json!("space"));
+                }
+                (name_of(endpoint), Value::Array(row))
+            })
+            .collect();
+        assert_eq!(Value::Object(pins), c["after"]["pins"], "{name}");
+        assert_eq!(serde_json::json!(view.store.members), c["after"]["members"], "{name}");
+        let rows: Vec<Value> =
+            view.rows.iter().map(|row| serde_json::json!({ "kind": row.kind.as_str(), "key": name_of(&row.endpoint_id) })).collect();
+        assert_eq!(Value::Array(rows), c["rows"], "{name}");
+        assert!(!view.store.space || view.approve_existing.is_empty(), "{name}");
+        // The store's file keeps the class.
+        let kept: TrustStore = serde_json::from_str(&serde_json::to_string(&view.store).unwrap()).unwrap();
+        assert_eq!(kept, view.store, "{name}");
+    }
+}
+
+#[test]
+fn space_rules_cover_the_own_assistant_alone() {
+    let fx = space_fixture();
+    let store_of = |c: &Value| space_store(&fx, &fx["space"]["stores"][text(&c["store"])]);
+    let own = |c: &Value| c["rootIsOwnAssistant"].as_bool().unwrap();
+    for (mode, at) in modes() {
+        for c in fx["space"]["keepCases"].as_array().unwrap() {
+            let w = &c["wrap"];
+            let wrap = ServedWrap {
+                root_id: text(&w["rootId"]),
+                epoch: w["epoch"].as_u64().unwrap() as u32,
+                wrapped: text(&w["wrapped"]),
+                signature: w["signature"].as_str(),
+                signer_endpoint_id: w["signerEndpointId"].as_str(),
+            };
+            let viewer = text(&fx["space"]["stores"][text(&c["store"])]["viewer"]);
+            let got = keep_wrap(&wrap, &identity(&fx, viewer), &hex32(&key(&fx, viewer)["installSecret"]), &store_of(c), mode, own(c));
+            let got = match got {
+                KeepVerdict::Keep { record, .. } => serde_json::json!({ "keep": true, "record": record.as_str() }),
+                KeepVerdict::Refuse(reason) => serde_json::json!({ "keep": false, "reason": reason.as_str() }),
+            };
+            assert_eq!(got, c[at], "{} ({at})", text(&c["name"]));
+        }
+        for c in fx["space"]["sealCases"].as_array().unwrap() {
+            let vouch: Option<Vouch> = c["vouch"].is_object().then(|| serde_json::from_value(c["vouch"].clone()).unwrap());
+            let epoch = c["epoch"].as_u64().unwrap() as u32;
+            let got = match seal_to(text(&c["rootId"]), epoch, text(&c["publicKey"]), None, vouch.as_ref(), &store_of(c), mode, own(c)) {
+                SealVerdict::Seal(record) => serde_json::json!({ "seal": true, "record": record.as_str() }),
+                SealVerdict::Refuse(reason) => serde_json::json!({ "seal": false, "reason": reason.as_str() }),
+            };
+            assert_eq!(got, c[at], "{} ({at})", text(&c["name"]));
+        }
+        for c in fx["space"]["targetCases"].as_array().unwrap() {
+            let got = match wrap_target(&served(&fx, &c["target"]), &store_of(c), mode, &HashSet::new(), own(c)) {
+                TargetVerdict::Wrap(record) => serde_json::json!({ "wrap": true, "record": record.as_str() }),
+                TargetVerdict::Refuse(reason) => serde_json::json!({ "wrap": false, "reason": reason.as_str() }),
+            };
+            assert_eq!(got, c[at], "{} ({at})", text(&c["name"]));
+        }
     }
 }

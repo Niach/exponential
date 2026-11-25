@@ -843,6 +843,23 @@ pub fn my_assistant<'a>(
         .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+/// #EXP-2161 (member-space.json `pinCases` `rootIsOwnAssistant`): whether
+/// `root` is the viewer's own Assistant conversation: a root they started,
+/// of the Assistant they own.
+pub fn is_own_assistant_root<'a>(
+    root: &crate::rows::SessionRow,
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    me: &str,
+) -> bool {
+    let Some(agent_id) = root.agent_id.as_deref().filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    !me.is_empty()
+        && root.is_root()
+        && root.user_id.as_deref() == Some(me)
+        && agents.into_iter().any(|agent| agent.id == agent_id && agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
+}
+
 /// #EXP-1990 (TS `agentChatOf`, agent-settings.json `groupChat.chatCases`):
 /// THE chat of an agent for the viewer: its group chat (`group_chat_id`)
 /// when that root is synced, none when it names a root the viewer does not
