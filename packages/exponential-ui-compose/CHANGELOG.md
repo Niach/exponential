@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): the core refuses 0.9 messages and format 5 packages; host function names are flat (`app_toast`, `harness_*`).
 - Embed forwards an inner event's `userMessage` (#EXP-2104): `embedPayload(name, context, userMessage)`; the host's `action` context holds `userMessage` beside `name` and `context` when the inner event has one (`EmbedTest` replays `embed.json` `inner-user-message`).
 - A streaming Express block draws no Unknown placeholder (#VAPP-300): `Transport.start(receive, status, text, open)` reports the surfaces whose Express block is still open around each decoded batch (the stream and WebSocket transports; a dropped stream settles to none); `ExponentialHost.setStreaming(ids, settled)` → `SurfaceModel.setStreaming` reduces them `streaming`, so a child not streamed yet renders as nothing; once the block closes a child still missing is the placeholder again. `HostTest.aStreamingExpressBlockDrawsNoUnknownForAChildNotStreamedYet`; `ConformanceTest` replays `expressOpen` and the `streaming-*` reduce cases.
 - Express (#AXC-12, #VAPP-297): the transports read the Express inference format through the core (`catalog/host.json` `inference`): an `application/a2ui+express` body on `JsonlStreamTransport`, `a2ui-express` events on `SseTransport`, `{"express": …}` frames on `WebSocketTransport`, Express resources and `structuredContent.a2uiExpress` on `McpTransport`. Each takes `format: InferenceFormat` (`Express` asks for it in `accept`; the wire decides either way) and `surfaceId` (default `main`). `Transport.start(receive, status, text)` hands the prose on (the default drops it); `HostOptions.onText` receives it on the host's scope, the SDK draws none. `HostOptions.inferenceFormats` (default both) → `rendererCapabilities()["1.0"].inferenceFormats`. `ConformanceTest` runs `host-express`; `ExpressTransportTest` drives each transport over a local server.
@@ -84,7 +85,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): the core refuses 0.9 messages and format 5 packages; host function names are flat (`app_toast`, `harness_*`).
 
 ## 0.19.0 (2026-11-07)
 

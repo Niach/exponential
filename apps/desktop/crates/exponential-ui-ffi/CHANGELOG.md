@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): removed `routeWithBridgeJson`, `acceptV09`, `upgrade09Json`, `upgradeCard09`; `cardV10Json` takes one argument. Bindings regenerate.
 - #VAPP-300: `Surface.set_streaming(on) -> changed` + `Surface.streaming()` (an Express block is still streaming the surface: a child not streamed yet renders as nothing), `reduce_surface_streaming_json(…, streaming)`; the decoders' JSON carries `open` (the surfaces whose block is still open). The facade, Swift and Kotlin suites replay `expressOpen` and the `streaming-*` reduce cases. Bindings regenerated.
 - Express (#AXC-12, #VAPP-297; eui-core `express` always on): `ExpressDecoder(wrapped, surface_id)` (push / end → `{messages, issues, text?}`, the prose in `text`), `SseDecoder.with_surface(surface_id)` (`a2ui-express` events = one Express response), `FrameDecoder(surface_id)` (`{"express": …}` WebSocket frames), `messages_from_mcp_result_with_json(result, surface_id)`, `inference_format_of(content_type)`, `express_frame_chunk(frame)`, `renderer_capabilities_with_json(…, inference_formats)`, `compile_express_json` / `decompile_express_json`, `express_prompt()` (plain text; `Invalid` without `descriptions`). The facade, Swift and Kotlin suites replay `express-roundtrip.json` and `host-transport.json` `express*`. Bindings regenerated.
 - `Surface.set_forced_states(forced: {id: [state]}) -> [dropped]` and `Surface.forced_states_of(id)` (#EXP-1781): the host's forced interaction states, paint only (`dropped` sorted by id). Bindings regenerated.
@@ -24,7 +25,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): removed `routeWithBridgeJson`, `acceptV09`, `upgrade09Json`; `cardV10Json` takes one argument; `upgradeCard09` returns a `"version":"1.0"` card unchanged and is display only. Bindings regenerate.
 
 ## 0.19.0 (2026-11-07)
 

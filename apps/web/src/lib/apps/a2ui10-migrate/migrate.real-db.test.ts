@@ -28,6 +28,7 @@ const FIXED = `2026-01-02T03:04:05.000Z`
 
 interface Seed {
   teamId: string
+  userId: string
   conversationId: string
   sessionId: string
   app: (slug: string, values: { package?: unknown; draft?: unknown; grants?: unknown }) => Promise<string>
@@ -48,6 +49,7 @@ async function seed(tx: RealDbTx): Promise<Seed> {
   const conversationId = conv.rows[0]!.id
   return {
     teamId,
+    userId,
     conversationId,
     sessionId,
     app: async (slug, { package: pkg = null, draft = null, grants = [] }) => {
@@ -95,7 +97,7 @@ const xmins = async (tx: RealDbTx, teamId: string) =>
 
 const CAT = fixture.packages
 const router = () => new HostRouter({ extensionIds: [appExtension.id], extensions: availableExtensions([appExtension]) })
-/** A stored package through the client's load with the bridge OFF. */
+/** A stored package through the client's load with 1.0 alone. */
 function expectPackageLoads(pkg: unknown) {
   expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
   const host = router()
@@ -173,7 +175,30 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
     })
   })
 
-  it(`apply rewrites, keeps timestamps and the digest, and every row loads with the bridge off`, async () => {
+  it(`an agent's run triggers move to flat action names, once`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const run = (action: string) => ({ id: crypto.randomUUID(), enabled: true, kind: `event`, name: `pr.merged`, run: { action, args: { title: `\${event.title}` } } })
+      const wake = { id: crypto.randomUUID(), enabled: true, kind: `event`, name: `pr.merged`, prompt: `Log it` }
+      const dotted = run(`exponential.issues.create`)
+      const agent = (
+        await tx.execute<{ id: string }>(sql`
+        INSERT INTO agents (team_id, owner_id, device_id, name, triggers, created_at, updated_at)
+        VALUES (${s.teamId}, ${s.userId}, 'dev', 'Runner', ${JSON.stringify([wake, dotted])}::jsonb, ${FIXED}::timestamptz, ${FIXED}::timestamptz) RETURNING id`)
+      ).rows[0]!.id
+      const dry = await runA2ui10Migration(tx as Client, { apply: false, teamId: s.teamId })
+      expect(dry.columns[`agents.triggers`]).toMatchObject({ total: 1, toRewrite: 1, rewritten: 0, synced: true })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(report.columns[`agents.triggers`]!.rewritten).toBe(1)
+      const row = (await tx.execute<{ triggers: unknown; updated_at: string }>(sql`SELECT triggers, updated_at FROM agents WHERE id = ${agent}::uuid`)).rows[0]!
+      expect(row.triggers).toEqual([wake, { ...dotted, run: { ...dotted.run, action: `exponential_issues_create` } }])
+      expect(new Date(row.updated_at).toISOString()).toBe(FIXED)
+      const again = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(again.columns[`agents.triggers`]).toMatchObject({ total: 1, alreadyV10: 1, toRewrite: 0 })
+    })
+  })
+
+  it(`apply rewrites, keeps timestamps and the digest, and every row loads as 1.0`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
       const seeded = await seedAll(s)

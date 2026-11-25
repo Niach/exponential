@@ -1,8 +1,7 @@
 # genUI: round 9 contract (A2UI 1.0)
 
 Round 9 (VAPP-289) moves eUI from A2UI v0.9 to A2UI **1.0**. It is a hard
-cut: every entry accepts and emits 1.0 only, after a bridge that ends on a
-flag day (§14). This file is the NORMATIVE spec for both cores, the TS core
+cut: every entry accepts and emits 1.0 only (§14). This file is the NORMATIVE spec for both cores, the TS core
 (`packages/exponential-ui/src`) and the Rust core
 (`apps/desktop/crates/eui-core`). For the same input, the two cores MUST
 produce the same bytes (JSON equality with key order as written here) in
@@ -35,7 +34,7 @@ from §7.
 | catalog files | `core.schema.json` (+ core-lite, extensions) conform to `catalog_definition.json` | §11, `src/schema.ts` | `schema.test.ts` |
 | packages | `formatVersion` 6, re-signed | §12 | `host-package.json`, `actions.json`, `package-*.json` |
 | cards | `exponential_show` surfaces gain `"version": "1.0"` | §13 | `a2ui10-messages.json` `cards`, `apps/web` plan tests |
-| transition | `upgrade09` (TS + Rust) bridges 0.9 until the flag day, then serves only the stored-data migration | §14 | `upgrade09.json` |
+| stored data | one migration rewrites 0.9 once; its converter is in no published package | §14 | `apps/web/src/lib/apps/a2ui10-migrate/upgrade09.json` |
 | host contract | `host.json` version **4** | `catalog/host.json` | `manifest.json` `hostContractVersion` |
 
 ## 1. Wire
@@ -66,7 +65,7 @@ answers and nothing else runs:
 |---|---|---|
 | 1 | UTF-8 JSON size > `maxMessageBytes` (4 MiB) | INVALID_MESSAGE, surfaceId = `surfaceIdOf(message)` |
 | 2 | not a JSON object | INVALID_MESSAGE `a message is a JSON object`, surfaceId `""` |
-| 3 | `version` absent or `"v0.9"` | `acceptV09` true: route each message of `upgrade09(message)` in order (with the same options) and concatenate the ops. `acceptV09` false: INVALID_MESSAGE `version is required` (absent) or `unsupported version v0.9` |
+| 3 | `version` absent | INVALID_MESSAGE `version is required` |
 | 4 | `version` ≠ `"1.0"` | INVALID_MESSAGE `unsupported version <v>` (`String(v)`; a non-string prints as JSON) |
 | 5 | not exactly one key besides `version`, or that key is not a known kind | INVALID_MESSAGE `expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, callRendererFunction, agentFunctionResponse` |
 | 6 | host-internal kind and `!options.trusted` | INVALID_MESSAGE `<kind> is host-internal` |
@@ -75,12 +74,10 @@ answers and nothing else runs:
 | 9 | the kind's own checks (§1.2) | as listed |
 
 `surfaceIdOf(message)` = the first string `surfaceId` among the message's
-object values, else `""`. A 0.9 bridged message is upgraded BEFORE checks 4
-to 9, so its errors are 1.0 errors about the upgraded form.
+object values, else `""`.
 
-`options`: `{trusted?: boolean (default false), acceptV09?: boolean
-(default = generated ACCEPT_V09, §14)}`. Rust: `RouteOptions { trusted,
-accept_v09 }`. FFI: `route_json(message_json, trusted)`.
+`options`: `{trusted?: boolean (default false)}`. Rust: `RouteOptions {
+trusted }`. FFI: `route_json(message_json, trusted)`.
 
 ### 1.2 Agent → renderer messages
 
@@ -909,7 +906,7 @@ unchanged.
   `vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json`.
 - Both 0.9 ids (`…/v0_9/basic_catalog.json` and
   `…/v0_9/catalogs/basic/catalog.json`) are refused as
-  UNSUPPORTED_CATALOG, unless upgrade09 rewrote them.
+  UNSUPPORTED_CATALOG.
 - `functions` stays the identity map for the 14.
 - The 18 components are unchanged. Changes:
 
@@ -1207,9 +1204,7 @@ Rules:
 ## 12. App packages: formatVersion 6
 
 `host.json` `package.formatVersion` = **6**. `PACKAGE_FORMAT_VERSION = 6`.
-A package names exactly 6. Version 5 is upgraded through §14 while
-`ACCEPT_V09` holds, and is refused after the flag day
-(`/formatVersion: format version 5 is no longer read; 6 is required`).
+A package names exactly 6. Version 5 is refused (`/formatVersion: format version 5 is no longer read; 6 is required`).
 What changes from 5:
 
 | part | v6 rule |
@@ -1245,9 +1240,10 @@ A card surface is the NESTED form `{version, root, data}`:
 ```
 
 - `version` is required and must be `"1.0"`. A missing `version` is the
-  0.9 form: refused (BAD_REQUEST naming the fix). Clients only DISPLAY a
-  stored card without one (`cardForDisplay` through `upgradeCard09`: a
-  sealed card the server cannot rewrite, §18.2).
+  0.9 form: refused (BAD_REQUEST naming the fix). A client that meets a
+  stored card without `"1.0"` (a sealed card the server cannot rewrite)
+  shows THE inline marker in the surface's place
+  (`domain-contract` plan-card.json `surfaceReadableCases`, §18.2).
 - `data` is an object, null or absent.
 - A node is `{id, component, catalogId?, props?, children?, slots?, on?,
   style?, visible?, accessibility?, metadata?, template?}`.
@@ -1269,28 +1265,22 @@ A card surface is the NESTED form `{version, root, data}`:
 
 ## 14. Transition and flag day
 
-### 14.1 Plan (approved 2026-11-07, carried out)
+### 14.1 The cut (decided 2026-11-25)
 
-The flag day has passed: `transition.acceptV09` is `false`, every core entry refuses 0.9, and a package names format 6. The steps below are the record of how it went.
+1.0 only. The 0.9 → 1.0 converter is never runtime code: no flag, no option and no export reads 0.9, in either core, the FFI, the wasm or a host. Every entry (`route`, `SurfaceStore.apply` / `Surface::apply`, cards, package load, share links, the Engine, the MCP gateway and carrier) refuses it with INVALID_MESSAGE, BAD_REQUEST or the install issue of §12.
 
-1. **Phases A–C on master, shipped by the normal client trains.** Every core entry accepted 1.0. The generated constant `ACCEPT_V09` (from `host.json` `transition.acceptV09: true`) made each entry below run `upgrade09` on 0.9 input and continue with the result:
-   - `route()`: version `"v0.9"` or absent;
-   - `SurfaceStore.apply` / `Surface::apply`: likewise;
-   - `reduceNested` card entries: no `version`;
-   - package load: `formatVersion` 5.
+Between phases A–C (2026-11-07) and the flag day, released clients read both versions through a bridge. It is gone, with its constant and exports.
 
-   Renderers emitted 1.0. The server still stored and served 0.9 (agents and stored data unchanged), and on intake accepted both versions of `action`/`error` messages. No min-version bump yet.
-2. **Release.** The 1.0-reading clients went live everywhere: desktop/CLI published, Android promoted, iOS approved and released manually, web deployed.
-3. **Flag day D** (one held draft PR, merged only with Danny's OK):
-   - The server and the `exponential_show` tool text emit 1.0.
-   - `transition.acceptV09: false`: each entry refuses 0.9 with INVALID_MESSAGE (§1.1 check 3). Cards answer BAD_REQUEST, and packages give the install issue of §12.
-   - The migration (`apps/web/scripts/a2ui10-migrate.ts`, logic in `lib/apps/a2ui10-migrate.ts`: one-shot, idempotent, skips 1.0 data, dry run by default) rewrites stored data with `upgrade09`. Order: backup, then staging, then prod. The list, re-checked against `packages/db-schema` (§18.8):
-     - `apps.package`, `apps.draft_package`, `app_versions.package` (→ formatVersion 6);
-     - `apps.granted_tools` (flat names, through `flatAction`);
-     - `messages.card`: every clear card with a `surface` object, of ANY kind (`surface`, `plan`, `question`) → `version: "1.0"`. `{sealed}` and an `ask`'s `sealedCard` are skipped and counted.
-   - The shepherd bumps `CLIENT_MIN_VERSION_*` (Coolify env; `selfhost/.env.example` in the PR) to the first release that reads 1.0.
-   - `upgrade09` stays in the migration script and a Local desktop's store-open pass. Clients keep only `upgradeCard09`, and only to DISPLAY a stored card that has no `version: "1.0"` (sealed cards the server cannot rewrite). Nothing is ever emitted in 0.9.
-   - `vendor/a2ui/v0_9/` stays vendored as upgrade09's reference.
+**What moves once:** the migration `apps/web/scripts/a2ui10-migrate.ts` (logic `lib/apps/a2ui10-migrate/`: one-shot, idempotent, skips 1.0 data, dry run by default) rewrites:
+
+- `apps.package`, `apps.draft_package`, `app_versions.package` (→ formatVersion 6);
+- `apps.granted_tools` (flat names);
+- `agents.triggers[].run.action` (flat names);
+- `messages.card`: every clear card with a `surface` object, of ANY kind (`surface`, `plan`, `question`) → `version: "1.0"`.
+
+The converter writes today's keys (§5.1). A sealed card (`{sealed}`, an `ask`'s `sealedCard`) is skipped and counted: the server cannot read it, so the count is an upper bound of the cards that show the marker.
+
+**Who runs it:** on the cloud (`CLOUD_INSTANCE=true`) an operator, right after the deploy; nothing runs at boot. A self-hosted instance migrates itself at its first boot. A Local desktop's store is out of the server's reach, so `crates/elocal` holds the converter's one Rust mirror and runs it once when a store opens (marker `a2ui10.done`). A team import refuses a staged 0.9 row (BAD_REQUEST): the minimum client version covers it.
 
 **Audited, no rewrite.** Each of these was read for a surface, a package, a function name or a dotted grant:
 
@@ -1301,45 +1291,38 @@ The flag day has passed: `transition.acceptV09` is `false`, every core entry ref
 | `app_share_links`, `app_share_submissions` | a share NAME, a token and an audit. No frozen template or query: the guest package is built from the published `apps.package` on each read |
 | `app_upstream_bindings.upstream`, `mcp_grants`, `app_access` | `upstreams` is unchanged by format 6; ids and levels only |
 | `app_records.data`, `app_record_events` | the app's own data; data keys are never re-keyed, and no component renders a surface out of a record |
-| `sessions.guide`, `sessions.blocked`, `agents.triggers`, `issue_events.payload`, `issue_drafts`, `notifications`, `device_commands.payload`, `widget_configs.form_config` | none holds a surface, a package or a function name (`agents.triggers` = a cron or an event name) |
+| `sessions.guide`, `sessions.blocked`, `sessions.digest`, `issue_events.payload`, `issue_drafts`, `notifications`, `device_commands.payload`, `widget_configs.form_config` | none holds a surface, a package or a function name |
 | `events.payload`, `mcp_device_calls.args` | free JSON an emitter chose to publish, or a short-lived call's arguments; nothing renders them as eUI |
-| `import_rows.row` (`imports`) | a Local desktop's staged `apps`, `app_versions` and `messages` rows, live for at most 24 h. Not walked: `imports.commit` must upgrade them instead (below), which also covers a Local desktop that shares after the flag day |
+| `import_rows.row` (`imports`) | a Local desktop's staged `apps`, `app_versions` and `messages` rows, live for at most 24 h. Not walked: `imports.commit` refuses them at 0.9 |
 | `mcp_calls.tool` | the audit keeps the name as called |
 | `mcp_servers.scopes` | scope ids stay dotted (§12) |
 | `prompts.body`, `skills.body`, `agents.instructions`, `teams.agent_prompt`, `messages.body` | free text, never parsed. A person's text teaching `{"path": …}` stays; an agent following it gets the BAD_REQUEST that names the fix. Built-in skills reconcile on boot from the shipped set |
 
-**How a run behaves.** `runA2ui10Migration(db, {apply})` walks each table by primary key, 200 rows a batch. A batch is read outside any transaction, then written in one with a compare-and-swap per row (`md5` of the row's migrated columns as read). A row changed since is read again, up to three rounds, then reported as `conflicted`. It is safe beside a live server and after a crash. A row with a failing column stays whole (its good columns count as `heldBack`). An upgraded value must pass what a client's load passes with the bridge off, and the caps: a package `migratedPackageIssues` (the SDK validator, `packageMaxBytes`, components per template), a card `cardV10(…, false)` + `validateCardSurface`. The report holds per-column counts, every failed row id with its reason, and the Electric total. `--apply` exits non-zero on a failed or conflicted row.
+**How a run behaves.** `runA2ui10Migration(db, {apply})` walks each table by primary key, 200 rows a batch. A batch is read outside any transaction, then written in one with a compare-and-swap per row (`md5` of the row's migrated columns as read). A row changed since is read again, up to three rounds, then reported as `conflicted`. It is safe beside a live server and after a crash. A row with a failing column stays whole (its good columns count as `heldBack`). An upgraded value must pass what a client's load passes at 1.0, and the caps: a package `migratedPackageIssues` (the SDK validator, `packageMaxBytes`, components per template), a card `cardV10` + `validateCardSurface`. The report holds per-column counts, every failed row id with its reason, and the Electric total. `--apply` exits non-zero on a failed or conflicted row.
 
 **What Electric re-sends.** `exponential.preserve_timestamps` is set in each write transaction, so `updated_at` does not move and a row's delta is the rewritten column alone, no snapshot and no shape rotation:
 
 | column | shape | size per row |
 |---|---|---|
 | `apps.package`, `apps.draft_package`, `apps.granted_tools` | `apps`, every member | at most `packageMaxBytes` (128 KB) ×2, plus the names; an open app repaints from the new package |
+| `agents.triggers` | `agents` | the list |
 | `messages.card` | `messages`: natives receive every visible rewritten card; web on demand, only for a chat that is open | at most 64 KB, typically under 1 KB |
 | `app_versions.package` | behind the allowlist | nothing |
 | `conversations.digest` | | nothing |
 
 The dry run's `electric` block is the exact figure for an instance.
 
-**Boot (wired by the flag-day PR).** An operator ran `bun scripts/a2ui10-migrate.ts --report dry.json` on the target first and read the failures. The same module then runs in `runBootstrapPass`, on self-host and cloud alike, before the server listens, after `applyCustomSql`, under a Postgres advisory lock so that replicas take turns. A marker row (a one-row `data_migrations` entry the flag-day PR added) skips it from then on. The marker is written when a run finishes, failures included: a failed row is reported in the log and the marker's report, does not stop the boot, and is no worse off than before (a sealed-style display for a card, the install issue for a package); the operator re-runs the script for it. Rows a still-running old replica writes after the marker are 0.9: the deploy runs the script once more when the rollout ends. `INSTALL.md` and `selfhost/` carry the wording.
+**A self-hosted boot.** The module runs in `runBootstrapPass` after `applyCustomSql`, under a Postgres advisory lock so that replicas take turns; the server listens once the first pass has finished, failed or not. A `data_migrations` row skips it from then on. The marker is written when a run finishes, failures included: a failed row is in the log and the marker's report, stops nothing, and shows as any 0.9 value does (the marker for a card, the install issue for a package); the operator re-runs the script for it.
 
-**The flag-day PR also** (found while auditing):
+**An operator's run.** `bun scripts/a2ui10-migrate.ts --report dry.json` (counts, writes nothing), read the failures, then `--apply`. Run it again once the rollout ended: rows an old replica still wrote are 0.9. A grant under a dotted name is kept, and grants nothing, until then.
 
-- stored flat grants: dropped `storedAction` from `apps.update` and from `stripUngrantableGrants`;
-- kept a card's version: `validateCardSurface` returned `{root, data}` and `cardSurfaceInput` / `cardSurfaceSchema` had no `version`, so a 1.0 card stored without it would have been read as 0.9 and upgraded twice;
-- moved the bundled format 5 packages to 6: `packages/ui/exponential-ui/templates/*.json` (`devices.json` is `include_str!`'d by the desktop), `apps/runner/*`, `apps/desktop/crates/ui/src/app_screen.test-package.json`, the skills' examples;
-- re-signed `samples/apps/*.app.json`: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (they are `{package, author, signature}` files, which `upgradePackageBody09` leaves alone; the script reads `.package`, and without the seed it writes nothing);
-- upgraded at `imports.commit`: a team import writes staged rows straight into `apps`, `app_versions` and `messages`, so it runs `upgradeStoredPackage`, `upgradeGrants` and `upgradeStoredCard` on them (they are pure and exported);
-- covered the Local desktops: `crates/elocal`'s store holds `apps` and messages this migration never sees, and format 5 stopped loading there too, so the desktop runs its own pass over `upgrade09` (the Rust mirror) when it opens a store;
-- rewrote `docs/package-format.md` to format 6 (§12).
-
-In the repo, drafts, samples (`samples/exponential-ui`, the site playground, `eval/fixtures`, `eval/baseline-1181`, guides, skills) and fixtures are re-keyed `user-card` → `user_card` in phase A.
+The Exponential-signed samples were re-signed over their format 6 content: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (without the seed it writes nothing).
 
 ### 14.2 The converter
 
-`upgrade09` is pure and exists in two mirrors: TS
-`packages/exponential-ui/src/upgrade09.ts` and Rust
-`eui-core/src/upgrade09.rs` (FFI `upgrade09Json`).
+The converter is pure and exists in two mirrors: TS
+`apps/web/src/lib/apps/a2ui10-migrate/upgrade09.ts` and Rust
+`crates/elocal/src/upgrade09.rs`, each private to its migration.
 
 ```ts
 upgradeMessage09(message, state): { messages: unknown[]; state: Upgrade09State }  // agent→renderer and host-internal
@@ -1500,7 +1483,7 @@ A host may treat a `valid` upgraded package as signed by that author,
 because `upgradePackage09` is deterministic over verified bytes. The
 migration script re-signs only packages whose key it holds (§17).
 
-**Fixture**: `fixtures/upgrade09.json` = `{cases: [{name, kind:
+**Fixture**: `apps/web/src/lib/apps/a2ui10-migrate/upgrade09.json` = `{cases: [{name, kind:
 "message"|"stream"|"client"|"card"|"package", input | inputs, expected,
 expectedState?}]}`. It covers:
 
@@ -1518,8 +1501,7 @@ expectedState?}]}`. It covers:
 - payload → extensions;
 - a signed v5 package (valid, invalid, unsigned).
 
-The TS and Rust cores replay it. Swift and Kotlin replay two smoke cases
-through `upgrade09Json` (FFI `FacadeTest`).
+Both mirrors replay it.
 
 ## 15. Fixture plan
 
@@ -1530,10 +1512,10 @@ element, SwiftUI, Compose, gpui) through `conformance/manifest.json`
 
 | file | change | T | R | S | K | C |
 |---|---|---|---|---|---|---|
-| **new** `a2ui10-messages.json` | the 1.0 wire: every message kind, the check order (§1.1), the entry check (§5.2), INTEGRITY_ERROR + `mint`, trusted vs untrusted, `callRendererFunction` table (§6.9), `agentFunctionResponse`, error shapes, `ids` (UAX #31 incl. non-ASCII, the generated tables' edges), `cards`, bridged 0.9 with `acceptV09` true AND false | ✓ | ✓ | ✓ | ✓ | suite `a2ui10` |
+| **new** `a2ui10-messages.json` | the 1.0 wire: every message kind, the check order (§1.1), the entry check (§5.2), INTEGRITY_ERROR + `mint`, trusted vs untrusted, `callRendererFunction` table (§6.9), `agentFunctionResponse`, error shapes, `ids` (UAX #31 incl. non-ASCII, the generated tables' edges), `cards`, 0.9 refused | ✓ | ✓ | ✓ | ✓ | suite `a2ui10` |
 | **new** `a2ui10-functions.json` | routing (§6.5) with a fake agent channel and policy, caching/no-caching, pending, failure rules (§6.8), coercion table (§6.7), CheckRule → ValidationResult, severities, `@index`, `formatString ${@index(...)}` | ✓ | ✓ | | | |
 | **new** `regex.json` | §9.3 dialect, R2–R4, caps | ✓ | ✓ | | | |
-| **new** `upgrade09.json` | §14 | ✓ | ✓ | smoke | smoke | |
+| `apps/web/…/a2ui10-migrate/upgrade09.json` | §14 (the migration and elocal) | ✓ | ✓ | | | |
 | **new** `a2ui10-conformance.json` | GENERATED from `vendor/a2ui/v1_0/test/cases/*.json`: one entry per upstream case `{file, index, description, schema, data, upstreamValid, expect, why?}`; `expect` = our router outcome for agent/renderer messages (`ok` or the first error code), `catalog-ok`/`catalog-error` for catalog cases, `skip` + `why` where upstream tests JSON-Schema-only details our router does not check (the 4 MiB, closed-object keys inside catalog props) or where §16 diverges | ✓ | ✓ | | | |
 | `host-router.json` | `"1.0"`, ops `call`/`respond`, the `create` op without replace, `theme` → metadata, `trusted` flag per case, codes renamed, `mint`, applyTemplate → createSurface{components, dataModel}, flat names in `screens`/`navigate`/`crossApp`/`acme.*` packages, re-keyed ids, formatVersion 6 | ✓ | ✓ | ✓ | ✓ | `host-router` |
 | `host-transport.json` | `"1.0"`; one MIME type; `a2ui_event` carries `callAgentFunction` and metadata | ✓ | ✓ | ✓ | ✓ | `host-transport` |
@@ -1577,22 +1559,22 @@ Each file is sha256-pinned in `vendor/a2ui/README.md` and
 
 ## 17. Checklists
 
-- [ ] TS core: §1–§11, `upgrade09.ts`, `regex.ts`, `xid` tables, `schema.ts`, `prompt.ts`, `web/data.ts` uses the core function table (no second `required/and/or/not`).
-- [ ] Rust core: the same, `check_entry` per entry, `Surface::apply` version check, `upgrade09.rs`, `regex.rs`, FFI (`route_json(trusted)`, `mintSurfaceId`, `upgrade09Json`, renderer capabilities, `call`/`respond` ops, FFI comments "1.0").
+- [ ] TS core: §1–§11, `regex.ts`, `xid` tables, `schema.ts`, `prompt.ts`, `web/data.ts` uses the core function table (no second `required/and/or/not`).
+- [ ] Rust core: the same, `check_entry` per entry, `Surface::apply` version check, `regex.rs`, FFI (`route_json(trusted)`, `mintSurfaceId`, renderer capabilities, `call`/`respond` ops, FFI comments "1.0").
 - [ ] Hosts: React/Solid `useSurface`/`createSurface` through the core; `HostRuntime` agent channel, pending calls, `callAgentFunction`/`rendererFunctionResponse`, de-dup of sent issues; Swift/Compose/gpui hosts likewise; app hosts (web preview, share page, iOS, Android, desktop, Engine runners) mint ids and route trusted.
 - [ ] Painters ×5: `accessibility.live` (aria-live / SwiftUI announcement on change / Compose `liveRegion` / AccessKit `Live`), `accessibility.hidden` (hidden from AT, still painted, subtree too), check severities (§6.6), Markdown inline profile.
 - [ ] `a11y.json`: `live`, `hidden` rows; `Text.live` stays, and `accessibility.live` wins when both are set.
 - [ ] `macros.json`: emits `@call`/`@path` and the `cond` wraps.
 - [ ] `limits.json`: `regex`, `agentFunctionTimeoutMs`.
-- [ ] `host.json` v4: `a2uiVersion`, `messages {a2ui (6), host (2)}`, `ops.kinds` + `call`, `respond`, `clientMessages {kinds (4), errorCodes (14)}`, `functions` text, `transport.mcpMimeTypes`, `negotiation` constants, `package` (formatVersion 6, stepKinds, callPrefix, batchFunction, navigateFunction, tools, exposes, records.functions), `transition.acceptV09`.
+- [ ] `host.json` v4: `a2uiVersion`, `messages {a2ui (6), host (2)}`, `ops.kinds` + `call`, `respond`, `clientMessages {kinds (4), errorCodes (14)}`, `functions` text, `transport.mcpMimeTypes`, `negotiation` constants, `package` (formatVersion 6, stepKinds, callPrefix, batchFunction, navigateFunction, tools, exposes, records.functions).
 - [ ] Prompt, `skills/exponential-genui/SKILL.md` (regenerated), README, site docs, `exponential_show` description, `docs/package-format.md`.
-- [ ] Migration script (§14.1) and the server's 0.9 intake conversion.
+- [ ] Migration script (§14.1).
 - [ ] `CLIENT_MIN_VERSION_*` bump and changelog entries (web + desktop mirror).
 
 ## 18. Decisions on the former open points (2026-11-07)
 
 1. **Re-signing.** The migration re-signs only files signed with a key we hold (fixtures, Exponential-authored samples). A stored package carries no file signature and is rewritten as is. When the original signature of a signed v5 file verifies, its upgrade keeps `status: valid` and `author`.
-2. **Sealed cards.** Danny confirmed: clients keep `upgradeCard09`, and only to DISPLAY a stored card that has no `version: "1.0"` (a sealed card the server cannot rewrite). Nothing is ever emitted in 0.9; every other entry refuses 0.9 after the flag day.
+2. **Sealed cards.** Danny, 2026-11-25: refused like any other 0.9 value. Every client shows THE inline marker (chat-express.json `copy.blockFailed`) in the surface's place and keeps the card's title, question and plan text. (Replaces the 2026-11-07 decision of a display-only converter.)
 3. **Issues sent to the agent** are capped at 32 per message. Past the cap, one final `VALIDATION_FAILED` says how many were dropped. The de-dup per surface lifetime stays.
 4. **`tools` / `upstream` flat names** stay mangled (§6.3). Two tools whose names mangle alike are a package load error, so the ambiguity never reaches call time.
 5. **Pure functions** are `rendererOrAgent` (our choice).

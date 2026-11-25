@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `createSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
 - A hosted Popover / Menu follows its anchor (#EXP-2047), React's (`watchAnchor`'s `onMoved` → `popupHost.mount` again); `overlay-anchor.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843), React's (`treeGuideDepth`); `list-reorder.test.tsx`.
 - `highlight` on Text and Markdown (#EDE-95), React's (`paintHighlights`); `highlight.test.tsx`.
@@ -75,7 +76,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): `createSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
 
 ## 0.19.0 (2026-11-07)
 

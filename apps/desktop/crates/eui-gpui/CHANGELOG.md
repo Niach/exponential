@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): the desktop host takes 1.0 messages and format 6 packages only.
 - Embed forwards an inner event's `userMessage` (#EXP-2104): the host's `action` context holds `userMessage` beside `name` and `context` when the inner event has one (`tests/embed.rs` replays `embed.json` `inner-user-message`).
 - A streaming Express block draws no Unknown placeholder (#VAPP-300): `TransportEvent::Open { surface_ids, settled }` around each decoded batch (the core decoders' `open`; a dropped HTTP stream settles to none), `ExponentialHost::set_streaming` → `SurfaceView::set_streaming` → eui-core `Surface::set_streaming` reduces those surfaces `streaming`, so a child not streamed yet renders as nothing; once the block closes a child still missing is the placeholder again. `tests/host.rs` `a_streaming_express_block_draws_no_unknown_for_a_child_not_streamed_yet`; `tests/suites.rs` replays `expressOpen`.
 - Express on the wire (#VAPP-298, #AXC-12): `transport::WireFormat` (`Json` | `Express { wrapped, surface_id }`) on `HttpTransportOptions::format` and `WebSocketTransport::format`; `Wire::Express` decodes an `application/a2ui+express` body (sniffed by `inference_format_of`) through the core's `ExpressDecoder`; SSE `a2ui-express` events go through `SseDecoder::with_surface`, WebSocket `{"express"}` frames through `FrameDecoder`, MCP results through `messages_from_mcp_result`; the wire constants are the contract's (`EXPRESS_*`). Express prose is `TransportEvent::Text` → `HostOptions::on_text` (no painter UI); every decoder issue (an Express block that does not compile first) is `TransportEvent::Issue` → a `DECODE_FAILED` host issue + a tracing warn. `tests/suites.rs` replays `host-express`. `MemoryTransport::feed_express` / `feed_decoded`. eui-core's `express` feature is on.
@@ -89,7 +90,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): the desktop host takes 1.0 messages and format 6 packages only.
 
 ## 0.19.0 (2026-11-07)
 

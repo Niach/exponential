@@ -3,7 +3,7 @@ title: How does an agent send UI through MCP?
 description: An MCP tool returns A2UI messages as a resource, the client paints them with genUI, and the user's actions come back to the agent as tool calls.
 ---
 
-An MCP tool result can carry an interface. The agent's answer is a resource with the mime type `application/json+a2ui` that holds A2UI messages as JSONL. A genUI client unpacks it into a surface and paints it natively. When the user acts on the surface, the action goes back to the server as a `tools/call` of `a2ui_event`.
+An MCP tool result can carry an interface. The agent's answer is a resource with the mime type `application/a2ui+json` that holds A2UI messages as JSONL. A genUI client unpacks it into a surface and paints it natively. When the user acts on the surface, the action goes back to the server as a `tools/call` of `a2ui_event`.
 
 ## How does the model learn the components?
 

@@ -217,10 +217,7 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   copied byte-for-byte into `packages/exponential-ui/vendor/a2ui/v1_0/` from
   `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa` (Round 9,
   VAPP-289), with the repository `LICENSE` beside them and every file's sha256
-  pinned by `vendor.test.ts`. The v0.9 specification's JSON schemas stay in
-  `packages/exponential-ui/vendor/a2ui/v0_9/` (git tag `v0.9`, commit
-  `19919ef4c8ad3185867f70386fa4669284d7714c`) as `upgrade09`'s reference,
-  pinned the same way. They are never edited: the basic catalog is MAPPED onto
+  pinned by `vendor.test.ts`. They are never edited: the basic catalog is MAPPED onto
   ours (`catalog/basic-map.json`), not modified, so Apache-2.0 section 4(b) (a
   statement of changes) does not apply; 4(a)/4(c) are met by the vendored
   licence and the untouched headers. Round 9 also adds **Unicode 17.0.0**

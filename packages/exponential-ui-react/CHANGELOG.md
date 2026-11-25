@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `useSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
 - A hosted Popover / Menu follows its anchor (#EXP-2047): while `popupHost` holds it, a move or a resize of its anchor calls `popupHost.mount` again with the same owner and the anchor's new box instead of closing it (`watchAnchor`'s `onMoved`); a scroll or the anchor going still closes it. `interactions-fixture.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843): TreeGuides reads its resolved `depth` through the core's `treeGuideDepth` (a finite number floored, never below 0; a numeric STRING is 0 now, as in the Rust core); `list-reorder.test.tsx` renders a templated folder tree whose rows bind `depth`.
 - `highlight` on Text and Markdown (#EDE-95): the matches paint through the CSS Custom Highlight API (`paintHighlights`, `::highlight(xui-match)` / `(xui-match-current)` in base-css), no DOM change; `highlight.test.tsx` replays `fixtures/text-highlight.json` `markdownCases` through the rendered DOM.
@@ -75,7 +76,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): `useSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
 
 ## 0.19.0 (2026-11-07)
 

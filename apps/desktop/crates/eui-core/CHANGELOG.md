@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. Removed: `ACCEPT_V09`, the `upgrade09` module, `PACKAGE_FORMAT_VERSION_09`, `RouteOptions::accept_v09`.
 - `embed::embed_payload(name, context, user_message)` (#EXP-2104): the Embed's `action` payload carries the inner event's resolved `userMessage` when it has one (`embed.json` `inner-user-message`). Breaking for a caller: pass `None` for the old payload.
 - A hosted layer follows its anchor (#EXP-2047, `overlayAnchor` hosted cases): `check_anchor_frames` keeps a `Layer::hosted` Popover / Menu open when its anchor's frame changes (the new frame becomes the one it keeps, the layer's `anchor_frame` the new box); another node (the anchor gone) and a scroll (`close_overlays_in`) still close it.
 - Row `depth` is bindable (#EXP-1843): the reducer takes `{"@path": …}` (it answered `props.depth: expected a number`); `apply_tree_guides` leaves a bound depth on the Row's `guides` part as a binding (indent only: no elbow, tee or pass-through; the row counts as 0 for its siblings), and the surface hands every painter (gpui, SwiftUI, Compose) the TreeGuides `depth` as ONE number, `tree_guide_depth`: a finite number floored, never below 0; anything else 0 (the layout took 2.9 as 2.9 columns, gpui's painter parsed strings). `round3_fixtures.rs` replays `tree-guides.json` `resolved`; `round2_parity.rs` lays a templated folder tree out.
@@ -82,7 +83,6 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
-- A2UI 1.0 flag day (#VAPP-289): `ACCEPT_V09` is false: `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. `upgrade09` remains for a Local desktop's store-open pass.
 
 ## 0.19.0 (2026-11-07)
 
