@@ -8178,21 +8178,21 @@
     },
     "teams-menu": {
       "android": {
-        "file": "shots/team/android.webp",
+        "file": "shots/teams-menu/android.webp",
         "width": 876,
         "height": 1800,
         "bytes": 32522,
         "sha256": "38fd3ea11d76f02fa7a03a46f0773a9de3823028736bbb3b44c2e46204efbf46"
       },
       "ios": {
-        "file": "shots/team/ios.webp",
+        "file": "shots/teams-menu/ios.webp",
         "width": 828,
         "height": 1800,
         "bytes": 29674,
         "sha256": "3ac4590b74094093e8c5800afc2859e352f836d630920c2285e573757545f2f9"
       },
       "web-mobile": {
-        "file": "shots/team/web-mobile.webp",
+        "file": "shots/teams-menu/web-mobile.webp",
         "width": 828,
         "height": 1800,
         "bytes": 26636,

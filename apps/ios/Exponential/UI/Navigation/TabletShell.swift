@@ -249,16 +249,14 @@ struct TabletSidebar: View {
         .navigationTitle(Chats.Copy.Headers.teams)
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(action: onSearch) {
-                    AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
-                }
-                .accessibilityLabel("Search")
-                Button { onNewIssue?() } label: {
-                    AppIcon(AppIcons.navCreateIssue, size: AppIcon.Size.medium)
-                }
-                .disabled(onNewIssue == nil)
-                .accessibilityLabel("New issue")
+            // Each its own circle (header-actions.json).
+            ToolbarItem(placement: .topBarTrailing) {
+                PageHeaderButton(icon: AppIcons.navSearch, label: "Search", action: onSearch)
+            }
+            if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+            ToolbarItem(placement: .topBarTrailing) {
+                PageHeaderButton(icon: AppIcons.navCreateIssue, label: "New issue") { onNewIssue?() }
+                    .disabled(onNewIssue == nil)
             }
         }
         .task {

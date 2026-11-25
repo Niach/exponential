@@ -217,6 +217,8 @@ struct TeamTreeList: View {
         switch row.kind {
         case .team: "team-row-\(row.id)"
         case .folder: "sidebar-folder-\(row.id)"
+        case .item(.session) where compact: "sidebar-chat-\(row.id)"
+        case let .item(kind) where compact: "sidebar-\(kind.rawValue)-\(row.id)"
         case .item: "tree-row-\(row.kind.rawValue)"
         }
     }

@@ -15,13 +15,22 @@ import SwiftUI
 /// arrow's item).
 extension View {
     func pageHeader(_ title: String, pushed: Bool = false, glyph: PageHeaderGlyphKind? = nil) -> some View {
-        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() })
+        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() } more: { EmptyView() })
     }
 
     /// A root page with its own circle after the search and inbox ones
     /// (header-actions.json).
     func pageHeader<Action: View>(_ title: String, @ViewBuilder action: () -> Action) -> some View {
-        modifier(PageHeaderModifier(title: title, pushed: false, glyph: nil, action: action))
+        modifier(PageHeaderModifier(title: title, pushed: false, glyph: nil, action: action) { EmptyView() })
+    }
+
+    /// A pushed page with its + and `…` (header-actions.json; after search
+    /// and inbox while it is an iPad column's root).
+    func pageHeader<Add: View, More: View>(
+        _ title: String, pushed: Bool, glyph: PageHeaderGlyphKind?,
+        @ViewBuilder add: () -> Add, @ViewBuilder more: () -> More
+    ) -> some View {
+        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph, action: add, more: more))
     }
 }
 
@@ -47,7 +56,7 @@ extension EnvironmentValues {
     @Entry var detailColumnRoot = false
 }
 
-private struct PageHeaderModifier<Action: View>: ViewModifier {
+private struct PageHeaderModifier<Action: View, More: View>: ViewModifier {
     let title: String
     let requestedPushed: Bool
     let glyph: PageHeaderGlyphKind?
@@ -55,12 +64,17 @@ private struct PageHeaderModifier<Action: View>: ViewModifier {
     @Environment(\.pageHeaderAsRoot) private var asRoot
 
     let action: Action
+    let more: More
 
-    init(title: String, pushed: Bool, glyph: PageHeaderGlyphKind?, @ViewBuilder action: () -> Action) {
+    init(
+        title: String, pushed: Bool, glyph: PageHeaderGlyphKind?, @ViewBuilder action: () -> Action,
+        @ViewBuilder more: () -> More
+    ) {
         self.title = title
         requestedPushed = pushed
         self.glyph = glyph
         self.action = action()
+        self.more = more()
     }
 
     private var pushed: Bool { requestedPushed && !asRoot }
@@ -71,25 +85,32 @@ private struct PageHeaderModifier<Action: View>: ViewModifier {
             .toolbarTitleDisplayMode(pushed ? .inline : .inlineLarge)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .modifier(PushedTitle(title: PushedTitleKey.Title(text: title, glyph: glyph), enabled: pushed))
-        if pushed {
-            titled
-        } else if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *) {
             // Circles, not one shared capsule: a fixed spacer between them.
             titled.toolbar {
-                ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
-                if Action.self != EmptyView.self {
+                if !pushed {
+                    ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
+                if Action.self != EmptyView.self {
                     ToolbarItem(placement: .topBarTrailing) { action }
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
+                if More.self != EmptyView.self {
+                    ToolbarItem(placement: .topBarTrailing) { more }
                 }
             }
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    PageHeaderSearchButton()
-                    PageHeaderInboxButton(count: inboxUnreadCount)
+                    if !pushed {
+                        PageHeaderSearchButton()
+                        PageHeaderInboxButton(count: inboxUnreadCount)
+                    }
                     action
+                    more
                 }
             }
         }
@@ -135,26 +156,6 @@ struct PageHeaderButton: View {
             .buttonStyle(.plain)
             .accessibilityLabel(label)
             .accessibilityIdentifier(identifier)
-    }
-}
-
-extension View {
-    /// header-actions.json: a toolbar's + then `…`, each its own circle.
-    func headerActionItems<Add: View, More: View>(
-        @ViewBuilder add: @escaping () -> Add, @ViewBuilder more: @escaping () -> More
-    ) -> some View {
-        toolbar {
-            if #available(iOS 26.0, *) {
-                ToolbarItem(placement: .topBarTrailing) { add() }
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                ToolbarItem(placement: .topBarTrailing) { more() }
-            } else {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    add()
-                    more()
-                }
-            }
-        }
     }
 }
 

@@ -48,9 +48,8 @@ struct BoardPageView: View {
         .pageHeader(
             board?.name ?? "", pushed: true,
             glyph: board.map { .icon(BoardTypeDisplay.iconName(for: $0), color: $0.color ?? "#888888") }
-        )
-        // header-actions.json `board`: + = New issue, `…` = the board's menu.
-        .headerActionItems {
+        ) {
+            // header-actions.json `board`: + = New issue, `…` = the board's menu.
             PageHeaderButton(icon: AppIcons.uiAdd, label: SidebarMenus.copy[.newIssue] ?? "", identifier: "board-new-issue") {
                 pushRoute(.issueDraft(accountId: accountId, draftId: UUID().uuidString.lowercased(), boardId: boardId))
             }
