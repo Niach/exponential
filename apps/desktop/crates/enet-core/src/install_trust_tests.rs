@@ -404,6 +404,9 @@ fn space_fixture() -> Value {
 fn space_store(fx: &Value, spec: &Value) -> TrustStore {
     let mut store = build_store(fx, spec);
     store.space = spec["space"].as_bool().unwrap_or(false);
+    for name in spec["knownSpaces"].as_array().into_iter().flatten() {
+        store.known_spaces.insert(text(&key(fx, text(name))["endpointId"]).into());
+    }
     for (name, pin) in spec["pins"].as_object().unwrap() {
         if pin[2] == "space" {
             store.pins.get_mut(text(&key(fx, name)["endpointId"])).unwrap().class = InstallClass::Space;
@@ -426,6 +429,78 @@ fn pin_cases_replay() {
     assert_eq!(fx["registrationLabel"], SPACE_REGISTRATION_LABEL);
     assert_eq!(fx["approvalKind"], ApprovalKind::Space.as_str());
     assert_eq!(fx["approvalKindByte"], ApprovalKind::Space.byte());
+}
+
+#[test]
+fn root_mark_cases_replay() {
+    let fx = member_space();
+    let root = "01234567-89ab-4def-8123-456789abcdef";
+    for c in fx["rootMarkCases"].as_array().unwrap() {
+        let name = text(&c["name"]);
+        let mut store = TrustStore::empty("me", "user-me", false);
+        let mark = |v: &Value| serde_json::from_value::<Option<RootMark>>(v.clone()).unwrap();
+        if let Some(mark) = mark(&c["mark"]) {
+            store.root_marks.insert(root.into(), mark);
+        }
+        if c["keyed"] == true {
+            store.record_key(root, 1, KeyRecord::Legacy);
+        }
+        for step in c["steps"].as_array().unwrap() {
+            let see: RootSight = serde_json::from_value(step["see"].clone()).unwrap();
+            let record = step["record"] == true;
+            // The casing of an id is no other root.
+            assert_eq!(store.own_assistant(&root.to_uppercase(), see, record), step["counts"] == true, "{name}");
+            assert_eq!(store.root_marks.get(root).copied(), mark(&step["mark"]), "{name}");
+            if record {
+                store.record_key(root, 1, KeyRecord::Verified);
+            }
+            store = serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
+        }
+    }
+}
+
+/// Review finding 6: a server that stops serving a space (or its
+/// registration) does not make it an unpinned ordinary install.
+#[test]
+fn once_a_space_always_a_space() {
+    let fx = space_fixture();
+    let s = text(&key(&fx, "S")["endpointId"]).to_string();
+    let a = serde_json::json!({ "key": "A" });
+    let seen = |spec: &[Value], store: &TrustStore| {
+        let case = serde_json::json!({ "installs": spec, "approvals": [] });
+        reconcile_trust(store, &answer_of(&fx, &case)).store
+    };
+    let joined = space_store(&fx, &fx["space"]["stores"]["withoutSpace"]);
+    let known = seen(&[a.clone(), serde_json::json!({ "key": "S" })], &joined);
+    assert!(known.known_spaces.contains(&s));
+    // Omitted, then back without its registration: never counted, never adopted.
+    for spec in [vec![a.clone()], vec![a.clone(), serde_json::json!({ "key": "S", "registration": "none" })]] {
+        let mut store = seen(&spec, &known);
+        assert!(store.known_spaces.contains(&s) && !store.pins.contains_key(&s));
+        store.existing = true;
+        store.joined = false;
+        assert!(!seen(&spec, &store).pins.contains_key(&s));
+    }
+    // A wrap and a vouch it signed: refused now already, as a target too.
+    let c = fx["space"]["keepCases"].as_array().unwrap().iter().find(|c| c["store"] == "withoutSpace").unwrap();
+    let w = &c["wrap"];
+    let wrap = ServedWrap {
+        root_id: text(&w["rootId"]),
+        epoch: w["epoch"].as_u64().unwrap() as u32,
+        wrapped: text(&w["wrapped"]),
+        signature: w["signature"].as_str(),
+        signer_endpoint_id: w["signerEndpointId"].as_str(),
+    };
+    let keep = |store: &TrustStore| keep_wrap(&wrap, &identity(&fx, "A"), &hex32(&key(&fx, "A")["installSecret"]), store, TrustMode::Record, true);
+    assert!(matches!(keep(&joined), KeepVerdict::Keep { .. }));
+    let gone = seen(&[a.clone()], &known);
+    assert!(matches!(keep(&gone), KeepVerdict::Refuse(WrapRefusal::Unpinned)));
+    let v = fx["space"]["sealCases"].as_array().unwrap().iter().find(|c| c["store"] == "withoutSpace").unwrap();
+    let vouch: Vouch = serde_json::from_value(v["vouch"].clone()).unwrap();
+    let seal = seal_to(text(&v["rootId"]), 1, text(&v["publicKey"]), None, Some(&vouch), &gone, TrustMode::Record, true);
+    assert_eq!(seal, SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)));
+    let bare = served(&fx, &serde_json::json!({ "key": "S", "registration": "none" }));
+    assert_eq!(wrap_target(&bare, &gone, TrustMode::Record, &HashSet::new(), true), TargetVerdict::Refuse(TargetRefusal::Unapproved));
 }
 
 #[test]
@@ -473,6 +548,10 @@ fn space_trust_cases_replay() {
             .collect();
         assert_eq!(Value::Object(pins), c["after"]["pins"], "{name}");
         assert_eq!(serde_json::json!(view.store.members), c["after"]["members"], "{name}");
+        if let Some(known) = c["after"]["knownSpaces"].as_array() {
+            let got: Vec<Value> = view.store.known_spaces.iter().map(|id| serde_json::json!(name_of(id))).collect();
+            assert_eq!(&got, known, "{name}");
+        }
         let rows: Vec<Value> =
             view.rows.iter().map(|row| serde_json::json!({ "kind": row.kind.as_str(), "key": name_of(&row.endpoint_id) })).collect();
         assert_eq!(Value::Array(rows), c["rows"], "{name}");

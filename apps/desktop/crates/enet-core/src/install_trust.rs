@@ -122,6 +122,41 @@ pub fn pin_covers(pin: Option<InstallClass>, root_is_own_assistant: bool) -> boo
     }
 }
 
+/// What an install remembers about a root, beside its pins
+/// (member-space.json `rootMark`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RootMark {
+    Assistant,
+    Never,
+    Unseen,
+}
+
+/// What its synced rows say of it now (`Unknown` = not synced).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RootSight {
+    Assistant,
+    Other,
+    Unknown,
+}
+
+/// `rootMarkCases`: whether a root counts as the member's own Assistant
+/// conversation for a space's pin, sticky; `keyed` = the store already held a
+/// key record of it, `record` = it records one now.
+pub fn root_mark(mark: Option<RootMark>, see: RootSight, keyed: bool, record: bool) -> (Option<RootMark>, bool) {
+    if mark == Some(RootMark::Never) || see == RootSight::Other {
+        return (Some(RootMark::Never), false);
+    }
+    if see == RootSight::Assistant {
+        return if mark.is_none() && keyed { (Some(RootMark::Never), false) } else { (Some(RootMark::Assistant), true) };
+    }
+    if mark.is_none() && record && !keyed {
+        return (Some(RootMark::Unseen), false);
+    }
+    (mark, false)
+}
+
 /// The identity's registration signature (base64url).
 pub fn sign_registration(identity: &Identity, user_id: &str, signed_at: &str) -> String {
     let endpoint_id = HEXLOWER.encode(identity.endpoint_id().as_bytes());
@@ -397,6 +432,14 @@ pub struct TrustStore {
     /// Per root (lowercase): the highest VERIFIED epoch and what each held epoch is.
     #[serde(default)]
     pub roots: BTreeMap<String, RootRecord>,
+    /// #EXP-2161 ([`root_mark`]): per root (lowercase), sticky.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub root_marks: BTreeMap<String, RootMark>,
+    /// #EXP-2161: every endpoint id ever seen with a space's registration.
+    /// The server may stop serving it (or its registration): it stays a
+    /// space, never an ordinary install nobody pinned.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub known_spaces: BTreeSet<String>,
 }
 
 impl TrustStore {
@@ -411,7 +454,28 @@ impl TrustStore {
             members: Vec::new(),
             declined: Vec::new(),
             roots: BTreeMap::new(),
+            root_marks: BTreeMap::new(),
+            known_spaces: BTreeSet::new(),
         }
+    }
+
+    /// Whether `root_id` counts as the member's own Assistant conversation;
+    /// remembers what was seen. `record` = a key of it is recorded now
+    /// (asked BEFORE [`Self::record_key`]).
+    pub fn own_assistant(&mut self, root_id: &str, see: RootSight, record: bool) -> bool {
+        let root_id = root_id.to_ascii_lowercase();
+        let keyed = self.roots.get(&root_id).is_some_and(|root| !root.epochs.is_empty());
+        let (mark, counts) = root_mark(self.root_marks.get(&root_id).copied(), see, keyed, record);
+        if let Some(mark) = mark {
+            self.root_marks.insert(root_id, mark);
+        }
+        counts
+    }
+
+    /// A space not (or no longer) pinned: nothing it signs is kept, nothing
+    /// is wrapped for it, in every mode.
+    fn foreign_space(&self, endpoint_id: &str) -> bool {
+        self.known_spaces.contains(endpoint_id) || self.pins.get(endpoint_id).is_some_and(|pin| pin.class == InstallClass::Space)
     }
 
     /// What this install recorded about (root, epoch); None = never recorded.
@@ -531,8 +595,22 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
         }
     }
     let mut classes: HashMap<&str, InstallClass> = HashMap::new();
+    let spaces: Vec<String> = served
+        .installs
+        .iter()
+        .filter(|install| registration_class(install) == Some(InstallClass::Space))
+        .map(|install| install.endpoint_id.clone())
+        .chain(store.pins.iter().filter(|(_, pin)| pin.class == InstallClass::Space).map(|(id, _)| id.clone()))
+        .filter(|id| !(store.space && *id == store.self_endpoint_id))
+        .collect();
+    store.known_spaces.extend(spaces);
     for install in &served.installs {
         let registered = registration_class(install);
+        // Once a space, always one: what the server serves of it now cannot
+        // make it an ordinary install.
+        if registered != Some(InstallClass::Space) && store.known_spaces.contains(&install.endpoint_id) {
+            continue;
+        }
         // Another member's space is nobody's business but theirs; a space
         // knows its own account's ordinary installs and itself.
         let own = install.user_id == store.user_id;
@@ -749,7 +827,7 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
     let alone = !served
         .installs
         .iter()
-        .any(|install| install.user_id == store.user_id && install.endpoint_id != self_id && registration_class(install) != Some(InstallClass::Space));
+        .any(|install| install.user_id == store.user_id && install.endpoint_id != self_id && !store.known_spaces.contains(&install.endpoint_id));
     let status = if store.space {
         if store.joined { TrustStatus::Trusted } else { TrustStatus::Waiting }
     } else if store.joined {
@@ -883,7 +961,8 @@ pub fn keep_wrap(
         WrapVerdict::Verified { secret, tree_public_key, .. } => KeepVerdict::Keep { record: KeyRecord::Verified, secret, tree_public_key },
         WrapVerdict::Unsigned { secret, tree_public_key } => KeepVerdict::Keep { record: KeyRecord::Unsigned, secret, tree_public_key },
         WrapVerdict::Refused(WrapRefusal::Unpinned)
-            if mode == TrustMode::Record && !wrap.signer_endpoint_id.is_some_and(|signer| store.pinned(signer)) =>
+            if mode == TrustMode::Record
+                && !wrap.signer_endpoint_id.is_some_and(|signer| store.pinned(signer) || store.foreign_space(signer)) =>
         {
             // Is it at least its signer's? Then it is kept, and recorded.
             let signer = wrap.signer_endpoint_id.unwrap_or_default().to_string();
@@ -999,7 +1078,7 @@ pub fn seal_to(
                 return SealVerdict::Refuse(SealRefusal::Wrap(reason));
             }
             match mode {
-                _ if store.pinned(&vouch.signer_endpoint_id) => SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)),
+                _ if store.pinned(&vouch.signer_endpoint_id) || store.foreign_space(&vouch.signer_endpoint_id) => SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)),
                 TrustMode::Record => SealVerdict::Seal(KeyRecord::RefusedWouldBe),
                 TrustMode::Mandatory => SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)),
             }
@@ -1063,6 +1142,9 @@ pub fn wrap_target(
         } else {
             TargetVerdict::Refuse(TargetRefusal::KeyMismatch)
         };
+    }
+    if store.foreign_space(&target.endpoint_id) {
+        return TargetVerdict::Refuse(TargetRefusal::Unapproved);
     }
     // An older build that registered before #EXP-1950 kept no signature: legacy too.
     match counted_class(target) {

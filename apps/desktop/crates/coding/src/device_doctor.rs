@@ -256,6 +256,7 @@ pub fn label(key: &str) -> &str {
         "speech" => "Speech",
         "wake" => "Wake word",
         "disk" => "Disk",
+        KEY_MEMBER_SPACE => MEMBER_SPACE_LABEL,
         KEY_DESKTOP_AUDIO => &etalk::meeting::MEETING.copy.doctor_label,
         other => other,
     }

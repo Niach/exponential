@@ -4087,7 +4087,7 @@
     ]
   },
   "space": {
-    "$comment": "#EXP-2161 (member-space.json, THE INSTALL). `registrationLabel` replaces `exp-install-v1` in a space's registration; the class of a served row is the label that verifies (`registrationClass`), a row that stores none is ordinary. `kind` (byte `kindByte`) is the approval about a space: by a pinned ordinary install of the SAME account; every other kind from or about a space row is ignored. An own space is pinned `approved` with class `space`, never adopted (decision e), never counted as another install, no chain of its account; a team-mate's is ignored. A store with `space` is the space's own: it joins over root, approve*, one `space` edge to itself; trusted or waiting only, no rows, nothing to approve. keepWrap / sealTo / wrapTarget take rootIsOwnAssistant (`pinCovers`): a space pin outside it, and an unpinned space as a target, are refused in every mode. A pin is [via, by] or [via, by, class].",
+    "$comment": "#EXP-2161 (member-space.json, THE INSTALL). `registrationLabel` replaces `exp-install-v1` in a space's registration; the class of a served row is the label that verifies (`registrationClass`), a row that stores none is ordinary. `kind` (byte `kindByte`) is the approval about a space: by a pinned ordinary install of the SAME account; every other kind from or about a space row is ignored. An own space is pinned `approved` with class `space`, never adopted (decision e), never counted as another install, no chain of its account; a team-mate's is ignored. A store with `space` is the space's own: it joins over root, approve*, one `space` edge to itself; trusted or waiting only, no rows, nothing to approve. keepWrap / sealTo / wrapTarget take rootIsOwnAssistant (`pinCovers`): a space pin outside it, and an unpinned space as a target, are refused in every mode. A pin is [via, by] or [via, by, class]. KNOWN SPACES (`knownSpaces`, sorted endpoint ids in the store, absent = none): an endpoint ever served with a verifying space registration, any account's, is a space for good: a served row of it without that registration is skipped whole, and unpinned it is refused as a signer (`unpinned`) and as a target (`unapproved`) in every mode.",
     "registrationLabel": "exp-install-space-v1",
     "kind": "space",
     "kindByte": 5,
@@ -4167,6 +4167,19 @@
             null
           ]
         }
+      },
+      "knewSpace": {
+        "viewer": "A",
+        "joined": true,
+        "pins": {
+          "A": [
+            "self",
+            null
+          ]
+        },
+        "knownSpaces": [
+          "S"
+        ]
       }
     },
     "trustCases": [
@@ -5133,6 +5146,146 @@
         },
         "status": "trusted",
         "rows": []
+      },
+      {
+        "name": "a space once served is known for good",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          }
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": [],
+          "knownSpaces": [
+            "S"
+          ]
+        },
+        "status": "trusted",
+        "rows": [
+          {
+            "kind": "newInstall",
+            "key": "S"
+          }
+        ]
+      },
+      {
+        "name": "a known space served as an ordinary install: skipped whole, `approve` and all",
+        "before": {
+          "viewer": "A",
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "knownSpaces": [
+            "S"
+          ]
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S",
+            "registration": "none"
+          }
+        ],
+        "approvals": [
+          {
+            "kind": "root",
+            "subject": "A",
+            "approver": "A",
+            "signature": "MNYxKUjtV6XI4brhh2vrBJbzfVNKFMDuN9jg6fJ-F2bo40koybYmvzZwWHeZJPdGhrMp8UMQAMkUf9OmHbT-Aw"
+          },
+          {
+            "kind": "approve",
+            "subject": "S",
+            "approver": "A",
+            "signature": "npJviMAnjuK2diRckCEWjkWBi8yd0jS3Niq-vBGs48CVR3LxQtkUWnev2KuUapF6KrEhNmEVjpxCNh8ubszUAg"
+          }
+        ],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": [],
+          "knownSpaces": [
+            "S"
+          ]
+        },
+        "status": "trusted",
+        "rows": []
+      },
+      {
+        "name": "a known space served as an ordinary install is never adopted",
+        "before": {
+          "viewer": "A",
+          "joined": false,
+          "existing": true,
+          "pins": {},
+          "knownSpaces": [
+            "S"
+          ]
+        },
+        "installs": [
+          {
+            "key": "A"
+          },
+          {
+            "key": "S",
+            "registration": "none"
+          }
+        ],
+        "approvals": [],
+        "after": {
+          "joined": true,
+          "pins": {
+            "A": [
+              "self",
+              null
+            ]
+          },
+          "members": [],
+          "knownSpaces": [
+            "S"
+          ]
+        },
+        "status": "claimRoot",
+        "rows": []
       }
     ],
     "keepCases": [
@@ -5190,6 +5343,26 @@
         "now": {
           "keep": true,
           "record": "refused-would-be"
+        },
+        "mandatory": {
+          "keep": false,
+          "reason": "unpinned"
+        }
+      },
+      {
+        "name": "signed by a known space not pinned",
+        "store": "knewSpace",
+        "wrap": {
+          "rootId": "01234567-89ab-4def-8123-456789abcdef",
+          "epoch": 1,
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "keep": false,
+          "reason": "unpinned"
         },
         "mandatory": {
           "keep": false,
@@ -5261,6 +5434,29 @@
         "now": {
           "seal": true,
           "record": "refused-would-be"
+        },
+        "mandatory": {
+          "seal": false,
+          "reason": "unpinned"
+        }
+      },
+      {
+        "name": "vouched by a known space not pinned",
+        "store": "knewSpace",
+        "rootId": "01234567-89ab-4def-8123-456789abcdef",
+        "epoch": 1,
+        "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+        "held": null,
+        "vouch": {
+          "recipientEndpointId": "7776e870b93354f2a0b24c23f2a36cc4e80e223218c1b97926fdd018396a2b9b",
+          "wrapped": "AQejfLwUIJPIt1XcGxDobLQmN0rRaqhT7QvfwLK4bRx8hShxKhTCPPyZjA2TV_kNVv3foSgsFYtWq744V6HL2zrqAHsDI-3PZ4er4C0ajqJN",
+          "signature": "L8ASNJXKj-cEKeaE2cteFCbYUufQGT-9GoYxf0VoRx4CeXLyCUCP6j0XvWay8j1cDXf5jPi1v46X75MdtL3KCQ",
+          "signerEndpointId": "e7f162a10bec559afea195e4dce84b69568d5d2cb0963eb446c0685e2b17f2f0"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "seal": false,
+          "reason": "unpinned"
         },
         "mandatory": {
           "seal": false,
@@ -5347,6 +5543,23 @@
         "mandatory": {
           "wrap": true,
           "record": "verified"
+        }
+      },
+      {
+        "name": "a known space served as an ordinary install",
+        "store": "knewSpace",
+        "target": {
+          "key": "S",
+          "registration": "none"
+        },
+        "rootIsOwnAssistant": true,
+        "now": {
+          "wrap": false,
+          "reason": "unapproved"
+        },
+        "mandatory": {
+          "wrap": false,
+          "reason": "unapproved"
         }
       }
     ]

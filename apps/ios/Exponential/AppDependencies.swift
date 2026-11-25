@@ -300,14 +300,18 @@ final class AppDependencies: @unchecked Sendable {
                 persistence: trustPersistence,
                 identity: { identityStore.load() },
                 // #EXP-2161: the one root a member space takes part in.
-                ownAssistant: { accountId, rootId in
+                see: { accountId, rootId in
                     guard let me = auth.accounts.first(where: { $0.id == accountId })?.userId,
-                          let pool = try? db.pool(forAccountId: accountId) else { return false }
-                    return (try? pool.read { db in
-                        guard let root = try SessionEntity.fetchOne(db, key: rootId), root.parentId == nil, root.userId == me,
-                              let agentId = root.agentId, let agent = try AgentDefinitionEntity.fetchOne(db, key: agentId) else { return false }
-                        return agent.isAssistant && agent.ownerId == me
-                    }) ?? false
+                          let pool = try? db.pool(forAccountId: accountId) else { return .unknown }
+                    let sight = try? pool.read { db -> RootSight in
+                        guard let root = try SessionEntity.fetchOne(db, key: rootId) else { return .unknown }
+                        let agent = try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) }
+                        return sightOfRoot(
+                            parentId: root.parentId, userId: root.userId, agentId: root.agentId,
+                            agentIsOwnAssistant: agent.map { $0.isAssistant && $0.ownerId == me }, me: me
+                        )
+                    }
+                    return sight ?? .unknown
                 }
             )
         }
