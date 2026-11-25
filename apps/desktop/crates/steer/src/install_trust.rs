@@ -483,6 +483,19 @@ impl TrustKeeper {
         Ok(())
     }
 
+    /// #EXP-2161: the pinned ordinary installs of the own account as served
+    /// now, `(install id, X25519 key)`: whom a space makes a new chat's key for.
+    pub fn own_pinned_installs(&self) -> Vec<(String, String)> {
+        let state = lock(&self.state);
+        state
+            .store
+            .pins
+            .iter()
+            .filter(|(_, pin)| pin.user_id == state.store.user_id && pin.class == InstallClass::Install)
+            .filter_map(|(endpoint_id, pin)| Some((state.served.get(endpoint_id)?.install_id.clone(), pin.x25519_public.clone())))
+            .collect()
+    }
+
     // ── the rules, for the key holder ────────────────────────────────────
 
     fn log(&self, state: &mut State, rule: &'static str, subject: String, verdict: String) {

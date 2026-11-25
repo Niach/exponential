@@ -387,6 +387,35 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
     expect(await row(r.spaceId)).toBeTruthy()
   })
 
+  it(`a space makes the first key of a chat its Assistant starts, for the chat's readers alone, and reads none of it`, async () => {
+    const r = await running()
+    const inSpace = async <T>(run: () => Promise<T>) => runInSpace((await loadSpaceGrant(db, r.member, r.spaceId))!, run)
+    const chat = async (over: Record<string, unknown> = {}) => {
+      const { sessionId } = await as(r.member).sessions.send({ text: `c`, teamId: r.teamId, deviceId: r.laptop.deviceId } as never)
+      await db.update(sessions).set({ startedByAgentId: r.agentId, ...over }).where(eq(sessions.id, sessionId))
+      return sessionId
+    }
+    const first = (id: string, targets: Install[], epoch = 1) => inSpace(() => code(keyTree(r.member, r.install, id, targets, epoch)))
+    const id = await chat()
+    // Its own wrap is refused: it is no reader. Nor does anything else go through.
+    expect(await first(id, [r.install, r.phone])).toBe(`BAD_REQUEST`)
+    expect(await first(id, [])).toBe(`BAD_REQUEST`)
+    expect(await first(id, [r.phone])).toBe(`ok`)
+    expect((await session(id)).sealEpoch).toBe(1)
+    expect([...(await treeReaders(db, await session(id))).keys()]).not.toContain(r.install.installId)
+    expect(await first(id, [r.phone], 2)).toBe(`NOT_FOUND`)
+    // Not a chat it started, not one from before the pick, not outside a space's key.
+    expect(await first(await chat({ startedByAgentId: null }), [r.phone])).toBe(`NOT_FOUND`)
+    expect(await first(await chat({ createdAt: new Date(0) }), [r.phone])).toBe(`NOT_FOUND`)
+    expect(await code(keyTree(r.member, r.install, await chat(), [r.phone]))).toBe(`FORBIDDEN`)
+    // Until its member approves it: nothing.
+    const w = await running({ approve: false, key: false })
+    const { sessionId } = await as(w.member).sessions.send({ text: `c`, teamId: w.teamId, deviceId: w.laptop.deviceId } as never)
+    await db.update(sessions).set({ startedByAgentId: w.agentId }).where(eq(sessions.id, sessionId))
+    const grant = (await loadSpaceGrant(db, w.member, w.spaceId))!
+    expect(await runInSpace(grant, () => code(keyTree(w.member, w.install, sessionId, [w.phone])))).not.toBe(`ok`)
+  })
+
   it(`an unapproved space install is refused at every key path; approved, it reads its tree and no other`, async () => {
     const r = await running({ approve: false })
     const readers = async (id: string) => [...(await treeReaders(db, await session(id))).keys()]
