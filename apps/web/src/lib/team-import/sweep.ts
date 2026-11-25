@@ -6,6 +6,7 @@
 import { and, eq, inArray, lt } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments, teamImports, teams } from "@/db/schema"
+import { relayKillDeletedBestEffort, teamKillTargets } from "@/lib/sessions/lifecycle"
 import { deleteObject } from "@/lib/storage"
 import { TEAM_IMPORT_ABANDONED_AFTER_HOURS } from "@exp/domain-contract/team-import"
 
@@ -26,7 +27,12 @@ export async function sweepAbandonedTeamImports(now: Date = new Date()): Promise
       }
     }
     // The team cascades the import row and every landed attachment.
-    await db.delete(teams).where(eq(teams.id, imp.teamId))
+    const kills = await db.transaction(async (tx) => {
+      const targets = await teamKillTargets(tx, imp.teamId)
+      await tx.delete(teams).where(eq(teams.id, imp.teamId))
+      return targets
+    })
+    await relayKillDeletedBestEffort(kills)
   }
   return stale.length
 }

@@ -18,6 +18,7 @@ import {
   collectPlaceholderMemberIds,
   deletePlaceholdersIfOrphaned,
 } from "@/lib/placeholder-members"
+import { relayKillDeletedBestEffort, teamKillTargets, type KillTarget } from "@/lib/sessions/lifecycle"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { randomBytes } from "crypto"
@@ -289,6 +290,8 @@ export const teamsRouter = router({
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
       // the cascade never touches S3, so without this the blobs orphan.
       let storageKeys: string[] = []
+      // #EXP-2138: the team's sessions, read before the cascade drops them.
+      let kills: KillTarget[] = []
       // No last-team guard (EXP-188): deleting your only team is allowed —
       // nothing self-heals a replacement anymore, clients route the
       // team-less state back into onboarding.
@@ -300,12 +303,14 @@ export const teamsRouter = router({
         const placeholderIds = await collectPlaceholderMemberIds(tx, [
           input.teamId,
         ])
+        kills = await teamKillTargets(tx, input.teamId)
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
+      await relayKillDeletedBestEffort(kills)
 
       // No remote cancellation here — the gate above already proved there is
       // nothing live left to cancel (a scheduled cancellation keeps serving

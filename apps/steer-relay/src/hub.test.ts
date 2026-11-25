@@ -199,6 +199,9 @@ describe(`session control via the device's control socket`, () => {
 
     expect(hub.killSession(`sess-1`, device)).toBe(true)
     expect(desktop.lastFrame(`kill`)).toEqual({ t: `kill`, sessionId: `sess-1` })
+    // #EXP-2138: a delete's reason is passed on.
+    expect(hub.killSession(`sess-1`, device, `deleted`)).toBe(true)
+    expect(desktop.lastFrame(`kill`)).toEqual({ t: `kill`, sessionId: `sess-1`, reason: `deleted` })
     expect(hub.interruptSession(`sess-1`, device)).toBe(true)
     expect(desktop.lastFrame(`interrupt`)).toEqual({ t: `interrupt`, sessionId: `sess-1` })
     expect(other.frames()).toEqual([])

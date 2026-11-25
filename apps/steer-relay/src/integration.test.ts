@@ -211,6 +211,9 @@ describe(`steer relay end-to-end`, () => {
     expect(await kill.json()).toEqual({ ok: true, delivered: true })
     expect(await desktopIn.nextJson()).toEqual({ t: `kill`, sessionId: `sess-k` })
 
+    await admin(`/sessions/sess-k/kill`, { ...device, reason: `deleted` })
+    expect(await desktopIn.nextJson()).toEqual({ t: `kill`, sessionId: `sess-k`, reason: `deleted` })
+
     // Another device (or another owner) is not connected: not delivered.
     const offline = await admin(`/sessions/sess-k/kill`, { userId: `host-2`, deviceId: `dev-k` })
     expect(await offline.json()).toEqual({ ok: true, delivered: false })

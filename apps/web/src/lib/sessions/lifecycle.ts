@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import type { MessageCard } from "@exp/db-schema/domain"
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql, type SQL } from "drizzle-orm"
+import { KILL_REASON_DELETED } from "@exp/domain-contract/held-gone"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { agents, attachments, devices, messages, sessions, users, type Session } from "@/db/schema"
@@ -12,7 +13,7 @@ import { busListeners, busReport, closeAskMirrorsOf, forgetWatched, REPORT_REASO
 import { lockSessionRows, lockTreeRows } from "@/lib/sessions/locks"
 import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
-import type { Tx } from "@/lib/sessions/tx"
+import type { Db, Tx } from "@/lib/sessions/tx"
 import { treeIsKeyed } from "@/lib/sessions/send"
 import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
@@ -30,32 +31,65 @@ import { trainEdge } from "@/lib/merge-train/edge"
 // relay frames (down the device's control socket) only kill latency. What
 // stalls is the watchdog's business.
 
-/** Best-effort relay kills for rows already flipped to ended: each goes
- *  down the control socket of the session's device, under its host account
- *  (`sessionDeviceOwner`: the host row, else the starter), resolved for
- *  every id in ONE query. A row naming no device is skipped, and so is a
- *  CLI subagent row (#EXP-1731). */
-export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise<void> {
-  if (sessionIds.length === 0) return
-  const config = getSteerRelayConfig()
-  if (!config) return
-  const rows = await db
+/** One session's kill, as the relay routes it. */
+export interface KillTarget {
+  id: string
+  deviceId: string
+  hostUserId: string
+}
+
+/** The kills of these sessions: each goes down the control socket of the
+ *  session's device, under its host account (`sessionDeviceOwner`: the host
+ *  row, else the starter), resolved for every id in ONE query. A row naming
+ *  no device is skipped, and so is a CLI subagent row (#EXP-1731: no process
+ *  of its own, its parent's runs it). Live rows first. */
+async function killTargets(exec: Db, where: SQL): Promise<KillTarget[]> {
+  return exec
     .select({
       id: sessions.id,
       deviceId: sessions.deviceId,
       hostUserId: sql<string>`COALESCE((SELECT h.user_id FROM ${devices} h WHERE ${hostRowCondition(`h`)} LIMIT 1), ${sessions.userId})`,
     })
     .from(sessions)
-    // #EXP-1731: a CLI subagent has no process of its own to kill (its
-    // parent's runs it).
-    .where(and(inArray(sessions.id, sessionIds), isNull(sessions.subagentKey)))
-  await Promise.all(
-    rows
-      .filter((row) => row.deviceId)
-      .map((row) =>
-        relayPostKill(config, row.id, { userId: row.hostUserId, deviceId: row.deviceId })
-      )
-  )
+    .where(and(where, isNull(sessions.subagentKey), ne(sessions.deviceId, ``)))
+    .orderBy(sql`${sessions.status} = 'ended'`, desc(sessions.updatedAt))
+}
+
+/** #EXP-2138 (held-gone.json THE SIGNAL): a delete's kill targets, read in
+ *  its transaction BEFORE the rows go. */
+export const treeKillTargets = (tx: Db, rootIds: string[]): Promise<KillTarget[]> =>
+  rootIds.length === 0 ? Promise.resolve([]) : killTargets(tx, inArray(sessions.rootId, rootIds))
+export const teamKillTargets = (tx: Db, teamId: string): Promise<KillTarget[]> =>
+  killTargets(tx, eq(sessions.teamId, teamId))
+
+/** Kills sent at once, and how long a whole fan-out may take. */
+const KILL_CHUNK = 25
+const KILL_FAN_OUT_MS = 10_000
+
+async function relayKills(targets: readonly KillTarget[], reason?: string): Promise<void> {
+  const config = getSteerRelayConfig()
+  if (!config) return
+  const until = Date.now() + KILL_FAN_OUT_MS
+  for (let i = 0; i < targets.length && Date.now() < until; i += KILL_CHUNK) {
+    await Promise.all(
+      targets
+        .slice(i, i + KILL_CHUNK)
+        .map((row) => relayPostKill(config, row.id, { userId: row.hostUserId, deviceId: row.deviceId }, undefined, reason))
+    )
+  }
+}
+
+/** Best-effort relay kills for rows already flipped to ended. */
+export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0 || !getSteerRelayConfig()) return
+  await relayKills(await killTargets(db, inArray(sessions.id, sessionIds)))
+}
+
+/** #EXP-2138: tell the devices their sessions were DELETED (after commit):
+ *  each ends what it runs and asks `sessions.heldGone` before it removes
+ *  anything. Best-effort, a missed one is the device's 24 h rule. */
+export async function relayKillDeletedBestEffort(targets: readonly KillTarget[]): Promise<void> {
+  await relayKills(targets, KILL_REASON_DELETED)
 }
 
 type TreeRow = Pick<Session, `id` | `parentId` | `depth` | `agentId`>
@@ -346,7 +380,7 @@ export async function deleteSession(args: { userId: string; sessionId: string })
     const txid = await generateTxId(tx)
     // #ERR-5: the whole tree, ancestors first, before its first write.
     await lockTreeRows(tx, session.id)
-    const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session))
+    await endRowsInTx(tx, await liveSubtree(tx, session))
     const tree = await tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, session.id))
     await forgetWatched(tx, tree.map((row) => row.id))
     await closeAskMirrorsOf(tx, tree.map((row) => row.id))
@@ -359,10 +393,11 @@ export async function deleteSession(args: { userId: string; sessionId: string })
           tx.select({ id: messages.id }).from(messages).where(eq(messages.rootId, session.id))
         )
       )
+    const kills = await treeKillTargets(tx, [session.id])
     await tx.delete(sessions).where(eq(sessions.id, session.id))
-    return { txid, endedIds }
+    return { txid, kills }
   })
-  await relayKillSessionsBestEffort(result.endedIds)
+  await relayKillDeletedBestEffort(result.kills)
   return { txid: result.txid }
 }
 

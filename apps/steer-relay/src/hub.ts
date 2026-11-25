@@ -679,11 +679,12 @@ export class Hub {
 
   /** Server-side kill (every end the server makes): `kill {sessionId}` down
    *  the control socket of the device running the session. The DB row flip
-   *  the device watches is the durable path; this only cuts its latency. */
-  killSession(sessionId: string, device: DeviceRef): boolean {
+   *  the device watches is the durable path; this only cuts its latency.
+   *  #EXP-2138: `reason` (held-gone.json) is passed on as it is. */
+  killSession(sessionId: string, device: DeviceRef, reason?: string): boolean {
     const control = this.controlFor(device)
     if (!control) return false
-    control.sock.send(frame({ t: `kill`, sessionId }))
+    control.sock.send(frame({ t: `kill`, sessionId, ...(reason ? { reason } : {}) }))
     return true
   }
 

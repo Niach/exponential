@@ -195,10 +195,17 @@ async function readDeviceBody(c: {
 
 // Server-side kill (every end the server makes; the DB row flip is the
 // durable path). 200 with delivered=false when the device is not connected.
+const KILL_REASON_MAX_CHARS = 32
+
 app.post(`/sessions/:id/kill`, async (c) => {
   const parsed = await readDeviceBody(c)
   if (!parsed) return c.json({ error: `Bad request` }, 400)
-  const delivered = hub.killSession(c.req.param(`id`), parsed.device)
+  const { reason } = parsed.body
+  const delivered = hub.killSession(
+    c.req.param(`id`),
+    parsed.device,
+    typeof reason === `string` && reason.length <= KILL_REASON_MAX_CHARS ? reason : undefined
+  )
   return c.json({ ok: true, delivered })
 })
 

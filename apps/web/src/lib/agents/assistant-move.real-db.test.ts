@@ -74,6 +74,7 @@ if (!ready.ok) console.info(`[assistant-move.real-db] skipped: ${ready.reason}`)
 
 const { treeReaders } = await import(`@/lib/sessions/tree-keys`)
 const { sessionVisibleTo, loadSessionForUser } = await import(`@/lib/sessions/access`)
+const { heldGone } = await import(`@/lib/sessions/held-gone`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assistant`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
@@ -291,6 +292,8 @@ describe.skipIf(!ready.ok)(`the Assistant move's migration (#EXP-1986, #EXP-1989
       // The other conversation ended, detached, still in its team.
       const [other] = await tx.select().from(sessions).where(eq(sessions.id, rB))
       expect(other).toMatchObject({ teamId: teamB, status: `ended`, agentId: null })
+      // #EXP-2138 (held-gone.json): a device keeps what it holds of both.
+      expect(await heldGone(me, [rA, rB], tx)).toEqual([])
       // References moved to the kept one.
       const [moved] = await tx.select().from(issues).where(eq(issues.id, issue!.id))
       expect(moved).toMatchObject({ assigneeAgentId: asA.id, creatorAgentId: asA.id })

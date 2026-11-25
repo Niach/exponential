@@ -34,7 +34,7 @@ import { assertTeamMember, assertTeamOwner, getTeamMember, getUserTeamIds } from
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import { restampTreesInTx } from "@/lib/agents/group-chat"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
+import { relayKillDeletedBestEffort, treeKillTargets } from "@/lib/sessions/lifecycle"
 import {
   assertMcpServersInTeam,
   assertRunnerVocabulary,
@@ -644,9 +644,7 @@ export const agentsRouter = router({
     const result = await ctx.db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
       const roots = await conversationIds(tx, agent.id)
-      const tree = roots.length
-        ? await tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, roots))
-        : []
+      const kills = await treeKillTargets(tx, roots)
       if (roots.length > 0) {
         // Message files go back to owner-less uploads (the orphan sweep
         // reclaims their blobs) before the cascade drops the messages.
@@ -661,9 +659,9 @@ export const agentsRouter = router({
           )
       }
       await tx.delete(agents).where(eq(agents.id, agent.id))
-      return { txid, ids: tree.map((row) => row.id) }
+      return { txid, kills }
     })
-    await relayKillSessionsBestEffort(result.ids)
+    await relayKillDeletedBestEffort(result.kills)
     return { txid: result.txid }
   }),
 })

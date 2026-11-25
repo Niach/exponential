@@ -51,7 +51,12 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
-import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
+import {
+  relayKillDeletedBestEffort,
+  relayKillSessionsBestEffort,
+  teamKillTargets,
+  type KillTarget,
+} from "@/lib/sessions/lifecycle"
 import { dropAccountKeysInTx } from "@/lib/sessions/tree-keys"
 import {
   captureOAuthTokens,
@@ -1133,6 +1138,8 @@ export const adminRouter = router({
       // Collected inside the tx BEFORE the cascade drops the attachment rows;
       // the cascade never touches S3, so without this the blobs orphan.
       let storageKeys: string[] = []
+      // #EXP-2138: the team's sessions, read before the cascade drops them.
+      let kills: KillTarget[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
@@ -1140,12 +1147,14 @@ export const adminRouter = router({
         const placeholderIds = await collectPlaceholderMemberIds(tx, [
           input.teamId,
         ])
+        kills = await teamKillTargets(tx, input.teamId)
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
+      await relayKillDeletedBestEffort(kills)
 
       // No remote cancellation here: the gate above already proved the
       // subscription is cancelled (or scheduled to cancel, in which case the

@@ -1,4 +1,5 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { HELD_GONE_BATCH } from "@exp/domain-contract/held-gone"
 import { isGroupChat } from "@/lib/agents/group-chat"
 import { titleLine } from "@exp/domain-contract/session-title"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
@@ -42,6 +43,8 @@ import {
   assertDeviceHost,
   loadSessionForUser,
 } from "@/lib/sessions/access"
+import { isApiKeySession } from "@/lib/auth/api-key-kind"
+import { heldGone } from "@/lib/sessions/held-gone"
 import { composeSessionBrief, stampAgentInstructionsAt } from "@/lib/sessions/brief"
 import {
   handOffOutcomeValues,
@@ -486,6 +489,19 @@ export const sessionsRouter = router({
     .mutation(({ ctx, input }): Promise<{ txid: number }> =>
       deleteSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
     ),
+
+  /** #EXP-2138 (held-gone.json SERVER): a device asks which of the sessions
+   *  it holds something of are gone for this account. A person's login only
+   *  (FORBIDDEN, never a 401: that signs a device out). A mutation for its
+   *  body: 500 ids do not fit a URL. */
+  heldGone: authedProcedure
+    .input(z.object({ ids: z.array(uuid).max(HELD_GONE_BATCH) }))
+    .mutation(async ({ ctx, input }): Promise<{ gone: string[] }> => {
+      if (ctx.viaMcp || (await isApiKeySession(ctx.db, ctx.session))) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: `Only a signed-in device can ask this` })
+      }
+      return { gone: await heldGone(ctx.session.user.id, input.ids, ctx.db) }
+    }),
 
   /** Link issues to a session (NEW-1: the rows sit on the session that
    *  holds them; the chat header's "+" names the root). */
