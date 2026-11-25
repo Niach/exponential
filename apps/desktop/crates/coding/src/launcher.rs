@@ -2365,7 +2365,7 @@ fn prepare_session(
             }
         }
         // Repo-less: a scratch dir meant to hold only the launcher's
-        // sidecars — purged whole with the session (EXP-764). No git, no
+        // sidecars — it goes with the run (EXP-764). No git, no
         // token, no launch hold.
         None => scratch_cwd(deps, row)?,
     };

@@ -7,10 +7,16 @@
 //! marker, steered images. Nothing enforces that — an
 //! agent may well write a `report.md` there — which is why EXP-764 settled
 //! the question the blunt way: **scratch means scratch.** When a repo-less
-//! run ends, EVERYTHING local about it goes at once — the directory, its run
-//! record (`run_registry`) and its agent trust entries;
-//! the hosts drop the steer journal beside it, and the runbook tells the
-//! agent to put deliverables on the issue or in a PR, never in cwd.
+//! run ends its directory and its agent trust entries go, and the runbook
+//! tells the agent to put deliverables on the issue or in a PR, never in cwd.
+//!
+//! #EXP-2138 (Danny, 2026-11-25, replaces EXP-764's "everything local goes"):
+//! the run's HISTORY stays: its run record (`run_registry`, what a message to
+//! the ended chat resumes from, FEED-134) and its steer journal (its
+//! transcript), exactly like a repo-backed run's, until the machine's "Keep
+//! session history" window drops them ([`crate::session_retention`]). Only a
+//! run whose session is GONE (its row deleted: the chat, its agent, its team)
+//! takes its history along.
 //!
 //! EXP-1292: a team AGENT never ends — its channel idles and wakes on the
 //! next message or trigger firing, re-spawning natively in the SAME dir — so
@@ -21,9 +27,10 @@
 //! - [`purge`] — one run that just ended (the host knows its cwd).
 //! - [`sweep`] — the startup pass over everything under the root: crashes,
 //!   launches that failed after the dir was created, dirs an older build
-//!   left behind, one-shot `exponential run`s — plus the records of repo-less
-//!   runs whose dir is already gone. Live runs are protected by the ids the
-//!   host passes (its own in-process set plus the pid-owned entries of the
+//!   left behind, one-shot `exponential run`s. It never touches a record or
+//!   a journal. Runs that are not over are protected by the ids the
+//!   host passes (its own in-process set, the synced rows of this device that
+//!   have not ended, plus the pid-owned entries of the
 //!   shared session registry, mapped to cwds through the run registry —
 //!   REV-20: desktop and daemon share one data dir, and neither may delete
 //!   the other's live chat) and by a [`GRACE`] age floor covering the
@@ -98,11 +105,12 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
     reclaim_dir(data_dir, cwd, requested_at) == DirOutcome::Removed
 }
 
-/// EXP-764: purge ONE ended repo-less run — its scratch dir and trust entries
-/// ([`reclaim`]), then its run record. Returns whether
-/// the run's local state went; `false` (nothing touched, record included) when
-/// `cwd` is not a scratch dir or a resume re-entered it. The hosts drop the
-/// steer journal on `true`; it lives in the steer crate, above this one.
+/// EXP-764: purge ONE ended repo-less run: its scratch dir and trust entries
+/// ([`reclaim`]). Returns whether its HISTORY goes too (#EXP-2138): only when
+/// the session is gone (`keep_history` false), then its run record went here
+/// and the host drops the steer journal (it lives in the steer crate, above
+/// this one). `false` = the record stays; nothing at all was touched when
+/// `cwd` is not a scratch dir or a resume re-entered it.
 ///
 /// `requested_at` is the moment the run was seen to END, not the moment this
 /// runs: both hosts queue the purge (the desktop onto its background
@@ -110,7 +118,7 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
 /// racing that window re-enters the SAME recorded cwd and [`touch`]es it, so
 /// anything newer than the request means the dir is live again and must not
 /// be deleted under its fresh `.exp-mcp.json`.
-pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime) -> bool {
+pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime, keep_history: bool) -> bool {
     // EXP-1330: a `/btw` aside ran in its PARENT's dir — only its record goes.
     if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside()) {
         crate::run_registry::remove(data_dir, session_id);
@@ -123,6 +131,9 @@ pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: System
         // thing that will come back and try again.
         DirOutcome::NotScratch | DirOutcome::ReEntered | DirOutcome::Failed => return false,
         DirOutcome::Removed | DirOutcome::Gone => {}
+    }
+    if keep_history {
+        return false;
     }
     crate::run_registry::remove(data_dir, session_id);
     true
@@ -188,24 +199,19 @@ pub struct SweepReport {
     pub kept_young: usize,
     /// Claude `projects` entries dropped for dirs that no longer exist.
     pub trust_dropped: usize,
-    /// EXP-764: the session ids of repo-less runs whose record went because
-    /// their scratch dir is gone — removed by
-    /// this pass, or earlier. The host drops their steer journals.
-    pub purged: Vec<String>,
 }
 
 impl SweepReport {
     pub fn is_noop(&self) -> bool {
-        self.removed.is_empty() && self.trust_dropped == 0 && self.purged.is_empty()
+        self.removed.is_empty() && self.trust_dropped == 0
     }
 }
 
 /// The startup pass: every run dir under the root that no live session owns
 /// and that is older than [`GRACE`] is removed, emptied root dirs go with
 /// them, and every claude trust entry under the root whose dir is gone is
-/// dropped. EXP-764: then every run record that names a scratch cwd which no
-/// longer stands (and is not live) goes too — a repo-less run without its dir
-/// is a purged run, whichever build or crash took the dir. `live_session_ids`
+/// dropped. #EXP-2138: run records stay (a
+/// record whose dir is gone resumes in a re-made one). `live_session_ids`
 /// are the sessions the host knows to be running — its own, plus the ones
 /// the shared session registry attributes to a live sibling process; their
 /// recorded cwds are the keep set.
@@ -248,26 +254,7 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> SweepReport {
         let _ = std::fs::remove_dir(&root_dir);
     }
     report.trust_dropped = crate::claude_trust::forget_missing_under(&root);
-    report.purged = purge_dirless_records(data_dir, live_session_ids);
     report
-}
-
-/// The records of repo-less runs whose scratch dir is gone, dropped in one
-/// rewrite. Unknown (newer-build) entries are not ours to judge and stay.
-fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<String> {
-    let purged: Vec<String> = crate::run_registry::all(data_dir)
-        .into_iter()
-        .filter(|record| {
-            record.clone.is_none()
-                && !record.kind.is_persistent()
-                && is_scratch_dir(data_dir, &record.cwd)
-                && !record.cwd.is_dir()
-                && !live_session_ids.contains(&record.session_id)
-        })
-        .map(|record| record.session_id)
-        .collect();
-    crate::run_registry::remove_many(data_dir, &purged);
-    purged
 }
 
 /// The recorded cwds of the live sessions, raw and canonical, so a keep
@@ -375,11 +362,11 @@ mod tests {
     fn reclaim_removes_the_run_dir_and_its_emptied_root_dir() {
         let dir = temp_dir("scratch-reclaim");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
-        assert!(reclaim(&dir.0, &run, SystemTime::now()));
+        assert!(reclaim(&dir.0, &run, SystemTime::now(), false));
         assert!(!run.exists());
         assert!(!run.parent().unwrap().exists(), "the empty root dir goes too");
         // Already gone: a no-op, not an error.
-        assert!(!reclaim(&dir.0, &run, SystemTime::now()));
+        assert!(!reclaim(&dir.0, &run, SystemTime::now(), false));
     }
 
     #[test]
@@ -387,7 +374,7 @@ mod tests {
         let dir = temp_dir("scratch-reclaim-sibling");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let sibling = scratch(&dir.0, "root-1", "ffffffff");
-        assert!(reclaim(&dir.0, &run, SystemTime::now()));
+        assert!(reclaim(&dir.0, &run, SystemTime::now(), false));
         assert!(!run.exists());
         assert!(sibling.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
@@ -399,8 +386,8 @@ mod tests {
         crate::run_registry::record(data_dir, record);
     }
 
-    /// EXP-764: the whole run goes — dir and record — and the root dir with
-    /// it once empty.
+    /// A gone session's run goes whole — dir and record — and the root dir
+    /// with it once empty.
     #[test]
     fn purge_removes_dir_and_record() {
         let dir = temp_dir("scratch-purge");
@@ -410,14 +397,30 @@ mod tests {
         record.clone = None;
         crate::run_registry::record(&dir.0, record);
 
-        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
+        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now(), false));
         assert!(!run.exists());
         assert!(!run.parent().unwrap().exists());
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
         // A second pass (the dir already gone) still settles the record.
         scratch_record(&dir.0, "sess-1", &run);
-        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
+        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now(), false));
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+    }
+
+    /// #EXP-2138: an ended chat's dir goes, its record stays (the host keeps
+    /// the journal), however often it is purged.
+    #[test]
+    fn purge_keeps_an_ended_chats_record() {
+        let dir = temp_dir("scratch-purge-history");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
+        scratch_record(&dir.0, "sess-1", &run);
+        for _ in 0..2 {
+            assert!(!purge(&dir.0, "sess-1", &run, SystemTime::now(), true));
+            assert!(!run.exists());
+            assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
+        }
+        assert!(sweep(&dir.0, &[]).is_noop());
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
     }
 
     /// EXP-1330: an aside ran in its parent's scratch dir — its end drops
@@ -433,7 +436,7 @@ mod tests {
         aside.set_aside_of("parent");
         crate::run_registry::record(&dir.0, aside);
 
-        assert!(purge(&dir.0, "aside", &run, SystemTime::now()));
+        assert!(purge(&dir.0, "aside", &run, SystemTime::now(), false));
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         assert!(crate::run_registry::get(&dir.0, "aside").is_none());
         assert!(crate::run_registry::get(&dir.0, "parent").is_some());
@@ -447,13 +450,13 @@ mod tests {
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         scratch_record(&dir.0, "sess-1", &run);
         let requested_at = SystemTime::now() - Duration::from_secs(5);
-        assert!(!purge(&dir.0, "sess-1", &run, requested_at));
+        assert!(!purge(&dir.0, "sess-1", &run, requested_at, false));
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
         // And a foreign cwd never costs a record either.
         let foreign = dir.0.join("worktree");
         std::fs::create_dir_all(&foreign).unwrap();
-        assert!(!purge(&dir.0, "sess-1", &foreign, SystemTime::now()));
+        assert!(!purge(&dir.0, "sess-1", &foreign, SystemTime::now(), false));
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
     }
 
@@ -474,7 +477,7 @@ mod tests {
         let root_dir = run.parent().unwrap().to_path_buf();
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
 
-        let purged = purge(&dir.0, "sess-1", &run, SystemTime::now());
+        let purged = purge(&dir.0, "sess-1", &run, SystemTime::now(), false);
 
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!purged, "an unremovable dir is not a purged run");
@@ -485,7 +488,7 @@ mod tests {
         );
         // And `reclaim` says the same thing to its own callers.
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
-        let reclaimed = reclaim(&dir.0, &run, SystemTime::now());
+        let reclaimed = reclaim(&dir.0, &run, SystemTime::now(), false);
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!reclaimed);
     }
@@ -499,11 +502,11 @@ mod tests {
         let dir = temp_dir("scratch-reclaim-resumed");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let requested_at = SystemTime::now() - Duration::from_secs(5);
-        assert!(!reclaim(&dir.0, &run, requested_at));
+        assert!(!reclaim(&dir.0, &run, requested_at, false));
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         // Untouched since the run ended, it goes on the next pass.
         age(&run, OLD);
-        assert!(reclaim(&dir.0, &run, requested_at));
+        assert!(reclaim(&dir.0, &run, requested_at, false));
         assert!(!run.exists());
     }
 
@@ -516,7 +519,7 @@ mod tests {
         std::fs::create_dir_all(&foreign).unwrap();
         assert!(!reclaim(&dir.0, &root_dir, SystemTime::now()));
         assert!(!reclaim(&dir.0, &scratch_root(&dir.0), SystemTime::now()));
-        assert!(!reclaim(&dir.0, &foreign, SystemTime::now()));
+        assert!(!reclaim(&dir.0, &foreign, SystemTime::now(), false));
         assert!(run.exists());
         assert!(foreign.exists());
     }
@@ -573,34 +576,20 @@ mod tests {
         assert_eq!(report.kept_live, 1);
         assert!(live.exists());
         assert!(!ended.exists());
-        // EXP-764: the ended run's RECORD goes with its dir; the live one stays.
-        assert_eq!(report.purged, vec!["sess-ended".to_string()]);
-        assert!(crate::run_registry::get(&dir.0, "sess-ended").is_none());
+        // #EXP-2138: both RECORDS stay.
+        assert!(crate::run_registry::get(&dir.0, "sess-ended").is_some());
         assert!(crate::run_registry::get(&dir.0, "sess-live").is_some());
     }
 
-    /// EXP-764: a record whose scratch dir is ALREADY gone (an older build's
-    /// sweep, a crash) is a purged run too — unless it is live, or names a
-    /// worktree rather than a scratch dir.
+    /// #EXP-2138: a record whose scratch dir is already gone stays, its
+    /// session live or not (a resume re-makes the dir).
     #[test]
-    fn sweep_purges_records_of_already_gone_scratch_dirs() {
+    fn sweep_keeps_records_of_already_gone_scratch_dirs() {
         let dir = temp_dir("scratch-sweep-dirless");
         let gone = scratch_root(&dir.0).join("root-1").join("aaaaaaaa");
         scratch_record(&dir.0, "sess-gone", &gone);
-        let gone_live = scratch_root(&dir.0).join("root-1").join("bbbbbbbb");
-        scratch_record(&dir.0, "sess-live", &gone_live);
-        let mut worktree = crate::run_registry::sample_record("sess-wt");
-        worktree.cwd = dir.0.join("repo.worktrees").join("exp-EXP-1");
-        worktree.clone = Some(dir.0.join("repo"));
-        crate::run_registry::record(&dir.0, worktree);
-
-        let report = sweep(&dir.0, &["sess-live".to_string()]);
-        assert!(report.removed.is_empty());
-        assert_eq!(report.purged, vec!["sess-gone".to_string()]);
-        assert!(!report.is_noop());
-        assert!(crate::run_registry::get(&dir.0, "sess-gone").is_none());
-        assert!(crate::run_registry::get(&dir.0, "sess-live").is_some());
-        assert!(crate::run_registry::get(&dir.0, "sess-wt").is_some());
+        assert!(sweep(&dir.0, &[]).is_noop());
+        assert!(crate::run_registry::get(&dir.0, "sess-gone").is_some());
     }
 
     /// A record a NEWER build wrote, which this one cannot parse, still names
@@ -646,7 +635,6 @@ mod tests {
         let report = sweep(&dir.0, &[]);
         assert!(report.removed.is_empty(), "{report:?}");
         assert_eq!(report.kept_live, 1);
-        assert!(report.purged.is_empty(), "{report:?}");
         assert!(channel.exists());
         assert!(crate::run_registry::get(&dir.0, "agent-2").is_some());
     }

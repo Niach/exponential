@@ -802,8 +802,8 @@ pub(crate) fn is_state_slot(event: &ActivityEvent) -> bool {
     slot_of(event).is_some() || matches!(event, ActivityEvent::Workflow(_))
 }
 
-/// EXP-764: drop ONE session's journal — the hosts call it when a repo-less
-/// run is purged whole. Returns whether a file went; a missing file is not
+/// EXP-764: drop ONE session's journal — the hosts call it when an ended
+/// run's session is gone (#EXP-2138). Returns whether a file went; a missing file is not
 /// an error, anything else is logged. The writer keeps one open append
 /// handle, so unlinking after the run ended never loses it a write.
 pub fn remove_journal(data_dir: &Path, session_id: &str) -> bool {
