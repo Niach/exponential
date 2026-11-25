@@ -23,7 +23,7 @@ import { rowBadge } from "@exp/domain-contract/nav-badges"
 import { Badge } from "./badge"
 import { AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-brand-mark"
 import { BoardGlyph } from "./board-glyph"
-import { getAppIcon } from "./board-icons"
+import { agentGlyph, getAppIcon } from "./board-icons"
 import { ExponentialLogo } from "./exponential-logo"
 import { CHECKBOX_CLASSES } from "@exponential_app/eui/web/primitives"
 import { cn } from "./cn"
@@ -106,7 +106,7 @@ export function AgentAvatar({
       />
     )
   }
-  return <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={className} />
+  return <BoardGlyph board={agentGlyph(agent)} className={className} />
 }
 
 /** #EXP-1388 (owner on #1286): the touch selection mark on the disc's

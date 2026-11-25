@@ -5,7 +5,8 @@ import { rowBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import {
   Badge,
   ExponentialLogo,
-  getActionIcon,
+  agentGlyph,
+  BoardGlyph,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuTrailing,
@@ -41,8 +42,7 @@ export function AgentIcon({
       <ExponentialLogo variant="light" className={cn(`size-4 shrink-0 text-foreground`, className)} />
     )
   }
-  const Icon = getActionIcon({ icon: agent.icon })
-  return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
+  return <BoardGlyph board={agentGlyph(agent)} className={className} />
 }
 
 /** #FEED-232: each agent row's count badge (`rowBadge` over the viewer's

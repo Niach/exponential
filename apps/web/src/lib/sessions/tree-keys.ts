@@ -269,6 +269,14 @@ export async function createTreeKeyInTx(
       ...signed[at],
     })
   }
+  // #EXP-2119 (`rotation` OLDER EPOCHS): the superseded epoch keeps its
+  // public key on its wraps, so a holder can still hand it to a new install.
+  if (root.sealEpoch !== null) {
+    await tx
+      .update(sessionKeys)
+      .set({ treePublicKey: root.sealPublicKey })
+      .where(and(eq(sessionKeys.rootId, root.id), eq(sessionKeys.epoch, root.sealEpoch)))
+  }
   await tx
     .update(sessions)
     // A rotation supersedes the epoch a dropped reader flagged (#FEED-177, #EXP-1951).

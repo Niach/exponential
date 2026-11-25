@@ -60,7 +60,7 @@ export type MineRow = { rootId: string; epoch: number; wrapped: string; signatur
 /** tRPC `sessionKeys` (lib/trpc/session-keys.ts). */
 export type SessionKeysApi = {
   mine: (input: { installId: string; rootIds?: string[] }) => Promise<MineRow[]>
-  pending: (input: { installId: string; limit?: number }) => Promise<PendingPair[]>
+  pending: (input: { installId: string; limit?: number; olderEpochs?: boolean }) => Promise<PendingPair[]>
   wrap: (input: {
     installId: string
     wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string }>
@@ -90,6 +90,9 @@ export class KeyHolder {
   private listeners = new Set<() => void>()
   private asked = new Map<string, number>()
   private queued = new Set<string>()
+  /** #EXP-2119: what did not open yet: a row is not drawn again by itself, so
+   *  its wrap, made after it asked, is fetched by the next pass. */
+  private unopened = new Map<string, { rootId: string; epoch: number }>()
   private flushing: Promise<void> | undefined
   private stopped = false
   /** #EXP-1951: rotations the server refused this install, `root\nepoch`. */
@@ -227,6 +230,7 @@ export class KeyHolder {
     const last = this.asked.get(rootId)
     if (last !== undefined && now - last < MISSING_RETRY_MS) return
     this.asked.set(rootId, now)
+    if (epoch !== null) this.unopened.set(`${rootId}\n${epoch}`, { rootId, epoch })
     this.queued.add(rootId)
     this.flushing ??= Promise.resolve().then(async () => {
       const rootIds = [...this.queued]
@@ -236,23 +240,26 @@ export class KeyHolder {
     })
   }
 
-  /** As a holder: wraps every pending reader of a tree whose current key
-   *  this install holds. */
+  /** As a holder: wraps every pending reader of an epoch this install holds
+   *  (#EXP-2119: superseded ones too). */
   async answerPending(): Promise<number> {
     let written = 0
     for (let round = 0; round < PENDING_ROUNDS && !this.stopped; round++) {
-      const pairs = await this.deps.api.pending({ installId: this.installId, limit: PENDING_LIMIT })
+      const pairs = await this.deps.api.pending({ installId: this.installId, limit: PENDING_LIMIT, olderEpochs: true })
       const wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string }> = []
       for (const pair of pairs) {
         const secret = this.keys.get(pair.rootId)?.get(pair.epoch)
-        // Only for the key the root really carries.
-        if (!secret || treeKeyFromSecret(secret).publicKey !== pair.publicKey) continue
+        if (!secret) continue
+        // Only for the key the epoch really has; #EXP-2119: an empty one is a
+        // superseded epoch the server knows no key of (the held secret).
+        const { publicKey } = treeKeyFromSecret(secret)
+        if (pair.publicKey !== `` && publicKey !== pair.publicKey) continue
         // R4: never for a target that is not pinned (and asked) or whose key is not the pinned one.
         const verdict = this.deps.trust?.target({ installId: pair.targetInstallId, x25519Public: pair.targetX25519Public, endpointId: pair.targetEndpointId })
         if (verdict && !verdict.wrap) continue
         try {
           const wrapped = wrapTreeKey(pair.targetX25519Public, secret)
-          const signature = this.sign(pair, pair.targetEndpointId, wrapped)
+          const signature = this.sign({ ...pair, publicKey }, pair.targetEndpointId, wrapped)
           wraps.push({
             rootId: pair.rootId,
             epoch: pair.epoch,
@@ -341,10 +348,12 @@ export class KeyHolder {
     return rotated
   }
 
-  /** One holder pass: the rotations that are due, then the pending wraps
+  /** One holder pass: the wraps still missing here, the rotations that are due, then the pending wraps
    *  (the new epochs' readers among them). */
   async pass(): Promise<void> {
     await this.deps.trust?.sync().catch(() => {})
+    for (const [key, want] of this.unopened) if (this.keys.get(want.rootId)?.has(want.epoch)) this.unopened.delete(key)
+    if (this.unopened.size > 0) await this.refresh().catch(() => {})
     await this.rotateDue().catch(() => {})
     await this.answerPending()
     await this.resignPending().catch(() => {})

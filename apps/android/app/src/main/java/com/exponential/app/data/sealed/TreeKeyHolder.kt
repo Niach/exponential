@@ -47,8 +47,8 @@ interface HolderApi {
  * 2. `due` (#EXP-1951, `rotation`): a root whose rotation is due (a reader
  *    was dropped) and whose current secret this install holds gets a fresh
  *    key at the next epoch, wrapped for THIS install only.
- * 3. `pending`: every reader still missing the current epoch's wrap on a
- *    tree this install holds gets one (`wrap`), automatically, no approval:
+ * 3. `pending`: every reader still missing the wrap of an epoch this install
+ *    holds (the current one; #EXP-2119: an older one too) gets one (`wrap`), automatically, no approval:
  *    the server lists readers and nobody else.
  * 4. #EXP-1950 (wrap-signature.json): every wrap this holder MAKES carries the
  *    install's signature ([identity] through [signer]): a rotation's own
@@ -239,7 +239,10 @@ class TreeKeyHolder(
         return rotated
     }
 
-    /** Wraps the current epoch for every reader `pending` lists (batches of its limit). */
+    private fun heldPublic(rootId: String, epoch: Int, secret: ByteArray): String? =
+        identity?.let { id -> signer?.treePublicKey(id, installSecret, rootId, epoch, secret) }
+
+    /** Wraps every pair `pending` lists (batches of its limit): the held secret of exactly (root, epoch), not held = skipped. */
     internal suspend fun answerPending() {
         val held = vault.all(accountId)
         val pairs = api.pending(installId)
@@ -250,8 +253,10 @@ class TreeKeyHolder(
             val wrapped = runCatching { crypto.wrapTreeKey(pair.targetX25519Public, secret) }.getOrNull() ?: return@mapNotNull null
             // #EXP-1950: signed over the key this install HOLDS; a root whose
             // stored key is another goes unsigned (the server would refuse the batch).
-            val signature = if (endpointId != null && pair.targetEndpointId != null && opens(secret, pair.publicKey, pair.epoch)) {
-                sign(pair.rootId, pair.epoch, pair.publicKey, pair.targetEndpointId, wrapped)
+            // #EXP-2119: an older epoch the server knows no key of names the held secret's own.
+            val publicKey = pair.publicKey.ifEmpty { heldPublic(pair.rootId, pair.epoch, secret) }
+            val signature = if (endpointId != null && pair.targetEndpointId != null && publicKey != null && opens(secret, publicKey, pair.epoch)) {
+                sign(pair.rootId, pair.epoch, publicKey, pair.targetEndpointId, wrapped)
             } else {
                 null
             }

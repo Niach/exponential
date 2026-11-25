@@ -1216,6 +1216,7 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 // S-3: an inter-session link pushes that session.
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+                onOpenAgentHome = { navController.selectTab(MainTabs.ASSISTANT, tabSwitch, restore = false) },
             )
         }
         composable(
@@ -1250,6 +1251,7 @@ private fun AuthenticatedNav(
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
                 // #EXP-1849: an app's root opens as the app, replacing this entry.
                 onOpenApp = { id -> navController.replaceWith(Routes.app(id)) },
+                onOpenAgentHome = { navController.selectTab(MainTabs.ASSISTANT, tabSwitch, restore = false) },
             )
         }
         // #EXP-1987: Settings › Assistant (the account page).

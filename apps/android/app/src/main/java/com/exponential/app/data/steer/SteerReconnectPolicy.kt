@@ -143,7 +143,10 @@ fun steerNoFeedState(
     busy: Boolean,
     deviceOffline: Boolean = false,
     started: Boolean = true,
+    /** #EXP-2119: its device is ONLINE in presence (unknown = false): an ended row has no transcript there. */
+    deviceOnline: Boolean = false,
 ): SteerNoFeedState = when {
+    ended && deviceOnline -> SteerNoFeedState.Idle
     ended -> SteerNoFeedState.Offline
     deviceOffline -> SteerNoFeedState.Away
     busy -> SteerNoFeedState.Starting
@@ -286,8 +289,8 @@ fun <T> steerSyncedTail(
  * `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
  * ended whose device is offline in presence.
  */
-fun steerOfflineLine(live: Boolean, rows: Int, ended: Boolean, noFeed: Boolean, deviceOffline: Boolean): Boolean = when {
-    live || rows == 0 -> false
+fun steerOfflineLine(live: Boolean, rows: Int, ended: Boolean, noFeed: Boolean, deviceOffline: Boolean, deviceOnline: Boolean = false): Boolean = when {
+    live || rows == 0 || deviceOnline -> false
     ended -> noFeed
     else -> deviceOffline
 }
