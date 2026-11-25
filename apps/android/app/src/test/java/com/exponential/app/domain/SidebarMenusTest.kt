@@ -69,6 +69,13 @@ class SidebarMenusTest {
     }
 
     @Test
+    fun `a device's card holds the verbs that lead somewhere`() {
+        assertEquals(listOf(listOf("open"), listOf("rename", "copy-link"), listOf("settings")), SidebarMenus.phoneDeviceMenu(mine = true))
+        assertEquals(listOf(listOf("copy-link")), SidebarMenus.phoneDeviceMenu(mine = false))
+        assertEquals("https://x.test/devices/d%201", WebLinks.deviceUrl("https://x.test/", "d 1"))
+    }
+
+    @Test
     fun `new cases replay`() {
         for (case in cases("newCases")) {
             assertEquals(case.str("name"), strings(case.getValue("expected")), SidebarMenus.newKinds(case.getValue("owner").jsonPrimitive.boolean))

@@ -3,8 +3,8 @@ package com.exponential.app.domain
 /**
  * #EXP-2124, #EXP-2109 (fixtures/sidebar-menus.json, its `$comment` IS the
  * spec; the pure reference is `packages/domain-contract/src/sidebar-menus.ts`):
- * THE one menu table of the sidebar's rows. A phone opens it on a long-press in
- * the Teams tab, minus [PHONE_DROPS]. `SidebarMenusTest` replays `menuCases`,
+ * THE one menu table of the sidebar's rows. A phone opens it on a long-press of
+ * a Teams tab row or a device's card, minus [PHONE_DROPS] (Open alone = none). `SidebarMenusTest` replays `menuCases`,
  * `newCases`, `phoneCases`, `moveCases` and compares the table.
  */
 object SidebarMenus {
@@ -190,8 +190,15 @@ object SidebarMenus {
         for (id in itemMenu(kind, input)) {
             if (id == SEPARATOR) groups.add(mutableListOf()) else if (id !in PHONE_DROPS) groups.last().add(id)
         }
-        return groups.filter { it.isNotEmpty() }
+        return groups.filter { it.isNotEmpty() }.takeUnless { it == listOf(listOf("open")) }.orEmpty()
     }
+
+    /** A device's card: the verbs that lead somewhere on a phone (it has no
+     *  device page; the settings sheet is its owner's). */
+    fun phoneDeviceMenu(mine: Boolean): List<List<String>> =
+        phoneMenuGroups("device", Input(mine = mine))
+            .map { group -> group.filter { mine || it == "copy-link" } }
+            .filter { it.isNotEmpty() }
 
     /** `sidebarPhoneMenu`: [phoneMenuGroups] flattened with separators. */
     fun phoneMenu(kind: String, input: Input = Input()): List<String> =

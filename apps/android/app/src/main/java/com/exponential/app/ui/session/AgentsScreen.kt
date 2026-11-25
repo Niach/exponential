@@ -8,6 +8,7 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,11 +49,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +75,7 @@ import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.SidebarMenus
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.BottomBarInset
@@ -77,6 +86,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
@@ -91,6 +101,9 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.compactRelativeTime
+import com.exponential.app.ui.teams.NameField
+import com.exponential.app.ui.teams.TeamRowMenuSheet
+import com.exponential.app.ui.teams.menuItem
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
@@ -167,6 +180,12 @@ fun AgentsScreen(
     // FEED-149: the selected team when the caller OWNS it — its Remove drops a
     // teammate's share from that team; null = no Remove on any row.
     val ownedTeamIds by viewModel.ownedTeamIds.collectAsStateWithLifecycle()
+    // #EXP-2126: the card whose long-press menu is up, and the one whose name
+    // is in edit.
+    var menuTarget by remember { mutableStateOf<SteerDevice?>(null) }
+    var renamingId by remember { mutableStateOf<String?>(null) }
+    val clipboard = LocalClipboardManager.current
+    val toaster = LocalToaster.current
     // FEED-149: the teammate's shared row whose Remove waits on its confirm.
     var dropShareTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
@@ -302,6 +321,13 @@ fun AgentsScreen(
                                     onPersistLogin = { row -> loginTarget = persistLoginTarget(device, row) },
                                     onAddAccount = { addAccountDevice = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
+                                    onMenu = { menuTarget = device },
+                                    onRenamed = { name ->
+                                        renamingId = null
+                                        if (name.isNotBlank() && name.trim() != device.displayLabel) {
+                                            viewModel.renameDevice(device.deviceId, name)
+                                        }
+                                    }.takeIf { renamingId == device.deviceId },
                                 )
                             }
                             if (onlineOwn.isNotEmpty()) {
@@ -337,6 +363,7 @@ fun AgentsScreen(
                                 onSignIn = { _, _ -> },
                                 onAddAccount = {},
                                 onUpdate = {},
+                                onMenu = { menuTarget = device },
                                 onRemoveShare = { dropShareTarget = device }
                                     .takeIf { device.rowId != null && device.sharedTeamIds.any { it in ownedTeamIds } },
                             )
@@ -361,6 +388,27 @@ fun AgentsScreen(
 
     if (showAddDevice) {
         AddDeviceSheet(onDismiss = { showAddDevice = false })
+    }
+
+    menuTarget?.let { device ->
+        TeamRowMenuSheet(
+            title = device.displayLabel,
+            groups = SidebarMenus.phoneDeviceMenu(mine = device.isMine && device.registered).map { group ->
+                group.map { verb ->
+                    menuItem(verb, SidebarMenus.COPY.getValue(verb), SidebarMenus.ICONS.getValue(verb)) {
+                        when (verb) {
+                            "rename" -> renamingId = device.deviceId
+                            "copy-link" -> viewModel.deviceLink(device.rowId ?: device.deviceId)?.let { url ->
+                                clipboard.setText(AnnotatedString(url))
+                                toaster.success(SidebarMenus.COPY.getValue("linkCopied"))
+                            }
+                            else -> settingsTargetId = device.deviceId
+                        }
+                    }
+                }
+            },
+            onDismiss = { menuTarget = null },
+        )
     }
 
     // EXP-481: the device-settings sheet, re-resolving the LIVE row on every
@@ -684,6 +732,10 @@ internal fun DeviceCard(
     onUpdate: () -> Unit,
     /** FEED-149: a team owner's Remove on a teammate's shared card; null = none. */
     onRemoveShare: (() -> Unit)? = null,
+    /** #EXP-2126: the long-press menu. */
+    onMenu: (() -> Unit)? = null,
+    /** Set = the name is in edit, in place. */
+    onRenamed: ((String) -> Unit)? = null,
     /** #EXP-1643: which login's panel is open on this device. */
     openAccount: OpenAccountMemory = rememberOpenAccount(device.deviceId),
 ) {
@@ -744,6 +796,7 @@ internal fun DeviceCard(
             .fillMaxWidth()
             .alpha(if (online) 1f else 0.6f)
             .glassCard()
+            .then(onMenu?.let { Modifier.deviceLongPress(it) } ?: Modifier)
             .padding(DevicesList.Card.PADDING.dp)
             .testTag("device-card"),
         verticalArrangement = Arrangement.spacedBy(DevicesList.Card.PANEL_GAP.dp),
@@ -761,7 +814,13 @@ internal fun DeviceCard(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
+                    if (onRenamed != null) NameField(
+                        device.displayLabel,
+                        onDone = onRenamed,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        tag = "device-name",
+                        modifier = Modifier.weight(1f),
+                    ) else Text(
                         device.displayLabel,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
@@ -918,6 +977,23 @@ internal fun DeviceCard(
             )
         }
     }
+}
+
+/** A card has no press of its own: only the long-press answers. */
+@Composable
+private fun Modifier.deviceLongPress(onMenu: () -> Unit): Modifier {
+    val haptics = LocalHapticFeedback.current
+    val open by rememberUpdatedState {
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        onMenu()
+    }
+    return pointerInput(Unit) { detectTapGestures(onLongPress = { open() }) }
+        .semantics {
+            onLongClick("Actions") {
+                open()
+                true
+            }
+        }
 }
 
 /** The muted caption in the icon row: `Checking…` / `No account`. */
