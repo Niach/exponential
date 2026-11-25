@@ -11,6 +11,7 @@ import fixture from "../fixtures/sidebar-tree.json" with { type: "json" }
 import { sidebarNewKinds, type SidebarNewKind } from "./sidebar-menus"
 import {
   sidebarMove,
+  sidebarRows,
   sidebarTree,
   type SidebarEntry,
   type SidebarMove,
@@ -184,37 +185,53 @@ export function sidebarTeamOpenKey(teamId: string): string {
   return fixture.openKeys.team.replace(`{teamId}`, teamId)
 }
 
-/** #EXP-2109: a phone team page's `…` menu. */
-export function phoneTeamMenu(input: { owner: boolean }): { id: `new` | `settings`; children: SidebarNewKind[] }[] {
-  return [
-    ...(input.owner ? [{ id: `new` as const, children: [`board`, `agent`, `app`] as SidebarNewKind[] }] : []),
-    { id: `settings`, children: [] },
-  ]
-}
-
-export interface PhoneTeamRow {
-  kind: `folder` | SidebarItemKind
+/** One row of the phones' Teams tab. */
+export interface PhoneTreeRow {
+  kind: `team` | `folder` | SidebarItemKind
   id: string
-  /** A folder's name; null on an item. */
+  teamId: string
+  depth: 0 | 1 | 2
+  /** A folder's name; null on the rest. */
   name: string | null
+  open: boolean
+  count: number
 }
 
-/** #EXP-2109: one page of the phones' Teams tab: a team's top level
- *  (`folderId` null) or a folder's children; null = the folder is gone. */
-export function phoneTeamPage(input: {
+export interface PhoneTreeTeam {
+  id: string
   items: readonly SidebarTeamItem[]
   entries: readonly SidebarEntry[]
-  folderId: string | null
-}): PhoneTeamRow[] | null {
-  const kinds = new Map(input.items.map((item) => [item.id, item.kind]))
-  const item = (id: string): PhoneTeamRow => ({ kind: kinds.get(id) as SidebarItemKind, id, name: null })
-  const tree = sidebarTree(
-    input.items.map((each) => each.id),
-    input.entries
-  )
-  if (input.folderId === null) {
-    return tree.map((node) => (node.kind === `folder` ? { kind: `folder`, id: node.id, name: node.name } : item(node.id)))
-  }
-  const folder = tree.find((node) => node.kind === `folder` && node.id === input.folderId)
-  return folder && folder.kind === `folder` ? folder.children.map(item) : null
+  /** The device-local flags (`sidebarTeamOpenKey`, `sidebarFolderOpenKey`). */
+  open: boolean
+  closedFolders: readonly string[]
+}
+
+/** #EXP-2109: THE phones' Teams tab (one page): the teams, already in
+ *  `sidebarTeams` order, each its `sidebarTeamRows` with the item's kind. */
+export function phoneTreeRows(teams: readonly PhoneTreeTeam[]): PhoneTreeRow[] {
+  return teams.flatMap((team) => {
+    const kinds = new Map(team.items.map((item) => [item.id, item.kind]))
+    const tree = sidebarTree(
+      team.items.map((item) => item.id),
+      team.entries
+    )
+    const rows = sidebarRows(tree, (folderId) => !team.closedFolders.includes(folderId))
+    return sidebarTeamRows({ teamId: team.id, open: team.open, rows }).map(
+      (row): PhoneTreeRow => ({
+        kind: row.kind === `item` ? (kinds.get(row.id) as SidebarItemKind) : row.kind,
+        id: row.id,
+        teamId: team.id,
+        depth: row.depth,
+        name: row.name,
+        open: row.open,
+        count: row.count,
+      })
+    )
+  })
+}
+
+/** #EXP-2109: the team whose empty state + Getting started the Teams tab
+ *  shows: the viewer's only team, without a node. */
+export function phoneTeamsEmpty(teams: readonly { id: string; count: number }[]): string | null {
+  return teams.length === 1 && teams[0].count === 0 ? teams[0].id : null
 }
