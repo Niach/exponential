@@ -259,9 +259,9 @@ public enum Chats {
             public static let label: Double = 11
             public static let gap: Double = 4
             public static let disc: Double = 60
-            public static let mark: Double = 40
+            public static let mark: Double = 50
             public static let raise: Double = 16
-            public static let ring: Double = 6
+            public static let ring: Double = 4
             public static let glow: Double = 26
         }
 

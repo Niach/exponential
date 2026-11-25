@@ -6,20 +6,20 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.DetailChrome
+import com.exponential.app.domain.HeaderActions
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
@@ -57,7 +58,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 /** The trailing verb the Run face wears — see `primaryAction`. */
 enum class WorkBarVerb { Stop, Resume }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkTopBar(
     title: String,
@@ -105,14 +105,23 @@ fun WorkTopBar(
             .fillMaxWidth()
             .onGloballyPositioned { onHeaderBottom(it.positionInRoot().y + it.size.height) },
     ) {
-    CenterAlignedTopAppBar(
-        // The title slot's type = [TopBarTitleStyle] (web `MobileDetailHeader`),
-        // never M3's titleLarge; a [titleContent] inherits it too.
-        title = { ProvideTextStyle(TopBarTitleStyle) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(HeaderActions.GAP.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+            .heightIn(min = HeaderActions.CIRCLE.dp),
+    ) {
+        TopBarBackButton(onClick = onBack)
+        // The title slot's type = [TopBarTitleStyle] (web `MobileDetailHeader`);
+        // a [titleContent] inherits it too. Left, never centred.
+        Box(Modifier.weight(1f)) { ProvideTextStyle(TopBarTitleStyle) {
             val showCollapsed = collapsed && collapsedTitle != null
             // Starts `collapseRise` low and rises into place.
             val riseOffset = with(LocalDensity.current) { DetailChrome.COLLAPSE_RISE.dp.roundToPx() }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column {
                 // EXP-1162: no state dot in the title, in either form — the
                 // face tabs carry the state (`DetailChrome.faceDots`).
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -156,13 +165,9 @@ fun WorkTopBar(
                     )
                 }
             }
-        } },
-        navigationIcon = { TopBarBackButton(onClick = onBack) },
-        actions = {
-            // EXP-1097: the related-work badge sits beside the `…` on every face.
-            if (badge != null) {
-                Box(Modifier.padding(end = 8.dp)) { badge() }
-            }
+        } }
+            // EXP-1097: the related-work badge, the status slot.
+            badge?.invoke()
             when (verb) {
                 // EXP-818: ONE word for ending a run, wherever it is watched
                 // from — a red pill beside the `…`, confirm-gated by the host.
@@ -173,7 +178,7 @@ fun WorkTopBar(
                     tint = MaterialTheme.colorScheme.error,
                     enabled = verbEnabled,
                     onClick = onVerb,
-                    modifier = Modifier.padding(end = 8.dp).testTag("stop-run"),
+                    modifier = Modifier.testTag("stop-run"),
                 )
                 // EXP-773: only on the machine that still holds the run's
                 // worktree (`resumeTargetFor`).
@@ -183,18 +188,13 @@ fun WorkTopBar(
                     size = PillSize.Sm,
                     enabled = verbEnabled,
                     onClick = onVerb,
-                    modifier = Modifier.padding(end = 8.dp).testTag("resume-run"),
+                    modifier = Modifier.testTag("resume-run"),
                 )
                 null -> Unit
             }
             action?.invoke()
             menu?.invoke()
-        },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent,
-        ),
-    )
+    }
     tabs?.invoke()
     }
     }

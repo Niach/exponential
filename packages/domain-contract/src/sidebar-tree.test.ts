@@ -13,8 +13,8 @@ import {
   sidebarTeamOpenKey,
   sidebarTeamRows,
   sidebarTeams,
-  phoneTeamMenu,
-  phoneTeamPage,
+  phoneTeamsEmpty,
+  phoneTreeRows,
   type SidebarTeamItem,
 } from "./sidebar-tree"
 
@@ -36,11 +36,10 @@ describe(`sidebar tree (#EXP-2027)`, () => {
   for (const c of fixture.teamRows) {
     test(`team rows: ${c.name}`, () => expect(sidebarTeamRows({ ...c, rows: c.rows as SidebarRow[] })).toEqual(c.expected as never))
   }
-  for (const c of fixture.phone.teamMenu) test(`phone team menu: ${c.name}`, () => expect(phoneTeamMenu(c)).toEqual(c.expected as never))
-  for (const c of fixture.phone.page) {
-    test(`phone page: ${c.name}`, () =>
-      expect(phoneTeamPage({ items: c.items as SidebarTeamItem[], entries: entries(c.entries), folderId: c.folderId })).toEqual(c.expected as never))
+  for (const c of fixture.phone.rows) {
+    test(`phone rows: ${c.name}`, () => expect(phoneTreeRows(c.teams as never)).toEqual(c.expected as never))
   }
+  for (const c of fixture.phone.empty) test(`phone empty: ${c.name}`, () => expect(phoneTeamsEmpty(c.teams)).toBe(c.expected))
   for (const c of fixture.drop) {
     test(`drop: ${c.name}`, () =>
       expect(sidebarDropSession({ ...c, entries: entries(c.entries), move: c.move as SidebarMove })).toEqual(c.expected as never))

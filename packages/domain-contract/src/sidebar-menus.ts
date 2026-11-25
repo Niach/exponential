@@ -74,3 +74,40 @@ export function newTabMenu(input: { assistant: boolean; teams: readonly { id: st
     ...teams,
   ]
 }
+
+/** What a phone's menu leaves out (`phone.drops`). */
+export const SIDEBAR_PHONE_DROPS = fixture.phone.drops as readonly SidebarMenuEntryId[]
+
+/** #EXP-2109: a row's long-press menu on a phone: the same table, minus
+ *  `phone.drops`. */
+export function sidebarPhoneMenu(kind: SidebarMenuKind, input: SidebarMenuInput = {}): SidebarMenuEntryId[] {
+  return sidebarItemMenu(kind, input)
+    .filter((id) => !SIDEBAR_PHONE_DROPS.includes(id))
+    .filter((id, index, all) => id !== `separator` || (index > 0 && index < all.length - 1 && all[index - 1] !== `separator`))
+}
+
+export interface SidebarMoveTargets {
+  /** The folders it can move into (not the one holding it). */
+  folders: { id: string; name: string | null }[]
+  /** Inside a folder: that folder (Top level = `after` it); else null. */
+  topLevel: string | null
+}
+
+/** Move to folder › over the shown rows (a team's `sidebarRows`, depth 0 =
+ *  its top level); New folder always stands between the two. */
+export function sidebarMoveTargets(
+  rows: readonly { kind: string; id: string; depth: number; name: string | null }[],
+  id: string
+): SidebarMoveTargets {
+  let topLevel: string | null = null
+  let holder: string | null = null
+  for (const row of rows) {
+    if (row.kind === `folder`) holder = row.id
+    else if (row.depth === 0) holder = null
+    if (row.id === id) topLevel = row.kind === `folder` ? null : holder
+  }
+  return {
+    folders: rows.filter((row) => row.kind === `folder` && row.id !== topLevel).map(({ id, name }) => ({ id, name })),
+    topLevel,
+  }
+}

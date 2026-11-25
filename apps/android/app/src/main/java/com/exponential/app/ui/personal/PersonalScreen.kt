@@ -22,6 +22,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.PinnedHeaderColumn
+import com.exponential.app.ui.components.PageHeaderCircle
+import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
@@ -50,40 +53,34 @@ fun PersonalScreen(
     val markAllFailure by inboxViewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(markAllFailure, onShown = inboxViewModel::clearFailure)
     Scaffold(containerColor = Color.Transparent) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().testTag("inbox-page")) {
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                CircleIconButton(
-                    ExpIcons.uiBack,
-                    "Back",
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart),
+        PinnedHeaderColumn(
+            modifier = Modifier.padding(padding).fillMaxSize().testTag("inbox-page"),
+            header = {
+                PageHeader(
+                    title = Chats.Copy.INBOX,
+                    onBack = onBack,
+                    ownActions = if (inboxState.totalUnread > 0) {
+                        {
+                            PageHeaderCircle(
+                                ExpIcons.notificationMarkRead,
+                                "Mark all read",
+                                onClick = { inboxViewModel.markAllRead() },
+                                modifier = Modifier.testTag("inbox-mark-all-read"),
+                            )
+                        }
+                    } else {
+                        null
+                    },
                 )
-                Text(
-                    Chats.Copy.INBOX,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-                if (inboxState.totalUnread > 0) {
-                    Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                        GlassPill(
-                            "Mark all read",
-                            size = PillSize.Md,
-                            onClick = { inboxViewModel.markAllRead() },
-                            modifier = Modifier.testTag("inbox-mark-all-read"),
-                        )
-                    }
-                }
-            }
+            },
+        ) {
             InboxListContent(
                 onOpenIssue = onOpenIssue,
                 onOpenSession = onOpenSession,
                 onOpenDevice = onOpenDevice,
                 onOpenIssueGuide = onOpenIssueGuide,
                 viewModel = inboxViewModel,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }

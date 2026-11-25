@@ -3,6 +3,7 @@ import { contract } from "@exp/domain-contract"
 import { useNavigate } from "@tanstack/react-router"
 import type { Board, Issue } from "@/db/schema"
 import {
+  HEADER_ACTION_CLASS,
   conceptIcon,
   Button,
   IconTooltip,
@@ -212,7 +213,7 @@ export function IssueActionsMenu({
           contentClassName="w-[14rem]"
           entries={entries}
           trigger={
-            <Button variant="ghost" size="icon-sm" aria-label="Issue actions">
+            <Button variant="ghost" size="icon-sm" className={HEADER_ACTION_CLASS} aria-label="Issue actions">
               <UiMoreIcon />
             </Button>
           }

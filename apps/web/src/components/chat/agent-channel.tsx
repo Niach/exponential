@@ -14,9 +14,10 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { isAssistant, triggerSummary, type AgentTriggerLike } from "@exp/domain-contract/agent-settings"
+import { SIDEBAR_MENU_COPY } from "@exp/domain-contract/sidebar-menus"
 import { sessionScreen, sessionScreenKind, sessionScreenSubtitle } from "@exp/domain-contract/session-screen"
 import { SessionComposer } from "@/components/session-composer"
-import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
+import { HEADER_ACTION_CLASS, HeaderAction } from "@/components/team/mobile-detail-header"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import {
   ChatScreen,
@@ -24,7 +25,7 @@ import {
   type ChatScreenLinkMenu,
   type ChatSearch,
 } from "@/components/chat/chat-screen"
-import { AgentHeaderMenu } from "@/components/chat/chat-menu"
+import { AgentHeaderMenu, useAgentSends } from "@/components/chat/chat-menu"
 import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } from "@/components/voice-call"
 import { useAgentRow, useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
@@ -51,6 +52,7 @@ import { SessionIssuesTab, SessionResultsTab, SessionSessionsTab } from "@/compo
 // same frame draws an empty chat whose composer's first send is
 // `sessions.send({agentId})`.
 
+const AddIcon = conceptIcon(`ui-add`)
 const AgentsIcon = conceptIcon(`settings-agents`)
 
 /** How long a missing agent waits for its row before "not found". */
@@ -96,6 +98,7 @@ export function AgentChannel({
   // EXP-1857: it rings the agent's own desktop (else the fallback) and
   // greets in the agent's language.
   const callAvailability = useVoiceCallAvailability(agent?.deviceId ?? null, agent?.voice?.language || undefined)
+  const sends = useAgentSends(agentId)
   const voiceCall = useVoiceCall(agentId)
   usePageTitle(agent?.name ? pageTitle(agent.name, CHATS_LIST_COPY.agents) : undefined)
 
@@ -152,13 +155,13 @@ export function AgentChannel({
   const triggers = (Array.isArray(agent.triggers) ? agent.triggers : []) as AgentTriggerLike[]
   const firstTrigger = triggers.find((trigger) => trigger && trigger.enabled !== false)
   const trigger = firstTrigger ? triggerSummary(firstTrigger) : null
-  const buttonClass = isMobile ? HEADER_BUTTON_CLASS : `shrink-0 text-muted-foreground`
   const parts: ChatScreenAgent = {
     name,
     assistant,
     avatar,
     trigger,
     trailing: (
+      <>
       <CallButton
         availability={callAvailability}
         agentName={name}
@@ -166,8 +169,19 @@ export function AgentChannel({
         onCall={() =>
           void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language, callAvailability.fallback)
         }
-        className={buttonClass}
+        className={HEADER_ACTION_CLASS}
       />
+      {sends && (
+        <HeaderAction
+          aria-label={SIDEBAR_MENU_COPY[`new-conversation`]}
+          title={SIDEBAR_MENU_COPY[`new-conversation`]}
+          data-testid="agent-new-conversation"
+          onClick={sends[`new-conversation`]}
+        >
+          <AddIcon />
+        </HeaderAction>
+      )}
+      </>
     ),
     menu: (className: string, onSettings: () => void, link?: ChatScreenLinkMenu, onFind?: () => void) => (
       <AgentHeaderMenu

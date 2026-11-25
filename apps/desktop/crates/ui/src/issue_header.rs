@@ -621,9 +621,8 @@ impl IssueHeader {
         // PR is the whole gate. A PR closing several issues names how many
         // others it closes for (`pull_request_issues`).
         let close_prs = close_pr_items(&issue.id, cx);
-        // EXP-862: the "..." is a GHOST glyph, never a circle.
-        crate::controls::PointerMenu::for_button(crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
-            .tooltip("Issue actions"),
+        // #EXP-2109: the header's round `…`.
+        crate::controls::PointerMenu::for_button(crate::controls::header_button("issue-actions", registry::UI_MORE, "Issue actions", cx),
             move |mut menu, window, cx| {
                 {
                     let url = url.clone();
@@ -710,13 +709,8 @@ impl IssueHeader {
         // EXP-897 §4: the ONE related-work badge.
         cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.push(self.start_coding.clone().into_any_element());
-        // EXP-1191: the `…` glyph, not its hit box, ends on the content edge.
-        cluster.push(
-            div()
-                .mr(px(-crate::work_header::GHOST_ICON_HANG))
-                .child(self.render_actions_menu(issue, cx))
-                .into_any_element(),
-        );
+        // #EXP-2109: the round `…` ends on the content edge.
+        cluster.push(self.render_actions_menu(issue, cx).into_any_element());
         cluster
     }
 

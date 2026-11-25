@@ -28,9 +28,10 @@ struct ChatHeader<Title: View, Trailing: View>: View {
             }
             title()
                 .frame(maxWidth: .infinity, alignment: .leading)
-            trailing()
+            HStack(spacing: CGFloat(HeaderActions.gap)) { trailing() }
         }
-        .padding(.horizontal, CGFloat(Measures.paddingX))
+        .padding(.leading, CGFloat(Measures.paddingX))
+        .padding(.trailing, 16)
         .frame(maxWidth: .infinity, minHeight: CGFloat(Measures.row), maxHeight: CGFloat(Measures.row), alignment: .leading)
     }
 }
@@ -55,6 +56,43 @@ struct ChatHeaderGhostGlyph: View {
             // #EXP-1759: the WHOLE 36pt square takes the tap; a circle
             // dropped its corners.
             .contentShape(Rectangle())
+    }
+}
+
+/// header-actions.json: THE round header action in a custom bar (the native
+/// toolbar circle's twin: Liquid Glass from iOS 26, the floating circle's
+/// chrome before).
+struct HeaderCircleFace: View {
+    let icon: String
+    var opacity: Double = 1
+
+    var body: some View {
+        let size = CGFloat(HeaderActions.circle)
+        let glyph = AppIcon(icon, size: CGFloat(HeaderActions.glyph), weight: .medium)
+            .foregroundStyle(.white.opacity(opacity))
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+        if #available(iOS 26.0, *) {
+            glyph.glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            glyph
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(GlassTokens.strokeCard, lineWidth: 1))
+        }
+    }
+}
+
+struct HeaderCircleButton: View {
+    let icon: String
+    let label: String
+    var identifier: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { HeaderCircleFace(icon: icon) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(identifier ?? "")
     }
 }
 

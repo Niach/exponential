@@ -1,11 +1,13 @@
 import { useEffect } from "react"
 import { createFileRoute, Navigate, useNavigate, useRouter } from "@tanstack/react-router"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { MobileDetailHeader, Pill, useIsMobile } from "@exp/ui"
+import { conceptIcon, HeaderAction, MobileDetailHeader, useIsMobile } from "@exp/ui"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { setInboxPopoverOpen } from "@/hooks/use-inbox-popover"
 import { markAllNotificationsRead, useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { pageTitle } from "@/lib/page-title"
+
+const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
 // #FEED-191, #EXP-2109: `/inbox` is the PHONES' pushed page (chats.json): every
 // team's notifications, its own back header with Mark all read. Wide the Inbox
@@ -30,15 +32,15 @@ function PhoneInbox() {
   const router = useRouter()
   const unread = useUnreadNotificationCount()
   return (
-    <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)]">
       <MobileDetailHeader
         title={CHATS_COPY.inbox}
         onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/chats` }))}
         menu={
           unread > 0 ? (
-            <Pill mode="action" size="md" className="shrink-0" onClick={() => markAllNotificationsRead()}>
-              Mark all read
-            </Pill>
+            <HeaderAction aria-label="Mark all read" title="Mark all read" onClick={() => markAllNotificationsRead()}>
+              <MarkReadIcon />
+            </HeaderAction>
           ) : undefined
         }
       />

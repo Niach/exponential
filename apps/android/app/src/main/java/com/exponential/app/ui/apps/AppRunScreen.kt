@@ -185,12 +185,11 @@ private fun AppRunMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        CircleIconButton(
+        com.exponential.app.ui.components.PageHeaderCircle(
             ExpIcons.uiMore,
-            contentDescription = "App actions",
+            "App actions",
             onClick = { open = true },
-            borderless = true,
-            modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.RUN_MENU),
+            modifier = Modifier.testTag(Apps.TestIds.RUN_MENU),
         )
     }
     if (open) {

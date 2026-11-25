@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.semantics.semantics
@@ -17,12 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,8 +69,6 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.TextFieldRow
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -533,15 +532,14 @@ internal fun VoiceSettingsScaffold(
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    Scaffold(
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(Voice.Copy.GROUP) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = Voice.Copy.GROUP,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
-        containerColor = Color.Transparent,
         modifier = Modifier.testTag(Voice.TestIds.PAGE),
         content = content,
     )

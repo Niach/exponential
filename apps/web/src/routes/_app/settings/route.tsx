@@ -38,11 +38,13 @@ function PhoneLayout() {
   if (!page) return <Outlet />
   return (
     <div className={`flex w-full flex-col ${PAGE_END_CLEARANCE}`} data-testid={SETTINGS_NAV_TEST_IDS.page}>
-      <MobileDetailHeader
-        title={<PushedTitle>{settingsSectionLabel(page, null) ?? `Settings`}</PushedTitle>}
-        onBack={() => void navigate({ to: `/settings` })}
-        backLabel="Settings"
-      />
+      <div className="sticky top-0 z-20 pt-[env(safe-area-inset-top)]">
+        <MobileDetailHeader
+          title={<PushedTitle>{settingsSectionLabel(page, null) ?? `Settings`}</PushedTitle>}
+          onBack={() => void navigate({ to: `/settings` })}
+          backLabel="Settings"
+        />
+      </div>
       <div className="min-w-0 px-4 pb-4 pt-6">
         <Outlet />
       </div>

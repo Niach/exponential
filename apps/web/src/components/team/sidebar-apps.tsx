@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { conceptIcon, getAppIcon, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, type MenuTargetProps } from "@exp/ui"
-import type { SidebarRowItemProps } from "@/components/team/sidebar-folders"
+import { useSidebarTreeDensity, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { cn } from "@/lib/utils"
 
@@ -38,16 +38,17 @@ export function SidebarAppRow({
   itemProps: SidebarRowItemProps
   guides: ReactNode
 }) {
+  const density = useSidebarTreeDensity()
   return (
     <SidebarMenuItem key={app.id} {...itemProps}>
       {guides}
-      <SidebarMenuButton asChild density="compact" isActive={active}>
+      <SidebarMenuButton asChild density={density} isActive={active}>
         <Link to="/t/$teamSlug/apps/$appSlug" params={{ teamSlug, appSlug: app.slug }} data-testid="apps-row" {...menu}>
           <AppIcon app={app} />
           <span className="min-w-0 flex-1 truncate">{app.name}</span>
         </Link>
       </SidebarMenuButton>
-      <SidebarMenuAction asChild showOnHover title="App settings">
+      {density === `compact` && <SidebarMenuAction asChild showOnHover title="App settings">
         <Link
           to="/t/$teamSlug/app-editor/$appSlug"
           params={{ teamSlug, appSlug: app.slug }}
@@ -56,7 +57,7 @@ export function SidebarAppRow({
         >
           <NavSettingsIcon />
         </Link>
-      </SidebarMenuAction>
+      </SidebarMenuAction>}
     </SidebarMenuItem>
   )
 }

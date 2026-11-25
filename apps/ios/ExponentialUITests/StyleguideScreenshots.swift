@@ -251,29 +251,25 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_agent-home", settle: 2)
         goBack(app)
 
-        // ── sg_assistant-tab · sg_teams · sg_team (#EXP-2109, live) ────────
+        // ── sg_assistant-tab · sg_teams · sg_teams-menu (#EXP-2109, live) ────────
         if ScreenshotShots.isWanted("sg_assistant-tab") {
             showTab(app, "tab-assistant", root: "assistant-tab")
             expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The Assistant tab drew no chat")
             snapshot("sg_assistant-tab", settle: 3)
         }
-        if ScreenshotShots.isWanted("sg_teams") {
-            showTab(app, "tab-teams", root: "teams-page")
-            expect(
-                app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'team-row-'")).firstMatch,
-                within: Wait.firstSync, "Teams drew no team"
-            )
-            snapshot("sg_teams", settle: 2)
-        }
-        if ScreenshotShots.isWanted("sg_team") {
+        if ScreenshotShots.isWanted("sg_teams") || ScreenshotShots.isWanted("sg_teams-menu") {
             showTeam(app)
             expect(
-                app.buttons.matching(identifier: "tree-row-board").firstMatch, within: Wait.sync, "The team page drew no board"
+                app.buttons.matching(identifier: "tree-row-board").firstMatch, within: Wait.sync, "The tree drew no board"
             )
-            snapshot("sg_team", settle: 2)
+            snapshot("sg_teams", settle: 2)
+            treeRow(app, "board", "Mobile App").press(forDuration: 0.8)
+            expect(anyElement(app, identified: "team-menu"), within: Wait.nav, "A board's hold raised no menu")
+            snapshot("sg_teams-menu", settle: 1)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
         }
 
-        // ── sg_app: the team page's app rows, then
+        // ── sg_app: the tree's app rows, then
         // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
         // Gated: opening the editor and leaving it ENDS the seeded editor
         // session, so only a run that wants these shots visits.
@@ -1622,7 +1618,7 @@ final class StyleguideScreenshots: XCTestCase {
     /// Back to the team page from whatever is pushed over it.
     @MainActor
     private func returnToTeam(_ app: XCUIApplication) {
-        for _ in 0..<3 where !anyElement(app, identified: "team-page").waitForExistence(timeout: 2) {
+        for _ in 0..<3 where !anyElement(app, identified: "teams-page").waitForExistence(timeout: 2) {
             goBack(app)
         }
     }

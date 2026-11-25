@@ -7,26 +7,18 @@ import { conceptIcon } from "./icons.generated"
 // NEW-15: moved from apps/web (components/team/mobile-detail-header.tsx, which
 // re-exports it) so the marketing site's phone demos draw the same header.
 // EXP-851: the ONE phone header every detail screen wears — the native
-// layout, byte for byte: a round ghost back button on the left, the
-// identifier (or title) centred, an optional round ghost overflow button on
-// the right. No breadcrumbs anywhere: the board glyph crumb on the issue
+// layout: a round ghost back button, the identifier (or title) beside it, the
+// page's round actions on the right (header-actions.json). No breadcrumbs anywhere: the board glyph crumb on the issue
 // detail, the old "Reviews / MET-3" crumb and the ad-hoc
 // back rows on the session pages all became this.
-//
-// The trailing slot keeps the back button's width whether or not it holds a
-// menu, so the title stays optically centred (`HEADER_SLOT_CLASS`).
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
-/** The round ghost control both ends of the header use — no circle stroke, no
- *  fill (EXP-850 §10). */
+/** The round ghost back control: no circle stroke, no fill (EXP-850 §10). */
 export const HEADER_BUTTON_CLASS = `size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground`
 
-/** The fixed slot each end occupies — the balance that centres the title. */
-export const HEADER_SLOT_CLASS = `size-9 shrink-0`
-
 /** The bar itself: one line, no card. */
-export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 px-2`
+export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 pr-4 pl-2`
 
 /** EXP-1150: the header BAND — the title row plus whatever rides under it
  *  (the Work screen's face tabs), one block. EXP-1162: no hairline closes it
@@ -52,12 +44,12 @@ export function MobileDetailHeader({
   ref,
   className,
 }: {
-  /** The identifier or title, centred. */
+  /** The identifier or title, leading. */
   title: ReactNode
   /** Absent = no back button (the Agent page's own title bar). */
   onBack?: () => void
   backLabel?: string
-  /** The overflow `…` (or any trailing control) — a round ghost button. */
+  /** The trailing actions (`HeaderAction`, in header-actions.json order). */
   menu?: ReactNode
   /** EXP-1150: a row INSIDE the header band, under the title row — the Work
    *  screen's face tabs. The hairline moves under it, so the title and the
@@ -87,12 +79,12 @@ export function MobileDetailHeader({
           <UiBackIcon className="size-4" />
         </Button>
       ) : (
-        <span aria-hidden className={HEADER_SLOT_CLASS} />
+        <span aria-hidden className="w-1 shrink-0" />
       )}
-      <span className="min-w-0 flex-1 truncate text-center text-sm font-medium">
+      <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
         {title}
       </span>
-      {menu ?? <span aria-hidden className={HEADER_SLOT_CLASS} />}
+      {menu}
     </div>
   )
   return (

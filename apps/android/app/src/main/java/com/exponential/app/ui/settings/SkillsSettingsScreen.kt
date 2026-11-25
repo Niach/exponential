@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.foundation.clickable
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
@@ -15,14 +18,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,8 +50,6 @@ import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
@@ -72,13 +71,12 @@ private fun SkillGroup(content: @Composable () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SkillsPageScaffold(title: String, onBack: () -> Unit, testTag: String, content: @Composable () -> Unit) {
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(title) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = title,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->

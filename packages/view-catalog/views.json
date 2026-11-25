@@ -81,6 +81,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/team",
+      "reason": "#EXP-2109: a link to a team redirects to the Teams tab (`teams`)."
+    },
+    {
       "route": "/t/$teamSlug/needs-you",
       "reason": "Live rows on every client; the `needs-you` view shoots the specimen (`?dev=needs-you`) so ×5 show the same state."
     },
@@ -2709,12 +2713,12 @@
       "id": "teams",
       "group": "coding",
       "title": "Teams (phone)",
-      "blurb": "#EXP-2109 (sidebar-tree.json phone): the phones' Teams tab: one row per team (mark, name, the needs-you count), the header's + holding New team and Join team.",
+      "blurb": "#EXP-2109 (sidebar-tree.json phone): the phones' Teams tab: every team's nested tree on one page (teams and folders fold in place), the header's + holding New team and Join team.",
       "order": 30,
       "webMobile": {
         "route": "/teams",
         "anchor": {
-          "testId": "teams-row",
+          "testId": "teams-tree",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -9913,25 +9917,26 @@
       }
     },
     {
-      "id": "team",
+      "id": "teams-menu",
       "group": "coding",
-      "title": "Team (phone)",
-      "blurb": "#EXP-2109: a team's page of the Teams tab: its one mixed list (folders, boards, agents, apps, placed sessions) in the member's order; a folder pushes its items.",
+      "title": "Teams row menu (phone)",
+      "blurb": "#EXP-2109 (sidebar-menus.json phone): a board row of the Teams tab's tree held: its long-press menu, the sidebar's table.",
       "order": 99,
       "webMobile": {
-        "route": "/t/$teamSlug/team",
+        "route": "/teams",
+        "recipe": "openTeamsRowMenu",
         "anchor": {
-          "testId": "team-items",
+          "testId": "sidebar-menu-open",
           "timeoutMs": 30000
         },
         "settleMs": 1000
       },
       "ios": {
-        "shot": "sg_team",
+        "shot": "sg_teams-menu",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_team",
+        "shot": "sg_teams-menu",
         "lane": "styleguide"
       },
       "notes": {

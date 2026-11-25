@@ -60,6 +60,7 @@ import com.exponential.app.ui.components.CountBadge
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedHeaderColumn
 import com.exponential.app.ui.components.PageHeaderActions
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -226,22 +227,14 @@ fun NeedsYouPageContent(
     pendingInstalls: Int = 0,
     band: @Composable () -> Unit = {},
 ) {
-    val shell = LocalPageHeaderActions.current
+    PinnedHeaderColumn(
+        modifier = modifier.fillMaxSize(),
+        header = { PageHeader(title = NeedsYou.Copy.ENTRY, onBack = onBack) },
+    ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize().navigationBarsPadding().testTag(NeedsYou.TestIds.LIST),
+        modifier = Modifier.fillMaxSize().navigationBarsPadding().testTag(NeedsYou.TestIds.LIST),
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
-        item(key = "__header__") {
-            PageHeader(
-                title = NeedsYou.Copy.ENTRY,
-                onBack = onBack,
-                actions = PageHeaderActions(
-                    onSearch = { shell?.onSearch?.invoke() },
-                    onInbox = onOpenInbox,
-                    inboxUnread = inboxUnread,
-                ),
-            )
-        }
         when {
             rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
             else -> {
@@ -256,6 +249,7 @@ fun NeedsYouPageContent(
                 if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction)
             }
         }
+    }
     }
 }
 
