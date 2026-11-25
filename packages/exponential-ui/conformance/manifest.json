@@ -36,7 +36,7 @@
         "fixtures/catalog-extension.json"
       ],
       "unit": "case",
-      "cases": 4,
+      "cases": 6,
       "check": "Register the extension; reduce each case: tree + issues equal; its natives reach the extension painter (an `Extension` leaf of that kind)."
     },
     {
@@ -154,7 +154,7 @@
         "fixtures/a2ui10-messages.json"
       ],
       "unit": "flow or case",
-      "cases": 51,
+      "cases": 58,
       "check": "Route every flow's steps on one router ({trusted, acceptV09}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture."
     },
     {
@@ -163,7 +163,7 @@
         "fixtures/bind-time.json"
       ],
       "unit": "case",
-      "cases": 125,
+      "cases": 126,
       "check": "Expand the input; for every dataset run the bind pass: the bound tree, every `set` press and the per-row slot cells equal the fixture (reducer `issues` too for `extra`)."
     },
     {

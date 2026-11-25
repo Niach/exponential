@@ -409,7 +409,7 @@ impl Ink {
     /// rung's corner, its `size_3p5` glyph at 70%, the list hover wash.
     pub(super) fn ghost_icon_button(&self, id: &str, icon: &str, label: Value, event: Value, list_hover: &str) -> Value {
         let glyph = self.r(0.875);
-        json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": event}},
+        json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": event}},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": list_hover}},
             "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": self.foreground, "opacity": VALUE_ALPHA}}]})
     }
@@ -438,7 +438,7 @@ impl Ink {
             faces.push(json!({"id": format!("{id}_off_spin"), "component": "Spinner", "visible": loading, "style": {"width": glyph, "height": glyph, "color": self.muted, "opacity": HINT_ALPHA}}));
         }
         faces.insert(0, icon);
-        let off = json!({"id": format!("{id}_off"), "component": "Box", "visible": locked, "accessibility": {"label": label},
+        let off = json!({"id": format!("{id}_off"), "component": "Box", "visible": locked, "@accessibility": {"label": label},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md},
             "children": faces});
         json!({"id": format!("{id}_slot"), "component": "Box", "visible": visible, "style": {"display": "flex", "flexShrink": 0}, "children": [menu, off]})

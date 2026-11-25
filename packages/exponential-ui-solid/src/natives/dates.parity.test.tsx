@@ -86,7 +86,7 @@ describe(`DOM parity: dates`, { timeout: 60_000 }, () => {
       id: `f`,
       component: `Form`,
       props: {},
-      children: [{ id: `dp`, component: `DatePicker`, props: { label: `When`, name: `when`, value: `2026-10-14`, min: `2026-10-05`, max: `2026-10-20`, firstDayOfWeek: 3, checks: [{ call: `required`, message: `Pick a day` }], validateOn: `change` } }],
+      children: [{ id: `dp`, component: `DatePicker`, props: { label: `When`, name: `when`, value: `2026-10-14`, min: `2026-10-05`, max: `2026-10-20`, firstDayOfWeek: 3, validateOn: `change` }, "@checks": [{ call: `required`, message: `Pick a day` }] }],
     } as unknown as NestedNode
     await expectParity({ tree }, true)
     await expectParity({ tree: { id: `dp`, component: `DatePicker`, props: { label: `When`, placeholder: `Pick a day` } } })

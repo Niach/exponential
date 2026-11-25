@@ -17,7 +17,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::contract::{call_agent_function_message, error_message_to, ErrorTarget};
+use super::contract::{call_agent_function_message, error_message_to, renderer_function_response, ErrorTarget};
 use super::policy::{decide_route, routed_call_key, FunctionPolicy, RouteDecision, RouteDecisionInput};
 use super::router::HostRouter;
 use crate::catalog::A2UI_VERSION;
@@ -133,6 +133,22 @@ pub type SharedCalls = Arc<Mutex<CallHub>>;
 pub fn route_handle(calls: &SharedCalls, surface_id: &str) -> Arc<dyn Fn(RoutedCall) -> RouteAnswer + Send + Sync> {
     let (calls, surface_id) = (calls.clone(), surface_id.to_string());
     Arc::new(move |call| calls.lock().unwrap_or_else(|e| e.into_inner()).reactive(&surface_id, call))
+}
+
+/// Round 9 §6.9 (`src/host/renderer-call.ts`): the answer to a
+/// `callRendererFunction` that passed the router's checks (its `call` op),
+/// evaluated at the AGENT position: a `rendererOnly` function reached through
+/// its args or a `${…}` expression answers INVALID_FUNCTION_CALL, any other
+/// failing evaluation EXECUTION_ERROR. `data` = the surface's (`{}` without).
+pub fn answer_renderer_call(op: &Value, data: &Value, available: Option<&[String]>) -> Value {
+    let text = |k: &str| op.get(k).and_then(Value::as_str).unwrap_or("");
+    let call = json!({"@call": text("name"), "catalogId": text("catalogId"), "args": op.get("args").cloned().unwrap_or_else(|| json!({}))});
+    let ctx = crate::data::ResolveContext::new(data, "").with_catalog(text("catalogId"), available).with_position(Position::Agent);
+    let (value, failure) = crate::data::evaluate_call(&call, &ctx);
+    match failure {
+        None => renderer_function_response(text("functionCallId"), Ok(value)),
+        Some(f) => renderer_function_response(text("functionCallId"), Err((if f.code == INVALID_FUNCTION_CALL { INVALID_FUNCTION_CALL } else { EXECUTION_ERROR }, f.message.as_str()))),
+    }
 }
 
 impl CallHub {

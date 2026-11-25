@@ -834,7 +834,7 @@ fn repository(ink: &Ink, chrome: &Chrome) -> Value {
 /// height 1).
 fn button(ink: &Ink, id: &str, icon: &str, label: &str, fill: &str, stroke: Option<&str>, ink_color: &str, hover: Option<&str>, event: &str, radius: f32) -> Value {
     let size = ink.r(SM);
-    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
         "children": [
             {"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": 12, "height": 12, "color": ink_color, "flexShrink": 0}},

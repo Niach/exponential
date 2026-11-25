@@ -13,7 +13,7 @@ import { coerceBoolean, present } from "../src/expr"
 import { evaluateCheck, resolveWithFailure, shownResult, checkResult, type Failure } from "../src/dynamic"
 import { isIdentifier, mangle } from "../src/ids"
 import { A2UI_BASIC_CATALOG_ID as BASIC_ID, CORE_CATALOG_ID } from "../src/catalog"
-import { ExponentialHost, HostRouter, MemoryTransport, actionMessage, callAgentFunctionMessage, decideRoute, errorMessage, rendererCapabilities, rendererFunctionResponse, routedCallKey } from "../src/host"
+import { ExponentialHost, HostRouter, SurfaceStore, answerRendererCall, MemoryTransport, actionMessage, callAgentFunctionMessage, decideRoute, errorMessage, rendererCapabilities, rendererFunctionResponse, routedCallKey } from "../src/host"
 import type { ClientMessage, FunctionPolicy, HostFunction, MessageMetadata, RouteDecisionInput } from "../src/host"
 import type { NestedNode } from "../src/types"
 import type { AppPackage } from "../src/host"
@@ -60,6 +60,11 @@ function renderMessages(f: Any): Any {
     calls: f.calls.map((c: Any) => ({ ...c, expected: callAgentFunctionMessage(c.surfaceId, c.functionCallId, c.name, c.catalogId, c.args) })),
     responses: f.responses.map((c: Any) => ({ ...c, expected: rendererFunctionResponse(c.functionCallId, c.result) })),
     capabilities: f.capabilities.map((c: Any) => ({ ...c, expected: rendererCapabilities(c.extensionIds, c.inline ? { inline: c.inline } : {}) })),
+    rendererCalls: f.rendererCalls.map((c: Any) => ({ ...c, expected: answerRendererCall(c.op, c.data ?? {}, c.available) })),
+    surfaces: f.surfaces.map((c: Any) => {
+      const store = new SurfaceStore(`main`, CORE_CATALOG_ID, () => [])
+      return { ...c, steps: c.steps.map((s: Any) => (store.apply(s.message), { ...s, expected: store.root?.metadata ?? null })) }
+    }),
     cards: f.cards.map((c: Any) => {
       const out = cardV10(c.input, c.acceptV09 ?? true)
       if (`error` in out) return { ...c, expected: { error: out.error } }

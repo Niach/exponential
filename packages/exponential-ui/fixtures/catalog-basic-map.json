@@ -1154,7 +1154,7 @@
           "component": "TextField",
           "label": "Age",
           "variant": "number",
-          "checks": [
+          "@checks": [
             {
               "condition": {
                 "@call": "numeric",

@@ -363,7 +363,7 @@ struct Chrome {
 /// radius) in a solid fill.
 fn sm_button(ink: &Ink, id: &str, label: &str, fill: &str, hover: &str, fg: &str, event: &str, radius: f32) -> Value {
     let size = ink.r(SM);
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer", ":hover": {"backgroundColor": hover}},
         "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": label}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}}]})
 }

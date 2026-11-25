@@ -1023,7 +1023,7 @@ struct Chrome {
 #[allow(clippy::too_many_arguments)]
 fn ghost_xs(chrome: &Chrome, id: &str, icon: &str, tint: &str, tip: Value, event: Value, visible: Value, dim: bool) -> Value {
     let untinted = tint == chrome.foreground;
-    let mut button = json!({"id": id, "component": "Box", "visible": visible, "accessibility": {"label": tip.clone()},
+    let mut button = json!({"id": id, "component": "Box", "visible": visible, "@accessibility": {"label": tip.clone()},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24, "borderRadius": 9999},
         "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": 10.5, "height": 10.5, "color": if dim && untinted { &chrome.muted } else { tint }, "opacity": if dim && untinted { 0.5 } else { 1.0 }}}]});
     if !dim {
@@ -1041,7 +1041,7 @@ fn ghost_xs(chrome: &Chrome, id: &str, icon: &str, tint: &str, tip: Value, event
 #[allow(clippy::too_many_arguments)]
 fn band_ghost(ink: &Ink, chrome: &Chrome, id: &str, icon: &str, tip: &str, event: Value, visible: Value, dim: bool) -> Value {
     let glyph = ink.r(0.875);
-    let mut button = json!({"id": id, "component": "Box", "accessibility": {"label": tip},
+    let mut button = json!({"id": id, "component": "Box", "@accessibility": {"label": tip},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": ink.radius_md},
         "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": if dim { &ink.muted } else { &ink.foreground }, "opacity": if dim { 0.5 } else { VALUE_ALPHA }}}]});
     if !dim {

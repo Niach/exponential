@@ -10,12 +10,16 @@ import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, ACCEPT_V09, CORE_CATALOG_ID, CORE_
 import { isDataSchema } from "./dynamic"
 import { INDEX_FUNCTION } from "./functions"
 import { isIdentifier } from "./ids"
-import type { ComponentDef, ExtensionDef } from "./types"
+import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
 
-/** The envelope keys of a component entry (`ComponentCommon`, §5.1). */
-export const ENVELOPE_KEYS: readonly string[] = [`id`, `component`, `catalogId`, `accessibility`, `metadata`]
+/** The envelope keys of a component entry (`ComponentCommon` + the
+ *  `Checkable` mixin, §5.1). */
+export const ENVELOPE_KEYS: readonly string[] = [`id`, `component`, `@catalogId`, `@accessibility`, `@metadata`, `@checks`]
+/** §5.1: the mixin names. BARE, each is an ordinary prop of a component whose
+ *  catalog declares it, and refused everywhere else. */
+export const MIXIN_NAMES: readonly string[] = [`catalogId`, `accessibility`, `metadata`, `checks`]
 /** The reserved container `createSurface` implies (§5.4). */
 export const SURFACE_COMPONENT = `Surface`
 export { INDEX_FUNCTION }
@@ -144,6 +148,28 @@ export function entryDef(component: string, catalogId: string | undefined, exten
   return undefined
 }
 
+/** §5.1: the source catalogs declare the CHECK MIXIN as an array of the
+ *  shared `check` shape (`schema.ts` emits `Checkable` for it); on the wire
+ *  it is `@checks`, never a prop named `checks`. */
+export function isCheckMixin(schema: PropSchema | undefined): boolean {
+  return schema?.type === `array` && schema.items?.shape === `check`
+}
+
+/** §5.1: does the component take `@checks`? */
+export const isCheckable = (def: ComponentDef | undefined): boolean => isCheckMixin(ownProp(def, `checks`))
+
+/** §5.1: a bare mixin name the component declares as an ordinary prop. */
+export function declaresBare(def: ComponentDef | undefined, name: string): boolean {
+  const schema = ownProp(def, name)
+  return schema !== undefined && !(name === `checks` && isCheckMixin(schema))
+}
+
+const ownProp = (def: ComponentDef | undefined, name: string): PropSchema | undefined =>
+  def && Object.prototype.hasOwnProperty.call(def.props, name) ? def.props[name] : undefined
+
+/** §5.1: why a bare mixin name is refused. */
+export const bareMixin = (name: string): string => `${name} is not a declared prop (write @${name})`
+
 /** The basic catalog's component-id fields (§14.3): `child`, `Tabs.tabs[].child`, `Modal.trigger`/`content`. */
 function basicIdRefs(component: string, entry: Record<string, unknown>): [string, unknown][] {
   const out: [string, unknown][] = []
@@ -166,9 +192,9 @@ export interface EntryContext {
 }
 
 /** §5.2: the first reason an entry is refused, or null. Check order: the
- *  entry is an object, `/id`, `/component`, `/catalogId`, `/metadata…`,
- *  then the other keys in key order (prop names, id references, directives,
- *  depth-first). */
+ *  entry is an object, `/id`, `/component`, `/@catalogId`, `/@metadata…`,
+ *  then the other keys in key order (a bare mixin name the component does not
+ *  declare, prop names, id references, directives, depth-first). */
 export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure | null {
   if (!isObj(entry)) return { pointer: ``, message: `a component is a JSON object` }
   const id = entry.id
@@ -180,20 +206,25 @@ export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure
   if (typeof component !== `string`) return { pointer: `/component`, message: `component is a string` }
   if (!isIdentifier(component)) return { pointer: `/component`, message: notId(`component `, component) }
   if (component === SURFACE_COMPONENT) return { pointer: `/component`, message: `Surface is reserved` }
-  if (`catalogId` in entry && typeof entry.catalogId !== `string`) return { pointer: `/catalogId`, message: `catalogId is a string` }
-  if (`metadata` in entry) {
-    const hit = checkMetadata(entry.metadata, `/metadata`)
+  if (`@catalogId` in entry && typeof entry[`@catalogId`] !== `string`) return { pointer: `/@catalogId`, message: `@catalogId is a string` }
+  if (`@metadata` in entry) {
+    const hit = checkMetadata(entry[`@metadata`], `/@metadata`)
     if (hit) return hit
   }
-  const catalogId = typeof entry.catalogId === `string` ? entry.catalogId : ctx.catalogId
+  const catalogId = typeof entry[`@catalogId`] === `string` ? entry[`@catalogId`] : ctx.catalogId
   const basic = catalogId === A2UI_BASIC_CATALOG_ID
   const def = basic ? undefined : entryDef(component, catalogId, ctx.extensions)
   const basicRefs = basic ? new Map(basicIdRefs(component, entry)) : undefined
   for (const [k, v] of Object.entries(entry)) {
-    if (k === `id` || k === `component` || k === `catalogId` || k === `metadata`) continue
+    if (k === `id` || k === `component` || k === `@catalogId` || k === `@metadata`) continue
     const at = `/${escapeToken(k)}`
-    if (!isIdentifier(k)) return { pointer: at, message: notId(`prop `, k) }
-    if (k === `accessibility`) {
+    if (MIXIN_NAMES.includes(k) && !declaresBare(def, k)) return { pointer: at, message: bareMixin(k) }
+    if (k === `@checks`) {
+      const hit = checkDynamicValue(v, at)
+      if (hit) return hit
+      continue
+    }
+    if (k === `@accessibility`) {
       if (!isObj(v)) continue
       for (const key of [`label`, `description`, `hidden`]) {
         const hit = key in v ? checkDynamicValue(v[key], `${at}/${key}`) : null
@@ -201,6 +232,7 @@ export function checkEntry(entry: unknown, ctx: EntryContext = {}): EntryFailure
       }
       continue
     }
+    if (!isIdentifier(k)) return { pointer: at, message: notId(`prop `, k) }
     if (k === `children`) {
       if (Array.isArray(v)) {
         for (let i = 0; i < v.length; i++) {

@@ -112,8 +112,13 @@ fn nest(by_id: &HashMap<&str, &FlatComponent>, id: &str, placed: &mut HashSet<St
     let mut node = Map::new();
     node.insert("id".into(), json!(flat.id));
     node.insert("component".into(), json!(flat.component));
-    if !flat.rest.is_empty() {
-        node.insert("props".into(), Value::Object(flat.rest.clone()));
+    let mut props = flat.rest.clone();
+    let checks = props.shift_remove("@checks");
+    if !props.is_empty() {
+        node.insert("props".into(), Value::Object(props));
+    }
+    if let Some(checks) = checks {
+        node.insert("@checks".into(), checks);
     }
     if let Some(style) = &flat.style {
         node.insert("style".into(), Value::Object(style.clone()));
@@ -125,13 +130,13 @@ fn nest(by_id: &HashMap<&str, &FlatComponent>, id: &str, placed: &mut HashSet<St
         node.insert("on".into(), json!(on));
     }
     if let Some(accessibility) = &flat.accessibility {
-        node.insert("accessibility".into(), accessibility.clone());
+        node.insert("@accessibility".into(), accessibility.clone());
     }
     if let Some(catalog_id) = &flat.catalog_id {
-        node.insert("catalogId".into(), json!(catalog_id));
+        node.insert("@catalogId".into(), json!(catalog_id));
     }
     if let Some(metadata) = &flat.metadata {
-        node.insert("metadata".into(), metadata.clone());
+        node.insert("@metadata".into(), metadata.clone());
     }
     let children: Vec<Value> = match &flat.children {
         None => Vec::new(),

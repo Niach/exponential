@@ -166,6 +166,32 @@ fn cards() {
 }
 
 #[test]
+fn renderer_calls() {
+    let mut failed = Vec::new();
+    let empty = json!({});
+    for c in list(&fixture("a2ui10-messages.json"), "rendererCalls") {
+        let available: Option<Vec<String>> = c.get("available").map(strs);
+        let got = eui_core::host::answer_renderer_call(&c["op"], c.get("data").unwrap_or(&empty), available.as_deref());
+        check(&mut failed, c["name"].as_str().unwrap(), &got, &c["expected"]);
+    }
+    done(failed);
+}
+
+#[test]
+fn surfaces() {
+    let mut failed = Vec::new();
+    for c in list(&fixture("a2ui10-messages.json"), "surfaces") {
+        let mut surface = eui_core::surface::Surface::new(CORE_CATALOG_ID);
+        for (i, s) in list(c, "steps").iter().enumerate() {
+            surface.apply(&s["message"]).unwrap();
+            let got = surface.root().and_then(|r| r.metadata.clone()).unwrap_or(Value::Null);
+            check(&mut failed, &format!("{} [{i}]", c["name"].as_str().unwrap()), &got, &s["expected"]);
+        }
+    }
+    done(failed);
+}
+
+#[test]
 fn conformance() {
     let mut failed = Vec::new();
     let doc = fixture("a2ui10-conformance.json");
@@ -253,8 +279,10 @@ fn evaluations() {
         if let Some(item) = c["scope"].get("item") {
             ctx = ctx.with_item(item);
         }
-        if c.get("position").and_then(Value::as_str) == Some("action") {
-            ctx = ctx.with_position(Position::Action);
+        match c.get("position").and_then(Value::as_str) {
+            Some("action") => ctx = ctx.with_position(Position::Action),
+            Some("agent") => ctx = ctx.with_position(Position::Agent),
+            _ => {}
         }
         let (value, failure) = resolve_with_failure(&c["value"], &ctx);
         let mut got = Map::new();

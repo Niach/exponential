@@ -762,7 +762,7 @@ fn outline_button(ink: &Ink, chrome: &Chrome, id: &str, disabled: Value) -> [Val
             "children": [label(&chrome.danger, "_danger", path("danger")), label(plain, "", not(path("danger")))]});
         if !dim {
             button["props"] = json!({"pressable": true});
-            button["accessibility"] = json!({"label": path("action")});
+            button["@accessibility"] = json!({"label": path("action")});
             button["on"] = json!({"press": {"event": {"name": "revoke", "context": {"key": path("key")}}}});
             button["style"]["cursor"] = json!("pointer");
         }

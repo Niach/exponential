@@ -75,34 +75,34 @@
                               "placeholder": "Acme Inc.",
                               "value": {
                                 "@path": "/team/name"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/team/name"
-                                      }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/team/name"
                                     }
-                                  },
-                                  "message": "Enter a team name."
+                                  }
                                 },
-                                {
-                                  "condition": {
-                                    "@call": "length",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/team/name"
-                                      },
-                                      "min": 2,
-                                      "max": 64
-                                    }
-                                  },
-                                  "message": "Use 2–64 characters."
-                                }
-                              ]
-                            }
+                                "message": "Enter a team name."
+                              },
+                              {
+                                "condition": {
+                                  "@call": "length",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/team/name"
+                                    },
+                                    "min": 2,
+                                    "max": 64
+                                  }
+                                },
+                                "message": "Use 2–64 characters."
+                              }
+                            ]
                           },
                           {
                             "id": "slug_input",
@@ -113,46 +113,46 @@
                               "placeholder": "acme-inc",
                               "value": {
                                 "@path": "/team/slug"
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/team/slug"
+                                    }
+                                  }
+                                },
+                                "message": "Enter a URL slug."
                               },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/team/slug"
-                                      }
-                                    }
-                                  },
-                                  "message": "Enter a URL slug."
+                              {
+                                "condition": {
+                                  "@call": "regex",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/team/slug"
+                                    },
+                                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                  }
                                 },
-                                {
-                                  "condition": {
-                                    "@call": "regex",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/team/slug"
-                                      },
-                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-                                    }
-                                  },
-                                  "message": "Use lowercase letters, numbers and single hyphens."
+                                "message": "Use lowercase letters, numbers and single hyphens."
+                              },
+                              {
+                                "condition": {
+                                  "@call": "length",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/team/slug"
+                                    },
+                                    "min": 3,
+                                    "max": 40
+                                  }
                                 },
-                                {
-                                  "condition": {
-                                    "@call": "length",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/team/slug"
-                                      },
-                                      "min": 3,
-                                      "max": 40
-                                    }
-                                  },
-                                  "message": "Use 3–40 characters."
-                                }
-                              ]
-                            }
+                                "message": "Use 3–40 characters."
+                              }
+                            ]
                           }
                         ]
                       },
@@ -187,21 +187,21 @@
                           },
                           "value": {
                             "@path": "/team/timezone"
-                          },
-                          "checks": [
-                            {
-                              "condition": {
-                                "@call": "required",
-                                "args": {
-                                  "value": {
-                                    "@path": "/team/timezone"
-                                  }
+                          }
+                        },
+                        "@checks": [
+                          {
+                            "condition": {
+                              "@call": "required",
+                              "args": {
+                                "value": {
+                                  "@path": "/team/timezone"
                                 }
-                              },
-                              "message": "Choose a timezone."
-                            }
-                          ]
-                        }
+                              }
+                            },
+                            "message": "Choose a timezone."
+                          }
+                        ]
                       },
                       {
                         "id": "general_actions",
@@ -1197,21 +1197,21 @@
                               "placeholder": "Jane Doe",
                               "value": {
                                 "@path": "/form/name"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/name"
-                                      }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/name"
                                     }
-                                  },
-                                  "message": "Please enter your name."
-                                }
-                              ]
-                            }
+                                  }
+                                },
+                                "message": "Please enter your name."
+                              }
+                            ]
                           },
                           {
                             "id": "email",
@@ -1223,32 +1223,32 @@
                               "placeholder": "you@example.com",
                               "value": {
                                 "@path": "/form/email"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/email"
-                                      }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/email"
                                     }
-                                  },
-                                  "message": "Please enter your email."
+                                  }
                                 },
-                                {
-                                  "condition": {
-                                    "@call": "email",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/email"
-                                      }
+                                "message": "Please enter your email."
+                              },
+                              {
+                                "condition": {
+                                  "@call": "email",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/email"
                                     }
-                                  },
-                                  "message": "Enter a valid email address."
-                                }
-                              ]
-                            }
+                                  }
+                                },
+                                "message": "Enter a valid email address."
+                              }
+                            ]
                           },
                           {
                             "id": "password",
@@ -1259,22 +1259,22 @@
                               "type": "password",
                               "value": {
                                 "@path": "/form/password"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "length",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/password"
-                                      },
-                                      "min": 8
-                                    }
-                                  },
-                                  "message": "Use at least 8 characters."
-                                }
-                              ]
-                            }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "length",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/password"
+                                    },
+                                    "min": 8
+                                  }
+                                },
+                                "message": "Use at least 8 characters."
+                              }
+                            ]
                           },
                           {
                             "id": "terms",
@@ -1284,23 +1284,23 @@
                               "name": "terms",
                               "checked": {
                                 "@path": "/form/terms"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "cond",
-                                    "args": {
-                                      "if": {
-                                        "@path": "/form/terms"
-                                      },
-                                      "then": true,
-                                      "else": false
-                                    }
-                                  },
-                                  "message": "You must accept the terms to continue."
-                                }
-                              ]
-                            }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "/form/terms"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                },
+                                "message": "You must accept the terms to continue."
+                              }
+                            ]
                           }
                         ]
                       },
@@ -3007,32 +3007,32 @@
                               "placeholder": "you@example.com",
                               "value": {
                                 "@path": "/form/email"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/email"
-                                      }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/email"
                                     }
-                                  },
-                                  "message": "Enter your email address."
+                                  }
                                 },
-                                {
-                                  "condition": {
-                                    "@call": "email",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/email"
-                                      }
+                                "message": "Enter your email address."
+                              },
+                              {
+                                "condition": {
+                                  "@call": "email",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/email"
                                     }
-                                  },
-                                  "message": "Enter a valid email address."
-                                }
-                              ]
-                            }
+                                  }
+                                },
+                                "message": "Enter a valid email address."
+                              }
+                            ]
                           },
                           {
                             "id": "password",
@@ -3043,21 +3043,21 @@
                               "type": "password",
                               "value": {
                                 "@path": "/form/password"
-                              },
-                              "checks": [
-                                {
-                                  "condition": {
-                                    "@call": "required",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/form/password"
-                                      }
+                              }
+                            },
+                            "@checks": [
+                              {
+                                "condition": {
+                                  "@call": "required",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/form/password"
                                     }
-                                  },
-                                  "message": "Enter your password."
-                                }
-                              ]
-                            }
+                                  }
+                                },
+                                "message": "Enter your password."
+                              }
+                            ]
                           },
                           {
                             "id": "optionsRow",
@@ -4012,21 +4012,21 @@
                       "placeholder": "Event title",
                       "value": {
                         "@path": "/event/title"
-                      },
-                      "checks": [
-                        {
-                          "condition": {
-                            "@call": "required",
-                            "args": {
-                              "value": {
-                                "@path": "/event/title"
-                              }
+                      }
+                    },
+                    "@checks": [
+                      {
+                        "condition": {
+                          "@call": "required",
+                          "args": {
+                            "value": {
+                              "@path": "/event/title"
                             }
-                          },
-                          "message": "Enter a title"
-                        }
-                      ]
-                    }
+                          }
+                        },
+                        "message": "Enter a title"
+                      }
+                    ]
                   },
                   {
                     "id": "dates",
@@ -4748,24 +4748,24 @@
                                   "value": {
                                     "@path": "/confirmText"
                                   },
-                                  "validateOn": "submit",
-                                  "checks": [
-                                    {
-                                      "condition": {
-                                        "@call": "eq",
-                                        "args": {
-                                          "a": {
-                                            "@path": "/confirmText"
-                                          },
-                                          "b": {
-                                            "@path": "/board/name"
-                                          }
+                                  "validateOn": "submit"
+                                },
+                                "@checks": [
+                                  {
+                                    "condition": {
+                                      "@call": "eq",
+                                      "args": {
+                                        "a": {
+                                          "@path": "/confirmText"
+                                        },
+                                        "b": {
+                                          "@path": "/board/name"
                                         }
-                                      },
-                                      "message": "Type the board name exactly to confirm."
-                                    }
-                                  ]
-                                }
+                                      }
+                                    },
+                                    "message": "Type the board name exactly to confirm."
+                                  }
+                                ]
                               },
                               {
                                 "id": "actionsRow",
@@ -5616,27 +5616,27 @@
                           "placeholder": "name@company.com",
                           "values": {
                             "@path": "/invite/emails"
-                          },
-                          "checks": [
-                            {
-                              "condition": {
-                                "@call": "lt",
-                                "args": {
-                                  "a": 0,
-                                  "b": {
-                                    "@call": "len",
-                                    "args": {
-                                      "value": {
-                                        "@path": "/invite/emails"
-                                      }
+                          }
+                        },
+                        "@checks": [
+                          {
+                            "condition": {
+                              "@call": "lt",
+                              "args": {
+                                "a": 0,
+                                "b": {
+                                  "@call": "len",
+                                  "args": {
+                                    "value": {
+                                      "@path": "/invite/emails"
                                     }
                                   }
                                 }
-                              },
-                              "message": "Add at least one email address."
-                            }
-                          ]
-                        }
+                              }
+                            },
+                            "message": "Add at least one email address."
+                          }
+                        ]
                       },
                       {
                         "id": "role_field",
@@ -6883,34 +6883,34 @@
                                   "placeholder": "e.g. CI deploy",
                                   "value": {
                                     "@path": "/draft/name"
-                                  },
-                                  "checks": [
-                                    {
-                                      "condition": {
-                                        "@call": "required",
-                                        "args": {
-                                          "value": {
-                                            "@path": "/draft/name"
-                                          }
+                                  }
+                                },
+                                "@checks": [
+                                  {
+                                    "condition": {
+                                      "@call": "required",
+                                      "args": {
+                                        "value": {
+                                          "@path": "/draft/name"
                                         }
-                                      },
-                                      "message": "Give the key a name."
+                                      }
                                     },
-                                    {
-                                      "condition": {
-                                        "@call": "length",
-                                        "args": {
-                                          "value": {
-                                            "@path": "/draft/name"
-                                          },
-                                          "min": 1,
-                                          "max": 64
-                                        }
-                                      },
-                                      "message": "Use 64 characters or fewer."
-                                    }
-                                  ]
-                                }
+                                    "message": "Give the key a name."
+                                  },
+                                  {
+                                    "condition": {
+                                      "@call": "length",
+                                      "args": {
+                                        "value": {
+                                          "@path": "/draft/name"
+                                        },
+                                        "min": 1,
+                                        "max": 64
+                                      }
+                                    },
+                                    "message": "Use 64 characters or fewer."
+                                  }
+                                ]
                               },
                               {
                                 "id": "scopeSelect",
@@ -6937,21 +6937,21 @@
                                       "value": "admin",
                                       "description": "Full access, including members and billing"
                                     }
-                                  ],
-                                  "checks": [
-                                    {
-                                      "condition": {
-                                        "@call": "required",
-                                        "args": {
-                                          "value": {
-                                            "@path": "/draft/scope"
-                                          }
-                                        }
-                                      },
-                                      "message": "Pick a scope."
-                                    }
                                   ]
-                                }
+                                },
+                                "@checks": [
+                                  {
+                                    "condition": {
+                                      "@call": "required",
+                                      "args": {
+                                        "value": {
+                                          "@path": "/draft/scope"
+                                        }
+                                      }
+                                    },
+                                    "message": "Pick a scope."
+                                  }
+                                ]
                               },
                               {
                                 "id": "createActions",
@@ -7655,21 +7655,21 @@
                           "value": "praise",
                           "icon": "heart"
                         }
-                      ],
-                      "checks": [
-                        {
-                          "condition": {
-                            "@call": "required",
-                            "args": {
-                              "value": {
-                                "@path": "/form/category"
-                              }
-                            }
-                          },
-                          "message": "Pick a category."
-                        }
                       ]
-                    }
+                    },
+                    "@checks": [
+                      {
+                        "condition": {
+                          "@call": "required",
+                          "args": {
+                            "value": {
+                              "@path": "/form/category"
+                            }
+                          }
+                        },
+                        "message": "Pick a category."
+                      }
+                    ]
                   },
                   {
                     "id": "message",
@@ -7683,34 +7683,34 @@
                       "maxRows": 12,
                       "value": {
                         "@path": "/form/message"
-                      },
-                      "checks": [
-                        {
-                          "condition": {
-                            "@call": "required",
-                            "args": {
-                              "value": {
-                                "@path": "/form/message"
-                              }
+                      }
+                    },
+                    "@checks": [
+                      {
+                        "condition": {
+                          "@call": "required",
+                          "args": {
+                            "value": {
+                              "@path": "/form/message"
                             }
-                          },
-                          "message": "Please write a message."
+                          }
                         },
-                        {
-                          "condition": {
-                            "@call": "length",
-                            "args": {
-                              "value": {
-                                "@path": "/form/message"
-                              },
-                              "min": 10,
-                              "max": 2000
-                            }
-                          },
-                          "message": "Use between 10 and 2000 characters."
-                        }
-                      ]
-                    }
+                        "message": "Please write a message."
+                      },
+                      {
+                        "condition": {
+                          "@call": "length",
+                          "args": {
+                            "value": {
+                              "@path": "/form/message"
+                            },
+                            "min": 10,
+                            "max": 2000
+                          }
+                        },
+                        "message": "Use between 10 and 2000 characters."
+                      }
+                    ]
                   },
                   {
                     "id": "screenshot",
