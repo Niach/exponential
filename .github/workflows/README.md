@@ -184,7 +184,7 @@ What ships never reads what a pull request job wrote.
 
 Adding a release workflow: hosted `runs-on`, no cache, `cargo-fetch` with `restore: 'false'`, `environment` on each job with a secret, its file in release-trust.sh and its tag covered by the environment's policy.
 
-Build time, cold and hosted, against the Mint's warm caches: see #EXP-2151.
+Build time, measured 2026-11-25 (cold, hosted; before = the releases up to 0.14.183): desktop Linux 5-24 → 23 min, macOS 83-96 → 83, Windows 30-39 → 36 (a desktop release still waits on macOS); Android 30-50 → 51; CLI 27 (x86_64), 19 (arm64), 36 (macOS), unchanged. `release-suite`'s iOS leg: 20 min on the MacBook, over 60 hosted.
 
 ## Release secrets and variables (EXP-1430)
 
