@@ -75,6 +75,10 @@ struct AgentComposerCard: View {
                 // EXP-1276: the keyboard-down chevron above the keyboard.
                 showsDismissAccessory: true
             )
+            // #EXP-2109: a team pick swaps in another team's composer; its
+            // field must be a new one, or the text view keeps typing under the
+            // old editor's focus and `#`, `@` and the `#` sheet go dead.
+            .id(ObjectIdentifier(model.draftEditor))
             // The text view carries a 6pt inset of its own (`singleLine`), so
             // the card's 12/12 band is spelled 6/6 here.
             .padding(.horizontal, 6)

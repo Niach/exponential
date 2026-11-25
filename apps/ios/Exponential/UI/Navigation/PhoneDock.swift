@@ -42,6 +42,9 @@ struct PhoneDock: View {
             bar
         }
         .animation(motion.standard, value: newOpen)
+        // The bar is a fixed `shell.dock` size (its labels are too): a larger
+        // text size must not grow the icons over them.
+        .dynamicTypeSize(.large)
         // VoiceOver's two-finger scrub closes the popup (the system back).
         .accessibilityAction(.escape) { newOpen = false }
     }
@@ -61,7 +64,7 @@ struct PhoneDock: View {
                         .fill(GlassTokens.strokeCard)
                         .frame(height: 1)
                 }
-                .ignoresSafeArea(edges: .bottom)
+                .ignoresSafeArea(edges: [.bottom, .horizontal])
         }
     }
 
