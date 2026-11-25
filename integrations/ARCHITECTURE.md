@@ -31,7 +31,7 @@ went with EXP-1291.
 
 | Tool | Resource | View |
 | --- | --- | --- |
-| `exponential_issues` (+ `_meta["openai/ui"].entrypoints: global`) | `ui://exponential/issues` | issue list (`list`, `show`; `show` opens full size), an issue in place (`get`, `create`, `update`, `update_status`, a list row) |
+| `exponential_issues` (+ `_meta["openai/ui"].entrypoints: global, thread`) | `ui://exponential/issues` | issue list (`list`, `show`; `show` opens full size), an issue in place (`get`, `create`, `update`, `update_status`, a list row) |
 | `exponential_notifications` | `ui://exponential/inbox` | inbox; a row opens its issue in place |
 | `exponential_devices` | `ui://exponential/devices` | devices, agent accounts, account sign-in |
 | `exponential_show`, `exponential_apps` | `ui://exponential/genui` | an inline genUI card; a team app running; the apps list |
@@ -77,6 +77,16 @@ What a view takes from the host (`ui/initialize` and every
   once the call's input arrived), or refuses the view's first `tools/call`,
   the view is READ-ONLY: that last screen, every action off, one line "This
   view expired · relaunch it from the chat" (`lease.ts`).
+
+OpenAI's MCP extensions (NEW-141, `lib/emcp/mentions.ts`; ChatGPT and
+OpenClaw host them): `exponential_issues {}` opens the caller's open issues
+(the entrypoints' call); every resource names its display modes in
+`_meta["openai/ui"]`; `capabilities.extensions["openai/mentions"]` names
+`exponential_issues`, whose `{query}` call answers resource links to
+`exponential://issues/<IDENT>` (a resource template, read through the `get`
+op), so no tool is added; the issues view publishes the open issue with
+`ui/update-model-context` where the host takes it. Not built:
+`openai/settings` (two more tools, and preferences the product does not have).
 
 A request that carries a well-formed `X-Exp-Session-Id` header (every coding
 run Exponential launches) gets NO resources and NO bindings
