@@ -14,9 +14,8 @@
 //! the run's HISTORY stays: its run record (`run_registry`, what a message to
 //! the ended chat resumes from, FEED-134) and its steer journal (its
 //! transcript), exactly like a repo-backed run's, until the machine's "Keep
-//! session history" window drops them ([`crate::session_retention`]). Only a
-//! run whose session is GONE (its row deleted: the chat, its agent, its team)
-//! takes its history along.
+//! session history" window drops them ([`crate::session_retention`]) or the
+//! chat, its agent or its team is DELETED (`steer::held_gone`).
 //!
 //! EXP-1292: a team AGENT never ends — its channel idles and wakes on the
 //! next message or trigger firing, re-spawning natively in the SAME dir — so
@@ -78,78 +77,21 @@ fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
     name.is_some_and(|name| !name.is_empty() && name != "." && name != "..")
 }
 
-/// What [`reclaim_dir`] found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DirOutcome {
-    /// Not `<scratch>/<root>/<session>` — never ours to touch.
-    NotScratch,
-    /// Written to after `requested_at`: a resume re-entered it; kept.
-    ReEntered,
-    /// Removed by this call.
-    Removed,
-    /// Already gone: nothing to reclaim, and nothing to retry.
-    Gone,
-    /// EXP-781: still there — `remove_dir_all` refused (logged). The dir is
-    /// NOT gone, so the caller must keep whatever would make it retry; this
-    /// used to be folded into [`Self::Gone`], which let [`purge`] delete the
-    /// run record and orphan the directory for the next startup sweep, where
-    /// nothing named it any more.
-    Failed,
-}
-
 /// Reclaim ONE ended run's scratch dir and its agent trust entries. Returns
 /// whether the directory was removed (`false` when it was already gone, when
 /// `cwd` is not a scratch dir at all, or when a resume re-entered it — logged,
 /// never fatal). The dir only; [`purge`] is what the hosts call.
 pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
-    reclaim_dir(data_dir, cwd, requested_at) == DirOutcome::Removed
-}
-
-/// EXP-764: purge ONE ended repo-less run: its scratch dir and trust entries
-/// ([`reclaim`]). Returns whether its HISTORY goes too (#EXP-2138): only when
-/// the session is gone (`keep_history` false), then its run record went here
-/// and the host drops the steer journal (it lives in the steer crate, above
-/// this one). `false` = the record stays; nothing at all was touched when
-/// `cwd` is not a scratch dir or a resume re-entered it.
-///
-/// `requested_at` is the moment the run was seen to END, not the moment this
-/// runs: both hosts queue the purge (the desktop onto its background
-/// executor, the daemon behind the git work of its 1Hz tick), and a resume
-/// racing that window re-enters the SAME recorded cwd and [`touch`]es it, so
-/// anything newer than the request means the dir is live again and must not
-/// be deleted under its fresh `.exp-mcp.json`.
-pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime, keep_history: bool) -> bool {
-    // EXP-1330: a `/btw` aside ran in its PARENT's dir — only its record goes.
-    if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside()) {
-        crate::run_registry::remove(data_dir, session_id);
-        return true;
-    }
-    match reclaim_dir(data_dir, cwd, requested_at) {
-        // EXP-781: `Failed` sits with `ReEntered`, not with `Gone` — the
-        // directory is still on disk, so the record has to stay too. It is
-        // what names this run's cwd, and the sweep keying off it is the only
-        // thing that will come back and try again.
-        DirOutcome::NotScratch | DirOutcome::ReEntered | DirOutcome::Failed => return false,
-        DirOutcome::Removed | DirOutcome::Gone => {}
-    }
-    if keep_history {
-        return false;
-    }
-    crate::run_registry::remove(data_dir, session_id);
-    true
-}
-
-fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutcome {
     if !is_scratch_dir(data_dir, cwd) {
         log::warn!("scratch reclaim: {} is not a scratch dir; kept", cwd.display());
-        return DirOutcome::NotScratch;
+        return false;
     }
     if newest_mtime(cwd).is_some_and(|newest| newest > requested_at) {
         log::info!(
             "scratch reclaim: {} was re-entered after the run ended; kept",
             cwd.display()
         );
-        return DirOutcome::ReEntered;
+        return false;
     }
     // The trust keys, raw AND canonical, resolved BEFORE the dirs go —
     // canonicalize needs the path to exist. EXP-758: claude keys trust by the
@@ -160,11 +102,11 @@ fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutc
     let root_dir = cwd.parent().map(Path::to_path_buf);
     let codex_trust_keys = root_dir.as_deref().map(trust_keys_for).unwrap_or_default();
     let removed = match std::fs::remove_dir_all(cwd) {
-        Ok(()) => DirOutcome::Removed,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => DirOutcome::Gone,
+        Ok(()) => true,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
         Err(err) => {
             log::warn!("scratch reclaim: remove {}: {err}", cwd.display());
-            DirOutcome::Failed
+            false
         }
     };
     if let Some(root_dir) = &root_dir {
@@ -176,6 +118,25 @@ fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutc
     }
     crate::claude_trust::forget(&trust_keys);
     removed
+}
+
+/// EXP-764: purge ONE ended repo-less run: its scratch dir and trust entries
+/// ([`reclaim`]). #EXP-2138: its run record and journal stay; nothing at all
+/// is touched when `cwd` is not a scratch dir or a resume re-entered it.
+///
+/// `requested_at` is the moment the run was seen to END, not the moment this
+/// runs: both hosts queue the purge (the desktop onto its background
+/// executor, the daemon behind the git work of its 1Hz tick), and a resume
+/// racing that window re-enters the SAME recorded cwd and [`touch`]es it, so
+/// anything newer than the request means the dir is live again and must not
+/// be deleted under its fresh `.exp-mcp.json`.
+pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime) {
+    // EXP-1330: a `/btw` aside ran in its PARENT's dir — only its record goes.
+    if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside()) {
+        crate::run_registry::remove(data_dir, session_id);
+        return;
+    }
+    reclaim(data_dir, cwd, requested_at);
 }
 
 fn trust_keys_for(cwd: &Path) -> Vec<PathBuf> {
@@ -386,27 +347,6 @@ mod tests {
         crate::run_registry::record(data_dir, record);
     }
 
-    /// A gone session's run goes whole — dir and record — and the root dir
-    /// with it once empty.
-    #[test]
-    fn purge_removes_dir_and_record() {
-        let dir = temp_dir("scratch-purge");
-        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
-        let mut record = crate::run_registry::sample_record("sess-1");
-        record.cwd = run.clone();
-        record.clone = None;
-        crate::run_registry::record(&dir.0, record);
-
-        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now(), false));
-        assert!(!run.exists());
-        assert!(!run.parent().unwrap().exists());
-        assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
-        // A second pass (the dir already gone) still settles the record.
-        scratch_record(&dir.0, "sess-1", &run);
-        assert!(purge(&dir.0, "sess-1", &run, SystemTime::now(), false));
-        assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
-    }
-
     /// #EXP-2138: an ended chat's dir goes, its record stays (the host keeps
     /// the journal), however often it is purged.
     #[test]
@@ -415,8 +355,8 @@ mod tests {
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         scratch_record(&dir.0, "sess-1", &run);
         for _ in 0..2 {
-            assert!(!purge(&dir.0, "sess-1", &run, SystemTime::now(), true));
-            assert!(!run.exists());
+            purge(&dir.0, "sess-1", &run, SystemTime::now());
+            assert!(!run.parent().unwrap().exists());
             assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
         }
         assert!(sweep(&dir.0, &[]).is_noop());
@@ -436,7 +376,7 @@ mod tests {
         aside.set_aside_of("parent");
         crate::run_registry::record(&dir.0, aside);
 
-        assert!(purge(&dir.0, "aside", &run, SystemTime::now(), false));
+        purge(&dir.0, "aside", &run, SystemTime::now());
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         assert!(crate::run_registry::get(&dir.0, "aside").is_none());
         assert!(crate::run_registry::get(&dir.0, "parent").is_some());
@@ -450,13 +390,14 @@ mod tests {
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         scratch_record(&dir.0, "sess-1", &run);
         let requested_at = SystemTime::now() - Duration::from_secs(5);
-        assert!(!purge(&dir.0, "sess-1", &run, requested_at, false));
+        purge(&dir.0, "sess-1", &run, requested_at);
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
         // And a foreign cwd never costs a record either.
         let foreign = dir.0.join("worktree");
         std::fs::create_dir_all(&foreign).unwrap();
-        assert!(!purge(&dir.0, "sess-1", &foreign, SystemTime::now(), false));
+        purge(&dir.0, "sess-1", &foreign, SystemTime::now());
+        assert!(foreign.is_dir());
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_some());
     }
 
@@ -477,10 +418,9 @@ mod tests {
         let root_dir = run.parent().unwrap().to_path_buf();
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
 
-        let purged = purge(&dir.0, "sess-1", &run, SystemTime::now(), false);
+        purge(&dir.0, "sess-1", &run, SystemTime::now());
 
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(!purged, "an unremovable dir is not a purged run");
         assert!(run.exists(), "the dir is still there, which is the point");
         assert!(
             crate::run_registry::get(&dir.0, "sess-1").is_some(),

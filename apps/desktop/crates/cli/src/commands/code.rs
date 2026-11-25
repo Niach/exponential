@@ -98,7 +98,6 @@ pub fn purge_scratch(ctx: &context::Ctx, session: &RunningSession) {
             &session.session_id,
             &session.worktree,
             std::time::SystemTime::now(),
-            true,
         );
     }
 }

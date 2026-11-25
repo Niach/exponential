@@ -436,6 +436,43 @@ impl SqliteStore {
         ids
     }
 
+    /// #EXP-2138: every session and root the store holds something of.
+    pub fn session_ids(&self) -> Result<Vec<String>, Error> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT session_id FROM events UNION SELECT root_id FROM events UNION SELECT session_id FROM messages UNION SELECT root_id FROM messages",
+        )?;
+        let ids = stmt.query_map([], |row| row.get(0))?.collect();
+        ids
+    }
+
+    /// #EXP-2138: whether the store holds anything of the session (or root).
+    pub fn names(&self, id: &str) -> Result<bool, Error> {
+        self.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ?1 OR root_id = ?1) OR EXISTS (SELECT 1 FROM messages WHERE session_id = ?1 OR root_id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )
+    }
+
+    /// #EXP-2138 (held-gone.json REMOVED): everything of one DELETED session:
+    /// its messages, events, docs, tools and bookkeeping. A root's children
+    /// are sessions of their own.
+    pub fn forget_session(&self, session_id: &str) -> Result<(), Error> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        delete_docs(&tx, "session_id = ?1", params![session_id])?;
+        for table in ["events", "tools", "messages"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), params![session_id])?;
+        }
+        let complete = complete_key(session_id, "");
+        tx.execute(
+            "DELETE FROM meta WHERE key = ?1 OR substr(key, 1, ?2) = ?3",
+            params![format!("journal.{session_id}"), complete.len() as i64, complete],
+        )?;
+        tx.commit()
+    }
+
     /// A value of the store's own bookkeeping (catch-up watermarks).
     pub fn meta(&self, key: &str) -> Result<Option<String>, Error> {
         self.conn().query_row("SELECT value FROM meta WHERE key = ?1", params![key], |row| row.get(0)).optional()
@@ -596,6 +633,51 @@ mod tests {
     use super::*;
     use crate::fixture::{from, spec};
     use serde_json::json;
+
+    /// #EXP-2138: a deleted session leaves nothing behind, search included;
+    /// the rest of its tree and the other chats stay.
+    #[test]
+    fn a_deleted_session_is_forgotten_whole() {
+        let event = |session: &str, seq: u64, event: serde_json::Value| StoredEvent {
+            root_id: "r".into(),
+            session_id: session.into(),
+            device_id: "d".into(),
+            seq,
+            stored_at: 1,
+            event,
+        };
+        let message = |id: &str, session: &str| StoredMessage {
+            id: id.into(),
+            root_id: "r".into(),
+            session_id: session.into(),
+            author_kind: "user".into(),
+            body: Some(format!("wombat in {session}")),
+            created_at: 1,
+        };
+        let store = SqliteStore::open_in_memory().unwrap();
+        for session in ["r", "s"] {
+            store
+                .put_events(&[
+                    event(session, 1, json!({"kind": "narration", "text": "a wombat"})),
+                    event(session, 2, json!({"kind": "tool", "name": "Bash", "id": "t1", "detail": "wombat"})),
+                ])
+                .unwrap();
+            store.put_messages(&[message(&format!("m-{session}"), session)]).unwrap();
+            store.set_complete_to(session, "d", 2).unwrap();
+            store.set_meta(&format!("journal.{session}"), "1:1").unwrap();
+        }
+        let before = store.search_chat("r", "wombat", 50).unwrap().total;
+        assert_eq!(store.session_ids().unwrap(), vec!["r".to_string(), "s".to_string()]);
+        store.forget_session("s").unwrap();
+        assert_eq!(store.session_ids().unwrap(), vec!["r".to_string()]);
+        assert!(!store.names("s").unwrap() && store.names("r").unwrap());
+        assert_eq!(store.search_chat("r", "wombat", 50).unwrap().total * 2, before);
+        assert_eq!((store.complete_to("s", "d").unwrap(), store.meta("journal.s").unwrap()), (None, None));
+        assert_eq!((store.complete_to("r", "d").unwrap(), store.meta("journal.r").unwrap().is_some()), (Some(2), true));
+        let left: i64 = store.conn().query_row("SELECT (SELECT count(*) FROM tools WHERE session_id = 's') + (SELECT count(*) FROM docs WHERE session_id = 's')", [], |row| row.get(0)).unwrap();
+        assert_eq!(left, 0);
+        store.conn().execute("INSERT INTO docs_fts (docs_fts) VALUES ('integrity-check')", []).unwrap();
+    }
 
     fn store_of(events: &[StoredEvent], messages: &[StoredMessage]) -> SqliteStore {
         let store = SqliteStore::open_in_memory().unwrap();

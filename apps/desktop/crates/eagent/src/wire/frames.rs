@@ -1918,10 +1918,14 @@ pub enum ServerFrame {
     /// End the run. From a viewer (over eNet) the envelope names the
     /// session; VAPP-43: down the CONTROL socket the relay names it
     /// (`sessionId`), and the device routes it to that session's live run.
+    /// #EXP-2138: `reason: "deleted"` = the session's row was deleted
+    /// (held-gone.json THE SIGNAL).
     #[serde(rename_all = "camelCase")]
     Kill {
         #[serde(default)]
         session_id: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
     },
     /// EXP-790/EXP-861: a viewer's Stop — cancel the running turn and drop
     /// the queued messages; the run itself continues. `session_id` as for
@@ -3387,11 +3391,15 @@ mod tests {
             ServerFrame::parse(r#"{"t":"input","data":"ls\r"}"#).unwrap(),
             ServerFrame::Input { data: "ls\r".into() }
         );
-        assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill { session_id: None });
+        assert_eq!(ServerFrame::parse(r#"{"t":"kill"}"#).unwrap(), ServerFrame::Kill { session_id: None, reason: None });
         // VAPP-43: down the control socket the relay names the session.
         assert_eq!(
             ServerFrame::parse(r#"{"t":"kill","sessionId":"s1"}"#).unwrap(),
-            ServerFrame::Kill { session_id: Some("s1".to_string()) }
+            ServerFrame::Kill { session_id: Some("s1".to_string()), reason: None }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"kill","sessionId":"s1","reason":"deleted"}"#).unwrap(),
+            ServerFrame::Kill { session_id: Some("s1".to_string()), reason: Some("deleted".to_string()) }
         );
         assert_eq!(
             ServerFrame::parse(r#"{"t":"interrupt","sessionId":"s1"}"#).unwrap(),

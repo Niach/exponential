@@ -499,18 +499,13 @@ impl LocalSessions {
                 // Stamped HERE, not in the spawned task: a resume that
                 // re-enters the dir while this sits in the queue keeps it.
                 let requested_at = std::time::SystemTime::now();
-                let row = sync::Store::try_global(cx).map(|store| {
+                let editor = sync::Store::try_global(cx).is_some_and(|store| {
                     let sessions = store.collections().sessions.read(cx);
-                    match sessions.get(&session_id) {
-                        Some(row) if row.is_app_editor() => EndedRow::Editor,
-                        Some(_) => EndedRow::Chat,
-                        None => EndedRow::Gone,
-                    }
+                    sessions.get(&session_id).is_some_and(|row| row.is_app_editor())
                 });
-                let row = row.unwrap_or(EndedRow::Chat);
                 cx.background_executor()
                     .spawn(async move {
-                        purge_ended_scratch(&data_dir, &session_id, &worktree, requested_at, row);
+                        purge_ended_scratch(&data_dir, &session_id, &worktree, requested_at, editor);
                     })
                     .detach();
             }
@@ -670,39 +665,25 @@ struct RefresherEntry {
     cancel: Arc<AtomicBool>,
 }
 
-/// What an ended run's synced row says ([`purge_ended_scratch`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EndedRow {
-    /// Still there, ended or not: its member can write in it again.
-    Chat,
-    /// An app's editor.
-    Editor,
-    /// Deleted (the chat, its agent, its team).
-    Gone,
-}
-
 /// EXP-764: purge one ended repo-less run's scratch dir. #EXP-2138: its run
-/// record and steer journal stay under "Keep session history", unless its row
-/// is gone. A team agent's run (its record says so, EXP-1292) whose row is
-/// still there keeps its dir too: the group chat move ends and detaches a chat
-/// whose engine is live here.
+/// record and steer journal stay (a deleted chat's go through
+/// `steer::held_gone`, never on a missing row). A team agent's run (its record
+/// says so, EXP-1292) keeps its dir too, unless it is an app's `editor`: the
+/// group chat move ends and detaches a chat whose engine is live here.
 fn purge_ended_scratch(
     data_dir: &Path,
     session_id: &str,
     worktree: &Path,
     requested_at: std::time::SystemTime,
-    row: EndedRow,
+    editor: bool,
 ) {
     let agent = coding::run_registry::get(data_dir, session_id).is_some_and(|record| record.kind.is_persistent());
-    if agent && row == EndedRow::Chat {
+    if agent && !editor {
         log::info!("scratch purge [{session_id}] {}: kept, a team agent's", worktree.display());
         return;
     }
-    let purged = coding::scratch::purge(data_dir, session_id, worktree, requested_at, row != EndedRow::Gone);
-    if purged {
-        steer::remove_journal(data_dir, session_id);
-    }
-    log::info!("scratch purge [{session_id}] {}: history dropped={purged}", worktree.display());
+    coding::scratch::purge(data_dir, session_id, worktree, requested_at);
+    log::info!("scratch purge [{session_id}] {}", worktree.display());
 }
 
 /// Process-global, ref-counted per-CLONE token refreshers: while any local
@@ -1820,19 +1801,13 @@ mod tests {
         assert!(!holds_branch("exp/EXP-1", ""));
     }
     /// #EXP-2138: a run the server ended (`killed`) is no kept workspace: an
-    /// ended chat's dir goes and its record + journal stay, a deleted one's
-    /// go whole, a team agent's chat whose row is still there keeps everything.
+    /// ended chat's dir goes, a team agent's chat keeps it; the record + journal
+    /// always stay, whatever its row says (`steer::held_gone` removes them).
     #[test]
     fn an_ended_run_keeps_its_journal() {
         assert!(!engine::keeps_workspace(coding::pickup::KILL_OUTCOME));
         let data_dir = std::env::temp_dir().join(format!("exp-ui-agent-journal-{}", uuid::Uuid::new_v4().simple()));
-        for (id, kind, row, history, dir) in [
-            ("moved-agent", "agent", EndedRow::Chat, true, true),
-            ("editor", "agent", EndedRow::Editor, true, false),
-            ("deleted-agent", "agent", EndedRow::Gone, false, false),
-            ("chat", "thread", EndedRow::Chat, true, false),
-            ("deleted-chat", "thread", EndedRow::Gone, false, false),
-        ] {
+        for (id, kind, editor, dir) in [("moved-agent", "agent", false, true), ("editor", "agent", true, false), ("chat", "thread", false, false)] {
             let cwd = coding::scratch::scratch_root(&data_dir).join(id).join(id);
             std::fs::create_dir_all(&cwd).unwrap();
             let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
@@ -1845,9 +1820,9 @@ mod tests {
             let journal = steer::journal_path(&data_dir, id).unwrap();
             std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
             std::fs::write(&journal, "{}\n").unwrap();
-            purge_ended_scratch(&data_dir, id, &cwd, std::time::SystemTime::now(), row);
-            assert_eq!(journal.is_file(), history, "{id}");
-            assert_eq!(coding::run_registry::get(&data_dir, id).is_some(), history, "{id}");
+            purge_ended_scratch(&data_dir, id, &cwd, std::time::SystemTime::now(), editor);
+            assert!(journal.is_file(), "{id}");
+            assert!(coding::run_registry::get(&data_dir, id).is_some(), "{id}");
             assert_eq!(cwd.is_dir(), dir, "{id}");
         }
         let _ = std::fs::remove_dir_all(&data_dir);

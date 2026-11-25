@@ -127,6 +127,7 @@ pub mod team_zone;
 /// #EXP-1645: the team mark + team image.
 pub mod team_image;
 /// #EXP-1947: Copy image + which picture sources load, fixture-locked ×4.
+pub mod held_gone;
 pub mod image_actions;
 // VAPP-120: typed host actions (`exponential.<noun>.<op>`), fixture-locked ×4.
 pub mod app_actions;

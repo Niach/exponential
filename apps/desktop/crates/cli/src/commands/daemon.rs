@@ -520,6 +520,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
         worker
     });
 
+    // #EXP-2138 (held-gone.json): what this daemon holds of a deleted chat
+    // goes; a kill that says so is heard off the control socket.
+    let held_gone = steer::held_gone::spawn(steer::held_gone::HeldGoneDeps {
+        data_dir: ctx.data_dir.clone(),
+        account_id: ctx.account.id.clone(),
+        api: Arc::new(Arc::clone(&ctx.trpc)),
+        ready: {
+            let synced = Arc::clone(&synced);
+            Arc::new(move || synced.ready(SWEEP_SHAPES))
+        },
+        store: Arc::new(|| None),
+    });
+
     // #EXP-1918: started at boot, the unit has no screen until someone
     // signs in; the first probe and the loop below take the session over.
     crate::session_env::adopt();
@@ -748,7 +761,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // conversation. The git + push run on a side thread, never the loop.
         // EXP-764: a finished repo-LESS chat has no worktree to judge: its
         // scratch dir and claude trust entries go. #EXP-2138: its run record
-        // and journal stay, unless its row is gone. A team agent's is kept (EXP-1292: it only idles).
+        // and journal stay. A team agent's is kept (EXP-1292: it only idles).
         {
             let mut guard = lock_sessions(&sessions);
             // EXP-1292: a SUSPENDED run (an account switch re-spawns the
@@ -819,20 +832,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     None if coding::run_registry::get(&ctx.data_dir, &session_id)
                         .is_some_and(|record| record.kind.is_persistent()) => {}
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
-                        let purged = coding::scratch::purge(
-                            &ctx.data_dir,
-                            &session_id,
-                            &worktree,
-                            reaped_at,
-                            !row_gone(&pickup, &synced, &session_id),
-                        );
-                        if purged {
-                            steer::remove_journal(&ctx.data_dir, &session_id);
-                        }
-                        log::info!(
-                            "scratch purge [{session_id}] {}: history dropped={purged}",
-                            worktree.display()
-                        );
+                        coding::scratch::purge(&ctx.data_dir, &session_id, &worktree, reaped_at);
+                        log::info!("scratch purge [{session_id}] {}", worktree.display());
                     }
                     None => {}
                 }
@@ -1410,6 +1411,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if let Some(manager) = &sync_manager {
         manager.stop_all();
     }
+    held_gone.stop();
     let live: Vec<Arc<RunningSession>> = lock_sessions(&sessions)
         .iter()
         .map(|entry| Arc::clone(&entry.session))
@@ -1706,6 +1708,10 @@ fn dial_control(
             Some(voice) => Arc::new(move |ring: steer::control_channel::CallRing| voice.ring(ring.call_id, ring.agent_id)),
             None => Arc::new(|_ring| {}),
         },
+        {
+            let account_id = ctx.account.id.clone();
+            Arc::new(move |session_id| steer::held_gone::notice(&account_id, session_id))
+        },
     ))
 }
 
@@ -1716,16 +1722,6 @@ fn open_rows_here(store: &sync::store::ShapeStore, device_id: &str) -> Vec<Strin
         .filter(|row| row.on_device(device_id) && !row.is_ended())
         .map(|row| row.id)
         .collect()
-}
-
-/// #EXP-2138: whether a session's row is provably gone (the chat, its agent or
-/// its team deleted): the rows are the server's and do not name it. Unknown =
-/// not gone.
-fn row_gone(pickup: &DaemonPickup, synced: &SyncedShapes, session_id: &str) -> bool {
-    synced.ready(SWEEP_SHAPES)
-        && pickup
-            .store()
-            .is_some_and(|store| read_shape_rows_where::<SessionRow>(&store, "sessions", "id", &[session_id]).is_empty())
 }
 
 /// EXP-757: one pass of [`coding::scratch::sweep`], on the CALLING thread (a

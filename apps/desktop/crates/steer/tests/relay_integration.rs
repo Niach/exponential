@@ -242,6 +242,7 @@ fn the_control_socket_carries_presence_and_session_commands() {
         Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
         // NEW-55: no voice here.
         Arc::new(|_ring| {}),
+        Arc::new(|_deleted| {}),
     );
     // EXP-672: `delivered:true` IS the presence assertion: the relay only
     // reports a delivery once `online` registered the device.

@@ -158,6 +158,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             claim_timezone(account, cx);
             // #EDE-105: the account's chat store opens and starts filling.
             crate::chat_store::start(&account.id, cx);
+            // #EXP-2138: a deleted chat's leftovers on this machine go.
+            crate::held_gone::start(account, cx);
             true
         }
         Err(err) => {
@@ -246,6 +248,7 @@ pub fn sign_out_active(cx: &mut App) {
     crate::steer_viewer::StreamSlotMemo::clear(cx);
     // #EDE-120: a deliberate sign-out stops the account's chat store and
     // deletes it (it holds chats decrypted); an expiry never comes here.
+    crate::held_gone::stop(cx);
     crate::chat_store::sign_out(&account_id, cx);
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);
