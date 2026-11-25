@@ -8,6 +8,7 @@ import fixture from "../fixtures/chats.json" with { type: "json" }
 import {
   chatRowLeadPr,
   chatRowMarkState,
+  sessionAsks,
   type AgentRow,
   type ChatRowWord,
   type ChatsListGroup,
@@ -490,7 +491,7 @@ export function agentChatRows(input: {
  *  Agents and the root sessions: one per live team app in `sortApps` order,
  *  its disc the app's icon + colour, its preview / time / unread from the
  *  viewer's session with the app (the root with `appId` and `userId == me`);
- *  needs you / busy = that root's `needsInput` / `busy`. A tap opens the app's
+ *  needs you / busy = that root's `sessionAsks` / `busy`. A tap opens the app's
  *  chat (its editor). Never selectable; none on the Archived page. */
 export interface AppChatRow {
   appId: string
@@ -529,7 +530,7 @@ export function appChatRows(input: {
         ? input.sessions.find((s) => s.parentId === null && s.appId === app.appId && s.userId === input.me)
         : undefined
       const id = session?.id ?? null
-      const needsYou = session?.needsInput ?? false
+      const needsYou = session ? sessionAsks(session) : false
       const busy = session?.busy ?? false
       const newest = id
         ? input.messages

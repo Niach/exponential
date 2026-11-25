@@ -1,5 +1,5 @@
 {
-  "$comment": "#FEED-232 (owner 2026-11-12: 'one system with numbers that is consistent and logical ... everywhere'). ONE COUNT BADGE ×4 (+ the genUI `CountBadge`, React · Solid · Swift · Compose · gpui): every unread / attention signal on a destination (a sidebar row, a phone tab, the Inbox circle, a chat-list row, the team picker, the OS app icon) is a NUMBER = the items in that destination needing the viewer, drawn by THE count badge: a 16pt capsule (min width 16, 4pt side padding), 10pt semibold tabular figures, `label(count)` = the number, `99+` past 99, and ZERO OR LESS = NO BADGE (`labelCases`, `''` = nothing renders). TWO TONES, nothing else: `attention` (the needs-you yellow #FACC15, black figures) when the count holds an item WAITING ON the viewer (a plan, a question, a ready PR, a session parked on input), else `muted` (muted fill, muted-foreground figures) for plain unread. No dots: a dot never stands for a count. LIVE STATE IS NOT A COUNT: `running` / busy never badges a nav row (no green dot anywhere in the nav); it lives on the rows themselves (the working mark of a chat / run row, the Running section). WHAT EACH DESTINATION COUNTS (one definition each): NEEDS YOU = needs-you.json rows' length, always `attention`. CHATS (sidebar row, phone Chats tab) = `chatsBadge(groups, reads)` (`chatsCases`): the DISTINCT depth-0 chat rows (a session counted once across groups) that need the viewer or hold an unread reply, an archived root counting only while it needs the viewer; child rows never; `attention` when one of them needs the viewer. AN AGENT ROW (sidebar Agents, the pinned agent / app rows of the Chats list) and A CHAT-LIST ROW = `rowBadge({unreadCount, needsYou})` (`rowCases`): the row's unread agent messages (chats.json `unreadCount`), at least 1 while it needs the viewer, `attention` when it does; a busy row with nothing unread = no badge (its run mark shows the work). INBOX (the wide Inbox button, the phone page header's Inbox circle) = the active team's unread notifications the inbox can show, `muted`. DRAFTS = the team's drafts, `muted`. DEVICES, APPS, BOARDS, PINS = no badge. THE TEAM PICKER (the switcher's corner + each OTHER team's row; the active team never) = that team's needs-you rows' length, `attention`; the switcher corner = `appIconBadge` over the other teams. THE OS APP ICON (iOS `setBadgeCount`, Android the summary notification's number, web `navigator.setAppBadge` where supported, desktop the dock / launcher entry) = `appIconBadge(teams)` (`appIconCases`): the SUM of every team's needs-you rows of the signed-in account(s), 0 clears it. Mirrors: TS src/nav-badges.ts, desktop domain::nav_badges, iOS ExpCore NavBadges.swift, Android domain/NavBadges.kt; each replays every case list.",
+  "$comment": "#FEED-232 (owner 2026-11-12: 'one system with numbers that is consistent and logical ... everywhere'). ONE COUNT BADGE ×4 (+ the genUI `CountBadge`, React · Solid · Swift · Compose · gpui): every unread / attention signal on a destination (a sidebar row, a phone tab, the phones' Assistant disc, the Inbox circle, a chat-list row, a team row, the OS app icon) is a NUMBER = the items in that destination needing the viewer, drawn by THE count badge: a 16pt capsule (min width 16, 4pt side padding), 10pt semibold tabular figures, `label(count)` = the number, `99+` past 99, and ZERO OR LESS = NO BADGE (`labelCases`, `''` = nothing renders). TWO TONES, nothing else: `attention` (the needs-you yellow #FACC15, black figures) when the count holds an item WAITING ON the viewer (a plan, a question, a ready PR, a session parked on input), else `muted` (muted fill, muted-foreground figures) for plain unread. No dots: a dot never stands for a count. LIVE STATE IS NOT A COUNT: `running` / busy never badges a nav row (no green dot anywhere in the nav); it lives on the rows themselves (the working mark of a chat / run row, the Running section). WHAT EACH DESTINATION COUNTS: `destinations`, the one table (`counts`, `tone`, `parent`, `clears`; `badge: false` = never a badge, everywhere), over the functions replayed here. There is no active team (sidebar-tree.json): every count spans every member team of the account. THE ASSISTANT (the sidebar's first row, the FAB, the phones' raised disc: one value) = `rowBadge` of the viewer's conversation with it. NEEDS YOU = `needsYouCounts(...).total` (`needsYouCases`): THE list's rows, read ONCE, with the same inputs everywhere (merge modes, devices, group chats, the clock), over every member team's sessions and the Assistant's home together (never team by team: an ask mirrored into the Assistant's chat is one row with its origin, and it counts in the origin's team), plus the installs waiting for this install's approval (`installs`: 0 while this install itself waits, like the page); the OS app icon is the same number. A TEAM ROW = `teamBadge` (`teamCases`): that team's share of those rows (`needsYouCounts(...).teams`: a row belongs to the team of the session it names; the Assistant's and the installs belong to NO team, so a thing never counts in two teams), and WHILE FOLDED also its hidden rows' muted counts (their attention ones are in the share already); open, its rows show their own. A FOLDER ROW while folded = `sumBadges` of its hidden rows (`sumCases`), left of its item count and chevron; open = none. An AGENT ROW, a PLACED SESSION ROW (sidebar and Teams tab alike), A CHAT-LIST ROW = `rowBadge({unreadCount, needsYou})` (`rowCases`): the conversation's unread agent messages, at least 1 while it needs the viewer, `attention` when it does; busy with nothing unread = no badge; `needsYou` = `sessionAsks` ×5 (chat-list.json: a wall never badges), `unread` = `unreadCount` > 0 everywhere. THE PHONES' TEAMS TAB = `sumBadges` of its team rows, each folded (a parent sums its children). CHATS (sidebar row, phone tab) = `chatsBadge(groups, reads)` (`chatsCases`): the DISTINCT depth-0 chat rows that need the viewer or hold an unread reply, an archived root only while it needs the viewer; child rows and agents' conversations never (they count on their own row); `attention` when one of them needs the viewer. INBOX (the wide Inbox button, the phone header's circle) = every unread notification the inbox lists, `muted`. DRAFTS = every member team's drafts, `muted`. THE OS APP ICON (iOS `setBadgeCount` and the push payload, Android the summary notification's number, web `navigator.setAppBadge` where supported, desktop the dock / launcher entry) = `appIconBadge(accounts)` (`appIconCases`): the SUM of every signed-in account's Needs you total, 0 clears it. ON AN ICON (a phone tab, the FAB, a circle) the badge sits on the icon's top-right corner; the Assistant disc's on the disc's corner, as on the FAB. Mirrors: TS src/nav-badges.ts, desktop domain::nav_badges, iOS ExpCore NavBadges.swift, Android domain/NavBadges.kt; each replays every case list.",
   "max": 99,
   "tones": {
     "attention": {
@@ -448,23 +448,23 @@
   ],
   "appIconCases": [
     {
-      "name": "no teams",
-      "teams": [],
+      "name": "no accounts",
+      "accounts": [],
       "expected": 0
     },
     {
-      "name": "sums every team",
-      "teams": [
+      "name": "sums every signed-in account",
+      "accounts": [
         {
-          "teamId": "t1",
+          "accountId": "a1",
           "needsYou": 2
         },
         {
-          "teamId": "t2",
+          "accountId": "a2",
           "needsYou": 0
         },
         {
-          "teamId": "t3",
+          "accountId": "a3",
           "needsYou": 5
         }
       ],
@@ -472,17 +472,420 @@
     },
     {
       "name": "a negative never subtracts",
-      "teams": [
+      "accounts": [
         {
-          "teamId": "t1",
+          "accountId": "a1",
           "needsYou": -1
         },
         {
-          "teamId": "t2",
+          "accountId": "a2",
           "needsYou": 1
         }
       ],
       "expected": 1
+    }
+  ],
+  "destinations": [
+    {
+      "id": "assistant",
+      "badge": true,
+      "counts": "rowBadge",
+      "tone": "rowBadge",
+      "parent": null,
+      "clears": "the conversation is read, its question answered"
+    },
+    {
+      "id": "needs-you",
+      "badge": true,
+      "counts": "needsYouCounts.total",
+      "tone": "attention",
+      "parent": null,
+      "clears": "the row is answered, merged or settled"
+    },
+    {
+      "id": "team",
+      "badge": true,
+      "counts": "teamBadge",
+      "tone": "attention while a row needs the viewer, else muted",
+      "parent": "teams-tab",
+      "clears": "its rows clear"
+    },
+    {
+      "id": "folder",
+      "badge": true,
+      "counts": "sumBadges",
+      "tone": "attention while a row needs the viewer, else muted",
+      "parent": "team",
+      "clears": "its rows clear, or it unfolds"
+    },
+    {
+      "id": "agent",
+      "badge": true,
+      "counts": "rowBadge",
+      "tone": "rowBadge",
+      "parent": "folder",
+      "clears": "the conversation is read, its question answered"
+    },
+    {
+      "id": "session",
+      "badge": true,
+      "counts": "rowBadge",
+      "tone": "rowBadge",
+      "parent": "folder",
+      "clears": "the chat is read, its question answered"
+    },
+    {
+      "id": "teams-tab",
+      "badge": true,
+      "counts": "sumBadges",
+      "tone": "attention while a row needs the viewer, else muted",
+      "parent": null,
+      "clears": "its team rows clear"
+    },
+    {
+      "id": "chats",
+      "badge": true,
+      "counts": "chatsBadge",
+      "tone": "chatsBadge",
+      "parent": null,
+      "clears": "every chat is read and answered"
+    },
+    {
+      "id": "chat-row",
+      "badge": true,
+      "counts": "rowBadge",
+      "tone": "rowBadge",
+      "parent": "chats",
+      "clears": "the chat is read, its question answered"
+    },
+    {
+      "id": "inbox",
+      "badge": true,
+      "counts": "unread notifications",
+      "tone": "muted",
+      "parent": null,
+      "clears": "read, or Mark all read"
+    },
+    {
+      "id": "drafts",
+      "badge": true,
+      "counts": "drafts",
+      "tone": "muted",
+      "parent": null,
+      "clears": "the draft is created or deleted"
+    },
+    {
+      "id": "app-icon",
+      "badge": true,
+      "counts": "appIconBadge",
+      "tone": "attention",
+      "parent": null,
+      "clears": "as needs-you"
+    },
+    {
+      "id": "home",
+      "badge": false
+    },
+    {
+      "id": "devices",
+      "badge": false
+    },
+    {
+      "id": "device",
+      "badge": false
+    },
+    {
+      "id": "board",
+      "badge": false
+    },
+    {
+      "id": "app",
+      "badge": false
+    },
+    {
+      "id": "new",
+      "badge": false
+    },
+    {
+      "id": "settings",
+      "badge": false
+    },
+    {
+      "id": "search",
+      "badge": false
+    },
+    {
+      "id": "work-tab",
+      "badge": false
+    },
+    {
+      "id": "active-row",
+      "badge": false
+    }
+  ],
+  "needsYouCases": [
+    {
+      "name": "nothing waits",
+      "input": {
+        "rows": [],
+        "teams": [
+          "t1"
+        ],
+        "installs": 0
+      },
+      "expected": {
+        "total": 0,
+        "teams": {
+          "t1": 0
+        }
+      }
+    },
+    {
+      "name": "each row counts in its own team only",
+      "input": {
+        "rows": [
+          {
+            "teamId": "t1"
+          },
+          {
+            "teamId": "t1"
+          },
+          {
+            "teamId": "t2"
+          }
+        ],
+        "teams": [
+          "t1",
+          "t2",
+          "t3"
+        ],
+        "installs": 0
+      },
+      "expected": {
+        "total": 3,
+        "teams": {
+          "t1": 2,
+          "t2": 1,
+          "t3": 0
+        }
+      }
+    },
+    {
+      "name": "the Assistant's row (its home is no member team) is in the total, in no team",
+      "input": {
+        "rows": [
+          {
+            "teamId": "t1"
+          },
+          {
+            "teamId": "personal"
+          },
+          {
+            "teamId": null
+          }
+        ],
+        "teams": [
+          "t1",
+          "t2"
+        ],
+        "installs": 0
+      },
+      "expected": {
+        "total": 3,
+        "teams": {
+          "t1": 1,
+          "t2": 0
+        }
+      }
+    },
+    {
+      "name": "waiting installs are in the total, in no team",
+      "input": {
+        "rows": [
+          {
+            "teamId": "t1"
+          }
+        ],
+        "teams": [
+          "t1",
+          "t2"
+        ],
+        "installs": 2
+      },
+      "expected": {
+        "total": 3,
+        "teams": {
+          "t1": 1,
+          "t2": 0
+        }
+      }
+    }
+  ],
+  "sumCases": [
+    {
+      "name": "nothing",
+      "input": [],
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "muted rows add up",
+      "input": [
+        {
+          "count": 2,
+          "tone": "muted"
+        },
+        {
+          "count": 0,
+          "tone": "muted"
+        },
+        {
+          "count": 1,
+          "tone": "muted"
+        }
+      ],
+      "expected": {
+        "count": 3,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "one that needs the viewer turns it attention",
+      "input": [
+        {
+          "count": 2,
+          "tone": "muted"
+        },
+        {
+          "count": 1,
+          "tone": "attention"
+        }
+      ],
+      "expected": {
+        "count": 3,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "an empty attention row colours nothing",
+      "input": [
+        {
+          "count": 2,
+          "tone": "muted"
+        },
+        {
+          "count": 0,
+          "tone": "attention"
+        }
+      ],
+      "expected": {
+        "count": 2,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a negative never subtracts",
+      "input": [
+        {
+          "count": -2,
+          "tone": "muted"
+        },
+        {
+          "count": 1,
+          "tone": "muted"
+        }
+      ],
+      "expected": {
+        "count": 1,
+        "tone": "muted"
+      }
+    }
+  ],
+  "teamCases": [
+    {
+      "name": "quiet",
+      "input": {
+        "needsYou": 0,
+        "open": true,
+        "rows": []
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "its share of Needs you, open or folded",
+      "input": {
+        "needsYou": 2,
+        "open": true,
+        "rows": []
+      },
+      "expected": {
+        "count": 2,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "open: an unread row shows its own badge",
+      "input": {
+        "needsYou": 0,
+        "open": true,
+        "rows": [
+          {
+            "count": 3,
+            "tone": "muted"
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "folded: the hidden unread rows",
+      "input": {
+        "needsYou": 0,
+        "open": false,
+        "rows": [
+          {
+            "count": 3,
+            "tone": "muted"
+          },
+          {
+            "count": 1,
+            "tone": "muted"
+          }
+        ]
+      },
+      "expected": {
+        "count": 4,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "folded: a hidden row that needs the viewer is in the share already",
+      "input": {
+        "needsYou": 1,
+        "open": false,
+        "rows": [
+          {
+            "count": 1,
+            "tone": "attention"
+          },
+          {
+            "count": 2,
+            "tone": "muted"
+          }
+        ]
+      },
+      "expected": {
+        "count": 3,
+        "tone": "attention"
+      }
     }
   ]
 }

@@ -1557,7 +1557,7 @@ export interface ChatsListRow {
   deviceId?: string | null
   busy: boolean
   needsYou: boolean
-  /** EXP-1323: bold title (the tree's newest agent message is newer than
+  /** EXP-1323: bold title (the root's newest agent message is newer than
    *  the viewer's read of the root). */
   unread: boolean
   activityAt: string
@@ -1645,13 +1645,13 @@ export function partitionChats(input: {
   now?: string | null
 }): ChatsListGroup[] {
   const readAt = new Map((input.reads ?? []).map((read) => [read.sessionId, ms(read.readAt) ?? 0]))
-  const rootOf = new Map(input.sessions.map((s) => [s.id, s.rootId]))
-  const newestAgentInTree = new Map<string, number>()
+  // Exactly chats.json `unreadCount` > 0: the Chats badge never counts a row
+  // that shows none.
+  const newestAgent = new Map<string, number>()
   for (const message of input.messages) {
-    if (message.authorKind !== `agent`) continue
+    if (message.authorKind !== `agent` || message.card?.kind === `event`) continue
     const at = ms(message.createdAt) ?? 0
-    const rootId = rootOf.get(message.sessionId)
-    if (rootId) newestAgentInTree.set(rootId, Math.max(newestAgentInTree.get(rootId) ?? 0, at))
+    newestAgent.set(message.sessionId, Math.max(newestAgent.get(message.sessionId) ?? 0, at))
   }
   const unreadAt = (newest: number | undefined, sessionId: string) =>
     newest !== undefined && newest > (readAt.get(sessionId) ?? -1)
@@ -1696,7 +1696,7 @@ export function partitionChats(input: {
       deviceId: root.deviceId ?? null,
       busy: live.some((s) => s.busy),
       needsYou,
-      unread: unreadAt(newestAgentInTree.get(root.id), root.id),
+      unread: unreadAt(newestAgent.get(root.id), root.id),
       activityAt: activity,
       ...(wall ? { wall } : {}),
     }
@@ -1800,7 +1800,7 @@ export function listAgents(
         icon: a.icon ?? listFixture.agentDefaults.icon,
         color: a.color ?? listFixture.agentDefaults.color,
         busy: conversation?.busy === true && conversation.status !== `ended`,
-        needsYou: conversation?.needsInput === true && conversation.status !== `ended`,
+        needsYou: conversation != null && sessionAsks(conversation),
         assistant: assistant(a),
         ...(a.groupChatId ? { groupChatId: a.groupChatId } : {}),
       }
