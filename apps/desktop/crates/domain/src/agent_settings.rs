@@ -1872,9 +1872,9 @@ mod tests {
     #[test]
     fn the_own_assistant_root() {
         use crate::rows::{AgentDefRow, SessionRow};
-        let agent: AgentDefRow = serde_json::from_value(json!({ "id": "a", "role": "assistant", "owner_id": "me" })).unwrap();
-        let team_agent: AgentDefRow = serde_json::from_value(json!({ "id": "t", "role": "agent", "owner_id": "me" })).unwrap();
-        let theirs: AgentDefRow = serde_json::from_value(json!({ "id": "b", "role": "assistant", "owner_id": "you" })).unwrap();
+        let agent: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a", "role": "assistant", "owner_id": "me" })).unwrap();
+        let team_agent: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "t", "role": "agent", "owner_id": "me" })).unwrap();
+        let theirs: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "b", "role": "assistant", "owner_id": "you" })).unwrap();
         let agents = [agent, team_agent, theirs];
         let root = |agent: Option<&str>, user: &str, parent: Option<&str>| SessionRow {
             id: "r".into(),
