@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react"
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { BoardGlyph, FAB_FOOT_CLASS, MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
+import { BoardHeaderActions } from "@/components/board-header-actions"
 import { BoardChips, type BoardChip } from "@/components/board-chips"
 import { DraftsList } from "@/components/drafts-list"
 import { MyIssuesView } from "@/components/my-issues-view"
@@ -139,6 +140,10 @@ function BoardPage() {
     )
   }
 
+  const actions = (
+    <BoardHeaderActions board={board} teamSlug={teamSlug} owner={permissions.isOwner} onNewIssue={() => handleNewIssue()} />
+  )
+
   // #EXP-2109 (chats.json `shell`): a phone pushes the board (from its team's
   // page) under the detail header, the chips under it.
   const chips = isMobile ? (
@@ -146,20 +151,24 @@ function BoardPage() {
       <MobileDetailHeader
         title={<PushedTitle glyph={<BoardGlyph board={board} className="size-5" />}>{board.name}</PushedTitle>}
         onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } }))}
+        menu={actions}
         below={
           <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: draftCount }} onChange={setChip} />
         }
       />
     </div>
   ) : (
-    <div className="shrink-0 pt-3">
-      <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: 0 }} onChange={setChip} />
+    <div className="flex shrink-0 items-start pt-3 pr-4">
+      <div className="min-w-0 flex-1">
+        <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: 0 }} onChange={setChip} />
+      </div>
+      {actions}
     </div>
   )
 
   if (chip === `mine`) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div className="relative flex h-full flex-col max-md:h-dvh">
         {chips}
         <div ref={setMineBulkSlot} className="contents" />
         <div className="min-h-0 flex-1 max-md:pt-4">
@@ -171,7 +180,7 @@ function BoardPage() {
 
   if (chip === `drafts`) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div className="relative flex h-full flex-col max-md:h-dvh">
         {chips}
         <div className={`min-h-0 flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE}`}>
           <DraftsList
@@ -186,7 +195,7 @@ function BoardPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col max-md:h-dvh">
       {chips}
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES

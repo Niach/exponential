@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,13 +32,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,8 +75,6 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.picker.AccountPicker
@@ -334,13 +333,12 @@ fun AgentsSettingsScreen(
     onOpenAgent: (agentId: String) -> Unit,
     onNewAgent: () -> Unit,
 ) {
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(AgentSettings.Copy.TITLE) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = AgentSettings.Copy.TITLE,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->
@@ -468,16 +466,12 @@ fun AgentSettingsScreen(
         if (!isNew) viewModel.update(update)
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    TopBarTitle(if (isNew) AgentSettings.Copy.NEW_AGENT else agent?.name ?: name)
-                },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                // EXP-1554: no header action (×4: the agent page's header is the title only).
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = if (isNew) AgentSettings.Copy.NEW_AGENT else agent?.name ?: name,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->
@@ -731,13 +725,7 @@ internal fun AgentSettingsContent(
             ) {
                 if (assistant) {
                     // The Assistant wears the brand mark, never an icon pick.
-                    Box(
-                        Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        com.exponential.app.ui.components.ExponentialMark(size = 18.dp, tint = MaterialTheme.colorScheme.onSurface)
-                    }
+                    com.exponential.app.ui.components.ExponentialMark(size = 36.dp, tint = MaterialTheme.colorScheme.onSurface)
                 } else if (editable) {
                     IconPicker(selected = icon, onSelect = onIconChange, accentColor = parseColor(color))
                     ColorPicker(selected = color, onSelect = onColorChange)

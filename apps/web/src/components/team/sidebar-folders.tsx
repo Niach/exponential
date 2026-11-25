@@ -1,4 +1,4 @@
-import { Fragment, useRef, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { createContext, Fragment, useContext, useRef, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { startListDrag } from "@exponential_app/eui/web"
 import { SIDEBAR_FOLDER_DEFAULT_NAME, SIDEBAR_MAX_DEPTH, type SidebarSection } from "@exp/domain-contract/sidebar-folders"
 import { SIDEBAR_TREE_MAX_DEPTH, sidebarTeamRows, type SidebarTreeRow } from "@exp/domain-contract/sidebar-tree"
@@ -33,6 +33,15 @@ import { sidebarMenuEntries, SidebarPointerMenu } from "@/components/team/sideba
 // sidebar-menus.json): Rename and Ungroup. Phones (the sheet) never
 // drag.
 
+/** #EXP-2109: the phones' Teams tab draws the SAME rows at touch density
+ *  (`SidebarMenuButton density="touch"`); the sidebar is `compact`. */
+export type SidebarTreeDensity = `compact` | `touch`
+export const SidebarTreeDensityContext = createContext<SidebarTreeDensity>(`compact`)
+export const useSidebarTreeDensity = () => useContext(SidebarTreeDensityContext)
+
+/** Where the guide gutters start: the row's own leading padding. */
+const GUIDE_BASES: Record<SidebarTreeDensity, number> = { compact: 8, touch: 16 }
+
 const FolderIcon = conceptIcon(`ui-folder`)
 const ChevronIcon = conceptIcon(`ui-chevron-right`)
 
@@ -40,9 +49,6 @@ const ChevronIcon = conceptIcon(`ui-chevron-right`)
  *  team's List hosts its own folder menu, #EXP-2027). */
 export const sidebarFolderMenuKind = (section: SidebarSection, teamId?: string) =>
   teamId ? `sidebar-folder-${section}:${teamId}` : `sidebar-folder-${section}`
-
-/** The guide gutter starts at the menu button's own left padding. */
-const GUIDE_BASE = 8
 
 /** What a row's `SidebarMenuItem` spreads: the drag contract + its indent. */
 export type SidebarRowItemProps = HTMLAttributes<HTMLLIElement> & Record<`data-${string}`, string | undefined>
@@ -114,7 +120,8 @@ export function SidebarFolderRows({
 }) {
   const { isMobile } = useSidebar()
   const listRef = useRef<HTMLUListElement>(null)
-  const draggable = !isMobile
+  const density = useSidebarTreeDensity()
+  const draggable = !isMobile && density === `compact`
   const menuKind = sidebarFolderMenuKind(section, team ? teamId : undefined)
   const rows: SidebarTreeRow[] =
     team && teamId ? sidebarTeamRows({ teamId, open: team.open, rows: folders.rows }) : folders.rows
@@ -164,10 +171,10 @@ export function SidebarFolderRows({
 
   return (
     <MenuGestureHost menus={{ ...menus, [menuKind]: folderMenu }}>
-      <SidebarMenu ref={listRef} data-testid={testId} {...listProps}>
+      <SidebarMenu ref={listRef} className={density === `touch` ? `gap-0` : undefined} data-testid={testId} {...listProps}>
         {folders.rows.length === 0 && !team && empty}
         {rows.map((row, index) => {
-          const gutter = row.depth > 0 ? <TreeGuides guide={guides[index]} base={GUIDE_BASE} /> : null
+          const gutter = row.depth > 0 ? <TreeGuides guide={guides[index]} base={GUIDE_BASES[density]} /> : null
           if (row.kind === `team`) return <Fragment key={row.id}>{team?.render(dragProps(row))}</Fragment>
           if (row.kind === `item`) return renderItem(row.id, dragProps(row), gutter)
           const editing = folders.editingId === row.id
@@ -175,7 +182,7 @@ export function SidebarFolderRows({
             <SidebarMenuItem key={row.id} {...dragProps(row)} data-testid="sidebar-folder">
               {gutter}
               <SidebarMenuButton
-                density="compact"
+                density={density}
                 aria-expanded={row.open}
                 onClick={() => !editing && folders.toggle(row.id)}
                 {...menuProps(menuKind, row.id)}
@@ -194,7 +201,7 @@ export function SidebarFolderRows({
                 )}
               </SidebarMenuButton>
               {!editing && (
-                <SidebarMenuTrailing className="pointer-events-none gap-1 text-xs text-muted-foreground">
+                <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-xs text-muted-foreground`, density === `touch` && `right-4 justify-end`)}>
                   {!row.open && <span className="tabular-nums">{row.count}</span>}
                   <ChevronIcon className={cn(`size-4 transition-transform`, row.open && `rotate-90`)} />
                 </SidebarMenuTrailing>

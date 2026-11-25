@@ -5,11 +5,13 @@ package com.exponential.app.domain
  * shape and the iOS `WebLinks` helper:
  *   issue  {base}/t/{team}/boards/{board}/issues/{identifier}
  *   agent  {base}/t/{team}/agent                          (EXP-825)
+ *   board  {base}/t/{team}/boards/{board}                 (EXP-2109)
+ *   app    {base}/t/{team}/apps/{app}                     (EXP-2109)
+ *   session {base}/t/{team}/sessions/{id}                 (EXP-2109)
  *
  * `base` is the account's instance URL; its trailing slash is trimmed so the
  * joined path never doubles up. All slugs/identifiers are synced locally, so
- * this composes without a network call. (Board-level sharing was removed —
- * sharing is issue-only across all clients.)
+ * this composes without a network call.
  */
 object WebLinks {
     fun issueUrl(
@@ -18,6 +20,15 @@ object WebLinks {
         boardSlug: String,
         identifier: String,
     ): String = "${base.trimEnd('/')}/t/$teamSlug/boards/$boardSlug/issues/$identifier"
+
+    /** #EXP-2109: what a sidebar row's Copy link holds, the web's own routes. */
+    fun boardUrl(base: String, teamSlug: String, boardSlug: String): String = "${teamBase(base, teamSlug)}/boards/${encodeRouteValue(boardSlug)}"
+
+    fun appUrl(base: String, teamSlug: String, appSlug: String): String = "${teamBase(base, teamSlug)}/apps/${encodeRouteValue(appSlug)}"
+
+    fun sessionUrl(base: String, teamSlug: String, sessionId: String): String = "${teamBase(base, teamSlug)}/sessions/${encodeRouteValue(sessionId)}"
+
+    private fun teamBase(base: String, teamSlug: String): String = "${base.trimEnd('/')}/t/${encodeRouteValue(teamSlug)}"
 
     /**
      * EXP-825: the team's Agent page — the ONE launcher — as the web serves

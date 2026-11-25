@@ -1705,7 +1705,7 @@ fn dial_control(
         // #EXP-1858: a ring is answered by the call host of the agents that
         // run here (non-blocking: it only queues the ring).
         match voice.cloned() {
-            Some(voice) => Arc::new(move |ring: steer::control_channel::CallRing| voice.ring(ring.call_id, ring.agent_id)),
+            Some(voice) => Arc::new(move |ring: steer::control_channel::CallRing| voice.ring(ring.call_id, ring.agent_id, ring.turn)),
             None => Arc::new(|_ring| {}),
         },
         {

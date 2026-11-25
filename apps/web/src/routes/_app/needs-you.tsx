@@ -50,7 +50,7 @@ function NeedsYouRoute() {
   // this install waiting itself shows its code.
   const installTrust = useInstallTrust()
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto max-md:h-dvh">
       {isMobile && (
         <div className="sticky top-0 z-20 pt-[env(safe-area-inset-top)]">
           <MobileDetailHeader

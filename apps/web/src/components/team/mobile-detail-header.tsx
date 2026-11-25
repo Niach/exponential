@@ -3,7 +3,8 @@
 // the web app's imports.
 export {
   HEADER_BUTTON_CLASS,
-  HEADER_SLOT_CLASS,
+  HEADER_ACTION_CLASS,
+  HeaderAction,
   MOBILE_DETAIL_HEADER_CLASS,
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,

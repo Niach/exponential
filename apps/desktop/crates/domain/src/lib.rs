@@ -243,6 +243,7 @@ pub mod sidebar_folders;
 // #EXP-2027: the sidebar tree (sidebar-tree.json), fixture-locked ×4.
 pub mod sidebar_tree;
 // #EXP-2124: one menu table for every sidebar row (sidebar-menus.json), fixture-locked ×4.
+pub mod header_actions;
 pub mod sidebar_menus;
 // EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;

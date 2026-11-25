@@ -15,7 +15,7 @@ import {
 import type { AgentRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
-import type { SidebarRowItemProps } from "@/components/team/sidebar-folders"
+import { useSidebarTreeDensity, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import { useDigestMessages, useSessionReads, useTeamSessions } from "@/hooks/use-session-tree"
 
 // EXP-1293 / #EXP-2027: an AGENT's row, drawn like a board's inside its
@@ -75,9 +75,10 @@ export function useAgentBadges(
 
 /** The trailing count badge, in the row's trailing column (EXP-1477). */
 function AgentBadge({ badge }: { badge: CountBadgeValue | undefined }) {
+  const density = useSidebarTreeDensity()
   if (!badge || badge.count <= 0) return null
   return (
-    <SidebarMenuTrailing className="pointer-events-none">
+    <SidebarMenuTrailing className={cn(`pointer-events-none`, density === `touch` && `right-4`)}>
       <Badge
         count={badge.count}
         tone={badge.tone}
@@ -109,10 +110,11 @@ export function SidebarAgentRow({
   itemProps: SidebarRowItemProps
   guides: ReactNode
 }) {
+  const density = useSidebarTreeDensity()
   return (
     <SidebarMenuItem key={agent.agentId} {...itemProps}>
       {guides}
-      <SidebarMenuButton asChild density="compact" isActive={active}>
+      <SidebarMenuButton asChild density={density} isActive={active}>
         <Link
           to="/t/$teamSlug/agents/$agentId"
           params={{ teamSlug, agentId: agent.agentId }}

@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
-import { Button, conceptIcon, getDeviceIcon, Separator, SkeletonRows } from "@exp/ui"
+import { Button, conceptIcon, getDeviceIcon, HeaderAction, Separator, SkeletonRows } from "@exp/ui"
+import { SIDEBAR_TREE_COPY } from "@exp/domain-contract/sidebar-tree"
 import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { deviceIsMine, deviceIsOnline, deviceUpdateAvailable, type SteerDevice } from "@/lib/steer-devices"
 import { useNow } from "@/hooks/use-now"
@@ -75,15 +76,14 @@ export function DeviceDetailPage({ deviceId, userId }: { deviceId: string; userI
         latestVersions={page.latestVersions}
         trailing={
           page.mine && device.registered ? (
-            <Button
-              variant="outline"
-              size="sm"
+            <HeaderAction
+              aria-label={SIDEBAR_TREE_COPY.deviceSettings}
+              title={SIDEBAR_TREE_COPY.deviceSettings}
               onClick={() => void navigate({ to: `/devices/$deviceId/settings`, params: { deviceId } })}
               data-testid="device-page-settings"
             >
-              <SettingsIcon className="size-4" />
-              Settings
-            </Button>
+              <SettingsIcon />
+            </HeaderAction>
           ) : undefined
         }
       />

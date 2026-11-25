@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -22,17 +23,20 @@ import com.exponential.app.data.sidebar.SidebarFoldersStore
 import com.exponential.app.data.sidebar.isFolderOpen
 import com.exponential.app.domain.SidebarFolders
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.LocalReduceMotion
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 // #EXP-1832 (fixtures/sidebar-folders.json): the member's folders, READ-ONLY on
-// the phone (the board pickers, the board menu, the Apps list). A folder row
+// the phone (the board pickers, the board menu). A folder row
 // is the list's own row with the folder glyph, its name, the count while
 // folded and the fold chevron (web `sidebar-folders.tsx`, the IDE's sidebar,
 // iOS); a press folds it, it never navigates. Its items sit one tree level in
-// under the tree guides. No drag, no create, no rename on phones.
+// under the tree guides. #EXP-2109: the Teams tab draws the same folder row
+// with its menu.
 
 /** The rows a list shows for [ids] (the section's visible targets in DEFAULT
  *  order) + the fold toggle; flat rows when nothing is arranged. */
@@ -80,13 +84,20 @@ fun SidebarFolderGlyph(size: Dp = 18.dp, modifier: Modifier = Modifier) {
 /** A folder row's trailing: the item count while folded, then the chevron
  *  (right = folded, down = open). */
 @Composable
-fun SidebarFolderTrailing(open: Boolean, count: Int, modifier: Modifier = Modifier) {
+fun SidebarFolderTrailing(
+    open: Boolean,
+    count: Int,
+    modifier: Modifier = Modifier,
+    /** A team row wears the chevron alone. */
+    showCount: Boolean = true,
+) {
+    val turn by animateFloatAsState(if (open) 90f else 0f, Motion.standard(LocalReduceMotion.current), label = "fold")
     Row(
         modifier = modifier.testTag(if (open) "sidebar-folder-open" else "sidebar-folder-closed"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (!open) {
+        if (!open && showCount) {
             Text(
                 count.toString(),
                 style = MaterialTheme.typography.bodySmall,
@@ -96,7 +107,7 @@ fun SidebarFolderTrailing(open: Boolean, count: Int, modifier: Modifier = Modifi
         Icon(
             ExpIcons.uiChevronRight,
             contentDescription = if (open) "Collapse" else "Expand",
-            modifier = Modifier.size(16.dp).rotate(if (open) 90f else 0f),
+            modifier = Modifier.size(16.dp).rotate(turn),
             tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
         )
     }

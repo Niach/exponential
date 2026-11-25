@@ -20,13 +20,12 @@ struct InboxPage: View {
         .navigationTitle(Chats.Copy.inbox)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // EXP-1647: web's header pill (`Pill mode="action" size="md"`), its
-        // own chrome: never iOS 26's large Liquid Glass item capsule.
-        .ownChromeToolbarItem(
-            placement: .topBarTrailing,
-            enabled: (inboxViewModel?.totalUnread ?? 0) > 0
-        ) {
-            GlassPill("Mark all read", size: .md, mode: .action { inboxViewModel?.markAllRead() })
+        .toolbar {
+            if (inboxViewModel?.totalUnread ?? 0) > 0 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    PageHeaderButton(icon: AppIcons.notificationMarkRead, label: "Mark all read") { inboxViewModel?.markAllRead() }
+                }
+            }
         }
         .onAppear {
             if inboxViewModel == nil {

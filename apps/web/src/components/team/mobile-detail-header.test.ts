@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   HEADER_BUTTON_CLASS,
-  HEADER_SLOT_CLASS,
   MOBILE_DETAIL_HEADER_CLASS,
 } from "@/components/team/mobile-detail-header"
 import { SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exp/ui"
 
-// EXP-851: the ONE detail header — the native layout (round back, centred
-// identifier, round `…`). The class strings are the contract; a second
+// EXP-851: the ONE detail header — the native layout (round ghost back,
+// the title beside it, round actions). The class strings are the contract; a second
 // hand-rolled back row anywhere is the bug this pins.
 
 describe(`MobileDetailHeader`, () => {
@@ -22,20 +21,13 @@ describe(`MobileDetailHeader`, () => {
     expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`bg-`)
   })
 
-  it(`draws GHOST round controls — no circle stroke, no fill`, () => {
+  it(`draws a GHOST round back — no circle stroke, no fill`, () => {
     const tokens = HEADER_BUTTON_CLASS.split(/\s+/)
     expect(tokens).toContain(`rounded-full`)
     expect(tokens).toContain(`size-9`)
     expect(HEADER_BUTTON_CLASS).not.toContain(`border`)
     expect(HEADER_BUTTON_CLASS).not.toContain(`bg-popover`)
     expect(HEADER_BUTTON_CLASS).not.toContain(`backdrop-`)
-  })
-
-  it(`balances both ends so the title stays centred`, () => {
-    // The empty slot must be exactly the button's footprint.
-    for (const token of HEADER_SLOT_CLASS.split(/\s+/)) {
-      expect(HEADER_BUTTON_CLASS.split(/\s+/)).toContain(token)
-    }
   })
 })
 

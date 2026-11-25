@@ -143,6 +143,16 @@ pub type CheckInFn = Arc<dyn Fn() + Send + Sync>;
 pub struct CallRing {
     pub call_id: String,
     pub agent_id: String,
+    /// EXP-1859: the ring's `mode: turn` with its wake phrase: a one-turn
+    /// call (None = an ordinary call).
+    pub turn: Option<String>,
+}
+
+/// EXP-1859 (voice-call.json `wire.control` `call_ring`): `mode: turn` = a
+/// one-turn call with the wake `phrase` it drops (none sent = empty: the
+/// transcript stays whole); any other mode, or none, rings an ordinary call.
+pub fn call_ring_turn(mode: Option<&str>, phrase: Option<String>) -> Option<String> {
+    (mode == Some("turn")).then(|| phrase.unwrap_or_default())
 }
 
 /// NEW-55: an inbound `call_ring`. Same non-blocking contract as
@@ -500,9 +510,10 @@ async fn connect_and_listen(
                         }
                         // NEW-55: a caller rings this voice device.
                         // Non-blocking by contract (see [`CallRingFn`]).
-                        Some(ServerFrame::CallRing { call_id, agent_id }) => {
-                            log::info!("steer control: call_ring {call_id}");
-                            on_call_ring(CallRing { call_id, agent_id });
+                        Some(ServerFrame::CallRing { call_id, agent_id, mode, phrase }) => {
+                            let turn = call_ring_turn(mode.as_deref(), phrase);
+                            log::info!("steer control: call_ring {call_id}{}", if turn.is_some() { " (turn)" } else { "" });
+                            on_call_ring(CallRing { call_id, agent_id, turn });
                         }
                         Some(other) => {
                             // bye/error, an unscoped kill: logged, no-op.

@@ -3,6 +3,7 @@ import {
   Button,
   Badge,
   conceptIcon,
+  HeaderAction,
   MENU_SURFACE_CLASS,
   Popover,
   PopoverContent,
@@ -61,19 +62,12 @@ export function InboxPopover() {
         data-testid="inbox-popover"
         className={cn(MENU_SURFACE_CLASS, `w-[24rem] gap-0 p-1`)}
       >
-        <div className="flex h-8 items-center justify-between px-2">
+        <div className="flex h-10 items-center justify-between px-2">
           <span className="text-xs font-medium text-muted-foreground">{CHATS_COPY.inbox}</span>
           {unread > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground"
-              aria-label="Mark all read"
-              title="Mark all read"
-              onClick={() => markAllNotificationsRead()}
-            >
-              <MarkReadIcon className="size-3.5" />
-            </Button>
+            <HeaderAction aria-label="Mark all read" title="Mark all read" onClick={() => markAllNotificationsRead()}>
+              <MarkReadIcon />
+            </HeaderAction>
           )}
         </div>
         <div className="max-h-[24rem] overflow-y-auto overscroll-contain">

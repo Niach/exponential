@@ -18,13 +18,13 @@ import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { checkInLabel, feedRows, traceNotice } from "@exp/domain-contract/transcript-grouping"
 import transcriptGrouping from "@exp/domain-contract/fixtures/transcript-grouping.json"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
-import { Button } from "./button"
 import { CHAT_SELECTION_ICONS, ChatLeadDisc, ChatList, ChatsHeader } from "./chat-list"
 import { ChatMarks } from "./chat-marks"
 import { Dialog } from "./dialog"
 import { conceptIcon } from "./icons.generated"
 import { MenuPanel } from "./menu"
-import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "./mobile-detail-header"
+import { MobileDetailHeader } from "./mobile-detail-header"
+import { HeaderAction } from "./header-action"
 import { PageHeader } from "./page-header"
 import { AgentHeaderTitle, PhoneHeaderTitle } from "./phone-header-title"
 import { PhoneDock, PhoneDockAssistant, PhoneDockTab, PhoneNewMenu } from "./phone-dock"
@@ -45,6 +45,7 @@ import { useIsMobile } from "./use-mobile"
 
 const COPY = chats.copy
 const CallIcon = conceptIcon(`voice-call`)
+const AddIcon = conceptIcon(`ui-add`)
 const MoreIcon = conceptIcon(`ui-more`)
 const noop = (): void => {}
 
@@ -85,15 +86,20 @@ export function ChatListSpecimen() {
 
 function ChatHeaderTrailing({ call = false }: { call?: boolean }) {
   return (
-    <span className="flex shrink-0 items-center gap-1">
+    <span className="flex shrink-0 items-center gap-2">
       {call ? (
-        <Button variant="ghost" size="icon" className={HEADER_BUTTON_CLASS} aria-label="Call">
-          <CallIcon className="size-4" />
-        </Button>
+        <>
+          <HeaderAction aria-label="Call">
+            <CallIcon />
+          </HeaderAction>
+          <HeaderAction aria-label="New conversation">
+            <AddIcon />
+          </HeaderAction>
+        </>
       ) : null}
-      <Button variant="ghost" size="icon" className={HEADER_BUTTON_CLASS} aria-label="More">
-        <MoreIcon className="size-4" />
-      </Button>
+      <HeaderAction aria-label="More">
+        <MoreIcon />
+      </HeaderAction>
     </span>
   )
 }

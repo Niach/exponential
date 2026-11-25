@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.background
@@ -21,8 +24,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -39,8 +40,6 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -76,15 +75,12 @@ fun SyncDiagnosticsScreen(
 ) {
     val shapes by viewModel.shapes.collectAsStateWithLifecycle()
 
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            TopAppBar(
-                title = { TopBarTitle("Sync Diagnostics") },
-                navigationIcon = {
-                    TopBarBackButton(onClick = onBack)
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = "Sync Diagnostics",
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->
@@ -92,7 +88,7 @@ fun SyncDiagnosticsScreen(
             Box(Modifier.padding(padding).fillMaxSize()) {
                 EmptyState(title = "No active sync", icon = ExpIcons.uiRefresh)
             }
-            return@Scaffold
+            return@PinnedScaffold
         }
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),

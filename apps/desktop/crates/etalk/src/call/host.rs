@@ -21,6 +21,11 @@ use crate::ListenFailure;
 /// S-3: the mic check listens at least this long after `CallListening`.
 pub const MIC_CHECK_MIN_MS: u64 = 1500;
 
+/// EXP-1859: a TURN call whose worker does not listen after this fails
+/// `unavailable` (its caller hears the turn itself): what a worker keeps of
+/// the caller's audio meanwhile (talk-listen.json `maxTurnMs`).
+pub const TURN_LISTEN_MS: u64 = 60_000;
+
 /// A call as its host starts it (the ring: phase ringing).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +55,67 @@ pub struct HostStart {
     /// FEED-276: the agent's own voice on this host at the start.
     #[serde(default)]
     pub voice: CallVoice,
+    /// EXP-1859: a TURN call (a wake turn dialled here): the wake phrase
+    /// the caller heard. No ring, no greeting, one utterance, one reply
+    /// ([`turn_host_step`]). None = an ordinary call.
+    #[serde(default)]
+    pub turn: Option<String>,
+}
+
+/// EXP-1859 (voice-call.json `turnHostCases`): where a turn call stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TurnHostState {
+    /// The worker hears the turn.
+    #[default]
+    Listening,
+    /// The utterance was sent: the first reply that starts now is the turn's.
+    Waiting,
+    /// The turn's one reply is spoken.
+    Speaking,
+    /// Hung up.
+    Done,
+}
+
+/// What happened in a turn call.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum TurnHostEvent {
+    /// The worker's one utterance (the phrase already taken off).
+    Said { text: String },
+    /// Only the phrase was heard.
+    Empty,
+    ReplyStarted,
+    ReplyFinished,
+    /// `constants.turnReplyWaitMs` since the send.
+    ReplyWaitOver,
+}
+
+/// What the host does in a turn call.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum TurnHostAction {
+    /// The utterance goes into the member's conversation with the agent.
+    Send { text: String },
+    /// The reply that started is spoken on the call's stream.
+    Speak,
+    /// The reason-less `call_end`.
+    HangUp,
+}
+
+/// EXP-1859: one step of a turn call on its host: ONE utterance is sent (a
+/// blank one or `empty` hangs up at once), the FIRST reply that starts
+/// after the send is spoken and its end hangs up, and no reply within
+/// `turnReplyWaitMs` hangs up.
+pub fn turn_host_step(state: TurnHostState, event: &TurnHostEvent) -> (TurnHostState, Vec<TurnHostAction>) {
+    use TurnHostState::*;
+    match (state, event) {
+        (Listening, TurnHostEvent::Said { text }) if !text.trim().is_empty() => (Waiting, vec![TurnHostAction::Send { text: text.clone() }]),
+        (Listening, TurnHostEvent::Said { .. } | TurnHostEvent::Empty) => (Done, vec![TurnHostAction::HangUp]),
+        (Waiting, TurnHostEvent::ReplyStarted) => (Speaking, vec![TurnHostAction::Speak]),
+        (Waiting, TurnHostEvent::ReplyWaitOver) => (Done, vec![TurnHostAction::HangUp]),
+        (Speaking, TurnHostEvent::ReplyFinished) => (Done, vec![TurnHostAction::HangUp]),
+        _ => (state, Vec::new()),
+    }
 }
 
 /// The host's timers ([`HostInput::Tick`] fires every one that is due).
@@ -66,9 +132,12 @@ pub enum HostTimer {
     VoiceWait,
     /// #EXP-1961: `openingWaitMs` since the voice was in.
     OpeningWait,
+    /// EXP-1859: a turn call's `turnReplyWaitMs` since its utterance was sent.
+    ReplyWait,
 }
 
-const TIMERS: [HostTimer; 5] = [HostTimer::Ring, HostTimer::GiveUp, HostTimer::MicCheck, HostTimer::VoiceWait, HostTimer::OpeningWait];
+const TIMERS: [HostTimer; 6] =
+    [HostTimer::Ring, HostTimer::GiveUp, HostTimer::MicCheck, HostTimer::VoiceWait, HostTimer::OpeningWait, HostTimer::ReplyWait];
 
 /// What happened, as the host's shell hands it in.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -90,6 +159,8 @@ pub enum HostInput {
     Partial { text: String },
     SpeechStarted,
     Said { text: String },
+    /// EXP-1859: a turn call's worker heard only the phrase (`CallEmpty`).
+    Empty,
     /// The worker could not listen (`ListenFailed`).
     ListenFailed { reason: ListenFailure },
     /// FEED-276: the agent's clip as this host has it now; `preparing` = a
@@ -143,7 +214,15 @@ pub enum HostEffect {
     Flush,
     /// The worker's `Call` (`ring_ms` = how long a call run here rings on
     /// its own output; a streamed one rings on the caller).
-    Listen { id: String, language: String, remote: bool, ring_ms: u32 },
+    /// EXP-1859: `turn` = a turn call's phrase (the worker hears ONE turn).
+    Listen {
+        id: String,
+        language: String,
+        remote: bool,
+        ring_ms: u32,
+        #[serde(default)]
+        turn: Option<String>,
+    },
     /// The worker's `CallMute`.
     Mute { id: String, muted: bool },
     /// The worker says `text` (the opening line, or a reply; `id` = its row).
@@ -230,6 +309,10 @@ pub struct CallHost {
     /// #FEED-268: what the end line counts (never a word of the call).
     utterances: u32,
     replies: u32,
+    /// EXP-1859: a turn call: its phrase, where it stands, when it sent.
+    turn_phrase: Option<String>,
+    turn: TurnHostState,
+    turn_sent_at: Option<u64>,
 }
 
 /// #FEED-268: who ended a call and why, as the end line names it
@@ -287,6 +370,9 @@ impl CallHost {
             speaking: None,
             utterances: 0,
             replies: 0,
+            turn_phrase: start.turn,
+            turn: TurnHostState::default(),
+            turn_sent_at: None,
         }
     }
 
@@ -362,9 +448,11 @@ impl CallHost {
         let ringing = self.state.phase == CallPhase::Ringing && !self.state.ready;
         match timer {
             HostTimer::Ring => (!self.rang).then_some(started + self.ring_ms),
+            HostTimer::GiveUp if self.is_turn() => self.never_heard().then_some(started + TURN_LISTEN_MS),
             HostTimer::GiveUp => ringing.then_some(started + VOICE_CALL.constants.max_ring_ms),
             HostTimer::MicCheck => {
-                let listening = self.listening_at.filter(|_| !self.mic_checked)?;
+                // EXP-1859: a turn call has no ring to check the microphone in.
+                let listening = self.listening_at.filter(|_| !self.mic_checked && !self.is_turn())?;
                 Some((started + self.ring_ms).max(listening + MIC_CHECK_MIN_MS))
             }
             HostTimer::VoiceWait => {
@@ -375,7 +463,21 @@ impl CallHost {
                 let ready = self.voice_ready_at.filter(|_| ringing && !self.opening_waited)?;
                 Some(ready + VOICE_CALL.call_session.opening_wait_ms)
             }
+            HostTimer::ReplyWait => {
+                let sent = self.turn_sent_at.filter(|_| self.turn == TurnHostState::Waiting)?;
+                Some(sent + VOICE_CALL.constants.turn_reply_wait_ms)
+            }
         }
+    }
+
+    /// EXP-1859: the turn's worker has not listened yet.
+    fn never_heard(&self) -> bool {
+        self.listening_at.is_none() && self.turn == TurnHostState::Listening
+    }
+
+    /// EXP-1859: this is a turn call.
+    pub fn is_turn(&self) -> bool {
+        self.turn_phrase.is_some()
     }
 
     /// The next instant a timer is due (a host that arms one wakes then).
@@ -421,7 +523,13 @@ impl CallHost {
                 }
                 self.step(CallEvent::SpeechStarted, now, &mut out);
             }
+            HostInput::Said { text } if self.is_turn() => self.turn_event(TurnHostEvent::Said { text }, None, now, &mut out),
             HostInput::Said { text } => self.said(text, now, &mut out),
+            HostInput::Empty => {
+                if self.is_turn() {
+                    self.turn_event(TurnHostEvent::Empty, None, now, &mut out);
+                }
+            }
             HostInput::ListenFailed { reason } => {
                 if let Some(code) = listen_failed_code(reason) {
                     log::warn!("[voice] call {}: the call could not listen ({reason:?})", self.label);
@@ -460,6 +568,9 @@ impl CallHost {
                 self.step(if muted { CallEvent::Mute } else { CallEvent::Unmute }, now, &mut out);
             }
             HostInput::HungUp { reason } => self.close(false, CallEvent::HungUp(reason), now, &mut out),
+            // EXP-1859: a turn this host ends before it was said (a meeting, a
+            // sign-out) is the caller's again: a failure, never the silent end.
+            HostInput::End if self.is_turn() && self.turn == TurnHostState::Listening => self.fail("dropped", now, &mut out),
             HostInput::End => self.close(true, CallEvent::End, now, &mut out),
             HostInput::Fail { code } => self.fail(&code, now, &mut out),
             HostInput::Unstorable => {
@@ -475,11 +586,54 @@ impl CallHost {
             return;
         }
         self.started = Some(now);
-        log::info!("[voice] call {}: ringing ({}, answers after {} ms at the earliest)", self.label, if self.remote { "streamed from a caller" } else { "run here" }, self.ring_ms);
+        if self.is_turn() {
+            log::info!("[voice] call {}: a wake turn (no ring)", self.label);
+        } else {
+            log::info!("[voice] call {}: ringing ({}, answers after {} ms at the earliest)", self.label, if self.remote { "streamed from a caller" } else { "run here" }, self.ring_ms);
+        }
         // A call run here rings on its own output until the opening (at
-        // most `maxRingMs`); a streamed one rings on the caller.
-        let ring_ms = if self.remote { 0 } else { VOICE_CALL.constants.max_ring_ms as u32 };
-        out.push(HostEffect::Listen { id: self.id.clone(), language: self.language.clone(), remote: self.remote, ring_ms });
+        // most `maxRingMs`); a streamed one rings on the caller; EXP-1859:
+        // a turn call never rings.
+        let ring_ms = if self.remote || self.is_turn() { 0 } else { VOICE_CALL.constants.max_ring_ms as u32 };
+        out.push(HostEffect::Listen {
+            id: self.id.clone(),
+            language: self.language.clone(),
+            remote: self.remote,
+            ring_ms,
+            turn: self.turn_phrase.clone(),
+        });
+        if self.is_turn() {
+            // EXP-1859: no ring: `rang` and `ready` at once.
+            self.rang = true;
+            self.step(CallEvent::Rang, now, out);
+            self.step(CallEvent::Ready, now, out);
+        }
+    }
+
+    /// EXP-1859: one [`turn_host_step`] of a turn call, and what it asks
+    /// for (`reply` = the row and text a `replyStarted` would speak).
+    fn turn_event(&mut self, event: TurnHostEvent, reply: Option<(String, String)>, now: u64, out: &mut Vec<HostEffect>) {
+        let (next, actions) = turn_host_step(self.turn, &event);
+        self.turn = next;
+        for action in actions {
+            match action {
+                TurnHostAction::Send { text } => {
+                    self.sent = true;
+                    self.utterances += 1;
+                    self.turn_sent_at = Some(now);
+                    self.step(CallEvent::Said(text.clone()), now, out);
+                    out.push(HostEffect::Send { text, session: self.session.clone() });
+                }
+                TurnHostAction::Speak => {
+                    let Some((id, text)) = reply.clone() else { continue };
+                    self.speaking = Some(id.clone());
+                    self.replies += 1;
+                    out.push(HostEffect::Speak { id, text: text.clone() });
+                    self.step(CallEvent::ReplyStarted(crate::voice::first_sentence(&text).to_string()), now, out);
+                }
+                TurnHostAction::HangUp => self.close(true, CallEvent::End, now, out),
+            }
+        }
     }
 
     fn fire(&mut self, timer: HostTimer, now: u64, out: &mut Vec<HostEffect>) {
@@ -490,7 +644,8 @@ impl CallHost {
                 }
             }
             HostTimer::GiveUp => {
-                if self.state.phase == CallPhase::Ringing && !self.state.ready {
+                let silent = if self.is_turn() { self.never_heard() } else { self.state.phase == CallPhase::Ringing && !self.state.ready };
+                if silent {
                     log::warn!("[voice] call {}: the voice was not ready after the longest ring", self.label);
                     self.fail("unavailable", now, out);
                 }
@@ -508,6 +663,12 @@ impl CallHost {
             HostTimer::OpeningWait => {
                 self.opening_waited = true;
                 self.check_opening(now, out);
+            }
+            HostTimer::ReplyWait => {
+                if self.turn == TurnHostState::Waiting {
+                    log::info!("[voice] call {}: no reply in time: the turn ends", self.label);
+                    self.turn_event(TurnHostEvent::ReplyWaitOver, None, now, out);
+                }
             }
         }
     }
@@ -599,6 +760,10 @@ impl CallHost {
     /// session too).
     fn pick_up(&mut self, now: u64, out: &mut Vec<HostEffect>) {
         self.answered_at = Some(now);
+        // EXP-1859: a turn call has no ring, no opening and nothing to finish.
+        if self.is_turn() {
+            return;
+        }
         let opening = self.opening.is_some() && self.session.is_some();
         log::info!(
             "[voice] call {}: answered {} ms after the ring started ({})",
@@ -675,6 +840,10 @@ impl CallHost {
         if self.session_pending {
             return;
         }
+        // EXP-1859: a turn call speaks the FIRST reply after its send, only.
+        if self.is_turn() {
+            return self.turn_event(TurnHostEvent::ReplyStarted, Some((id, text)), now, out);
+        }
         if self.state.phase == CallPhase::Ringing {
             // #EXP-1936: a reply while it rings is not the call's; #EXP-1961:
             // its own session's is the opening line.
@@ -707,6 +876,10 @@ impl CallHost {
         self.speaking = None;
         if self.state.phase == CallPhase::Speaking {
             self.step(CallEvent::ReplyFinished, now, out);
+        }
+        // EXP-1859: the turn's one reply ended: the host hangs up.
+        if self.is_turn() {
+            self.turn_event(TurnHostEvent::ReplyFinished, None, now, out);
         }
     }
 
@@ -836,6 +1009,7 @@ mod tests {
             fallback: false,
             session: None,
             voice: CallVoice::None,
+            turn: None,
         };
         let mut ticked = CallHost::new(start.clone());
         let mut timed = CallHost::new(start);
@@ -851,6 +1025,173 @@ mod tests {
         }
         assert_eq!(all, one_by_one);
         assert_eq!(ticked.state(), timed.state());
+    }
+
+    #[derive(Deserialize)]
+    struct TurnCase {
+        name: String,
+        events: Vec<TurnHostEvent>,
+        actions: Vec<TurnHostAction>,
+    }
+
+    /// EXP-1859: every row of `turnHostCases` through the pure step.
+    #[test]
+    fn the_turn_host_step_replays_the_turn_host_cases() {
+        let fixture: serde_json::Value = serde_json::from_str(super::super::VOICE_CALL_JSON).unwrap();
+        let cases: Vec<TurnCase> = serde_json::from_value(fixture["turnHostCases"].clone()).expect("turnHostCases parse");
+        assert!(cases.len() >= 8, "{}", cases.len());
+        for case in cases {
+            let mut state = TurnHostState::default();
+            let mut actions = Vec::new();
+            for event in &case.events {
+                let (next, did) = turn_host_step(state, event);
+                state = next;
+                actions.extend(did);
+            }
+            assert_eq!(actions, case.actions, "{}", case.name);
+        }
+    }
+
+    fn turn_start() -> HostStart {
+        HostStart {
+            id: "call-1".into(),
+            call_id: Some("ring-1".into()),
+            language: "en".into(),
+            remote: true,
+            random: 0.9,
+            device: "mint".into(),
+            fallback: false,
+            session: None,
+            voice: CallVoice::Fetching,
+            turn: Some("Hey Ops".into()),
+        }
+    }
+
+    fn turn_host() -> CallHost {
+        let mut host = CallHost::new(turn_start());
+        let begun = host.handle(HostInput::Begin, 0);
+        // No ring: the worker hears ONE turn, and rang + ready go at once.
+        assert_eq!(
+            begun,
+            vec![
+                HostEffect::Listen { id: "call-1".into(), language: "en".into(), remote: true, ring_ms: 0, turn: Some("Hey Ops".into()) },
+                HostEffect::Event { event: serde_json::json!({ "t": "rang" }) },
+                HostEffect::Event { event: serde_json::json!({ "t": "ready" }) },
+            ]
+        );
+        assert_eq!(host.state().phase, CallPhase::Listening);
+        assert_eq!(host.next_due(), Some(TURN_LISTEN_MS), "a worker that never listens fails it");
+        assert_eq!(host.handle(HostInput::Listening, 5), Vec::new(), "no greeting, no opening");
+        // No ring timer, no give-up, no mic check, no wait for the agent's voice.
+        assert_eq!(host.next_due(), None);
+        host
+    }
+
+    /// EXP-1859: the [`CallHost`] runs every `turnHostCases` row as a turn
+    /// call: send = the utterance's Send, speak = a Speak, hangUp = the
+    /// worker's Hangup + the reason-less End.
+    #[test]
+    fn a_turn_call_follows_the_turn_host_cases() {
+        let fixture: serde_json::Value = serde_json::from_str(super::super::VOICE_CALL_JSON).unwrap();
+        let cases: Vec<TurnCase> = serde_json::from_value(fixture["turnHostCases"].clone()).unwrap();
+        for case in cases {
+            let mut host = turn_host();
+            let mut actions = Vec::new();
+            let mut now = 10;
+            let mut reply = 0;
+            for event in &case.events {
+                now += 10;
+                let effects = match event {
+                    TurnHostEvent::Said { text } => host.handle(HostInput::Said { text: text.clone() }, now),
+                    TurnHostEvent::Empty => host.handle(HostInput::Empty, now),
+                    TurnHostEvent::ReplyStarted => {
+                        reply += 1;
+                        host.handle(HostInput::Reply { id: format!("m-{reply}"), text: "All quiet. Nothing new.".into() }, now)
+                    }
+                    TurnHostEvent::ReplyFinished => host.handle(HostInput::Spoken { id: format!("m-{reply}") }, now),
+                    TurnHostEvent::ReplyWaitOver => {
+                        let due = host.next_due();
+                        match due {
+                            Some(due) => host.handle(HostInput::Tick, due),
+                            // Not armed (the reply started): a late timer does nothing.
+                            None => host.handle(HostInput::Timer { timer: HostTimer::ReplyWait }, now),
+                        }
+                    }
+                };
+                for effect in effects {
+                    match effect {
+                        HostEffect::Send { text, session } => {
+                            assert_eq!(session, None, "{}: the chat takes it", case.name);
+                            actions.push(TurnHostAction::Send { text });
+                        }
+                        HostEffect::Speak { .. } => actions.push(TurnHostAction::Speak),
+                        HostEffect::End => actions.push(TurnHostAction::HangUp),
+                        HostEffect::Toast { text } => panic!("{}: a turn's end is silent ({text})", case.name),
+                        _ => {}
+                    }
+                }
+            }
+            assert_eq!(actions, case.actions, "{}", case.name);
+            assert_eq!(host.ended(), case.actions.last() == Some(&TurnHostAction::HangUp), "{}", case.name);
+        }
+    }
+
+    /// EXP-1859: a turn call's wire: said, the reply's start and end, then
+    /// the hang-up; the reply wait is armed only between the send and the reply.
+    #[test]
+    fn a_turn_call_tells_the_caller_and_arms_the_reply_wait() {
+        let mut host = turn_host();
+        assert_eq!(host.handle(HostInput::Partial { text: "what's".into() }, 20), vec![HostEffect::Event { event: serde_json::json!({ "t": "partial", "text": "what's" }) }]);
+        assert_eq!(
+            host.handle(HostInput::Said { text: "What's new?".into() }, 100),
+            vec![
+                HostEffect::Event { event: serde_json::json!({ "t": "said", "text": "What's new?" }) },
+                HostEffect::Send { text: "What's new?".into(), session: None },
+            ]
+        );
+        assert_eq!(host.next_due(), Some(100 + VOICE_CALL.constants.turn_reply_wait_ms));
+        assert_eq!(
+            host.handle(HostInput::Reply { id: "m-1".into(), text: "Two issues. Both small.".into() }, 900),
+            vec![
+                HostEffect::Speak { id: "m-1".into(), text: "Two issues. Both small.".into() },
+                HostEffect::Event { event: serde_json::json!({ "t": "replyStarted", "text": "Two issues." }) },
+            ]
+        );
+        assert_eq!(host.next_due(), None);
+        assert_eq!(
+            host.handle(HostInput::Spoken { id: "m-1".into() }, 4000),
+            vec![
+                HostEffect::Event { event: serde_json::json!({ "t": "replyFinished" }) },
+                HostEffect::Hangup { id: "call-1".into() },
+                HostEffect::End,
+            ]
+        );
+        assert!(host.ended());
+    }
+
+    /// EXP-1859: a host failure keeps `failed {code}` + the end; the
+    /// caller's own end hangs the worker up and tells nobody.
+    #[test]
+    fn a_turn_call_fails_and_is_cancelled_like_a_call() {
+        // Never heard: the caller is told why, so it hears the turn itself.
+        let mut host = CallHost::new(turn_start());
+        host.handle(HostInput::Begin, 0);
+        assert!(host.handle(HostInput::Tick, TURN_LISTEN_MS - 1).is_empty());
+        let failed = host.handle(HostInput::Tick, TURN_LISTEN_MS);
+        assert_eq!(failed[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "unavailable" }) });
+        // This host ends it before it was said: a failure; after: the silent end.
+        let mut host = turn_host();
+        assert_eq!(host.handle(HostInput::End, 50)[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "dropped" }) });
+        let mut host = turn_host();
+        host.handle(HostInput::Said { text: "Status?".into() }, 40);
+        assert_eq!(host.handle(HostInput::End, 50), vec![HostEffect::Hangup { id: "call-1".into() }, HostEffect::End]);
+        let mut host = turn_host();
+        let failed = host.handle(HostInput::Fail { code: "dropped".into() }, 50);
+        assert_eq!(failed[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "dropped" }) });
+        assert!(failed.contains(&HostEffect::End) && host.ended());
+        let mut host = turn_host();
+        assert_eq!(host.handle(HostInput::HungUp { reason: None }, 50), vec![HostEffect::Hangup { id: "call-1".into() }]);
+        assert!(host.ended());
     }
 
     #[test]

@@ -15,17 +15,12 @@ import SwiftUI
 // reaches it (`visibleAgent`) and edits it.
 
 /// The viewer's Assistant avatar: the Exponential brand mark in the
-/// foreground colour on bg muted, never a stored icon or colour.
+/// foreground colour, never a stored icon or colour.
 struct AssistantAvatar: View {
     var size: CGFloat = 24
 
     var body: some View {
-        Circle()
-            .fill(DesignTokens.Palette.muted)
-            .frame(width: size, height: size)
-            .overlay {
-                ExpLogoMark(size: size * 0.75, color: DesignTokens.Palette.foreground)
-            }
+        ExpLogoMark(size: size, color: DesignTokens.Palette.foreground)
             .accessibilityHidden(true)
     }
 }

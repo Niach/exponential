@@ -6,6 +6,7 @@ import {
   SIDEBAR_MENU_SHORTCUTS,
   SIDEBAR_NEW_COPY,
   SIDEBAR_NEW_ICONS,
+  SIDEBAR_PHONE_DROPS,
   sidebarItemMenu,
   sidebarMenuDestructive,
   sidebarNewKinds,
@@ -13,6 +14,7 @@ import {
   type SidebarMenuInput,
   type SidebarMenuKind,
 } from "@exp/domain-contract/sidebar-menus"
+import { HEADER_MENU_DROPS } from "@exp/domain-contract/header-actions"
 import {
   conceptIcon,
   Menu,
@@ -27,6 +29,7 @@ import type { Team } from "@/db/schema"
 import { newPagePath, type NewPageKind } from "@/lib/app-paths"
 import type { WorkTab } from "@/lib/work-tabs"
 import { openWorkTabInBackground } from "@/hooks/use-work-tabs"
+import { useSidebarTreeDensity } from "@/components/team/sidebar-folders"
 import { AssistantMark } from "@/components/team/assistant-mark"
 
 // #EXP-2124 (fixtures/sidebar-menus.json, its `$comment` is the spec): every
@@ -94,7 +97,14 @@ export function sidebarMenuEntries(
   return tidyMenuEntries(rows)
 }
 
-/** A row's pointer menu (`MenuGestureHost` session). */
+/** header-actions.json: a `…` beside a + = the menu without what the + does
+ *  (Open on the page itself and Move to folder go too). */
+export function headerMenuEntries(entries: readonly MenuEntry[]): MenuEntry[] {
+  return tidyMenuEntries(entries.filter((entry) => !HEADER_MENU_DROPS.includes(entry.id ?? ``)))
+}
+
+/** A row's pointer menu (`MenuGestureHost` session); a phone's leaves out
+ *  `phone.drops` (it has no tabs). */
 export function SidebarPointerMenu({
   session,
   title,
@@ -104,7 +114,11 @@ export function SidebarPointerMenu({
   title: string
   entries: MenuEntry[]
 }): ReactNode {
-  if (entries.length === 0) return null
+  const phone = useSidebarTreeDensity() === `touch`
+  const shown = phone
+    ? tidyMenuEntries(entries.filter((entry) => !(SIDEBAR_PHONE_DROPS as readonly string[]).includes(entry.id ?? ``)))
+    : entries
+  if (shown.length === 0) return null
   return (
     <Menu
       mode="pointer"
@@ -114,7 +128,7 @@ export function SidebarPointerMenu({
       returnFocus={session.target.origin}
       aria-label={title}
       title={title}
-      entries={entries}
+      entries={shown}
       data-testid="sidebar-item-menu"
     />
   )
