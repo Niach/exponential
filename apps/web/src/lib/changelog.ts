@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-25-desktop-cli-0-14-182`,
+    date: `2026-11-25`,
+    title: `An agent's chat keeps its answers`,
+    summary: `Desktop and CLI 0.14.182: a team agent's chat keeps its answers on the desktop after the server ended its run.`,
+    body: `- **Agent chats on the desktop**: a team agent's chat keeps the answers it already showed after the server ended the agent's run.
+- **Everything from 0.14.181**: a team agent you wake by its phrase answers out loud, and a chat locked by a new device opens again by itself.`,
+  },
+  {
     id: `2026-11-25-desktop-cli-0-14-181`,
     date: `2026-11-25`,
     title: `A woken team agent answers out loud`,
