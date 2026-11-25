@@ -186,14 +186,18 @@ pub fn voice_call_session(trpc: &TrpcClient, agent_id: &str, call_id: Option<&st
 #[serde(rename_all = "camelCase")]
 struct CallEndedInput<'a> {
     session_id: &'a str,
+    /// EXP-2110: what the host knows of the end (`{by, reason, answeredMs?}`:
+    /// codes and a duration); not sent when there is nothing to say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    report: Option<&'a serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct CallEnded {}
 
 /// #EXP-1961: `voice.callEnded` — mutation; the hang-up (its summary follows).
-pub fn voice_call_ended(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    trpc.mutation::<_, CallEnded>("voice.callEnded", &CallEndedInput { session_id }).map(|_| ())
+pub fn voice_call_ended(trpc: &TrpcClient, session_id: &str, report: Option<&serde_json::Value>) -> Result<(), ApiError> {
+    trpc.mutation::<_, CallEnded>("voice.callEnded", &CallEndedInput { session_id, report }).map(|_| ())
 }
 
 #[derive(Debug, Clone, Serialize)]

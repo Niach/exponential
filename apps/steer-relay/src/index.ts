@@ -153,6 +153,24 @@ app.get(`/stats`, (c) =>
   })
 )
 
+// EXP-2110 (voice-call.json `record`): the web server collects the calls that
+// ended here, the ones that ring or run now, and the counters, every minute
+// and on a host's hang-up report; `ack` = what it has stored, so a lost
+// answer is sent again. Metadata only, gone with this process.
+app.post(`/calls/reports`, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { ack?: { boot?: unknown; seq?: unknown } } | null
+  const boot = body?.ack?.boot
+  const seq = body?.ack?.seq
+  const ack = typeof boot === `string` && typeof seq === `number` ? { boot, seq } : undefined
+  return c.json({
+    ok: true,
+    startedAt,
+    now: Date.now(),
+    ...hub.collectCallReports(ack),
+    counters: { ...hub.counters(), rateLimitedRejections },
+  })
+})
+
 // EXP-481: fire-and-forget check-in nudge — the web server persisted new
 // work for the device (a queued command, edited launch defaults); an online
 // device heartbeats immediately instead of waiting its cadence. Secret-gated

@@ -555,6 +555,7 @@ describe(`stats counters (EXP-553)`, () => {
       callFramesDropped: 0,
       callFramesSkipped: 0,
       callPongs: 0,
+      callReportsLost: 0,
       tunnelsOpened: 0,
       tunnelsRefused: 0,
       tunnelsOverflowed: 0,
@@ -739,6 +740,69 @@ describe(`voice calls (NEW-55)`, () => {
     const again = dial(hub, { callId: `call-2` })
     expect(again.closed).toBeNull()
     hub.destroy()
+  })
+
+  // EXP-2110 (voice-call.json `record`).
+  describe(`end reports`, () => {
+    test(`a call that ended: who, why, counts; live before, kept until acknowledged`, () => {
+      const { hub, caller, host } = paired()
+      expect(hub.collectCallReports()).toMatchObject({ boot: hub.boot, ended: [], more: false, live: [{ callId: `call-1` }] })
+      hub.onBinary(caller, audio(1, 0))
+      hub.onBinary(caller, audio(1, 1))
+      hub.onBinary(host, audio(2, 0))
+      quietly(() => hub.onBinary(caller, audio(2, 2)))
+      host.buffered = 1_000_000
+      hub.onBinary(caller, audio(1, 3))
+      hub.onMessage(host, JSON.stringify({ t: `call_event`, event: { t: `rang` } }))
+      hub.onMessage(host, JSON.stringify({ t: `call_event`, event: { t: `ready` } }))
+      hub.onMessage(caller, JSON.stringify({ t: `call_end` }))
+
+      const first = hub.collectCallReports()
+      expect(first.live).toEqual([])
+      expect(first.ended).toHaveLength(1)
+      const [end] = first.ended
+      expect(end).toMatchObject({ seq: 1, callId: `call-1`, by: `caller`, reason: `hung_up`, framesUp: 3, framesDown: 1, framesDropped: 1, framesSkipped: 1 })
+      for (const at of [end!.rangAt, end!.pairedAt, end!.answeredAt, end!.firstDownAt, end!.lastUpAt, end!.lastDownAt]) expect(typeof at).toBe(`number`)
+      // A lost answer is sent again; another process's ack drops nothing.
+      expect(hub.collectCallReports().ended).toEqual(first.ended)
+      expect(hub.collectCallReports({ boot: `another`, seq: 9 }).ended).toEqual(first.ended)
+      expect(hub.collectCallReports({ boot: hub.boot, seq: 1 }).ended).toEqual([])
+      hub.destroy()
+    })
+
+    test(`a host that failed the call ended it, whoever closes first`, () => {
+      const { hub, caller, host } = paired()
+      hub.onMessage(host, JSON.stringify({ t: `call_event`, event: { t: `failed`, code: `unavailable` } }))
+      hub.onClose(caller)
+      expect(hub.collectCallReports().ended[0]).toMatchObject({ by: `host`, reason: `failed:unavailable` })
+      hub.destroy()
+    })
+
+    test(`a dropped socket, and a reason that is no code`, () => {
+      const a = paired()
+      a.hub.onClose(a.host)
+      expect(a.hub.collectCallReports().ended[0]).toMatchObject({ by: `host`, reason: `socket_closed` })
+      a.hub.destroy()
+      const b = paired()
+      b.hub.onMessage(b.caller, JSON.stringify({ t: `call_end`, reason: `what I said on the phone` }))
+      expect(b.hub.collectCallReports().ended[0]).toMatchObject({ by: `caller`, reason: `other` })
+      b.hub.destroy()
+    })
+
+    test(`a refused ring is reported; a replay of a known call is not`, () => {
+      const hub = new Hub()
+      dial(hub)
+      expect(hub.collectCallReports().ended).toMatchObject([{ callId: `call-1`, rangAt: null, by: `relay`, reason: `device_offline` }])
+      onlineDevice(hub)
+      dial(hub, { callId: `call-2` })
+      dial(hub, { callId: `call-3` })
+      dial(hub, { callId: `call-2` })
+      expect(hub.collectCallReports().ended.map((end) => [end.callId, end.reason])).toEqual([
+        [`call-1`, `device_offline`],
+        [`call-3`, `busy`],
+      ])
+      hub.destroy()
+    })
   })
 
   test(`the owner's host joins and both get call_ready`, () => {
