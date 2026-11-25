@@ -213,7 +213,7 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
               {showWorkTabs && team && (
                 <div className={WORK_TABS_BAND_CLASS}>
                   {occupant.kind === `main` && (
-                    <WorkTabsStrip teams={tabTeams} boards={tabBoards} />
+                    <WorkTabsStrip teams={tabTeams} boards={tabBoards} team={team} teamSlug={teamSlug} />
                   )}
                 </div>
               )}

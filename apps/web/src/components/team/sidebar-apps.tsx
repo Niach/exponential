@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { conceptIcon, getAppIcon, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
+import { conceptIcon, getAppIcon, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, type MenuTargetProps } from "@exp/ui"
 import type { SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { cn } from "@/lib/utils"
@@ -28,7 +28,10 @@ export function SidebarAppRow({
   active,
   itemProps,
   guides,
+  menu,
 }: {
+  /** #EXP-2124: the row's context-menu target (`menuProps`). */
+  menu?: MenuTargetProps
   app: AppListEntry
   teamSlug: string
   active: boolean
@@ -39,7 +42,7 @@ export function SidebarAppRow({
     <SidebarMenuItem key={app.id} {...itemProps}>
       {guides}
       <SidebarMenuButton asChild density="compact" isActive={active}>
-        <Link to="/t/$teamSlug/apps/$appSlug" params={{ teamSlug, appSlug: app.slug }} data-testid="apps-row">
+        <Link to="/t/$teamSlug/apps/$appSlug" params={{ teamSlug, appSlug: app.slug }} data-testid="apps-row" {...menu}>
           <AppIcon app={app} />
           <span className="min-w-0 flex-1 truncate">{app.name}</span>
         </Link>

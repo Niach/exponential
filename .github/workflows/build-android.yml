@@ -86,6 +86,12 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release
+      # #EXP-2073: ChatExpressTest and AppSurfaceReopenTest load the eUI
+      # facade's host build too (test.yml and release-suite.yml build it;
+      # here it only ever came out of the Rust cache, until it did not).
+      - name: Build the eUI facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p exponential-ui-ffi --release
 
       # Restore only: seed-gradle-caches.yml saves the entry on master.
       - name: Restore the Gradle caches

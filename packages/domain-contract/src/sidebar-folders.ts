@@ -250,6 +250,36 @@ export function sidebarUngroup(
   return materialize(tree, entries, [folderId], null)
 }
 
+/** #EXP-2124 (sidebar-menus.json `move` › New folder): a NEW folder
+ *  (`newFolderId`, the default name) holding the item alone, at the item's
+ *  place (an item inside a folder: right after that folder, which is deleted
+ *  when the move empties it). Null = no such (visible) item. */
+export function sidebarMoveToNewFolder(
+  items: readonly string[],
+  entries: readonly SidebarEntry[],
+  id: string,
+  newFolderId: string
+): SidebarWrites | null {
+  const tree = sidebarTree(items, entries)
+  const found = locate(tree, id)
+  if (!found || found.node.kind !== `item`) return null
+  const folder: SidebarFolderNode = { kind: `folder`, id: newFolderId, name: SIDEBAR_FOLDER_DEFAULT_NAME, children: [id] }
+  const deletes: string[] = []
+  const source = found.folder
+  if (source) {
+    source.children.splice(source.children.indexOf(id), 1)
+    const at = tree.indexOf(source)
+    tree.splice(at + 1, 0, folder)
+    if (source.children.length === 0) {
+      tree.splice(at, 1)
+      deletes.push(source.id)
+    }
+  } else {
+    tree.splice(tree.findIndex((node) => node.id === id), 1, folder)
+  }
+  return materialize(tree, entries, deletes, newFolderId)
+}
+
 /** A folder name as saved: trimmed, at most 80 characters; empty = the
  *  default (Esc / an emptied field keeps "New folder"). */
 export function sidebarFolderName(input: string): string {

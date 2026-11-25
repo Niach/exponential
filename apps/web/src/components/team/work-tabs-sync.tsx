@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import type { Board, Issue } from "@/db/schema"
+import { and, eq, isNull, or, useLiveQuery } from "@tanstack/react-db"
+import type { App, Board, Device, Issue } from "@/db/schema"
 import { isAssistant } from "@exp/domain-contract/agent-settings"
-import { agentCollection, issueCollection, sessionCollection, teamCollection } from "@/lib/collections"
+import {
+  agentCollection,
+  appCollection,
+  deviceCollection,
+  issueCollection,
+  sessionCollection,
+  teamCollection,
+} from "@/lib/collections"
 import {
   isNewRunPath,
+  openNewRunTab,
   pruneTabs,
   routePathFromLocation,
   tabSessionId,
@@ -45,17 +53,22 @@ function sessionInTeam(session: { teamId: string } | undefined | null, teamId: s
 //   1. URL → tab: the open issue, chat, agent channel or raw session,
 //      resolved against the collections (an issue's id through the board of
 //      the route's team; a session row of the route's team), is upserted
-//      with that team (`upsertFromRoute`). Team-less pages (Home, Chats,
-//      settings…) name no tab. The active tab is never stored: the strip
-//      derives it from the same URL.
-//   2. The New session tab: a navigation that LEAVES Home for a
-//      work item lands in the New session tab (`landing`) — the composer's
+//      with that team (`upsertFromRoute`). #EXP-2124: pages are tabs too:
+//      Needs you, Chats, Drafts (no lookup), a device page (its row in
+//      `devices`), a board page (the route team's board) and an app's run
+//      view (the route team's live app). Settings and creation pages name
+//      no tab. The active tab is never stored: the strip derives it from
+//      the same URL.
+//   2. The New session tab = Home's tab (#EXP-2124): visiting Home opens or
+//      activates it. A navigation that LEAVES Home for a work item or a
+//      page lands in the New session tab (`landing`) — the composer's
 //      start navigates to its chat, and that chat takes the tab's place.
 //      The flag survives until the route resolves (a fresh chat's row may
 //      sync a moment after the navigation).
-//   3. Prune: a tab whose issue or session row is gone from its (READY)
-//      collection, or whose team the person left, is dropped — never while a collection is still syncing, so
-//      a cold load cannot wipe the strip.
+//   3. Prune: a tab whose issue, session, board, app or device row is gone
+//      from its (READY) collection, or whose team the person left, is
+//      dropped — never while a collection is still syncing, so a cold load
+//      cannot wipe the strip. Page tabs and Home's never prune.
 //   4. EXP-1255: Alt/Option+T opens the New session tab (the strip's "+").
 //      Browsers keep Cmd/Ctrl+T for their own tabs, so the web's chord is
 //      Alt/Option+T. Never while typing (a field, an IME composition) or
@@ -122,10 +135,43 @@ export function WorkTabsSync({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])
 
+  // #EXP-2124: Home IS the New session tab: visiting it opens or activates
+  // that tab.
+  useEffect(() => {
+    if (isNewRunPath(pathname)) updateWorkTabs(openNewRunTab)
+  }, [pathname])
+
   // The route's team: the entity's team (a team the person is not in names
   // no tab).
-  const routeTeam = path ? (teams.find((team) => team.slug === path.teamSlug) ?? null) : null
+  const routeTeamSlug = path && `teamSlug` in path ? path.teamSlug : null
+  const routeTeam =
+    routeTeamSlug !== null ? (teams.find((team) => team.slug === routeTeamSlug) ?? null) : null
   const teamId = routeTeam?.id ?? null
+  const routeBoard =
+    path?.kind === `board` && teamId
+      ? (boards?.find((board) => board.teamId === teamId && board.slug === path.boardSlug) ?? null)
+      : null
+  const routeAppSlug = path?.kind === `app` ? path.appSlug : null
+  const { data: appRows } = useLiveQuery(
+    (query) =>
+      teamId && routeAppSlug
+        ? query
+            .from({ a: appCollection })
+            .where(({ a }) => and(eq(a.teamId, teamId), eq(a.slug, routeAppSlug), isNull(a.deletedAt)))
+        : undefined,
+    [teamId, routeAppSlug]
+  )
+  // A device page's param is the LOGICAL id (the row id still resolves).
+  const routeDeviceId = path?.kind === `device` ? path.deviceId : null
+  const { data: deviceRows } = useLiveQuery(
+    (query) =>
+      routeDeviceId
+        ? query
+            .from({ d: deviceCollection })
+            .where(({ d }) => or(eq(d.deviceId, routeDeviceId), eq(d.id, routeDeviceId)))
+        : undefined,
+    [routeDeviceId]
+  )
   const issueBoard =
     path?.kind === `issue` && teamId
       ? (boards?.find((board) => board.teamId === teamId && board.slug === path.boardSlug) ?? null)
@@ -156,8 +202,22 @@ export function WorkTabsSync({
   const { row: sessionRoot } = useSessionRow(sessionRootId)
 
   const route = useMemo<RouteTab | null>(() => {
-    if (!path || !routeTeam) return null
+    if (!path) return null
+    if (path.kind === `page`) return { kind: `page`, page: path.page, from: null }
+    if (path.kind === `device`) {
+      const rows = (deviceRows ?? []) as Device[]
+      const device = rows.find((row) => row.deviceId === path.deviceId) ?? rows[0]
+      return device ? { kind: `device`, deviceId: device.deviceId, from: null } : null
+    }
+    if (!routeTeam) return null
     const team = { teamId: routeTeam.id, teamSlug: routeTeam.slug }
+    if (path.kind === `board`) {
+      return routeBoard ? { kind: `board`, boardId: routeBoard.id, from: null, ...team } : null
+    }
+    if (path.kind === `app`) {
+      const app = ((appRows ?? []) as App[])[0]
+      return app ? { kind: `app`, appId: app.id, from: null, ...team } : null
+    }
     if (path.kind === `issue`) {
       const issue = ((issueRows ?? []) as Issue[])[0]
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from, ...team } : null
@@ -180,7 +240,7 @@ export function WorkTabsSync({
     return sessionRoot?.agentId
       ? { kind: `session`, sessionId: path.sessionId, from: path.from, ...team }
       : null
-  }, [path, routeTeam, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent])
+  }, [path, routeTeam, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent, routeBoard, appRows, deviceRows])
   const routeKey = route ? JSON.stringify(route) : null
 
   useEffect(() => {
@@ -221,8 +281,20 @@ export function WorkTabsSync({
     if (teamIds.size === 0 || boardTeams.size === 0) return
     updateWorkTabs((state) =>
       pruneTabs(state, (tab) => {
-        if (tab.kind === `new`) return true
+        if (tab.kind === `new` || tab.kind === `page`) return true
+        if (tab.kind === `device`) {
+          if (!deviceCollection.isReady()) return true
+          return deviceCollection.toArray.some(
+            (device) => device.deviceId === tab.deviceId || device.id === tab.deviceId
+          )
+        }
         if (!teamIds.has(tab.teamId)) return false
+        if (tab.kind === `board`) return boardTeams.get(tab.boardId) === tab.teamId
+        if (tab.kind === `app`) {
+          if (!appCollection.isReady()) return true
+          const app = appCollection.get(tab.appId)
+          return app !== undefined && !app.deletedAt && app.teamId === tab.teamId
+        }
         if (tab.kind === `issue`) {
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardTeams.get(issue.boardId) === tab.teamId
