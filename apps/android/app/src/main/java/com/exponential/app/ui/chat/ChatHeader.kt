@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -131,7 +131,8 @@ fun ChatHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(Chats.Shell.ChatHeader.ROW.dp)
+                    // A large font scale grows the row with its two lines.
+                    .heightIn(min = Chats.Shell.ChatHeader.ROW.dp)
                     .padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

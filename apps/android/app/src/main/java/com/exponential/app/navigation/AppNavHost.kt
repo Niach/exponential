@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -622,7 +625,12 @@ private fun AuthenticatedNav(
     // provided to the whole NavHost; the chrome below reads it directly.
     val barSuppression = remember { BottomBarSuppression() }
     // The keyboard takes the bar's place (the Assistant's composer).
-    val barShown = barVisible && !barSuppression.suppressed && !WindowInsets.isImeVisible
+    val imeVisible = WindowInsets.isImeVisible
+    val barShown = barVisible && !barSuppression.suppressed && !imeVisible
+    // #EXP-2136: the notice stack's height: the page ends above it, so it
+    // never covers a composer. Under the keyboard there is no stack to clear.
+    var noticesHeight by remember { mutableStateOf(0.dp) }
+    val noticesInset = if (imeVisible) 0.dp else noticesHeight
 
     // #FEED-232: the Chats tab's count badge (`chatsBadge`), over every team.
     val chatsVm: ChatsViewModel = hiltViewModel()
@@ -711,6 +719,10 @@ private fun AuthenticatedNav(
     ) {
     NavHost(
         navController = navController,
+        modifier = Modifier
+            .padding(bottom = noticesInset)
+            // Off the dock the stack's height holds the system bar's inset.
+            .then(if (barVisible) Modifier else Modifier.consumeWindowInsets(PaddingValues(bottom = noticesInset))),
         // Chats is the stack ROOT (where the app lands); every other tab is
         // one entry above it, so Back from a tab returns to Chats.
         startDestination = if (needsOnboarding) "onboarding" else MainTabs.CHATS,
@@ -1387,17 +1399,22 @@ private fun AuthenticatedNav(
     // here would cover or reflow every screen's own header. Never during
     // onboarding, which has no cached data to explain.
     val showsOfflineBanner = syncHealth == SyncHealth.Offline && !needsOnboarding
-    if (showsGatedBanner || showsOfflineBanner) {
+    if (!showsGatedBanner && !showsOfflineBanner) {
+        LaunchedEffect(Unit) { noticesHeight = 0.dp }
+    } else {
+        val density = LocalDensity.current
         // One stack, so the two never overlap. The gated banner stays last —
         // its position is unchanged from when it was the only one.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
+                .then(if (barVisible) Modifier.navigationBarsPadding() else Modifier)
                 // Route-level, NOT barShown: while a selection suppresses
                 // the nav bar, the screen's own 52dp bar is standing in that
                 // exact slot — dropping to 0 would land the banner on it.
-                .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
+                .padding(bottom = if (barVisible) BottomBarInset else 0.dp)
+                .onSizeChanged { size -> noticesHeight = with(density) { size.height.toDp() } }
+                .then(if (barVisible) Modifier else Modifier.navigationBarsPadding()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (showsOfflineBanner) OfflineBanner(onRetry = onRetrySync)
