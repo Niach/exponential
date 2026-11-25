@@ -62,6 +62,9 @@ pub struct HostedAgent {
 pub trait Speech: Send {
     fn prepare(&self, voice: etalk::VoiceChoice);
     fn call(&self, id: &str, language: &str);
+    /// EXP-1859: [`Self::call`] as a TURN call: the stream is heard as one
+    /// wake turn that drops `phrase`.
+    fn call_turn(&self, id: &str, language: &str, phrase: &str);
     fn call_audio(&self, id: &str, pcm: &[i16]);
     /// #EXP-1941: `ms` of the caller's audio were lost before the next audio.
     fn call_lost(&self, id: &str, ms: u32);
@@ -79,6 +82,9 @@ impl Speech for etalk::SpeechClient {
     fn call(&self, id: &str, language: &str) {
         // Remote: the audio comes only as CallAudio; a server never rings.
         etalk::SpeechClient::call(self, id, language, true, 0);
+    }
+    fn call_turn(&self, id: &str, language: &str, phrase: &str) {
+        etalk::SpeechClient::call_for(self, id, language, true, 0, Some(phrase.to_string()));
     }
     fn call_audio(&self, id: &str, pcm: &[i16]) {
         etalk::SpeechClient::call_audio(self, id, pcm);
@@ -164,6 +170,8 @@ pub enum Input {
     Agents(Vec<HostedAgent>),
     Settings(etalk::voice::VoiceSettings),
     Ring { call_id: String, agent_id: String },
+    /// EXP-1859: a ring with `mode: turn`: a one-turn call that drops `phrase`.
+    TurnRing { call_id: String, agent_id: String, phrase: String },
     Answered(Answered),
     /// #EXP-1982: a ring joined only to fail it.
     Refused(Refused),
@@ -190,9 +198,14 @@ pub enum Input {
 pub trait Net: Send {
     /// Answer `call_id`: the host ticket, the agent's voice, its conversation.
     fn answer(&self, call_id: String, agent_id: String);
+    /// EXP-1859: [`Self::answer`] for a TURN call: no call session is asked for.
+    fn answer_turn(&self, call_id: String, agent_id: String) {
+        self.answer(call_id, agent_id);
+    }
     /// Send `text` to the agent (`root` = its conversation, None = new;
     /// #EXP-1961 `session` = the call's own session, sealed with `root`'s key).
-    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String);
+    /// EXP-1859: `key` = a turn call's one message (`turn_message_id`).
+    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>);
     /// #EXP-1981: ask `voice.callSession` for a sealed call once its key
     /// source adopted the root; the answer comes back as [`Input::Session`].
     fn ask_call_session(&self, call_id: String, agent_id: String);
@@ -272,6 +285,8 @@ pub struct Host {
     /// #EXP-1941: the ring in work (one at a time: a forged ring costs
     /// nothing while a real one is answered).
     answering: Option<String>,
+    /// EXP-1859: the ring in work is a TURN call's: its wake phrase.
+    turn: Option<String>,
     /// #EXP-1941: a call id is answered once.
     answered: etalk::call::AnsweredCalls,
     /// #EXP-1981: a root its key source adopted before the answer was in
@@ -302,6 +317,7 @@ impl Host {
             last_used: now,
             call: None,
             answering: None,
+            turn: None,
             answered: etalk::call::AnsweredCalls::default(),
             early_root: None,
             refusing: None,
@@ -344,13 +360,16 @@ impl Host {
         match input {
             Input::Agents(agents) => self.on_agents(agents, now),
             Input::Settings(settings) => self.settings = settings,
-            Input::Ring { call_id, agent_id } => self.on_ring(call_id, agent_id, now),
+            Input::Ring { call_id, agent_id } => self.on_ring(call_id, agent_id, None, now),
+            Input::TurnRing { call_id, agent_id, phrase } => self.on_ring(call_id, agent_id, Some(phrase), now),
             Input::Answered(answered) => self.on_answered(answered, now),
             Input::Refused(refused) => self.on_refused(refused, now),
             Input::Unstored { call_id } => self.on_unstored(&call_id, now),
             Input::Unanswered { call_id } => {
                 log::info!("[voice] call {call_id}: not answered here");
-                self.answering.take_if(|answering| *answering == call_id);
+                if self.answering.take_if(|answering| *answering == call_id).is_some() {
+                    self.turn = None;
+                }
             }
             Input::Root { call_id, root } => self.on_root(&call_id, root, now),
             Input::Session { call_id, session } => self.on_session(&call_id, session, now),
@@ -403,7 +422,7 @@ impl Host {
         }
     }
 
-    fn on_ring(&mut self, call_id: String, agent_id: String, now: Instant) {
+    fn on_ring(&mut self, call_id: String, agent_id: String, turn: Option<String>, now: Instant) {
         if self.call.is_some() || !self.answers() {
             log::info!("[voice] call {call_id}: not answered here (busy or no voice)");
             return;
@@ -423,7 +442,13 @@ impl Host {
             // side re-reads the agent and refuses one that runs elsewhere.
             log::info!("[voice] call {call_id}: {agent_id} is not (yet) known to run here");
         }
-        self.net.answer(call_id, agent_id);
+        // EXP-1859: a turn call's ring: no call session, one turn.
+        self.turn = turn;
+        if self.turn.is_some() {
+            self.net.answer_turn(call_id, agent_id);
+        } else {
+            self.net.answer(call_id, agent_id);
+        }
     }
 
     fn ms(&self, now: Instant) -> u64 {
@@ -466,7 +491,8 @@ impl Host {
             call.armed_at = armed_at;
         }
         call.root = Some(root);
-        if call.host.session().is_none() && !call.host.session_pending() {
+        // EXP-1859: a turn call has no session of its own: the chat takes it.
+        if call.host.session().is_none() && !call.host.session_pending() && !call.host.is_turn() {
             // Nothing to do yet: the answer comes as `Input::Session`.
             let _ = call.host.handle(HostInput::SessionAsked, at);
             let (call_id, agent_id) = (call.call_id.clone(), call.agent.id.clone());
@@ -539,10 +565,15 @@ impl Host {
     }
 
     fn on_answered(&mut self, answered: Answered, now: Instant) {
-        self.answering.take_if(|answering| *answering == answered.call_id);
+        // EXP-1859: the ring in work was a turn call's.
+        let turn = if self.answering.take_if(|answering| *answering == answered.call_id).is_some() { self.turn.take() } else { None };
         // It got its ticket: this call id is not answered again.
         self.answered.note(&answered.call_id, self.ms(now));
         if self.call.is_some() {
+            // EXP-1859: a turn's caller hears it itself (a reason-less end is silent).
+            if turn.is_some() {
+                answered.link.send_event(serde_json::json!({ "t": "failed", "code": "busy" }));
+            }
             answered.link.end();
             return;
         }
@@ -564,10 +595,17 @@ impl Host {
             random: call_ring_random(),
             device: String::new(),
             fallback: false,
-            session: answered.session,
+            // EXP-1859: a turn call's utterance goes into the chat.
+            session: answered.session.filter(|_| turn.is_none()),
             voice: etalk::call::CallVoice::None,
+            turn: turn.clone(),
         });
-        log::info!("[voice] call {}: answered for agent {} ({language})", answered.call_id, answered.agent.id);
+        log::info!(
+            "[voice] call {}: answered for agent {} ({language}{})",
+            answered.call_id,
+            answered.agent.id,
+            if turn.is_some() { ", one turn" } else { "" }
+        );
         self.call = Some(Call {
             call_id: answered.call_id,
             agent: answered.agent,
@@ -601,13 +639,17 @@ impl Host {
             match effect {
                 HostEffect::Event { event } => call.link.send_event(event),
                 HostEffect::Flush => call.link.flush(),
+                HostEffect::Listen { id, language, turn: Some(phrase), .. } => self.speech.call_turn(&id, &language, &phrase),
                 HostEffect::Listen { id, language, .. } => self.speech.call(&id, &language),
                 HostEffect::Mute { id, muted } => self.speech.call_mute(&id, muted),
                 HostEffect::Speak { id, text } => self.speech.speak(&id, &text),
                 HostEffect::Stop => self.speech.stop(),
                 HostEffect::Hangup { id } => self.speech.hangup(&id),
                 HostEffect::End => call.link.end(),
-                HostEffect::Send { text, session } => self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text),
+                HostEffect::Send { text, session } => {
+                    let key = call.host.is_turn().then(|| etalk::call::turn_message_id(&call.call_id));
+                    self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text, key);
+                }
                 HostEffect::CallEnded { session } => self.net.call_ended(session),
                 // A server has no screen: the caller got the code.
                 HostEffect::Toast { .. } => {}
@@ -731,6 +773,8 @@ impl Host {
             etalk::Event::Partial { id, text } if call_owns(&id) => self.call_input(HostInput::Partial { text }, now),
             etalk::Event::SpeechStarted { id } if call_owns(&id) => self.call_input(HostInput::SpeechStarted, now),
             etalk::Event::Said { id, text } if call_owns(&id) => self.call_input(HostInput::Said { text }, now),
+            // EXP-1859: a turn call heard only the phrase.
+            etalk::Event::Empty { id } if call_owns(&id) => self.call_input(HostInput::Empty, now),
             etalk::Event::SpeechAudio { pcm, rate, .. } => {
                 let Some(call) = self.call.as_ref() else { return };
                 if let Ok(samples) = etalk::decode_pcm(&pcm) {
@@ -912,8 +956,12 @@ pub struct VoiceHost {
 }
 
 impl VoiceHost {
-    pub fn ring(&self, call_id: String, agent_id: String) {
-        let _ = self.tx.send(Input::Ring { call_id, agent_id });
+    /// A `call_ring`; EXP-1859: `turn` = its `mode: turn` with the wake phrase.
+    pub fn ring(&self, call_id: String, agent_id: String, turn: Option<String>) {
+        let _ = self.tx.send(match turn {
+            Some(phrase) => Input::TurnRing { call_id, agent_id, phrase },
+            None => Input::Ring { call_id, agent_id },
+        });
     }
 
     pub fn settings(&self, settings: etalk::voice::VoiceSettings) {
@@ -950,6 +998,8 @@ trait UtteranceWire {
     fn new_root(&self) -> Result<NewRootSeal, SealError>;
     /// The root a [`Self::new_root`] key keyed: its secret is kept.
     fn adopt(&self, root: &str, seal: &NewRootSeal);
+    /// EXP-1859: the chat's key as the server has it: (epoch, public key).
+    fn stored_key(&self, agent_id: &str) -> Option<(u32, String)>;
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError>;
 }
 
@@ -978,6 +1028,12 @@ impl UtteranceWire for DaemonWire<'_> {
             Some(service) => service.adopt(root, seal),
             None => sealing::adopt_new_root(root, seal),
         }
+    }
+
+    fn stored_key(&self, agent_id: &str) -> Option<(u32, String)> {
+        let target = api::sessions::send_target(&self.0.trpc, Some(agent_id), None).ok()?;
+        note_target(&target);
+        Some((target.epoch?, target.public_key?))
     }
 
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
@@ -1053,7 +1109,7 @@ enum Delivered {
 /// now, or with a new one's key inline. #EXP-2013: a first send the server
 /// refused may have raced the chat's first message: the target is read again
 /// and, named, the words go sealed into it once more before the call ends.
-fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Delivered {
+fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str, key: Option<&str>) -> Delivered {
     let mut retried = false;
     loop {
         let named = match root {
@@ -1074,16 +1130,22 @@ fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgen
         if retried && named.is_none() {
             return Delivered::Unstored;
         }
-        let UtteranceSend { input, seal, plain } = match seal_utterance(wire, agent, named.as_deref(), session, text) {
+        let UtteranceSend { mut input, seal, plain } = match seal_utterance(wire, agent, named.as_deref(), session, text) {
             Ok(send) => send,
             Err(err) => {
                 log::warn!("[voice] call {call_id}: the utterance was not sent: it could not be encrypted ({err}). Nothing left this device; the call ends");
                 return Delivered::Unstored;
             }
         };
+        input.client_message_id = key.map(str::to_string);
         let err = match wire.send(&input) {
             Ok(out) => {
-                if let Some(seal) = seal {
+                // EXP-1859: a keyed send may be answered with the row the other
+                // end stored: the chat then has ITS key, never this one.
+                let other = |seal: &NewRootSeal| {
+                    key.is_some() && wire.stored_key(&agent.id).is_some_and(|(epoch, public)| epoch == seal.epoch && public != seal.public_key)
+                };
+                if let Some(seal) = seal.filter(|seal| !other(seal)) {
                     wire.adopt(&out.session_id, &seal);
                 }
                 return Delivered::Sent(out.session_id);
@@ -1104,11 +1166,12 @@ fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgen
     }
 }
 
-impl Net for DaemonNet {
-    fn answer(&self, call_id: String, agent_id: String) {
+impl DaemonNet {
+    /// A ring's network half on its own thread ([`answer_ring`]).
+    fn answer_ring(&self, call_id: String, agent_id: String, turn: bool) {
         let (ring, tx) = (DaemonNet { deps: Arc::clone(&self.deps), tx: self.tx.clone() }, self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-answer".into()).spawn(move || {
-            match answer(&ring, &call_id, &agent_id) {
+            match answer_ring(&ring, &call_id, &agent_id, turn) {
                 Ok(Answer::Call(answered)) => {
                     let _ = tx.send(Input::Answered(answered));
                 }
@@ -1122,12 +1185,22 @@ impl Net for DaemonNet {
             }
         });
     }
+}
 
-    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String) {
+impl Net for DaemonNet {
+    fn answer(&self, call_id: String, agent_id: String) {
+        self.answer_ring(call_id, agent_id, false);
+    }
+
+    fn answer_turn(&self, call_id: String, agent_id: String) {
+        self.answer_ring(call_id, agent_id, true);
+    }
+
+    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>) {
         let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-send".into()).spawn(move || {
             let wire = DaemonWire(&deps);
-            let input = match deliver_utterance(&wire, &call_id, &agent, root.as_deref(), session.as_deref(), &text) {
+            let input = match deliver_utterance(&wire, &call_id, &agent, root.as_deref(), session.as_deref(), &text, key.as_deref()) {
                 Delivered::Sent(session_id) => Input::Sent { call_id, session_id },
                 Delivered::Unstored => Input::Unstored { call_id },
                 Delivered::Failed => return,
@@ -1190,7 +1263,13 @@ trait Ring {
 /// refuses reads nothing more (no agent, no voice clip, no conversation).
 /// Then the agent (it must run HERE), its voice, and the socket in the mode
 /// the ticket names. A sealed call's conversation is its key source's.
+#[cfg(test)]
 fn answer(ring: &dyn Ring, call_id: &str, agent_id: &str) -> Result<Answer, String> {
+    answer_ring(ring, call_id, agent_id, false)
+}
+
+/// [`answer`]; EXP-1859: `turn` = a turn call: it has no session of its own.
+fn answer_ring(ring: &dyn Ring, call_id: &str, agent_id: &str, turn: bool) -> Result<Answer, String> {
     let ticket = ring.ticket(call_id, agent_id)?;
     let agent = ring.agent(agent_id)?;
     if agent.device_id.as_deref() != Some(ring.device_id()) {
@@ -1211,8 +1290,8 @@ fn answer(ring: &dyn Ring, call_id: &str, agent_id: &str) -> Result<Answer, Stri
     // = the old path. #EXP-1981: a sealed call asks once its key source
     // adopted the root (`Host::on_root`).
     let session = match root.as_deref() {
-        Some(_) => ring.call_session(agent_id, call_id),
-        None => None,
+        Some(_) if !turn => ring.call_session(agent_id, call_id),
+        _ => None,
     };
     Ok(Answer::Call(Answered {
         call_id: call_id.to_string(),
@@ -1489,6 +1568,9 @@ mod tests {
         fn call(&self, id: &str, language: &str) {
             self.0.push(format!("call {id} {language}"));
         }
+        fn call_turn(&self, id: &str, language: &str, phrase: &str) {
+            self.0.push(format!("turn {id} {language} {phrase}"));
+        }
         fn call_audio(&self, id: &str, pcm: &[i16]) {
             self.0.push(format!("audio {id} {}", pcm.len()));
         }
@@ -1540,8 +1622,12 @@ mod tests {
         fn answer(&self, call_id: String, agent_id: String) {
             self.log.push(format!("answer {call_id} {agent_id}"));
         }
-        fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, session: Option<String>, text: String) {
-            self.log.push(format!("send {call_id} {} {text}", session.or(root).unwrap_or_default()));
+        fn answer_turn(&self, call_id: String, agent_id: String) {
+            self.log.push(format!("answer-turn {call_id} {agent_id}"));
+        }
+        fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>) {
+            let key = key.map(|key| format!(" ({key})")).unwrap_or_default();
+            self.log.push(format!("send {call_id} {} {text}{key}", session.or(root).unwrap_or_default()));
         }
         fn ask_call_session(&self, call_id: String, agent_id: String) {
             self.log.push(format!("session {call_id} {agent_id}"));
@@ -2193,6 +2279,108 @@ mod tests {
         assert_eq!(rig.speech.take(), ["shutdown"]);
     }
 
+    /// EXP-1859: a ring with `mode: turn` on a server: the worker hears ONE
+    /// turn, rang + ready go at once (no ring), the utterance goes into the
+    /// chat (no call session), the first reply is spoken and its end hangs
+    /// up without a reason.
+    #[test]
+    fn a_turn_call_runs_one_turn_on_the_server() {
+        let mut rig = Rig::ready();
+        rig.rows.lock().unwrap().push(row("old", "agent", "Earlier reply.", "2020-01-01T00:00:00Z"));
+        rig.handle(Input::TurnRing { call_id: "c1".into(), agent_id: "agent-1".into(), phrase: "Hey Ops".into() });
+        assert_eq!(rig.net.take(), ["answer-turn c1 agent-1"], "no call session is asked for");
+        rig.handle(Input::Answered(Answered {
+            call_id: "c1".into(),
+            agent: agent(),
+            link: Box::new(FakeLink(rig.link.clone())),
+            voice: etalk::VoiceChoice { language: "de".into(), ..Default::default() },
+            root: Some("root-1".into()),
+            // Whatever the network side brought, a turn call takes the chat.
+            session: Some("call-s".into()),
+        }));
+        assert_eq!(rig.speech.take(), ["prepare de"]);
+        assert!(rig.link.take().is_empty(), "nothing leaves before the caller is on the line");
+        rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
+        assert_eq!(rig.speech.take(), ["turn call-1 de Hey Ops"]);
+        assert_eq!(rig.link.take(), [r#"event {"t":"rang"}"#, r#"event {"t":"ready"}"#], "no ring");
+        // A cold server: every frame from the first goes to the worker, which
+        // keeps it; the wait ends nothing.
+        for _ in 0..40 {
+            rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Audio(vec![0; 320]) });
+            rig.advance(Duration::from_millis(200));
+        }
+        assert_eq!(rig.speech.take(), vec!["audio call-1 320"; 40]);
+        assert!(rig.link.take().is_empty());
+        rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
+        // No mic check, no greeting, however long the turn takes to start.
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.max_ring_ms));
+        assert!(rig.link.take().is_empty() && rig.speech.take().is_empty());
+        rig.handle(Input::Worker(etalk::Event::Partial { id: "call-1".into(), text: "wie spät".into() }));
+        rig.handle(Input::Worker(etalk::Event::Said { id: "call-1".into(), text: "Wie spät ist es?".into() }));
+        assert_eq!(rig.link.take(), [r#"event {"t":"partial","text":"wie spät"}"#, r#"event {"t":"said","text":"Wie spät ist es?"}"#]);
+        assert_eq!(rig.net.take(), ["send c1 root-1 Wie spät ist es? (turn-c1)"], "into the chat, never a call session, under the turn's key");
+        // The first reply after the send: spoken, then the host hangs up.
+        rig.rows.lock().unwrap().push(row("r1", "agent", "Es ist drei Uhr. Sonst noch etwas?", "2099-01-01T00:00:00Z"));
+        rig.advance(REPLY_POLL);
+        assert_eq!(rig.speech.take(), ["speak r1 Es ist drei Uhr. Sonst noch etwas?"]);
+        assert_eq!(rig.link.take(), [r#"event {"t":"replyStarted","text":"Es ist drei Uhr."}"#]);
+        rig.handle(Input::Worker(etalk::Event::Finished { id: "r1".into(), stopped: false }));
+        assert_eq!(rig.link.take(), [r#"event {"t":"replyFinished"}"#, "end"], "reason-less");
+        assert_eq!(rig.speech.take(), ["hangup call-1"]);
+        assert!(rig.host.call.is_none());
+        assert!(rig.net.take().is_empty(), "no call session to tell");
+    }
+
+    /// EXP-1859: only the phrase (Empty) hangs up with nothing sent; no
+    /// reply within `turnReplyWaitMs` hangs up; the next ring is an ordinary
+    /// call again.
+    #[test]
+    fn a_turn_call_ends_empty_or_unanswered() {
+        let turn = |rig: &mut Rig, call_id: &str| {
+            rig.handle(Input::TurnRing { call_id: call_id.into(), agent_id: "agent-1".into(), phrase: "Hey Ops".into() });
+            rig.handle(Input::Answered(Answered {
+                call_id: call_id.into(),
+                agent: agent(),
+                link: Box::new(FakeLink(rig.link.clone())),
+                voice: etalk::VoiceChoice { language: "de".into(), ..Default::default() },
+                root: Some("root-1".into()),
+                session: None,
+            }));
+            rig.handle(Input::Link { call_id: call_id.into(), event: steer::call_host::CallHostEvent::Ready });
+            let id = rig.host.call.as_ref().unwrap().host.id().to_string();
+            rig.handle(Input::Worker(etalk::Event::CallListening { id }));
+            (rig.link.take(), rig.speech.take(), rig.net.take());
+        };
+        let mut rig = Rig::ready();
+        turn(&mut rig, "c1");
+        rig.handle(Input::Worker(etalk::Event::Empty { id: "call-1".into() }));
+        assert_eq!(rig.link.take(), ["end"]);
+        assert_eq!(rig.speech.take(), ["hangup call-1"]);
+        assert!(rig.net.take().is_empty(), "nothing sent");
+        assert!(rig.host.call.is_none());
+        turn(&mut rig, "c2");
+        rig.handle(Input::Worker(etalk::Event::Said { id: "call-2".into(), text: "Status?".into() }));
+        (rig.link.take(), rig.net.take());
+        rig.advance(Duration::from_millis(VOICE_CALL.constants.turn_reply_wait_ms - 1));
+        assert!(rig.host.call.is_some(), "it waits for the reply");
+        rig.advance(Duration::from_millis(1));
+        assert_eq!(rig.link.take(), ["end"], "no reply in time");
+        assert!(rig.host.call.is_none());
+        // The turn's phrase never leaks into the next ring.
+        rig.speech.take();
+        rig.handle(Input::Ring { call_id: "c3".into(), agent_id: "agent-1".into() });
+        rig.handle(Input::Answered(Answered {
+            call_id: "c3".into(),
+            agent: agent(),
+            link: Box::new(FakeLink(rig.link.clone())),
+            voice: etalk::VoiceChoice { language: "de".into(), ..Default::default() },
+            root: Some("root-1".into()),
+            session: None,
+        }));
+        rig.handle(Input::Link { call_id: "c3".into(), event: steer::call_host::CallHostEvent::Ready });
+        assert!(rig.speech.take().contains(&"call call-3 de".to_string()), "an ordinary call");
+    }
+
     fn call_row(id: &str, body: &str, at: &str) -> domain::rows::MessageRow {
         let mut row = row(id, "agent", body, at);
         row.session_id = "call-s".into();
@@ -2529,6 +2717,8 @@ mod tests {
         refuse_first: bool,
         sends: std::cell::RefCell<Vec<api::sessions::SendInput>>,
         adopted: std::cell::RefCell<Vec<String>>,
+        /// The chat's key as the server has it: "own" = the one sent inline.
+        stored: Option<&'static str>,
     }
 
     impl Wire {
@@ -2571,12 +2761,29 @@ mod tests {
         fn adopt(&self, root: &str, _: &NewRootSeal) {
             self.adopted.borrow_mut().push(root.into());
         }
+        fn stored_key(&self, _: &str) -> Option<(u32, String)> {
+            let own = self.sends.borrow().last().and_then(|input| input.seal.as_ref().map(|seal| seal.public_key.clone()));
+            Some((1, if self.stored? == "own" { own? } else { "another".into() }))
+        }
         fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
             self.sends.borrow_mut().push(input.clone());
             if self.refuse || (self.refuse_first && input.session_id.is_none()) {
                 return Err(api::ApiError::Http { status: 400, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() });
             }
             Ok(api::sessions::SendOutput { session_id: input.session_id.clone().unwrap_or_else(|| "root-new".into()), ..Default::default() })
+        }
+    }
+
+    /// EXP-1859: a turn's keyed send answered with the row its caller stored
+    /// never adopts this host's key over the chat's; its own (or one the
+    /// server does not tell) it keeps, and an ordinary call asks nothing.
+    #[test]
+    fn a_deduped_utterance_never_adopts_its_own_key() {
+        for (key, stored, adopts) in [(Some("turn-c1"), Some("other"), false), (Some("turn-c1"), Some("own"), true), (Some("turn-c1"), None, true), (None, Some("other"), true)] {
+            let wire = Wire { stored, ..Wire::naming(&[None]) };
+            assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, "Status?", key), Delivered::Sent("root-new".into()));
+            assert_eq!(wire.adopted.borrow().len(), usize::from(adopts), "{key:?} {stored:?}");
+            assert_eq!(wire.sends.borrow()[0].client_message_id.as_deref(), key);
         }
     }
 
@@ -2603,7 +2810,7 @@ mod tests {
             let (root, sessions): (_, &[Option<&str>]) = if chat == "none" { (None, &[None]) } else { (Some("root-1"), &[None, Some("call-s")]) };
             for &session in sessions {
                 let wire = Wire { error: error.clone(), ..Wire::naming(&[None]) };
-                let out = deliver_utterance(&wire, "c1", &agent(), root, session, WORDS);
+                let out = deliver_utterance(&wire, "c1", &agent(), root, session, WORDS, None);
                 let to = session.or(root).unwrap_or("agent:agent-1");
                 let sent: Vec<String> = match case["sent"].as_str() {
                     Some("plain") => vec![format!("{to} {WORDS}")],
@@ -2622,7 +2829,7 @@ mod tests {
         }
         // A conversation the server names at the first send is no new chat.
         let wire = Wire { error: Some(SealError::NotReader), ..Wire::naming(&[Some("root-1")]) };
-        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, WORDS), Delivered::Unstored);
+        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, WORDS, None), Delivered::Unstored);
         assert!(wire.sent().is_empty());
     }
 
@@ -2670,7 +2877,7 @@ mod tests {
     /// still missing, or a second refusal, ends the call.
     #[test]
     fn a_first_utterance_refused_goes_sealed_into_the_chat_that_exists_now() {
-        let deliver = |wire: &Wire, root, session| deliver_utterance(wire, "c1", &agent(), root, session, "hello");
+        let deliver = |wire: &Wire, root, session| deliver_utterance(wire, "c1", &agent(), root, session, "hello", Some("turn-c1"));
         let raced = Wire { refuse_first: true, ..Wire::naming(&[None, Some("root-1")]) };
         assert_eq!(deliver(&raced, None, None), Delivered::Sent("root-1".into()));
         assert_eq!(raced.sent(), ["agent:agent-1 inline", "root-1 sealed"]);
