@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { boardIconValues } from "@exp/db-schema/domain"
 import { PICKABLE_ICONS, SEMANTIC_ICONS } from "@exp/icons"
+import chatListFixture from "@exp/domain-contract/fixtures/chat-list.json"
 import { ICON_COMPONENTS } from "./icons.generated"
 
 // EXP-273: the curated set is no longer a per-client hand-map. `boardIcon`
@@ -52,6 +53,16 @@ export function getActionIcon(action: {
     return BOARD_ICON_COMPONENTS[action.icon as BoardIcon]
   }
   return ICON_COMPONENTS[SEMANTIC_ICONS[`action-default`]]
+}
+
+/** #EXP-2119: what BoardGlyph draws for an agent ×4: its curated icon and
+ *  colour, else chat-list.json `agentDefaults` (the robot; iOS / Android
+ *  `agentDefaultIcon`), never the board glyph. */
+export function agentGlyph(agent: { icon?: string | null; color?: string | null }): { icon: string; color: string } {
+  return {
+    icon: agent.icon && agent.icon in BOARD_ICON_COMPONENTS ? agent.icon : chatListFixture.agentDefaults.icon,
+    color: agent.color ?? chatListFixture.agentDefaults.color,
+  }
 }
 
 /** #EXP-1733: an app's glyph ×4: its curated icon, else the Apps glyph

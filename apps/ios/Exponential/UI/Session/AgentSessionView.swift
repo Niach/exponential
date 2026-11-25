@@ -743,7 +743,10 @@ struct AgentSessionView: View {
 
     private func noFeedPlaceholder(_ model: AgentSessionModel) -> NoFeedPlaceholder? {
         guard !model.hasFeed else { return nil }
-        if let status = historyStatus(model) { return .history(status) }
+        if let status = historyStatus(model) {
+            // #EXP-2119: an online device is never called offline.
+            return SteerNoFeed.state(ended: true, busy: false, deviceOnline: model.hostDevice.online == true) == .idle ? .idle : .history(status)
+        }
         if model.phase != .live,
            SteerNoFeed.state(
                ended: model.sessionEnded, busy: (model.session ?? session).busy,

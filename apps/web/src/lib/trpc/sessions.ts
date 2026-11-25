@@ -555,7 +555,7 @@ export const sessionsRouter = router({
       }
       // The answer lives IN the card (answered_at flips): the device feeds it
       // to the agent off the messages shape, so no person message is posted.
-      const result = await stampAnsweredCard(ctx.db, message.id, session.id, card)
+      const result = await stampAnsweredCard(ctx.db, message.id, session.id, card, ctx.session.user.id)
       if (!result.claimed) {
         throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
       }

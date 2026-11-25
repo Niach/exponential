@@ -89,6 +89,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
    *  team, the conversation not `shared`): only then may the device attach
    *  `get_screenshots`. */
   screenMemory: boolean
+  /** #EXP-2119 (session-brief.json AWAITS): nothing to say at the launch (a
+   *  group chat): the device starts the engine without a first prompt. */
+  awaitsMessage: boolean
   /** #EXP-1961: a CALL session (voice-call.json `callSession`): its brief
    *  has the Call section and its launch adds the voice section. */
   call: boolean
@@ -105,7 +108,8 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): a team agent's
   // group chat has NO Request: its first message stays pending and reaches
   // the agent like every later one, worded with the member who wrote it.
-  const first = (await isGroupChat(db, session))
+  const groupChat = await isGroupChat(db, session)
+  const first = groupChat
     ? { body: null, attachmentIds: [], issueBrief: null }
     : await firstPersonMessage(session.id)
   const sealedText = isSealedBody(first.body) ? first.body : null
@@ -152,6 +156,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const voicePolicy = await isVoiceConversation(session)
   return {
     brief: composeBrief(input),
+    awaitsMessage: groupChat && input.issues.length === 0,
     call: session.voiceCall !== null,
     sealedText,
     sealedAttachments,
