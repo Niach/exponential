@@ -320,6 +320,8 @@ pub struct SpeakReplies {
 #[derive(Clone, Debug)]
 struct VoiceTurn {
     session_id: String,
+    /// EXP-1859: whose conversation it is (a wake turn may be any agent's).
+    agent_id: String,
     at: std::time::Instant,
 }
 
@@ -662,12 +664,13 @@ pub fn stop(cx: &mut App) {
 }
 
 /// S-3: a push-to-talk / wake turn went out to `session_id` (the member's
-/// conversation with the voice agent): its reply is read aloud (voice.json
+/// conversation with `agent_id`, the voice agent or the one a wake phrase
+/// named): its reply is read aloud in that agent's voice (voice.json
 /// `voiceTurn`; a typed message's never is).
-pub fn voice_turn(session_id: &str, cx: &mut App) {
+pub fn voice_turn(session_id: &str, agent_id: &str, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, _| {
-            this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), at: std::time::Instant::now() });
+            this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), agent_id: agent_id.to_string(), at: std::time::Instant::now() });
         });
     }
 }
@@ -956,19 +959,17 @@ impl SpeakReplies {
             };
             return reply_to_speak(rows(), &context);
         }
-        let agent_id = voice.agent_id.clone()?;
-        let conversation = host::conversation(&agent_id, cx)?;
         // S-3: only a voice turn's reply: the conversation a push-to-talk /
-        // wake turn went to.
+        // wake turn went to, EXP-1859 whichever agent's it is.
         if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
             self.voice_turn = None;
         }
-        let turn = self.voice_turn.as_ref().is_some_and(|turn| turn.session_id == conversation);
+        let VoiceTurn { session_id: conversation, agent_id, .. } = self.voice_turn.clone()?;
         let language = self.voice_for(Some(&agent_id), cx).language;
         let context = VoiceContext {
             agent_session_id: Some(conversation.as_str()),
             is_voice_device: true,
-            voice_turn: turn,
+            voice_turn: true,
             language: &language,
             voices: &voices,
             armed_at: self.gate.armed_at(),
@@ -1231,22 +1232,47 @@ mod tests {
     /// on another desktop; a meeting HERE does.
     #[gpui::test]
     async fn only_a_meeting_here_silences_a_voice_turn(cx: &mut gpui::TestAppContext) {
-        use crate::test_support::{settings, Rig, CONVERSATION, HERE};
+        use crate::test_support::{settings, Rig, AGENT, CONVERSATION, HERE};
         let meeting_on = |device: &str| etalk::voice::VoiceSettings {
             voice_device_id: Some(device.into()),
             meeting_started_at: Some("2026-11-17T09:00:00.000Z".into()),
             ..settings()
         };
         let rig = Rig::install(meeting_on("d-other"), cx);
-        cx.update(|cx| voice_turn(CONVERSATION, cx));
+        cx.update(|cx| voice_turn(CONVERSATION, AGENT, cx));
         rig.message("r1", "agent", "All green.", 5, cx);
         assert_eq!(rig.spoken(), ["r1"], "the meeting runs on another desktop");
         cx.update(|cx| {
             set_settings(meeting_on(HERE), cx);
-            voice_turn(CONVERSATION, cx);
+            voice_turn(CONVERSATION, AGENT, cx);
         });
         rig.message("r2", "agent", "Shipped.", 6, cx);
         assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
+    }
+
+    /// EXP-1859: a TEAM agent's voice turn: its reply is spoken, in that
+    /// agent's own voice, and the Assistant's chat is not the turn's; a chat
+    /// no voice turn went to is never read aloud.
+    #[gpui::test]
+    async fn a_team_agents_turn_is_spoken_in_its_own_voice(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{settings, Rig, Row, CONVERSATION, TEAM_AGENT, TEAM_CONVERSATION};
+        let rig = Rig::install(settings(), cx);
+        let row = |id: &str, session_id, second: u32| Row { id: id.into(), author_kind: "agent", body: "All green.".into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(session_id) };
+        rig.row(row("r0", TEAM_CONVERSATION, 1), cx);
+        assert!(rig.spoken().is_empty(), "a typed message's reply");
+        cx.update(|cx| voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx));
+        rig.row(row("r1", CONVERSATION, 2), cx);
+        assert!(rig.spoken().is_empty(), "another agent's chat is not the turn's");
+        rig.requests();
+        rig.row(row("r2", TEAM_CONVERSATION, 3), cx);
+        let requests = rig.requests();
+        assert!(
+            matches!(&requests[..], [etalk::Request::Prepare { voice }, etalk::Request::Speak { id, .. }] if voice.file == "/data/team.wav" && id == "r2"),
+            "its voice, then its reply: {requests:?}"
+        );
+        assert_eq!(cx.update(|cx| speaking(cx)).map(|speaking| speaking.session_id).as_deref(), Some(TEAM_CONVERSATION));
+        rig.row(row("r3", TEAM_CONVERSATION, 4), cx);
+        assert!(rig.spoken().is_empty(), "one turn, one reply");
     }
 
     /// #ERR-29: the crash that gives the voice up is an error, the level

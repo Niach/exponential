@@ -1427,6 +1427,8 @@ impl PopupMenu {
                 .child(
                     h_flex()
                         .flex_1()
+                        // A long label truncates inside the menu's max width.
+                        .min_w_0()
                         .min_h(item_height)
                         .items_center()
                         .gap_x_1()
