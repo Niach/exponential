@@ -2115,6 +2115,13 @@
       "when": 1795629657391,
       "tag": "0301_feed307_stack_ask",
       "breakpoints": true
+    },
+    {
+      "idx": 302,
+      "version": "7",
+      "when": 1795635632764,
+      "tag": "0302_swept_images",
+      "breakpoints": true
     }
   ]
 }

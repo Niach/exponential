@@ -353,6 +353,7 @@ export async function getAttachmentTeamContext(attachmentId: string) {
       contentType: attachments.contentType,
       filename: attachments.filename,
       sizeBytes: attachments.sizeBytes,
+      sweptAt: attachments.sweptAt,
     })
     .from(attachments)
     .innerJoin(issues, eq(attachments.issueId, issues.id))
