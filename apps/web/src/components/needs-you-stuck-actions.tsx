@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
-import { NeedsYouStuckButtons, type StuckAction } from "@exp/ui"
+import { NEEDS_YOU_CARD_ACTIONS, NeedsYouStuckButtons, type StuckAction } from "@exp/ui"
+import { useAnswerMessage } from "@/hooks/use-answer-message"
 import {
   usePullRequestApproval,
   usePullRequestClose,
@@ -17,8 +18,23 @@ import type { PullRequestRow } from "@/lib/session-tree"
 
 export function NeedsYouStuckActions({ row }: { row: NeedsYouListRow }) {
   const stuck = row.stuck
-  if (!stuck) return null
-  return <StuckActions stuck={stuck} />
+  if (stuck) return <StuckActions stuck={stuck} />
+  // #FEED-298 (needs-you.json DISMISS): a plan's or question's Dismiss.
+  if (row.kind !== `pr`) return <DismissAction messageId={row.messageId} />
+  return null
+}
+
+/** #FEED-298: THE answer path's dismiss (`sessions.answer {dismissed}`),
+ *  at once, no confirm; a failure is THE toast. */
+function DismissAction({ messageId }: { messageId: string }) {
+  const { answer, pending } = useAnswerMessage()
+  return (
+    <NeedsYouStuckButtons
+      actions={NEEDS_YOU_CARD_ACTIONS}
+      disabled={pending.has(messageId)}
+      onAction={() => void answer(messageId, { dismissed: true })}
+    />
+  )
 }
 
 function StuckActions({ stuck }: { stuck: NonNullable<NeedsYouListRow[`stuck`]> }) {

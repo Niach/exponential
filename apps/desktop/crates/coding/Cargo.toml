@@ -78,6 +78,9 @@ dirs = { workspace = true }
 # §7.5 stop semantics: SIGTERM → grace → SIGKILL (run_launch.rs) —
 # portable-pty's ChildKiller only sends SIGHUP.
 libc = { workspace = true }
+# #FEED-311: the stdio MCP server forwards to the key holder on loopback.
+reqwest = { workspace = true }
+exp-http = { path = "../exp-http" }
 # EXP-300: the reaper logs what it kills — the one record that explains a
 # "why did my agent process disappear" report after a quit.
 log = "0.4"
@@ -95,5 +98,3 @@ windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 # EXP-1458: the MCP gateway tests run a fake upstream on loopback and call
 # the gateway over HTTP (both already in the tree via codemode).
 tiny_http = { version = "0.12", default-features = false }
-reqwest = { workspace = true }
-exp-http = { path = "../exp-http" }

@@ -84,7 +84,7 @@ export function PhoneTeams({ me, teamSlug }: { me: string; teamSlug?: string }) 
                 "join-team": () => setJoinOpen(true),
               })}
               trigger={
-                <FabButton emphasis="primary" className="size-11" aria-label={SIDEBAR_TREE_COPY.teams} data-testid="teams-add">
+                <FabButton emphasis="primary" className="size-11" aria-label={SIDEBAR_TREE_COPY.newTeam} data-testid="teams-add">
                   <AddIcon className="size-5" />
                 </FabButton>
               }

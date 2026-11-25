@@ -155,6 +155,24 @@ describe.skipIf(!ready.ok)(`escalate: a managed chat's card in its agent's conve
     expect(closed!.answeredAt).not.toBeNull()
   })
 
+  it(`#FEED-298: a Needs you row's dismiss of a MIRROR dismisses its origin card and closes the mirror`, async () => {
+    const w = await managed()
+    const own = await postAskCard({
+      userId: w.owner,
+      sessionId: w.chat,
+      card: buildQuestionCard({ question: `Stale?`, options: [{ label: `yes` }] }),
+    })
+    const [mirror] = await asks(w.conversation)
+    await caller(w.owner).answer({ messageId: mirror!.id, dismissed: true })
+    const [origin] = await db.select().from(messages).where(eq(messages.id, own.messageId))
+    expect(origin!.answeredAt).not.toBeNull()
+    expect((origin!.card as { dismissed?: boolean }).dismissed).toBe(true)
+    const [closed] = await asks(w.conversation)
+    expect(closed!.answeredAt).not.toBeNull()
+    // Already settled: CONFLICT, like any second answer.
+    await expect(caller(w.owner).answer({ messageId: mirror!.id, dismissed: true })).rejects.toMatchObject({ code: `CONFLICT` })
+  })
+
   it(`a child's card escalates once into the conversation, waking it; the answer closes both mirrors`, async () => {
     const w = await managed()
     const asked = await postAskCard({

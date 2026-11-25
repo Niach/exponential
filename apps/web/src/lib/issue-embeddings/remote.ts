@@ -128,9 +128,9 @@ export async function remoteEmbedText(
     stats.totalMs += performance.now() - startMs
     return vector
   } catch (err) {
-    // A query that timed out is a slow embedder, not a dead one.
-    const timedOut = (err as Error)?.name === `TimeoutError`
-    return failed(String((err as Error)?.message ?? err), !timedOut || kind === `passage`)
+    // A timeout too: a stopped container's address swallows the connect, and
+    // queries overtake every passage, so ten seconds is not a slow embedder.
+    return failed(String((err as Error)?.message ?? err), true)
   } finally {
     inflight -= 1
     if (kind === `passage`) inflightPassages -= 1
