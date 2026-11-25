@@ -181,7 +181,7 @@ fn renderer_calls() {
 fn surfaces() {
     let mut failed = Vec::new();
     for c in list(&fixture("a2ui10-messages.json"), "surfaces") {
-        let mut surface = eui_core::surface::Surface::new(CORE_CATALOG_ID);
+        let mut surface = eui_core::surface::Surface::new("main", eui_core::surface::SurfaceOptions { catalog_id: CORE_CATALOG_ID.into(), ..Default::default() });
         for (i, s) in list(c, "steps").iter().enumerate() {
             surface.apply(&s["message"]).unwrap();
             let got = surface.root().and_then(|r| r.metadata.clone()).unwrap_or(Value::Null);

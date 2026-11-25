@@ -270,6 +270,8 @@ describe(`the bind function table (§1, review minor)`, () => {
     })
     called.delete(`set`)
     called.delete(`openUrl`)
+    // Authored, not emitted (bind-time.json `Text/formatString:calls`); the evaluator runs it itself.
+    called.delete(`formatString`)
     for (const name of called) expect(BIND_FUNCTIONS[name], name).toBeDefined()
     for (const name of [`not`, `fill`, `clamp`]) expect(called.has(name), name).toBe(true)
     expect(BIND_FUNCTION_NAMES).toEqual(expect.arrayContaining([`not`, `and`, `or`, `required`, ...Object.keys(CORE_FUNCTIONS)]))

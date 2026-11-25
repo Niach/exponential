@@ -32,7 +32,9 @@ Every package publishes together from one `eui-v*` tag.
 
 ## Accessibility
 
-Every node takes an `accessibility` object beside its props. It is closed: any other key is a reducer issue.
+Every node takes an `@accessibility` object beside its props. It is closed: any other key is a reducer issue.
+
+The four envelope keys of a component carry an `@`: `@catalogId`, `@accessibility`, `@metadata` and, on a control with validation, `@checks`. A bare `catalogId`, `accessibility`, `metadata` or `checks` is an ordinary prop of a component that declares one; on any other component the entry is refused.
 
 | Key | Type | What the platforms report |
 |---|---|---|

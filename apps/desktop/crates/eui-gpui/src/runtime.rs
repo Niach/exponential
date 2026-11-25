@@ -1081,6 +1081,12 @@ impl ExponentialHost {
                 }
                 self.send(message);
             }
+            // Round 9 §6.9: a callRendererFunction that passed the router's checks.
+            "call" => {
+                let data = self.surfaces.iter().find(|s| s.id == sid).map(|s| s.view.read(cx).surface().data().clone()).unwrap_or_else(|| serde_json::json!({}));
+                let available = self.router.available_catalog_ids();
+                self.send(eui_core::host::answer_renderer_call(op, &data, Some(&available)));
+            }
             _ => {}
         }
     }

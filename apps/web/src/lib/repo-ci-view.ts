@@ -261,14 +261,14 @@ function secretsNodes(input: RepoCiSectionInput): NestedNode[] {
           label: C.secrets.name,
           name: `name`,
           value: { "@path": REPO_CI_PATHS.secretName },
-          checks: [
-            {
-              condition: { "@call": `regex`, args: { value: { "@path": REPO_CI_PATHS.secretName }, pattern: SECRET_NAME_PATTERN } },
-              message: C.secrets.invalid,
-            },
-          ],
           validateOn: `change`,
         },
+        "@checks": [
+          {
+            condition: { "@call": `regex`, args: { value: { "@path": REPO_CI_PATHS.secretName }, pattern: SECRET_NAME_PATTERN } },
+            message: C.secrets.invalid,
+          },
+        ],
       },
       {
         id: `repo-ci-secret-value`,
@@ -278,8 +278,8 @@ function secretsNodes(input: RepoCiSectionInput): NestedNode[] {
           name: `value`,
           type: `password`,
           value: { "@path": REPO_CI_PATHS.secretValue },
-          checks: [{ condition: { "@call": `required`, args: { value: { "@path": REPO_CI_PATHS.secretValue } } } }],
         },
+        "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": REPO_CI_PATHS.secretValue } } } }],
       },
       {
         id: `repo-ci-secret-actions`,
