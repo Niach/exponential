@@ -38,7 +38,8 @@ export interface SteerTicketClaims {
   /** teamId the ticket is scoped to (empty string for control tickets). */
   team: string
   /** NEW-55: on a CALLER ticket, the steer deviceId of the voice device to
-   * ring; on a CALL_HOST ticket, the device answering. */
+   * ring; on a CALL_HOST ticket, the device answering. #EXP-2161: on a CONTROL
+   * ticket, the ONLY device its socket may announce (a member space's). */
   deviceId?: string
   /** NEW-55: on a CALLER ticket, the account the `deviceId` above is
    * registered under (presence is indexed by device OWNER). Absent = `sub`. */
