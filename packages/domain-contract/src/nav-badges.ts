@@ -87,3 +87,9 @@ export function needsYouCounts(input: {
 export function appIconBadge(accounts: readonly { needsYou: number }[]): number {
   return accounts.reduce((sum, a) => sum + Math.max(0, a.needsYou), 0)
 }
+
+/** A row's team mark on its lead (`teamMark.leadCases`), bottom right. */
+export function teamMarkOf(lead: number): { mark: number; ring: number; offset: number } {
+  const { mark, ring, offset } = fixture.teamMark.sizes.find((row) => row.lead <= lead) ?? fixture.teamMark.sizes[fixture.teamMark.sizes.length - 1]!
+  return { mark, ring, offset }
+}

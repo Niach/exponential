@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/nav-badges.json" with { type: "json" }
-import { appIconBadge, chatsBadge, countBadgeLabel, needsYouCounts, rowBadge, sumBadges, teamBadge } from "./nav-badges"
+import { appIconBadge, chatsBadge, countBadgeLabel, needsYouCounts, rowBadge, sumBadges, teamBadge, teamMarkOf } from "./nav-badges"
 
 describe(`nav-badges.json`, () => {
   for (const c of fixture.labelCases) test(`label: ${c.name}`, () => expect(countBadgeLabel(c.count)).toBe(c.expected))
@@ -12,4 +12,6 @@ describe(`nav-badges.json`, () => {
   for (const c of fixture.needsYouCases)
     test(`needs you: ${c.name}`, () => expect(needsYouCounts(c.input)).toEqual(c.expected as never))
   for (const c of fixture.appIconCases) test(`app icon: ${c.name}`, () => expect(appIconBadge(c.accounts)).toBe(c.expected))
+  for (const c of fixture.teamMark.leadCases)
+    test(`team mark on a ${c.lead}px lead`, () => expect(teamMarkOf(c.lead)).toEqual(c.expected))
 })
