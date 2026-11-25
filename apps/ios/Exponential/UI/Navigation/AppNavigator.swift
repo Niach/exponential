@@ -325,9 +325,11 @@ struct AppNavigator: View {
             } else if deps.auth.accounts.isEmpty {
                 // First launch — no accounts at all.
                 InstanceView()
+                    .onAppear { UNUserNotificationCenter.current().setBadgeCount(0) }
             } else if deps.auth.accounts.allSatisfy({ $0.token == nil }) {
                 // Every account is signed out — show login for the most recent.
                 LoginView()
+                    .onAppear { UNUserNotificationCenter.current().setBadgeCount(0) }
             } else if deps.auth.isAuthenticated, deps.auth.needsOnboarding {
                 // First-run wizard (web onboarding parity): the session read at
                 // login explicitly reported no onboardingCompletedAt. Gated on

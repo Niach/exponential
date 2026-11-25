@@ -200,6 +200,6 @@ struct NeedsYouPageContent<Band: View>: View {
 
 extension NeedsYouPageContent where Band == EmptyView {
     init(rows: [NeedsYou.Row], onOpen: @escaping (NeedsYou.Row) -> Void, onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil) {
-        self.init(rows: rows, onOpen: onOpen, onAction: onAction, teamOf: teamOf) { EmptyView() }
+        self.init(rows: rows, onOpen: onOpen, onAction: onAction) { EmptyView() }
     }
 }
