@@ -77,13 +77,7 @@ impl IssueDraft {
             }),
         );
 
-        // EXP-50: exactly one human member ⇒ no assignment choice (0 members
-        // = membership not synced yet, keep the picker).
-        let members = queries::team_users(cx, &team_id);
-        let solo_member_id = match members.as_slice() {
-            [only] => Some(only.id.clone()),
-            _ => None,
-        };
+        let solo_member_id = solo_member(&team_id, cx);
 
         let has_agents = !queries::team_agents(cx, &team_id).is_empty();
 
@@ -123,6 +117,20 @@ impl IssueDraft {
         self.due_calendar.update(cx, |calendar, cx| {
             calendar.set_date(Date::Single(seed.due_date), window, cx);
         });
+        cx.notify();
+    }
+
+    /// #EXP-2125 (issue-draft.json `picks`): a board of another team was
+    /// picked: what belongs to a team goes (status, labels, assignee), the
+    /// priority and the due date stay.
+    pub(crate) fn move_team(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
+        self.status = default_status(&team_id, cx);
+        self.solo_member_id = solo_member(&team_id, cx);
+        self.has_agents = !queries::team_agents(cx, &team_id).is_empty();
+        self.assignee_id = self.solo_member_id.clone();
+        self.assignee_agent_id = None;
+        self.selected_label_ids.clear();
+        self.team_id = team_id;
         cx.notify();
     }
 
@@ -436,18 +444,17 @@ impl IssueDraft {
     /// EXP-1170: the board chip of the New issue page (lifted from the
     /// retired dialog's titlebar select, EXP-449): the board's own glyph
     /// tinted with its color plus its name, opening THE searchable board
-    /// picker over the team's boards. `None` when there is nowhere else to
-    /// go (the EXP-57 `move_target_boards` rule) — a single-board team gets
-    /// no chip at all. A pick lands at once, no confirm: nothing else resets
-    /// (status/assignee/label options are team-scoped and the picker only
-    /// offers same-team boards).
+    /// picker over every member team's boards (#EXP-2125; `only` = a chat's
+    /// team alone). `None` when there is nowhere else to go. A pick lands at
+    /// once, no confirm.
     pub(crate) fn board_chip(
         prefix: &'static str,
         board: &domain::rows::Board,
+        only: Option<String>,
         on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
         cx: &App,
     ) -> Option<AnyElement> {
-        if crate::issue_list::move_target_boards(cx, &board.id).is_empty() {
+        if offered_boards(only.as_deref(), cx).len() < 2 {
             return None;
         }
         let tint = board
@@ -464,14 +471,12 @@ impl IssueDraft {
             .child(crate::pickers::chip_label(label, false, cx))
             .into_any_element();
         let current_id = board.id.clone();
-        let team_id = board.team_id.clone();
         Some(
             crate::picker::deferred(move |window, cx| {
-                let boards = sync::Store::global(cx)
-                    .collections()
-                    .boards_in_team(&team_id, cx);
-                crate::picker::board_picker::board_picker(
+                let (boards, teams): (Vec<_>, Vec<_>) = offered_boards(only.as_deref(), cx).into_iter().unzip();
+                crate::picker::board_picker::team_board_picker(
                     &boards,
+                    &teams,
                     Some(current_id.clone()),
                     trigger,
                     Rc::new(move |picked, window, cx| {
@@ -499,6 +504,39 @@ impl Render for IssueDraft {
         let _span = tracing::trace_span!("render", view = "IssueDraft").entered();
         div()
     }
+}
+
+/// EXP-50: exactly one human member ⇒ no assignment choice (0 members =
+/// membership not synced yet, keep the picker).
+fn solo_member(team_id: &str, cx: &App) -> Option<String> {
+    match queries::team_users(cx, team_id).as_slice() {
+        [only] => Some(only.id.clone()),
+        _ => None,
+    }
+}
+
+/// #EXP-2125: the boards New issue offers, each with its team's name while
+/// they span more than one team; `only` holds them to a chat's team.
+fn offered_boards(only: Option<&str>, cx: &App) -> Vec<(domain::rows::Board, Option<String>)> {
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collections = store.collections();
+    let teams = collections.teams_sorted(cx);
+    let inputs: Vec<_> = teams
+        .iter()
+        .map(|team| domain::sidebar_tree::SidebarTeamInput { id: team.id.clone(), name: team.name.clone(), kind: "team".into() })
+        .collect();
+    let boards: Vec<_> = teams.iter().flat_map(|team| collections.boards_in_team(&team.id, cx)).collect();
+    let rows: Vec<_> = boards.iter().map(|board| (board.id.as_str(), board.team_id.as_str(), board.sort_order)).collect();
+    let (ids, show_team) = domain::issue_draft::draft_boards(&inputs, &rows, only);
+    ids.into_iter()
+        .filter_map(|id| boards.iter().find(|board| board.id == id).cloned())
+        .map(|board| {
+            let team = teams.iter().find(|team| show_team && team.id == board.team_id).map(|team| team.name.clone());
+            (board, team)
+        })
+        .collect()
 }
 
 /// EXP-314: a new issue starts in the team's BACKLOG BUILTIN row (web

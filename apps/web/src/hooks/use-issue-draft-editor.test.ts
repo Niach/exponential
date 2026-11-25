@@ -865,3 +865,49 @@ describe(`useIssueDraftEditor consumed elsewhere`, () => {
     expect(onConsumedElsewhere).not.toHaveBeenCalled()
   })
 })
+
+describe(`useIssueDraftEditor board picks (#EXP-2125)`, () => {
+  const OTHER = { id: `44444444-4444-4444-8444-444444444444`, teamId: `55555555-5555-4555-8555-555555555555` }
+
+  it(`another team's board moves the draft there; the team's own things go`, async () => {
+    const { result, rerender } = renderHook((props: Partial<IssueDraftEditorOptions>) =>
+      useIssueDraftEditor(options(props))
+    )
+    act(() => result.current.setTitle(`Fix login`))
+    act(() => result.current.setPriority(`high`))
+    act(() => result.current.toggleLabel(`l1`))
+    act(() => result.current.setAssignee({ kind: `user`, id: `u2` } as never))
+    await settle()
+    mocks.upsert.mockClear()
+    act(() => result.current.setBoard(OTHER))
+    await settle()
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({
+      id: DRAFT_ID,
+      teamId: OTHER.teamId,
+      boardId: OTHER.id,
+      title: `Fix login`,
+      priority: `high`,
+      statusId: null,
+      labelIds: [],
+      assigneeId: null,
+      assigneeAgentId: null,
+    })
+    // Not filed before the page's team (its statuses) followed.
+    expect(result.current.canCreate).toBe(false)
+    rerender({ teamId: OTHER.teamId, users: [{ id: `u1` }] as User[] })
+    expect(result.current.canCreate).toBe(true)
+    // The new team's only member.
+    expect(result.current.assigneeId).toBe(`u1`)
+    expect(result.current.title).toBe(`Fix login`)
+  })
+
+  it(`a board of the same team changes the board alone`, async () => {
+    const { result } = renderHook(() => useIssueDraftEditor(options()))
+    act(() => result.current.setTitle(`Fix login`))
+    act(() => result.current.toggleLabel(`l1`))
+    act(() => result.current.setBoard({ id: OTHER.id, teamId: TEAM_ID }))
+    await settle()
+    expect(mocks.upsert.mock.calls.at(-1)![0]).toMatchObject({ teamId: TEAM_ID, boardId: OTHER.id, labelIds: [`l1`] })
+  })
+})

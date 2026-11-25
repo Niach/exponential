@@ -59,6 +59,13 @@ class AppIntentsTest {
         }
     }
 
+    // #EXP-2125: a tie falls to the id, never the order the boards synced in.
+    @Test
+    fun `boards with one sortOrder go by id`() {
+        val boards = listOf(AppIntents.Board("b-2", 0.0), AppIntents.Board("b-1", 0.0))
+        assertEquals("b-1", AppIntents.intentBoard(boards, lastBoardId = null, pickedId = null))
+    }
+
     @Test
     fun `agentCases match the fixture`() {
         for (case in cases("agentCases")) {

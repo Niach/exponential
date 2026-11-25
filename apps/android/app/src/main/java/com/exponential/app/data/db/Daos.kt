@@ -40,10 +40,10 @@ interface TeamDao {
 interface BoardDao {
     // deleted_at IS NULL everywhere: trashed boards leave the shape as delete
     // messages, but filter defensively so a stale pre-trash row never resurfaces.
-    @Query("SELECT * FROM boards WHERE deleted_at IS NULL ORDER BY sort_order, name")
+    @Query("SELECT * FROM boards WHERE deleted_at IS NULL ORDER BY sort_order, id")
     fun observeAll(): Flow<List<BoardEntity>>
 
-    @Query("SELECT * FROM boards WHERE team_id = :teamId AND deleted_at IS NULL ORDER BY sort_order, name")
+    @Query("SELECT * FROM boards WHERE team_id = :teamId AND deleted_at IS NULL ORDER BY sort_order, id")
     fun observeByTeam(teamId: String): Flow<List<BoardEntity>>
 
     @Query("SELECT * FROM boards WHERE team_id = :teamId AND slug = :slug AND deleted_at IS NULL LIMIT 1")

@@ -15,12 +15,16 @@ public struct BoardPickerBoard: Identifiable, Hashable {
     public let icon: String?
     /// The board's hex colour; nil = the foreground.
     public let colorHex: String?
+    /// #EXP-2125: the row's muted description while the list spans more than
+    /// one team (a search finds it too).
+    public let teamName: String?
 
-    public init(id: String, name: String, icon: String? = nil, colorHex: String? = nil) {
+    public init(id: String, name: String, icon: String? = nil, colorHex: String? = nil, teamName: String? = nil) {
         self.id = id
         self.name = name
         self.icon = icon
         self.colorHex = colorHex
+        self.teamName = teamName
     }
 }
 
@@ -103,7 +107,9 @@ public struct BoardPicker<Trigger: View>: View {
                 value: board.id,
                 label: board.name,
                 icon: board.icon,
-                color: board.colorHex.flatMap { Color(hex: $0) }
+                color: board.colorHex.flatMap { Color(hex: $0) },
+                description: board.teamName,
+                keywords: board.teamName.map { [$0] } ?? []
             )
         }
         return allowsNone ? [PickerItem(value: noneValue, label: "None")] + rows : rows
