@@ -59,6 +59,7 @@ import com.exponential.app.domain.CardSurface
 import com.exponential.app.domain.ScheduleDraft
 import com.exponential.app.domain.Schedule
 import com.exponential.app.domain.SchedulePicker
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ChatMenuSheetFace
 import com.exponential.app.ui.components.GlassAlertAction
@@ -339,7 +340,11 @@ private fun SpecimenDock(selected: String, modifier: Modifier = Modifier, newOpe
     PhoneDock(
         selected = selected,
         newOpen = newOpen,
-        badges = mapOf("chats" to com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Attention)),
+        badges = mapOf(
+            "chats" to NavBadges.Badge(2, NavBadges.Tone.Attention),
+            "teams" to NavBadges.Badge(1, NavBadges.Tone.Attention),
+            "assistant" to NavBadges.Badge(3, NavBadges.Tone.Muted),
+        ),
         onSelect = {},
         modifier = modifier,
     )
