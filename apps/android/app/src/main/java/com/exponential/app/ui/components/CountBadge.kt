@@ -2,7 +2,7 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -38,10 +39,12 @@ fun CountBadge(
         NavBadges.Tone.Attention -> DesignTokens.Semantic.Yellow to Color.Black
         NavBadges.Tone.Muted -> DesignTokens.Palette.Muted to DesignTokens.Palette.MutedForeground
     }
+    // A large font scale grows the capsule with its figures, still round.
+    val side = 16.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
     Box(
         modifier = modifier
-            .height(16.dp)
-            .widthIn(min = 16.dp)
+            .heightIn(min = side)
+            .widthIn(min = side)
             .background(fill, CircleShape)
             .padding(horizontal = 4.dp)
             .testTag(testTag),
