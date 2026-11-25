@@ -6087,15 +6087,15 @@
         "file": "shots/needs-you/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 13104,
-        "sha256": "6aa407bef8efb25bbebe5a3b5b81261fbee91cd094aeb22dd33057d32f93d2ad"
+        "bytes": 21762,
+        "sha256": "1f008ba002ff2861055a2e8155817f39267db40cd082066f15c2fda52f94c9bb"
       },
       "desktop": {
         "file": "shots/needs-you/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 39962,
-        "sha256": "189078ca5ea977b88fdac6ca78d8a7b654343d6379ea57f84a3ea7635d4d0ae7"
+        "bytes": 39536,
+        "sha256": "7ea307cd46923ec1f99b6311381d6af526ccc3cc6e4c896eac2970d2db08b768"
       },
       "ios": {
         "file": "shots/needs-you/ios.webp",
