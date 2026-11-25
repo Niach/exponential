@@ -1758,6 +1758,41 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }],
+  // genUI round 4 (34282bdc): the site blocks with their slots and children.
+  NavBar: [{
+    label: `logo + trailing action`,
+    node: { id: `nav`, component: `NavBar`, props: { title: `Acme`, logo: AVATAR_PICTURE, value: `docs`, items: [{ label: `Product`, value: `product` }, { label: `Pricing`, value: `pricing` }, { label: `Docs`, value: `docs` }] }, slots: { trailing: { id: `signup`, component: `Button`, props: { label: `Sign up`, size: `sm` } } } },
+  }],
+  Footer: [{
+    label: `columns + links + fine print`,
+    node: {
+      id: `footer`, component: `Footer`, props: { caption: `\u00a9 2026 Acme Inc.`, items: [{ label: `Privacy`, value: `privacy` }, { label: `Terms`, value: `terms` }] },
+      children: [{ id: `cols`, component: `Grid`, props: { columns: { base: 2 }, gap: `md` }, children: [
+        { id: `col_product`, component: `Stack`, props: { gap: `xs`, align: `start` }, children: [{ id: `col_product_title`, component: `Text`, props: { text: `Product`, variant: `label` } }, { id: `col_product_a`, component: `Link`, props: { label: `Features` } }, { id: `col_product_b`, component: `Link`, props: { label: `Pricing` } }] },
+        { id: `col_company`, component: `Stack`, props: { gap: `xs`, align: `start` }, children: [{ id: `col_company_title`, component: `Text`, props: { text: `Company`, variant: `label` } }, { id: `col_company_a`, component: `Link`, props: { label: `About` } }, { id: `col_company_b`, component: `Link`, props: { label: `Careers` } }] },
+      ] }],
+    },
+  }],
+  Hero: [{
+    label: `actions`,
+    node: { id: `hero`, component: `Hero`, props: { eyebrow: `New`, title: `Ship faster together`, subtitle: `Plan, build and review in one place.` }, children: [{ id: `start`, component: `Button`, props: { label: `Get started` } }, { id: `demo`, component: `Button`, props: { label: `Book a demo`, variant: `outline` } }] },
+  }],
+  MediaCard: [{
+    label: `picture + action`,
+    node: { id: `card`, component: `MediaCard`, props: { src: AVATAR_PICTURE, alt: `Portrait`, title: `Mia Berger`, subtitle: `Product designer`, meta: `Vienna`, aspectRatio: 2 }, style: { maxWidth: 320 }, children: [{ id: `follow`, component: `Button`, props: { label: `Follow`, size: `sm`, variant: `outline` } }] },
+  }],
+  DayStrip: [{
+    label: `no selection`,
+    node: { id: `strip`, component: `DayStrip`, props: { days: [{ date: `2026-11-23`, tone: `success` }, { date: `2026-11-24` }, { date: `2026-11-25`, tone: `danger` }, { date: `2026-11-26` }, { date: `2026-11-27` }] } },
+  }],
+  AvatarGroup: [{
+    label: `pictures, no overflow`,
+    node: { id: `group`, component: `AvatarGroup`, props: { size: `lg`, people: [{ name: `Mia Berger`, seed: `user-mia`, src: AVATAR_PICTURE }, { name: `Ada Lovelace`, seed: `demo-ada` }, { name: `Bob`, seed: `demo-bob` }] } },
+  }],
+  Section: [{
+    label: `actionLabel`,
+    node: { id: `popular`, component: `Section`, props: { title: `Popular`, actionLabel: `View all` }, children: [{ id: `popular_row`, component: `Row`, props: { title: `Lakeside cabin`, meta: `\u20ac120` } }] },
+  }],
 }
 
 /** FEED-202: specimens wider than 720 (the Expenses ledger's columns). */
