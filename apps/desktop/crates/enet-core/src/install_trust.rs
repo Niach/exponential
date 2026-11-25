@@ -85,6 +85,43 @@ pub fn registration_message(user_id: &str, endpoint_id: &str, x25519_public: &st
     format!("exp-install-v1\n{user_id}\n{endpoint_id}\n{x25519_public}\n{signed_at}")
 }
 
+/// #EXP-2161 (member-space.json `registrationLabel`): the same lines under
+/// the label a member space's install signs, so its registration never
+/// verifies as an ordinary one.
+pub fn space_registration_message(user_id: &str, endpoint_id: &str, x25519_public: &str, signed_at: &str) -> String {
+    format!("{SPACE_REGISTRATION_LABEL}\n{user_id}\n{endpoint_id}\n{x25519_public}\n{signed_at}")
+}
+
+pub const SPACE_REGISTRATION_LABEL: &str = "exp-install-space-v1";
+
+/// The class of an install (#EXP-2161), as its REGISTRATION says it (which
+/// label its signature covers), never a served field.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallClass {
+    #[default]
+    Install,
+    /// A member's private Assistant on a device shared with their team.
+    Space,
+}
+
+impl InstallClass {
+    fn is_install(&self) -> bool {
+        *self == InstallClass::Install
+    }
+}
+
+/// member-space.json `pinCases`: whether a pinned install may take part in a
+/// root's keys (`None` = not pinned). A space: only in the member's own
+/// Assistant conversation.
+pub fn pin_covers(pin: Option<InstallClass>, root_is_own_assistant: bool) -> bool {
+    match pin {
+        Some(InstallClass::Install) => true,
+        Some(InstallClass::Space) => root_is_own_assistant,
+        None => false,
+    }
+}
+
 /// The identity's registration signature (base64url).
 pub fn sign_registration(identity: &Identity, user_id: &str, signed_at: &str) -> String {
     let endpoint_id = HEXLOWER.encode(identity.endpoint_id().as_bytes());
@@ -99,7 +136,8 @@ pub const APPROVAL_MESSAGE_BYTES: usize = 125;
 /// (signed by itself: the first install, or a reset); `Approve` = a trusted
 /// install of the SAME account approves it; `Reset` = a team-mate's trusted
 /// install confirms a member's new chain; `Decline` = a team-mate's install
-/// turns that reset down (the row's Remove).
+/// turns that reset down (the row's Remove); `Space` (#EXP-2161) = a trusted
+/// install of the same account approves a member space's install.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApprovalKind {
@@ -107,6 +145,7 @@ pub enum ApprovalKind {
     Approve,
     Reset,
     Decline,
+    Space,
 }
 
 impl ApprovalKind {
@@ -117,6 +156,7 @@ impl ApprovalKind {
             ApprovalKind::Approve => 2,
             ApprovalKind::Reset => 3,
             ApprovalKind::Decline => 4,
+            ApprovalKind::Space => 5,
         }
     }
     pub fn as_str(self) -> &'static str {
@@ -125,6 +165,7 @@ impl ApprovalKind {
             ApprovalKind::Approve => "approve",
             ApprovalKind::Reset => "reset",
             ApprovalKind::Decline => "decline",
+            ApprovalKind::Space => "space",
         }
     }
 }
@@ -216,13 +257,34 @@ pub struct TrustAnswer {
     pub approvals: Vec<ServedApproval>,
 }
 
-/// Whether the registration binds the row's user, endpoint id and X25519 key.
+/// Whether the registration binds the row's user, endpoint id and X25519
+/// key, as an ordinary install's.
 pub fn registration_valid(install: &ServedInstall) -> bool {
-    let (Some(signature), Some(signed_at)) = (&install.registration_signature, &install.registration_signed_at) else {
-        return false;
-    };
-    let message = registration_message(&install.user_id, &install.endpoint_id, &install.x25519_public, signed_at);
-    verify_b64(signature, message.as_bytes(), &install.endpoint_id)
+    registration_class(install) == Some(InstallClass::Install)
+}
+
+/// The class the stored registration proves; None = it stores none, or it
+/// verifies under neither label.
+pub fn registration_class(install: &ServedInstall) -> Option<InstallClass> {
+    let (signature, signed_at) = (install.registration_signature.as_ref()?, install.registration_signed_at.as_ref()?);
+    let verifies = |message: String| verify_b64(signature, message.as_bytes(), &install.endpoint_id);
+    let (user, endpoint, x25519) = (&install.user_id, &install.endpoint_id, &install.x25519_public);
+    if verifies(registration_message(user, endpoint, x25519, signed_at)) {
+        Some(InstallClass::Install)
+    } else if verifies(space_registration_message(user, endpoint, x25519, signed_at)) {
+        Some(InstallClass::Space)
+    } else {
+        None
+    }
+}
+
+/// The class of a row that counts: a row without a stored registration is an
+/// ordinary install's (registered before #3394); None = it does not count.
+fn counted_class(install: &ServedInstall) -> Option<InstallClass> {
+    match &install.registration_signature {
+        None => Some(InstallClass::Install),
+        Some(_) => registration_class(install),
+    }
 }
 
 // ── the pin store ─────────────────────────────────────────────────────────
@@ -262,6 +324,10 @@ pub struct Pin {
     /// The approver (`approved`, `reset`); None otherwise.
     #[serde(default)]
     pub by: Option<String>,
+    /// #EXP-2161: a space's pin covers only the member's own Assistant
+    /// conversation ([`pin_covers`]).
+    #[serde(default, skip_serializing_if = "InstallClass::is_install")]
+    pub class: InstallClass,
 }
 
 /// What this install recorded about a key it holds.
@@ -316,6 +382,10 @@ pub struct TrustStore {
     /// (`false`) by the first reconcile that serves this install.
     #[serde(default)]
     pub existing: bool,
+    /// #EXP-2161: this install IS a member space's: it joins only through a
+    /// `space` approval and never claims, approves, resets or declines.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub space: bool,
     #[serde(default)]
     pub pins: BTreeMap<String, Pin>,
     /// Every team-mate ever pinned: a new root of one is a Reset.
@@ -336,6 +406,7 @@ impl TrustStore {
             user_id: user_id.to_string(),
             joined: false,
             existing,
+            space: false,
             pins: BTreeMap::new(),
             members: Vec::new(),
             declined: Vec::new(),
@@ -361,8 +432,18 @@ impl TrustStore {
         self.roots.get(&root_id.to_ascii_lowercase()).map_or(0, |root| root.verified_epoch)
     }
 
+    /// A member space's own store (#EXP-2161).
+    pub fn empty_space(self_endpoint_id: &str, user_id: &str) -> TrustStore {
+        TrustStore { space: true, ..TrustStore::empty(self_endpoint_id, user_id, false) }
+    }
+
     fn pinned(&self, endpoint_id: &str) -> bool {
         self.pins.contains_key(endpoint_id)
+    }
+
+    /// Whether `endpoint_id` is pinned and its pin covers the root.
+    fn covers(&self, endpoint_id: &str, root_is_own_assistant: bool) -> bool {
+        pin_covers(self.pins.get(endpoint_id).map(|pin| pin.class), root_is_own_assistant)
     }
 }
 
@@ -449,14 +530,26 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
             None => list.push(install),
         }
     }
+    let mut classes: HashMap<&str, InstallClass> = HashMap::new();
     for install in &served.installs {
-        if registration_valid(install) {
+        let registered = registration_class(install);
+        // Another member's space is nobody's business but theirs; a space's
+        // store counts every class of its own account only for itself.
+        if registered == Some(InstallClass::Space) && install.user_id != store.user_id {
+            continue;
+        }
+        if registered.is_some() {
             put(&mut valid, install);
         }
         if valid.iter().any(|row| row.endpoint_id == install.endpoint_id) || install.registration_signature.is_none() {
             put(&mut counted_order, install);
+            if let Some(class) = counted_class(install) {
+                classes.insert(&install.endpoint_id, class);
+            }
         }
     }
+    let class_of = |endpoint_id: &str| classes.get(endpoint_id).copied().unwrap_or_default();
+    let is_space = |endpoint_id: &str| class_of(endpoint_id) == InstallClass::Space;
     let counted: HashMap<&str, &ServedInstall> = counted_order.iter().map(|row| (row.endpoint_id.as_str(), *row)).collect();
     let self_id = store.self_endpoint_id.clone();
     let me = counted.get(self_id.as_str()).copied();
@@ -468,15 +561,18 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
             continue;
         }
         let pin = &store.pins[&endpoint_id];
-        let keep = counted.get(endpoint_id.as_str()).is_some_and(|row| row.user_id == pin.user_id && row.x25519_public == pin.x25519_public);
+        let keep = counted.get(endpoint_id.as_str()).is_some_and(|row| {
+            row.user_id == pin.user_id && row.x25519_public == pin.x25519_public && class_of(&endpoint_id) == pin.class
+        });
         if !keep {
             store.pins.remove(&endpoint_id);
         }
     }
+    let own_class = if store.space { InstallClass::Space } else { InstallClass::Install };
     if let Some(me) = me {
         store.pins.insert(
             self_id.clone(),
-            Pin { user_id: store.user_id.clone(), x25519_public: me.x25519_public.clone(), via: PinVia::Own, by: None },
+            Pin { user_id: store.user_id.clone(), x25519_public: me.x25519_public.clone(), via: PinVia::Own, by: None, class: own_class },
         );
     }
 
@@ -487,6 +583,12 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
         .filter(|approval| {
             let Some(subject) = counted.get(approval.subject_endpoint_id.as_str()) else { return false };
             if approval.kind == ApprovalKind::Root && approval.approver_endpoint_id != approval.subject_endpoint_id {
+                return false;
+            }
+            // A space is approved by `space` alone, and approves nothing.
+            if (approval.kind == ApprovalKind::Space) != is_space(&approval.subject_endpoint_id)
+                || is_space(&approval.approver_endpoint_id)
+            {
                 return false;
             }
             verify_approval(approval.kind, &subject.subject(), &approval.signature, &approval.approver_endpoint_id)
@@ -506,9 +608,9 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
     // Joining: its own root claim, or the chain from its account's root to
     // it, or (decision e) an existing install of an account with no chain.
     if !store.joined && me.is_some() {
-        if is_root(&self_id) {
+        if !store.space && is_root(&self_id) {
             store.joined = true;
-        } else if let Some(path) = chain_to(&self_id, &store.user_id, &approvals, &is_root, &user_of) {
+        } else if let Some(path) = (store.space == is_space(&self_id)).then(|| chain_to(&self_id, &store.user_id, &approvals, &is_root, &user_of)).flatten() {
             for endpoint_id in path {
                 if endpoint_id == self_id {
                     continue;
@@ -516,18 +618,19 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
                 let row = counted[endpoint_id.as_str()];
                 store.pins.insert(
                     endpoint_id,
-                    Pin { user_id: row.user_id.clone(), x25519_public: row.x25519_public.clone(), via: PinVia::Chain, by: None },
+                    Pin { user_id: row.user_id.clone(), x25519_public: row.x25519_public.clone(), via: PinVia::Chain, by: None, class: InstallClass::Install },
                 );
             }
             store.joined = true;
-        } else if store.existing && !own_chain {
+        } else if store.existing && !own_chain && !store.space {
             for install in &counted_order {
-                if install.user_id != store.user_id || install.endpoint_id == self_id || install.approval_requested {
+                // A space always asks (#EXP-2161).
+                if is_space(&install.endpoint_id) || install.user_id != store.user_id || install.endpoint_id == self_id || install.approval_requested {
                     continue;
                 }
                 store.pins.insert(
                     install.endpoint_id.clone(),
-                    Pin { user_id: install.user_id.clone(), x25519_public: install.x25519_public.clone(), via: PinVia::Existing, by: None },
+                    Pin { user_id: install.user_id.clone(), x25519_public: install.x25519_public.clone(), via: PinVia::Existing, by: None, class: InstallClass::Install },
                 );
             }
             store.joined = true;
@@ -540,7 +643,7 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
 
     // Declines by this account's pinned installs.
     for approval in &approvals {
-        if approval.kind != ApprovalKind::Decline {
+        if approval.kind != ApprovalKind::Decline || store.space {
             continue;
         }
         let ours = store.pins.get(&approval.approver_endpoint_id).is_some_and(|pin| pin.user_id == store.user_id);
@@ -562,7 +665,7 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
                 if root.user_id == install.user_id && is_root(&root.endpoint_id) && !store.declined.contains(&root.endpoint_id) {
                     store.pins.insert(
                         root.endpoint_id.clone(),
-                        Pin { user_id: root.user_id.clone(), x25519_public: root.x25519_public.clone(), via: PinVia::First, by: None },
+                        Pin { user_id: root.user_id.clone(), x25519_public: root.x25519_public.clone(), via: PinVia::First, by: None, class: InstallClass::Install },
                     );
                 }
             }
@@ -577,7 +680,9 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
                     continue;
                 }
                 let Some(approver) = store.pins.get(&approval.approver_endpoint_id) else { continue };
-                let pinned = (approval.kind == ApprovalKind::Approve && approver.user_id == subject.user_id)
+                let same_account =
+                    matches!(approval.kind, ApprovalKind::Approve | ApprovalKind::Space) && approver.user_id == subject.user_id;
+                let pinned = (same_account && approver.class == InstallClass::Install)
                     || (approval.kind == ApprovalKind::Reset
                         && approver.user_id != subject.user_id
                         && subject.user_id != store.user_id
@@ -590,8 +695,9 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
                     Pin {
                         user_id: subject.user_id.clone(),
                         x25519_public: subject.x25519_public.clone(),
-                        via: if approval.kind == ApprovalKind::Approve { PinVia::Approved } else { PinVia::Reset },
+                        via: if same_account { PinVia::Approved } else { PinVia::Reset },
                         by: Some(approval.approver_endpoint_id.clone()),
+                        class: class_of(&subject.endpoint_id),
                     },
                 );
                 changed = true;
@@ -607,7 +713,7 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
     }
 
     let mut rows: Vec<TrustRow> = Vec::new();
-    if store.joined {
+    if store.joined && !store.space {
         for install in &valid {
             if store.pinned(&install.endpoint_id) || store.declined.contains(&install.endpoint_id) {
                 continue;
@@ -637,8 +743,14 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
     }
 
     // A new install claims a root only ALONE (decision e).
-    let alone = !served.installs.iter().any(|install| install.user_id == store.user_id && install.endpoint_id != self_id);
-    let status = if store.joined {
+    // A space is no other install of the account: it can approve nobody.
+    let alone = !served
+        .installs
+        .iter()
+        .any(|install| install.user_id == store.user_id && install.endpoint_id != self_id && registration_class(install) != Some(InstallClass::Space));
+    let status = if store.space {
+        if store.joined { TrustStatus::Trusted } else { TrustStatus::Waiting }
+    } else if store.joined {
         if own_chain {
             TrustStatus::Trusted
         } else {
@@ -655,7 +767,7 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
         approvals.iter().any(|a| a.kind == ApprovalKind::Approve && a.subject_endpoint_id == endpoint_id && store.pinned(&a.approver_endpoint_id))
     };
     let on_chain = is_root(&self_id) || approved_by_pin(&self_id);
-    let approve_existing = if store.joined && (status == TrustStatus::ClaimRoot || on_chain) {
+    let approve_existing = if store.joined && !store.space && (status == TrustStatus::ClaimRoot || on_chain) {
         store
             .pins
             .iter()
@@ -669,7 +781,8 @@ pub fn reconcile_trust(before: &TrustStore, served: &TrustAnswer) -> TrustView {
 }
 
 /// The installs from a root of `user_id` down to `target` (`approve` only,
-/// every approver of `user_id`), shortest first; None when none.
+/// every approver of `user_id`; a space's last step is its `space` approval),
+/// shortest first; None when none.
 fn chain_to(
     target: &str,
     user_id: &str,
@@ -696,7 +809,9 @@ fn chain_to(
             return Some(path);
         }
         for approval in approvals {
-            if approval.kind != ApprovalKind::Approve || approval.approver_endpoint_id != at || seen.contains(approval.subject_endpoint_id.as_str()) {
+            let step = approval.kind == ApprovalKind::Approve
+                || (approval.kind == ApprovalKind::Space && approval.subject_endpoint_id == target);
+            if !step || approval.approver_endpoint_id != at || seen.contains(approval.subject_endpoint_id.as_str()) {
                 continue;
             }
             if user_of(&approval.subject_endpoint_id).as_deref() != Some(user_id) || is_root(&approval.subject_endpoint_id) {
@@ -751,13 +866,23 @@ impl std::fmt::Debug for KeepVerdict {
 /// that fails, a malformed wrap and one that does not open are refused in
 /// every mode. `Record` keeps an unsigned wrap as `unsigned` and one signed
 /// by an UNPINNED install that verifies as `refused-would-be`; `Mandatory`
-/// refuses both.
-pub fn keep_wrap(wrap: &ServedWrap, identity: &Identity, install_secret: &[u8; 32], store: &TrustStore, mode: TrustMode) -> KeepVerdict {
-    let pinned = |id: &str| store.pinned(id);
+/// refuses both. #EXP-2161: a wrap signed by a space whose pin does not
+/// cover the root is refused in every mode.
+pub fn keep_wrap(
+    wrap: &ServedWrap,
+    identity: &Identity,
+    install_secret: &[u8; 32],
+    store: &TrustStore,
+    mode: TrustMode,
+    root_is_own_assistant: bool,
+) -> KeepVerdict {
+    let pinned = |id: &str| store.covers(id, root_is_own_assistant);
     match accept_wrap(wrap, identity, install_secret, &pinned, mode == TrustMode::Mandatory) {
         WrapVerdict::Verified { secret, tree_public_key, .. } => KeepVerdict::Keep { record: KeyRecord::Verified, secret, tree_public_key },
         WrapVerdict::Unsigned { secret, tree_public_key } => KeepVerdict::Keep { record: KeyRecord::Unsigned, secret, tree_public_key },
-        WrapVerdict::Refused(WrapRefusal::Unpinned) if mode == TrustMode::Record => {
+        WrapVerdict::Refused(WrapRefusal::Unpinned)
+            if mode == TrustMode::Record && !wrap.signer_endpoint_id.is_some_and(|signer| store.pinned(signer)) =>
+        {
             // Is it at least its signer's? Then it is kept, and recorded.
             let signer = wrap.signer_endpoint_id.unwrap_or_default().to_string();
             let own = |id: &str| id == signer;
@@ -819,7 +944,9 @@ pub struct Vouch {
 /// Without: a vouch by a pinned install = `verified`; none = `unsigned` and
 /// one by an unpinned install that verifies = `refused-would-be` (sealed in
 /// `Record`, refused once `Mandatory`); a vouch that fails is refused in
-/// every mode.
+/// every mode. #EXP-2161: a vouch by a space whose pin does not cover the
+/// root is refused in every mode.
+#[allow(clippy::too_many_arguments)]
 pub fn seal_to(
     root_id: &str,
     epoch: u32,
@@ -828,6 +955,7 @@ pub fn seal_to(
     vouch: Option<&Vouch>,
     store: &TrustStore,
     mode: TrustMode,
+    root_is_own_assistant: bool,
 ) -> SealVerdict {
     if !seal_epoch_check(store, root_id, epoch) {
         return SealVerdict::Refuse(SealRefusal::Rollback);
@@ -855,7 +983,7 @@ pub fn seal_to(
         recipient_endpoint_id: &vouch.recipient_endpoint_id,
         wrapped: &vouch.wrapped,
     };
-    let pinned = |id: &str| store.pinned(id);
+    let pinned = |id: &str| store.covers(id, root_is_own_assistant);
     match accept_vouch(&statement, Some(&vouch.signature), Some(&vouch.signer_endpoint_id), &pinned) {
         Ok(()) => SealVerdict::Seal(KeyRecord::Verified),
         Err(WrapRefusal::Unsigned) => match mode {
@@ -869,6 +997,7 @@ pub fn seal_to(
                 return SealVerdict::Refuse(SealRefusal::Wrap(reason));
             }
             match mode {
+                _ if store.pinned(&vouch.signer_endpoint_id) => SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)),
                 TrustMode::Record => SealVerdict::Seal(KeyRecord::RefusedWouldBe),
                 TrustMode::Mandatory => SealVerdict::Refuse(SealRefusal::Wrap(WrapRefusal::Unpinned)),
             }
@@ -907,8 +1036,15 @@ pub enum TargetVerdict {
 /// R4: whether this install wraps a key for a target the server names
 /// (`pending`, a new key's readers, a rotation, a new root's seal). Only a
 /// joined install wraps for others. `roots` = the targets that claim a
-/// verified root.
-pub fn wrap_target(target: &ServedInstall, store: &TrustStore, mode: TrustMode, roots: &HashSet<String>) -> TargetVerdict {
+/// verified root. #EXP-2161: a space is a target only while its pin covers
+/// the root; an unapproved one is refused in every mode, whoever's it is.
+pub fn wrap_target(
+    target: &ServedInstall,
+    store: &TrustStore,
+    mode: TrustMode,
+    roots: &HashSet<String>,
+    root_is_own_assistant: bool,
+) -> TargetVerdict {
     if target.endpoint_id == store.self_endpoint_id {
         return TargetVerdict::Wrap(KeyRecord::Verified);
     }
@@ -917,14 +1053,20 @@ pub fn wrap_target(target: &ServedInstall, store: &TrustStore, mode: TrustMode, 
     }
     if let Some(pin) = store.pins.get(&target.endpoint_id) {
         return if pin.x25519_public == target.x25519_public && pin.user_id == target.user_id {
-            TargetVerdict::Wrap(KeyRecord::Verified)
+            if pin_covers(Some(pin.class), root_is_own_assistant) {
+                TargetVerdict::Wrap(KeyRecord::Verified)
+            } else {
+                TargetVerdict::Refuse(TargetRefusal::Unapproved)
+            }
         } else {
             TargetVerdict::Refuse(TargetRefusal::KeyMismatch)
         };
     }
     // An older build that registered before #EXP-1950 kept no signature: legacy too.
-    if target.registration_signature.is_some() && !registration_valid(target) {
-        return TargetVerdict::Refuse(TargetRefusal::Registration);
+    match counted_class(target) {
+        None => return TargetVerdict::Refuse(TargetRefusal::Registration),
+        Some(InstallClass::Space) => return TargetVerdict::Refuse(TargetRefusal::Unapproved),
+        Some(InstallClass::Install) => {}
     }
     // Decision (e): every own install that existed is pinned; one nobody
     // pinned is a New install row, any build.

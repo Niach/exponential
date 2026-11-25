@@ -56,7 +56,7 @@ fn build_store(fx: &Value, spec: &Value) -> TrustStore {
         let by = pin[1].as_str().map(|by| text(&key(fx, by)["endpointId"]).to_string());
         store.pins.insert(
             text(&k["endpointId"]).into(),
-            Pin { user_id: text(&k["userId"]).into(), x25519_public: text(&k["x25519Public"]).into(), via, by },
+            Pin { user_id: text(&k["userId"]).into(), x25519_public: text(&k["x25519Public"]).into(), via, by, class: InstallClass::Install },
         );
     }
     store.members = spec["members"].as_array().map_or_else(Vec::new, |m| m.iter().map(|u| text(u).to_string()).collect());
@@ -259,7 +259,7 @@ fn r1_keep_cases_now_and_once_mandatory() {
             signer_endpoint_id: w["signerEndpointId"].as_str(),
         };
         for (mode, at) in modes() {
-            let got = keep_wrap(&wrap, &identity(&fx, viewer), &hex32(&key(&fx, viewer)["installSecret"]), &store, mode);
+            let got = keep_wrap(&wrap, &identity(&fx, viewer), &hex32(&key(&fx, viewer)["installSecret"]), &store, mode, false);
             let got = match got {
                 KeepVerdict::Keep { record, .. } => serde_json::json!({ "keep": true, "record": record.as_str() }),
                 KeepVerdict::Refuse(reason) => serde_json::json!({ "keep": false, "reason": reason.as_str() }),
@@ -276,7 +276,7 @@ fn r2_r3_seal_cases_now_and_once_mandatory() {
         let store = store_named(&fx, text(&c["store"]));
         let vouch: Option<Vouch> = c["vouch"].is_object().then(|| serde_json::from_value(c["vouch"].clone()).unwrap());
         for (mode, at) in modes() {
-            let got = seal_to(text(&c["rootId"]), c["epoch"].as_u64().unwrap() as u32, text(&c["publicKey"]), held(c), vouch.as_ref(), &store, mode);
+            let got = seal_to(text(&c["rootId"]), c["epoch"].as_u64().unwrap() as u32, text(&c["publicKey"]), held(c), vouch.as_ref(), &store, mode, false);
             let got = match got {
                 SealVerdict::Seal(record) => serde_json::json!({ "seal": true, "record": record.as_str() }),
                 SealVerdict::Refuse(reason) => serde_json::json!({ "seal": false, "reason": reason.as_str() }),
@@ -293,7 +293,7 @@ fn r4_target_cases_now_and_once_mandatory() {
         let store = store_named(&fx, text(&c["store"]));
         let roots: HashSet<String> = c["roots"].as_array().unwrap().iter().map(|n| text(&key(&fx, text(n))["endpointId"]).to_string()).collect();
         for (mode, at) in modes() {
-            let got = match wrap_target(&served(&fx, &c["target"]), &store, mode, &roots) {
+            let got = match wrap_target(&served(&fx, &c["target"]), &store, mode, &roots, false) {
                 TargetVerdict::Wrap(record) => serde_json::json!({ "wrap": true, "record": record.as_str() }),
                 TargetVerdict::Refuse(reason) => serde_json::json!({ "wrap": false, "reason": reason.as_str() }),
             };

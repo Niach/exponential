@@ -486,7 +486,7 @@ fn decision_e_a_planted_install_after_the_first_reconcile_a_row_no_wrap_never_ap
     v.keeper.sync();
     assert!(v.keeper.snapshot().rows.is_empty());
     assert!(!v.keeper.store().pins.contains_key(&z));
-    assert_eq!(v.keeper.target("install-Z", text(&key(&fx, "Z")["x25519Public"]), Some(&z), None), TargetVerdict::Refuse(TargetRefusal::Unapproved));
+    assert_eq!(v.keeper.target(None, "install-Z", text(&key(&fx, "Z")["x25519Public"]), Some(&z), None), TargetVerdict::Refuse(TargetRefusal::Unapproved));
 }
 
 #[test]
@@ -505,8 +505,8 @@ fn decision_e_a_hidden_chain_waits_and_asks_once() {
     assert!(lock(&liar.claims).is_empty(), "adopts nothing, claims nothing");
     assert_eq!(*lock(&liar.requests), vec!["install-N".to_string()], "asks once");
     // A waiting install wraps for nobody but itself.
-    assert_eq!(n.target("install-A", text(&key(&fx, "A")["x25519Public"]), Some(&endpoint(&fx, "A")), None), TargetVerdict::Refuse(TargetRefusal::NotTrusted));
-    assert_eq!(n.target("install-N", "x", None, None), TargetVerdict::Wrap(KeyRecord::Verified));
+    assert_eq!(n.target(None, "install-A", text(&key(&fx, "A")["x25519Public"]), Some(&endpoint(&fx, "A")), None), TargetVerdict::Refuse(TargetRefusal::NotTrusted));
+    assert_eq!(n.target(None, "install-N", "x", None, None), TargetVerdict::Wrap(KeyRecord::Verified));
 }
 
 #[test]
@@ -620,7 +620,7 @@ fn a_reader_installs_trust_does_not_list_is_judged_by_r4_alone_both_modes() {
         let v = victim(mode);
         let t2 = endpoint(&fx, "T2");
         assert!(lock(&v.liar.installs).iter().all(|i| i.endpoint_id != t2));
-        let got = v.keeper.target("install-T2", text(&key(&fx, "T2")["x25519Public"]), Some(&t2), None);
+        let got = v.keeper.target(None, "install-T2", text(&key(&fx, "T2")["x25519Public"]), Some(&t2), None);
         let got = match got {
             TargetVerdict::Wrap(record) => record.as_str().to_string(),
             TargetVerdict::Refuse(reason) => format!("refused:{}", reason.as_str()),
