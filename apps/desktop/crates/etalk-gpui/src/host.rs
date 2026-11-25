@@ -273,6 +273,8 @@ pub trait DialLink: 'static {
 
 /// EXP-1857: a dialled call, connected.
 pub struct DialConnection {
+    /// The call's id (EXP-1859: a turn's one message is keyed by it).
+    pub call_id: String,
     pub link: Box<dyn DialLink>,
     pub events: flume::Receiver<DialLinkEvent>,
 }

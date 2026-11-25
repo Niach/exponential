@@ -58,6 +58,8 @@ struct State {
     ended: Vec<String>,
     /// #EXP-1992: every send: where it went (None = to the agent) and its text.
     sent: Vec<(Option<String>, String)>,
+    /// EXP-1859: the sends' `clientMessageId`s.
+    keys: Vec<Option<String>>,
     /// #EXP-1981: what `voice.callSession` was asked: (agent id, call id).
     session_asks: Vec<(String, Option<String>)>,
     /// EXP-1859: the agent's Runs on device, and whether it is online (its
@@ -164,6 +166,7 @@ impl TalkHost for TestHost {
         };
         let session_id = sent.0.clone().unwrap_or_else(|| CONVERSATION.to_string());
         self.state.borrow_mut().sent.push(sent);
+        self.state.borrow_mut().keys.push(outgoing.client_message_id.clone());
         if let Some(err) = self.state.borrow().send_fails.clone() {
             return Some(Box::new(move || Err(err)));
         }
@@ -258,6 +261,11 @@ impl Rig {
     /// the agent) and its text.
     pub(crate) fn sent(&self) -> Vec<(Option<String>, String)> {
         std::mem::take(&mut self.state.borrow_mut().sent)
+    }
+
+    /// EXP-1859: the sends' `clientMessageId`s since the last look.
+    pub(crate) fn keys(&self) -> Vec<Option<String>> {
+        std::mem::take(&mut self.state.borrow_mut().keys)
     }
 
     /// #EXP-1992: the agent speaks with the member's own voice again.

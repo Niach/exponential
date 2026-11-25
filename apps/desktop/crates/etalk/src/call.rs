@@ -923,6 +923,13 @@ pub fn call_wire_event(event: &CallEvent) -> Option<serde_json::Value> {
     })
 }
 
+/// EXP-1859: the one message of a turn call, as both its ends send it
+/// (`sessions.send` `clientMessageId`): a caller that fell back while its
+/// host already sent stores nothing twice, whichever came first.
+pub fn turn_message_id(call_id: &str) -> String {
+    format!("turn-{call_id}")
+}
+
 /// EXP-1859: what reaches a dialled wake turn's caller: the wake itself, or
 /// one of its host's flow events (`call_event`, or the hang-up).
 #[derive(Debug, Clone, PartialEq)]

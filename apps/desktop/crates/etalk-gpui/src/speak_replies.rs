@@ -724,6 +724,26 @@ pub(crate) fn speak_reply(id: String, text: String, session_id: String, agent_id
     })
 }
 
+/// EXP-1859: a voice turn's reply that came before the turn was known to be
+/// this desktop's (its host had sent it): said now, under the rules every
+/// voice turn's reply is said by. Once: the turn got its reply.
+pub(crate) fn speak_late(id: String, body: &str, session_id: &str, agent_id: &str, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    let text = entity.update(cx, |this, cx| {
+        let mine = this.voice_turn.as_ref().is_some_and(|turn| turn.session_id == session_id);
+        let meeting = this.settings.meeting() && this.settings.voice_device_id == host::device_id(cx);
+        if !mine || meeting || this.download == Download::Unavailable || !this.own_voice(cx).active() {
+            return None;
+        }
+        let language = this.voice_for(Some(agent_id), cx).language;
+        let spoken = etalk::voice::spoken_text(body, VOICE.max_chars, &language);
+        (this.voices.contains(&language) && !spoken.is_empty()).then_some(spoken)
+    });
+    if let Some(text) = text {
+        speak_reply(id, text, session_id.to_string(), agent_id, cx);
+    }
+}
+
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
 /// voice settings save): adopt them and start or stop the voice here. The
 /// host reports its readiness again when the voice moved here or away.

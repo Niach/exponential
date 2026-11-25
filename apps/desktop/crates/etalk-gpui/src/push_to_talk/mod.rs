@@ -149,6 +149,8 @@ struct Sent {
 struct TurnDial {
     /// The worker's wake turn id (its Dial id too).
     id: String,
+    /// The call's id, once connected (nothing left this desktop before).
+    call_id: Option<String>,
     agent_id: String,
     link: Option<Box<dyn DialLink>>,
     /// The turn's audio until `call_ready` (sealed: until the seal is open):
@@ -214,6 +216,11 @@ pub struct PushToTalk {
     turn_agent: Option<String>,
     /// EXP-1859: the wake turn dialled to the agent's own device.
     turn_dial: Option<TurnDial>,
+    /// EXP-1859: the turn in flight was dialled before it fell back: its
+    /// host may have sent it, under this key.
+    turn_key: Option<String>,
+    /// [`Self::on_messages`] says the reply it finds (no one else will).
+    late: bool,
     /// #NEW-56: the tray's Mute, mirrored here: the tray calls in from its
     /// own update, where reading it would panic.
     muted: bool,
@@ -293,6 +300,8 @@ fn start(
             woken: false,
             turn_agent: None,
             turn_dial: None,
+            turn_key: None,
+            late: false,
             muted: false,
             overlay: overlay::Overlay::default(),
         }
@@ -782,6 +791,7 @@ impl PushToTalk {
         self.woken = false;
         // The key talks to the voice agent (push to talk stays with it).
         self.turn_agent = None;
+        self.turn_key = None;
         self.generation += 1;
         self.sent = None;
         self.reply_id = None;
@@ -939,6 +949,7 @@ impl PushToTalk {
         self.woken = true;
         // EXP-1859: the turn is the woken agent's.
         self.turn_agent = agent_id.clone();
+        self.turn_key = None;
         self.level = 0.;
         self.bands.clear();
         self.step(PttEvent::KeyDown { muted: false }, cx);
@@ -952,7 +963,7 @@ impl PushToTalk {
     /// the phrase's start) when the dial is refused, when `call_ready` has not
     /// come within `turnDialMs`, or on a failure before the host's `said`.
     fn dial_turn(&mut self, id: String, agent_id: String, phrase: String, cx: &mut Context<Self>) {
-        self.turn_dial = Some(TurnDial { id: id.clone(), agent_id: agent_id.clone(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
+        self.turn_dial = Some(TurnDial { id: id.clone(), call_id: None, agent_id: agent_id.clone(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
         let Some(connecting) = host::host(cx).and_then(|host| host.dial_turn(&agent_id, &phrase, cx)) else {
             log::info!("[voice] wake turn {id}: nothing to dial through: heard here");
             return self.fall_back(&id, cx);
@@ -985,10 +996,11 @@ impl PushToTalk {
                     return;
                 }
             };
-            let (link, rx) = (connection.link, connection.events);
+            let (call_id, link, rx) = (connection.call_id, connection.link, connection.events);
             let kept = this.update(cx, |this, _| match this.turn_dial.as_mut().filter(|turn| turn.id == id && this.generation == generation) {
                 Some(turn) => {
                     turn.link = Some(link);
+                    turn.call_id = Some(call_id);
                     true
                 }
                 None => {
@@ -1190,6 +1202,7 @@ impl PushToTalk {
         if let Some(link) = turn.link.as_ref() {
             link.end();
         }
+        self.turn_key = turn.call_id.as_deref().map(etalk::call::turn_message_id);
         if let Some(client) = self.client.as_ref() {
             client.fallback(id.to_string());
         }
@@ -1236,9 +1249,11 @@ impl PushToTalk {
         let Some(armed) = self.armed.clone() else { return };
         // EXP-1859: a wake turn goes to the agent whose phrase was heard.
         let turn_agent = self.turn_agent.clone().unwrap_or_else(|| armed.agent_id.clone());
-        let Some(outgoing) = host::outgoing(&turn_agent, &heard, cx) else {
+        let Some(mut outgoing) = host::outgoing(&turn_agent, &heard, cx) else {
             return;
         };
+        let key = self.turn_key.take();
+        outgoing.client_message_id = key.clone();
         let text = match &outgoing.target {
             etalk::voice::UtteranceTarget::Session { text, .. } | etalk::voice::UtteranceTarget::Agent { text, .. } => text.clone(),
         };
@@ -1260,6 +1275,13 @@ impl PushToTalk {
                         crate::speak_replies::voice_turn(&output.session_id, &agent_id, cx);
                         this.sent = Some(Sent { session_id: output.session_id, message_id: output.message_id, at: None });
                         this.step(PttEvent::Sent, cx);
+                        // EXP-1859: its host sent it first: the reply may be
+                        // here already, looked at before it was this turn's.
+                        if key.is_some() {
+                            this.late = true;
+                            this.on_messages(cx);
+                            this.late = false;
+                        }
                     }
                     Err(err) => {
                         log::warn!("[voice] push to talk: the send failed: {err}");
@@ -1313,6 +1335,10 @@ impl PushToTalk {
         let Some(Some(sent_at)) = sent_at else { return };
         let reply = replies.into_iter().filter(|(at, _, _)| *at > sent_at).min_by_key(|(at, _, _)| *at).map(|(_, id, body)| (id, body));
         let Some((id, body)) = reply else { return };
+        if self.late {
+            let agent_id = self.turn_agent.clone().unwrap_or_default();
+            crate::speak_replies::speak_late(id.clone(), &body, &sent.session_id, &agent_id, cx);
+        }
         let speaking = crate::speak_replies::speaking(cx).is_some_and(|speaking| speaking.message_id == id);
         self.reply_id = Some(id);
         self.step(PttEvent::Replied { body, speaking }, cx);
@@ -1641,7 +1667,7 @@ mod tests {
         rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some("a-ops".into()) }, cx);
         cx.update(|cx| {
             global(cx).unwrap().update(cx, |this, _| {
-                let turn = TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: Some(Box::new(link.clone())), held: Vec::new(), ready: true, answered: false, said: false, replying: false };
+                let turn = TurnDial { id: "wake-1".into(), call_id: Some("c-1".into()), agent_id: "a-ops".into(), link: Some(Box::new(link.clone())), held: Vec::new(), ready: true, answered: false, said: false, replying: false };
                 this.turn_dial = Some(turn);
             })
         });
@@ -1865,7 +1891,7 @@ mod tests {
             rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some("a-ops".into()) }, cx);
             cx.update(|cx| {
                 global(cx).unwrap().update(cx, |this, _| {
-                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
+                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), call_id: Some("c-1".into()), agent_id: "a-ops".into(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
                 })
             });
             rig.requests();
@@ -1925,6 +1951,7 @@ mod tests {
         assert_eq!(requests.first(), Some(&etalk::Request::Hangup { id: "wake-1".into() }), "{requests:?}");
         assert!(requests.iter().any(|request| matches!(request, etalk::Request::Listen { .. })), "{requests:?}");
         assert_eq!(*link.0.borrow(), ["end"], "reason-less");
+    }
 
     /// EXP-1859: a local wake turn of a TEAM agent: into ITS chat, its reply
     /// spoken, the capsule Speaking, then Replied.
@@ -1943,6 +1970,46 @@ mod tests {
         assert_eq!(phase(cx), PttPhase::Speaking);
         rig.worker(etalk::Event::Finished { id: "r1".into(), stopped: false }, cx);
         assert_eq!(phase(cx), PttPhase::Spoken);
+    }
+
+    /// EXP-1859: a turn that fell back after its call connected is sent under
+    /// the call's key (its host may have sent it), one that never connected
+    /// and an ordinary turn under none; the reply to the host's send, here
+    /// before this side's send answered, is spoken once.
+    #[gpui::test]
+    async fn a_fallen_back_turn_shares_its_hosts_message(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{Row, SENT, TEAM_AGENT, TEAM_CONVERSATION};
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        for (call_id, key) in [(Some("c-9"), Some("turn-c-9".to_string())), (None, None)] {
+            rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some(TEAM_AGENT.into()) }, cx);
+            cx.update(|cx| {
+                global(cx).unwrap().update(cx, |this, cx| {
+                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), call_id: call_id.map(str::to_string), agent_id: TEAM_AGENT.into(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
+                    this.fall_back("wake-1", cx);
+                })
+            });
+            if key.is_some() {
+                // The host sent it and the agent answered while this side still heard it.
+                let row = |id: &str, author_kind, second: u32| Row { id: id.into(), author_kind, body: "All green.".into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(TEAM_CONVERSATION) };
+                rig.row(row(SENT, "user", 5), cx);
+                rig.row(row("r1", "agent", 6), cx);
+                assert!(rig.spoken().is_empty());
+            }
+            rig.worker(etalk::Event::Heard { id: "wake-1".into(), text: "Status?".into() }, cx);
+            assert_eq!(rig.keys(), [key.clone()]);
+            if key.is_some() {
+                assert_eq!(rig.spoken(), ["r1"], "once");
+                assert_eq!(phase(cx), PttPhase::Speaking);
+                rig.worker(etalk::Event::Finished { id: "r1".into(), stopped: false }, cx);
+                cx.update(crate::messages_changed);
+                cx.run_until_parked();
+                assert!(rig.spoken().is_empty());
+            }
+        }
+        key(true, cx);
+        key(false, cx);
+        rig.worker(etalk::Event::Heard { id: "ptt-1".into(), text: "Status?".into() }, cx);
+        assert_eq!(rig.keys(), [None]);
     }
 
     /// #EXP-1936: the speech worker died while the key was held: no Heard,

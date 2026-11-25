@@ -484,10 +484,11 @@ impl ExponentialHost {
                 }
             });
             let (tx, events) = flume::unbounded::<DialLinkEvent>();
+            let call_id = started.call_id.clone();
             let caller = steer::call_caller::connect_sealed(&runtime, started.url, &started.call_id, sealing, move |event| {
                 let _ = tx.send(dial_event(event));
             });
-            Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
+            Ok(DialConnection { call_id, link: Box::new(SteerDial(caller)), events })
         }))
     }
 }

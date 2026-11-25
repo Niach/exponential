@@ -204,7 +204,8 @@ pub trait Net: Send {
     }
     /// Send `text` to the agent (`root` = its conversation, None = new;
     /// #EXP-1961 `session` = the call's own session, sealed with `root`'s key).
-    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String);
+    /// EXP-1859: `key` = a turn call's one message (`turn_message_id`).
+    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>);
     /// #EXP-1981: ask `voice.callSession` for a sealed call once its key
     /// source adopted the root; the answer comes back as [`Input::Session`].
     fn ask_call_session(&self, call_id: String, agent_id: String);
@@ -645,7 +646,10 @@ impl Host {
                 HostEffect::Stop => self.speech.stop(),
                 HostEffect::Hangup { id } => self.speech.hangup(&id),
                 HostEffect::End => call.link.end(),
-                HostEffect::Send { text, session } => self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text),
+                HostEffect::Send { text, session } => {
+                    let key = call.host.is_turn().then(|| etalk::call::turn_message_id(&call.call_id));
+                    self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text, key);
+                }
                 HostEffect::CallEnded { session } => self.net.call_ended(session),
                 // A server has no screen: the caller got the code.
                 HostEffect::Toast { .. } => {}
@@ -1097,7 +1101,7 @@ enum Delivered {
 /// now, or with a new one's key inline. #EXP-2013: a first send the server
 /// refused may have raced the chat's first message: the target is read again
 /// and, named, the words go sealed into it once more before the call ends.
-fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Delivered {
+fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str, key: Option<&str>) -> Delivered {
     let mut retried = false;
     loop {
         let named = match root {
@@ -1118,13 +1122,14 @@ fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgen
         if retried && named.is_none() {
             return Delivered::Unstored;
         }
-        let UtteranceSend { input, seal, plain } = match seal_utterance(wire, agent, named.as_deref(), session, text) {
+        let UtteranceSend { mut input, seal, plain } = match seal_utterance(wire, agent, named.as_deref(), session, text) {
             Ok(send) => send,
             Err(err) => {
                 log::warn!("[voice] call {call_id}: the utterance was not sent: it could not be encrypted ({err}). Nothing left this device; the call ends");
                 return Delivered::Unstored;
             }
         };
+        input.client_message_id = key.map(str::to_string);
         let err = match wire.send(&input) {
             Ok(out) => {
                 if let Some(seal) = seal {
@@ -1178,11 +1183,11 @@ impl Net for DaemonNet {
         self.answer_ring(call_id, agent_id, true);
     }
 
-    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String) {
+    fn send(&self, call_id: String, agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>) {
         let (deps, tx) = (Arc::clone(&self.deps), self.tx.clone());
         let _ = std::thread::Builder::new().name("voice-send".into()).spawn(move || {
             let wire = DaemonWire(&deps);
-            let input = match deliver_utterance(&wire, &call_id, &agent, root.as_deref(), session.as_deref(), &text) {
+            let input = match deliver_utterance(&wire, &call_id, &agent, root.as_deref(), session.as_deref(), &text, key.as_deref()) {
                 Delivered::Sent(session_id) => Input::Sent { call_id, session_id },
                 Delivered::Unstored => Input::Unstored { call_id },
                 Delivered::Failed => return,
@@ -1607,8 +1612,9 @@ mod tests {
         fn answer_turn(&self, call_id: String, agent_id: String) {
             self.log.push(format!("answer-turn {call_id} {agent_id}"));
         }
-        fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, session: Option<String>, text: String) {
-            self.log.push(format!("send {call_id} {} {text}", session.or(root).unwrap_or_default()));
+        fn send(&self, call_id: String, _agent: HostedAgent, root: Option<String>, session: Option<String>, text: String, key: Option<String>) {
+            let key = key.map(|key| format!(" ({key})")).unwrap_or_default();
+            self.log.push(format!("send {call_id} {} {text}{key}", session.or(root).unwrap_or_default()));
         }
         fn ask_call_session(&self, call_id: String, agent_id: String) {
             self.log.push(format!("session {call_id} {agent_id}"));
@@ -2299,7 +2305,7 @@ mod tests {
         rig.handle(Input::Worker(etalk::Event::Partial { id: "call-1".into(), text: "wie spät".into() }));
         rig.handle(Input::Worker(etalk::Event::Said { id: "call-1".into(), text: "Wie spät ist es?".into() }));
         assert_eq!(rig.link.take(), [r#"event {"t":"partial","text":"wie spät"}"#, r#"event {"t":"said","text":"Wie spät ist es?"}"#]);
-        assert_eq!(rig.net.take(), ["send c1 root-1 Wie spät ist es?"], "into the chat, never a call session");
+        assert_eq!(rig.net.take(), ["send c1 root-1 Wie spät ist es? (turn-c1)"], "into the chat, never a call session, under the turn's key");
         // The first reply after the send: spoken, then the host hangs up.
         rig.rows.lock().unwrap().push(row("r1", "agent", "Es ist drei Uhr. Sonst noch etwas?", "2099-01-01T00:00:00Z"));
         rig.advance(REPLY_POLL);
@@ -2772,7 +2778,7 @@ mod tests {
             let (root, sessions): (_, &[Option<&str>]) = if chat == "none" { (None, &[None]) } else { (Some("root-1"), &[None, Some("call-s")]) };
             for &session in sessions {
                 let wire = Wire { error: error.clone(), ..Wire::naming(&[None]) };
-                let out = deliver_utterance(&wire, "c1", &agent(), root, session, WORDS);
+                let out = deliver_utterance(&wire, "c1", &agent(), root, session, WORDS, None);
                 let to = session.or(root).unwrap_or("agent:agent-1");
                 let sent: Vec<String> = match case["sent"].as_str() {
                     Some("plain") => vec![format!("{to} {WORDS}")],
@@ -2791,7 +2797,7 @@ mod tests {
         }
         // A conversation the server names at the first send is no new chat.
         let wire = Wire { error: Some(SealError::NotReader), ..Wire::naming(&[Some("root-1")]) };
-        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, WORDS), Delivered::Unstored);
+        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, WORDS, None), Delivered::Unstored);
         assert!(wire.sent().is_empty());
     }
 
@@ -2839,7 +2845,7 @@ mod tests {
     /// still missing, or a second refusal, ends the call.
     #[test]
     fn a_first_utterance_refused_goes_sealed_into_the_chat_that_exists_now() {
-        let deliver = |wire: &Wire, root, session| deliver_utterance(wire, "c1", &agent(), root, session, "hello");
+        let deliver = |wire: &Wire, root, session| deliver_utterance(wire, "c1", &agent(), root, session, "hello", Some("turn-c1"));
         let raced = Wire { refuse_first: true, ..Wire::naming(&[None, Some("root-1")]) };
         assert_eq!(deliver(&raced, None, None), Delivered::Sent("root-1".into()));
         assert_eq!(raced.sent(), ["agent:agent-1 inline", "root-1 sealed"]);

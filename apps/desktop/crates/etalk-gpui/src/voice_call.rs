@@ -101,6 +101,8 @@ struct Active {
     /// EXP-1859: a TURN call streamed in (a wake turn of another desktop):
     /// no panel, no pill, no busy telephone, no toast.
     turn: bool,
+    /// Its one message's key ([`etalk::call::turn_message_id`]).
+    turn_key: Option<String>,
 }
 
 /// S-3: what changes many times a second (the microphone's level, the
@@ -890,6 +892,7 @@ impl VoiceCall {
         };
         if let Some(active) = self.active.as_mut() {
             active.turn = turn.is_some();
+            active.turn_key = call_id.as_deref().filter(|_| turn.is_some()).map(etalk::call::turn_message_id);
             active.call = Some(CallHost::new(start));
         }
         // EXP-1859: a turn call: no ring, no call session, no surface to tick.
@@ -1055,7 +1058,7 @@ impl VoiceCall {
     fn open(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, cx: &mut Context<Self>) -> String {
         self.counter += 1;
         let id = format!("call-{}", self.counter);
-        self.active = Some(Active { id: id.clone(), agent_id, call: None, host, dialled: false, dial: None, answered_at: None, turn: false });
+        self.active = Some(Active { id: id.clone(), agent_id, call: None, host, dialled: false, dial: None, answered_at: None, turn: false, turn_key: None });
         self.due = None;
         self.live.update(cx, |live, _| *live = CallLive::default());
         id
@@ -1324,6 +1327,7 @@ impl VoiceCall {
     /// plain message into the conversation.
     fn send(&mut self, agent_id: &str, text: String, session: Option<String>, cx: &mut Context<Self>) {
         let Some(mut outgoing) = host::outgoing(agent_id, &text, cx) else { return };
+        outgoing.client_message_id = self.active.as_ref().and_then(|active| active.turn_key.clone());
         // #EXP-1961: into the call's own session (sealed with the chat's tree key).
         if let Some(session) = session {
             let text = match &outgoing.target {
@@ -2407,6 +2411,7 @@ mod tests {
         rig.worker(etalk::Event::CallListening { id: id.clone() }, cx);
         rig.worker(etalk::Event::Said { id: id.clone(), text: "What's new?".into() }, cx);
         assert_eq!(rig.sent(), [(Some(CONVERSATION.to_string()), "What's new?".to_string())], "into the chat");
+        assert_eq!(rig.keys(), [Some("turn-c-turn".to_string())], "the turn's one message");
         assert_eq!(std::mem::take(&mut *link.borrow_mut()), [r#"event {"t":"said","text":"What's new?"}"#]);
         // The first reply after the send is the turn's: spoken on the stream.
         rig.row(Row { id: "m-1".into(), author_kind: "agent", body: "Two issues. Both small.".into(), has_card: false, created_at: "2026-11-17T10:00:05.000Z".into(), session_id: None }, cx);
