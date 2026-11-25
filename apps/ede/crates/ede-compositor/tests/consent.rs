@@ -68,11 +68,17 @@ fn interpreter(exe: &Path) -> Option<PathBuf> {
 /// A process of `exe` (a [`copy_as`]) in the asking role: the interpreter
 /// runs this test binary's `role_ask`.
 fn asker(exe: &Path) -> Command {
+    role(exe, "role_ask")
+}
+
+/// A process of `exe` (a [`copy_as`]): the interpreter runs this test
+/// binary's ignored test `name`.
+fn role(exe: &Path, name: &str) -> Command {
     let mut command = Command::new(exe);
     if loader().is_some() {
         command.arg(std::env::current_exe().unwrap());
     }
-    command.args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]);
+    command.args(["--exact", name, "--ignored", "--nocapture", "--test-threads=1"]);
     command
 }
 
@@ -169,6 +175,15 @@ fn run(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: 
 
 fn said<'a>(run: &'a Run, what: &str) -> &'a str {
     run.lines.iter().find_map(|l| l.strip_prefix(&format!("{what} "))).unwrap_or_else(|| panic!("no {what} in {:?}", run.lines))
+}
+
+/// The role that only runs: until its stdin ends (its parent, or the test).
+#[test]
+#[ignore = "#EDE-220: a role of the consent tests"]
+fn role_hold() {
+    if std::env::var(ROLE).as_deref() == Ok("hold") {
+        std::io::copy(&mut std::io::stdin(), &mut std::io::sink()).unwrap();
+    }
 }
 
 /// The asking role: hello with the root token (and again, when asked to),
@@ -302,47 +317,60 @@ fn a_rewrite_in_place_is_hashed_again() {
 /// #EDE-206: what a hash is cached by. A file the person can write: by the
 /// process too, each new process of it hashed once, the file unchanged or
 /// not; root's own file: by the file, for every process that runs it.
-/// #EDE-211: the person's file is the ELF loader copied, running
-/// `/usr/bin/sleep`; never a copy of `sleep`, which on uutils (Ubuntu
-/// 26.04, the GitHub-hosted runners) is the multicall `coreutils`: it takes
-/// its utility from its own name, and as `exponential` it ends within
-/// milliseconds (`30: function/utility not found`), between `peer_running`
-/// and `hash_key`.
+/// #EDE-220: the stand-ins block on a pipe of the test's and end with it.
+/// The person's file is the ELF loader copied, running this test binary's
+/// `role_hold`; never a program of the system's coreutils: uutils (Ubuntu
+/// 26.04, the GitHub-hosted runners) takes its utility from its own name or
+/// compares it with the file executed, and ends at once under another one
+/// (`Security violation: Requested utility `sleep` does not match
+/// executable name`), between `peer_running` and `hash_key`, or before.
 #[test]
 fn a_persons_file_is_hashed_per_process_and_roots_per_file() {
     if loader().is_none() {
         eprintln!("skipped: this test binary has no ELF loader to copy");
         return;
     }
-    let sleep = std::fs::canonicalize("/usr/bin/sleep").unwrap();
+    let cat = std::fs::canonicalize("/usr/bin/cat").unwrap();
     let dir = tempfile::tempdir().unwrap();
     let theirs = std::fs::canonicalize(copy_as(dir.path(), "exponential", b"")).unwrap();
-    let running = |exe: &Path, args: &[&Path]| {
-        let child = spawn(Command::new(exe).args(args).arg("30"));
+    let running = |exe: &Path, command: &mut Command| {
+        let child = spawn(command.stdin(Stdio::piped()).stdout(Stdio::null()));
         let peer = peer_running(child.id(), exe);
         (child, peer)
     };
-    let (a, peer_a) = running(&theirs, &[&sleep]);
-    let (b, peer_b) = running(&theirs, &[&sleep]);
+    let (a, peer_a) = running(&theirs, role(&theirs, "role_hold").env(ROLE, "hold"));
+    let (b, peer_b) = running(&theirs, role(&theirs, "role_hold").env(ROLE, "hold"));
     let key_a = key_of(&peer_a, &theirs);
     assert!(matches!(key_a, HashKey::Process { pid, start, .. } if pid == peer_a.pid && start == peer_a.start), "{key_a:?}");
     assert_eq!(ede_compositor::consent::hash_key(&peer_a), Some(key_a), "one process: one key");
     assert_ne!(key_of(&peer_b, &theirs), key_a, "another process of the same file: hashed again");
     let mut children = vec![a, b];
-    if ede_compositor::peer::root_owned(&sleep).is_some() {
-        let (c, peer_c) = running(&sleep, &[]);
-        let (d, peer_d) = running(&sleep, &[]);
-        let key_c = key_of(&peer_c, &sleep);
+    if ede_compositor::peer::root_owned(&cat).is_some() {
+        let (c, peer_c) = running(&cat, &mut Command::new(&cat));
+        let (d, peer_d) = running(&cat, &mut Command::new(&cat));
+        let key_c = key_of(&peer_c, &cat);
         assert!(matches!(key_c, HashKey::File(..)), "{key_c:?}");
-        assert_eq!(key_of(&peer_d, &sleep), key_c, "root's file: one key for every process");
+        assert_eq!(key_of(&peer_d, &cat), key_c, "root's file: one key for every process");
         children.extend([c, d]);
     } else {
-        eprintln!("skipped root's half: {} is not root-owned here", sleep.display());
+        eprintln!("skipped root's half: {} is not root-owned here", cat.display());
     }
     for child in &mut children {
-        let _ = child.kill();
-        let _ = child.wait();
+        assert_eq!(child.try_wait().unwrap(), None, "a stand-in ended while the test ran");
+        drop(child.stdin.take());
+        let ended = child.wait().unwrap();
+        assert!(ended.success(), "a stand-in failed: {ended}");
     }
+}
+
+/// #EDE-220: a stand-in that ended says how, at once (the zombie's `exe` is
+/// gone: it used to wait out the minute and name none of it).
+#[test]
+#[should_panic(expected = "ended before it was looked at: exit status: 7")]
+fn a_stand_in_that_ended_fails_with_its_exit_status() {
+    let child = Command::new("/bin/sh").args(["-c", "exit 7"]).spawn().unwrap();
+    ended(child.id(), true);
+    peer_running(child.id(), Path::new("/proc/self/exe"));
 }
 
 /// [`hash_key`] of `peer`, a process of the file `exe`; else a failure that
@@ -550,11 +578,31 @@ fn peer_running(pid: u32, exe: &Path) -> Peer {
         if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe.as_ref().is_some_and(|e| (e.dev, e.ino) == (file.dev(), file.ino()))) {
             return p;
         }
+        if let Some(how) = ended(pid, false) {
+            panic!("{} in process {pid} ended before it was looked at: {how}", exe.display());
+        }
         if Instant::now() > deadline {
             let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
             panic!("{} ({}:{}) never ran in process {pid}: its exe {:?}, peer {:?}, stat {}", exe.display(), file.dev(), file.ino(), std::fs::read_link(format!("/proc/{pid}/exe")), Peer::of_pid(pid).map(|p| p.exe), stat.trim());
         }
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// How `pid`, a child of this process, ended (`None` = it runs, or is no
+/// child of this one), leaving it to be waited for; `wait` = waits for it.
+fn ended(pid: u32, wait: bool) -> Option<std::process::ExitStatus> {
+    use std::os::unix::process::ExitStatusExt;
+    let flags = libc::WEXITED | libc::WNOWAIT | if wait { 0 } else { libc::WNOHANG };
+    // Safety: an all-zero siginfo_t is valid, waitid only writes to it, and
+    // its pid and status are read once it says the child ended.
+    unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        if libc::waitid(libc::P_PID, pid, &mut info, flags) != 0 || info.si_pid() == 0 {
+            return None;
+        }
+        let status = info.si_status();
+        Some(std::process::ExitStatus::from_raw(if info.si_code == libc::CLD_EXITED { status << 8 } else { status }))
     }
 }
 
