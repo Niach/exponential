@@ -14,7 +14,7 @@
 //! Behaviour follows Cinnamon's defaults; no code is shared with it.
 
 use serde_json::json;
-use smithay::{backend::input::KeyState, input::keyboard::{keysyms, ModifiersState}};
+use smithay::{backend::input::KeyState, input::keyboard::{keysyms, ModifiersState}, utils::IsAlive};
 
 use crate::{desk::DeskId, state::Ede};
 
@@ -99,8 +99,12 @@ pub struct Hotkeys {
     super_pending: bool,
     /// Decided in the keyboard filter, run after the key was delivered.
     pub(crate) fired: Option<Hotkey>,
-    /// The switcher's own position while the compositor cycles for a dead shell.
-    fallback_steps: usize,
+    /// The switcher's own position while the compositor cycles for a dead
+    /// shell (#EDE-225): Tab steps forward, Shift+Tab back, over
+    /// `fallback_order`.
+    fallback_steps: isize,
+    /// The windows, most recent first, as they stood at the first Tab.
+    fallback_order: Vec<smithay::desktop::Window>,
 }
 
 /// The keysym `decide` sees for the key above Tab (xkb keycode 49, evdev
@@ -118,7 +122,6 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
     if state == KeyState::Released {
         if h.switcher && is_alt {
             h.switcher = false;
-            h.fallback_steps = 0;
             return (false, Some(Hotkey::SwitcherCommit));
         }
         if is_super && std::mem::take(&mut h.super_pending) {
@@ -139,7 +142,6 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
             KEY_Left => (true, Some(Hotkey::SwitcherPrev)),
             KEY_Escape => {
                 h.switcher = false;
-                h.fallback_steps = 0;
                 (true, Some(Hotkey::SwitcherCancel))
             }
             // Anything else while the switcher is up stays with it.
@@ -197,6 +199,8 @@ impl Ede {
         match hotkey {
             Hotkey::SwitcherNext => self.cycle_focus(false),
             Hotkey::SwitcherPrev => self.cycle_focus(true),
+            Hotkey::SwitcherCommit => self.cycle_commit(),
+            Hotkey::SwitcherCancel => self.cycle_reset(),
             // No shell to launch one: the compositor opens the terminal itself.
             Hotkey::Terminal => self.spawn_for_person(&["x-terminal-emulator".to_string()]),
             _ => {}
@@ -213,17 +217,41 @@ impl Ede {
         self.spawn(&["sh".to_string(), "-c".to_string(), command]);
     }
 
-    /// The fallback switcher (#EDE-16): focus moves to the next window in
-    /// most-recent-first order (the stacking order), as Alt+Tab did on
-    /// window managers before switchers drew anything.
+    /// The fallback switcher (#EDE-16): each Tab steps to the next window
+    /// in most-recent-first order (the stacking order at the first Tab),
+    /// Shift+Tab back; releasing Alt raises and focuses the pick
+    /// ([`Self::cycle_commit`]), as Alt+Tab did on window managers before
+    /// switchers drew anything. #EDE-225: it reads its own position, so
+    /// three windows and Tab twice reach the third.
     pub fn cycle_focus(&mut self, reverse: bool) {
-        let windows: Vec<_> = self.desk.space.elements().cloned().collect();
-        if windows.len() < 2 {
+        if self.hotkeys.fallback_order.is_empty() {
+            self.hotkeys.fallback_order = self.desk.space.elements().rev().cloned().collect();
+            self.hotkeys.fallback_steps = 0;
+        }
+        if self.hotkeys.fallback_order.len() < 2 {
+            self.cycle_reset();
             return;
         }
-        let target = if reverse { windows.first().cloned() } else { windows.iter().rev().nth(1).cloned() };
-        self.hotkeys.fallback_steps += 1;
-        self.focus(DeskId::PERSON, target);
+        self.hotkeys.fallback_steps += if reverse { -1 } else { 1 };
+    }
+
+    /// Alt released after the fallback's Tabs: the pick on top, focused.
+    fn cycle_commit(&mut self) {
+        let (steps, order) = (self.hotkeys.fallback_steps, std::mem::take(&mut self.hotkeys.fallback_order));
+        self.cycle_reset();
+        if order.len() < 2 {
+            return;
+        }
+        let pick = order[steps.rem_euclid(order.len() as isize) as usize].clone();
+        // A window that closed (or was minimized) during the hold is no pick.
+        if pick.alive() && self.desk.space.elements().any(|w| *w == pick) {
+            self.focus(DeskId::PERSON, Some(pick));
+        }
+    }
+
+    fn cycle_reset(&mut self) {
+        self.hotkeys.fallback_steps = 0;
+        self.hotkeys.fallback_order.clear();
     }
 
     /// A hold released the person's keys (#EDE-80): a Super that was down
@@ -231,7 +259,7 @@ impl Ede {
     pub(crate) fn hotkeys_let_go(&mut self) {
         self.hotkeys.super_pending = false;
         if std::mem::take(&mut self.hotkeys.switcher) {
-            self.hotkeys.fallback_steps = 0;
+            self.cycle_reset();
             self.hotkey(Hotkey::SwitcherCancel);
         }
     }

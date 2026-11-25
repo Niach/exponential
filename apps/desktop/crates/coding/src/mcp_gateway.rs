@@ -242,6 +242,8 @@ impl SealingTransform {
                     // started at all (`clearTree.writerCases` new + none).
                     return Err(match err {
                         SealError::NoService => no_holder("", "a new session", ""),
+                        // #EXP-2123 (`keyMaker` newRoot = `refused`): no root is made.
+                        SealError::KeyMakerWaits => sealing::NO_KEY_REFUSAL.to_string(),
                         err => refused("a new session", &err),
                     });
                 }
@@ -313,6 +315,11 @@ impl SealingTransform {
         let (Some(install_id), Some(public)) = (service.install_id(), service.install_public()) else {
             return Err(SealError::NoKey("this install cannot wrap a tree key yet".into()));
         };
+        // #EXP-2123 (install-trust.json `keyMaker` newRoot): an install that
+        // waits for approval makes no key: the send fails, nothing leaves.
+        if !service.makes_keys() {
+            return Err(SealError::KeyMakerWaits);
+        }
         let readers = target_device.map(|device| service.new_root_readers(device)).unwrap_or_default();
         sealing::seal_new_root(&install_id, &public, &readers)
     }
@@ -731,6 +738,21 @@ impl GatewayTransform for SealingTransform {
 
     fn result(&self, tool: &str, args_sent: &Value, mut result: Value) -> Value {
         let failed = result.get("isError") == Some(&Value::Bool(true));
+        // #EXP-2123 (`keyMaker`): the server refused a new root's inline key
+        // (this install waits for approval): the send failed with the
+        // no-key refusal, never the raw text; its seal is dropped.
+        if failed && tool == SEND_TOOL && args_sent.get("seal").is_some() {
+            if let Some(items) = result.get_mut("content").and_then(Value::as_array_mut) {
+                for item in items.iter_mut() {
+                    if item.get("text").and_then(Value::as_str).is_some_and(enet_core::key_maker::is_key_maker_refusal) {
+                        item["text"] = Value::String(sealing::NO_KEY_REFUSAL.to_string());
+                    }
+                }
+            }
+            if let Some(public) = args_sent.pointer("/seal/publicKey").and_then(Value::as_str) {
+                self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).remove(public);
+            }
+        }
         if let Some(items) = result.get_mut("content").and_then(Value::as_array_mut) {
             for item in items.iter_mut() {
                 if item.get("type").and_then(Value::as_str) != Some("text") {
@@ -814,6 +836,10 @@ fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
     match err {
         SealError::ClearTree => Ok(()),
         SealError::NoService => Err(no_holder("", what, "")),
+        SealError::KeyMakerWaits => {
+            log::warn!("gateway: {what} not sent: this install waits for approval and makes no chat key");
+            Err(sealing::NO_KEY_REFUSAL.to_string())
+        }
         err => Err(refused(what, err)),
     }
 }
@@ -1816,7 +1842,13 @@ mod tests {
                         let args = message["params"]["arguments"].clone();
                         record.lock().unwrap().push((tool.clone(), args.clone()));
                         let data = answer(&tool, &args);
-                        json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": serde_json::to_string_pretty(&data).unwrap() }] } })
+                        // `{isError, text}`: the server's tool error.
+                        if data.get("isError") == Some(&Value::Bool(true)) {
+                            let text = data["text"].as_str().unwrap_or_default();
+                            json!({ "jsonrpc": "2.0", "id": id, "result": { "isError": true, "content": [{ "type": "text", "text": text }] } })
+                        } else {
+                            json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": serde_json::to_string_pretty(&data).unwrap() }] } })
+                        }
                     }
                     // A whole `initialize` answer: the transform's own reads
                     // go through emcp's client, which reads it strictly.
@@ -2062,6 +2094,35 @@ mod tests {
         assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be encrypted")), "{out}");
         assert_eq!(calls_of(&server, SEND_TOOL).len(), sends);
         assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
+        codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    /// #EXP-2123 (install-trust.json `keyMaker` newRoot = `refused`): an
+    /// install that waits for approval starts no chat (no seal, nothing
+    /// sent); the server's refusal of an inline seal reads the no-key
+    /// refusal, never the raw text.
+    #[test]
+    fn a_waiting_install_starts_no_chat_and_the_servers_refusal_reads_no_key() {
+        let _serial = serial();
+        let install = enet_core::PushKeypair::generate();
+        let fake = Arc::new(crate::sealing::test_support::FakeService { install_public: Some(install.public()), ..Default::default() });
+        fake.waits.store(true, std::sync::atomic::Ordering::SeqCst);
+        sealing::install(fake.clone());
+        let answer: Answer = Arc::new(|_, _| {
+            json!({ "isError": true, "text": enet_core::key_maker::KEY_MAKER_REFUSAL })
+        });
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "s-own", "root-own");
+        let out = call(&grant, SEND_TOOL, json!({ "text": "start this", "deviceId": "d1" }));
+        assert_eq!(out["error"], sealing::NO_KEY_REFUSAL, "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty(), "nothing left this device");
+        // Approved here, but the server still lists it as waiting.
+        fake.waits.store(false, std::sync::atomic::Ordering::SeqCst);
+        let out = call(&grant, SEND_TOOL, json!({ "text": "start this", "deviceId": "d1" }));
+        assert!(calls_of(&server, SEND_TOOL).pop().unwrap()["seal"].is_object());
+        assert_eq!(out["error"], sealing::NO_KEY_REFUSAL, "{out}");
+        assert_eq!(fake.keyring.current("root-new"), None, "no root adopted");
         codemode::revoke("s-own");
         sealing::uninstall();
     }

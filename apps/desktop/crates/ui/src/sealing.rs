@@ -568,6 +568,17 @@ fn send_sealed(
         Ok(out)
     };
     let stale = |err: &api::ApiError| matches!(err, api::ApiError::Http { message, .. } if domain::sealed::is_stale_tree_refusal(message));
+    // #EXP-2123 (install-trust.json `keyMaker`): the server refused a new
+    // root's inline key (this install waits for approval): the failed-send
+    // refusal, never the raw text.
+    let mut attempt = |fresh: bool| {
+        attempt(fresh).map_err(|err| match err {
+            api::ApiError::Http { status: 403, message } if enet_core::install_trust::is_key_maker_refusal(&message) => {
+                no_key(sealing::NO_KEY_REFUSAL.to_string())
+            }
+            other => other,
+        })
+    };
     match attempt(false) {
         Err(err) if stale(&err) => attempt(true).map_err(|err| match err {
             api::ApiError::Http { status, message } if domain::sealed::is_stale_tree_refusal(&message) => {

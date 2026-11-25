@@ -108,6 +108,10 @@ pub enum ConversationRefusal {
     NotReader,
     /// Another writer keyed the root between the op's read and its write.
     StaleTree,
+    /// #EXP-2123 (install-trust.json `keyMaker` newRoot): the server lists
+    /// this install as waiting for approval: no chat is made, the call ends
+    /// with the no-key refusal.
+    Waits,
     Other(String),
 }
 
@@ -207,6 +211,7 @@ pub fn host_key(ops: &dyn CallKeyOps, call_id: &str, agent_id: &str, device_id: 
                 // Another writer keyed the root in between: once more, and
                 // the server answers the stored key.
                 Err(ConversationRefusal::StaleTree) => ops.call_conversation(agent_id, call_id, device_id, &seal).map_err(refused)?,
+                Err(ConversationRefusal::Waits) => return Err(coding::sealing::NO_KEY_REFUSAL.to_string()),
                 Err(other) => return Err(refused(other)),
             };
             // ONLY an own key is adopted: an adoption overwrites what the
@@ -324,6 +329,7 @@ impl CallKeySource for CallerKeys {
 pub fn conversation_refusal(err: &api::ApiError) -> ConversationRefusal {
     match err {
         api::ApiError::Http { status: 409, .. } => ConversationRefusal::StaleTree,
+        api::ApiError::Http { status: 403, message } if enet_core::install_trust::is_key_maker_refusal(message) => ConversationRefusal::Waits,
         api::ApiError::Http { status: 400, message } if message.contains("not a reader") => ConversationRefusal::NotReader,
         other => ConversationRefusal::Other(other.to_string()),
     }
@@ -689,6 +695,8 @@ mod tests {
         assert_eq!(conversation_refusal(&http(400, "A wrap names an install that is not a reader")), ConversationRefusal::NotReader);
         assert!(matches!(conversation_refusal(&http(400, "Invalid input")), ConversationRefusal::Other(_)));
         assert!(matches!(conversation_refusal(&http(403, "not your agent")), ConversationRefusal::Other(_)));
+        // #EXP-2123: the keyMaker refusal is its own.
+        assert_eq!(conversation_refusal(&http(403, enet_core::install_trust::KEY_MAKER_REFUSAL)), ConversationRefusal::Waits);
     }
 
     /// The sources run on the blocking pool; a call that ends drops the

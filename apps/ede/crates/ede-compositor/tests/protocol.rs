@@ -13,6 +13,7 @@ use ede_protocol::{events, Capability, CaptureTarget, Client, Error, ErrorCode, 
 
 const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
+const GREEN: u32 = 0xff00_ff00;
 const BLACK: u32 = 0xff00_0000;
 const KEY_A: u32 = 30;
 // evdev codes; a smithay Keycode is the code + 8.
@@ -335,6 +336,60 @@ fn without_a_shell_alt_tab_cycles_focus_and_media_keys_reach_the_app() {
     let agent = root.mint(SessionId::new("agent-1").unwrap(), vec![Capability::Ui], None).unwrap();
     let mut agent = h.ipc_with(agent.token).unwrap();
     assert_eq!(code(agent.logout().unwrap_err()), ErrorCode::Forbidden);
+}
+
+/// #EDE-225: the fallback switcher steps through the windows, most recent
+/// first, and raises the pick on Alt's release: with three windows, Tab
+/// twice reaches the third (it used to flip between the top two). Escape
+/// cancels: the focus stays.
+#[test]
+fn without_a_shell_alt_tab_twice_reaches_the_third_window() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let a = app.toplevel("a");
+    app.draw(&a, 300, 200, BLUE);
+    let b = app.toplevel("b");
+    app.draw(&b, 300, 200, RED);
+    let c = app.toplevel("c");
+    app.draw(&c, 300, 200, GREEN);
+    wait_for(&mut app, |s| s.state.keyboard_focus.as_ref() == Some(&c.surface));
+    let tabs = |n: usize| {
+        press(&h, KEY_LEFTALT, true);
+        for _ in 0..n {
+            press(&h, KEY_TAB, true);
+            press(&h, KEY_TAB, false);
+        }
+        press(&h, KEY_LEFTALT, false);
+    };
+    // Most recent first: c, b, a. Tab twice: a, raised on top.
+    tabs(2);
+    wait_for(&mut app, |s| s.state.keyboard_focus.as_ref() == Some(&a.surface));
+    let top = h.with(|ede| {
+        use smithay::reexports::wayland_server::Resource;
+        ede.desk.space.elements().last().and_then(|w| w.toplevel().map(|t| t.wl_surface().id().protocol_id()))
+    });
+    assert_eq!(top, Some(wayland_client::Proxy::id(&a.surface).protocol_id()), "the pick is raised");
+    // Now a, c, b: Tab once is the previous window, c.
+    tabs(1);
+    wait_for(&mut app, |s| s.state.keyboard_focus.as_ref() == Some(&c.surface));
+    // c, a, b: Tab three times wraps round to c itself.
+    tabs(3);
+    app.roundtrip();
+    std::thread::sleep(Duration::from_millis(50));
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&c.surface), "three Tabs over three windows come back");
+    // Escape cancels.
+    press(&h, KEY_LEFTALT, true);
+    press(&h, KEY_TAB, true);
+    press(&h, KEY_TAB, false);
+    press(&h, KEY_ESC, true);
+    press(&h, KEY_ESC, false);
+    press(&h, KEY_LEFTALT, false);
+    app.roundtrip();
+    std::thread::sleep(Duration::from_millis(50));
+    app.roundtrip();
+    assert_eq!(app.state.keyboard_focus.as_ref(), Some(&c.surface), "Escape kept the focus");
 }
 
 #[test]

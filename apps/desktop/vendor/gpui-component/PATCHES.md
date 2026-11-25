@@ -54,6 +54,9 @@ upstream carries them).
   `Spinner`: `eui_gpui::view::init` registers genUI's `spinner_glyph`, so
   the IDE's loading buttons (`src/button/button_icon.rs`) spin the ONE arc
   genUI's Spinner and `controls::spinner` draw.
+- EXP-1859, `src/menu/popup_menu.rs`: an element row may shrink
+  (`min_w_0`), so a label longer than the menu's max width truncates and
+  its trailing control (the voice menu's switch) stays inside.
 - Packaging only: dropped `tests/` (and the manifest's `[[test]]` entry that
   pointed into it), `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`.
   No other source is modified.

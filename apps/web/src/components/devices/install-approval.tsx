@@ -81,7 +81,7 @@ export function PendingInstalls({ trust }: { trust?: InstallTrustView }) {
     children: view.rows.map((row) => pendingRow(row, titleOf(row))),
   }
   const onAction = (event: SurfaceActionEvent) => {
-    const id = (event.payload as { id?: string } | undefined)?.id
+    const id = event.context.id
     const row = view.rows.find((candidate) => candidate.installId === id)
     if (!row) return
     const run = event.name === `approve` ? view.approve(row) : event.name === `remove` ? view.remove(row) : undefined

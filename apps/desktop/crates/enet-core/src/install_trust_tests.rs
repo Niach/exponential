@@ -356,3 +356,31 @@ fn the_store_round_trips_as_json() {
     assert!(text.contains("\"self\":") && text.contains("\"verifiedEpoch\"") && text.contains("\"via\":\"self\""));
     assert_eq!(serde_json::from_str::<TrustStore>(&text).unwrap(), store);
 }
+
+/// #EXP-2123 `keyMaker`: the refusal, the server's waiting rule, the
+/// client's step and the stranded rotation, every case by name.
+#[test]
+fn key_maker_every_case_by_name() {
+    let fx = fixture();
+    let km = &fx["keyMaker"];
+    assert_eq!(text(&km["refusal"]), KEY_MAKER_REFUSAL);
+    assert_eq!(text(&km["code"]), KEY_MAKER_REFUSAL_CODE);
+    assert!(is_key_maker_refusal(KEY_MAKER_REFUSAL));
+    assert!(!is_key_maker_refusal("Not your install"));
+    assert!(!is_key_maker_refusal(""));
+    for case in km["serverCases"].as_array().unwrap() {
+        let b = |k: &str| case[k].as_bool().unwrap();
+        assert_eq!(key_maker_waits(b("chained"), b("asked"), b("accountChain"), b("registration")), b("waits"), "{}", text(&case["name"]));
+    }
+    for case in km["makerCases"].as_array().unwrap() {
+        let write = KeyWrite::parse(text(&case["write"])).unwrap();
+        let step = key_maker_step(case["joined"].as_bool().unwrap(), write, case["refused"].as_bool().unwrap_or(false));
+        assert_eq!(step.as_str(), text(&case["step"]), "{}", text(&case["name"]));
+    }
+    for case in km["strandedCases"].as_array().unwrap() {
+        let n = |k: &str| case[k].as_u64().map(|v| v as u32);
+        let b = |k: &str| case[k].as_bool().unwrap_or(false);
+        let epoch = stranded_rotation_epoch(n("flagged"), n("current"), b("held"), b("stranded"), b("joined"), b("left"));
+        assert_eq!(epoch, n("epoch"), "{}", text(&case["name"]));
+    }
+}
