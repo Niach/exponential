@@ -101,6 +101,12 @@ pub(crate) fn merge_rows(rows: &[MessageRow]) -> Vec<OutboxRow> {
 }
 
 impl SessionOutbox {
+    /// Tests: an outbox that never reads or writes a data dir.
+    #[cfg(test)]
+    pub(crate) fn in_memory_for_test() -> Self {
+        Self { loaded: true, ..Self::default() }
+    }
+
     fn ensure_loaded(&mut self) {
         if self.loaded {
             return;
@@ -284,6 +290,14 @@ pub(crate) fn send(
     outbox.persist();
     dispatch(session_id, &client_id, cx);
     client_id
+}
+
+/// Tests: the full input the press of `text` sent.
+#[cfg(test)]
+pub(crate) fn sent_input_for_test(session_id: &str, text: &str, cx: &App) -> Option<api::sessions::SendInput> {
+    let outbox = cx.try_global::<SessionOutbox>()?;
+    let entry = outbox.sessions.get(session_id)?.iter().find(|entry| entry.text == text)?;
+    outbox.inputs.get(&entry.client_id).cloned()
 }
 
 /// The bubble menu's Retry: the SAME clientId, back to `sending`.

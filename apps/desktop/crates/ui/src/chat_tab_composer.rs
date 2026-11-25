@@ -998,7 +998,7 @@ impl SteerSessionView {
                     let picked = self.teams_shown(&teams, cx).flatten();
                     let rest: Vec<String> = crate::teams_pick::chip_teams(picked.as_deref(), &teams).iter().filter(|team| team.id != id).map(|team| team.id.clone()).collect();
                     let next = if rest.is_empty() { None } else { crate::teams_pick::next_teams_pick(&rest, &teams) };
-                    (self.teams_change(cx))(next, window, cx);
+                    self.set_teams(next, cx);
                 }
                 None => {}
             },
@@ -1166,7 +1166,7 @@ impl SteerSessionView {
             PlusAction::Team(id) => {
                 let teams = crate::teams_pick::pick_teams(cx);
                 if let Some(next) = crate::teams_pick::toggle_team(self.teams_shown(&teams, cx).flatten().as_deref(), &teams, &id) {
-                    (self.teams_change(cx))(next, window, cx);
+                    self.set_teams(next, cx);
                 }
             }
             PlusAction::Device(id) => {
@@ -1487,3 +1487,7 @@ mod perf_tests {
         assert!(cx.update(|cx| super::implement_issue_items("t2", cx)).is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "steer_teams_live_tests.rs"]
+mod teams_live_tests;

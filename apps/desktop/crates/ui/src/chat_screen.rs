@@ -3176,7 +3176,8 @@ impl ComposerMenuRow {
             | Self::Model => {
                 &[Launch, Session, Agent]
             }
-            Self::Teams => &[Launch, Agent],
+            // #EXP-2122: a plain root picks its teams too.
+            Self::Teams => &[Launch, Session, Agent],
             // #EXP-1793: an agent chat picks its conversation's servers too.
             Self::McpServers => &[Launch, Agent],
             _ => &[Launch],

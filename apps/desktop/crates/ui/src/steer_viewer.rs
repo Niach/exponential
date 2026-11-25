@@ -1528,20 +1528,14 @@ impl SteerSessionView {
         crate::teams_pick::plain_teams_pick(&own, self.teams_seed.as_deref(), self.teams_picked.as_deref(), &crate::teams_pick::pick_teams(cx)).scope
     }
 
-    /// #EXP-1715: a changed Teams pick lands on this composer.
-    fn teams_change(&self, cx: &gpui::Context<Self>) -> crate::teams_pick::OnTeamsPick {
-        let view = cx.entity().downgrade();
-        std::rc::Rc::new(move |next, _window, cx| {
-            if let Some(view) = view.upgrade() {
-                view.update(cx, |this, cx| {
-                    this.teams_picked = match this.plain_team(cx) {
-                        Some(own) => Some(crate::teams_pick::plain_others(&own, next, &crate::teams_pick::pick_teams(cx))),
-                        None => next,
-                    };
-                    cx.notify();
-                });
-            }
-        })
+    /// #EXP-1715: a changed Teams pick lands on this composer (its events
+    /// run inside this view's update: never another one).
+    fn set_teams(&mut self, next: crate::teams_pick::TeamsPick, cx: &mut gpui::Context<Self>) {
+        self.teams_picked = match self.plain_team(cx) {
+            Some(own) => Some(crate::teams_pick::plain_others(&own, next, &crate::teams_pick::pick_teams(cx))),
+            None => next,
+        };
+        cx.notify();
     }
 
     /// #EXP-1736: the origin its host set ([`Self::set_transcript_origin`]).
