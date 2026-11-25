@@ -26,7 +26,7 @@ const HOUR = 3_600_000
 
 // ── READINESS ──────────────────────────────────────────────────────────────
 
-export type MergeWait = `draft` | `failing` | `checks` | `session` | `approval`
+export type MergeWait = `draft` | `failing` | `checks` | `session` | `approval` | `stack`
 
 export interface ReadinessInput {
   draft: boolean
@@ -37,6 +37,10 @@ export interface ReadinessInput {
   mode: TeamMergeMode
   /** A person pressed Needs approval (approval mode only). */
   approved: boolean
+  /** #FEED-307: its base is a live PR's branch. */
+  stacked?: boolean
+  /** #FEED-307: its stack was asked for (`stack: true`). */
+  withStack?: boolean
 }
 
 /** What a PR still waits for, first blocker wins; null = ready. */
@@ -46,6 +50,7 @@ export function mergeWait(input: ReadinessInput): MergeWait | null {
   if (input.checksState === `pending`) return `checks`
   if (!input.subtreeIdle) return `session`
   if (input.mode === `approval` && !input.approved) return `approval`
+  if (input.stacked && !input.withStack) return `stack`
   return null
 }
 
@@ -55,6 +60,27 @@ export function preTrainState(wait: MergeWait | null): PrMergeState {
   if (wait === `draft`) return `draft`
   if (wait === `failing`) return `failing`
   return `checks`
+}
+
+/** #FEED-307 (merge-train.json `baseChecks`): the check rows that say
+ *  something about the PR's base as it is now. After a base change a
+ *  REQUIRED check counts only when its run started after it; `reported` =
+ *  CI ran since (false = a head without CI). */
+export function baseChecks<T extends { name: string; startedAt: string | null }>(input: {
+  required: Iterable<string>
+  baseChangedAt: string | null
+  checks: readonly T[]
+}): { counted: T[]; reported: boolean } {
+  const names = new Set(input.required)
+  if (input.baseChangedAt === null || names.size === 0) {
+    return { counted: [...input.checks], reported: input.checks.length > 0 }
+  }
+  const changed = Date.parse(input.baseChangedAt)
+  const fresh = (check: T) => check.startedAt !== null && Date.parse(check.startedAt) >= changed
+  return {
+    counted: input.checks.filter((check) => !names.has(check.name) || fresh(check)),
+    reported: input.checks.some(fresh),
+  }
 }
 
 // ── THE STATE MACHINE ──────────────────────────────────────────────────────
@@ -614,9 +640,11 @@ export function mergeNowQueuedText(number: number, red: readonly string[], behin
 /** #FEED-293 (merge-train.json `mergeNowRules.refusals`): a force the train
  *  must not take, as the reply's `refused` text (the stack's first blocker,
  *  draft first); null = it queues, red checks or not. */
-export function mergeNowRefusal(input: { number: number; draft: boolean; personHold: boolean }): string | null {
+export function mergeNowRefusal(input: { number: number; draft: boolean; personHold: boolean; stackedOn?: number | null }): string | null {
   if (input.draft) return `Can't merge #${input.number} now: it is a draft. Mark it ready for review first.`
   if (input.personHold) return `Can't merge #${input.number} now: a person put it on hold. Only their Resume lifts it.`
+  // #FEED-307: a force without `stack` is that one PR's.
+  if (input.stackedOn != null) return `Can't merge #${input.number} now: it is stacked on #${input.stackedOn}. Merge #${input.stackedOn} first, or pass stack: true to land the whole stack.`
   return null
 }
 
