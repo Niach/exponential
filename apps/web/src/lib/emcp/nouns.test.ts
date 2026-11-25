@@ -195,7 +195,10 @@ describe(`registerNounTools`, () => {
       required: string[]
     }
     expect(Object.keys(json.properties)).toEqual([`op`])
-    expect(json.required).toEqual([`op`])
+    // #NEW-141: outside a session `{}` opens the issues view; every other noun names its op.
+    expect(json.required).toBeUndefined()
+    const boards = z.toJSONSchema(surface().get(`exponential_boards`)!.def.inputSchema as z.ZodType, { io: `input`, target: `draft-7` })
+    expect(boards.required).toEqual([`op`])
     expect(issues.def._meta).toMatchObject({ "anthropic/alwaysLoad": true })
   })
 

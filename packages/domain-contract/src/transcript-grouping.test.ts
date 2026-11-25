@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import contract from "../contract.json" with { type: "json" }
 import fixture from "../fixtures/transcript-grouping.json" with { type: "json" }
-import { TRANSCRIPT_LAYOUT, checkInLabel, crossSessionInput, feedInput, feedRows, memberInput, isBlankText, markersShown, traceNotice, transcriptLayout } from "./transcript-grouping"
+import { TRANSCRIPT_LAYOUT, checkInLabel, crossSessionInput, feedInput, feedRows, memberInput, isBlankText, isSteerCommand, markersShown, traceNotice, transcriptLayout } from "./transcript-grouping"
 
 describe(`transcript grouping (EXP-1736)`, () => {
   test(`layout comes from the fixture`, () => {
@@ -24,6 +24,9 @@ describe(`transcript grouping (EXP-1736)`, () => {
       expect(feedInput(entry.expected)).toEqual({ kind: `member`, ...entry.input })
     })
   }
+  test(`member commands keep the bare body`, () => {
+    for (const entry of fixture.memberCommandCases) expect([entry.input, isSteerCommand(entry.input)]).toEqual([entry.input, entry.expected])
+  })
   for (const entry of fixture.feedInputCases) {
     test(`feed input: ${entry.name}`, () => {
       expect(feedInput(entry.text)).toEqual(entry.expected as never)

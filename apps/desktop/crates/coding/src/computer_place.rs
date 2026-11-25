@@ -149,8 +149,8 @@ pub fn resolve(inputs: &Inputs, offer: impl FnOnce() -> Offer, person: impl FnOn
 /// prompt ([`crate::skill::ComputerUse`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placed {
-    /// No computer use. `Some(why)` = the switch is on, the screen was the
-    /// place, and it cannot be driven (row 5): the run's prompt gets one
+    /// No computer use. `Some(why)` = the switch is on, but the screen was
+    /// the place and cannot be driven (row 5), or the grant failed: the run's prompt gets one
     /// line saying why, so the agent can tell the person.
     None(Option<String>),
     /// The person's screen, today's grant.

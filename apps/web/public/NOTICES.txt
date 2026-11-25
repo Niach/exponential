@@ -32,7 +32,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-746 third-party components are distributed as part of this build. They are
+747 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -1872,6 +1872,63 @@ MIT
 
 Applies to the following 13 components:
 
+  @better-auth/api-key 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/cimd 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/core 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/drizzle-adapter 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/kysely-adapter 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/mcp 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/memory-adapter 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/mongo-adapter 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/oauth-provider 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/passkey 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/prisma-adapter 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  @better-auth/telemetry 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+  better-auth 1.7.15
+    Copyright (c) 2024 - present, Bereket Engida
+
+..............................................................................
+
+The MIT License (MIT)
+Copyright (c) 2024 - present, Bereket Engida
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the “Software”), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 13 components:
+
   @microsoft/fetch-event-source 2.0.1
     Copyright (c) Microsoft Corporation.
   @types/dom-mediacapture-transform 0.1.11
@@ -2194,61 +2251,6 @@ Applies to the following 12 components:
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 12 components:
-
-  @better-auth/api-key 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/core 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/drizzle-adapter 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/kysely-adapter 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/mcp 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/memory-adapter 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/mongo-adapter 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/oauth-provider 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/passkey 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/prisma-adapter 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  @better-auth/telemetry 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-  better-auth 1.7.15
-    Copyright (c) 2024 - present, Bereket Engida
-
-..............................................................................
-
-The MIT License (MIT)
-Copyright (c) 2024 - present, Bereket Engida
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the “Software”), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------

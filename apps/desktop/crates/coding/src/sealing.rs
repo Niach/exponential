@@ -281,7 +281,7 @@ fn write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
 }
 
 /// Sibling + rename, 0600, the directory 0700 (the eNet identity posture).
-fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

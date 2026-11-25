@@ -179,6 +179,8 @@ export interface WorkScreenState {
   windowsRead?: boolean
   /** #EXP-1514: the stored pick is the agent space only; absent = false. */
   spaceOnly?: boolean
+  /** #FEED-313: the person's screen is locked; absent = false. */
+  locked?: boolean
 }
 
 /** The 0-based displays agents may drive: none with the pick Agent space
@@ -236,6 +238,7 @@ export function workScreenGate(state: WorkScreenState, call: WorkScreenCall): Wo
   if (call.tool === `wait`) return `allow`
   // #EXP-1514: the pick Agent space only, checked first.
   if (state.spaceOnly) return refuse(`spaceOnly`, {}, work)
+  if (state.locked) return refuse(`screenLocked`, {}, work)
   if (state.picked != null && work.length === 0) {
     return refuse(`pickedGone`, {}, work)
   }

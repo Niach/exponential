@@ -634,7 +634,7 @@ struct MainNavigator: View {
         .onChange(of: tab) { _, target in
             // #NEW-12: a landing on a phone root lights its sidebar entry.
             newMenuOpen = false
-            if sidebar.tab != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
+            if phoneTab(sidebar) != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
         }
         .onChange(of: path) { _, _ in newMenuOpen = false }
         // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
@@ -977,20 +977,29 @@ struct MainNavigator: View {
     }
 
     private struct AssistantLanding {
+        let agentId: String
         let page: ChatPage?
     }
 
     /// #EXP-2109: the Assistant's conversation opens as its TAB, from
     /// anywhere; the page of it the route names (nil = its Conversation).
     private func assistantLanding(_ route: AppRoute) -> AssistantLanding? {
-        guard !splitActive, let assistant = sessionLists.assistant else { return nil }
+        guard let assistant = sessionLists.assistant else { return nil }
         switch route {
         case let .agentChannel(_, agentId, settings) where agentId == assistant.agentId && !settings:
-            return AssistantLanding(page: nil)
+            return AssistantLanding(agentId: agentId, page: nil)
         case let .chat(_, chatId, child) where chatId == sessionLists.agentConversations[assistant.agentId]:
-            return AssistantLanding(page: child)
+            return AssistantLanding(agentId: assistant.agentId, page: child)
         default:
             return nil
+        }
+    }
+
+    /// The split layout's Assistant: its sidebar entry.
+    private func selectAssistant(_ landing: AssistantLanding) {
+        if sidebar != .agentChannel(landing.agentId) || !path.isEmpty { selectSidebar(.agentChannel(landing.agentId)) }
+        if let page = landing.page, let rootId = sessionLists.agentConversations[landing.agentId] {
+            chatLanding.land(chatId: rootId, page: page)
         }
     }
 
@@ -1001,9 +1010,11 @@ struct MainNavigator: View {
         // #NEW-12: the split layout's entries are sidebar picks.
         if splitActive, let item = sidebarItem(for: route) {
             selectSidebar(item)
+        } else if splitActive, let landing = assistantLanding(route) {
+            selectAssistant(landing)
         } else if let target = Self.tab(for: route) {
             selectTab(target)
-        } else if let landing = assistantLanding(route) {
+        } else if !splitActive, let landing = assistantLanding(route) {
             navigate { landOnAssistant(landing.page) }
         } else if case let .chat(_, chatId, child) = route, let index = Self.chatIndex(chatId, in: path) {
             navigate { landOnChat(at: index, chatId: chatId, page: child) }
@@ -1253,7 +1264,7 @@ extension MainNavigator {
             )),
             listColumn: tabletListColumn,
             detailRoot: tabletDetailRoot,
-            placeholderIcon: sidebar.placeholderIcon,
+            placeholder: sidebar,
             path: $path,
             listPush: listPushAction,
             destination: { route, pushed in
@@ -1322,11 +1333,17 @@ extension MainNavigator {
             swap.disablesAnimations = true
             withTransaction(swap) {
                 sidebar = item
-                tab = item.tab
+                tab = phoneTab(item)
                 path = []
             }
             sidebarPicks += 1
         }
+    }
+
+    /// The phone root a narrowed window shows for `item`.
+    private func phoneTab(_ item: SidebarItem) -> MainTab {
+        if case let .agentChannel(agentId) = item, agentId == sessionLists.assistant?.agentId { return .assistant }
+        return item.tab
     }
 
     /// The entry's list column (nil = the entry is one page).
@@ -1738,7 +1755,7 @@ extension MainNavigator {
             return
         }
         if let landing = assistantLanding(route) {
-            landOnAssistant(landing.page)
+            if splitActive { selectAssistant(landing) } else { landOnAssistant(landing.page) }
             return
         }
         let root: MainTab = if case .board = route { .teams } else { .chats }

@@ -130,6 +130,49 @@ interface CallRoom {
   framesDown: number
   lastUpAt: number | null
   lastDownAt: number | null
+  /** EXP-2110: what the call's record counts besides. */
+  firstDownAt: number | null
+  framesDropped: number
+  framesSkipped: number
+  /** A clear call's answer (its `rang` + `ready`; a sealed call's events are
+   *  closed to the relay). */
+  rang: boolean
+  ready: boolean
+  answeredAt: number | null
+  /** The host's `failed` code (clear on every call). */
+  failedCode: string | null
+}
+
+/** EXP-2110 (voice-call.json `record`): one call that ended here, as the web
+ *  server collects it. Instants in this process's ms; metadata only. */
+export interface CallEndReport {
+  seq: number
+  callId: string
+  /** Null = refused at the ring. */
+  rangAt: number | null
+  pairedAt: number | null
+  answeredAt: number | null
+  firstDownAt: number | null
+  lastUpAt: number | null
+  lastDownAt: number | null
+  framesUp: number
+  framesDown: number
+  framesDropped: number
+  framesSkipped: number
+  endedAt: number
+  by: `caller` | `host` | `relay`
+  reason: string
+}
+
+/** EXP-2110: ends kept until the web server acknowledged them; past it the
+ *  oldest goes (its record then reads `no_report`). */
+export const CALL_REPORTS_MAX = 2_000
+const CALL_REPORTS_PAGE = 200
+
+/** A peer's own `call_end` reason is free text on the wire: only a code is
+ *  ever stored, anything else reads `other`. */
+function reasonCode(reason: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]{0,31}(:[A-Za-z][A-Za-z0-9_]{0,27})?$/.test(reason) ? reason : `other`
 }
 
 /** #FEED-268: a call in the log = the first eight hex digits of its id (the
@@ -265,6 +308,11 @@ export class Hub {
   private callFramesForwarded = 0
   private callFramesDropped = 0
   private callFramesSkipped = 0
+  /** EXP-2110: this process, its ended calls and the last report's number. */
+  readonly boot = crypto.randomUUID()
+  private callReports: CallEndReport[] = []
+  private callReportSeq = 0
+  private callReportsLost = 0
   /** EXP-1929: pongs from call sockets (every client answers the beat's ping). */
   private callPongs = 0
   /** #EXP-1525: tunnels opened, refused (device offline / unsupported), cut
@@ -344,6 +392,7 @@ export class Hub {
     // A caller may start capturing while it rings: expected, not worth a log.
     if (!peer) {
       this.callFramesDropped += 1
+      call.framesDropped += 1
       return
     }
     if (data.length <= CALL_FRAME_HEADER_BYTES) {
@@ -365,10 +414,12 @@ export class Hub {
     } else {
       call.framesDown += 1
       call.lastDownAt = call.lastFrameAt
+      call.firstDownAt ??= call.lastFrameAt
     }
     // Realtime: a saturated peer skips the frame rather than queueing it.
     if (peer.sock.bufferedAmount() > CALL_HIGH_WATER) {
       this.callFramesSkipped += 1
+      call.framesSkipped += 1
       return
     }
     peer.sock.sendBinary(data)
@@ -395,6 +446,8 @@ export class Hub {
 
   private dropBinary(conn: Conn, why: string, bytes: number) {
     this.callFramesDropped += 1
+    const call = this.callFor(conn)
+    if (call) call.framesDropped += 1
     if (!this.mayWarn(conn)) return
     console.warn(
       `[hub] dropped ${conn.claims.role} binary frame (${bytes} bytes): ${why}`
@@ -616,6 +669,7 @@ export class Hub {
         const call = this.callFor(conn)
         if (!call || call.host !== conn) return
         if (msg.event.t === `hello`) call.sealed = true
+        this.noteHostEvent(call, msg.event)
         call.caller.sock.send(frame({ t: `call_event`, event: msg.event }))
         return
       }
@@ -802,6 +856,7 @@ export class Hub {
       callFramesDropped: this.callFramesDropped,
       callFramesSkipped: this.callFramesSkipped,
       callPongs: this.callPongs,
+      callReportsLost: this.callReportsLost,
       tunnelsOpened: this.tunnelsOpened,
       tunnelsRefused: this.tunnelsRefused,
       tunnelsOverflowed: this.tunnelsOverflowed,
@@ -846,6 +901,7 @@ export class Hub {
     const control = this.devices.get(ownerId)?.get(deviceId)
     if (!control) {
       this.callDeviceOffline += 1
+      this.reportRefused(callId, `device_offline`)
       this.refuseCall(conn, `device_offline`)
       return
     }
@@ -854,6 +910,7 @@ export class Hub {
     // same way.
     if (this.callsByDevice.has(key) || this.calls.has(callId)) {
       this.callBusy += 1
+      this.reportRefused(callId, `busy`)
       this.refuseCall(conn, `busy`)
       return
     }
@@ -882,12 +939,20 @@ export class Hub {
       framesDown: 0,
       lastUpAt: null,
       lastDownAt: null,
+      firstDownAt: null,
+      framesDropped: 0,
+      framesSkipped: 0,
+      rang: false,
+      ready: false,
+      answeredAt: null,
+      failedCode: null,
     }
     call.ringTimer = setTimeout(() => {
       call.ringTimer = null
       if (this.calls.get(callId) !== call) return
       this.callNoAnswer += 1
       console.info(`[call ${callTag(callId)}] no host joined within ${CALL_RING_TIMEOUT_MS} ms`)
+      this.reportEnd(call, `relay`, `no_answer`)
       this.removeCall(call)
       conn.callId = undefined
       this.refuseCall(conn, `no_answer`)
@@ -965,7 +1030,10 @@ export class Hub {
 
   /** #FEED-268: ONE line per call that ended: who ended it, why, and what
    *  the room saw (instants and counts only). */
-  private logCallEnd(call: CallRoom, by: string, reason: string) {
+  private logCallEnd(call: CallRoom, by: CallEndReport[`by`], reason: string) {
+    // A host that failed the call ended it, whichever socket closed first.
+    if (call.failedCode !== null) this.reportEnd(call, `host`, `failed:${call.failedCode}`)
+    else this.reportEnd(call, by, reason)
     const now = Date.now()
     const ago = (at: number | null | undefined) => (at == null ? `never` : `${now - at} ms ago`)
     console.info(
@@ -975,6 +1043,82 @@ export class Hub {
         call.lastUpAt
       )} last_down=${ago(call.lastDownAt)} caller_seen=${ago(call.caller.lastSeenAt)} host_seen=${ago(call.host?.lastSeenAt)}`
     )
+  }
+
+  /** EXP-2110: the host's own events the record counts (types, and the code
+   *  of a `failed`; never a text). */
+  private noteHostEvent(call: CallRoom, event: Record<string, unknown>) {
+    if (event.t === `failed`) {
+      call.failedCode = typeof event.code === `string` ? event.code : `other`
+      return
+    }
+    if (event.t === `rang`) call.rang = true
+    if (event.t === `ready`) call.ready = true
+    if (call.rang && call.ready) call.answeredAt ??= Date.now()
+  }
+
+  /** EXP-2110: a ring that was refused. A REPLAY of a call that rings, runs
+   *  or ended here says nothing about that call. */
+  private reportRefused(callId: string, reason: string) {
+    if (this.calls.has(callId) || this.rungCalls.has(callId)) return
+    this.pushReport({
+      callId,
+      rangAt: null,
+      pairedAt: null,
+      answeredAt: null,
+      firstDownAt: null,
+      lastUpAt: null,
+      lastDownAt: null,
+      framesUp: 0,
+      framesDown: 0,
+      framesDropped: 0,
+      framesSkipped: 0,
+      endedAt: Date.now(),
+      by: `relay`,
+      reason,
+    })
+  }
+
+  private reportEnd(call: CallRoom, by: CallEndReport[`by`], reason: string) {
+    this.pushReport({
+      callId: call.callId,
+      rangAt: call.rangAt,
+      pairedAt: call.pairedAt,
+      answeredAt: call.answeredAt,
+      firstDownAt: call.firstDownAt,
+      lastUpAt: call.lastUpAt,
+      lastDownAt: call.lastDownAt,
+      framesUp: call.framesUp,
+      framesDown: call.framesDown,
+      framesDropped: call.framesDropped,
+      framesSkipped: call.framesSkipped,
+      endedAt: Date.now(),
+      by,
+      reason: reasonCode(reason),
+    })
+  }
+
+  private pushReport(report: Omit<CallEndReport, `seq`>) {
+    this.callReports.push({ seq: ++this.callReportSeq, ...report })
+    if (this.callReports.length > CALL_REPORTS_MAX) {
+      this.callReports.shift()
+      this.callReportsLost += 1
+    }
+  }
+
+  /** EXP-2110: every ended call not acknowledged yet and every call that
+   *  rings or runs NOW, in one snapshot. `ack` = the last number the web
+   *  server has stored of THIS process: those go. */
+  collectCallReports(ack?: { boot: string; seq: number }) {
+    if (ack && ack.boot === this.boot) {
+      this.callReports = this.callReports.filter((report) => report.seq > ack.seq)
+    }
+    return {
+      boot: this.boot,
+      ended: this.callReports.slice(0, CALL_REPORTS_PAGE),
+      more: this.callReports.length > CALL_REPORTS_PAGE,
+      live: [...this.calls.values()].map((call) => ({ callId: call.callId, rangAt: call.rangAt, pairedAt: call.pairedAt, answeredAt: call.answeredAt })),
+    }
   }
 
   /** Hang up: the OTHER side gets `call_end` (the sender's reason, or
