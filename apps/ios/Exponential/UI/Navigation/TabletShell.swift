@@ -218,7 +218,11 @@ struct TabletSidebar: View {
     @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
     @Environment(SidebarTreeModel.self) private var tree
+    @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.toaster) private var toaster
     @State private var now = Date()
+    @State private var addDevice = false
 
     var body: some View {
         ZStack {
@@ -264,6 +268,9 @@ struct TabletSidebar: View {
                 try? await Task.sleep(for: .seconds(60))
                 now = Date()
             }
+        }
+        .background {
+            Color.clear.sheet(isPresented: $addDevice) { AddDeviceSheet(accountId: accountId) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tablet-sidebar")
@@ -343,6 +350,45 @@ struct TabletSidebar: View {
         AppIcon(icon, size: 18).foregroundStyle(color)
     }
 
+    /// #EXP-2126: an entry's kind in sidebar-menus.json (the tree's rows bring
+    /// their own menu).
+    private func menuKind(_ item: SidebarItem) -> SidebarMenus.Kind? {
+        switch item {
+        case .agent: .home
+        case .needsYou: .needsYou
+        case .chats: .chats
+        case .drafts: .drafts
+        case .devices: .devices
+        case .agentChannel: .assistant
+        case .settings, .app, .board, .chat: nil
+        }
+    }
+
+    private func run(_ action: SidebarMenus.Action, _ item: SidebarItem) {
+        switch action {
+        case .open: onSelect(item)
+        case .newChat: onSelect(.agent)
+        case .addDevice: addDevice = true
+        case .compact: send(.compact, item)
+        case .newConversation: send(.newConversation, item)
+        case .settings: pushRoute(.assistantSettings(accountId: accountId))
+        default: break
+        }
+    }
+
+    private func send(_ entry: Chats.AgentMenuEntry, _ item: SidebarItem) {
+        guard case let .agentChannel(agentId) = item, let text = Chats.agentMenuSends[entry] else { return }
+        Task { @MainActor in
+            do {
+                _ = try await deps.sessionsApi.send(accountId: accountId, .agent(agentId: agentId, text: text))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
     /// One rail row: the glyph, the name, THE count badge (#FEED-232); the open entry's
     /// row is filled (`flatRow(isActive:)`, a master-detail's open item).
     private func row<Glyph: View>(
@@ -352,23 +398,26 @@ struct TabletSidebar: View {
         bold: Bool = false,
         @ViewBuilder glyph: () -> Glyph
     ) -> some View {
-        Button { onSelect(item) } label: {
-            HStack(spacing: 10) {
-                glyph()
-                    .frame(width: 20, height: 20)
-                Text(title)
-                    .font(.system(size: 15, weight: bold ? .semibold : .regular))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                CountBadge(badge)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 36)
-            .contentShape(Rectangle())
-            .flatRow(isActive: selection == item)
+        let kind = menuKind(item)
+        return HStack(spacing: 10) {
+            glyph()
+                .frame(width: 20, height: 20)
+            Text(title)
+                .font(.system(size: 15, weight: bold ? .semibold : .regular))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            CountBadge(badge)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 36)
+        .contentShape(Rectangle())
+        .flatRow(isActive: selection == item)
+        .accessibilityElement(children: .combine)
+        .sidebarRowMenu(
+            kind ?? .chats, title: title, actions: kind.map { SidebarMenus.phoneMenu($0) } ?? [],
+            onTap: { onSelect(item) }, onPick: { run($0, item) }
+        )
         .accessibilityIdentifier(testId(item))
     }
 

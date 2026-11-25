@@ -30,7 +30,11 @@ public enum SidebarMenus {
         case separator
     }
 
-    public enum Kind: String, Sendable { case teams, team, folder, board, app, agent, session }
+    public enum Kind: String, Sendable, CaseIterable {
+        case assistant, home
+        case needsYou = "needs-you"
+        case chats, drafts, devices, device, teams, team, folder, board, app, agent, session
+    }
 
     public enum NewKind: String, Sendable, CaseIterable { case session, agent, app, board }
 
@@ -100,13 +104,76 @@ public enum SidebarMenus {
     /// `phone.drops`: a phone has no tabs.
     private static let phoneDrops: Set<Action> = [.openNewTab]
 
+    /// What decides a kind's conditional rows (TS `SidebarMenuInput`).
+    public struct Input: Sendable, Equatable {
+        public var owner: Bool
+        public var mine: Bool
+
+        public init(owner: Bool = false, mine: Bool = false) {
+            self.owner = owner
+            self.mine = mine
+        }
+    }
+
     private struct Entry {
         let action: Action
         var owner = false
+        var mine = false
+
+        func shows(_ input: Input) -> Bool { (!owner || input.owner) && (!mine || input.mine) }
     }
 
     /// The groups in order: open, kind, arrange, settings, danger.
     private static let table: [Kind: [[Entry]]] = [
+        .assistant: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [.init(action: .compact), .init(action: .newConversation)],
+            [],
+            [.init(action: .settings)],
+            [],
+        ],
+        .home: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [.init(action: .newChat)],
+            [],
+            [],
+            [],
+        ],
+        .needsYou: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [],
+            [],
+            [],
+            [],
+        ],
+        .chats: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [.init(action: .newChat)],
+            [],
+            [],
+            [],
+        ],
+        .drafts: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [],
+            [],
+            [],
+            [],
+        ],
+        .devices: [
+            [],
+            [.init(action: .addDevice)],
+            [],
+            [],
+            [],
+        ],
+        .device: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [],
+            [.init(action: .rename, mine: true), .init(action: .copyLink)],
+            [.init(action: .settings)],
+            [],
+        ],
         .teams: [
             [],
             [.init(action: .newTeam), .init(action: .joinTeam)],
@@ -163,19 +230,27 @@ public enum SidebarMenus {
     }
 
     /// TS `sidebarItemMenu`.
-    public static func menu(_ kind: Kind, owner: Bool) -> [Action] {
-        groups(kind, owner: owner, drops: [])
+    public static func menu(_ kind: Kind, _ input: Input = Input()) -> [Action] {
+        groups(kind, input, drops: [])
     }
 
-    /// A row's long-press menu (TS `sidebarPhoneMenu`).
-    public static func phoneMenu(_ kind: Kind, owner: Bool) -> [Action] {
-        groups(kind, owner: owner, drops: phoneDrops)
+    /// A row's long-press menu (TS `sidebarPhoneMenu`); Open alone = none.
+    /// `drops` = the verbs the row has no destination for.
+    public static func phoneMenu(_ kind: Kind, _ input: Input = Input(), drops: Set<Action> = []) -> [Action] {
+        let menu = groups(kind, input, drops: phoneDrops.union(drops))
+        return menu == [.open] ? [] : menu
     }
 
-    private static func groups(_ kind: Kind, owner: Bool, drops: Set<Action>) -> [Action] {
+    /// A device's row in the phones' Devices list: there is no device page to
+    /// open; a teammate's has only its link.
+    public static func deviceMenu(mine: Bool) -> [Action] {
+        phoneMenu(.device, Input(mine: mine), drops: mine ? [.open] : [.open, .settings])
+    }
+
+    private static func groups(_ kind: Kind, _ input: Input, drops: Set<Action>) -> [Action] {
         var out: [Action] = []
         for group in table[kind] ?? [] {
-            let rows = group.filter { ($0.owner ? owner : true) && !drops.contains($0.action) }.map(\.action)
+            let rows = group.filter { $0.shows(input) && !drops.contains($0.action) }.map(\.action)
             guard !rows.isEmpty else { continue }
             if !out.isEmpty { out.append(.separator) }
             out += rows

@@ -185,7 +185,7 @@ private struct BoardMenuHost: View {
 
     private var actions: [SidebarMenus.Action] {
         HeaderActions.menu(
-            SidebarMenus.phoneMenu(.board, owner: board.map { tree.isOwner($0.teamId) } ?? false).map(\.rawValue)
+            SidebarMenus.phoneMenu(.board, .init(owner: board.map { tree.isOwner($0.teamId) } ?? false)).map(\.rawValue)
         ).compactMap(SidebarMenus.Action.init)
     }
 

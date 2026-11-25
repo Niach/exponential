@@ -354,7 +354,7 @@ struct TeamTreeList: View {
         let row = target.row
         let owner = tree.isOwner(row.teamId)
         if target.part == .add { return newItems(row) }
-        var actions = SidebarMenus.phoneMenu(kind(row), owner: owner)
+        var actions = SidebarMenus.phoneMenu(kind(row), .init(owner: owner))
         if target.part == .more { actions = HeaderActions.menu(actions.map(\.rawValue)).compactMap(SidebarMenus.Action.init) }
         return actions.enumerated().map { index, action in
             if action == .separator {

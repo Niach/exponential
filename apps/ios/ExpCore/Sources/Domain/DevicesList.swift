@@ -54,6 +54,11 @@ public enum DevicesList {
         }
     }
 
+    /// #EXP-2126: the device page's URL (Copy link).
+    public static func link(base: String, deviceId: String) -> String {
+        "\(base.hasSuffix("/") ? String(base.dropLast()) : base)/devices/\(deviceId)"
+    }
+
     /// EXP-1560: the card grid's geometry (`fixture.card`), ×4.
     public enum Card {
         public static let minWidth: CGFloat = 320
