@@ -509,7 +509,7 @@ export function SidebarTeamsGroup({
         title={SIDEBAR_TREE_COPY.teams}
         entries={teamsMenu()}
         trigger={
-          <SidebarGroupAction title={SIDEBAR_TREE_COPY.teams} aria-label={SIDEBAR_TREE_COPY.teams} data-testid="sidebar-teams-add">
+          <SidebarGroupAction title={SIDEBAR_TREE_COPY.newTeam} aria-label={SIDEBAR_TREE_COPY.newTeam} data-testid="sidebar-teams-add">
             <AddIcon className="h-4 w-4" />
           </SidebarGroupAction>
         }

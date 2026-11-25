@@ -4,7 +4,7 @@ import fixture from "@exp/domain-contract/fixtures/install-trust.json" with { ty
 import { INSTALL_TRUST_COPY, type TrustRow } from "@exp/domain-contract/install-trust"
 import { pendingRow, WAITING_CLASS } from "./install-approval"
 
-type Node = { component: string; props?: Record<string, unknown>; children?: Node[]; slots?: Record<string, Node>; id?: string; on?: unknown }
+type Node = { component: string; props?: Record<string, unknown>; children?: Node[]; slots?: Record<string, Node>; id?: string; style?: unknown; on?: unknown }
 
 /** The tree without ids and handlers, values swapped for the fixture's names. */
 function shape(node: Node, names: Map<unknown, string>): unknown {
@@ -13,6 +13,7 @@ function shape(node: Node, names: Map<unknown, string>): unknown {
     ...(node.id ? { id: node.id.replace(/^install-i(?=$|-)/, `install-<id>`) } : {}),
     component: node.component,
     ...(props ? { props } : {}),
+    ...(node.style ? { style: node.style } : {}),
     ...(node.children ? { children: node.children.map((child) => shape(child, names)) } : {}),
     ...(node.slots ? { slots: Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, shape(v, names)])) } : {}),
   }
