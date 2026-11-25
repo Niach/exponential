@@ -569,6 +569,10 @@ impl Host {
         // It got its ticket: this call id is not answered again.
         self.answered.note(&answered.call_id, self.ms(now));
         if self.call.is_some() {
+            // EXP-1859: a turn's caller hears it itself (a reason-less end is silent).
+            if turn.is_some() {
+                answered.link.send_event(serde_json::json!({ "t": "failed", "code": "busy" }));
+            }
             answered.link.end();
             return;
         }
@@ -2280,6 +2284,14 @@ mod tests {
         rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Ready });
         assert_eq!(rig.speech.take(), ["turn call-1 de Hey Ops"]);
         assert_eq!(rig.link.take(), [r#"event {"t":"rang"}"#, r#"event {"t":"ready"}"#], "no ring");
+        // A cold server: every frame from the first goes to the worker, which
+        // keeps it; the wait ends nothing.
+        for _ in 0..40 {
+            rig.handle(Input::Link { call_id: "c1".into(), event: steer::call_host::CallHostEvent::Audio(vec![0; 320]) });
+            rig.advance(Duration::from_millis(200));
+        }
+        assert_eq!(rig.speech.take(), vec!["audio call-1 320"; 40]);
+        assert!(rig.link.take().is_empty());
         rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
         // No mic check, no greeting, however long the turn takes to start.
         rig.advance(Duration::from_millis(VOICE_CALL.constants.max_ring_ms));
@@ -2316,6 +2328,8 @@ mod tests {
                 session: None,
             }));
             rig.handle(Input::Link { call_id: call_id.into(), event: steer::call_host::CallHostEvent::Ready });
+            let id = rig.host.call.as_ref().unwrap().host.id().to_string();
+            rig.handle(Input::Worker(etalk::Event::CallListening { id }));
             (rig.link.take(), rig.speech.take(), rig.net.take());
         };
         let mut rig = Rig::ready();

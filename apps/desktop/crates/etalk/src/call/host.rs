@@ -21,6 +21,11 @@ use crate::ListenFailure;
 /// S-3: the mic check listens at least this long after `CallListening`.
 pub const MIC_CHECK_MIN_MS: u64 = 1500;
 
+/// EXP-1859: a TURN call whose worker does not listen after this fails
+/// `unavailable` (its caller hears the turn itself): what a worker keeps of
+/// the caller's audio meanwhile (talk-listen.json `maxTurnMs`).
+pub const TURN_LISTEN_MS: u64 = 60_000;
+
 /// A call as its host starts it (the ring: phase ringing).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -443,6 +448,7 @@ impl CallHost {
         let ringing = self.state.phase == CallPhase::Ringing && !self.state.ready;
         match timer {
             HostTimer::Ring => (!self.rang).then_some(started + self.ring_ms),
+            HostTimer::GiveUp if self.is_turn() => self.never_heard().then_some(started + TURN_LISTEN_MS),
             HostTimer::GiveUp => ringing.then_some(started + VOICE_CALL.constants.max_ring_ms),
             HostTimer::MicCheck => {
                 // EXP-1859: a turn call has no ring to check the microphone in.
@@ -462,6 +468,11 @@ impl CallHost {
                 Some(sent + VOICE_CALL.constants.turn_reply_wait_ms)
             }
         }
+    }
+
+    /// EXP-1859: the turn's worker has not listened yet.
+    fn never_heard(&self) -> bool {
+        self.listening_at.is_none() && self.turn == TurnHostState::Listening
     }
 
     /// EXP-1859: this is a turn call.
@@ -557,6 +568,9 @@ impl CallHost {
                 self.step(if muted { CallEvent::Mute } else { CallEvent::Unmute }, now, &mut out);
             }
             HostInput::HungUp { reason } => self.close(false, CallEvent::HungUp(reason), now, &mut out),
+            // EXP-1859: a turn this host ends before it was said (a meeting, a
+            // sign-out) is the caller's again: a failure, never the silent end.
+            HostInput::End if self.is_turn() && self.turn == TurnHostState::Listening => self.fail("dropped", now, &mut out),
             HostInput::End => self.close(true, CallEvent::End, now, &mut out),
             HostInput::Fail { code } => self.fail(&code, now, &mut out),
             HostInput::Unstorable => {
@@ -630,7 +644,8 @@ impl CallHost {
                 }
             }
             HostTimer::GiveUp => {
-                if self.state.phase == CallPhase::Ringing && !self.state.ready {
+                let silent = if self.is_turn() { self.never_heard() } else { self.state.phase == CallPhase::Ringing && !self.state.ready };
+                if silent {
                     log::warn!("[voice] call {}: the voice was not ready after the longest ring", self.label);
                     self.fail("unavailable", now, out);
                 }
@@ -1065,6 +1080,7 @@ mod tests {
             ]
         );
         assert_eq!(host.state().phase, CallPhase::Listening);
+        assert_eq!(host.next_due(), Some(TURN_LISTEN_MS), "a worker that never listens fails it");
         assert_eq!(host.handle(HostInput::Listening, 5), Vec::new(), "no greeting, no opening");
         // No ring timer, no give-up, no mic check, no wait for the agent's voice.
         assert_eq!(host.next_due(), None);
@@ -1157,6 +1173,18 @@ mod tests {
     /// caller's own end hangs the worker up and tells nobody.
     #[test]
     fn a_turn_call_fails_and_is_cancelled_like_a_call() {
+        // Never heard: the caller is told why, so it hears the turn itself.
+        let mut host = CallHost::new(turn_start());
+        host.handle(HostInput::Begin, 0);
+        assert!(host.handle(HostInput::Tick, TURN_LISTEN_MS - 1).is_empty());
+        let failed = host.handle(HostInput::Tick, TURN_LISTEN_MS);
+        assert_eq!(failed[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "unavailable" }) });
+        // This host ends it before it was said: a failure; after: the silent end.
+        let mut host = turn_host();
+        assert_eq!(host.handle(HostInput::End, 50)[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "dropped" }) });
+        let mut host = turn_host();
+        host.handle(HostInput::Said { text: "Status?".into() }, 40);
+        assert_eq!(host.handle(HostInput::End, 50), vec![HostEffect::Hangup { id: "call-1".into() }, HostEffect::End]);
         let mut host = turn_host();
         let failed = host.handle(HostInput::Fail { code: "dropped".into() }, 50);
         assert_eq!(failed[0], HostEffect::Event { event: serde_json::json!({ "t": "failed", "code": "dropped" }) });

@@ -142,7 +142,8 @@ struct TurnDial {
     id: String,
     agent_id: String,
     link: Option<Box<dyn DialLink>>,
-    /// The turn's audio until the link is up.
+    /// The turn's audio until `call_ready` (sealed: until the seal is open):
+    /// before it the link drops what it is handed.
     held: Vec<i16>,
     /// `call_ready` came (the fallback timer no longer applies).
     ready: bool,
@@ -967,10 +968,6 @@ impl PushToTalk {
             let (link, rx) = (connection.link, connection.events);
             let kept = this.update(cx, |this, _| match this.turn_dial.as_mut().filter(|turn| turn.id == id) {
                 Some(turn) => {
-                    // What the worker streamed before the link was up goes first.
-                    if !turn.held.is_empty() {
-                        link.send_audio(std::mem::take(&mut turn.held));
-                    }
                     turn.link = Some(link);
                     true
                 }
@@ -1000,8 +997,8 @@ impl PushToTalk {
         let peak = samples.iter().map(|sample| i32::from(*sample).unsigned_abs()).max().unwrap_or(0);
         self.level = (peak as f32 / 32768. * 2.).min(1.);
         match turn.link.as_ref() {
-            Some(link) => link.send_audio(samples),
-            None => {
+            Some(link) if turn.ready => link.send_audio(samples),
+            _ => {
                 let room = (etalk::CALL_RATE as usize * MAX_TURN_SECONDS).saturating_sub(turn.held.len());
                 turn.held.extend(samples.into_iter().take(room));
             }
@@ -1016,6 +1013,10 @@ impl PushToTalk {
             DialLinkEvent::Ready => {
                 log::info!("[voice] wake turn {id}: the agent's device is on the line");
                 turn.ready = true;
+                // What was said until now first, in order; live audio follows.
+                if let Some(link) = turn.link.as_ref().filter(|_| !turn.held.is_empty()) {
+                    link.send_audio(std::mem::take(&mut turn.held));
+                }
             }
             DialLinkEvent::Audio(pcm) => {
                 if let Some(client) = self.client.as_ref() {
@@ -1678,6 +1679,63 @@ mod tests {
         assert!(dials(cx).is_empty(), "nothing moved");
         rig.worker(etalk::Event::Ready { protocol: etalk::PROTOCOL }, cx);
         assert_eq!(dials(cx), [true], "a new worker is told again");
+    }
+
+    /// EXP-1859: until `call_ready` the turn's audio is held, not handed to
+    /// the link (it would drop it); then ALL of it goes first, in order, then
+    /// the live audio. A cancel during the wait sends none of it.
+    #[gpui::test]
+    async fn a_dialled_turns_audio_waits_for_the_host(cx: &mut gpui::TestAppContext) {
+        #[derive(Clone, Default)]
+        struct Samples(std::rc::Rc<std::cell::RefCell<Vec<i16>>>);
+        impl DialLink for Samples {
+            fn send_audio(&self, pcm: Vec<i16>) {
+                self.0.borrow_mut().extend(pcm);
+            }
+            fn set_muted(&self, _: bool) {}
+            fn end(&self) {}
+            fn fail(&self) {}
+        }
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        let said = |from: i16, cx: &mut gpui::TestAppContext| {
+            let pcm: Vec<i16> = (from..from + 320).collect();
+            rig.worker(etalk::Event::DialAudio { id: "wake-1".into(), pcm: etalk::encode_pcm(&pcm) }, cx);
+        };
+        for cancel in [false, true] {
+            let link = Samples::default();
+            dial_listener(&rig, cx);
+            rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some("a-ops".into()) }, cx);
+            cx.update(|cx| {
+                global(cx).unwrap().update(cx, |this, _| {
+                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: None, held: Vec::new(), ready: false, said: false });
+                })
+            });
+            rig.requests();
+            said(0, cx);
+            cx.update(|cx| global(cx).unwrap().update(cx, |this, _| this.turn_dial.as_mut().unwrap().link = Some(Box::new(link.clone()))));
+            said(320, cx);
+            assert!(link.0.borrow().is_empty(), "nothing before call_ready");
+            assert_eq!(phase(cx), PttPhase::Listening);
+            if cancel {
+                cx.update(on_pill);
+                turn_event(DialLinkEvent::Ready, cx);
+                said(640, cx);
+                assert!(link.0.borrow().is_empty(), "cancelled: nothing leaves");
+                continue;
+            }
+            turn_event(DialLinkEvent::Ready, cx);
+            said(640, cx);
+            assert_eq!(*link.0.borrow(), (0..960).collect::<Vec<i16>>(), "all of it, in order");
+            // A cold host: no timer of this side ends the wait.
+            cx.executor().advance_clock(Duration::from_secs(20));
+            cx.run_until_parked();
+            assert_eq!(phase(cx), PttPhase::Listening);
+            assert!(!rig.requests().iter().any(|request| matches!(request, etalk::Request::Fallback { .. } | etalk::Request::Hangup { .. })));
+            turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "said", "text": "Status?" })), cx);
+            assert_eq!(phase(cx), PttPhase::Thinking);
+            cx.update(on_pill);
+            rig.requests();
+        }
     }
 
     /// EXP-1859: a failure before the host's `said` falls back to the local

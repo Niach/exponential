@@ -495,6 +495,10 @@ pub fn on_ring(call_id: String, agent_id: String, turn: Option<String>, cx: &mut
         }
         let started = weak.update(cx, |this, cx| {
             if this.active.is_some() {
+                // EXP-1859: a turn's caller hears it itself (a reason-less end is silent).
+                if turn.is_some() {
+                    host.send_event(host_failed_event("busy"));
+                }
                 host.end();
                 return false;
             }
@@ -854,6 +858,10 @@ impl VoiceCall {
         cx: &mut Context<Self>,
     ) {
         if crate::speak_replies::client(cx).is_none() {
+            if let Some(host) = host.filter(|_| turn.is_some()) {
+                host.send_event(host_failed_event("unavailable"));
+                host.end();
+            }
             return;
         }
         // A held push to talk and anything being said stop first.

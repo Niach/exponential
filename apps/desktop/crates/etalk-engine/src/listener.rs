@@ -833,6 +833,10 @@ struct TurnCall {
     language: &'static str,
     utterance: Option<Utterance>,
     done: bool,
+    /// The caller's audio from its first frame until the call listens (a
+    /// server's cold start happens while the person speaks), at most the
+    /// longest turn.
+    held: Vec<f32>,
 }
 
 /// S-3: a call's VAD and, local, its microphone and echo canceller.
@@ -878,8 +882,21 @@ fn dbfs(peak: f32) -> f32 {
 
 impl<H: Hearing> Calling<H> {
     fn new(id: String, language: &'static str, remote: bool, turn: Option<String>) -> Self {
-        let turn = turn.map(|phrase| TurnCall { phrase, language, utterance: None, done: false });
+        let turn = turn.map(|phrase| TurnCall { phrase, language, utterance: None, done: false, held: Vec::new() });
         Calling { call: Call::new(id, language), remote, ears: None, muted: false, listening: false, level: InputLevel::default(), turn }
+    }
+
+    /// EXP-1859: a turn call hears what it kept, from the caller's first
+    /// frame (its quiet is counted on that audio, never on the wait).
+    fn hear_held(&mut self, engines: &mut H::Engines, links: &Links) -> Result<(), (ListenFailure, String)> {
+        if !self.listening {
+            return Ok(());
+        }
+        let held = self.turn.as_mut().map(|turn| std::mem::take(&mut turn.held)).unwrap_or_default();
+        for block in held.chunks(RATE / 50) {
+            self.hear(block, engines, links)?;
+        }
+        Ok(())
     }
 
     /// Hear `samples` (echo-cancelled when local; dropped while muted, and
@@ -1271,7 +1288,11 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
         // S-3: a call warming up advances (its download, the load, its
         // microphone, CallListening).
         if let Some(Active::Call(calling)) = active.as_mut() {
-            if let Err((reason, detail)) = calling.warm_up(hearing, rx, &mut backlog, links) {
+            let warm = calling.warm_up(hearing, rx, &mut backlog, links);
+            let heard = warm.and_then(|()| {
+                if calling.turn.as_ref().is_some_and(|turn| !turn.held.is_empty()) { calling.hear_held(hearing.engines(), links) } else { Ok(()) }
+            });
+            if let Err((reason, detail)) = heard {
                 let id = calling.call.id().to_string();
                 eprintln!("call {id}: could not listen ({reason:?}): {detail}");
                 active = None;
@@ -1693,7 +1714,11 @@ fn handle<H: Hearing>(
             let DialTurn { mut utterance, mic, mut vad, kept, started, .. } = turn;
             eprintln!("wake word: turn {id} was not answered: heard here, from its start");
             // What was said since the wake is history to the capsule (as the seed is).
-            match utterance.feed(&kept, &mut vad, hearing.engines(), &mut |_| {}) {
+            // Only up to its end: a failure that came late kept the room after it.
+            let heard = kept.chunks(RATE / 50).try_for_each(|block| {
+                if turn_ended(&utterance) { Ok(()) } else { utterance.feed(block, &mut vad, hearing.engines(), &mut |_| {}) }
+            });
+            match heard {
                 Ok(()) => *active = Some(Active::Listen(Held { utterance, mic, vad, started, woken: true })),
                 Err((reason, detail)) => {
                     links.listening.end(&id);
@@ -1736,7 +1761,18 @@ fn handle<H: Hearing>(
             // once its ears are up (a recognizer still downloading keeps it
             // ringing: the caller's audio until then is dropped, never fed
             // to engines that are not loaded yet).
-            if !running.remote || running.ears.is_none() {
+            if !running.remote {
+                return;
+            }
+            // A turn call keeps it until it listens ([`TurnCall::held`]).
+            if !running.listening {
+                if let Some(turn) = running.turn.as_mut() {
+                    let room = (crate::wake::MAX_TURN_MS * RATE / 1000).saturating_sub(turn.held.len());
+                    turn.held.extend_from_slice(&samples[..samples.len().min(room)]);
+                    return;
+                }
+            }
+            if running.ears.is_none() {
                 return;
             }
             if let Err((reason, detail)) = running.hear(&samples, hearing.engines(), links) {
@@ -2539,6 +2575,64 @@ mod tests {
         let events = harness.close();
         assert_eq!(said(&events).len(), 1, "{:?}", without_levels(&events));
         assert!(!events.iter().any(|event| matches!(event, Event::Heard { .. } | Event::Empty { .. })), "a call never answers Heard");
+    }
+
+    /// EXP-1859: a COLD host: the voice is not up yet while the whole turn
+    /// arrives. Nothing is lost: it hears the turn from the first frame once
+    /// it listens, and the wait is no quiet; an ordinary call keeps nothing.
+    #[test]
+    fn a_cold_turn_call_hears_the_turn_from_its_first_frame() {
+        for turn in [Some("Clip1".to_string()), None] {
+            let harness = Harness::new();
+            harness.voice.store(false, Ordering::SeqCst);
+            harness.listening.begin_call("c1", true);
+            let is_turn = turn.is_some();
+            harness.send(Job::Call { id: "c1".into(), language: "en".into(), remote: true, turn });
+            let stream = |samples: Vec<f32>| {
+                for chunk in samples.chunks(320) {
+                    harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+                }
+            };
+            // The phrase and half of the command while it warms up.
+            stream([tone(0.2, 0.0), tone(0.8, 0.3), tone(0.9, 0.0), tone(0.4, 0.3)].concat());
+            std::thread::sleep(Duration::from_millis(500));
+            assert!(without_levels(&harness.events.lock().unwrap()).is_empty(), "nothing is heard before it listens");
+            harness.voice.store(true, Ordering::SeqCst);
+            harness.until(|events| events.iter().any(|event| matches!(event, Event::CallListening { .. })));
+            // The rest of it, live.
+            stream([tone(0.4, 0.3), tone(crate::wake::TURN_END_MS as f32 / 1000.0 + 0.5, 0.0)].concat());
+            let events = harness.until(|events| !said(events).is_empty());
+            let texts = said(&events);
+            let expected = if is_turn { "clip2" } else { "clip1" };
+            assert_eq!(texts.len(), 1, "{texts:?}");
+            assert!(texts[0].to_lowercase().contains(expected), "turn {is_turn}: {texts:?}");
+            harness.close();
+        }
+    }
+
+    /// EXP-1859: the engines still download: a turn keeps the caller's audio
+    /// then too, and a hang-up during the wait ends it unheard.
+    #[test]
+    fn a_turn_call_keeps_the_audio_while_the_engines_load() {
+        for cancel in [false, true] {
+            let harness = Harness::new();
+            harness.probe.downloads.lock().unwrap().0 = 12;
+            harness.listening.begin_call("c1", true);
+            harness.send(Job::Call { id: "c1".into(), language: "en".into(), remote: true, turn: Some("Clip1".into()) });
+            for chunk in [phrase(0.8), phrase(0.6), tone(1.5, 0.0)].concat().chunks(3200) {
+                harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
+            }
+            if cancel {
+                harness.listening.end("c1");
+                harness.send(Job::Hangup { id: "c1".into() });
+                std::thread::sleep(Duration::from_millis(600));
+                assert!(without_levels(&harness.close()).is_empty(), "cancelled: nothing heard, nothing answered");
+                continue;
+            }
+            let events = harness.said(1);
+            assert!(said(&events)[0].to_lowercase().contains("clip2"), "{:?}", said(&events));
+            harness.close();
+        }
     }
 
     /// EXP-1859: a turn call that hears only the phrase answers Empty (the
