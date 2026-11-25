@@ -190,7 +190,7 @@ object ComposerMenu {
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Teams, ComposerMenuRowKind.Submenu, "Teams",
-            icon = "ui-team", surfaces = LAUNCH_AND_AGENT,
+            icon = "ui-team", surfaces = ALL,
             conditions = listOf(ComposerMenuCondition.Assistant, ComposerMenuCondition.Teams),
         ),
         ComposerMenuEntry.Separator,
@@ -269,8 +269,8 @@ object ComposerMenu {
 }
 
 /**
- * #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's Teams
- * pick, which teams a turn may touch (`sessions.send` `scopeTeamIds`). null =
+ * #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's (and
+ * a plain chat's, [plain]) Teams pick, which teams a turn may touch (`sessions.send` `scopeTeamIds`). null =
  * EVERY team; the last checked team cannot be unchecked; every team checked
  * again = null. Web `composer-menu.ts` `teamsPickValue` + `team-pick.tsx`.
  */
@@ -288,6 +288,27 @@ object TeamsPick {
         if (chosen.size == 1) return chosen[0].name
         return MANY.replace("{n}", chosen.size.toString())
     }
+
+    /** #EXP-2122 (`plainCases`): a plain root's pick. [shown] = what the picker
+     *  and the chips hold; [scope] = the next send's `scopeTeamIds` (null =
+     *  its own team only), sent only when [changed]. */
+    data class Plain(val shown: List<String>, val changed: Boolean, val scope: List<String>?)
+
+    /** [own] is always in; the others = [picked], null = untouched = [stored]. */
+    fun plain(own: String, stored: List<String>?, picked: List<String>?, teamIds: List<String>): Plain {
+        fun ordered(ids: List<String>) = teamIds.filter { it != own && it in ids }
+        val kept = ordered(stored.orEmpty())
+        val others = if (picked == null) kept else ordered(picked)
+        return Plain(
+            shown = teamIds.filter { it == own || it in others },
+            changed = others != kept,
+            scope = others.takeIf { it.isNotEmpty() && others != kept },
+        )
+    }
+
+    /** A tap in a plain root's picker or on a chip: the new set (null = every
+     *  team, each id stored) minus its own team. */
+    fun plainPicked(own: String, next: List<String>?, teamIds: List<String>): List<String> = (next ?: teamIds) - own
 
     /** The teams a pick holds (null = every team), in the teams' order. */
     fun pickedIds(picked: List<String>?, teamIds: List<String>): List<String> =
