@@ -860,6 +860,21 @@ pub fn is_own_assistant_root<'a>(
         && agents.into_iter().any(|agent| agent.id == agent_id && agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+/// #EXP-2161 (`rootMarkCases`, web `sightOfRoot`): what the synced rows say
+/// of a root: its own Assistant's or not; None = its row, or its agent's, is
+/// not synced yet.
+pub fn sight_of_root(root: Option<&crate::rows::SessionRow>, agents: &[crate::rows::AgentDefRow], me: &str) -> Option<bool> {
+    let root = root?;
+    let agent_id = root.agent_id.as_deref().filter(|id| !id.is_empty());
+    if let Some(agent_id) = agent_id {
+        let known = agents.iter().any(|agent| agent.id == agent_id);
+        if !known && root.is_root() && root.user_id.as_deref() == Some(me) {
+            return None;
+        }
+    }
+    Some(is_own_assistant_root(root, agents, me))
+}
+
 /// #EXP-1990 (TS `agentChatOf`, agent-settings.json `groupChat.chatCases`):
 /// THE chat of an agent for the viewer: its group chat (`group_chat_id`)
 /// when that root is synced, none when it names a root the viewer does not
@@ -1888,6 +1903,12 @@ mod tests {
             assert!(!is_own_assistant_root(&other, &agents, "me"));
         }
         assert!(!is_own_assistant_root(&root(Some("a"), "me", None), &agents, ""));
+        // Not synced yet says nothing.
+        assert_eq!(sight_of_root(None, &agents, "me"), None);
+        assert_eq!(sight_of_root(Some(&root(Some("later"), "me", None)), &agents, "me"), None);
+        assert_eq!(sight_of_root(Some(&root(Some("later"), "you", None)), &agents, "me"), Some(false));
+        assert_eq!(sight_of_root(Some(&root(None, "me", None)), &agents, "me"), Some(false));
+        assert_eq!(sight_of_root(Some(&root(Some("a"), "me", None)), &agents, "me"), Some(true));
     }
 
     #[test]

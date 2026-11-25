@@ -178,6 +178,7 @@ object DeviceReadiness {
         "speech" to "Speech",
         "wake" to "Wake word",
         "disk" to "Disk",
+        "member_space" to "Members' Assistants",
     )
 
     /** Fixture `actions`: label + whether ANOTHER device may run it. */

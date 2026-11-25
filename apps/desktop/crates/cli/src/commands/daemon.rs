@@ -644,14 +644,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // #EXP-2161: the one root a member space takes part in. A space's own
         // trees are nothing else (its key reaches no other).
         node.set_own_assistant(if space {
-            Arc::new(|_: &str| true)
+            Arc::new(|_: &str| steer::install_trust::sight(Some(true)))
         } else {
             let (rows, me) = (Arc::clone(&pickup), ctx.account.user_id.clone());
             Arc::new(move |root_id: &str| {
-                let Some(store) = rows.store() else { return false };
-                let Some(root) = session_row(&store, &root_id.to_ascii_lowercase()) else { return false };
+                let Some(store) = rows.store() else { return steer::install_trust::sight(None) };
+                let root = session_row(&store, &root_id.to_ascii_lowercase());
                 let agents: Vec<domain::rows::AgentDefRow> = read_shape_rows(&store, "agents");
-                domain::agent_settings::is_own_assistant_root(&root, &agents, &me)
+                steer::install_trust::sight(domain::agent_settings::sight_of_root(root.as_ref(), &agents, &me))
             })
         });
         // VAPP-43 STORED REPLAY: this machine's journals, read under the

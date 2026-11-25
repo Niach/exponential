@@ -372,6 +372,14 @@ interface ComposerDraftDao {
 // EXP-1291: the session tree. Roots (`parent_id IS NULL`) are
 // chats (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.
+/** #EXP-2161: a session's columns [com.exponential.app.data.sealed.sightOfRoot] reads. */
+data class RootFacts(
+    val id: String,
+    @androidx.room.ColumnInfo(name = "parent_id") val parentId: String?,
+    @androidx.room.ColumnInfo(name = "user_id") val userId: String?,
+    @androidx.room.ColumnInfo(name = "agent_id") val agentId: String?,
+)
+
 @Dao
 abstract class SessionDao(private val db: RoomDatabase) {
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
@@ -466,6 +474,10 @@ abstract class SessionDao(private val db: RoomDatabase) {
     @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
     abstract fun rawObserveTreeNoDigest(rootId: String): Flow<List<SessionEntity>>
     fun observeTreeNoDigest(rootId: String): Flow<List<SessionEntity>> = rawObserveTreeNoDigest(rootId).openedSessions()
+
+    /** #EXP-2161 (`rootMark`): what every synced session is, for the key rules. */
+    @Query("SELECT id, parent_id, user_id, agent_id FROM sessions")
+    abstract fun observeRootFacts(): Flow<List<RootFacts>>
 
     @Query("SELECT $SESSION_COLUMNS_NO_DIGEST FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
     abstract fun rawObserveAgentsNoDigest(): Flow<List<SessionEntity>>

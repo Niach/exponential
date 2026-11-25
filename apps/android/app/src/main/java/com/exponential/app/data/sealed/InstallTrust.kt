@@ -105,6 +105,27 @@ fun pinCovers(pin: InstallClass?, rootIsOwnAssistant: Boolean): Boolean = when (
     null -> false
 }
 
+/** What an install remembers about a root, beside its pins (member-space.json `rootMark`). */
+@Serializable
+enum class RootMark(val wire: String) {
+    @SerialName("assistant") Assistant("assistant"),
+    @SerialName("never") Never("never"),
+    @SerialName("unseen") Unseen("unseen"),
+}
+
+/** What its synced rows say of it now (`unknown` = not synced). */
+enum class RootSight(val wire: String) { Assistant("assistant"), Other("other"), Unknown("unknown") }
+
+/** `rootMarkCases`: whether a root counts as the member's own Assistant
+ *  conversation for a space's pin, sticky; [keyed] = the store already held a
+ *  key record of it, [record] = it records one now. */
+fun rootMark(mark: RootMark?, see: RootSight, keyed: Boolean, record: Boolean): Pair<RootMark?, Boolean> = when {
+    mark == RootMark.Never || see == RootSight.Other -> RootMark.Never to false
+    see == RootSight.Assistant -> if (mark == null && keyed) RootMark.Never to false else RootMark.Assistant to true
+    mark == null && record && !keyed -> RootMark.Unseen to false
+    else -> mark to false
+}
+
 @Serializable
 data class TrustPin(
     val userId: String,
@@ -146,7 +167,29 @@ data class TrustStore(
     val declined: List<String> = emptyList(),
     /** Per root (lowercase): the highest VERIFIED epoch and what each held epoch is. */
     val roots: Map<String, TrustRootRecord> = emptyMap(),
+    /** #EXP-2161 ([rootMark]): per root (lowercase), sticky. */
+    val rootMarks: Map<String, RootMark> = emptyMap(),
+    /** #EXP-2161: every endpoint id ever served with a space's registration
+     *  (any account's), sorted. The server may stop serving it (or its
+     *  registration): it stays a space, never an ordinary install nobody pinned. */
+    val knownSpaces: List<String> = emptyList(),
 ) {
+    /** The store after [rootId] was seen so, and whether it counts as the
+     *  member's own Assistant conversation. [record] = a key of it is recorded
+     *  now (asked BEFORE [recordKey]). */
+    fun ownAssistant(rootId: String, see: RootSight, record: Boolean): Pair<TrustStore, Boolean> {
+        val root = rootId.lowercase()
+        val before = rootMarks[root]
+        val (mark, counts) = rootMark(before, see, roots[root]?.epochs?.isNotEmpty() == true, record)
+        return (if (mark == null || mark == before) this else copy(rootMarks = rootMarks + (root to mark))) to counts
+    }
+
+    /** A space not (or no longer) pinned: nothing it signs is kept, nothing is
+     *  wrapped for it, in every mode. */
+    fun foreignSpace(endpointId: String): Boolean =
+        endpointId in knownSpaces || pins[endpointId]?.installClass == InstallClass.Space
+
+
     /** The pins that may take part in the root's keys. */
     fun covering(rootIsOwnAssistant: Boolean): List<String> =
         pins.filterValues { pinCovers(it.installClass, rootIsOwnAssistant) }.keys.toList()
@@ -457,8 +500,17 @@ object InstallTrust {
         val counted = LinkedHashMap<String, ServedInstall>()
         val classes = HashMap<String, InstallClass>()
         val ownSpaces = HashSet<String>()
-        for (install in served.installs) {
-            val registered = registrationClass(install, crypto)
+        val registeredAs = served.installs.map { registrationClass(it, crypto) }
+        val known = LinkedHashSet(before.knownSpaces)
+        served.installs.forEachIndexed { i, install -> if (registeredAs[i] == InstallClass.Space) known += install.endpointId }
+        before.pins.forEach { (id, pin) -> if (pin.installClass == InstallClass.Space) known += id }
+        if (before.space) known -= self
+        val knownSpaces = known.sorted()
+        for ((i, install) in served.installs.withIndex()) {
+            val registered = registeredAs[i]
+            // Once a space, always one: what the server serves of it now
+            // cannot make it an ordinary install.
+            if (registered != InstallClass.Space && install.endpointId in known) continue
             if (registered == InstallClass.Space) {
                 // Another member's space is nobody's business but theirs.
                 if (install.userId != userId) continue
@@ -589,7 +641,7 @@ object InstallTrust {
 
         // A new install claims a root only ALONE (decision e).
         // A space is no other install of the account: it can approve nobody.
-        val alone = served.installs.none { it.userId == userId && it.endpointId != self && it.endpointId !in ownSpaces }
+        val alone = served.installs.none { it.userId == userId && it.endpointId != self && it.endpointId !in ownSpaces && it.endpointId !in known }
         val status = when {
             before.space -> if (joined) TrustStatus.Trusted else TrustStatus.Waiting
             joined -> if (ownChain) TrustStatus.Trusted else TrustStatus.ClaimRoot
@@ -606,7 +658,7 @@ object InstallTrust {
         } else {
             emptyList()
         }
-        val store = before.copy(joined = joined, existing = existing, pins = pins, members = members, declined = declined)
+        val store = before.copy(joined = joined, existing = existing, pins = pins, members = members, declined = declined, knownSpaces = knownSpaces)
         return TrustView(store, status, rows, approveExisting)
     }
 
@@ -668,7 +720,7 @@ object InstallTrust {
         when (val verdict = crypto.acceptWrap(wrap, identity, installSecret, store.covering(rootIsOwnAssistant), mode == TrustMode.Mandatory)) {
             is WrapAcceptance.Verified -> KeepVerdict.Keep(KeyRecord.Verified, verdict.secret, verdict.treePublicKey)
             is WrapAcceptance.Unsigned -> KeepVerdict.Keep(KeyRecord.Unsigned, verdict.secret, verdict.treePublicKey)
-            is WrapAcceptance.Refused -> if (verdict.reason == WrapRefusal.Unpinned && mode == TrustMode.Record && wrap.signerEndpointId?.let { it in store.pins } != true) {
+            is WrapAcceptance.Refused -> if (verdict.reason == WrapRefusal.Unpinned && mode == TrustMode.Record && wrap.signerEndpointId?.let { it in store.pins || store.foreignSpace(it) } != true) {
                 // Is it at least its signer's? Then it is kept, and recorded.
                 val signer = wrap.signerEndpointId
                 if (signer == null) {
@@ -740,7 +792,7 @@ object InstallTrust {
                 val own = crypto.acceptVouch(statement, vouch.signature, vouch.signerEndpointId, listOf(vouch.signerEndpointId))
                 when {
                     own != null -> SealVerdict.Refuse(sealRefusal(own))
-                    vouch.signerEndpointId in store.pins -> SealVerdict.Refuse(SealRefusal.Unpinned)
+                    vouch.signerEndpointId in store.pins || store.foreignSpace(vouch.signerEndpointId) -> SealVerdict.Refuse(SealRefusal.Unpinned)
                     mode == TrustMode.Record -> SealVerdict.Seal(KeyRecord.RefusedWouldBe)
                     else -> SealVerdict.Refuse(SealRefusal.Unpinned)
                 }
@@ -791,6 +843,7 @@ object InstallTrust {
                 TargetVerdict.Refuse(TargetRefusal.KeyMismatch)
             }
         }
+        if (store.foreignSpace(target.endpointId)) return TargetVerdict.Refuse(TargetRefusal.Unapproved)
         // An older build that registered before #EXP-1950 kept no signature: legacy too.
         if (target.registrationSignature != null) {
             when (registrationClass(target, crypto)) {

@@ -60,6 +60,38 @@ public func pinCovers(_ pin: InstallClass?, rootIsOwnAssistant: Bool) -> Bool {
     }
 }
 
+/// What an install remembers about a root, beside its pins
+/// (member-space.json `rootMark`).
+public enum RootMark: String, Codable, Sendable {
+    case assistant, never, unseen
+}
+
+/// What its synced rows say of it now (`unknown` = not synced).
+public enum RootSight: String, Sendable {
+    case assistant, other, unknown
+}
+
+/// `rootMarkCases`: whether a root counts as the member's own Assistant
+/// conversation for a space's pin, sticky; `keyed` = the store already held a
+/// key record of it, `record` = it records one now.
+public func rootMark(_ mark: RootMark?, see: RootSight, keyed: Bool, record: Bool) -> (mark: RootMark?, counts: Bool) {
+    if mark == .never || see == .other { return (.never, false) }
+    if see == .assistant { return mark == nil && keyed ? (.never, false) : (.assistant, true) }
+    if mark == nil, record, !keyed { return (.unseen, false) }
+    return (mark, false)
+}
+
+/// What the synced rows say of a root (web `sightOfRoot`): a row or an agent
+/// not synced yet says nothing. `agentIsOwnAssistant` = whether its agent is
+/// the Assistant `me` owns; nil = not synced.
+public func sightOfRoot(parentId: String?, userId: String?, agentId: String?, agentIsOwnAssistant: Bool?, me: String) -> RootSight {
+    let mine = (parentId ?? "").isEmpty && userId == me && !me.isEmpty
+    let hasAgent = !(agentId ?? "").isEmpty
+    guard hasAgent, mine else { return .other }
+    guard let agentIsOwnAssistant else { return .unknown }
+    return agentIsOwnAssistant ? .assistant : .other
+}
+
 public struct TrustPin: Codable, Equatable, Sendable {
     public var userId: String
     public var x25519Public: String
@@ -129,10 +161,16 @@ public struct TrustStore: Codable, Equatable, Sendable {
     public var declined: [String]
     /// Per root (lowercase): the highest VERIFIED epoch and what each held epoch is.
     public var roots: [String: TrustRootRecord]
+    /// #EXP-2161 (`rootMark`): per root (lowercase), sticky.
+    public var rootMarks: [String: RootMark]
+    /// #EXP-2161: every endpoint id ever served with a space's registration
+    /// (any account's), sorted. The server may stop serving it (or its
+    /// registration): it stays a space, never an ordinary install nobody pinned.
+    public var knownSpaces: [String]
 
     enum CodingKeys: String, CodingKey {
         case selfEndpointId = "self"
-        case userId, joined, existing, space, pins, members, declined, roots
+        case userId, joined, existing, space, pins, members, declined, roots, rootMarks, knownSpaces
     }
 
     public init(selfEndpointId: String, userId: String, existing: Bool = false) {
@@ -145,6 +183,8 @@ public struct TrustStore: Codable, Equatable, Sendable {
         members = []
         declined = []
         roots = [:]
+        rootMarks = [:]
+        knownSpaces = []
     }
 
     public init(from decoder: Decoder) throws {
@@ -158,6 +198,25 @@ public struct TrustStore: Codable, Equatable, Sendable {
         members = try c.decode([String].self, forKey: .members)
         declined = try c.decode([String].self, forKey: .declined)
         roots = try c.decode([String: TrustRootRecord].self, forKey: .roots)
+        rootMarks = try c.decodeIfPresent([String: RootMark].self, forKey: .rootMarks) ?? [:]
+        knownSpaces = try c.decodeIfPresent([String].self, forKey: .knownSpaces) ?? []
+    }
+
+    /// Whether `rootId` counts as the member's own Assistant conversation;
+    /// remembers what was seen. `record` = a key of it is recorded now (asked
+    /// BEFORE `recordKey`).
+    public mutating func ownAssistant(rootId: String, see: RootSight, record: Bool) -> Bool {
+        let root = rootId.lowercased()
+        let keyed = !(roots[root]?.epochs.isEmpty ?? true)
+        let (mark, counts) = rootMark(rootMarks[root], see: see, keyed: keyed, record: record)
+        if let mark { rootMarks[root] = mark }
+        return counts
+    }
+
+    /// A space not (or no longer) pinned: nothing it signs is kept, nothing is
+    /// wrapped for it, in every mode.
+    func foreignSpace(_ endpointId: String) -> Bool {
+        knownSpaces.contains(endpointId) || pins[endpointId]?.installClass == .space
     }
 
     /// The pins that may take part in the root's keys.
@@ -556,8 +615,16 @@ public enum InstallTrust {
         var countedOrder: [String] = []
         var classes: [String: InstallClass] = [:]
         var ownSpaces: Set<String> = []
-        for install in served.installs {
-            let registered = registrationClass(install, crypto: crypto)
+        let registeredAs = served.installs.map { registrationClass($0, crypto: crypto) }
+        var known = Set(store.knownSpaces)
+        for (install, registered) in zip(served.installs, registeredAs) where registered == .space { known.insert(install.endpointId) }
+        for (endpointId, pin) in store.pins where pin.installClass == .space { known.insert(endpointId) }
+        if store.space { known.remove(store.selfEndpointId) }
+        store.knownSpaces = known.sorted()
+        for (install, registered) in zip(served.installs, registeredAs) {
+            // Once a space, always one: what the server serves of it now
+            // cannot make it an ordinary install.
+            if registered != .space, known.contains(install.endpointId) { continue }
             if registered == .space {
                 // Another member's space is nobody's business but theirs.
                 if install.userId != store.userId { continue }
@@ -704,7 +771,7 @@ public enum InstallTrust {
         // one of them to update, adopt and approve it.
         // A space is no other install of the account: it can approve nobody.
         let alone = !served.installs.contains {
-            $0.userId == store.userId && $0.endpointId != store.selfEndpointId && !ownSpaces.contains($0.endpointId)
+            $0.userId == store.userId && $0.endpointId != store.selfEndpointId && !ownSpaces.contains($0.endpointId) && !known.contains($0.endpointId)
         }
         let status: TrustStatus
         if store.space {
@@ -783,7 +850,7 @@ public enum InstallTrust {
         case .refused(.unpinned) where mode == .record:
             // Is it at least its signer's? Then it is kept, and recorded.
             guard let signer = wrap.signerEndpointId else { return .refuse(.signature) }
-            if store.pins[signer] != nil { return .refuse(.unpinned) }
+            if store.pins[signer] != nil || store.foreignSpace(signer) { return .refuse(.unpinned) }
             switch crypto.acceptWrap(wrap, identity: identity, installSecret: installSecret, pins: [signer], required: false) {
             case let .verified(secret, key): return .keep(record: .refusedWouldBe, secret: secret, treePublicKey: key)
             case let .refused(reason): return .refuse(reason)
@@ -854,7 +921,7 @@ public enum InstallTrust {
             if let own = crypto.acceptVouch(statement, signature: vouch.signature, signerEndpointId: vouch.signerEndpointId, pins: [vouch.signerEndpointId]) {
                 return .refuse(sealRefusal(own))
             }
-            if store.pins[vouch.signerEndpointId] != nil { return .refuse(.unpinned) }
+            if store.pins[vouch.signerEndpointId] != nil || store.foreignSpace(vouch.signerEndpointId) { return .refuse(.unpinned) }
             return mode == .record ? .seal(record: .refusedWouldBe) : .refuse(.unpinned)
         case let refusal?: return .refuse(sealRefusal(refusal))
         }
@@ -891,6 +958,7 @@ public enum InstallTrust {
             guard pin.x25519Public == target.x25519Public, pin.userId == target.userId else { return .refuse(.keyMismatch) }
             return pinCovers(pin.installClass, rootIsOwnAssistant: rootIsOwnAssistant) ? .wrap(record: .verified) : .refuse(.unapproved)
         }
+        if store.foreignSpace(target.endpointId) { return .refuse(.unapproved) }
         // An older build that registered before #EXP-1950 kept no signature: legacy too.
         if target.registrationSignature != nil {
             switch registrationClass(target, crypto: crypto) {

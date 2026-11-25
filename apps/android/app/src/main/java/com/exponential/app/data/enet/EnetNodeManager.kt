@@ -14,6 +14,8 @@ import com.exponential.app.data.api.ResignWrap
 import com.exponential.app.data.api.TeamInstall
 import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
+import com.exponential.app.data.sealed.RootSight
+import com.exponential.app.data.sealed.sightOfRoot
 import com.exponential.app.data.sealed.EnetTrustCrypto
 import com.exponential.app.data.sealed.HolderApi
 import com.exponential.app.data.db.DatabaseHolder
@@ -84,8 +86,8 @@ class EnetNodeManager @Inject constructor(
     private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
     private val installIds = ConcurrentHashMap<String, String>()
 
-    // #EXP-2161: per account, the member's own Assistant conversations (synced rows).
-    private val ownAssistants = ConcurrentHashMap<String, Set<String>>()
+    // #EXP-2161: per account, what its synced rows say of each root (one not here = unknown).
+    private val rootSights = ConcurrentHashMap<String, Map<String, RootSight>>()
 
     /**
      * #EXP-1950 (install-trust.json): the pin store and the four rules of
@@ -98,7 +100,7 @@ class EnetNodeManager @Inject constructor(
         crypto = EnetTrustCrypto,
         persistence = treeKeys.trust,
         identity = { accountId -> identities.vault.identity(accountId, create = false) },
-        ownAssistant = { accountId, rootId -> ownAssistants[accountId]?.contains(rootId) == true },
+        see = { accountId, rootId -> rootSights[accountId]?.get(rootId) ?: RootSight.Unknown },
     )
 
     // #EDE-114: the registry lists each account's node last loaded, per team
@@ -140,32 +142,37 @@ class EnetNodeManager @Inject constructor(
             auth.accounts
                 .map { list -> list.filter { it.token != null && it.userId != null }.associate { it.id to it.userId!! } }
                 .distinctUntilChanged()
-                .collectLatest(::followOwnAssistants)
+                .collectLatest(::followRootSights)
         }
         scope.launch { loop() }
         scope.launch { holderLoop() }
         registerNetworkCallback()
     }
 
-    /** #EXP-2161 (member-space.json `pinCases` `rootIsOwnAssistant`): the roots
-     *  each account started with the Assistant it owns. */
-    private suspend fun followOwnAssistants(accounts: Map<String, String>): Unit = coroutineScope {
-        ownAssistants.keys.retainAll(accounts.keys)
+    /** #EXP-2161 (member-space.json `rootMark`): what each account's synced
+     *  sessions and agents say of every root. */
+    private suspend fun followRootSights(accounts: Map<String, String>): Unit = coroutineScope {
+        rootSights.keys.retainAll(accounts.keys)
         for ((accountId, userId) in accounts) {
             launch {
                 try {
                     val db = dbs.database(accountId)
-                    combine(db.sessionDao().rawObserveAgentsNoDigest(), db.agentDefinitionDao().observeAll()) { roots, agents ->
-                        val mine = agents.filter { it.isAssistant && it.ownerId == userId }.map { it.id }.toSet()
-                        roots.filter { it.parentId == null && it.userId == userId && it.agentId in mine }.map { it.id.lowercase() }.toSet()
-                    }.distinctUntilChanged().collect { own ->
-                        ownAssistants[accountId] = own
-                        holderWake.trySend(Unit)
+                    var own = emptySet<String>()
+                    combine(db.sessionDao().observeRootFacts().distinctUntilChanged(), db.agentDefinitionDao().observeAll()) { rows, agents ->
+                        val assistants = agents.associate { it.id to (it.isAssistant && it.ownerId == userId) }
+                        rows.associate { it.id.lowercase() to sightOfRoot(it, assistants, userId) }
+                    }.distinctUntilChanged().collect { sights ->
+                        rootSights[accountId] = sights
+                        val now = sights.filterValues { it == RootSight.Assistant }.keys
+                        if (now != own) {
+                            own = now
+                            holderWake.trySend(Unit)
+                        }
                     }
                 } catch (err: CancellationException) {
                     throw err
                 } catch (err: Exception) {
-                    Log.w(TAG, "own Assistant roots: ${err.javaClass.simpleName}")
+                    Log.w(TAG, "root sights: ${err.javaClass.simpleName}")
                 }
             }
         }

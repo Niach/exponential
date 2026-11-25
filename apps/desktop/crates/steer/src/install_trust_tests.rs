@@ -953,9 +953,9 @@ fn a_space_gets_no_wrap_until_its_approval_and_then_for_the_own_assistant_alone(
         approval_requested: true,
         label: Some("unraid".into()),
     };
-    let (assistant, other) = ("01234567-89ab-4def-8123-456789abcdef", "11111111-89ab-4def-8123-456789abcdef");
+    let (assistant, other) = ("aaaaaaaa-89ab-4def-8123-456789abcdef", "11111111-89ab-4def-8123-456789abcdef");
     let v = victim(TRUST_MODE);
-    v.keeper.set_own_assistant(Arc::new(move |root| root == assistant));
+    v.keeper.set_own_assistant(Arc::new(move |root| if root == assistant { RootSight::Assistant } else { RootSight::Other }));
     lock(&v.liar.installs).push(row.clone());
     v.keeper.sync();
     let wraps = |root: Option<&str>| {

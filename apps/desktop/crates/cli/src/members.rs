@@ -10,9 +10,16 @@
 //! - A space's directory is `<data>/members/<spaceId>` (0700): `data` is the
 //!   space's own (read-write there), `host` is this daemon's (read-only
 //!   there): the space key and the logins' access tokens.
-//! - A space the server no longer lists is stopped (its daemon saves every
-//!   session's unpushed work first), saved once more from a fresh, equally
-//!   closed process, and its directory deleted.
+//! - A space the server no longer lists ENDS, on a thread of its own ([`end`]):
+//!   stopped (its daemon saves every session's unpushed work first), its key
+//!   and logins deleted, saved ONCE more from a fresh, equally closed process
+//!   that reaches the git remote alone, and its directory deleted, only while
+//!   nothing of it runs ([`member_space::quiet`]).
+//! - Limits: a systemd scope where this host gives one ([`scope_argv`]:
+//!   memory, tasks), the space's own process and file limits, a small tmpfs,
+//!   and no start below the disk floor (`coding::disk_alert::low_bytes`).
+//!   NOT bounded: CPU (its scope has a low weight), network volume, disk a
+//!   running turn writes; without a user systemd also memory.
 //! - This daemon's stop, restart or self-update stops every space; the next
 //!   start's reconcile brings them back on the new build.
 
@@ -28,6 +35,15 @@ use serde::{Deserialize, Serialize};
 
 /// How long a space's daemon has to save and stop.
 const GRACE: Duration = Duration::from_secs(45);
+/// How long nothing of a space may take to be gone once it was ended.
+const QUIET_WITHIN: Duration = Duration::from_secs(15);
+/// When an end that failed is tried again (its save never is).
+const END_RETRY: Duration = Duration::from_secs(5 * 60);
+/// The memory one space may use: half the machine's, at most this.
+const MEMORY_MAX: u64 = 16 << 30;
+const TASKS_MAX: u64 = 4096;
+/// Present once a space's last save was started: it is never run again.
+const SAVED_FILE: &str = ".saved";
 /// How long the last save of a removed space may take.
 const SAVE_BUDGET: Duration = Duration::from_secs(120);
 /// The wait after an unexpected end doubles from here to the maximum, and
@@ -175,6 +191,85 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// What a space writes, fit for a log and a terminal.
+fn plain(text: &str) -> String {
+    let bidi = |c: char| matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}');
+    text.chars().filter(|c| !c.is_control() && !bidi(*c)).take(200).collect()
+}
+
+/// The machine's memory, in bytes.
+fn memory_total() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let line = text.lines().find(|line| line.starts_with("MemTotal:"))?;
+    line.split_whitespace().nth(1)?.parse::<u64>().ok().map(|kb| kb * 1024)
+}
+
+/// `systemd-run`'s arguments for one space: its own scope with hard limits;
+/// `env -i` again, the scope's environment is the host's.
+fn scope_argv(memory_max: u64) -> Vec<String> {
+    let mut argv: Vec<String> = ["--user", "--scope", "--quiet", "--collect"].map(String::from).to_vec();
+    for limit in [
+        format!("MemoryMax={memory_max}"),
+        format!("MemoryHigh={}", memory_max / 10 * 9),
+        "MemorySwapMax=0".to_string(),
+        format!("TasksMax={TASKS_MAX}"),
+        "CPUWeight=50".to_string(),
+    ] {
+        argv.extend(["-p".to_string(), limit]);
+    }
+    argv.extend(["--", "/usr/bin/env", "-i"].map(String::from));
+    argv
+}
+
+/// The scope's arguments when this host's user manager takes them (asked
+/// once); None = no such limits here.
+fn scope() -> Option<&'static Vec<String>> {
+    static SCOPE: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
+    SCOPE
+        .get_or_init(|| {
+            if !cfg!(target_os = "linux") {
+                return None;
+            }
+            let argv = scope_argv((memory_total()? / 2).min(MEMORY_MAX));
+            let works = std::process::Command::new("systemd-run")
+                .args(&argv)
+                .arg("/usr/bin/true")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            if !works {
+                log::warn!("member spaces: no systemd scope here: their memory is not limited");
+            }
+            works.then_some(argv)
+        })
+        .as_ref()
+}
+
+/// [`member_space::command`], in a scope of its own where there is one.
+fn launcher(exe: &Path) -> std::process::Command {
+    use std::os::unix::process::CommandExt as _;
+    use std::process::Stdio;
+    let Some(argv) = scope() else { return member_space::command(exe) };
+    let mut command = std::process::Command::new("systemd-run");
+    command
+        .args(argv)
+        .arg(exe)
+        .arg(member_space::LAUNCHER_ARG)
+        .current_dir("/")
+        .process_group(0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// Below the device's low-disk floor: no space starts and none takes new work.
+fn disk_low(data_dir: &Path) -> bool {
+    coding::worktree_lifecycle::free_bytes(data_dir).is_some_and(|free| free < coding::disk_alert::low_bytes(data_dir))
+}
+
 /// Lines of at most 4 KiB; a longer one is dropped with the rest of it.
 fn bounded_lines(pipe: impl std::io::Read, mut each: impl FnMut(&str)) {
     let mut reader = BufReader::new(pipe);
@@ -191,7 +286,7 @@ fn bounded_lines(pipe: impl std::io::Read, mut each: impl FnMut(&str)) {
 impl Running {
     fn launch(spec: &member_space::Spec, report: Arc<Mutex<Report>>, id: &str) -> anyhow::Result<Running> {
         let exe = crate::commands::update::running_exe()?;
-        let mut child = member_space::command(&exe).spawn()?;
+        let mut child = launcher(&exe).spawn()?;
         let mut stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
         stdin.write_all(member_space::spec_line(spec).as_bytes())?;
         if let Some(out) = child.stdout.take() {
@@ -217,8 +312,10 @@ impl Running {
                     // The launcher's own lines are the host's to know; what
                     // the space's daemon logs stays in the space.
                     if let Some(setup) = line.strip_prefix("member-space: ") {
-                        log::warn!("member space {id}: {}", setup.chars().take(200).collect::<String>());
-                        lock(&report).error = Some(setup.chars().take(200).collect());
+                        // The space's program writes to this pipe too.
+                        let setup = plain(setup);
+                        log::warn!("member space {id}: {setup}");
+                        lock(&report).error = Some(setup);
                     }
                 })
             })?;
@@ -301,7 +398,7 @@ impl Members {
         let probed = Arc::new(Mutex::new(None));
         let members = Members { tx, probed: Arc::clone(&probed) };
         let spawned = std::thread::Builder::new().name("exp-members".into()).spawn(move || {
-            Supervisor { deps, spaces: BTreeMap::new(), probed, probed_at: None, logins_at: None, status: Vec::new(), held: false }.run(rx)
+            Supervisor { deps, spaces: BTreeMap::new(), probed, probed_at: None, logins_at: None, status: Vec::new(), held: false, ending: BTreeMap::new(), end_failed: BTreeMap::new() }.run(rx)
         });
         if let Err(err) = spawned {
             log::warn!("member spaces: no supervisor: {err}");
@@ -345,6 +442,10 @@ struct Supervisor {
     status: Vec<MemberStatus>,
     /// Stopped for a restart: nothing starts.
     held: bool,
+    /// Spaces that end, each on its own thread (true = it is gone).
+    ending: BTreeMap<String, std::thread::JoinHandle<bool>>,
+    /// Ends that did not finish, and when.
+    end_failed: BTreeMap<String, Instant>,
 }
 
 impl Supervisor {
@@ -418,7 +519,8 @@ impl Supervisor {
             }
         }
         self.reap();
-        if !self.held {
+        self.reap_ends();
+        if !self.held && !disk_low(&self.deps.data_dir) {
             let due: Vec<String> = self
                 .spaces
                 .iter()
@@ -459,7 +561,10 @@ impl Supervisor {
                 known.hosted = space.clone();
             }
         }
-        let supervised: BTreeSet<String> = self.spaces.keys().cloned().collect();
+        // One that ends, or whose end waits to be tried again, is left alone.
+        let mut supervised: BTreeSet<String> = self.spaces.keys().cloned().collect();
+        let busy: BTreeSet<String> = self.ending.keys().chain(self.end_failed.keys()).cloned().collect();
+        supervised.extend(busy.iter().cloned());
         for action in plan(Some(&hosted), &supervised, &spaces_on_disk(&self.deps.data_dir)) {
             match action {
                 Action::Start(id) => {
@@ -476,9 +581,21 @@ impl Supervisor {
                         },
                     );
                 }
+                Action::End(id) if busy.contains(&id) => {}
                 Action::End(id) => self.end(&id),
             }
         }
+    }
+
+    fn reap_ends(&mut self) {
+        let done: Vec<String> = self.ending.iter().filter(|(_, end)| end.is_finished()).map(|(id, _)| id.clone()).collect();
+        for id in done {
+            let gone = self.ending.remove(&id).is_some_and(|end| end.join().unwrap_or(false));
+            if !gone {
+                self.end_failed.insert(id, Instant::now());
+            }
+        }
+        self.end_failed.retain(|_, at| at.elapsed() < END_RETRY);
     }
 
     /// A space that ended by itself waits, then starts again.
@@ -526,6 +643,7 @@ impl Supervisor {
         }
         let Some(space) = self.spaces.get_mut(id) else { anyhow::bail!("not hosted") };
         let file = dir.join("host").join(SPACE_FILE);
+        let _ = std::fs::remove_file(dir.join("host").join(SAVED_FILE));
         if space.reprovision || !file.is_file() {
             let answer = self.deps.api.provision(id)?;
             anyhow::ensure!(answer.device_id == space.hosted.device_id, "the key names another device");
@@ -554,13 +672,22 @@ impl Supervisor {
 
     /// Stops a space, saves what is not pushed, deletes its directory.
     fn end(&mut self, id: &str) {
-        if let Some(mut space) = self.spaces.remove(id) {
-            if let Some(mut running) = space.running.take() {
+        if self.ending.contains_key(id) {
+            return;
+        }
+        let running = self.spaces.remove(id).and_then(|mut space| space.running.take());
+        let (data_dir, instance, name) = (self.deps.data_dir.clone(), self.deps.instance_url.clone(), id.to_string());
+        let end = std::thread::Builder::new().name("exp-space-end".into()).spawn(move || {
+            if let Some(mut running) = running {
                 running.ask_stop();
                 running.wait(GRACE + Duration::from_secs(10));
             }
+            remove(&data_dir, &instance, &name)
+        });
+        match end {
+            Ok(end) => drop(self.ending.insert(id.to_string(), end)),
+            Err(err) => log::warn!("member space {id}: its end did not start: {err}"),
         }
-        remove(&self.deps.data_dir, &self.deps.instance_url, id);
     }
 
     fn stop_all(&mut self) {
@@ -592,6 +719,7 @@ impl Supervisor {
                 };
                 MemberStatus { space_id: id.clone(), member: space.hosted.member_name.clone(), state, code: report.code.clone() }
             })
+            .chain(self.ending.keys().map(|id| MemberStatus { space_id: id.clone(), state: "ending".into(), ..Default::default() }))
             .collect();
         let path = root(&self.deps.data_dir).join(STATUS_FILE);
         if now == self.status && (now.is_empty() || path.is_file()) {
@@ -655,6 +783,7 @@ fn spec(data_dir: &Path, instance_url: &str, dir: &Path, args: &[&str]) -> anyho
         args: args.iter().map(|arg| arg.to_string()).collect(),
         env: member_space::environment(std::env::vars()),
         instance: instance_endpoint(instance_url),
+        only: None,
         grace_secs: GRACE.as_secs(),
     })
 }
@@ -673,29 +802,79 @@ fn tool(program: &str) -> Option<PathBuf> {
     member_space::bindable(&real).then_some(real)
 }
 
-/// Saves what a stopped space has not pushed (from inside the same
-/// isolation: a worktree is the member's, its git hooks are too), then
-/// deletes the space's directory.
-fn remove(data_dir: &Path, instance_url: &str, id: &str) {
-    if !valid_space_id(id) {
-        return;
-    }
-    let dir = root(data_dir).join(id);
-    if dir.join("data").is_dir() && dir.join("host").is_dir() {
-        let saved = spec(data_dir, instance_url, &dir, &["__space-save"]).and_then(|spec| {
-            let mut running = Running::launch(&spec, Arc::default(), id)?;
-            Ok(running.wait(SAVE_BUDGET))
-        });
-        match saved {
-            Ok(Some(0)) => {}
-            other => log::warn!("member space {id}: the last save did not finish: {other:?}"),
+/// Waits until nothing of the space runs; its lock, held.
+fn wait_quiet(host: &Path) -> Result<impl Sized, String> {
+    let deadline = Instant::now() + QUIET_WITHIN;
+    loop {
+        match member_space::quiet(host) {
+            Ok(lock) => return Ok(lock),
+            Err(err) if Instant::now() >= deadline => return Err(err),
+            Err(_) => std::thread::sleep(Duration::from_millis(200)),
         }
     }
-    // Links inside are removed, never followed.
-    match std::fs::remove_dir_all(&dir) {
-        Ok(()) => log::info!("member space {id} removed"),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => log::warn!("member space {id}: the directory was not removed: {err}"),
+}
+
+/// Deletes a stopped space: its key and logins, then (once in its life) the
+/// last save, from inside the same isolation (a worktree is the member's,
+/// its git hooks and filters are too) and reaching the git remote alone, then
+/// its directory. Nothing is deleted under a live tree. True = it is gone.
+fn remove(data_dir: &Path, instance_url: &str, id: &str) -> bool {
+    remove_with(data_dir, id, |dir| {
+        let mut spec = spec(data_dir, instance_url, dir, &["__space-save"])?;
+        spec.only = Some(vec![("github.com".to_string(), 443)]);
+        let mut running = Running::launch(&spec, Arc::default(), id)?;
+        anyhow::ensure!(running.wait(SAVE_BUDGET) == Some(0), "it did not finish");
+        Ok(())
+    })
+}
+
+fn remove_with(data_dir: &Path, id: &str, save: impl FnOnce(&Path) -> anyhow::Result<()>) -> bool {
+    if !valid_space_id(id) {
+        return false;
+    }
+    let dir = root(data_dir).join(id);
+    let host = dir.join("host");
+    let failed = |what: &str, err: &dyn std::fmt::Display| {
+        log::warn!("member space {id}: {what}: {err}");
+        false
+    };
+    if host.is_dir() {
+        let lock = match wait_quiet(&host) {
+            Ok(lock) => lock,
+            Err(err) => return failed("not removed, something of it runs", &err),
+        };
+        for secret in [SPACE_FILE, coding::space_logins::LOGINS_FILE] {
+            match std::fs::remove_file(host.join(secret)) {
+                Err(err) if err.kind() != std::io::ErrorKind::NotFound => return failed("its key was not deleted", &err),
+                _ => {}
+            }
+        }
+        // The launcher takes the lock itself.
+        drop(lock);
+        let marker = host.join(SAVED_FILE);
+        if dir.join("data").is_dir() && !marker.exists() {
+            if let Err(err) = std::fs::write(&marker, b"") {
+                return failed("no last save", &err);
+            }
+            if let Err(err) = save(&dir) {
+                failed("the last save did not finish", &format_args!("{err:#}"));
+            }
+        }
+    }
+    let _lock = if host.is_dir() {
+        match wait_quiet(&host) {
+            Ok(lock) => Some(lock),
+            Err(err) => return failed("not removed, something of it runs", &err),
+        }
+    } else {
+        None
+    };
+    match member_space::remove_tree(&dir) {
+        Ok(()) => {
+            log::info!("member space {id} removed");
+            true
+        }
+        Err(err) => failed("the directory was not removed", &err),
     }
 }
 
@@ -878,6 +1057,16 @@ mod tests {
             logins_at: None,
             status: Vec::new(),
             held: false,
+            ending: BTreeMap::new(),
+            end_failed: BTreeMap::new(),
+        }
+    }
+
+    fn join_ends(host: &mut Supervisor) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !host.ending.is_empty() && Instant::now() < deadline {
+            host.reap_ends();
+            std::thread::sleep(Duration::from_millis(20));
         }
     }
 
@@ -910,9 +1099,89 @@ mod tests {
         std::os::unix::fs::symlink("/", dir.join("link")).unwrap();
         *lock(&api.hosted) = Ok(vec![]);
         host.reconcile();
-        assert!(host.spaces.is_empty() && !dir.exists());
+        join_ends(&mut host);
+        assert!(host.spaces.is_empty() && host.end_failed.is_empty() && !dir.exists());
         assert!(Path::new("/etc").exists());
         let _ = std::fs::remove_dir_all(&host.deps.data_dir);
+    }
+
+    /// Review finding 5: one save in a space's life, its secrets gone before
+    /// it, never a delete while something of it runs.
+    #[test]
+    fn a_space_is_saved_once_and_never_removed_while_it_runs() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let data_dir = std::env::temp_dir().join(format!("exp-members-end-{}", uuid::Uuid::new_v4()));
+        let dir = root(&data_dir).join(A);
+        let (data, host) = (dir.join("data"), dir.join("host"));
+        std::fs::create_dir_all(data.join("closed")).unwrap();
+        std::fs::create_dir_all(&host).unwrap();
+        for secret in [SPACE_FILE, coding::space_logins::LOGINS_FILE] {
+            std::fs::write(host.join(secret), "secret").unwrap();
+        }
+        std::fs::set_permissions(data.join("closed"), std::fs::Permissions::from_mode(0)).unwrap();
+        let saves = std::cell::Cell::new(0);
+        let save = |_: &Path| {
+            saves.set(saves.get() + 1);
+            assert!(!host.join(SPACE_FILE).exists() && !host.join(coding::space_logins::LOGINS_FILE).exists());
+            anyhow::bail!("a member's filter that hangs")
+        };
+        if cfg!(target_os = "linux") {
+            // Something of it still runs: nothing is saved, nothing deleted.
+            let alive = member_space::quiet(&host).ok().unwrap();
+            assert!(!remove_with(&data_dir, A, save) && dir.exists() && saves.get() == 0);
+            drop(alive);
+        }
+        assert!(remove_with(&data_dir, A, save));
+        assert!(!dir.exists() && saves.get() == 1);
+        // A delete that failed half way: no second save.
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&host).unwrap();
+        std::fs::write(host.join(SAVED_FILE), "").unwrap();
+        assert!(remove_with(&data_dir, A, save));
+        assert!(!dir.exists() && saves.get() == 1);
+        assert!(!remove_with(&data_dir, "../x", save));
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// Finding 5: a slow end blocks no other space.
+    #[test]
+    fn an_end_runs_beside_the_rest() {
+        let api = Arc::new(Fake { hosted: Mutex::new(Ok(vec![])), provisions: Mutex::default() });
+        let mut host = supervisor(Arc::clone(&api));
+        host.ending.insert(A.into(), std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(400));
+            false
+        }));
+        std::fs::create_dir_all(host.dir(A)).unwrap();
+        let since = Instant::now();
+        // It is not ended a second time, nor started while it ends.
+        *lock(&api.hosted) = Ok(vec![hosted(A), hosted(B)]);
+        host.reconcile();
+        assert!(since.elapsed() < Duration::from_millis(300));
+        assert!(host.spaces.contains_key(B) && !host.spaces.contains_key(A));
+        join_ends(&mut host);
+        // Failed: left alone until it is tried again.
+        assert!(host.end_failed.contains_key(A));
+        *lock(&api.hosted) = Ok(vec![]);
+        host.spaces.clear();
+        host.reconcile();
+        assert!(host.ending.is_empty());
+        let _ = std::fs::remove_dir_all(&host.deps.data_dir);
+    }
+
+    #[test]
+    fn what_a_space_writes_is_plain_text() {
+        assert_eq!(plain("a\u{1b}[2J\u{7}b\u{202e}c\u{200b}d\r"), "a[2Jbcd");
+        assert_eq!(plain(&"x".repeat(500)).len(), 200);
+    }
+
+    #[test]
+    fn a_scope_is_a_hard_limit_and_a_clean_environment() {
+        let argv = scope_argv(8 << 30);
+        for want in ["MemoryMax=8589934592", "MemorySwapMax=0", "TasksMax=4096"] {
+            assert!(argv.iter().any(|arg| arg == want), "{want}");
+        }
+        assert_eq!(argv[argv.len() - 3..], ["--", "/usr/bin/env", "-i"]);
     }
 
     #[test]

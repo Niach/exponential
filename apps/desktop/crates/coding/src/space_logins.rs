@@ -275,6 +275,9 @@ mod tests {
         apply(&space, &fewer);
         assert!(ids(CodingAgent::Claude).is_empty());
         assert!(!path.exists());
+        for dir in [host_dir, files, space] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     #[test]
@@ -283,5 +286,6 @@ mod tests {
         let login = SpaceLogin { id: "../../evil".into(), email: None, document: json!({}) };
         apply(&space, &SpaceLogins { agents: [("claude".to_string(), vec![login])].into(), ..Default::default() });
         assert!(crate::agent_profiles::list(&space, CodingAgent::Claude).is_empty());
+        let _ = std::fs::remove_dir_all(space);
     }
 }
