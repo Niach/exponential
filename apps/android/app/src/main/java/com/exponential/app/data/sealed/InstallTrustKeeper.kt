@@ -300,6 +300,19 @@ class InstallTrustKeeper(
 
     // ── the rules, for the key holder ─────────────────────────────────────
 
+    /**
+     * #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes a
+     * chat key ([InstallTrustState.Unavailable], an older server without
+     * `installs.trust`, counts as joined). A store not reconciled yet
+     * ([InstallTrustState.Unknown]) is reconciled first.
+     */
+    suspend fun makesKeys(accountId: String, installId: String): Boolean {
+        val before = account(accountId) ?: return false
+        if (synchronized(lock) { before.state } == InstallTrustState.Unknown) sync(accountId, installId)
+        val found = account(accountId) ?: return false
+        return synchronized(lock) { found.state == InstallTrustState.Unavailable || found.store.joined }
+    }
+
     private fun log(rule: TrustDecision.Rule, subject: String, verdict: String) = synchronized(lock) {
         decisionLog.addLast(TrustDecision(rule, subject, verdict))
         while (decisionLog.size > DECISION_LOG) decisionLog.removeFirst()

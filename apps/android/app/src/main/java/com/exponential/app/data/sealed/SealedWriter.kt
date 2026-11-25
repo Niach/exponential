@@ -27,7 +27,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -61,6 +60,11 @@ internal data class Readers(val teamId: String?, val deviceId: String?)
  *
  * #FEED-250 (`staleTree`): Room is a CACHE of the tree ([StaleTree]): a
  * conversation with an agent / app it lacks asks `sessions.sendTarget`.
+ *
+ * #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes a
+ * key. One that waits for approval asks a keyless tree's devices
+ * ([KeylessKeying]) and fails a new chat's first text with [NO_KEY_REFUSAL];
+ * the server's [KEY_MAKER_REFUSAL] takes the same steps.
  */
 @Singleton
 class SealedWriter @Inject constructor(
@@ -103,6 +107,8 @@ class SealedWriter @Inject constructor(
             } catch (err: CancellationException) {
                 throw err
             } catch (err: Throwable) {
+                // #EXP-2123: a keyless root no key came for: nothing leaves.
+                if (err is TrpcException && err.message == NO_KEY_REFUSAL) throw err
                 Log.w(TAG, "sealing an attachment-only send failed: ${err.javaClass.simpleName}")
                 PreparedSend(withMentions)
             }
@@ -162,7 +168,9 @@ class SealedWriter @Inject constructor(
                     }
                 }
             }
-            else -> {
+            // #EXP-2123 (install-trust.json `keyMaker` `newRoot`): an install
+            // that waits for approval makes no key: the send fails, no root is made.
+            else -> newRootKey({ nodes.get().makesKeys(accountId) }) {
                 val key = crypto.generateTreeKey()
                 val targets = readerTargets(accountId, installId, readers) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: throw TrpcException(NO_KEY_REFUSAL)
@@ -178,7 +186,7 @@ class SealedWriter @Inject constructor(
         }
     }
 
-    /** An attachment-only send (`clearTree`: unchanged): its embeds sealed when this install can, plain otherwise. */
+    /** An attachment-only send (`clearTree`: unchanged): its embeds sealed when this install can, plain otherwise; #EXP-2123: an existing keyless root no key came for fails ([NO_KEY_REFUSAL]), never plain. */
     private suspend fun attachmentsOnly(
         db: ExponentialDatabase,
         accountId: String,
@@ -191,15 +199,21 @@ class SealedWriter @Inject constructor(
         val treeKey = when (wire) {
             TreeWire.Unknown, is TreeWire.Clear -> return PreparedSend(withMentions)
             is TreeWire.Sealed -> allowed(accountId, wire.rootId, wire.key) ?: return PreparedSend(withMentions)
-            is TreeWire.Create -> StaleTree.keyFirst(
-                wire.rootId,
-                create = { createKey(accountId, wire.rootId, readers) },
-                publicKey = { publicKey(accountId, it) },
-            ) ?: return PreparedSend(withMentions)
+            // #EXP-2123: keyed like a text send's keyless root (a waiting
+            // install asks its devices); no key = the send fails, never its
+            // embeds in clear.
+            is TreeWire.Create -> when (val keyed = keyKeyless(db, accountId, wire.rootId, readers)) {
+                is Keyless.Clear -> return PreparedSend(withMentions)
+                is Keyless.Created -> keyed.key
+                is Keyless.Arrived -> keyed.key?.let { allowed(accountId, wire.rootId, it) } ?: throw TrpcException(NO_KEY_REFUSAL)
+            }
             TreeWire.Inline -> null
         }
         if (treeKey != null) return sealedTo(withMentions, treeKey, body)
         val installId = nodes.get().installId(accountId) ?: return PreparedSend(withMentions)
+        // #EXP-2123: an install that waits makes no new root's key: an
+        // attachment-only new chat has no text to seal and goes without one.
+        if (keyMakerStep(nodes.get().makesKeys(accountId), KeyWrite.NewRoot) != KeyMakerStep.Make) return PreparedSend(withMentions)
         val key = crypto.generateTreeKey()
         val targets = readerTargets(accountId, installId, readers) ?: return PreparedSend(withMentions)
         val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: return PreparedSend(withMentions)
@@ -209,67 +223,17 @@ class SealedWriter @Inject constructor(
         ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
     }
 
-    private sealed interface Keyless {
-        data object Clear : Keyless
-        data class Created(val key: PublicTreeKey) : Keyless
-        /** Keyed by another (its device, a concurrent writer); null = no key: the send fails. */
-        data class Arrived(val key: PublicTreeKey?) : Keyless
-    }
-
-    /** #EXP-1960: a keyless root keyed by this install, else by its devices (`sessionKeys.requestKey`). */
-    private suspend fun keyKeyless(db: ExponentialDatabase, accountId: String, rootId: String, readers: Readers): Keyless {
-        var ownOnly = false
-        var attempt = 1
-        while (true) {
-            val failure = try {
-                val created = createKey(accountId, rootId, readers, ownOnly)
-                    ?: return Keyless.Arrived(null)
-                return Keyless.Created(created)
-            } catch (err: CancellationException) {
-                throw err
-            } catch (err: TrpcException) {
-                createFailure(err.code, err.message)
-            } catch (err: Exception) {
-                CreateFailure.Transient
-            }
-            when (keylessStep(failure, attempt, ownOnly)) {
-                KeylessStep.Plain -> return Keyless.Clear
-                KeylessStep.ServerKey -> return publicKey(accountId, rootId)?.let { Keyless.Arrived(it) } ?: askDevice(db, accountId, rootId)
-                KeylessStep.RequestKey -> return askDevice(db, accountId, rootId)
-                KeylessStep.RetryOwn -> ownOnly = true
-                KeylessStep.Retry -> delay(SEAL_CREATE_RETRY_MS * attempt)
-                else -> return Keyless.Arrived(null)
-            }
-            attempt++
-        }
-    }
-
-    /** The tree's devices asked to key it, then its key waited for; no host = fails at once. */
-    private suspend fun askDevice(db: ExponentialDatabase, accountId: String, rootId: String): Keyless {
-        var answer = RequestKeyAnswer.Error
-        val result = try {
-            sessionKeys.requestKey(accountId, rootId)
-        } catch (err: CancellationException) {
-            throw err
-        } catch (err: Exception) {
-            if (err is TrpcException && err.code == "NOT_FOUND") answer = RequestKeyAnswer.NotFound
-            null
-        }
-        if (result != null) {
-            answer = RequestKeyAnswer.entries.firstOrNull { it.name.replaceFirstChar(Char::lowercase) == result.state } ?: RequestKeyAnswer.Error
-        }
-        return when (keylessStep(answer)) {
-            KeylessStep.Plain -> Keyless.Clear
-            KeylessStep.Failed -> Keyless.Arrived(null)
-            KeylessStep.Sealed -> Keyless.Arrived(
-                result?.let { r -> r.publicKey?.let { key -> r.epoch?.let { PublicTreeKey(key, it) } } },
-            )
-            else -> waitForKey(db, accountId, rootId)
-        }
-    }
-
-    private suspend fun waitForKey(db: ExponentialDatabase, accountId: String, rootId: String): Keyless =
-        Keyless.Arrived(awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, rootId) })
+    /** #EXP-1960 + #EXP-2123: a keyless root keyed by this install (joined), else by its devices. */
+    private suspend fun keyKeyless(db: ExponentialDatabase, accountId: String, rootId: String, readers: Readers): Keyless =
+        KeylessKeying(
+            object : KeylessApi {
+                override suspend fun makesKeys() = nodes.get().makesKeys(accountId)
+                override suspend fun create(rootId: String, ownOnly: Boolean) = createKey(accountId, rootId, readers, ownOnly)
+                override suspend fun requestKey(rootId: String) = sessionKeys.requestKey(accountId, rootId)
+                override suspend fun currentKey(rootId: String) = currentKey(db, accountId, rootId)
+                override suspend fun publicKey(rootId: String) = publicKey(accountId, rootId)
+            },
+        ).key(rootId)
 
     private fun sealedTo(input: SessionsSendInput, key: PublicTreeKey, body: String) =
         PreparedSend(
@@ -562,8 +526,6 @@ class SealedWriter @Inject constructor(
         const val FIRST_EPOCH = 1
         /** How often a send waiting for its tree (Room's root) looks again. */
         const val POLL_MS = 500L
-        /** How often a send waiting for a keyless tree's key asks again (Room, then the server). */
-        const val KEY_POLL_MS = 2_000L
         const val LOCKED_ANSWER = "This card can't be answered on this device yet."
         const val LOCKED_SEND = "This chat can't be written to from this device yet."
     }

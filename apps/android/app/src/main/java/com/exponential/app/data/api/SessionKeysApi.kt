@@ -90,9 +90,9 @@ data class RequestKeyInput(val rootId: String)
 @Serializable
 data class RequestKeyResult(val state: String, val epoch: Int? = null, val publicKey: String? = null)
 
-/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede. */
+/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede; #EXP-2123 [stranded] = no approved reader holds it: rotated without the old secret. */
 @Serializable
-data class DueTreeKey(val rootId: String, val epoch: Int)
+data class DueTreeKey(val rootId: String, val epoch: Int, val stranded: Boolean = false)
 
 const val PENDING_MAX = 200
 

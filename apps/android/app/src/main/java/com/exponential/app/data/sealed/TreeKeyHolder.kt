@@ -192,9 +192,23 @@ class TreeKeyHolder(
         }
     }
 
-    /** #EXP-1951: rotates every due root whose current secret this install holds; returns how many. */
+    /**
+     * #EXP-2123 (install-trust.json `keyMaker`): whether this install makes
+     * chat keys: only once it is joined (no [trust] = the rules are off).
+     */
+    suspend fun makesKeys(): Boolean = trust?.makesKeys(accountId, installId) ?: true
+
+    /**
+     * #EXP-1951: rotates every due root whose current secret this install holds; returns how many.
+     * #EXP-2123 (install-trust.json `keyMaker`): never while this install
+     * waits for approval (nothing is remembered); a STRANDED root (no
+     * approved reader holds its current epoch) is rotated without the old
+     * secret; the server's [KEY_MAKER_REFUSAL] is skipped, not remembered.
+     */
     internal suspend fun rotateDue(): Int {
         val own = installPublic ?: return 0
+        val joined = makesKeys()
+        if (keyMakerStep(joined, KeyWrite.Rotation) != KeyMakerStep.Make) return 0
         val due = api.due(installId)
         if (due.isEmpty()) return 0
         // The server holds a wrap of each for this install: unwrap what is missing.
@@ -203,10 +217,12 @@ class TreeKeyHolder(
         var rotated = 0
         for (root in due) {
             val held = vault.all(accountId)[root.rootId].orEmpty()
-            val epoch = rotationEpoch(
+            val epoch = strandedRotationEpoch(
                 flagged = root.epoch,
                 current = maxOf(root.epoch, held.keys.maxOrNull() ?: 0),
                 held = held.containsKey(root.epoch),
+                stranded = root.stranded,
+                joined = joined,
                 left = (root.rootId to root.epoch) in left,
             ) ?: continue
             val key = crypto.generateTreeKey()
@@ -218,6 +234,8 @@ class TreeKeyHolder(
             } catch (err: CancellationException) {
                 throw err
             } catch (err: TrpcException) {
+                // The server lists this install as waiting: nothing is remembered.
+                if (isKeyMakerRefusal(err.message)) continue
                 createFailure(err.code, err.message)
             } catch (_: Exception) {
                 CreateFailure.Transient

@@ -390,6 +390,51 @@ class InstallTrustFixtureTest {
         assertTrue(count > 0)
     }
 
+    // ── who makes a chat key (#EXP-2123) ──────────────────────────────────
+
+    @Test
+    fun keyMakerTheRefusalAndTheServersWaitingRule() {
+        val maker = f.obj("keyMaker")
+        assertEquals(maker.str("refusal"), KEY_MAKER_REFUSAL)
+        assertEquals(maker.str("code"), KEY_MAKER_REFUSAL_CODE)
+        assertTrue(isKeyMakerRefusal(KEY_MAKER_REFUSAL))
+        assertFalse(isKeyMakerRefusal(null))
+        assertFalse(isKeyMakerRefusal("Forbidden"))
+        val cases = maker.cases("serverCases")
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            fun b(k: String) = c[k]!!.jsonPrimitive.boolean
+            assertEquals(c.str("name"), b("waits"), keyMakerWaits(b("chained"), b("asked"), b("accountChain"), b("registration")))
+        }
+    }
+
+    @Test
+    fun keyMakerTheClientsSteps() {
+        val cases = f.obj("keyMaker").cases("makerCases")
+        assertEquals(12, cases.size)
+        for (c in cases) {
+            val write = KeyWrite.entries.first { it.name.replaceFirstChar(Char::lowercase) == c.str("write") }
+            val refused = (c["refused"] as? JsonPrimitive)?.booleanOrNull ?: false
+            val step = keyMakerStep(c["joined"]!!.jsonPrimitive.boolean, write, refused)
+            assertEquals(c.str("name"), c.str("step"), step.name.replaceFirstChar(Char::lowercase))
+        }
+    }
+
+    @Test
+    fun keyMakerStrandedRotationEpochs() {
+        val cases = f.obj("keyMaker").cases("strandedCases")
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            fun b(k: String) = c[k]!!.jsonPrimitive.boolean
+            fun n(k: String) = (c[k] as? JsonPrimitive)?.intOrNull
+            assertEquals(
+                c.str("name"),
+                n("epoch"),
+                strandedRotationEpoch(n("flagged"), n("current"), b("held"), b("stranded"), b("joined"), b("left")),
+            )
+        }
+    }
+
     private fun spec(vararg pairs: Pair<String, Any>): JsonObject = JsonObject(
         pairs.associate { (k, v) -> k to if (v is Boolean) JsonPrimitive(v) else JsonPrimitive(v.toString()) },
     )

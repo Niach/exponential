@@ -722,3 +722,50 @@ object InstallTrust {
  *  evidence for a key this install holds no secret of. */
 @Serializable
 data class Vouch(val recipientEndpointId: String, val wrapped: String, val signature: String, val signerEndpointId: String)
+
+// ── who makes a chat key (install-trust.json `keyMaker`, #EXP-2123) ──────
+
+/** The server's refusal of a key write by an install that waits for approval. */
+const val KEY_MAKER_REFUSAL = "An install waiting for approval makes no chat key"
+
+/** The tRPC code of [KEY_MAKER_REFUSAL]. */
+const val KEY_MAKER_REFUSAL_CODE = "FORBIDDEN"
+
+fun isKeyMakerRefusal(message: String?): Boolean = message == KEY_MAKER_REFUSAL
+
+/**
+ * `serverCases`: whether the server lists an install as waiting (the New
+ * install rule of `installs.waiting`): [chained] = a `root` or `approve`
+ * names it, [asked] = `approvalRequested`, [accountChain] = one names another
+ * live install of its account, [registration] = its row stores one.
+ */
+fun keyMakerWaits(chained: Boolean, asked: Boolean, accountChain: Boolean, registration: Boolean): Boolean =
+    !chained && (asked || (accountChain && registration))
+
+/** A key write: an existing keyless root's first key, a new root's inline
+ *  key, a due rotation, a device keying its tree. */
+enum class KeyWrite { FirstKey, NewRoot, Rotation, DeviceKey }
+
+enum class KeyMakerStep { Make, RequestKey, Refused, Skip }
+
+/**
+ * `makerCases`: what an install does with a key write. Only a JOINED install
+ * makes a key; [refused] = the server answered [KEY_MAKER_REFUSAL] to one
+ * that took itself for joined.
+ */
+fun keyMakerStep(joined: Boolean, write: KeyWrite, refused: Boolean = false): KeyMakerStep = when {
+    joined && !refused -> KeyMakerStep.Make
+    write == KeyWrite.FirstKey -> KeyMakerStep.RequestKey
+    write == KeyWrite.NewRoot -> KeyMakerStep.Refused
+    else -> KeyMakerStep.Skip
+}
+
+/**
+ * `strandedCases`: the epoch a holder creates for a root `sessionKeys.due`
+ * names ([rotationEpoch]; null = nothing to rotate here), with two rules
+ * more: an install that waits never rotates, and a STRANDED root (no
+ * approved reader holds its current epoch) is rotated by a joined reader
+ * without the old secret.
+ */
+fun strandedRotationEpoch(flagged: Int?, current: Int?, held: Boolean, stranded: Boolean = false, joined: Boolean, left: Boolean = false): Int? =
+    if (!joined) null else rotationEpoch(flagged, current, held = held || stranded, left = left)
