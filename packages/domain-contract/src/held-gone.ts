@@ -24,12 +24,16 @@ export interface HeldCaller {
   deviceIds: readonly string[]
 }
 
-/** Whether the caller may keep what it holds of this session. */
-export function heldByCaller(row: HeldRow | null, caller: HeldCaller): boolean {
-  if (!row) return false
-  if (row.userId === caller.userId) return true
-  if (row.shared && caller.teamIds.includes(row.teamId)) return true
-  return row.deviceId !== `` && caller.deviceIds.includes(row.deviceId)
+export type HeldAnswer = `kept` | `gone` | `unreadable`
+
+/** What the caller is told about a session it holds something of. */
+export function heldAnswer(row: HeldRow | null, caller: HeldCaller): HeldAnswer {
+  if (!row) return `gone`
+  const kept =
+    row.userId === caller.userId ||
+    (row.shared && caller.teamIds.includes(row.teamId)) ||
+    (row.deviceId !== `` && caller.deviceIds.includes(row.deviceId))
+  return kept ? `kept` : `unreadable`
 }
 
 export interface HeldRecord {
@@ -48,8 +52,9 @@ export function heldCandidates(account: string, records: readonly HeldRecord[], 
   return [...new Set([...own, ...store])].filter((id) => UUID.test(id)).sort()
 }
 
-/** The gone answers of an id so far (ms). */
+/** The same answers of an id so far (ms). */
 export interface GoneAnswers {
+  kind: `gone` | `unreadable`
   first: number
   last: number
 }
@@ -57,49 +62,65 @@ export interface GoneAnswers {
 export interface HeldPassInput {
   now: number
   holds: readonly string[]
+  /** The ids the chat store names. */
+  cached: readonly string[]
   asked: readonly string[]
   /** null = the ask failed, was refused or did not parse. */
-  gone: readonly string[] | null
+  answer: { gone: readonly string[]; unreadable: readonly string[] } | null
   state: Readonly<Record<string, GoneAnswers>>
   /** The ids a delete was announced for, before the ask. */
   notices: readonly string[]
 }
 
 export interface HeldPass {
+  /** Deleted: everything goes. */
   remove: string[]
+  /** Not readable any more: only the cached rows go. */
+  uncache: string[]
   state: Record<string, GoneAnswers>
   notices: string[]
   capped: boolean
 }
 
 export function heldPass(input: HeldPassInput): HeldPass {
-  if (input.gone === null) {
-    return { remove: [], state: { ...input.state }, notices: [...input.notices], capped: false }
+  if (input.answer === null) {
+    return { remove: [], uncache: [], state: { ...input.state }, notices: [...input.notices], capped: false }
   }
   const holds = new Set(input.holds)
-  const gone = new Set(input.gone)
+  const cached = new Set(input.cached)
+  const unreadable = new Set(input.answer.unreadable)
+  const gone = new Set(input.answer.gone)
   const noticed = new Set(input.notices)
   const state = Object.fromEntries(Object.entries(input.state).filter(([id]) => holds.has(id)))
   const notices = new Set(input.notices.filter((id) => holds.has(id)))
   const explicit: string[] = []
-  const due: string[] = []
+  const due = { gone: [] as string[], unreadable: [] as string[] }
   for (const id of input.asked) {
     if (!holds.has(id)) continue
-    if (!gone.has(id)) {
+    const kind = unreadable.has(id) ? `unreadable` : gone.has(id) ? `gone` : null
+    if (kind !== `gone`) notices.delete(id)
+    if (kind === null || (kind === `unreadable` && !cached.has(id))) {
       delete state[id]
-      notices.delete(id)
       continue
     }
-    if (noticed.has(id)) {
+    if (kind === `gone` && noticed.has(id)) {
       explicit.push(id)
       continue
     }
     const held = state[id]
-    state[id] = held && input.now >= held.last ? { first: held.first, last: input.now } : { first: input.now, last: input.now }
-    if (input.now - state[id].first >= HELD_GONE_CONFIRM_HOURS * 3_600_000) due.push(id)
+    const first = held && held.kind === kind && input.now >= held.last ? held.first : input.now
+    state[id] = { kind, first, last: input.now }
+    if (input.now - first >= HELD_GONE_CONFIRM_HOURS * 3_600_000) due[kind].push(id)
   }
-  const capped = due.length > HELD_GONE_CAP_COUNT && due.length * 2 > input.holds.length
-  return { remove: [...(capped ? [] : due), ...explicit], state, notices: [...notices], capped }
+  const count = due.gone.length + due.unreadable.length
+  const capped = count > HELD_GONE_CAP_COUNT && count * 2 > input.holds.length
+  return {
+    remove: [...(capped ? [] : due.gone), ...explicit],
+    uncache: capped ? [] : due.unreadable,
+    state,
+    notices: [...notices],
+    capped,
+  }
 }
 
 export interface HeldRemoval {

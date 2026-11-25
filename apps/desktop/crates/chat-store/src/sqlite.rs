@@ -436,26 +436,27 @@ impl SqliteStore {
         ids
     }
 
-    /// #EXP-2138: every session and root the store holds something of.
+    /// #EXP-2138: every session the store holds rows of.
     pub fn session_ids(&self) -> Result<Vec<String>, Error> {
         let conn = self.conn();
         let mut stmt = conn.prepare_cached(
-            "SELECT session_id FROM events UNION SELECT root_id FROM events UNION SELECT session_id FROM messages UNION SELECT root_id FROM messages",
+            "SELECT session_id FROM events UNION SELECT session_id FROM messages",
         )?;
         let ids = stmt.query_map([], |row| row.get(0))?.collect();
         ids
     }
 
-    /// #EXP-2138: whether the store holds anything of the session (or root).
+    /// #EXP-2138: whether the store holds rows of the session.
     pub fn names(&self, id: &str) -> Result<bool, Error> {
         self.conn().query_row(
-            "SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ?1 OR root_id = ?1) OR EXISTS (SELECT 1 FROM messages WHERE session_id = ?1 OR root_id = ?1)",
+            "SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ?1) OR EXISTS (SELECT 1 FROM messages WHERE session_id = ?1)",
             params![id],
             |row| row.get(0),
         )
     }
 
-    /// #EXP-2138 (held-gone.json REMOVED): everything of one DELETED session:
+    /// #EXP-2138 (held-gone.json REMOVED): everything of one session
+    /// that was deleted or is not readable any more:
     /// its messages, events, docs, tools and bookkeeping. A root's children
     /// are sessions of their own.
     pub fn forget_session(&self, session_id: &str) -> Result<(), Error> {

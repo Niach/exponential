@@ -293,7 +293,7 @@ describe.skipIf(!ready.ok)(`the Assistant move's migration (#EXP-1986, #EXP-1989
       const [other] = await tx.select().from(sessions).where(eq(sessions.id, rB))
       expect(other).toMatchObject({ teamId: teamB, status: `ended`, agentId: null })
       // #EXP-2138 (held-gone.json): a device keeps what it holds of both.
-      expect(await heldGone(me, [rA, rB], tx)).toEqual([])
+      expect(await heldGone(me, [rA, rB], tx)).toEqual({ gone: [], unreadable: [] })
       // References moved to the kept one.
       const [moved] = await tx.select().from(issues).where(eq(issues.id, issue!.id))
       expect(moved).toMatchObject({ assigneeAgentId: asA.id, creatorAgentId: asA.id })

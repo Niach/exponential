@@ -1,16 +1,20 @@
 import { eq, inArray, and } from "drizzle-orm"
-import { heldByCaller } from "@exp/domain-contract/held-gone"
+import { heldAnswer, type HeldAnswer } from "@exp/domain-contract/held-gone"
 import { db } from "@/db/connection"
 import { devices, sessions, teamMembers } from "@/db/schema"
 import type { Db } from "@/lib/sessions/tx"
 
-/** #EXP-2138 (held-gone.json SERVER): which of `ids` the caller may not keep
- *  anything of: no row, or none it may read, started or hosts on a machine of
- *  its own. An unknown id and a forbidden one answer the same. Membership is
- *  read fresh, never from the cache: a wrong "gone" deletes. */
-export async function heldGone(userId: string, ids: readonly string[], database: Db = db): Promise<string[]> {
+/** #EXP-2138 (held-gone.json SERVER): of `ids`, which do not exist any more
+ *  (`gone`) and which exist but are not the caller's to have (`unreadable`:
+ *  neither started, nor readable, nor on a machine of its own). Membership is
+ *  read fresh, never from the cache: a wrong answer deletes. */
+export async function heldGone(
+  userId: string,
+  ids: readonly string[],
+  database: Db = db
+): Promise<{ gone: string[]; unreadable: string[] }> {
   const asked = [...new Set(ids)]
-  if (asked.length === 0) return []
+  if (asked.length === 0) return { gone: [], unreadable: [] }
   const rows = await database
     .select({
       id: sessions.id,
@@ -38,5 +42,7 @@ export async function heldGone(userId: string, ids: readonly string[], database:
       ).map((row) => row.deviceId)
     : []
   const byId = new Map(rows.map((row) => [row.id, row]))
-  return asked.filter((id) => !heldByCaller(byId.get(id) ?? null, { userId, teamIds, deviceIds }))
+  const answers = asked.map((id) => [id, heldAnswer(byId.get(id) ?? null, { userId, teamIds, deviceIds })] as const)
+  const of = (kind: HeldAnswer) => answers.filter(([, answer]) => answer === kind).map(([id]) => id)
+  return { gone: of(`gone`), unreadable: of(`unreadable`) }
 }

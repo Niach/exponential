@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/held-gone.json" with { type: "json" }
-import { heldByCaller, heldCandidates, heldPass, heldRemoval, type HeldPassInput } from "./held-gone"
+import { heldAnswer, heldCandidates, heldPass, heldRemoval, type HeldPassInput } from "./held-gone"
 
 describe(`held-gone.json`, () => {
   for (const c of fixture.serverCases) {
-    test(`server: ${c.name}`, () => expect(heldByCaller(c.row, c.caller)).toBe(c.kept))
+    test(`server: ${c.name}`, () => expect(heldAnswer(c.row, c.caller)).toBe(c.answer as never))
   }
   for (const c of fixture.candidateCases) {
     test(`candidates: ${c.name}`, () => expect(heldCandidates(c.account, c.records, c.store)).toEqual(c.expected))

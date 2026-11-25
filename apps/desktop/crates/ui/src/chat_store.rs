@@ -398,7 +398,7 @@ fn run_writer(store: &SqliteStore, rx: &flume::Receiver<Write>, changed: &dyn Fn
                         }
                     }
                     if slow {
-                        catch_up_journals(store, &data_dir, &device_id, &mut roots);
+                        catch_up_journals(store, sqlite.as_deref(), &data_dir, &device_id, &mut roots);
                     }
                     if !roots.is_empty() {
                         changed(roots.into_iter().collect());
@@ -479,8 +479,18 @@ fn catch_up_messages(
 
 /// This device's journals that changed since they were last taken in. A
 /// journal whose session the synced rows have not named a root for yet
-/// waits for the next pass.
-fn catch_up_journals(store: &SqliteStore, data_dir: &Path, device_id: &str, roots: &mut std::collections::BTreeSet<String>) {
+/// waits for the next pass, and so does one whose row is not synced (#EXP-2138
+/// UNCACHED: a chat the account may not read any more keeps its journal here
+/// and must not come back into the store).
+fn catch_up_journals(
+    store: &SqliteStore,
+    sqlite: Option<&ShapeStore>,
+    data_dir: &Path,
+    device_id: &str,
+    roots: &mut std::collections::BTreeSet<String>,
+) {
+    let Some(sqlite) = sqlite else { return };
+    let Some(sessions) = sync::shapes::shape_by_name("sessions") else { return };
     let Ok(entries) = std::fs::read_dir(steer::journal_dir(data_dir)) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -493,6 +503,10 @@ fn catch_up_journals(store: &SqliteStore, data_dir: &Path, device_id: &str, root
         let stamp = format!("{}:{modified}", meta.len());
         let key = format!("journal.{session_id}");
         if store.meta(&key).ok().flatten().as_deref() == Some(stamp.as_str()) {
+            continue;
+        }
+        let key_of_row = sync::protocol::RowKey::Single(session_id.clone());
+        if !matches!(sqlite.read_by_key(sessions, &key_of_row), Ok(Some(_))) {
             continue;
         }
         let Some(root_id) = sync::sealed::Opener::global().root_of(&session_id) else { continue };
@@ -588,6 +602,38 @@ mod tests {
         let found = store.search_chat("r", "CAFE", 10).unwrap();
         assert_eq!(found.total, 1);
         assert_eq!(found.hits[0].seq, Some(1));
+    }
+
+    /// #EXP-2138 (held-gone.json UNCACHED): a journal whose row is not synced
+    /// is not taken in (again), however well its root is remembered.
+    #[test]
+    fn a_journal_without_its_row_is_not_taken_in() {
+        let dir = std::env::temp_dir().join(format!("ui-chat-store-unreadable-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(steer::journal_dir(&dir)).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let line = serde_json::to_string(&ActivityEvent::narration("a wombat")).unwrap();
+        std::fs::write(steer::journal_path(&dir, &id).unwrap(), format!("{line}\n")).unwrap();
+        let mut row: domain::rows::SessionRow = serde_json::from_value(serde_json::json!({"id": id, "root_id": id})).unwrap();
+        sync::sealed::Opener::global().open_session(&mut row);
+        assert!(sync::sealed::Opener::global().root_of(&id).is_some());
+        let sqlite = ShapeStore::open(&dir.join("sync.sqlite")).unwrap();
+        let spec = sync::shapes::shape_by_name("sessions").unwrap();
+        let key = sync::protocol::RowKey::Single(id.clone());
+        let store = SqliteStore::open_in_memory().unwrap();
+        let take = || catch_up_journals(&store, Some(&sqlite), &dir, "d", &mut Default::default());
+        take();
+        assert!(!store.names(&id).unwrap());
+        let value = serde_json::json!({"id": id, "root_id": id});
+        let insert = sync::protocol::ShapeMessage::Insert { key: key.clone(), value: value.as_object().unwrap().clone() };
+        sqlite.apply_batch(spec, &[insert], None).unwrap();
+        take();
+        assert!(store.names(&id).unwrap());
+        sqlite.apply_batch(spec, &[sync::protocol::ShapeMessage::MustRefetch], None).unwrap();
+        store.forget_session(&id).unwrap();
+        take();
+        assert!(!store.names(&id).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL): a message that

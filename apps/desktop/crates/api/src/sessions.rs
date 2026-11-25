@@ -711,19 +711,14 @@ pub fn pr_files(trpc: &TrpcClient, pull_request_id: &str) -> Result<Vec<PrFile>,
 }
 
 /// #EXP-2138 (held-gone.json SERVER): `sessions.heldGone`: which of `ids` (at
-/// most `domain::held_gone::BATCH`) this account keeps nothing of. An older
-/// server answers 404. Blocking.
-pub fn held_gone(trpc: &TrpcClient, ids: &[String]) -> Result<Vec<String>, ApiError> {
+/// most `domain::held_gone::BATCH`) were deleted and which this account may
+/// not have any more. An older server answers 404. Blocking.
+pub fn held_gone(trpc: &TrpcClient, ids: &[String]) -> Result<domain::held_gone::HeldAnswer, ApiError> {
     #[derive(Serialize)]
     struct Input<'a> {
         ids: &'a [String],
     }
-    #[derive(Deserialize)]
-    struct Output {
-        gone: Vec<String>,
-    }
-    let output: Output = trpc.mutation("sessions.heldGone", &Input { ids })?;
-    Ok(output.gone)
+    trpc.mutation("sessions.heldGone", &Input { ids })
 }
 
 #[cfg(test)]

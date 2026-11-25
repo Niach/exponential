@@ -491,16 +491,17 @@ export const sessionsRouter = router({
     ),
 
   /** #EXP-2138 (held-gone.json SERVER): a device asks which of the sessions
-   *  it holds something of are gone for this account. A person's login only
+   *  it holds something of are deleted, and which this account may not have
+   *  any more. A person's login only
    *  (FORBIDDEN, never a 401: that signs a device out). A mutation for its
    *  body: 500 ids do not fit a URL. */
   heldGone: authedProcedure
     .input(z.object({ ids: z.array(uuid).max(HELD_GONE_BATCH) }))
-    .mutation(async ({ ctx, input }): Promise<{ gone: string[] }> => {
+    .mutation(async ({ ctx, input }): Promise<{ gone: string[]; unreadable: string[] }> => {
       if (ctx.viaMcp || (await isApiKeySession(ctx.db, ctx.session))) {
         throw new TRPCError({ code: `FORBIDDEN`, message: `Only a signed-in device can ask this` })
       }
-      return { gone: await heldGone(ctx.session.user.id, input.ids, ctx.db) }
+      return heldGone(ctx.session.user.id, input.ids, ctx.db)
     }),
 
   /** Link issues to a session (NEW-1: the rows sit on the session that

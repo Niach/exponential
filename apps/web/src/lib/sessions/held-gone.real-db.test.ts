@@ -5,7 +5,7 @@
 //     else keeps the holder's copy (ended, archived, board trash, device move,
 //     group-chat move, a left team's own chat, a machine's owner); the
 //     Assistant's move is in assistant-move.real-db.test.ts;
-//   * unknown and forbidden answer the same; an API key is refused (FORBIDDEN);
+//   * unreadable (left team, shared off, off my machine) is never gone; an API key is refused (FORBIDDEN);
 //   * a delete sends `kill {reason: deleted}` for EVERY session of the tree,
 //     live or not, after the rows are gone.
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -81,7 +81,17 @@ async function chat(values: { teamId: string; userId: string; deviceId: string; 
 const ctx = (userId: string, sessionId = `s`) =>
   ({ session: { user: { id: userId }, session: { id: sessionId } }, db, request: new Request(`http://x.test`) }) as never
 const as = (userId: string) => sessionsRouter.createCaller(ctx(userId))
-const gone = async (userId: string, ...ids: string[]) => (await as(userId).heldGone({ ids })).gone
+const ask = (userId: string, ...ids: string[]) => as(userId).heldGone({ ids })
+const gone = async (userId: string, ...ids: string[]) => {
+  const answer = await ask(userId, ...ids)
+  expect(answer.unreadable).toEqual([])
+  return answer.gone
+}
+const unreadable = async (userId: string, ...ids: string[]) => {
+  const answer = await ask(userId, ...ids)
+  expect(answer.gone).toEqual([])
+  return answer.unreadable
+}
 const kills = () => relay.kills.map((kill) => kill.sessionId).sort()
 
 beforeEach(() => {
@@ -166,7 +176,7 @@ describe.skipIf(!ready.ok)(`what the server says is gone (#EXP-2138)`, () => {
     }
   }, 60_000)
 
-  it(`left the team: the own chat stays, a teammate's shared one is gone; rejoined, it stays again`, async () => {
+  it(`left the team: the own chat stays, a teammate's shared one is unreadable; rejoined, it stays again`, async () => {
     const owner = await user()
     const me = await user()
     const teamId = await team([[owner, `owner`], [me, `member`]])
@@ -174,12 +184,12 @@ describe.skipIf(!ready.ok)(`what the server says is gone (#EXP-2138)`, () => {
     const theirs = await chat({ teamId, userId: owner, deviceId: await device(owner, [teamId]), shared: true })
     expect(await gone(me, mine, theirs)).toEqual([])
     await db.delete(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, me)))
-    expect(await gone(me, mine, theirs)).toEqual([theirs])
+    expect(await unreadable(me, mine, theirs)).toEqual([theirs])
     await db.insert(teamMembers).values({ teamId, userId: me, role: `member` })
     expect(await gone(me, mine, theirs)).toEqual([])
   }, 60_000)
 
-  it(`shared turned off: gone for a teammate, kept for the starter and for the owner of the machine`, async () => {
+  it(`shared turned off: unreadable for a teammate, kept for the starter and for the owner of the machine`, async () => {
     const host = await user()
     const mate = await user()
     const starter = await user()
@@ -188,7 +198,7 @@ describe.skipIf(!ready.ok)(`what the server says is gone (#EXP-2138)`, () => {
     const root = await chat({ teamId, userId: starter, deviceId: box, shared: true })
     await db.update(sessions).set({ shared: false }).where(eq(sessions.id, root))
     await db.update(devices).set({ sharedTeamIds: [] }).where(eq(devices.deviceId, box))
-    expect(await gone(mate, root)).toEqual([root])
+    expect(await unreadable(mate, root)).toEqual([root])
     expect(await gone(starter, root)).toEqual([])
     expect(await gone(host, root)).toEqual([])
     // Even after the machine's owner left the team.
@@ -203,9 +213,15 @@ describe.skipIf(!ready.ok)(`what the server says is gone (#EXP-2138)`, () => {
     const box = await device(me, [teamId])
     const away = await device(mate)
     const root = await chat({ teamId, userId: mate, deviceId: away })
-    expect(await gone(me, root)).toEqual([root])
+    expect(await unreadable(me, root)).toEqual([root])
     await db.update(sessions).set({ deviceId: box }).where(eq(sessions.id, root))
     expect(await gone(me, root)).toEqual([])
+    // Off it again, or the machine removed: not deleted.
+    await db.update(sessions).set({ deviceId: away }).where(eq(sessions.id, root))
+    expect(await unreadable(me, root)).toEqual([root])
+    await db.update(sessions).set({ deviceId: box }).where(eq(sessions.id, root))
+    await db.delete(devices).where(and(eq(devices.userId, me), eq(devices.deviceId, box)))
+    expect(await unreadable(me, root)).toEqual([root])
   }, 60_000)
 
   it(`board in the trash, archive, end and a device move keep it`, async () => {
@@ -243,19 +259,19 @@ describe.skipIf(!ready.ok)(`what the server says is gone (#EXP-2138)`, () => {
         expect(await runGroupChatMove(tx as never)).toContain(theirs)
         const [row] = await tx.select().from(sessions).where(eq(sessions.id, theirs))
         expect(row).toMatchObject({ agentId: null, shared: false, status: `ended` })
-        expect(await heldGone(mate, [theirs], tx)).toEqual([])
-        expect(await heldGone(owner, [theirs], tx)).toEqual([])
+        expect(await heldGone(mate, [theirs], tx)).toEqual({ gone: [], unreadable: [] })
+        expect(await heldGone(owner, [theirs], tx)).toEqual({ gone: [], unreadable: [] })
       })
     )
   }, 60_000)
 
-  it(`a foreign id answers like an unknown one; an API key and an MCP call are refused`, async () => {
+  it(`a foreign id is unreadable, an unknown one gone; an API key and an MCP call are refused`, async () => {
     const me = await user()
     const stranger = await user()
     const teamId = await team([[stranger, `owner`]])
     const foreign = await chat({ teamId, userId: stranger, deviceId: await device(stranger), shared: true })
     const unknown = crypto.randomUUID()
-    expect(await gone(me, foreign, unknown)).toEqual([foreign, unknown])
+    expect(await ask(me, foreign, unknown)).toEqual({ gone: [unknown], unreadable: [foreign] })
     expect(await gone(me)).toEqual([])
     const keyId = `key-${id8()}`
     await db.insert(apikeys).values({ id: keyId, configId: `default`, key: id8(), referenceId: me, createdAt: new Date(), updatedAt: new Date() } as never)

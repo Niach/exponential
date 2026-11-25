@@ -20,7 +20,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use api::error::ApiError;
 use api::trpc::TrpcClient;
 use chat_store::sqlite::SqliteStore;
-use domain::held_gone::{self, GoneAnswers, HeldRecord};
+use domain::held_gone::{self, GoneAnswers, HeldAnswer, HeldRecord};
 use serde::{Deserialize, Serialize};
 
 use crate::publisher::{control, is_publishing, ControlCmd};
@@ -39,11 +39,11 @@ const END_WAIT: Duration = Duration::from_secs(20);
 
 /// `sessions.heldGone`, injectable for tests. Blocking.
 pub trait HeldGoneApi: Send + Sync + 'static {
-    fn gone(&self, ids: &[String]) -> Result<Vec<String>, ApiError>;
+    fn gone(&self, ids: &[String]) -> Result<HeldAnswer, ApiError>;
 }
 
 impl HeldGoneApi for Arc<TrpcClient> {
-    fn gone(&self, ids: &[String]) -> Result<Vec<String>, ApiError> {
+    fn gone(&self, ids: &[String]) -> Result<HeldAnswer, ApiError> {
         api::sessions::held_gone(self, ids)
     }
 }
@@ -165,6 +165,7 @@ enum Ask {
 struct Done {
     answered: bool,
     removed: Vec<String>,
+    uncached: Vec<String>,
     notices_left: bool,
 }
 
@@ -245,18 +246,21 @@ impl HeldGoneDeps {
     }
 
     /// The whole ask, in batches; `None` when any of them failed.
-    fn ask(&self, ids: &[String]) -> Option<Vec<String>> {
-        let mut gone = Vec::new();
+    fn ask(&self, ids: &[String]) -> Option<HeldAnswer> {
+        let mut whole = HeldAnswer::default();
         for batch in ids.chunks(held_gone::BATCH) {
             match self.api.gone(batch) {
-                Ok(answer) => gone.extend(answer.into_iter().filter(|id| batch.contains(id))),
+                Ok(answer) => {
+                    whole.gone.extend(answer.gone.into_iter().filter(|id| batch.contains(id)));
+                    whole.unreadable.extend(answer.unreadable.into_iter().filter(|id| batch.contains(id)));
+                }
                 Err(err) => {
                     log::info!("held-gone: the ask failed, nothing changes: {err}");
                     return None;
                 }
             }
         }
-        Some(gone)
+        Some(whole)
     }
 }
 
@@ -288,12 +292,12 @@ fn pass(deps: &HeldGoneDeps, ask: Ask, now: i64, end_wait: Duration, stopped: &A
         Ask::Everything => holds.clone(),
         Ask::Notices => holds.iter().filter(|id| noticed.contains(*id)).cloned().collect(),
     };
-    let gone = deps.ask(&asked);
+    let answer = deps.ask(&asked);
     if stopped.load(Ordering::SeqCst) {
         return Done::default();
     }
     let decided = deps.update(|held| {
-        let decided = held_gone::pass(now, &holds, &asked, gone.as_deref(), &held.state, &noticed);
+        let decided = held_gone::pass(now, &holds, &stored, &asked, answer.as_ref(), &held.state, &noticed);
         let newer: Vec<String> = held.notices.difference(&noticed).cloned().collect();
         held.state = decided.state.clone();
         held.notices = decided.notices.iter().cloned().chain(newer).collect();
@@ -301,29 +305,48 @@ fn pass(deps: &HeldGoneDeps, ask: Ask, now: i64, end_wait: Duration, stopped: &A
     });
     if decided.capped {
         log::warn!(
-            "held-gone: more than {} and more than half of the {} held sessions are gone at once: nothing but announced deletes is removed",
+            "held-gone: more than {} and more than half of the {} held sessions are gone or unreadable at once: nothing but announced deletes is removed",
             held_gone::CAP_COUNT,
             holds.len()
         );
     }
     let removed = remove_all(deps, &decided.remove, store.as_deref(), end_wait, stopped);
+    // Not deleted, only not this account's to read any more: its cached rows
+    // go; the run this device hosted (record, journal, scratch dir) stays.
+    let uncached: Vec<String> = decided
+        .uncache
+        .into_iter()
+        .filter(|_| !stopped.load(Ordering::SeqCst))
+        .filter(|id| match store.as_ref().map(|store| store.forget_session(id)) {
+            Some(Ok(())) => true,
+            Some(Err(err)) => {
+                log::warn!("held-gone: removing {id} from the chat store failed: {err}");
+                false
+            }
+            None => false,
+        })
+        .collect();
     let notices_left = deps.update(|held| {
-        for id in &removed {
+        for id in removed.iter().chain(&uncached) {
             held.state.remove(id);
+        }
+        for id in &removed {
             held.notices.remove(id);
         }
         !held.notices.is_empty()
     });
-    if gone.is_some() {
+    if let Some(answer) = &answer {
         log::info!(
-            "held-gone: asked about {} of {} held, {} gone, removed {}",
+            "held-gone: asked about {} of {} held: {} gone, {} unreadable; removed {}, uncached {}",
             asked.len(),
             holds.len(),
-            gone.as_ref().map_or(0, Vec::len),
-            removed.len()
+            answer.gone.len(),
+            answer.unreadable.len(),
+            removed.len(),
+            uncached.len()
         );
     }
-    Done { answered: gone.is_some(), removed, notices_left }
+    Done { answered: answer.is_some(), removed, uncached, notices_left }
 }
 
 /// Ends what is live of `ids`, then removes the ones that are over; the rest

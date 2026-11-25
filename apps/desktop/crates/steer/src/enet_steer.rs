@@ -1545,6 +1545,33 @@ mod tests {
     /// VAPP-43 STORED REPLAY: reset, the file, synced over the LOG seqs
     /// (state slots skipped, never truncated), and `bye history` only for an
     /// ended row.
+    /// #EXP-2138 (held-gone.json UNCACHED): a journal this device keeps is
+    /// served only while its row is synced here.
+    #[test]
+    fn a_kept_journal_without_its_row_is_not_served() {
+        let dir = std::env::temp_dir().join(format!("steer-unreadable-{}", std::process::id()));
+        std::fs::create_dir_all(crate::history::journal_dir(&dir)).unwrap();
+        std::fs::write(crate::history::journal_path(&dir, "s").unwrap(), "{}\n").unwrap();
+        let row = StoredSession {
+            audience: SteerAudience { team_id: "t".into(), starter_user_id: "u".into(), shared: false },
+            ended: true,
+        };
+        let synced = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let stored = StoredJournals {
+            data_dir: dir.clone(),
+            session: {
+                let synced = Arc::clone(&synced);
+                Arc::new(move |_| synced.load(std::sync::atomic::Ordering::SeqCst).then(|| row.clone()))
+            },
+            device_id: None,
+            chat_store: None,
+        };
+        assert!(stored.lookup("s").is_some());
+        synced.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(stored.lookup("s").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_stored_replay_spans_the_log_and_ends_an_ended_row() {
         let events = vec![

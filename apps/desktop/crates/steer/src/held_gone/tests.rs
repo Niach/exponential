@@ -16,21 +16,21 @@ fn uid(n: usize) -> String {
 #[derive(Default)]
 struct Fake {
     gone: Mutex<BTreeSet<String>>,
+    unreadable: Mutex<BTreeSet<String>>,
     asked: Mutex<Vec<Vec<String>>>,
     fail_after: Mutex<Option<usize>>,
 }
 
 impl HeldGoneApi for Arc<Fake> {
-    fn gone(&self, ids: &[String]) -> Result<Vec<String>, ApiError> {
+    fn gone(&self, ids: &[String]) -> Result<HeldAnswer, ApiError> {
         let mut asked = lock(&self.asked);
         if lock(&self.fail_after).is_some_and(|calls| asked.len() >= calls) {
             return Err(ApiError::Http { status: 404, message: "No procedure found on path".into() });
         }
         asked.push(ids.to_vec());
         // Also names an id nobody asked for.
-        let mut answer: Vec<String> = ids.iter().filter(|id| lock(&self.gone).contains(*id)).cloned().collect();
-        answer.push(uid(999_999));
-        Ok(answer)
+        let of = |set: &Mutex<BTreeSet<String>>| ids.iter().filter(|id| lock(set).contains(*id)).cloned().chain([uid(999_999)]).collect();
+        Ok(HeldAnswer { gone: of(&self.gone), unreadable: of(&self.unreadable) })
     }
 }
 
@@ -153,7 +153,7 @@ fn two_gone_answers_a_day_apart_remove_everything_but_the_worktree() {
     let first = w.all(T0);
     assert!(first.answered && first.removed.is_empty());
     // The first answer is durable.
-    assert_eq!(w.deps.load().state[&chat], GoneAnswers { first: T0, last: T0 });
+    assert_eq!(w.deps.load().state[&chat], GoneAnswers { kind: held_gone::GoneKind::Gone, first: T0, last: T0 });
     assert!(w.all(T0 + 23 * H).removed.is_empty());
     assert_eq!((w.left(&chat), w.left(&repo)), (ALL, ALL));
     assert_eq!(w.all(T0 + 24 * H).removed, vec![chat.clone(), repo.clone()]);
@@ -355,4 +355,43 @@ fn the_thread_waits_for_the_sync_and_hears_notices() {
     assert_eq!(w.left(&second), ALL);
     handle.stop();
     notice("app.test--thread", second.clone());
+}
+
+/// A left team, `shared` off, a chat that moved off this machine, its devices
+/// row deleted: only the cached rows go, a day later; what this device hosted
+/// stays, and nobody is answered a journal whose row is not synced.
+#[test]
+fn an_unreadable_chat_loses_its_cache_only() {
+    let w = World::new(ME);
+    let (hosted, read, own) = (uid(1), uid(2), uid(3));
+    let scratch = w.run(&hosted, ME, false);
+    w.run(&own, ME, false);
+    for id in [&hosted, &read, &own] {
+        w.cache(ME, id);
+    }
+    *lock(&w.fake.unreadable) = [hosted.clone(), read.clone()].into();
+    // A delete's notice does not shorten it.
+    let done = w.notices(T0, &[&hosted]);
+    assert!(done.uncached.is_empty() && !done.notices_left);
+    w.all(T0);
+    assert!(w.all(T0 + 23 * H).uncached.is_empty() && w.cached(ME, &hosted));
+    assert_eq!(w.all(T0 + 24 * H), Done { answered: true, uncached: vec![hosted.clone(), read.clone()], ..Default::default() });
+    assert!(!w.cached(ME, &hosted) && !w.cached(ME, &read) && w.cached(ME, &own));
+    assert!(w.left(&hosted) == ALL && scratch.exists());
+    // Nothing cached any more: no answers are kept, nothing goes, ever.
+    w.all(T0 + 60 * H);
+    assert_eq!((w.deps.load(), w.left(&hosted)), (Held::default(), ALL));
+    // Deleted later: its own two answers, then the rest.
+    *lock(&w.fake.unreadable) = Default::default();
+    w.gone(&[&hosted]);
+    assert!(w.all(T0 + 61 * H).removed.is_empty());
+    assert_eq!(w.all(T0 + 85 * H).removed, vec![hosted.clone()]);
+    assert_eq!((w.left(&hosted), scratch.exists()), (NONE, false));
+}
+
+#[test]
+fn an_answer_without_both_fields_is_no_answer() {
+    for body in ["{\"gone\":[]}", "{\"unreadable\":[]}", "{}", "{\"gone\":[],\"unreadable\":[1]}"] {
+        assert!(serde_json::from_str::<HeldAnswer>(body).is_err(), "{body}");
+    }
 }

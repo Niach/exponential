@@ -28,9 +28,27 @@ pub struct HeldRecord {
     pub scratch: bool,
 }
 
-/// The gone answers of an id so far (ms).
+/// What the server says of an id that is not kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GoneKind {
+    /// The row does not exist: deleted.
+    Gone,
+    /// It exists and this account may not have it.
+    Unreadable,
+}
+
+/// `sessions.heldGone`'s answer; both fields are required.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct HeldAnswer {
+    pub gone: Vec<String>,
+    pub unreadable: Vec<String>,
+}
+
+/// The same answers of an id so far (ms).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoneAnswers {
+    pub kind: GoneKind,
     pub first: i64,
     pub last: i64,
 }
@@ -38,7 +56,10 @@ pub struct GoneAnswers {
 /// What a pass decided ([`pass`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct HeldPass {
+    /// Deleted: everything goes.
     pub remove: Vec<String>,
+    /// Not readable any more: only the cached rows go.
+    pub uncache: Vec<String>,
     pub state: BTreeMap<String, GoneAnswers>,
     pub notices: BTreeSet<String>,
     pub capped: bool,
@@ -65,49 +86,69 @@ pub fn candidates(account: &str, records: &[HeldRecord], store: &[String]) -> Ve
     ids.into_iter().cloned().collect()
 }
 
-/// What one ask decides. `gone` = `None`: the ask failed, was refused or did
-/// not parse: nothing changes. `notices` = the deletes announced BEFORE it.
+/// What one ask decides. `answer` = `None`: the ask failed, was refused or
+/// did not parse: nothing changes. `cached` = the ids the chat store names;
+/// `notices` = the deletes announced BEFORE the ask.
 pub fn pass(
     now: i64,
     holds: &[String],
+    cached: &[String],
     asked: &[String],
-    gone: Option<&[String]>,
+    answer: Option<&HeldAnswer>,
     state: &BTreeMap<String, GoneAnswers>,
     notices: &BTreeSet<String>,
 ) -> HeldPass {
-    let Some(gone) = gone else {
+    let Some(answer) = answer else {
         return HeldPass { state: state.clone(), notices: notices.clone(), ..Default::default() };
     };
     let held: HashSet<&String> = holds.iter().collect();
-    let gone: HashSet<&String> = gone.iter().collect();
+    let cached: HashSet<&String> = cached.iter().collect();
+    let gone: HashSet<&String> = answer.gone.iter().collect();
+    let unreadable: HashSet<&String> = answer.unreadable.iter().collect();
     let mut state: BTreeMap<String, GoneAnswers> =
         state.iter().filter(|(id, _)| held.contains(id)).map(|(id, answers)| (id.clone(), *answers)).collect();
     let mut left: BTreeSet<String> = notices.iter().filter(|id| held.contains(id)).cloned().collect();
     let mut explicit = Vec::new();
-    let mut due = Vec::new();
+    let mut remove = Vec::new();
+    let mut uncache = Vec::new();
     for id in asked.iter().filter(|id| held.contains(id)) {
-        if !gone.contains(id) {
-            state.remove(id);
+        let kind = if unreadable.contains(id) {
+            Some(GoneKind::Unreadable)
+        } else {
+            gone.contains(id).then_some(GoneKind::Gone)
+        };
+        if kind != Some(GoneKind::Gone) {
             left.remove(id);
-            continue;
         }
-        if notices.contains(id) {
+        // Nothing of an unreadable chat is cached: nothing to wait for.
+        let Some(kind) = kind.filter(|kind| *kind == GoneKind::Gone || cached.contains(id)) else {
+            state.remove(id);
+            continue;
+        };
+        if kind == GoneKind::Gone && notices.contains(id) {
             explicit.push(id.clone());
             continue;
         }
-        let answers = match state.get(id) {
-            Some(answers) if now >= answers.last => GoneAnswers { first: answers.first, last: now },
-            _ => GoneAnswers { first: now, last: now },
+        let first = match state.get(id) {
+            Some(answers) if answers.kind == kind && now >= answers.last => answers.first,
+            _ => now,
         };
-        state.insert(id.clone(), answers);
-        if now - answers.first >= CONFIRM_HOURS * 3_600_000 {
-            due.push(id.clone());
+        state.insert(id.clone(), GoneAnswers { kind, first, last: now });
+        if now - first >= CONFIRM_HOURS * 3_600_000 {
+            match kind {
+                GoneKind::Gone => remove.push(id.clone()),
+                GoneKind::Unreadable => uncache.push(id.clone()),
+            }
         }
     }
-    let capped = due.len() > CAP_COUNT && due.len() * 2 > holds.len();
-    let mut remove = if capped { Vec::new() } else { due };
+    let due = remove.len() + uncache.len();
+    let capped = due > CAP_COUNT && due * 2 > holds.len();
+    if capped {
+        remove.clear();
+        uncache.clear();
+    }
     remove.extend(explicit);
-    HeldPass { remove, state, notices: left, capped }
+    HeldPass { remove, uncache, state, notices: left, capped }
 }
 
 /// What of `id` goes: `store` / `other_store` = this / another account's chat
@@ -151,12 +192,13 @@ mod tests {
         }
         for case in fixture["passCases"].as_array().unwrap() {
             let input = &case["input"];
-            let gone: Option<Vec<String>> = from(&input["gone"]);
+            let answer: Option<HeldAnswer> = from(&input["answer"]);
             let got = pass(
                 input["now"].as_i64().unwrap(),
                 &from::<Vec<String>>(&input["holds"]),
+                &from::<Vec<String>>(&input["cached"]),
                 &from::<Vec<String>>(&input["asked"]),
-                gone.as_deref(),
+                answer.as_ref(),
                 &from(&input["state"]),
                 &from(&input["notices"]),
             );
