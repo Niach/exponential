@@ -2,7 +2,9 @@ import { createContext, Fragment, useContext, useRef, type HTMLAttributes, type 
 import { startListDrag } from "@exponential_app/eui/web"
 import { SIDEBAR_FOLDER_DEFAULT_NAME, SIDEBAR_MAX_DEPTH, type SidebarSection } from "@exp/domain-contract/sidebar-folders"
 import { SIDEBAR_TREE_MAX_DEPTH, sidebarTeamRows, type SidebarTreeRow } from "@exp/domain-contract/sidebar-tree"
+import type { CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import {
+  Badge,
   conceptIcon,
   Input,
   MenuGestureHost,
@@ -105,6 +107,7 @@ export function SidebarFolderRows({
   team,
   menus,
   listProps,
+  folderBadge,
 }: {
   folders: SidebarFolders
   teamId: string | undefined
@@ -117,6 +120,8 @@ export function SidebarFolderRows({
   /** More context menus this List's host answers (the team's own). */
   menus?: Record<string, (session: MenuSessionProps) => ReactNode>
   listProps?: Record<`data-${string}`, string>
+  /** nav-badges.json: a folded folder's count badge over its hidden items. */
+  folderBadge?: (itemIds: readonly string[]) => CountBadgeValue
 }) {
   const { isMobile } = useSidebar()
   const listRef = useRef<HTMLUListElement>(null)
@@ -178,6 +183,7 @@ export function SidebarFolderRows({
           if (row.kind === `team`) return <Fragment key={row.id}>{team?.render(dragProps(row))}</Fragment>
           if (row.kind === `item`) return renderItem(row.id, dragProps(row), gutter)
           const editing = folders.editingId === row.id
+          const badge = row.open ? null : folderBadge?.(folders.itemsOf(row.id))
           return (
             <SidebarMenuItem key={row.id} {...dragProps(row)} data-testid="sidebar-folder">
               {gutter}
@@ -202,6 +208,7 @@ export function SidebarFolderRows({
               </SidebarMenuButton>
               {!editing && (
                 <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-xs text-muted-foreground`, density === `touch` && `right-4 justify-end`)}>
+                  {badge && <Badge count={badge.count} tone={badge.tone} data-testid="sidebar-folder-badge" />}
                   {!row.open && <span className="tabular-nums">{row.count}</span>}
                   <ChevronIcon className={cn(`size-4 transition-transform`, row.open && `rotate-90`)} />
                 </SidebarMenuTrailing>

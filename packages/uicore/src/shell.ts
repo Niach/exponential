@@ -5,6 +5,7 @@
 // person do and reads the state through the selectors.
 
 import fixture from "../fixtures/shell.json" with { type: "json" }
+import { countBadgeLabel, rowBadge, type CountBadgeTone } from "../../domain-contract/src/nav-badges"
 
 export const SHELL_VERSION: number = fixture.version
 
@@ -523,18 +524,22 @@ export interface RailChatInput {
   agent?: string | null
   needsYou: boolean
   busy: boolean
-  unread: boolean
+  /** The root's unread agent messages (chats.json `unreadCount`). */
+  unreadCount: number
   /** The last activity, ISO 8601. */
   at: string
 }
 
-export type ChatDot = `amber` | `green` | `primary`
 
 export interface RailChatRow {
   id: string
   title: string
   icon: string
-  dot: ChatDot | null
+  /** THE count badge (nav-badges.json `rowBadge`): its label, null = none. */
+  count: string | null
+  tone: CountBadgeTone | null
+  /** The working mark (live state is no badge). */
+  working: boolean
 }
 
 /** The rail keeps this many chats. */
@@ -546,15 +551,14 @@ const chatIcon = (agent: string | null | undefined): string => {
   return id === `codex` ? `agent:codex` : `settings-agents`
 }
 
-/** #EDE-65: the rail's chats: the most recent first (ties by id), at most CHATS_MAX, the IDE's dots. */
+/** #EDE-65: the rail's chats: the most recent first (ties by id), at most CHATS_MAX, each its rowBadge. */
 export function chatRows(chats: RailChatInput[]): RailChatRow[] {
   return [...chats]
     .sort((a, b) => (a.at === b.at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.at < b.at ? 1 : -1))
     .slice(0, CHATS_MAX)
-    .map((c) => ({
-      id: c.id,
-      title: c.title.trim() || `Untitled`,
-      icon: chatIcon(c.agent),
-      dot: c.needsYou ? `amber` : c.busy ? `green` : c.unread ? `primary` : null,
-    }))
+    .map((c) => {
+      const badge = rowBadge(c)
+      const count = countBadgeLabel(badge.count) || null
+      return { id: c.id, title: c.title.trim() || `Untitled`, icon: chatIcon(c.agent), count, tone: count === null ? null : badge.tone, working: c.busy }
+    })
 }

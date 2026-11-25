@@ -16,6 +16,7 @@ import SwiftUI
 struct NeedsYouPage: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
+    @Environment(TeamState.self) private var teamState
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
@@ -55,7 +56,11 @@ struct NeedsYouPage: View {
                         }
                     },
                     onAction: { row, action in run(action, on: row) },
-                    onDismiss: dismiss
+                    onDismiss: dismiss,
+                    teamOf: { row in
+                        teamState.team(lists.chatRoots[row.rootId]?.teamId)
+                            .map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) }
+                    }
                 ) {
                     LivePendingInstalls()
                 }
@@ -186,6 +191,7 @@ struct NeedsYouPageContent<Band: View>: View {
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
     var onDismiss: ((NeedsYou.Row) -> Void)?
+    var teamOf: (NeedsYou.Row) -> ChatRowTeam? = { _ in nil }
     @ViewBuilder var band: () -> Band
 
     var body: some View {
@@ -201,7 +207,7 @@ struct NeedsYouPageContent<Band: View>: View {
                         band()
                     }
                     if !rows.isEmpty {
-                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction, onDismiss: onDismiss)
+                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction, onDismiss: onDismiss, teamOf: teamOf)
                     }
                 }
                 .padding(.horizontal, 16)

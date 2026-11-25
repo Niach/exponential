@@ -5,7 +5,7 @@
 //! [`DevicePageView`] = `Screen::Device`: the header (glyph, name, version,
 //! Online / Offline, Settings), the device's logins with their two limit
 //! bars (`Accounts`), every session running on it across the member's teams
-//! with each row's team mark (`Running`); on THIS device also the four
+//! with each row's team mark on its lead (`Running`); on THIS device also the four
 //! This-device blocks that left Settings (settings-nav.json
 //! `nav.desktopNavs.device`: Tools, Coding CLIs, Worktrees, Sessions),
 //! stacked under the sections.
@@ -399,20 +399,12 @@ impl DevicePageView {
         for (ix, root) in running.iter().enumerate() {
             let title = crate::session_data::session_title_of(&root.root_id, cx).unwrap_or_default();
             let team = root.team_id.as_deref().and_then(|id| teams.get(id)).cloned();
-            let mark = team.as_ref().map(|(_, icon)| crate::user_avatar::team_avatar(icon.as_deref(), MARK_PX, cx));
+            let row_team = team.as_ref().map(|(name, icon)| crate::user_avatar::RowTeam { name: name.clone().into(), image: crate::user_avatar::team_image(icon.as_deref(), cx) });
             let theme = cx.theme();
             let (muted, hover) = (theme.muted_foreground, theme.list_hover);
             let root_id = root.root_id.clone();
             let trailing = team.map(|(name, _)| {
-                h_flex()
-                    .flex_shrink_0()
-                    .max_w(px(220.))
-                    .items_center()
-                    .gap_1p5()
-                    .text_sm()
-                    .text_color(muted)
-                    .children(mark)
-                    .child(div().min_w_0().truncate().child(SharedString::from(name)))
+                div().flex_shrink_0().max_w(px(220.)).truncate().text_sm().text_color(muted).child(SharedString::from(name))
             });
             rows.push(
                 div().w_full().child(
@@ -427,7 +419,14 @@ impl DevicePageView {
                             let screen = crate::navigation::session_screen_for(&root_id, cx);
                             navigate(window, cx, screen);
                         })
-                        .child(crate::run_rows::run_mark(crate::run_rows::run_agent(root.cli.as_deref()), root.state, cx))
+                        .child(crate::user_avatar::with_team_mark(
+                            &root.root_id,
+                            crate::run_rows::run_mark(crate::run_rows::run_agent(root.cli.as_deref()), root.state, cx),
+                            domain::list_item::MARK,
+                            row_team.as_ref(),
+                            crate::user_avatar::card_ground(),
+                            cx,
+                        ))
                         .child(div().flex_1().min_w_0().truncate().text_sm().child(SharedString::from(title)))
                         .children(trailing),
                 ),

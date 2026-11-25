@@ -108,6 +108,8 @@ export interface SidebarFolders {
   rows: SidebarRow[]
   /** The list's visible targets in DEFAULT order. */
   items: readonly string[]
+  /** A folder's items, open or folded. */
+  itemsOf: (folderId: string) => readonly string[]
   /** The folder whose name is being edited in place. */
   editingId: string | null
   setEditingId: (id: string | null) => void
@@ -172,6 +174,20 @@ export function useSidebarFolders(
     const shown = sidebarRows(tree, (folderId) => !teamId || !closedSet.has(sidebarFolderOpenKey(teamId, folderId)))
     return withEditingFolder(shown, entries, editingId)
   }, [stableIds, entries, closedSet, teamId, editingId])
+
+  const itemsOf = useCallback(
+    (folderId: string) =>
+      sidebarRows(sidebarTree(stableIds, entries), () => true).reduce<{ folder: string | null; ids: string[] }>(
+        (at, row) =>
+          row.depth === 0
+            ? { ...at, folder: row.id }
+            : at.folder === folderId
+              ? { ...at, ids: [...at.ids, row.id] }
+              : at,
+        { folder: null, ids: [] }
+      ).ids,
+    [stableIds, entries]
+  )
 
   const send = useCallback(
     (writes: SidebarWrites | null) => {
@@ -279,5 +295,5 @@ export function useSidebarFolders(
     [teamId, closedSet]
   )
 
-  return { rows, items: stableIds, editingId, setEditingId, move, toggle, rename, ungroup, addFolder, moveToNewFolder, dropSession }
+  return { rows, items: stableIds, itemsOf, editingId, setEditingId, move, toggle, rename, ungroup, addFolder, moveToNewFolder, dropSession }
 }

@@ -41,17 +41,21 @@ public struct NeedsYouList: View {
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
     var onDismiss: ((NeedsYou.Row) -> Void)?
+    /// The row's team on the cross-team list (its mark on the glyph).
+    var teamOf: (NeedsYou.Row) -> ChatRowTeam?
 
     public init(
         rows: [NeedsYou.Row],
         onOpen: @escaping (NeedsYou.Row) -> Void,
         onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil,
-        onDismiss: ((NeedsYou.Row) -> Void)? = nil
+        onDismiss: ((NeedsYou.Row) -> Void)? = nil,
+        teamOf: @escaping (NeedsYou.Row) -> ChatRowTeam? = { _ in nil }
     ) {
         self.rows = rows
         self.onOpen = onOpen
         self.onAction = onAction
         self.onDismiss = onDismiss
+        self.teamOf = teamOf
     }
 
     private func buttons(_ row: NeedsYou.Row) -> [NeedsYouButtons.Item] {
@@ -73,12 +77,12 @@ public struct NeedsYouList: View {
                 ForEach(rows) { row in
                     let items = buttons(row)
                     if items.isEmpty {
-                        Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
+                        Button { onOpen(row) } label: { NeedsYouRowView(row: row, team: teamOf(row)) }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier(NeedsYou.TestIds.row)
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
-                            Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
+                            Button { onOpen(row) } label: { NeedsYouRowView(row: row, team: teamOf(row)) }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier(NeedsYou.TestIds.row)
                             NeedsYouButtons(items: items)
@@ -97,6 +101,7 @@ public struct NeedsYouList: View {
 /// One row (THE inbox page's flat row: `InboxListContent.streamRow`).
 struct NeedsYouRowView: View {
     let row: NeedsYou.Row
+    var team: ChatRowTeam?
 
     private var glyph: String {
         switch row.kind {
@@ -110,6 +115,7 @@ struct NeedsYouRowView: View {
         HStack(alignment: .top, spacing: 12) {
             AppIcon(glyph, size: 16, weight: .medium)
                 .foregroundStyle(DesignTokens.Semantic.yellow)
+                .teamCorner(team, lead: 16)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
