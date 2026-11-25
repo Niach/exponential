@@ -21,6 +21,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.SessionDeviceMove
+import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.FailedAction
@@ -314,6 +315,9 @@ class AgentsViewModel @Inject constructor(
             }
         }
     }
+
+    /** A machine's web page (sidebar-menus.json `copy-link`). */
+    fun deviceLink(deviceId: String): String? = auth.instanceUrl.value?.let { WebLinks.deviceUrl(it, deviceId) }
 
     /** Rename a machine (its registry label wins over the relay's). */
     fun renameDevice(deviceId: String, label: String): Unit =

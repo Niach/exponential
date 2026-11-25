@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.expand
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
@@ -506,9 +507,15 @@ private fun RowLead(row: TeamTreeRow, mark: SessionTree.SessionState?) {
     }
 }
 
-/** A folder's name in edit, in place: Done, a tap elsewhere or Back keeps it. */
+/** A folder's (a device's) name in edit, in place: Done, a tap elsewhere or Back keeps it. */
 @Composable
-private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier = Modifier) {
+internal fun NameField(
+    name: String,
+    onDone: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    tag: String = TeamsTestIds.FOLDER_NAME,
+) {
     var value by remember { mutableStateOf(TextFieldValue(name, TextRange(0, name.length))) }
     val focus = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -526,7 +533,7 @@ private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier
         value = value,
         onValueChange = { value = it },
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = style.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { commit() }),
@@ -535,7 +542,7 @@ private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier
             .onFocusChanged {
                 if (it.isFocused) focused = true else if (focused) commit()
             }
-            .testTag(TeamsTestIds.FOLDER_NAME),
+            .testTag(tag),
     )
 }
 

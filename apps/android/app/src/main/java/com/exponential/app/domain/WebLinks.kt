@@ -8,6 +8,7 @@ package com.exponential.app.domain
  *   board  {base}/t/{team}/boards/{board}                 (EXP-2109)
  *   app    {base}/t/{team}/apps/{app}                     (EXP-2109)
  *   session {base}/t/{team}/sessions/{id}                 (EXP-2109)
+ *   device {base}/devices/{id}                            (EXP-2126)
  *
  * `base` is the account's instance URL; its trailing slash is trimmed so the
  * joined path never doubles up. All slugs/identifiers are synced locally, so
@@ -27,6 +28,8 @@ object WebLinks {
     fun appUrl(base: String, teamSlug: String, appSlug: String): String = "${teamBase(base, teamSlug)}/apps/${encodeRouteValue(appSlug)}"
 
     fun sessionUrl(base: String, teamSlug: String, sessionId: String): String = "${teamBase(base, teamSlug)}/sessions/${encodeRouteValue(sessionId)}"
+
+    fun deviceUrl(base: String, deviceId: String): String = "${base.trimEnd('/')}/devices/${encodeRouteValue(deviceId)}"
 
     private fun teamBase(base: String, teamSlug: String): String = "${base.trimEnd('/')}/t/${encodeRouteValue(teamSlug)}"
 
