@@ -73,6 +73,16 @@ object ComposerAgentRow {
     fun <S : Any> subjectAfterPick(subject: S?, pick: String, isPrompt: (S) -> Boolean): S? =
         if (pick != TEMPORARY_PICK && subject != null && isPrompt(subject)) null else subject
 
+    /** #EXP-2136 (`agentRow.teamMarkCases`): the row's agents that wear their
+     *  team's mark: another team's agent has the same name. Ids in row order. */
+    fun teamMarks(agents: List<SessionTree.AgentRow>): List<String> {
+        fun key(name: String) = name.trim().lowercase(java.util.Locale.ENGLISH)
+        val team = agents.filterNot { it.assistant }
+        return team
+            .filter { agent -> team.any { it.teamId != agent.teamId && key(it.name) == key(agent.name) } }
+            .map { it.agentId }
+    }
+
     /** The row for a viewer: [picked] = the last tap (null/unknown = the default). */
     fun <T> composerAgentRow(agents: List<T>, me: String?, picked: String?, row: (T) -> Agent): State<T> {
         val ordered = AgentSettings.Assistant.orderedAgents(agents, me) {

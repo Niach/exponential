@@ -58,6 +58,21 @@ class ComposerAgentRowTest {
         }
     }
 
+    @Test
+    fun `teamMarkCases match the fixture (EXP-2136)`() {
+        val cases = row.getValue("teamMarkCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val agents = case.getValue("agents").jsonArray.map { it.jsonObject }.map {
+                SessionTree.AgentRow(
+                    agentId = it.str("id")!!, teamId = it.str("teamId")!!, name = it.str("name")!!, icon = "bot", color = "#000000",
+                    busy = false, needsYou = false, assistant = it.str("role") == DomainContract.agentRoleAssistant,
+                )
+            }
+            assertEquals(case.str("name"), case.getValue("expected").jsonArray.map { it.jsonPrimitive.content }, ComposerAgentRow.teamMarks(agents))
+        }
+    }
+
     // `agentRow.seedCases` (TS `seedPick`): a seeded launch mounts on
     // Temporary session, a plain or text-only mount on the default.
     @Test
