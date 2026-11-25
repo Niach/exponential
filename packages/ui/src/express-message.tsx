@@ -133,7 +133,7 @@ export function ExpressMessage({
     // skeleton (THE marker when the chunk never came).
     const prose = plainProse(shown)
     return (
-      <div className="flex min-w-0 flex-col" style={{ gap: BLOCK_GAP }} data-slot="express-row">
+      <div className="flex w-full min-w-0 flex-col" style={{ gap: BLOCK_GAP }} data-slot="express-row">
         {prose ? renderProse(prose, { first: true, last: true }) : null}
         {failed ? <TranscriptMarker label={EXPRESS_COPY.blockFailed} /> : <BlockSkeleton />}
       </div>
@@ -141,7 +141,7 @@ export function ExpressMessage({
   }
   const lastProse = segments.reduce((at, s, i) => (s.kind === `prose` ? i : at), -1)
   return (
-    <div className="flex min-w-0 flex-col" style={{ gap: BLOCK_GAP }} data-slot="express-row">
+    <div className="flex w-full min-w-0 flex-col" style={{ gap: BLOCK_GAP }} data-slot="express-row">
       {segments.map((segment, index) =>
         segment.kind === `prose` ? (
           renderProse(segment.text, { first: index === 0, last: index === lastProse, key: `${rowKey}:p${index}` })

@@ -337,11 +337,12 @@ function AssistantMenu({ session, assistant }: { session: MenuSessionProps; assi
 }
 
 /** #EXP-2124 device Rename: the name in place (the device settings' rename). */
-function renameDevice(deviceId: string, label: string, current: string) {
+export function renameDevice(deviceId: string, label: string, current: string, onRenamed?: () => void) {
   const next = label.trim()
   if (!next || next === current) return
   void trpc.devices.rename
     .mutate({ deviceId, label: next }, SKIP_ERROR_TOAST)
+    .then(() => onRenamed?.())
     .catch((error: unknown) => failedAction(`rename`, `the device`, error))
 }
 
