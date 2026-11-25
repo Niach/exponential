@@ -26,7 +26,11 @@ use smithay::{
     output::Output,
 };
 
-use crate::{desk::DeskId, handlers::layer_shell::is_sealed_prompt, state::Ede};
+use crate::{
+    desk::DeskId,
+    handlers::layer_shell::{is_above_fullscreen, is_sealed_prompt},
+    state::Ede,
+};
 
 /// What `output` shows, front to back: the lock surface while the session
 /// is locked, a fullscreen window alone, else the layers and windows.
@@ -143,9 +147,11 @@ where
         }
     };
     if let Some(w) = state.fullscreen_on(output) {
-        // #EDE-107: a sealed prompt holds the keyboard, so it is the one
-        // layer drawn above a fullscreen window.
+        // #EDE-107: a sealed prompt holds the keyboard, so it is drawn
+        // above a fullscreen window, topmost; #EDE-225: under it the
+        // shell's switcher, Expo, Scale and OSD (never its toasts).
         draw(renderer, &mut elements, &|l| is_sealed_prompt(l));
+        draw(renderer, &mut elements, &|l| is_above_fullscreen(l) && !is_sealed_prompt(l));
         window(renderer, &mut elements, &w);
         return elements;
     }
@@ -424,8 +430,9 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
         window.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
     }
     for layer in layer_map_for_output(output).layers() {
-        // #EDE-107: above a fullscreen window only a sealed prompt shows.
-        let shown = !locked && (fullscreen.is_none() || is_sealed_prompt(layer));
+        // #EDE-107, #EDE-225: above a fullscreen window only a sealed
+        // prompt and the shell's overlays show.
+        let shown = !locked && (fullscreen.is_none() || is_above_fullscreen(layer));
         let primary = shown.then(|| output.clone());
         layer.send_frame(output, now, Some(HIDDEN_FRAME_INTERVAL), |_, _| primary.clone());
     }
@@ -437,7 +444,7 @@ pub fn frame_done(state: &mut Ede, output: &Output, presented: bool) {
 }
 
 /// The output most of `window` is on (`None` = on none).
-fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> Option<Output> {
+pub(crate) fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> Option<Output> {
     let bbox = state.desk.space.element_bbox(window)?;
     state
         .desk.space

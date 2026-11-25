@@ -374,6 +374,83 @@ impl AuthStore {
         }
     }
 
+    /// #EDE-223: adopts what another process wrote: `accounts.json` and the
+    /// session tokens (a sign-in or sign-out in the app, the shell or the
+    /// CLI, all on one data directory). Emits [`AuthEvent::SignedIn`] for an
+    /// account that gained a token (or a new one), [`AuthEvent::SignedOut`]
+    /// for one that lost it, and returns them. An `accounts.json` that does
+    /// not parse (caught mid-write) is skipped, never read as no accounts.
+    pub fn reload(&self) -> Vec<AuthEvent> {
+        let accounts = match fs::read_to_string(&self.accounts_path) {
+            Ok(raw) => match serde_json::from_str::<AccountsFile>(&raw) {
+                Ok(file) => file.accounts,
+                Err(_) => return Vec::new(),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(_) => return Vec::new(),
+        };
+        let tokens: HashMap<String, String> = accounts
+            .iter()
+            .filter_map(|a| {
+                self.token_store
+                    .get(&a.id, SecretKind::SessionToken)
+                    .map(|t| (a.id.clone(), t))
+            })
+            .collect();
+        let events = {
+            let mut state = self.state.write().unwrap();
+            if state.accounts == accounts && state.tokens == tokens {
+                return Vec::new();
+            }
+            let mut events = Vec::new();
+            for (id, token) in &tokens {
+                if state.tokens.get(id) != Some(token) {
+                    events.push(AuthEvent::SignedIn {
+                        account_id: id.clone(),
+                    });
+                }
+            }
+            for id in state.tokens.keys() {
+                if !tokens.contains_key(id) {
+                    events.push(AuthEvent::SignedOut {
+                        account_id: id.clone(),
+                    });
+                }
+            }
+            state.accounts = accounts;
+            state.tokens = tokens;
+            events
+        };
+        for event in &events {
+            let _ = self.events_tx.send(event.clone());
+        }
+        events
+    }
+
+    /// #EDE-223: follows `accounts.json` and the tokens while the process
+    /// runs ([`Self::reload`] every `every`): what changed arrives on the
+    /// returned stream, its own (the [`Self::events`] stream is drained by
+    /// one consumer). The thread ends with the store or the receiver.
+    pub fn watch(self: &Arc<Self>, every: std::time::Duration) -> flume::Receiver<AuthEvent> {
+        let (tx, rx) = flume::unbounded();
+        let store = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("accounts-watch".into())
+            .spawn(move || loop {
+                std::thread::sleep(every);
+                let Some(store) = store.upgrade() else { return };
+                for event in store.reload() {
+                    if tx.send(event).is_err() {
+                        return;
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            log::warn!("accounts watch: {e}");
+        }
+        rx
+    }
+
     /// The event stream. Drain from ONE foreground task (flume is MPMC:
     /// cloned receivers steal, they don't broadcast).
     pub fn events(&self) -> flume::Receiver<AuthEvent> {
@@ -431,6 +508,40 @@ mod tests {
             is_admin: Some(false),
             onboarding_completed_at: Some("2026-01-01T00:00:00.000Z".to_string()),
         }
+    }
+
+    /// #EDE-223: a sign-in and a sign-out in another process (its own
+    /// store on the same data directory) reach a store that loaded before.
+    #[test]
+    fn another_process_s_sign_in_and_sign_out_reach_a_loaded_store() {
+        let dir = TempDir::new("reload");
+        let shell = test_store(&dir);
+        assert!(shell.reload().is_empty(), "nothing on disk, nothing changed");
+        let app = test_store(&dir);
+        let account = app.sign_in("app.exponential.at", "tok-A", &user()).unwrap();
+        assert!(shell.signed_in_accounts().is_empty(), "read once at load");
+        assert_eq!(shell.reload(), vec![AuthEvent::SignedIn { account_id: account.id.clone() }]);
+        assert_eq!(shell.signed_in_accounts(), vec![account.clone()]);
+        assert_eq!(shell.token(&account.id).as_deref(), Some("tok-A"));
+        assert!(shell.reload().is_empty(), "unchanged: no event");
+        app.sign_out(&account.id);
+        assert_eq!(shell.reload(), vec![AuthEvent::SignedOut { account_id: account.id.clone() }]);
+        assert!(shell.signed_in_accounts().is_empty());
+        // Caught mid-write: skipped, never read as no accounts.
+        app.sign_in("app.exponential.at", "tok-B", &user()).unwrap();
+        shell.reload();
+        fs::write(dir.0.join("accounts.json"), "{\"accounts\": [").unwrap();
+        assert!(shell.reload().is_empty());
+        assert_eq!(shell.signed_in_accounts().len(), 1);
+    }
+
+    #[test]
+    fn the_watch_delivers_another_process_s_sign_in() {
+        let dir = TempDir::new("watch");
+        let shell = test_store(&dir);
+        let changes = shell.watch(Duration::from_millis(20));
+        let account = test_store(&dir).sign_in("app.exponential.at", "tok-A", &user()).unwrap();
+        assert_eq!(changes.recv_timeout(Duration::from_secs(5)).unwrap(), AuthEvent::SignedIn { account_id: account.id });
     }
 
     #[test]

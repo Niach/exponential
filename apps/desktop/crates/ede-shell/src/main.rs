@@ -343,6 +343,9 @@ struct Shell {
     locked: bool,
     /// The first person output's x, y, width, height (a fullscreen window over it covers the view).
     first_output: Option<(i32, i32, i32, i32)>,
+    /// #EDE-225: every person output's x, y, width, height: the switcher
+    /// opens on the one with the focused window.
+    person_outputs: Vec<(i32, i32, i32, i32)>,
     /// #EXP-2024: when each layer document last opened (a counter): a later
     /// top layer lies above an earlier one.
     layers_opened: HashMap<String, u64>,
@@ -380,8 +383,9 @@ struct Shell {
     share: share::Share,
     /// The Local desktop opened for a share (its store, blobs, identity).
     local: Option<Arc<elocal::LocalDesktop>>,
-    /// A team to make current once the account's teams shape carries it.
-    pending_pick: Option<String>,
+    /// A team to make current once the account's teams shape carries it
+    /// (#EDE-223: or the signed-in account's first team).
+    pending_pick: accounts::Pending,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
     /// EXP-1513: the chat's Claude Code setup (install + its own sign-in)
@@ -1447,8 +1451,46 @@ fn share_done(shell: &SharedShell, shared: elocal::share::Shared, cx: &mut App) 
         }
         shell.borrow_mut().local = None;
     }
-    shell.borrow_mut().pending_pick = Some(shared.team_id);
+    shell.borrow_mut().pending_pick = accounts::Pending { team: Some(shared.team_id), account: None };
     switcher_refresh_entries(shell, cx);
+}
+
+/// #EDE-223: `accounts.json` moved under the shell (the app or the CLI signed
+/// in or out): the account's sync starts or stops, Settings' Account page
+/// follows; a sign-in with nothing saved moves a Local start onto the
+/// account's team once listed, a sign-out leaves its team for Local.
+fn account_changed(shell: &SharedShell, event: api::AuthEvent, cx: &mut App) {
+    tracing::info!(?event, "accounts.json changed");
+    match &event {
+        api::AuthEvent::SignedIn { account_id } => {
+            let account = shell.borrow().workspaces.account(account_id);
+            if let Some(account) = account {
+                shell.borrow().workspaces.start_account(&account);
+            }
+            let wait = shell.borrow().workspaces.nothing_saved() && on_local(shell) && !shell.borrow().pending_pick.is_some();
+            if wait {
+                shell.borrow_mut().pending_pick = accounts::Pending { team: None, account: Some(account_id.clone()) };
+            }
+        }
+        api::AuthEvent::SignedOut { account_id } | api::AuthEvent::Unauthorized { account_id } => {
+            shell.borrow().workspaces.stop_account(account_id);
+            let pending = shell.borrow().pending_pick.account.as_ref() == Some(account_id);
+            if pending {
+                shell.borrow_mut().pending_pick = accounts::Pending::default();
+            }
+            let left = shell.borrow().model.switcher.current.account.as_ref() == Some(account_id);
+            if left {
+                switcher_refresh_entries(shell, cx);
+                let local = shell.borrow().workspaces.current_local();
+                if let Some(local) = local {
+                    switcher_picked(shell, uicore_model::SwitcherKind::Local, &local.id, cx);
+                }
+                shell.borrow().workspaces.forget_current();
+            }
+        }
+    }
+    let accounts = shell.borrow().workspaces.accounts_json();
+    shell.borrow_mut().feed.set("/accounts", accounts);
 }
 
 /// `Local`, then `Local 2`, `Local 3`… among the desktops that exist.
@@ -1469,10 +1511,10 @@ fn switcher_refresh_entries(shell: &SharedShell, cx: &mut App) {
     if entries.is_empty() {
         return;
     }
-    let pending = shell.borrow().pending_pick.clone().filter(|id| entries.iter().any(|e| e.kind == uicore_model::SwitcherKind::Team && &e.id == id));
+    let pending = shell.borrow().pending_pick.resolve(&entries);
     dispatch(shell, ShellEvent::SwitcherSet { entries }, cx);
     if let Some(id) = pending {
-        shell.borrow_mut().pending_pick = None;
+        shell.borrow_mut().pending_pick = accounts::Pending::default();
         switcher_picked(shell, uicore_model::SwitcherKind::Team, &id, cx);
     }
 }
@@ -1723,6 +1765,29 @@ fn output_size(shell: &Shell) -> (u32, u32) {
         .unwrap_or((1280, 720))
 }
 
+/// The person outputs' x, y, width, height.
+fn person_outputs(outputs: &[ede_protocol::OutputInfo]) -> Vec<(i32, i32, i32, i32)> {
+    outputs.iter().filter(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height)).collect()
+}
+
+/// #EDE-225: the output most of `window` is on, as the compositor picks the
+/// output a shell overlay that names none opens on.
+fn output_of(outputs: &[(i32, i32, i32, i32)], window: &ede_protocol::WindowInfo) -> Option<(i32, i32, i32, i32)> {
+    let overlap = |&(x, y, w, h): &(i32, i32, i32, i32)| {
+        let width = (x + w).min(window.x + window.width) - x.max(window.x);
+        let height = (y + h).min(window.y + window.height) - y.max(window.y);
+        if width > 0 && height > 0 { width as i64 * height as i64 } else { 0 }
+    };
+    outputs.iter().copied().filter(|o| overlap(o) > 0).max_by_key(overlap)
+}
+
+/// #EDE-225: the logical size of the output the switcher opens on: the
+/// focused window's, else the first.
+fn focused_output_size(shell: &Shell) -> (u32, u32) {
+    let focused = shell.windows.iter().find(|w| w.focused && w.is_persons() && !w.minimized);
+    focused.and_then(|w| output_of(&shell.person_outputs, w)).filter(|o| o.2 > 0 && o.3 > 0).map(|o| (o.2 as u32, o.3 as u32)).unwrap_or_else(|| output_size(shell))
+}
+
 /// A stretched axis (anchored to both of its edges) sized to the output,
 /// since the window takes the size it asks for; the sidebar the rail's
 /// width and exclusive zone (`shell-layout.json`), standing on the taskbar
@@ -1730,9 +1795,10 @@ fn output_size(shell: &Shell) -> (u32, u32) {
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
     let out = output_size(shell);
     let mut header = layer_header(doc, out);
-    // The Alt-Tab popup hugs its tiles (#EDE-65).
+    // The Alt-Tab popup hugs its tiles (#EDE-65), capped at the output it
+    // opens on (#EDE-225: the focused window's).
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
-        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
+        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), focused_output_size(shell).0));
     }
     // #EXP-2024: the pinned view is sized by the display and its space (spaces.json).
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == spaces::VIEW, &mut header) {
@@ -2288,6 +2354,11 @@ fn on_local(shell: &SharedShell) -> bool {
 /// The chat on the current Local desktop, its runner started once (#EDE-58).
 fn chat_local(shell: &SharedShell) -> bool {
     if !on_local(shell) {
+        return false;
+    }
+    // #EDE-223: the start waits for the signed-in account's team: its
+    // Assistant, never the CLI on the machine under the account's name.
+    if shell.borrow().pending_pick.account.is_some() {
         return false;
     }
     let Some(desktop) = local_desktop(shell) else { return false };
@@ -3890,6 +3961,7 @@ fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
     let mut s = shell.borrow_mut();
     s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+    s.person_outputs = person_outputs(&outputs);
     s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
@@ -4130,6 +4202,7 @@ fn main() {
     };
     workspaces.start_sync();
     let team_deltas = workspaces.deltas();
+    let account_changes = workspaces.account_changes();
     let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();
     let (urls_tx, urls_rx) = mpsc::channel::<String>();
     if !demo {
@@ -4181,6 +4254,8 @@ fn main() {
         let mut chat = match (demo, on_team) {
             (true, false) if setup.is_none() => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
+            // #EDE-223: a Local start's home is the CLI on the machine.
+            _ if matches!(workspaces.start_on(), Some(accounts::StartOn::Local(_))) => local_runs::local_home(""),
             _ => local_runs::assistant_home(),
         };
         // #EDE-65 lane O: the "+" (Photo or file; the prompts arrive with a team's rows).
@@ -4231,15 +4306,33 @@ fn main() {
         if !entries.is_empty() {
             model = reduce(&model, &ShellEvent::SwitcherSet { entries });
         }
-        if let Some(current) = workspaces.current_local() {
-            model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
-        }
-        let saved_team = workspaces.saved_team();
-        // A start on a Local desktop: a running Exponential app follows it too.
-        if saved_team.is_none() && !demo {
-            if let Some(current) = workspaces.current_local() {
-                accounts::ide_follow(current.kind, &current.id);
+        // #EDE-223: the signed-in account's team (or the saved pick); a team
+        // not synced yet waits on Local, and the app is left where it is.
+        let start_on = workspaces.start_on();
+        let mut pending_pick = accounts::Pending::default();
+        let start = match start_on {
+            Some(accounts::StartOn::Local(entry)) => {
+                // A start on a Local desktop: a running Exponential app follows it too.
+                if !demo {
+                    accounts::ide_follow(entry.kind.clone(), &entry.id);
+                }
+                Some(entry)
             }
+            Some(accounts::StartOn::Team(entry)) => {
+                if !demo {
+                    accounts::ide_follow(entry.kind.clone(), &entry.id);
+                }
+                Some(entry)
+            }
+            Some(accounts::StartOn::Wait(pending)) => {
+                tracing::info!(?pending, "the start waits for the account's teams");
+                pending_pick = pending;
+                workspaces.current_local()
+            }
+            None => None,
+        };
+        if let Some(current) = start {
+            model = reduce(&model, &ShellEvent::SwitcherPick { entry_kind: current.kind, id: current.id });
         }
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
@@ -4280,6 +4373,7 @@ fn main() {
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
             first_output: None,
+            person_outputs: Vec::new(),
             layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
@@ -4312,7 +4406,7 @@ fn main() {
             share,
             local: None,
             // #EDE-65: the team picked last, once its account's teams are listed.
-            pending_pick: saved_team,
+            pending_pick,
             chat_local: None,
             chat_setup: cli_setup::Step::Idle,
             chat_setup_rx: None,
@@ -4370,7 +4464,9 @@ fn main() {
         } else {
             // #EDE-168: the output the taskbar's popups measure their room on.
             let outputs = with_ede(&shell, |ede| ede.outputs()).unwrap_or_default();
-            shell.borrow_mut().first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+            let mut s = shell.borrow_mut();
+            s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+            s.person_outputs = person_outputs(&outputs);
         }
         // #EXP-2024: the spaces' feeds at the first display's size.
         spaces_feed(&shell);
@@ -4537,6 +4633,12 @@ fn main() {
                     }
                     let feed = s.borrow().connect.feed();
                     s.borrow_mut().feed.set("/connecting", feed);
+                    dirty = true;
+                }
+                // #EDE-223: a sign-in or sign-out in another process.
+                while let Ok(event) = account_changes.try_recv() {
+                    cx.update(|cx| account_changed(&s, event, cx));
+                    teams_changed = true;
                     dirty = true;
                 }
                 while let Ok(event) = share_rx.try_recv() {
@@ -5086,6 +5188,23 @@ mod switcher {
         assert_eq!(switcher_width(3, 1920), 2 * 16 + 3 * 208 + 2 * 8);
         assert_eq!(switcher_width(0, 1920), switcher_width(1, 1920));
         assert_eq!(switcher_width(40, 1280), 1280 - 32);
+    }
+
+    /// #EDE-225: the switcher opens on the output with most of the focused
+    /// window, as the compositor places it, and is sized to that one.
+    #[test]
+    fn the_switcher_is_sized_to_the_focused_windows_output() {
+        let outputs = [(0, 0, 1920, 1080), (1920, 0, 1280, 800)];
+        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
+        assert_eq!(output_of(&outputs, &window(100, 800)), Some(outputs[0]));
+        assert_eq!(output_of(&outputs, &window(1920, 1280)), Some(outputs[1]));
+        // Across the edge: where most of it is.
+        assert_eq!(output_of(&outputs, &window(1800, 800)), Some(outputs[1]));
+        assert_eq!(output_of(&outputs, &window(-5000, 800)), None);
+        // The shell's overlays are named as the compositor lets them above a fullscreen window.
+        for name in ["switcher", "expo", "scale", "osd"] {
+            assert!(ede_protocol::ABOVE_FULLSCREEN_NAMESPACES.contains(&uicore_gpui::layer_namespace(&uicore_gpui::LayerShellHost::default().namespace, name).as_str()), "{name}");
+        }
     }
 }
 

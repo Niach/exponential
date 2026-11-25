@@ -339,7 +339,9 @@ pub trait SealService: Send + Sync {
     /// `root`'s current (epoch, public key) for WRITING into it: the cached
     /// key, else `publicKeys`, else a fresh tree key this install creates
     /// (`sessionKeys.create`, epoch 1). [`SealError::NotReader`] = the server
-    /// refused the create; any other failure is [`SealError::NoKey`].
+    /// refused the create; [`SealError::KeyMakerWaits`] = this install makes
+    /// no key (#EXP-2123: it waits for approval, nothing was created); any
+    /// other failure is [`SealError::NoKey`].
     fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), SealError>;
     /// A tree's current key, if it has one (never creates).
     fn public_key(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String>;
@@ -360,6 +362,13 @@ pub trait SealService: Send + Sync {
     }
     /// EXP-1472: run a holder pass soon (a reader may be waiting for a wrap).
     fn wake(&self) {}
+    /// #EXP-2123 (install-trust.json `keyMaker`): whether this install MAKES
+    /// chat keys (a first key, a new root's inline seal, a rotation): only a
+    /// JOINED install does (an older server without `installs.trust` counts
+    /// as joined; a store not reconciled yet is reconciled first). BLOCKING.
+    fn makes_keys(&self) -> bool {
+        true
+    }
     /// #EXP-1960: `sessionKeys.requestKey`: a keyless tree this install may
     /// not key asks its devices to key it. Default: no answer (the bare wait).
     fn request_key(&self, _root_id: &str) -> RequestKeyAnswer {
@@ -735,6 +744,12 @@ pub enum SealError {
     /// #FEED-188: a keyless tree this install may not key (not a reader).
     /// Plaintext stays legal there; the server refuses it once it is keyed.
     NotReader,
+    /// #EXP-2123 (install-trust.json `keyMaker`): this install waits for
+    /// approval (or the server refused its key write with
+    /// `KEY_MAKER_REFUSAL`): it makes no chat key. A writer asks the tree's
+    /// devices (`requestKey`) and seals to the key they make, else fails
+    /// with [`NO_KEY_REFUSAL`]; never plaintext.
+    KeyMakerWaits,
     /// #FEED-185: the tree is sealed but this process has no key holder
     /// and none is coming (signed out, eNet off, registration refused).
     NoHolder,
@@ -752,6 +767,7 @@ impl std::fmt::Display for SealError {
             SealError::UnknownRoot => write!(f, "unknown session root"),
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
             SealError::NotReader => write!(f, "this install may not key this chat (not a reader)"),
+            SealError::KeyMakerWaits => write!(f, "{NO_KEY_REFUSAL}"),
             SealError::NoHolder => write!(
                 f,
                 "this chat is end-to-end encrypted and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
@@ -776,6 +792,13 @@ fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     let service = sealer()?;
     let (epoch, public) = match service.ensure_key(root_id) {
         Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
+        // #EXP-2123 (`keyMaker` firstKey = `requestKey`): this install makes
+        // no key: the tree's devices are asked and the content seals to the
+        // key they make, else the send fails; never plaintext.
+        Err(SealError::KeyMakerWaits) => match requested_key(service.as_ref(), root_id) {
+            Err(SealError::NotReader) => Err(SealError::NoKey(NO_KEY_REFUSAL.to_string())),
+            other => other,
+        },
         other => other,
     }?;
     service.check_seal(root_id, epoch, &public, None)?;
@@ -813,13 +836,23 @@ fn key_for_sending_unchecked(root_id: &str) -> Result<(u32, [u8; 32]), SealError
     // chat older than sealing: only a claim keys it there, and this send is
     // what would wake it. The other readers get theirs through `pending`.
     match service.ensure_key(root_id) {
-        Err(SealError::NotReader) => {}
-        other => return other,
+        Err(SealError::NotReader) => requested_key(service.as_ref(), root_id),
+        // #EXP-2123: an install that makes no key asks the same way; failing
+        // it is the no-key refusal (never the keyless-tree plaintext).
+        Err(SealError::KeyMakerWaits) => match requested_key(service.as_ref(), root_id) {
+            Err(SealError::NotReader) => Err(SealError::NoKey(NO_KEY_REFUSAL.to_string())),
+            other => other,
+        },
+        other => other,
     }
-    // Not a reader: #EXP-1960 an idle chat's device claims nothing, so it is
-    // ASKED to key the tree (`sessionKeys.requestKey`), then its key is
-    // waited for (EXP-1472); a tree no device hosts fails at once. #EDE-97:
-    // after the wait the send FAILS (NotReader), never plaintext.
+}
+
+/// Not a reader (or, #EXP-2123, an install that makes no key): #EXP-1960
+/// an idle chat's device claims nothing, so it is ASKED to key the tree
+/// (`sessionKeys.requestKey`), then its key is waited for (EXP-1472); a
+/// tree no device hosts fails at once. #EDE-97: after the wait the send
+/// FAILS (NotReader), never plaintext.
+fn requested_key(service: &dyn SealService, root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     let answer = service.request_key(root_id);
     match (keyless_step_after_request(&answer), answer) {
         (KeylessStep::Sealed, RequestKeyAnswer::Keyed(epoch, public)) => {
@@ -855,7 +888,19 @@ pub fn ensure_tree_key(root_id: &str) {
     if service().is_none() || tree_clear(root_id) {
         return;
     }
-    match key_for_writing(root_id) {
+    let Ok(service) = sealer() else { return };
+    // #EXP-2123 (`keyMaker` deviceKey = `skip`): an install that makes no
+    // key (it waits for approval, or the server refused its key write)
+    // leaves the tree to an approved holder: nothing created, nothing asked.
+    let found = match service.ensure_key(root_id) {
+        Err(SealError::KeyMakerWaits) => {
+            log::info!("sealing: the tree key of {root_id} is left to an approved install: this one waits for approval");
+            return;
+        }
+        Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
+        other => other,
+    };
+    match found.and_then(|(epoch, public)| service.check_seal(root_id, epoch, &public, None)) {
         Ok(_) | Err(SealError::NoService | SealError::ClearTree) => {}
         Err(err) => log::warn!("sealing: the tree key of {root_id} was not created at its claim: {err}"),
     }
@@ -1035,6 +1080,7 @@ pub fn seal_error_wire(err: &SealError) -> SendWire {
         | SealError::NoKey(_)
         | SealError::NotReader
         | SealError::NoHolder
+        | SealError::KeyMakerWaits
         | SealError::Invalid(_) => SendWire::Failed,
     }
 }
@@ -1421,6 +1467,8 @@ pub(crate) mod test_support {
         pub requested: Mutex<Vec<String>>,
         /// The key the asked device makes (it lands on the next poll).
         pub device_keys: Mutex<Option<(u32, [u8; 32])>>,
+        /// #EXP-2123: this install waits for approval: it makes no key.
+        pub waits: AtomicBool,
     }
 
     impl SealService for FakeService {
@@ -1450,6 +1498,9 @@ pub(crate) mod test_support {
             if self.not_reader_of.lock().unwrap().iter().any(|root| root == root_id) {
                 return Err(SealError::NotReader);
             }
+            if self.waits.load(Ordering::SeqCst) {
+                return Err(SealError::KeyMakerWaits);
+            }
             let key = generate_tree_key();
             self.keyring.insert_secret(root_id, 1, key.secret);
             self.keyring.set_current(root_id, 1, key.public);
@@ -1469,6 +1520,9 @@ pub(crate) mod test_support {
         }
         fn deliver_direct(&self, to: &DeliverTo, message: &MessageRow) {
             self.delivered.lock().unwrap().push((to.endpoint_id.clone(), message.clone()));
+        }
+        fn makes_keys(&self) -> bool {
+            !self.waits.load(Ordering::SeqCst)
         }
     }
 
@@ -1881,6 +1935,39 @@ mod tests {
         set_send_key_wait(SEND_KEY_WAIT);
         assert_eq!(refused, Err(SealError::NotReader));
         assert!(started.elapsed() < Duration::from_secs(2), "no silent wait");
+        uninstall();
+    }
+
+    /// #EXP-2123 (install-trust.json `keyMaker`): an install that waits for
+    /// approval keys nothing. firstKey: its own tree's writer (UI, answers:
+    /// `seal_body`) and a send into another tree ask the devices and seal to
+    /// their key, else fail with the no-key refusal (never plaintext);
+    /// deviceKey (a claim): skipped, nobody asked.
+    #[test]
+    fn a_waiting_install_asks_the_devices_and_never_keys_or_goes_plain() {
+        let _serial = serial();
+        let fake = install_fake();
+        fake.waits.store(true, Ordering::SeqCst);
+        let key = generate_tree_key();
+        *fake.device_keys.lock().unwrap() = Some((1, key.public));
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::Requested);
+        let body = seal_body("wk-root", "for the approved readers").unwrap();
+        assert_eq!(enet_core::sealed::open_body(&body, &|e| (e == 1).then_some(key.secret)).text.as_deref(), Some("for the approved readers"));
+        assert_eq!(fake.requested.lock().unwrap().as_slice(), ["wk-root"]);
+        assert!(fake.created.lock().unwrap().is_empty());
+        uninstall();
+
+        let fake = install_fake();
+        fake.waits.store(true, Ordering::SeqCst);
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::NoHost);
+        let refusal = Err(SealError::NoKey(NO_KEY_REFUSAL.into()));
+        assert_eq!(seal_body("wk-none", "never in clear"), refusal);
+        assert_eq!(seal_card("wk-none", &serde_json::json!({"kind": "report", "summary": "x"})).map(|_| ()), Err(SealError::NoKey(NO_KEY_REFUSAL.into())));
+        assert_eq!(seal_body_for_tree("wk-none", "never in clear"), refusal);
+        let asked = fake.requested.lock().unwrap().len();
+        ensure_tree_key("wk-claim");
+        assert_eq!(fake.requested.lock().unwrap().len(), asked, "a claim asks nobody");
+        assert!(fake.created.lock().unwrap().is_empty());
         uninstall();
     }
 

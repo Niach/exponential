@@ -375,6 +375,12 @@ pub const SPACE_VIEW_NAMESPACE: &str = "exponential-shell:space-view";
 /// it black in every capture of the person's output, as it draws the view.
 pub const SPACE_LIST_NAMESPACE: &str = "exponential-shell:taskbar:agent_spaces";
 
+/// #EDE-225: the namespaces of the shell's overlays a fullscreen window
+/// does not hide (the Alt-Tab switcher, Expo, Scale, the OSD): drawn above
+/// it at the refresh rate, and opened on the output of the focused window.
+/// Only the shell's own layers count; its toasts stay hidden.
+pub const ABOVE_FULLSCREEN_NAMESPACES: [&str; 4] = ["exponential-shell:switcher", "exponential-shell:expo", "exponential-shell:scale", "exponential-shell:osd"];
+
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInfo {

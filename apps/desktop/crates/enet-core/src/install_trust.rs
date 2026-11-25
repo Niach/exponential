@@ -32,6 +32,10 @@ use crate::wrap_sig::{accept_vouch, accept_wrap, ServedWrap, WrapRefusal, WrapSt
 
 /// The approval rows' and the waiting state's copy (`copy`), the same ×4.
 pub use crate::install_trust_copy as copy;
+pub use crate::key_maker::{
+    is_key_maker_refusal, key_maker_step, key_maker_waits, stranded_rotation_epoch, KeyMakerStep, KeyWrite, KEY_MAKER_REFUSAL,
+    KEY_MAKER_REFUSAL_CODE,
+};
 
 /// The waiting state's glyph (`icon`).
 pub const WAITING_ICON: &str = "ui-private";
