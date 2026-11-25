@@ -147,9 +147,10 @@ line is there over the kept screen.
 | genui Motion + Canvas (`exponential_show`, NEW-140, 2026-11-25) | pass | pass | pass, dark | pass, read-only |
 | genui app (`exponential_apps` `get`) | pass | pass | pass, dark | pass, read-only |
 
-Seen in the expired cells: only the screen the tool result drew is kept.
-What a view fetched itself afterwards is not, so an expired issue list shows
-placeholder avatars and an expired app shows empty records.
+In the expired cells the kept screen draws whole: what the view read itself
+while it was live (assignee names, an app's records) is kept beside it and
+answers the same reads (`lease.ts`, NEW-141); a write never runs. OpenClaw's
+own replay of a stored result is their open PR openclaw/openclaw#193812.
 
 Not verified by this matrix: any production host (claude.ai, Claude Desktop,
 Claude iOS/Android, ChatGPT, Cursor, VS Code, OpenClaw, Goose, Postman,

@@ -114,6 +114,39 @@ describe(`view lease (#NEW-24)`, () => {
     expect(throttled.result.current.expired).toBe(false)
   })
 
+  it(`#NEW-141: an expired view's own reads answer what they answered while it was live, its writes never`, async () => {
+    vi.useRealTimers()
+    const answer = { content: [{ type: `text`, text: `[{"name":"Ana"}]` }] }
+    const live = renderHook(() => useViewLease<{ kind: string }>(`issues`))
+    act(() => live.result.current.onContext({ toolInfo: { id: `reads` } }))
+    const host = vi.fn(async () => answer)
+    await act(async () => {
+      await live.result.current.guard(host)(`exponential_members_list`, { teamId: `t`, limit: 5 })
+      await live.result.current.guard(host)(`exponential_issues_update`, { id: `x`, title: `T` })
+    })
+    const rebuilt = renderHook(() => useViewLease<{ kind: string }>(`issues`))
+    act(() => rebuilt.result.current.onContext({ toolInfo: { id: `reads` } }))
+    const refusing = vi.fn(async () => {
+      throw new HostRefusal(`This view can no longer call tools`)
+    })
+    const call = rebuilt.result.current.guard(refusing)
+    await act(async () => {
+      // The refused first call itself, then (expired) the same read in any key order.
+      expect(await call(`exponential_members_list`, { teamId: `t`, limit: 5 })).toEqual(answer)
+      expect(await call(`exponential_people`, { op: `list`, limit: 5, teamId: `t` })).toEqual(answer)
+      await expect(call(`exponential_members_list`, { teamId: `other` })).rejects.toThrow(EXPIRED_LINE)
+      await expect(call(`exponential_issues_update`, { id: `x`, title: `T` })).rejects.toThrow(EXPIRED_LINE)
+    })
+    expect(refusing).toHaveBeenCalledTimes(1)
+    expect(rebuilt.result.current.expired).toBe(true)
+    // Another call's view keeps its own.
+    const other = renderHook(() => useViewLease<{ kind: string }>(`issues`))
+    act(() => other.result.current.onContext({ toolInfo: { id: `else` } }))
+    await act(async () => {
+      await expect(other.result.current.guard(refusing)(`exponential_members_list`, { teamId: `t`, limit: 5 })).rejects.toThrow()
+    })
+  })
+
   it(`the bridge tells a host refusal from a result`, async () => {
     vi.useRealTimers()
     const parent = { postMessage: vi.fn() }
