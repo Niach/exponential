@@ -218,6 +218,9 @@ struct HolderInner {
     trust: Mutex<Option<Arc<TrustKeeper>>>,
     /// #EXP-1950 R3: the vouch `publicKeys` answered per (root, epoch).
     vouches: Mutex<HashMap<(String, u32), Vouch>>,
+    /// The created keys' own pending passes ([`KeyHolder::join_first_passes`]).
+    #[cfg(test)]
+    first_passes: Mutex<Vec<std::thread::JoinHandle<()>>>,
 }
 
 impl KeyHolder {
@@ -253,6 +256,8 @@ impl KeyHolder {
                 resign: Mutex::default(),
                 trust: Mutex::new(None),
                 vouches: Mutex::default(),
+                #[cfg(test)]
+                first_passes: Mutex::default(),
             }),
         }
     }
@@ -639,12 +644,22 @@ impl KeyHolder {
                 if let Some(trust) = self.trust() {
                     trust.record(root_id, epoch, KeyRecord::Verified);
                 }
+                // Beside any other pass, on purpose: two passes may both send
+                // one pair's wrap, the server keeps the first (its lock on
+                // the tree's keys, then a skip) and both hold the same key.
+                // Never one shared pass: a call needs the wrap of ITS pair
+                // before its hello, and a pass under way may have read
+                // `pending` before that pair was there.
                 let holder = self.clone();
-                std::thread::spawn(move || {
+                let pass = std::thread::spawn(move || {
                     if let Err(err) = holder.answer_pending() {
                         log::debug!("seal-keys: first pending pass failed: {err}");
                     }
                 });
+                #[cfg(test)]
+                lock(&self.inner.first_passes).push(pass);
+                #[cfg(not(test))]
+                drop(pass);
                 Ok(key.public)
             }
             Err(ApiError::Http { status: 409, .. }) => Err(Created::Conflict),
@@ -832,6 +847,13 @@ impl KeyHolder {
         self.seal_rule(root_id, row.epoch, &public).map_err(|err| err.to_string())?;
         self.inner.keyring.set_current(root_id, row.epoch, public);
         Ok(Some((row.epoch, public)))
+    }
+
+    /// Waits for the pending pass of every key this holder created so far.
+    #[cfg(test)]
+    pub(crate) fn join_first_passes(&self) {
+        let passes = std::mem::take(&mut *lock(&self.inner.first_passes));
+        passes.into_iter().for_each(|pass| pass.join().expect("the pending pass ran"));
     }
 
     /// Stops the loop (sign-out) and uninstalls the service.
@@ -1257,6 +1279,7 @@ mod tests {
         });
         let first = KeyHolder::new("device".into(), &keys[0], api.clone(), Keyring::in_memory());
         let (_, public) = first.ensure_key("root").unwrap();
+        first.join_first_passes();
         first.answer_pending().unwrap();
         assert_eq!(api.wraps.lock().unwrap().len(), 3);
         // `dropNonReaderKeysInTx` (readers first: a late wrap is refused).
@@ -1287,6 +1310,7 @@ mod tests {
         assert_ne!(public, old_public);
         assert_eq!(api.roots.lock().unwrap()["root"].0, 2);
         // The current readers get epoch 2; the dropped install never does.
+        device.join_first_passes();
         device.answer_pending().unwrap();
         let epoch2: Vec<String> = api
             .wraps
@@ -1574,8 +1598,7 @@ mod tests {
             for _ in 0..case["passes"].as_u64().unwrap_or(1) {
                 holder.pass();
             }
-            // The create's own pending pass runs on a thread: let it finish.
-            std::thread::sleep(Duration::from_millis(50));
+            holder.join_first_passes();
 
             let creates: Vec<serde_json::Value> = api
                 .creates
@@ -1723,6 +1746,10 @@ mod tests {
         resign_calls: Mutex<Vec<Vec<ResignWrap>>>,
         /// `pending` from a server older than #3394: no target endpoint.
         old_pending: bool,
+        /// `pending` answers once two passes have read it.
+        pending_meets: Option<std::sync::Barrier>,
+        /// The pairs of every `wrap` call.
+        wrap_calls: Mutex<Vec<usize>>,
     }
 
     /// `resignOutcome` (wrap-signature.ts), replayed against `resign.cases`.
@@ -1782,11 +1809,17 @@ mod tests {
             ApiError::Http { status: 400, message: "A wrap's signature is not your install's over this key".into() }
         }
 
+        /// One row per (root, epoch, install), as `session_keys` has it: the
+        /// check and the write are one step (the server's lock, its key).
         fn store(&self, caller: &str, root: &str, epoch: u32, target: &str, wrapped: &str, signature: Option<&str>) {
+            let mut rows = self.rows.lock().unwrap();
+            if rows.iter().any(|r| r.root == root && r.epoch == epoch && r.install == target) {
+                return;
+            }
             if signature.is_some() {
                 self.signed.lock().unwrap().push(wrapped.to_string());
             }
-            self.rows.lock().unwrap().push(Row {
+            rows.push(Row {
                 root: root.into(),
                 epoch,
                 install: target.into(),
@@ -1903,9 +1936,13 @@ mod tests {
                     }
                 }
             }
+            if let Some(meet) = &self.pending_meets {
+                meet.wait();
+            }
             Ok(out)
         }
         fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
+            self.wrap_calls.lock().unwrap().push(wraps.len());
             for wrap in wraps {
                 if let Some(signature) = &wrap.signature {
                     if !self.verifies(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, signature) {
@@ -1915,10 +1952,7 @@ mod tests {
             }
             // Like the server: a pair another pass wrapped meanwhile is skipped.
             for wrap in wraps {
-                let known = self.rows.lock().unwrap().iter().any(|r| r.root == wrap.root_id && r.epoch == wrap.epoch && r.install == wrap.target_install_id);
-                if !known {
-                    self.store(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, wrap.signature.as_deref());
-                }
+                self.store(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, wrap.signature.as_deref());
             }
             Ok(())
         }
@@ -2064,16 +2098,15 @@ mod tests {
         let device = world.holder("device");
         let (epoch, _) = device.ensure_key(ROOT).unwrap();
         assert_eq!(epoch, 1);
-        // The create's own pending pass runs on a thread beside this one.
+        device.join_first_passes();
         device.answer_pending().unwrap();
-        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(world.api.assert_signed(ROOT, 1, &world.ids["device"], &world.secrets), 3);
 
         // The laptop is dropped; the device rotates: epoch 2, signed again.
         world.api.readers.lock().unwrap().retain(|r| r != "laptop");
         assert_eq!(device.rotate_root(ROOT, 1), Ok(true));
+        device.join_first_passes();
         device.answer_pending().unwrap();
-        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(world.api.assert_signed(ROOT, 2, &world.ids["device"], &world.secrets), 2);
 
         // A reader's own pass over the signed rows: nothing to sign again.
@@ -2081,6 +2114,25 @@ mod tests {
         phone.pass();
         assert!(world.api.resign_calls.lock().unwrap().is_empty());
         assert!(phone.keyring().secret(ROOT, 2).is_some());
+    }
+
+    /// #EXP-2117: the create's own pending pass and another one overlap: each
+    /// reads `pending` before either wraps, so both send the same pairs. One
+    /// signed wrap per reader is kept, and its secret is the tree's.
+    #[test]
+    fn overlapping_pending_passes_keep_one_wrap_per_reader() {
+        let mut world = Signed::new(&["device", "phone", "laptop"], &["device", "phone", "laptop"]);
+        Arc::get_mut(&mut world.api).unwrap().pending_meets = Some(std::sync::Barrier::new(2));
+        let device = world.holder("device");
+        device.ensure_key(ROOT).unwrap();
+        assert_eq!(device.answer_pending().unwrap(), 2, "this pass sent both pairs");
+        device.join_first_passes();
+        assert_eq!(world.api.wrap_calls.lock().unwrap().as_slice(), [2, 2], "and so did the create's");
+        assert_eq!(world.api.assert_signed(ROOT, 1, &world.ids["device"], &world.secrets), 3);
+        let secret = device.keyring().secret(ROOT, 1).unwrap();
+        for row in world.api.rows.lock().unwrap().iter() {
+            assert_eq!(unwrap_tree_key(&world.secrets[&row.install], &row.wrapped).unwrap(), secret, "{}", row.install);
+        }
     }
 
     /// An older server's `pending` names no endpoint: the wraps go unsigned
@@ -2091,8 +2143,8 @@ mod tests {
         Arc::get_mut(&mut world.api).unwrap().old_pending = true;
         let device = world.holder("device");
         device.ensure_key(ROOT).unwrap();
+        device.join_first_passes();
         device.answer_pending().unwrap();
-        std::thread::sleep(Duration::from_millis(50));
         let rows = world.api.rows.lock().unwrap().clone();
         let phone = rows.iter().find(|r| r.install == "phone").unwrap();
         assert_eq!(phone.signature, None);
@@ -2199,6 +2251,7 @@ mod tests {
         let world = Signed::new(&["device", "phone"], &["device", "phone"]);
         let device = KeyHolder::new("device".into(), &PushKeypair::derive(&world.ids["device"]), world.api.clone(), Keyring::in_memory());
         device.ensure_key(ROOT).unwrap();
+        device.join_first_passes();
         device.answer_pending().unwrap();
         device.pass();
         assert!(world.api.rows.lock().unwrap().iter().all(|r| r.signature.is_none()));
