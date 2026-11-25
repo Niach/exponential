@@ -42,6 +42,8 @@ class Transcript {
   loaded = 200
   /** Frames until the in-flight page lands. */
   landing: number | null = null
+  /** Frames a page takes to land. */
+  pageFrames = 3
   /** Rows mounted this frame are measured the next. */
   measuredFrom = Number.POSITIVE_INFINITY
   scrollTop = 0
@@ -80,7 +82,7 @@ class Transcript {
     return { found, laidOut, centred, paging: this.landing !== null, more: this.loaded < this.total, mark: this.loaded }
   }
   /** Drive a link to row `target` at 16 ms a frame until it settles. */
-  drive(target: number, maxFrames = 2_000): { step: DeepLinkStep; ringed: boolean; frames: number } {
+  drive(target: number, maxFrames = 20_000): { step: DeepLinkStep; ringed: boolean; frames: number } {
     let cursor: DeepLinkCursor = takeDeepLink(0)
     let ringed = false
     for (let frame = 0; frame < maxFrames; frame++) {
@@ -88,7 +90,7 @@ class Transcript {
       const result = deepLinkTick(cursor, this.probe(target), frame * 16, {
         page: () => {
           this.pages++
-          this.landing = 3
+          this.landing = this.pageFrames
         },
         scroll: () => {
           const top = (target - this.first()) * ROW - this.scrollTop
@@ -149,6 +151,17 @@ describe(`a pending deep link`, () => {
     expect(result.ringed).toBe(false)
     expect(chat.loaded).toBe(450)
     expect(chat.pages).toBe(3)
+  })
+
+  test(`#FEED-298: a card far above (a 25-day agent chat) keeps paging while pages land, past deepLinkMs`, () => {
+    // 60 pages at ~0.5 s each = ~30 s, three times deepLinkMs.
+    const chat = new Transcript(6_200)
+    chat.pageFrames = 30
+    const result = chat.drive(10)
+    expect(result.frames * 16).toBeGreaterThan(fixture.constants.deepLinkMs)
+    expect(result.step).toBe(`ring`)
+    expect(result.ringed).toBe(true)
+    expect(chat.pages).toBe(60)
   })
 
   test(`a page that never lands: the next page waits out the grace, the link gives up at deepLinkMs`, () => {

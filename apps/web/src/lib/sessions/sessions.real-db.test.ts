@@ -1645,13 +1645,13 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     const [answered] = await db.select().from(messages).where(eq(messages.id, proposal.messageId))
     expect(answered!.answeredAt).not.toBeNull()
     // #FEED-287: the conversation itself withdraws its own card (a dismiss
-    // only, never an answer); another session still may not.
+    // only, never an answer); another member's session still may not.
     const stale = await card()
     await expect(
       sendSession({ userId: w.owner, callerSessionId: voice.sessionId, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, answer: `Allow` } } })
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
     await expect(
-      sendSession({ userId: w.owner, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, dismissed: true } } })
+      sendSession({ userId: w.mate, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, dismissed: true } } })
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
     await sendSession({ userId: w.owner, callerSessionId: voice.sessionId, input: { sessionId: voice.sessionId, answer: { messageId: stale.messageId, dismissed: true } } })
     const [withdrawn] = await db.select().from(messages).where(eq(messages.id, stale.messageId))
@@ -1659,6 +1659,40 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect((withdrawn!.card as { dismissed?: boolean }).dismissed).toBe(true)
     const [after] = await db.select({ needsInput: sessions.needsInput }).from(sessions).where(eq(sessions.id, voice.sessionId))
     expect(after!.needsInput).toBe(false)
+    await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
+  })
+
+  it(`#FEED-298: the member dismisses a stale card of their own voice conversation over the bus; another member never`, async () => {
+    const w = await world({ shared: true })
+    const [ada] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Ada`, icon: `rocket`, color: `#ff0000`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const voice = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `hello` } })
+    await db.update(sessions).set({ shared: true }).where(eq(sessions.id, voice.sessionId))
+    const host = caller(w.owner)
+    await host.claim({ sessionId: voice.sessionId, deviceId: w.deviceId })
+    await db.insert(userVoiceSettings).values({ userId: w.owner, agentId: ada!.id })
+    const stale = await host.reply({
+      sessionId: voice.sessionId,
+      body: ``,
+      card: { kind: `question`, question: `Message a session 6e223…?`, options: [`Yes`, `No`] },
+    })
+    expect((await row(voice.sessionId)).needsInput).toBe(true)
+    // Another member: refused, answer or dismiss.
+    await expect(
+      sendSession({ userId: w.mate, input: { sessionId: voice.sessionId, answer: { dismissed: true } } })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The member's own MCP access (no caller session) answering: still refused.
+    await expect(
+      sendSession({ userId: w.owner, viaMcp: true, input: { sessionId: voice.sessionId, answer: { answer: `Yes` } } })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The member's dismiss (no messageId: the newest open card) lands.
+    await sendSession({ userId: w.owner, viaMcp: true, input: { sessionId: voice.sessionId, answer: { dismissed: true } } })
+    const [dismissed] = await db.select().from(messages).where(eq(messages.id, stale.messageId))
+    expect(dismissed!.answeredAt).not.toBeNull()
+    expect((dismissed!.card as { dismissed?: boolean }).dismissed).toBe(true)
+    expect((await row(voice.sessionId)).needsInput).toBe(false)
     await db.delete(userVoiceSettings).where(eq(userVoiceSettings.userId, w.owner))
   })
 

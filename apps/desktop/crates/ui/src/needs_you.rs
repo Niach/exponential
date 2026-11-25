@@ -676,6 +676,41 @@ pub(crate) fn stuck_actions(stuck: &StuckPr) -> AnyElement {
         .into_any_element()
 }
 
+/// #FEED-298 (needs-you.json DISMISS): a plan's or question's ONE action in
+/// THE stuck row's Button sm row: Dismiss (waiting-cards.json
+/// `copy.dismiss`), at once through THE answer path
+/// (`sessions.answer({messageId, dismissed: true})`). A press never opens
+/// the row.
+pub(crate) fn dismiss_action(message_id: &str) -> AnyElement {
+    let id = message_id.to_string();
+    h_flex()
+        .id(SharedString::from(format!("{}-{id}", MERGE_TRAIN.test_ids.stuck_row)))
+        .mt_2()
+        .flex_wrap()
+        .gap_2()
+        .child(
+            Button::new(SharedString::from(format!("{}-dismiss-{id}", MERGE_TRAIN.test_ids.stuck_row)))
+                .outline()
+                .web_sm()
+                .label(WAITING_CARDS.copy.dismiss.clone())
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    crate::session_chat::dismiss_card(id.clone(), cx);
+                }),
+        )
+        .into_any_element()
+}
+
+/// A row's actions under its meta: a stuck PR's, else a plan's or
+/// question's Dismiss; none for any other PR row.
+pub(crate) fn row_actions(row: &NeedsYouRow, stuck: &HashMap<String, StuckPr>) -> Option<AnyElement> {
+    match stuck.get(&row.message_id) {
+        Some(stuck) => Some(stuck_actions(stuck)),
+        None if row.kind != NeedsYouKind::Pr => Some(dismiss_action(&row.message_id)),
+        None => None,
+    }
+}
+
 /// The issues `pull_request_id` closes beyond one (the close confirm's batch
 /// line).
 fn linked_others(pull_request_id: &str, cx: &App) -> usize {
@@ -712,7 +747,7 @@ pub(crate) fn needs_you_list(
         .children(rows.iter().map(|row| {
             let open = row.clone();
             let press = row_press(row, stuck);
-            needs_you_row(row, team_of(row), stuck.get(&row.message_id).map(stuck_actions), cx)
+            needs_you_row(row, team_of(row), row_actions(row, stuck), cx)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| press_row(&open, press, window, cx))

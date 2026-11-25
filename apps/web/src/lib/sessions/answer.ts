@@ -83,6 +83,64 @@ export async function loadCardForAnswer(
   return { message, session, card: answered.card }
 }
 
+/**
+ * #FEED-298 (needs-you.json DISMISS): a Needs you row may name an `ask`
+ * MIRROR (its origin unreadable, or an older digest): a dismiss of it
+ * dismisses the origin's waiting card where the viewer may steer the origin
+ * (`messageId`, else that session's newest waiting question/plan), else it
+ * closes the mirror alone (its conversation's member steers it). Returns
+ * the card message to dismiss, or `closed` with the txid of the mirror's
+ * close; null = not a mirror (the plain path).
+ */
+export async function dismissAskMirror(
+  database: typeof db,
+  userId: string,
+  messageId: string
+): Promise<{ messageId: string } | { closed: true; txid: number } | null> {
+  const [mirror] = await database
+    .select(messageWithSession())
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .limit(1)
+  const card = mirror?.card as { kind?: unknown; sessionId?: unknown; messageId?: unknown } | null | undefined
+  if (!mirror || card?.kind !== `ask`) return null
+  if (mirror.answeredAt) throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
+  const originId = typeof card.sessionId === `string` ? card.sessionId : mirror.authorSessionId
+  if (originId) {
+    const origin = await loadSessionForUser(userId, originId).catch(() => null)
+    const steers = origin ? await assertCanSteer(userId, origin).then(() => true, () => false) : false
+    if (origin && steers) {
+      const [waiting] = await database
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            inSession(origin.id),
+            isNull(messages.answeredAt),
+            sql`${messages.card}->>'kind' IN ('question', 'plan')`,
+            ...(typeof card.messageId === `string` ? [eq(messages.id, card.messageId)] : [])
+          )
+        )
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1)
+      if (waiting) return { messageId: waiting.id }
+    }
+  }
+  const session = await loadSessionForUser(userId, mirror.sessionId)
+  await assertCanSteer(userId, session)
+  return database.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    const now = new Date()
+    const closed = await tx
+      .update(messages)
+      .set({ answeredAt: now, updatedAt: now })
+      .where(and(eq(messages.id, mirror.id), isNull(messages.answeredAt)))
+      .returning({ id: messages.id })
+    if (closed.length === 0) throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
+    return { closed: true as const, txid }
+  })
+}
+
 /** Stamp `card` + `answered_at` while still unanswered; needs-you clears
  *  once nothing else waits on a person. `claimed` = this call stamped it.
  *  `answeredBy` = the PERSON who answered (null = a session or the device):
@@ -154,15 +212,17 @@ export async function answerSessionCardInTx(
   // #NEW-79: a session never answers a voice conversation's proposal card
   // (an agent would approve its own calls); its member does, in person.
   // #FEED-287: the conversation itself may WITHDRAW (dismiss) its own card.
+  // #FEED-298: its member may always dismiss it (their MCP access too).
   const verdict = sessionAnswerVerdict({
     voice: await isVoiceConversation(target, tx),
     own: callerId === target.id,
+    member: personId !== null && personId === target.userId,
     dismissed: input.dismissed === true,
   })
   if (verdict === `voiceOwnerOnly`) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `${VOICE_CARD_OWNER_ONLY}; the conversation itself may withdraw its own card (answer: {dismissed: true})`,
+      message: `${VOICE_CARD_OWNER_ONLY}; the conversation itself or its member may withdraw a card (answer: {dismissed: true})`,
     })
   }
   const [message] = await tx

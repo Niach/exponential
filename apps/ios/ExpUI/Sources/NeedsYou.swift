@@ -7,7 +7,8 @@ import SwiftUI
 //
 //   NeedsYouEntryRow  the first row of Chats (the Archived row's box)
 //   NeedsYouList      one reading column of THE inbox page's row look, else
-//                     THE EmptyState
+//                     THE EmptyState; a row's Button sm row under its meta
+//                     (a stuck PR's, a plan's or question's Dismiss)
 
 /// THE ENTRY on phones: as tall as the Archived row, the glyph in the
 /// needs-you tone centred in the lead disc's column (no disc), the title
@@ -32,20 +33,35 @@ public struct NeedsYouEntryRow: View {
 /// `icons`, a PR's `pr-open`), line 1 the title then the age muted trailing,
 /// line 2 the chat then ` · meta`, muted. No row = THE EmptyState.
 /// #EXP-1710: a stuck PR's row carries THE Button sm row under its text
-/// (Retry, Merge now, Close PR); `onAction` runs a press.
+/// (Retry, Merge now, Close PR); `onAction` runs a press. #FEED-298
+/// (needs-you.json DISMISS): a plan's or question's row carries ONE Dismiss
+/// in the same row when the host hands `onDismiss`.
 public struct NeedsYouList: View {
     let rows: [NeedsYou.Row]
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
+    var onDismiss: ((NeedsYou.Row) -> Void)?
 
     public init(
         rows: [NeedsYou.Row],
         onOpen: @escaping (NeedsYou.Row) -> Void,
-        onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil
+        onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil,
+        onDismiss: ((NeedsYou.Row) -> Void)? = nil
     ) {
         self.rows = rows
         self.onOpen = onOpen
         self.onAction = onAction
+        self.onDismiss = onDismiss
+    }
+
+    private func buttons(_ row: NeedsYou.Row) -> [NeedsYouButtons.Item] {
+        if !row.actions.isEmpty {
+            return row.actions.map { action in
+                .init(id: action.rawValue, label: NeedsYouButtons.label(action)) { onAction?(row, action) }
+            }
+        }
+        guard row.kind != .pr, let onDismiss else { return [] }
+        return [.init(id: "dismiss", label: WaitingCards.Copy.dismiss) { onDismiss(row) }]
     }
 
     public var body: some View {
@@ -55,7 +71,8 @@ public struct NeedsYouList: View {
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(rows) { row in
-                    if row.actions.isEmpty {
+                    let items = buttons(row)
+                    if items.isEmpty {
                         Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier(NeedsYou.TestIds.row)
@@ -64,7 +81,7 @@ public struct NeedsYouList: View {
                             Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier(NeedsYou.TestIds.row)
-                            NeedsYouStuckActions(row: row) { onAction?(row, $0) }
+                            NeedsYouButtons(items: items)
                         }
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier(MergeTrain.TestIds.stuckRow)
@@ -123,12 +140,19 @@ struct NeedsYouRowView: View {
 
 /// #EXP-1710 (merge-train.json NEEDS YOU): THE Button sm row of a stuck PR,
 /// OUTLINE for all three (web `variant="outline" size="sm"`), ONE wrapping
-/// row under the meta line (web `flex flex-wrap gap-2`).
-struct NeedsYouStuckActions: View {
-    let row: NeedsYou.Row
-    let onAction: (MergeTrain.StuckRow.Action) -> Void
+/// row under the meta line (web `flex flex-wrap gap-2`); #FEED-298: a plan's
+/// or question's Dismiss in the same row. A press never opens the row.
+struct NeedsYouButtons: View {
+    struct Item: Identifiable {
+        /// The action's id (`data-action`): `retry`, `merge-now`, `close-pr`, `dismiss`.
+        let id: String
+        let label: String
+        let press: () -> Void
+    }
 
-    private func label(_ action: MergeTrain.StuckRow.Action) -> String {
+    let items: [Item]
+
+    static func label(_ action: MergeTrain.StuckRow.Action) -> String {
         switch action {
         case .retry: MergeTrain.Copy.NeedsYou.retry
         case .mergeNow: MergeTrain.Copy.NeedsYou.mergeNow
@@ -138,14 +162,14 @@ struct NeedsYouStuckActions: View {
 
     var body: some View {
         FlowLayout(spacing: 8) {
-            ForEach(row.actions, id: \.self) { action in
-                Button { onAction(action) } label: {
-                    GlassSubmitLabel(label(action), small: true, outline: true) { EmptyView() }
+            ForEach(items) { item in
+                Button(action: item.press) {
+                    GlassSubmitLabel(item.label, small: true, outline: true) { EmptyView() }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.pressScale)
                 .fixedSize()
-                .accessibilityIdentifier("\(MergeTrain.TestIds.stuckRow)-\(action.rawValue)")
+                .accessibilityIdentifier("\(MergeTrain.TestIds.stuckRow)-\(item.id)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -47,6 +47,7 @@ import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.InstallApprovalView
 import com.exponential.app.domain.NeedsYou
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.WaitingCards
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassSubmitButton
@@ -116,6 +117,8 @@ fun NeedsYouRowItem(
     modifier: Modifier = Modifier,
     /** #EXP-1710: a stuck PR row's action (Retry, Merge now, Close PR). */
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
+    /** #FEED-298 (needs-you.json DISMISS): a plan's or question's Dismiss. */
+    onDismiss: (NeedsYou.Row) -> Unit = {},
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Row(
@@ -174,6 +177,23 @@ fun NeedsYouRowItem(
                         )
                     }
                 }
+            } else if (row.kind != NeedsYou.Kind.Pr) {
+                // #FEED-298 (needs-you.json DISMISS): a plan's or question's
+                // ONE action in the same Button sm row: Dismiss, at once
+                // through THE answer path (`dismissed: true`).
+                FlowRow(
+                    modifier = Modifier.padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    GlassSubmitButton(
+                        label = WaitingCards.Copy.DISMISS,
+                        onClick = { onDismiss(row) },
+                        size = SubmitSize.Small,
+                        outline = true,
+                        modifier = Modifier.testTag("${MergeTrain.TestIds.STUCK_ROW}-dismiss"),
+                    )
+                }
             }
         }
     }
@@ -195,6 +215,7 @@ fun LazyListScope.needsYouList(
     rows: List<NeedsYou.Row>,
     onOpen: (NeedsYou.Row) -> Unit,
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
+    onDismiss: (NeedsYou.Row) -> Unit = {},
 ) {
     if (rows.isEmpty()) {
         item(key = "__empty__") {
@@ -204,7 +225,13 @@ fun LazyListScope.needsYouList(
         }
     } else {
         items(rows, key = { "needs_you_${it.messageId}" }) { row ->
-            NeedsYouRowItem(row, onClick = { onOpen(row) }, modifier = Modifier.padding(horizontal = 8.dp), onAction = onAction)
+            NeedsYouRowItem(
+                row,
+                onClick = { onOpen(row) },
+                modifier = Modifier.padding(horizontal = 8.dp),
+                onAction = onAction,
+                onDismiss = onDismiss,
+            )
         }
     }
 }
@@ -225,6 +252,7 @@ fun NeedsYouPageContent(
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
     waitingCode: String? = null,
     pendingInstalls: Int = 0,
+    onDismiss: (NeedsYou.Row) -> Unit = {},
     band: @Composable () -> Unit = {},
 ) {
     PinnedHeaderColumn(
@@ -236,7 +264,7 @@ fun NeedsYouPageContent(
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
         when {
-            rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
+            rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction, onDismiss)
             else -> {
                 if (waitingCode != null) {
                     item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 16.dp)) }
@@ -246,7 +274,7 @@ fun NeedsYouPageContent(
                 if (rows.isNotEmpty() && (waitingCode != null || pendingInstalls > 0)) {
                     item(key = "__install_gap__") { Spacer(Modifier.height(InstallApprovalView.Waiting.LIST_GAP.dp)) }
                 }
-                if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction)
+                if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction, onDismiss)
             }
         }
     }
@@ -300,6 +328,7 @@ fun NeedsYouPage(
                     MergeTrain.StuckAction.ClosePr -> closeFor = row
                 }
             },
+            onDismiss = { row -> viewModel.dismissNeedsYou(row.messageId) },
             waitingCode = trust.code?.takeIf { trust.waiting },
             pendingInstalls = trust.rows.size,
             band = { LivePendingInstalls(viewModel = trustViewModel) },

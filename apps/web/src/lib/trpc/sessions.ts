@@ -56,6 +56,7 @@ import { unwatch as unwatchSession } from "@/lib/sessions/watches"
 import { sessionLaunchPick, sessionLaunchSkillIds } from "@/lib/agents/team-picks"
 import {
   cardAnswerInput,
+  dismissAskMirror,
   loadCardForAnswer,
   stampAnsweredCard,
 } from "@/lib/sessions/answer"
@@ -545,10 +546,13 @@ export const sessionsRouter = router({
   answer: authedProcedure
     .input(cardAnswerInput)
     .mutation(async ({ ctx, input }) => {
+      // #FEED-298: a Needs you row's dismiss may name an `ask` mirror.
+      const mirror = input.dismissed ? await dismissAskMirror(ctx.db, ctx.session.user.id, input.messageId) : null
+      if (mirror && `closed` in mirror) return { txid: mirror.txid }
       const { message, session, card } = await loadCardForAnswer(
         ctx.db,
         ctx.session.user.id,
-        input
+        mirror ? { ...input, messageId: mirror.messageId } : input
       )
       if (message.answeredAt) {
         throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
