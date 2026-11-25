@@ -22,7 +22,7 @@ import { loadIdentity } from "./identity-store"
 import { deriveInstallSecret } from "./install-key"
 import { InstallTrust, type TrustApi } from "./install-trust"
 import { CachedKeys, KeyHolder, PENDING_INTERVAL_MS, type SessionKeysApi } from "./key-holder"
-import { ownAssistantRoot } from "./own-assistant"
+import { rootSight } from "./own-assistant"
 import { indexedDbTreeKeyStore } from "./tree-key-store"
 import { indexedDbTrustStore } from "./trust-store"
 
@@ -115,7 +115,7 @@ export function useKeyHolder(userId: string | undefined) {
       const trust = new InstallTrust(userId, found.installId, found.identity, {
         api: trustApi,
         io: indexedDbTrustStore,
-        ownAssistant: (rootId) => ownAssistantRoot(rootId, userId),
+        see: (rootId) => rootSight(rootId, userId),
       })
       await trust.load()
       own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore, identity: found.identity, trust })

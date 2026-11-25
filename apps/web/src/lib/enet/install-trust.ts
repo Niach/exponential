@@ -15,6 +15,7 @@
 // An older server without `installs.trust` (NOT_FOUND): `unavailable`, every
 // target is wrapped as before and recorded `legacy`.
 
+import { rootMark, type RootSight } from "@exp/domain-contract/member-space"
 import {
   emptyTrustStore,
   keepWrap,
@@ -80,8 +81,8 @@ export class InstallTrust {
       api: TrustApi
       io: TrustStoreIO
       mode?: TrustMode
-      /** #EXP-2161 (`pinCovers`): whether a root is the member's own Assistant conversation. */
-      ownAssistant?: (rootId: string) => boolean
+      /** #EXP-2161 (`rootMark`): what the synced rows say of a root. */
+      see?: (rootId: string) => RootSight
     }
   ) {
     this.endpointId = endpointIdOf(identity)
@@ -92,9 +93,17 @@ export class InstallTrust {
     return this.deps.mode ?? TRUST_MODE
   }
 
-  /** #EXP-2161: whether `rootId` is the member's own Assistant conversation. */
-  ownAssistant(rootId: string): boolean {
-    return this.deps.ownAssistant?.(rootId) ?? false
+  /** #EXP-2161: whether `rootId` counts as the member's own Assistant
+   *  conversation: the rows' word, sticky per root (`rootMark`). */
+  ownAssistant(rootId: string, record = false): boolean {
+    const before = this.store.rootMarks?.[rootId] ?? null
+    const keyed = Object.keys(this.store.roots[rootId]?.epochs ?? {}).length > 0
+    const { mark, counts } = rootMark(before, { see: this.deps.see?.(rootId) ?? `unknown`, keyed, record })
+    if (mark !== null && mark !== before) {
+      this.store = { ...this.store, rootMarks: { ...this.store.rootMarks, [rootId]: mark } }
+      void this.persist()
+    }
+    return counts
   }
 
   /** The pin store this install kept (its own endpoint's; another is
@@ -231,12 +240,18 @@ export class InstallTrust {
   /** Records a key (its own new keys are `verified`); persisted. */
   record(rootId: string, epoch: number, record: KeyRecord) {
     if (this.store.roots[rootId]?.epochs[String(epoch)] === record) return
+    // `legacy` = held before the store kept marks: none is made now.
+    if (record !== `legacy`) this.ownAssistant(rootId, true)
     this.store = recordKey(this.store, rootId, epoch, record)
     void this.persist()
   }
 
   /** R2 + R3: whether this install seals to (root, epoch, key). */
-  seal(input: Parameters<typeof sealTo>[0], ownAssistant = this.ownAssistant(input.rootId)): SealVerdict {
+  seal(input: Parameters<typeof sealTo>[0], toOwnAssistant = false): SealVerdict {
+    const counts = this.ownAssistant(input.rootId)
+    // A send addressed to the own Assistant: its root may not be synced yet,
+    // but never one this install knows as something else.
+    const ownAssistant = counts || (toOwnAssistant && this.store.rootMarks?.[input.rootId] !== `never`)
     const verdict = sealTo(input, this.store, this.mode, ownAssistant)
     this.log(`R3`, `${input.rootId}#${input.epoch}`, verdict.seal ? verdict.record : `refused:${verdict.reason}`)
     return verdict

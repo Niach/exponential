@@ -21,7 +21,7 @@ import { hkdf } from "@noble/hashes/hkdf.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 import { b64urlDecode, b64urlEncode, pushPublicKey, treeKeyFromSecret } from "./sealed-content"
 import { acceptVouch, acceptWrap, type ServedWrap, type WrapRefusal, type WrapStatement } from "./wrap-signature"
-import { MEMBER_SPACE, pinCovers } from "./member-space"
+import { MEMBER_SPACE, pinCovers, type RootMark } from "./member-space"
 import fixture from "../fixtures/install-trust.json" with { type: "json" }
 
 /** The approval rows' and the waiting state's copy (`copy`), the same ×4. */
@@ -241,6 +241,9 @@ export interface TrustStore {
   declined: string[]
   /** Per root: the highest VERIFIED epoch and what each held epoch is. */
   roots: Record<string, { verifiedEpoch: number; epochs: Record<string, KeyRecord> }>
+  /** #EXP-2161 (member-space.json `rootMark`): which roots count, sticky, as
+   *  the member's own Assistant conversation. Absent = a store from before. */
+  rootMarks?: Record<string, RootMark>
 }
 
 export function emptyTrustStore(self: string, userId: string, existing = false): TrustStore {
