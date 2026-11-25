@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-2124 (owner 2026-11-24) THE SIDEBAR MENUS, web md+ and the desktop IDE (PHONES, #EXP-2109: the same table as the long-press menu of the Teams tab's rows, minus `phone.drops`, `phoneCases`, sidebarPhoneMenu: a phone has no tabs; MOVE TO FOLDER's submenu = sidebarMoveTargets, `moveCases`). ONE menu table for every sidebar row, replayed by every client (the pure reference is `src/sidebar-menus.ts`, desktop Rust `domain::sidebar_menus`; each replays `menuCases`, `newCases`, `newTabCases` and compares the WHOLE expected value). A row's right-click (the keyboard's menu key; a long-press on touch) opens ITS kind's menu, drawn with THE genUI Menu (`openOn: contextmenu`); a row that also has a hover `…` (the team) opens the same menu from it. MENU (`kinds`, sidebarItemMenu(kind, input)): five GROUPS in the fixed order `groups` (open: Open, Open in new tab; kind: what only this kind does; arrange: Rename, Copy link, Move to folder, Add to / Remove from sidebar; settings; danger: destructive, last), a `separator` between the non-empty ones. An entry is an id, or {id, when}: shown only while the input flag `when` is true (`owner` = the viewer owns the item's team, `mine` = the viewer's own device, `canDelete` = chats.json `menuCases` delete rule). Labels are `copy` (a `danger` row is drawn destructive and asks first with the usual confirm); a verb that has a shortcut elsewhere shows it (`shortcuts`: New chat = the new session tab's Alt/Option+T); no other shortcut exists and none is invented here. The ONLY destructive row added is a board's Archive (owner; the board settings' archive behind its confirm); an Active row keeps the Delete it already had. VERBS: open = the row's own press; open-new-tab = the row's page as a NEW work tab opened in the BACKGROUND (the current tab stays; `tabs`): every kind that has Open is a tab now (Home, Needs you, Chats, Drafts, a device, a board, an app besides the issues, chats, agents and sessions tabs always held), a page already open as a tab is not opened twice; Home and the new session tab are ONE tab (key `new`, never two for Home): visiting Home opens or activates it, Open in new tab on Home adds it in the background, its chip is the Home nav icon + `Home`, the landing rule is unchanged (a chat started from its composer takes its place) and Alt/Option+T activates it; new-chat = Home's composer (the new session tab); new = THE New list as a submenu (`newKinds`); new-folder, rename (a folder: in place; a device: its name in place), ungroup = sidebar-folders.json; new-issue = the New issue page on that board; compact / new-conversation = chats.json `agentMenu.sends`; edit = the app editor; copy-link = the page's URL on the clipboard; move = a submenu of the team's folders (into that folder), then `New folder` (a new folder holding the item, its name in edit) and, for an item inside a folder, `Top level`; add-to-sidebar = sidebar-tree.json `drop` (appended to its team's list; hidden once placed); remove-from-sidebar = its entry deleted; settings = the item's settings page (the Assistant: Settings > Assistant; a device: its settings page; a team: the team settings; a board: its board settings; an app: the editor's Settings tab; an agent: its settings as the screen's opened item). THE NEW LIST (`newKinds`, sidebarNewKinds({owner})): ONE order everywhere a team creates something (the team menu's New, the new-tab menu's team submenu): Chat (every member; Home's composer with that team as its Teams pick), then Agent, App, Board (owners; settings-nav.json `newEntries`; their creation pages); labels `newCopy`. THE NEW-TAB MENU (`newTabCases`, newTabMenu): the tab strip's + opens a menu instead of a fixed tab: the Assistant first (its name + the brand mark; opens its chat; absent while the viewer has none), a separator, then one row per team in sidebar order (sidebar-tree.json `teams`), each a submenu of THE New list for that viewer. Alt/Option+T still opens the new session tab directly. THE ASSISTANT ROW: sidebar-tree.json `root` puts `assistant` first (the brand mark + the Assistant's name + its conversation's count badge; opens its chat); the FAB stays.",
+  "$comment": "#EXP-2124 (owner 2026-11-24) THE SIDEBAR MENUS, web md+ and the desktop IDE (PHONES, #EXP-2109: the same table as the long-press menu of the Teams tab's rows, minus `phone.drops`, `phoneCases`, sidebarPhoneMenu: a phone has no tabs; EVERY navigation row has it, #EXP-2126: the Teams tab's rows, a device's row in the phones' Devices list, the iPad sidebar's own rows; a menu left with Open alone = no menu, a tap says the same; MOVE TO FOLDER's submenu = sidebarMoveTargets, `moveCases`). ONE menu table for every sidebar row, replayed by every client (the pure reference is `src/sidebar-menus.ts`, desktop Rust `domain::sidebar_menus`; each replays `menuCases`, `newCases`, `newTabCases` and compares the WHOLE expected value). A row's right-click (the keyboard's menu key; a long-press on touch) opens ITS kind's menu, drawn with THE genUI Menu (`openOn: contextmenu`); a row that also has a hover `…` (the team) opens the same menu from it. MENU (`kinds`, sidebarItemMenu(kind, input)): five GROUPS in the fixed order `groups` (open: Open, Open in new tab; kind: what only this kind does; arrange: Rename, Copy link, Move to folder, Add to / Remove from sidebar; settings; danger: destructive, last), a `separator` between the non-empty ones. An entry is an id, or {id, when}: shown only while the input flag `when` is true (`owner` = the viewer owns the item's team, `mine` = the viewer's own device, `canDelete` = chats.json `menuCases` delete rule). Labels are `copy` (a `danger` row is drawn destructive and asks first with the usual confirm); a verb that has a shortcut elsewhere shows it (`shortcuts`: New chat = the new session tab's Alt/Option+T); no other shortcut exists and none is invented here. The ONLY destructive row added is a board's Archive (owner; the board settings' archive behind its confirm); an Active row keeps the Delete it already had. VERBS: open = the row's own press; open-new-tab = the row's page as a NEW work tab opened in the BACKGROUND (the current tab stays; `tabs`): every kind that has Open is a tab now (Home, Needs you, Chats, Drafts, a device, a board, an app besides the issues, chats, agents and sessions tabs always held), a page already open as a tab is not opened twice; Home and the new session tab are ONE tab (key `new`, never two for Home): visiting Home opens or activates it, Open in new tab on Home adds it in the background, its chip is the Home nav icon + `Home`, the landing rule is unchanged (a chat started from its composer takes its place) and Alt/Option+T activates it; new-chat = Home's composer (the new session tab); new = THE New list as a submenu (`newKinds`); new-folder, rename (a folder: in place; a device: its name in place), ungroup = sidebar-folders.json; new-issue = the New issue page on that board; compact / new-conversation = chats.json `agentMenu.sends`; edit = the app editor; copy-link = the page's URL on the clipboard; move = a submenu of the team's folders (into that folder), then `New folder` (a new folder holding the item, its name in edit) and, for an item inside a folder, `Top level`; add-to-sidebar = sidebar-tree.json `drop` (appended to its team's list; hidden once placed); remove-from-sidebar = its entry deleted; settings = the item's settings page (the Assistant: Settings > Assistant; a device: its settings page; a team: the team settings; a board: its board settings; an app: the editor's Settings tab; an agent: its settings as the screen's opened item). THE NEW LIST (`newKinds`, sidebarNewKinds({owner})): ONE order everywhere a team creates something (the team menu's New, the new-tab menu's team submenu): Chat (every member; Home's composer with that team as its Teams pick), then Agent, App, Board (owners; settings-nav.json `newEntries`; their creation pages); labels `newCopy`. THE NEW-TAB MENU (`newTabCases`, newTabMenu): the tab strip's + opens a menu instead of a fixed tab: the Assistant first (its name + the brand mark; opens its chat; absent while the viewer has none), a separator, then one row per team in sidebar order (sidebar-tree.json `teams`), each a submenu of THE New list for that viewer. Alt/Option+T still opens the new session tab directly. THE ASSISTANT ROW: sidebar-tree.json `root` puts `assistant` first (the brand mark + the Assistant's name + its conversation's count badge; opens its chat); the FAB stays.",
   "groups": [
     "open",
     "kind",
@@ -674,19 +674,292 @@
     ],
     "background": true
   },
-  "phone": {"drops": ["open-new-tab"]},
+  "phone": {
+    "drops": [
+      "open-new-tab"
+    ]
+  },
   "phoneCases": [
-    {"name": "a team", "kind": "team", "input": {"owner": true}, "expected": ["new", "new-folder", "separator", "settings"]},
-    {"name": "a folder", "kind": "folder", "input": {}, "expected": ["rename", "ungroup"]},
-    {"name": "a board, owner", "kind": "board", "input": {"owner": true}, "expected": ["open", "separator", "new-issue", "separator", "copy-link", "move", "separator", "settings", "separator", "archive"]},
-    {"name": "a board, member", "kind": "board", "input": {"owner": false}, "expected": ["open", "separator", "new-issue", "separator", "copy-link", "move"]},
-    {"name": "an app", "kind": "app", "input": {}, "expected": ["open", "separator", "edit", "separator", "copy-link", "move", "separator", "settings"]},
-    {"name": "an agent, owner", "kind": "agent", "input": {"owner": true}, "expected": ["open", "separator", "compact", "new-conversation", "separator", "move", "separator", "settings"]},
-    {"name": "a placed session", "kind": "session", "input": {}, "expected": ["open", "separator", "copy-link", "move", "remove-from-sidebar"]}
+    {
+      "name": "a team",
+      "kind": "team",
+      "input": {
+        "owner": true
+      },
+      "expected": [
+        "new",
+        "new-folder",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "a folder",
+      "kind": "folder",
+      "input": {},
+      "expected": [
+        "rename",
+        "ungroup"
+      ]
+    },
+    {
+      "name": "a board, owner",
+      "kind": "board",
+      "input": {
+        "owner": true
+      },
+      "expected": [
+        "open",
+        "separator",
+        "new-issue",
+        "separator",
+        "copy-link",
+        "move",
+        "separator",
+        "settings",
+        "separator",
+        "archive"
+      ]
+    },
+    {
+      "name": "a board, member",
+      "kind": "board",
+      "input": {
+        "owner": false
+      },
+      "expected": [
+        "open",
+        "separator",
+        "new-issue",
+        "separator",
+        "copy-link",
+        "move"
+      ]
+    },
+    {
+      "name": "an app",
+      "kind": "app",
+      "input": {},
+      "expected": [
+        "open",
+        "separator",
+        "edit",
+        "separator",
+        "copy-link",
+        "move",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "an agent, owner",
+      "kind": "agent",
+      "input": {
+        "owner": true
+      },
+      "expected": [
+        "open",
+        "separator",
+        "compact",
+        "new-conversation",
+        "separator",
+        "move",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "a placed session",
+      "kind": "session",
+      "input": {},
+      "expected": [
+        "open",
+        "separator",
+        "copy-link",
+        "move",
+        "remove-from-sidebar"
+      ]
+    },
+    {
+      "name": "the viewer's device",
+      "kind": "device",
+      "input": {
+        "mine": true
+      },
+      "expected": [
+        "open",
+        "separator",
+        "rename",
+        "copy-link",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "a teammate's server",
+      "kind": "device",
+      "input": {
+        "mine": false
+      },
+      "expected": [
+        "open",
+        "separator",
+        "copy-link",
+        "separator",
+        "settings"
+      ]
+    },
+    {
+      "name": "Home",
+      "kind": "home",
+      "input": {},
+      "expected": [
+        "open",
+        "separator",
+        "new-chat"
+      ]
+    },
+    {
+      "name": "Chats",
+      "kind": "chats",
+      "input": {},
+      "expected": [
+        "open",
+        "separator",
+        "new-chat"
+      ]
+    },
+    {
+      "name": "Devices",
+      "kind": "devices",
+      "input": {},
+      "expected": [
+        "add-device"
+      ]
+    },
+    {
+      "name": "Needs you: Open alone = no menu",
+      "kind": "needs-you",
+      "input": {},
+      "expected": []
+    },
+    {
+      "name": "Drafts: Open alone = no menu",
+      "kind": "drafts",
+      "input": {},
+      "expected": []
+    }
   ],
   "moveCases": [
-    {"name": "top level: every folder", "rows": [{"kind": "folder", "id": "f-1", "depth": 0, "name": "F-1"}, {"kind": "item", "id": "a", "depth": 1, "name": null}, {"kind": "folder", "id": "f-2", "depth": 0, "name": "F-2"}, {"kind": "item", "id": "b", "depth": 0, "name": null}], "id": "b", "expected": {"folders": [{"id": "f-1", "name": "F-1"}, {"id": "f-2", "name": "F-2"}], "topLevel": null}},
-    {"name": "inside a folder: the others, and Top level after it", "rows": [{"kind": "folder", "id": "f-1", "depth": 0, "name": "F-1"}, {"kind": "item", "id": "a", "depth": 1, "name": null}, {"kind": "item", "id": "c", "depth": 1, "name": null}, {"kind": "folder", "id": "f-2", "depth": 0, "name": "F-2"}, {"kind": "item", "id": "b", "depth": 0, "name": null}], "id": "c", "expected": {"folders": [{"id": "f-2", "name": "F-2"}], "topLevel": "f-1"}},
-    {"name": "no folder at all: New folder only", "rows": [{"kind": "item", "id": "a", "depth": 0, "name": null}, {"kind": "item", "id": "b", "depth": 0, "name": null}], "id": "a", "expected": {"folders": [], "topLevel": null}}
+    {
+      "name": "top level: every folder",
+      "rows": [
+        {
+          "kind": "folder",
+          "id": "f-1",
+          "depth": 0,
+          "name": "F-1"
+        },
+        {
+          "kind": "item",
+          "id": "a",
+          "depth": 1,
+          "name": null
+        },
+        {
+          "kind": "folder",
+          "id": "f-2",
+          "depth": 0,
+          "name": "F-2"
+        },
+        {
+          "kind": "item",
+          "id": "b",
+          "depth": 0,
+          "name": null
+        }
+      ],
+      "id": "b",
+      "expected": {
+        "folders": [
+          {
+            "id": "f-1",
+            "name": "F-1"
+          },
+          {
+            "id": "f-2",
+            "name": "F-2"
+          }
+        ],
+        "topLevel": null
+      }
+    },
+    {
+      "name": "inside a folder: the others, and Top level after it",
+      "rows": [
+        {
+          "kind": "folder",
+          "id": "f-1",
+          "depth": 0,
+          "name": "F-1"
+        },
+        {
+          "kind": "item",
+          "id": "a",
+          "depth": 1,
+          "name": null
+        },
+        {
+          "kind": "item",
+          "id": "c",
+          "depth": 1,
+          "name": null
+        },
+        {
+          "kind": "folder",
+          "id": "f-2",
+          "depth": 0,
+          "name": "F-2"
+        },
+        {
+          "kind": "item",
+          "id": "b",
+          "depth": 0,
+          "name": null
+        }
+      ],
+      "id": "c",
+      "expected": {
+        "folders": [
+          {
+            "id": "f-2",
+            "name": "F-2"
+          }
+        ],
+        "topLevel": "f-1"
+      }
+    },
+    {
+      "name": "no folder at all: New folder only",
+      "rows": [
+        {
+          "kind": "item",
+          "id": "a",
+          "depth": 0,
+          "name": null
+        },
+        {
+          "kind": "item",
+          "id": "b",
+          "depth": 0,
+          "name": null
+        }
+      ],
+      "id": "a",
+      "expected": {
+        "folders": [],
+        "topLevel": null
+      }
+    }
   ]
 }
