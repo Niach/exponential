@@ -245,20 +245,45 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val _teamsPick = MutableStateFlow<List<String>?>(null)
 
     fun setTeamsPick(next: List<String>?) {
-        _teamsPick.value = next
+        val state = teamsPick.value
+        _teamsPick.value = state?.own?.let { com.exponential.app.domain.TeamsPick.plainPicked(it, next, state.teams.map { team -> team.id }) } ?: next
     }
 
     /** The pick's rows + value while the conversation is the viewer's
-     *  Assistant's; null anywhere else. Seeded from the root's synced
-     *  `scope_team_ids` (a pick made elsewhere re-seeds it). */
-    data class TeamsPickState(val teams: List<com.exponential.app.ui.agent.PickTeam>, val picked: List<String>?)
+     *  Assistant's or (#EXP-2122) a plain root the viewer started ([own] = its
+     *  team, always in); null anywhere else. Seeded from the root's synced
+     *  `scope_team_ids` (a pick made elsewhere re-seeds it). [scope] = the
+     *  next send's `scopeTeamIds`, null = the field is left out. */
+    data class TeamsPickState(
+        val teams: List<com.exponential.app.ui.agent.PickTeam>,
+        val picked: List<String>?,
+        val own: String? = null,
+        val scope: kotlinx.serialization.json.JsonElement? = null,
+    )
+
+    /** #EXP-2122: a plain root's own team, for its starter. */
+    private val plainRow: Flow<SessionEntity?> = combine(session, auth.userId) { row, me ->
+        row?.takeIf {
+            it.parentId == null && it.agentId.isNullOrEmpty() && it.appId.isNullOrEmpty() && it.teamId.isNotEmpty() && it.userId == me
+        }
+    }.distinctUntilChanged()
 
     val teamsPick: StateFlow<TeamsPickState?> = combine(
         toAssistant,
+        plainRow,
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() },
         _teamsPick,
-    ) { assistant, teams, picked ->
-        if (assistant) TeamsPickState(com.exponential.app.ui.agent.pickTeams(teams), picked) else null
+    ) { assistant, plain, rows, picked ->
+        val teams = com.exponential.app.ui.agent.pickTeams(com.exponential.app.data.crossTeamOrder(rows))
+        when {
+            assistant -> TeamsPickState(teams, picked, scope = SessionsSendInput.scope(picked))
+            // A team the viewer left offers no pick.
+            plain == null || teams.none { it.id == plain.teamId } -> null
+            else -> {
+                val pick = com.exponential.app.domain.TeamsPick.plain(plain.teamId, plain.scopeTeamIdList, picked, teams.map { it.id })
+                TeamsPickState(teams, pick.shown, plain.teamId, if (pick.changed) SessionsSendInput.scope(pick.scope) else null)
+            }
+        }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
@@ -1597,7 +1622,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         // #EXP-1729: an ended app editor root's Account / Model picks ride
         // its next send (the revive takes them).
         val picks = appPicks?.takeIf { session.value?.isEnded == true }
-        val scope = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null
+        val scope = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else teamsPick.value?.scope
         val builder = com.exponential.app.data.outbox.SessionOutbox.Builder(
             input = { body, uploaded ->
                 val ids = uploaded.takeIf { it.isNotEmpty() }
@@ -1608,7 +1633,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                     SessionsSendInput.message(codingSessionId, body, ids).withPicks()
                 } else {
                     // #EXP-1715: every send to the viewer's Assistant carries
-                    // its Teams pick (null = every team).
+                    // its Teams pick (null = every team); #EXP-2122: a plain
+                    // root's only once changed.
                     SessionsSendInput.message(codingSessionId, body, ids, scopeTeamIds = scope)
                         .copy(mcpServerIds = mcpPick)
                 }
