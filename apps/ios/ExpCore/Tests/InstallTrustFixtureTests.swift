@@ -59,13 +59,102 @@ final class InstallTrustFixtureTests: XCTestCase {
         XCTAssertEqual(kinds.count + 1, ApprovalKind.allCases.count)
     }
 
-    /// #EXP-2161 (member-space.json).
-    func testMemberSpacePinCases() throws {
+    private static func memberSpace() throws -> Object {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("packages/domain-contract/fixtures/member-space.json")
-        let f = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? Object)
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? Object)
+    }
+
+    /// #EXP-2161 (member-space.json `rootMarkCases`).
+    func testRootMarkCases() throws {
+        let root = "01234567-89ab-4def-8123-456789abcdef"
+        let all = try Self.cases(try Self.memberSpace(), "rootMarkCases")
+        XCTAssertGreaterThanOrEqual(all.count, 10)
+        for c in all {
+            let name = try Self.text(c, "name")
+            var store = TrustStore(selfEndpointId: "me", userId: "user-me")
+            if let mark = c["mark"] as? String { store.rootMarks[root] = RootMark(rawValue: mark) }
+            if c["keyed"] as? Bool == true { store.recordKey(rootId: root, epoch: 1, record: .legacy) }
+            for step in try Self.cases(c, "steps") {
+                let see = try XCTUnwrap(RootSight(rawValue: try Self.text(step, "see")))
+                let record = step["record"] as? Bool ?? false
+                XCTAssertEqual(store.ownAssistant(rootId: root.uppercased(), see: see, record: record), step["counts"] as? Bool, name)
+                XCTAssertEqual(store.rootMarks[root]?.rawValue, step["mark"] as? String, name)
+                if record { store.recordKey(rootId: root, epoch: 1, record: .verified) }
+                store = try JSONDecoder().decode(TrustStore.self, from: try JSONEncoder().encode(store))
+            }
+        }
+    }
+
+    /// #EXP-2161 (web `sightOfRoot`).
+    func testWhatTheRowsSayOfARoot() {
+        func sight(_ agent: String?, _ own: Bool?, user: String = "me", parent: String? = nil) -> RootSight {
+            sightOfRoot(parentId: parent, userId: user, agentId: agent, agentIsOwnAssistant: own, me: "me")
+        }
+        XCTAssertEqual(sight("a", true), .assistant)
+        XCTAssertEqual(sight("later", nil), .unknown)
+        for other in [sight(nil, nil), sight("t", false), sight("a", true, user: "you"), sight("a", true, parent: "p"), sight("later", nil, user: "you")] {
+            XCTAssertEqual(other, .other)
+        }
+    }
+
+    /// #EXP-2161: a server that stops serving a space (or its registration)
+    /// does not make it an unpinned ordinary install.
+    func testOnceASpaceAlwaysASpace() throws {
+        let fx = try self.fx
+        let s = try fx.keys.endpoint("S")
+        func seen(_ store: TrustStore, _ specs: [Object]) throws -> TrustStore {
+            InstallTrust.reconcile(store, served: TrustAnswer(installs: try specs.map { try fx.served($0) }, approvals: []), crypto: crypto).store
+        }
+        let a: Object = ["key": "A"]
+        let bare: Object = ["key": "S", "registration": "none"]
+        let (joined, identity, secret) = try fx.namedStore("withoutSpace", inSpace: true)
+        let known = try seen(joined, [a, ["key": "S"]])
+        XCTAssertTrue(known.knownSpaces.contains(s))
+        for specs in [[a], [a, bare]] {
+            var store = try seen(known, specs)
+            XCTAssertTrue(store.knownSpaces.contains(s))
+            XCTAssertNil(store.pins[s])
+            store.existing = true
+            store.joined = false
+            XCTAssertNil(try seen(store, specs).pins[s])
+        }
+        let keep = try XCTUnwrap(try Self.cases(fx.space, "keepCases").first { $0["store"] as? String == "withoutSpace" })
+        let w = try Self.object(keep, "wrap")
+        let wrap = HeldTreeKey(
+            rootId: try Self.text(w, "rootId"), epoch: UInt32(try XCTUnwrap(w["epoch"] as? Int)), wrapped: try Self.text(w, "wrapped"),
+            signature: w["signature"] as? String, signerEndpointId: w["signerEndpointId"] as? String
+        )
+        func kept(_ store: TrustStore) -> InstallTrust.KeepVerdict {
+            InstallTrust.keepWrap(wrap, identity: identity, installSecret: secret, store: store, mode: .record, crypto: crypto, rootIsOwnAssistant: true)
+        }
+        if case .refuse = kept(joined) { XCTFail("kept before it was known") }
+        let gone = try seen(known, [a])
+        guard case .refuse(.unpinned) = kept(gone) else { return XCTFail("a known space's wrap") }
+        let c = try XCTUnwrap(try Self.cases(fx.space, "sealCases").first { $0["store"] as? String == "withoutSpace" })
+        let v = try Self.object(c, "vouch")
+        let vouch = InstallTrust.Vouch(
+            recipientEndpointId: try Self.text(v, "recipientEndpointId"), wrapped: try Self.text(v, "wrapped"),
+            signature: try Self.text(v, "signature"), signerEndpointId: try Self.text(v, "signerEndpointId")
+        )
+        XCTAssertEqual(
+            InstallTrust.sealTo(
+                rootId: try Self.text(c, "rootId"), epoch: 1, publicKey: try Self.text(c, "publicKey"), held: nil, vouch: vouch,
+                store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true
+            ),
+            .refuse(.unpinned)
+        )
+        XCTAssertEqual(
+            InstallTrust.wrapTarget(try fx.served(bare), store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true),
+            .refuse(.unapproved)
+        )
+    }
+
+    /// #EXP-2161 (member-space.json).
+    func testMemberSpacePinCases() throws {
+        let f = try Self.memberSpace()
         XCTAssertEqual(InstallTrust.spaceRegistrationLabel, try Self.text(f, "registrationLabel"))
         XCTAssertEqual(ApprovalKind.space.rawValue, try Self.text(f, "approvalKind"))
         XCTAssertEqual(Int(ApprovalKind.space.byte), f["approvalKindByte"] as? Int)
@@ -411,6 +500,7 @@ final class InstallTrustFixtureTests: XCTestCase {
                 view.rows.map { [$0.kind.rawValue, keys.name(of: $0.endpointId) ?? $0.endpointId] },
                 try Self.cases(c, "rows").map { [try Self.text($0, "kind"), try Self.text($0, "key")] }, name
             )
+            if let known = after["knownSpaces"] as? [String] { XCTAssertEqual(view.store.knownSpaces.map { keys.name(of: $0) ?? $0 }, known, name) }
             if view.store.space { XCTAssertEqual(view.approveExisting, [], name) }
         }
     }
@@ -698,6 +788,7 @@ struct TrustFixture {
             )
         }
         store.members = spec["members"] as? [String] ?? []
+        store.knownSpaces = try (spec["knownSpaces"] as? [String] ?? []).map { try keys.endpoint($0) }
         store.declined = try (spec["declined"] as? [String] ?? []).map { try keys.endpoint($0) }
         if let roots = spec["roots"] as? Object {
             for (root, value) in roots {

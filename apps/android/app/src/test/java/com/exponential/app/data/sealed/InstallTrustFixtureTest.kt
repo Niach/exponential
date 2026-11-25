@@ -92,6 +92,77 @@ class InstallTrustFixtureTest {
         }
     }
 
+    /** #EXP-2161 (member-space.json `rootMarkCases`). */
+    @Test
+    fun rootMarkCases() {
+        val space = Json.parseToJsonElement(contractFixtureJson("member-space.json")).jsonObject
+        val root = "01234567-89ab-4def-8123-456789abcdef"
+        val all = space.cases("rootMarkCases")
+        assertTrue(all.size >= 10)
+        for (c in all) {
+            val name = c.str("name")
+            var store = TrustStore(selfEndpointId = "me", userId = "user-me")
+            fun markOf(o: JsonObject) = (o["mark"] as? JsonPrimitive)?.contentOrNull?.let { w -> RootMark.entries.single { it.wire == w } }
+            markOf(c)?.let { store = store.copy(rootMarks = mapOf(root to it)) }
+            if (c["keyed"]?.jsonPrimitive?.booleanOrNull == true) store = store.recordKey(root, 1, KeyRecord.Legacy)
+            for (step in c.cases("steps")) {
+                val see = RootSight.entries.single { it.wire == step.str("see") }
+                val record = step["record"]?.jsonPrimitive?.booleanOrNull == true
+                val (next, counts) = store.ownAssistant(root.uppercase(), see, record)
+                store = next
+                assertEquals(name, step["counts"]!!.jsonPrimitive.boolean, counts)
+                assertEquals(name, markOf(step), store.rootMarks[root])
+                if (record) store = store.recordKey(root, 1, KeyRecord.Verified)
+                store = Json.decodeFromString(TrustStore.serializer(), Json.encodeToString(TrustStore.serializer(), store))
+            }
+        }
+    }
+
+    /** #EXP-2161 (web `sightOfRoot`). */
+    @Test
+    fun whatTheRowsSayOfARoot() {
+        fun root(agent: String?, user: String = "me", parent: String? = null) =
+            com.exponential.app.data.db.RootFacts("r", parent, user, agent)
+        val agents = mapOf("a" to true, "t" to false)
+        assertEquals(RootSight.Unknown, sightOfRoot(null, agents, "me"))
+        assertEquals(RootSight.Assistant, sightOfRoot(root("a"), agents, "me"))
+        assertEquals(RootSight.Unknown, sightOfRoot(root("later"), agents, "me"))
+        for (other in listOf(root(null), root("t"), root("a", user = "you"), root("a", parent = "p"), root("later", user = "you"))) {
+            assertEquals(RootSight.Other, sightOfRoot(other, agents, "me"))
+        }
+    }
+
+    /** #EXP-2161: a server that stops serving a space (or its registration) does not make it an unpinned ordinary install. */
+    @Test
+    fun onceASpaceAlwaysASpace() {
+        val s = fx.endpoint("S")
+        fun seen(store: TrustStore, vararg specs: JsonObject) = InstallTrust.reconcile(store, TrustAnswer(specs.map { fx.served(it) }, emptyList()), crypto).store
+        val a = spec("key" to "A")
+        val bare = spec("key" to "S", "registration" to "none")
+        val joined = fx.namedStore("withoutSpace", fx.space.obj("stores"))
+        val known = seen(joined.store, a, spec("key" to "S"))
+        assertTrue(s in known.knownSpaces)
+        for (specs in listOf(arrayOf(a), arrayOf(a, bare))) {
+            val store = seen(known, *specs)
+            assertTrue(s in store.knownSpaces && s !in store.pins)
+            assertFalse(s in seen(store.copy(existing = true, joined = false), *specs).pins)
+        }
+        val keep = fx.space.cases("keepCases").first { it.str("store") == "withoutSpace" }
+        fun kept(store: TrustStore) = InstallTrust.keepWrap(fx.heldWrap(keep.obj("wrap")), joined.identity, joined.installSecret, store, TrustMode.Record, crypto, true)
+        assertTrue(kept(joined.store) is InstallTrust.KeepVerdict.Keep)
+        val gone = seen(known, a)
+        assertEquals(InstallTrust.KeepVerdict.Refuse(WrapRefusal.Unpinned), kept(gone))
+        val seal = fx.space.cases("sealCases").first { it.str("store") == "withoutSpace" }
+        assertEquals(
+            InstallTrust.SealVerdict.Refuse(InstallTrust.SealRefusal.Unpinned),
+            InstallTrust.sealTo(seal.str("rootId"), 1, seal.str("publicKey"), null, fx.vouch(seal.obj("vouch")), gone, TrustMode.Record, crypto, true),
+        )
+        assertEquals(
+            InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.Unapproved),
+            InstallTrust.wrapTarget(fx.served(bare), gone, TrustMode.Record, emptySet(), crypto, true),
+        )
+    }
+
     @Test
     fun theCodeVectorsAndEveryKeysCode() {
         val code = f.obj("code")
@@ -331,6 +402,7 @@ class InstallTrustFixtureTest {
             assertEquals(name, expected, pins)
             assertEquals(name, after.strings("members"), view.store.members)
             assertEquals(name, c.cases("rows").map { it.str("kind") to it.str("key") }, view.rows.map { it.kind.wire to fx.nameOf(it.endpointId) })
+            if ("knownSpaces" in after) assertEquals(name, after.strings("knownSpaces"), view.store.knownSpaces.map { fx.nameOf(it) })
             if (view.store.space) assertEquals(name, emptyList<String>(), view.approveExisting)
         }
     }
@@ -633,6 +705,7 @@ internal class TrustFixture {
             members = spec.strings("members"),
             declined = spec.strings("declined").map(::endpoint),
             roots = roots,
+            knownSpaces = spec.strings("knownSpaces").map(::endpoint),
         )
     }
 

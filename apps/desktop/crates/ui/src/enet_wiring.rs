@@ -197,9 +197,9 @@ fn own_assistant_lookup(
                 .into_iter()
                 .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
                 .collect();
-            Some(domain::agent_settings::is_own_assistant_root(&root, &agents, &user_id))
+            domain::agent_settings::sight_of_root(Some(&root), &agents, &user_id)
         };
-        read().unwrap_or(false)
+        steer::install_trust::sight(read())
     })
 }
 

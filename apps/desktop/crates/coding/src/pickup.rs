@@ -2682,6 +2682,11 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         let epoch = row.seal_epoch.and_then(|epoch| u32::try_from(epoch).ok());
         let readable = crate::sealing::can_open_tree(row.root_id_or_self(), epoch)
             && crate::sealing::service().is_some_and(|service| service.makes_keys());
+        // Under the device's low-disk floor it takes no new work either.
+        let free = crate::worktree_lifecycle::free_bytes(&deps.coding.data_dir);
+        if free.is_some_and(|free| free < crate::disk_alert::low_bytes(&deps.coding.data_dir)) {
+            return Ok(LaunchQueued::Skipped { reason: "the disk is low" });
+        }
         if !readable {
             return Ok(LaunchQueued::Skipped { reason: "waiting for its chat key" });
         }

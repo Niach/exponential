@@ -5,6 +5,7 @@ import com.exponential.app.data.api.HeldTreeKey
 import com.exponential.app.data.api.InstallTrustApi
 import com.exponential.app.data.api.RootClaimApproval
 import com.exponential.app.data.api.TrpcException
+import com.exponential.app.data.db.RootFacts
 import io.ktor.http.HttpStatusCode
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,17 @@ import kotlinx.serialization.json.Json
 // only the installs that existed with it once (`approveExisting`).
 // An older server without `installs.trust` (NOT_FOUND) = `unavailable`:
 // every target is wrapped as before and recorded `legacy`.
+
+/** What the synced rows say of a root (`rootMarkCases`, web `sightOfRoot`): a row
+ *  or an agent not synced yet says nothing. [assistants] = agent id → whether it
+ *  is the Assistant [me] owns. */
+fun sightOfRoot(root: RootFacts?, assistants: Map<String, Boolean>, me: String): RootSight {
+    if (root == null) return RootSight.Unknown
+    val agentId = root.agentId?.takeIf { it.isNotEmpty() }
+    val mine = root.parentId.isNullOrEmpty() && root.userId == me && me.isNotEmpty()
+    if (agentId != null && mine && agentId !in assistants) return RootSight.Unknown
+    return if (mine && agentId != null && assistants[agentId] == true) RootSight.Assistant else RootSight.Other
+}
 
 /** The persistent side of the pin store: one sealed slot per account. */
 interface TrustStorePersistence {
@@ -87,10 +99,9 @@ class InstallTrustKeeper(
     /** The account's eNet identity on this install (never created here). */
     private val identity: (accountId: String) -> ByteArray?,
     val mode: TrustMode = TrustMode.BUILD,
-    /** #EXP-2161 (member-space.json `pinCases`): whether a root is the
-     *  account's own Assistant conversation (its synced rows); a root it does
-     *  not answer true for has no member space among its readers. */
-    private val ownAssistant: (accountId: String, rootId: String) -> Boolean = { _, _ -> false },
+    /** #EXP-2161 (member-space.json `rootMark`): what the account's synced rows
+     *  say of a root; the pin store keeps the answer (sticky). */
+    private val see: (accountId: String, rootId: String) -> RootSight = { _, _ -> RootSight.Unknown },
 ) {
     private class Account(
         var store: TrustStore,
@@ -154,6 +165,22 @@ class InstallTrustKeeper(
             accounts[accountId] = fresh
             return fresh
         }
+    }
+
+    /** Whether the root counts for a space's pin; what was seen is kept. */
+    private fun ownAssistant(accountId: String, found: Account, rootId: String, record: Boolean): Boolean {
+        val sight = see(accountId, rootId.lowercase())
+        var changed = false
+        val counts = synchronized(lock) {
+            val (store, counts) = found.store.ownAssistant(rootId, sight, record)
+            if (store != found.store && !found.unreadable) {
+                found.store = store
+                changed = true
+            }
+            counts
+        }
+        if (changed) persist(accountId)
+        return counts
     }
 
     private fun persist(accountId: String) {
@@ -331,8 +358,9 @@ class InstallTrustKeeper(
     fun keep(accountId: String, wrap: HeldTreeKey, installSecret: ByteArray): InstallTrust.KeepVerdict {
         val seed = identity(accountId) ?: return InstallTrust.KeepVerdict.Refuse(WrapRefusal.Malformed)
         val found = account(accountId) ?: return InstallTrust.KeepVerdict.Refuse(WrapRefusal.Malformed)
+        val own = ownAssistant(accountId, found, wrap.rootId, record = false)
         val store = synchronized(lock) { found.store }
-        val verdict = InstallTrust.keepWrap(wrap, seed, installSecret, store, mode, crypto, ownAssistant(accountId, wrap.rootId.lowercase()))
+        val verdict = InstallTrust.keepWrap(wrap, seed, installSecret, store, mode, crypto, own)
         when (verdict) {
             is InstallTrust.KeepVerdict.Keep -> {
                 log(TrustDecision.Rule.R1, "${wrap.rootId}#${wrap.epoch}", verdict.record.wire)
@@ -350,8 +378,10 @@ class InstallTrustKeeper(
     fun record(accountId: String, rootId: String, epoch: Int, record: KeyRecord) {
         val found = account(accountId) ?: return
         if (found.unreadable) return
+        if (synchronized(lock) { found.store.roots[rootId.lowercase()]?.epochs?.get(epoch.toString()) == record }) return
+        // `legacy` = held before the store kept marks: none is made now.
+        if (record != KeyRecord.Legacy) ownAssistant(accountId, found, rootId, record = true)
         synchronized(lock) {
-            if (found.store.roots[rootId.lowercase()]?.epochs?.get(epoch.toString()) == record) return
             found.store = found.store.recordKey(rootId, epoch, record)
         }
         persist(accountId)
@@ -375,10 +405,11 @@ class InstallTrustKeeper(
     /** R2 + R3: whether this install seals to (root, epoch, key) as the server names it. */
     fun seal(accountId: String, rootId: String, publicKey: String, epoch: Int, vouch: Vouch?, held: ByteArray?): InstallTrust.SealVerdict {
         val found = account(accountId) ?: return InstallTrust.SealVerdict.Seal(KeyRecord.Legacy)
+        val own = ownAssistant(accountId, found, rootId, record = false)
         val store = synchronized(lock) { found.store }
         val verdict = InstallTrust.sealTo(
             rootId.lowercase(), epoch, publicKey, held?.let { it to store.record(rootId, epoch) }, vouch, store, mode, crypto,
-            ownAssistant(accountId, rootId.lowercase()),
+            own,
         )
         when (verdict) {
             is InstallTrust.SealVerdict.Seal -> log(TrustDecision.Rule.R3, "$rootId#$epoch", verdict.record.wire)
@@ -393,6 +424,7 @@ class InstallTrustKeeper(
      *  `pending` (#EXP-2161). */
     fun target(accountId: String, rootId: String?, installId: String, x25519Public: String, endpointId: String?, userId: String?): InstallTrust.TargetVerdict {
         val found = account(accountId) ?: return InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.NotTrusted)
+        val ownAssistant = rootId != null && ownAssistant(accountId, found, rootId, record = false)
         val (state, own, served, roots, store) = synchronized(lock) { Snap(found.state, found.installId, found.served, found.roots, found.store) }
         if (state == InstallTrustState.Unavailable) return InstallTrust.TargetVerdict.Wrap(KeyRecord.Legacy)
         if (installId == own) return InstallTrust.TargetVerdict.Wrap(KeyRecord.Verified)
@@ -411,7 +443,7 @@ class InstallTrustKeeper(
         val verdict = if (known != null && known.x25519Public != x25519Public && store.pins[target.endpointId] == null) {
             InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.KeyMismatch)
         } else {
-            InstallTrust.wrapTarget(target, store, mode, roots, crypto, rootId != null && ownAssistant(accountId, rootId.lowercase()))
+            InstallTrust.wrapTarget(target, store, mode, roots, crypto, ownAssistant)
         }
         when (verdict) {
             is InstallTrust.TargetVerdict.Wrap -> log(TrustDecision.Rule.R4, installId, verdict.record.wire)

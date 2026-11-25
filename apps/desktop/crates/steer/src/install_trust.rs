@@ -40,7 +40,7 @@ pub use enet_core::install_trust::{
 };
 use enet_core::install_trust::{
     call_key, keep_wrap, reconcile_trust, registration_class, seal_to, sign_approval, wrap_target, ApprovalKind, ApprovalSubject, CallKeyVerdict,
-    InstallClass, KeepVerdict, PinVia, SealVerdict, ServedInstall, TargetVerdict, TrustAnswer, TrustMode, Vouch,
+    InstallClass, KeepVerdict, RootSight, PinVia, SealVerdict, ServedInstall, TargetVerdict, TrustAnswer, TrustMode, Vouch,
 };
 use enet_core::wrap_sig::{endpoint_id_hex, ServedWrap};
 use enet_core::Identity;
@@ -97,6 +97,15 @@ impl From<TrustStatus> for TrustState {
             TrustStatus::Waiting => TrustState::Waiting,
             TrustStatus::ClaimRoot => TrustState::ClaimRoot,
         }
+    }
+}
+
+/// `domain::agent_settings::sight_of_root`'s answer.
+pub fn sight(own_assistant: Option<bool>) -> RootSight {
+    match own_assistant {
+        Some(true) => RootSight::Assistant,
+        Some(false) => RootSight::Other,
+        None => RootSight::Unknown,
     }
 }
 
@@ -157,8 +166,9 @@ pub struct TrustKeeper {
     own_assistant: Mutex<Option<OwnAssistant>>,
 }
 
-/// #EXP-2161 (member-space.json `pinCases`): asked with a root id.
-pub type OwnAssistant = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+/// #EXP-2161 (member-space.json `rootMark`): what this install's synced rows
+/// say of a root id; the pin store keeps the answer (sticky).
+pub type OwnAssistant = Arc<dyn Fn(&str) -> RootSight + Send + Sync>;
 
 /// Reads the account's store at `path`. `Ok(None)` = no store (decision e:
 /// an existing install); `Err` = it exists and cannot be read.
@@ -269,9 +279,19 @@ impl TrustKeeper {
         *lock(&self.own_assistant) = Some(rule);
     }
 
-    fn is_own_assistant(&self, root_id: &str) -> bool {
+    fn see(&self, root_id: &str) -> RootSight {
         let rule = lock(&self.own_assistant).clone();
-        rule.is_some_and(|rule| rule(root_id))
+        rule.map_or(RootSight::Unknown, |rule| rule(root_id))
+    }
+
+    /// Whether the root counts for a space's pin; what was seen is kept.
+    fn own_assistant(&self, state: &mut State, root_id: &str, see: RootSight, record: bool) -> bool {
+        let before = state.store.root_marks.get(&root_id.to_ascii_lowercase()).copied();
+        let counts = state.store.own_assistant(root_id, see, record);
+        if state.store.root_marks.get(&root_id.to_ascii_lowercase()).copied() != before {
+            self.persist(state);
+        }
+        counts
     }
 
     pub fn install_id(&self) -> &str {
@@ -508,14 +528,16 @@ impl TrustKeeper {
 
     /// R1: whether a served wrap is kept; recorded in the store.
     pub fn keep(&self, wrap: &ServedWrap, install_secret: &[u8; 32]) -> KeepVerdict {
-        let own_assistant = self.is_own_assistant(wrap.root_id);
+        let see = self.see(wrap.root_id);
         let mut state = lock(&self.state);
+        let own_assistant = self.own_assistant(&mut state, wrap.root_id, see, false);
         let verdict = keep_wrap(wrap, &self.identity, install_secret, &state.store, self.mode, own_assistant);
         let subject = format!("{}#{}", wrap.root_id, wrap.epoch);
         match &verdict {
             KeepVerdict::Keep { record, .. } => {
                 self.log(&mut state, "R1", subject, record.as_str().into());
                 if !state.unreadable && state.store.record(wrap.root_id, wrap.epoch) != Some(*record) {
+                    self.own_assistant(&mut state, wrap.root_id, see, true);
                     state.store.record_key(wrap.root_id, wrap.epoch, *record);
                     self.persist(&state);
                 }
@@ -530,9 +552,14 @@ impl TrustKeeper {
 
     /// Records a key (its own new keys are `verified`: it made them).
     pub fn record(&self, root_id: &str, epoch: u32, record: KeyRecord) {
+        let see = self.see(root_id);
         let mut state = lock(&self.state);
         if state.unreadable || state.store.record(root_id, epoch) == Some(record) {
             return;
+        }
+        // `legacy` = held before the store kept marks: none is made now.
+        if record != KeyRecord::Legacy {
+            self.own_assistant(&mut state, root_id, see, true);
         }
         state.store.record_key(root_id, epoch, record);
         self.persist(&state);
@@ -563,8 +590,9 @@ impl TrustKeeper {
 
     /// R2 + R3: whether this install seals to (root, epoch, key).
     pub fn seal(&self, root_id: &str, epoch: u32, public_key: &str, held: Option<[u8; 32]>, vouch: Option<&Vouch>) -> SealVerdict {
-        let own_assistant = self.is_own_assistant(root_id);
+        let see = self.see(root_id);
         let mut state = lock(&self.state);
+        let own_assistant = self.own_assistant(&mut state, root_id, see, false);
         let held = held.map(|secret| (secret, state.store.record(root_id, epoch).unwrap_or(KeyRecord::Legacy)));
         let verdict = seal_to(root_id, epoch, public_key, held, vouch, &state.store, self.mode, own_assistant);
         let text = match verdict {
@@ -585,8 +613,9 @@ impl TrustKeeper {
         endpoint_id: Option<&str>,
         user_id: Option<&str>,
     ) -> TargetVerdict {
-        let own_assistant = root_id.is_some_and(|root_id| self.is_own_assistant(root_id));
+        let see = root_id.map(|root_id| (root_id, self.see(root_id)));
         let mut state = lock(&self.state);
+        let own_assistant = see.is_some_and(|(root_id, see)| self.own_assistant(&mut state, root_id, see, false));
         if install_id == self.install_id {
             return TargetVerdict::Wrap(KeyRecord::Verified);
         }

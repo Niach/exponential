@@ -116,10 +116,9 @@ public actor InstallTrustKeeper {
     private let persistence: TrustStorePersistence
     private let identity: @Sendable () -> Data?
     public let mode: TrustMode
-    /// #EXP-2161 (member-space.json `pinCases`): whether a root is the
-    /// account's own Assistant conversation (its synced rows); a root it does
-    /// not answer true for has no member space among its readers.
-    private let ownAssistant: @Sendable (_ accountId: String, _ rootId: String) -> Bool
+    /// #EXP-2161 (member-space.json `rootMark`): what the account's synced
+    /// rows say of a root; the pin store keeps the answer (sticky).
+    private let see: @Sendable (_ accountId: String, _ rootId: String) -> RootSight
     private var accounts: [String: Account] = [:]
     private var cachedEndpoint: (identity: Data, endpointId: String)?
     public private(set) var decisions: [TrustDecision] = []
@@ -130,9 +129,9 @@ public actor InstallTrustKeeper {
         persistence: TrustStorePersistence,
         identity: @escaping @Sendable () -> Data?,
         mode: TrustMode = .build,
-        ownAssistant: @escaping @Sendable (_ accountId: String, _ rootId: String) -> Bool = { _, _ in false }
+        see: @escaping @Sendable (_ accountId: String, _ rootId: String) -> RootSight = { _, _ in .unknown }
     ) {
-        self.ownAssistant = ownAssistant
+        self.see = see
         self.api = api
         self.crypto = crypto
         self.persistence = persistence
@@ -330,6 +329,18 @@ public actor InstallTrustKeeper {
         if decisions.count > Self.decisionLog { decisions.removeFirst(decisions.count - Self.decisionLog) }
     }
 
+    /// Whether the root counts for a space's pin; what was seen is kept.
+    private func ownAssistant(_ accountId: String, _ rootId: String, record: Bool = false) -> Bool {
+        guard var found = account(accountId) else { return false }
+        let before = found.store.rootMarks[rootId.lowercased()]
+        let counts = found.store.ownAssistant(rootId: rootId, see: see(accountId, rootId.lowercased()), record: record)
+        if !found.unreadable, found.store.rootMarks[rootId.lowercased()] != before {
+            accounts[accountId] = found
+            persist(accountId)
+        }
+        return counts
+    }
+
     /// #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes
     /// a chat key (an older server without `installs.trust` counts as joined).
     /// A store not reconciled yet is reconciled first.
@@ -341,10 +352,12 @@ public actor InstallTrustKeeper {
 
     /// R1: whether a served wrap is kept, recorded in the store.
     public func keep(accountId: String, wrap: HeldTreeKey, installSecret: Data) -> InstallTrust.KeepVerdict {
-        guard let seed = identity(), let found = account(accountId) else { return .refuse(.malformed) }
+        guard let seed = identity() else { return .refuse(.malformed) }
+        let own = ownAssistant(accountId, wrap.rootId)
+        guard let found = account(accountId) else { return .refuse(.malformed) }
         let verdict = InstallTrust.keepWrap(
             wrap, identity: seed, installSecret: installSecret, store: found.store, mode: mode, crypto: crypto,
-            rootIsOwnAssistant: ownAssistant(accountId, wrap.rootId.lowercased())
+            rootIsOwnAssistant: own
         )
         switch verdict {
         case let .keep(kept, _, _):
@@ -363,8 +376,11 @@ public actor InstallTrustKeeper {
 
     /// Records a key (its own new keys are `verified`); persisted.
     public func record(accountId: String, rootId: String, epoch: UInt32, record: KeyRecord) {
-        guard var found = account(accountId), !found.unreadable else { return }
-        if found.store.roots[rootId.lowercased()]?.epochs[String(epoch)] == record { return }
+        guard let known = account(accountId), !known.unreadable else { return }
+        if known.store.roots[rootId.lowercased()]?.epochs[String(epoch)] == record { return }
+        // `legacy` = held before the store kept marks: none is made now.
+        if record != .legacy { _ = ownAssistant(accountId, rootId, record: true) }
+        guard var found = account(accountId) else { return }
         found.store.recordKey(rootId: rootId, epoch: epoch, record: record)
         accounts[accountId] = found
         persist(accountId)
@@ -385,12 +401,13 @@ public actor InstallTrustKeeper {
 
     /// R2 + R3: whether this install seals to (root, epoch, key).
     public func seal(accountId: String, rootId: String, key: TreeSealKey, held: Data?) -> InstallTrust.SealVerdict {
+        let own = ownAssistant(accountId, rootId)
         guard let found = account(accountId) else { return .seal(record: .legacy) }
         let verdict = InstallTrust.sealTo(
             rootId: rootId.lowercased(), epoch: key.epoch, publicKey: key.publicKey,
             held: held.map { (secret: $0, record: found.store.record(rootId: rootId, epoch: key.epoch)) },
             vouch: key.vouch, store: found.store, mode: mode, crypto: crypto,
-            rootIsOwnAssistant: ownAssistant(accountId, rootId.lowercased())
+            rootIsOwnAssistant: own
         )
         switch verdict {
         case let .seal(record): log(.r3, "\(rootId)#\(key.epoch)", record.rawValue)
@@ -404,6 +421,7 @@ public actor InstallTrustKeeper {
     /// `rootId` nil = a root not known yet: a member space gets its key later,
     /// through `pending` (#EXP-2161).
     public func target(accountId: String, rootId: String? = nil, installId: String, x25519Public: String, endpointId: String?, userId: String?) -> InstallTrust.TargetVerdict {
+        let own = rootId.map { ownAssistant(accountId, $0) } ?? false
         guard let found = account(accountId) else { return .refuse(.notTrusted) }
         if found.state == .unavailable { return .wrap(record: .legacy) }
         if installId == found.installId { return .wrap(record: .verified) }
@@ -425,7 +443,7 @@ public actor InstallTrustKeeper {
         } else {
             verdict = InstallTrust.wrapTarget(
                 served, store: found.store, mode: mode, roots: found.roots, crypto: crypto,
-                rootIsOwnAssistant: rootId.map { ownAssistant(accountId, $0.lowercased()) } ?? false
+                rootIsOwnAssistant: own
             )
         }
         switch verdict {
