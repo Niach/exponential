@@ -197,7 +197,7 @@ describe(`the Devices template parity (web + desktop)`, () => {
 
 describe(`the parser and the rubric`, () => {
   test(`accepts JSONL, a fenced block, a JSON array, and reports prose`, () => {
-    const jsonl = `{"version":"v0.9","createSurface":{"surfaceId":"s","catalogId":"c"}}\n{"version":"v0.9","updateComponents":{"surfaceId":"s","components":[{"id":"root","component":"Text","text":"hi"}]}}`
+    const jsonl = `{"version":"1.0","createSurface":{"surfaceId":"s","catalogId":"c"}}\n{"version":"1.0","updateComponents":{"surfaceId":"s","components":[{"id":"root","component":"Text","text":"hi"}]}}`
     expect(parseReply(jsonl).messages.length).toBe(2)
     expect(parseReply(jsonl).parseErrors).toEqual([])
     const fenced = `Here you go:\n\`\`\`json\n${jsonl}\n\`\`\`\nDone.`

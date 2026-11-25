@@ -27,7 +27,7 @@ describe(`the root-entry split (VAPP-106)`, () => {
       `packages/exponential-ui/src/catalog.described.ts`,
       `packages/exponential-ui/src/prompt.ts`,
       `packages/exponential-ui/src/schema.ts`,
-      `packages/exponential-ui/vendor/a2ui/v0_9/basic_catalog.json`,
+      `packages/exponential-ui/vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json`,
       `packages/exponential-ui/src/conformance.ts`,
       `packages/exponential-ui/conformance/manifest.json`,
       `packages/exponential-ui/fixtures/toast-stack.json`,
@@ -40,7 +40,7 @@ describe(`the root-entry split (VAPP-106)`, () => {
 
   test(`the prompt, schema and conformance entries may carry what they are for`, () => {
     expect(splitViolations(`@exponential_app/eui/prompt`, [`packages/exponential-ui/generated/core.descriptions.json`])).toEqual([])
-    expect(splitViolations(`@exponential_app/eui/schema`, [`packages/exponential-ui/vendor/a2ui/v0_9/basic_catalog.json`])).toEqual([])
+    expect(splitViolations(`@exponential_app/eui/schema`, [`packages/exponential-ui/vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json`])).toEqual([])
     expect(splitViolations(`@exponential_app/eui/conformance`, [`packages/exponential-ui/fixtures/theme-recipes.json`])).toEqual([])
   })
 

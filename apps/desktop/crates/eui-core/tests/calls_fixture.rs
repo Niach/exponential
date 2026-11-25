@@ -26,7 +26,7 @@ fn sequences() {
             if c.get("sendDataModel").is_some() {
                 body["sendDataModel"] = json!(true);
             }
-            let options = RouteOptions { trusted: c["trusted"] == json!(true), ..Default::default() };
+            let options = RouteOptions { trusted: c["trusted"] == json!(true) };
             let ops = router.route(&json!({"version": "1.0", "createSurface": body}), options);
             hub.observe(&ops, &router);
         }

@@ -6,7 +6,7 @@ import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 // VAPP-110 / VAPP-107: what a stored app package may be.
 
 const pkg = (over: Record<string, unknown> = {}) => ({
-  formatVersion: 5,
+  formatVersion: 6,
   id: `acme.board`,
   name: `Board`,
   version: `1.0.0`,
@@ -15,7 +15,7 @@ const pkg = (over: Record<string, unknown> = {}) => ({
   templates: {
     main: {
       bindings: [{ path: `/issues`, source: `exp:issues?board=b1&limit=5` }],
-      components: [{ id: `root`, component: `Text`, text: { path: `/issues/count` } }],
+      components: [{ id: `root`, component: `Text`, text: { "@path": `/issues/count` } }],
     },
   },
   ...over,
@@ -37,7 +37,7 @@ describe(`validateAppPackage`, () => {
 
   it(`#VAPP-230: an upstream binding names a declared upstream`, () => {
     const up = (over: Record<string, unknown>) =>
-      pkg({ sources: [`upstream:crm/*`], templates: { main: { bindings: [{ path: `/mrr`, source: `upstream:crm/mrr?months=3` }], components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }] } }, ...over })
+      pkg({ sources: [`upstream:crm/*`], templates: { main: { bindings: [{ path: `/mrr`, source: `upstream:crm/mrr?months=3` }], components: [{ id: `root`, component: `Text`, text: { "@path": `/mrr/total` } }] } }, ...over })
     expect(validateAppPackage(up({ upstreams: [`crm`] })).id).toBe(`acme.board`)
     expect(validateAppPackage(up({ upstreams: [`crm`], sources: [`upstream:*`] })).id).toBe(`acme.board`)
     expect(() => validateAppPackage(up({ upstreams: [] }))).toThrow(/does not declare/)
@@ -49,7 +49,7 @@ describe(`validateAppPackage`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:records`] }))).toThrow(/exp:records/)
   })
 
-  it(`refuses a package without format version 5`, () => {
+  it(`refuses a package without format version 6`, () => {
     const { formatVersion: _omit, ...rest } = pkg()
     expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(6\)/)
     expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read; 6 is required/)
@@ -62,15 +62,15 @@ describe(`validateAppPackage`, () => {
   })
 })
 
-// VAPP-161: the package format version 5 on Exponential's hosts.
-describe(`validateAppPackage: format version 5`, () => {
+// VAPP-161: the package format version 6 on Exponential's hosts.
+describe(`validateAppPackage: format version 6`, () => {
   const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
   const neutral = (over: Record<string, unknown> = {}) =>
     pkg({
       sources: [`records:*`],
       records,
-      functions: [`records.*`],
-      templates: { main: { bindings: [{ path: `/entries`, source: `records:entry?mine=1` }], components: [{ id: `root`, component: `Text`, text: { path: `/entries/count` } }] } },
+      functions: [`records_*`],
+      templates: { main: { bindings: [{ path: `/entries`, source: `records:entry?mine=1` }], components: [{ id: `root`, component: `Text`, text: { "@path": `/entries/count` } }] } },
       ...over,
     })
 
@@ -98,18 +98,17 @@ describe(`validateAppPackage: format version 5`, () => {
     expect(() => validateAppPackage(neutral({ formatVersion: 7 }))).toThrow(/format version 7 is newer than this host/)
   })
 
-  it(`stores no format 6 package until the flag day (a released client reads format 5 alone)`, () => {
-    expect(() => validateAppPackage(pkg({ formatVersion: 6 }))).toThrow(/format 6 is not stored yet: write formatVersion 5/)
+  it(`refuses format 5: 0.9 ended on the flag day (round 9 §12)`, () => {
+    expect(() => validateAppPackage(pkg({ formatVersion: 5 }))).toThrow(/format version 5 is no longer read; 6 is required/)
   })
 
   it(`names the neutral spelling in the catalog`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
-    expect(text).toContain(`records.upsert`)
-    expect(text).toContain(`formatVersion: 5`)
-    // Round 9 §14: the names a format 5 package writes.
-    expect(text).toContain(`issues.update_status,`)
-    expect(text).not.toContain(`issues_update_status`)
+    expect(text).toContain(`records_upsert`)
+    expect(text).toContain(`formatVersion: 6`)
+    expect(text).toContain(`issues_update_status,`)
+    expect(text).not.toContain(`issues.update_status`)
     expect(text).not.toContain(`exp:records`)
     expect(text).not.toContain(`harness.records`)
   })
@@ -131,10 +130,10 @@ describe(`validateAppPackage: exposes`, () => {
 
   it(`refuses an action that is not an offered operation, owner-only or destructive by its args`, () => {
     const one = (run: unknown) => [{ name: `t`, title: `T`, description: `T.`, input: { type: `object`, properties: { s: { type: `string` } } }, access: `write`, run }]
-    expect(() => validateAppPackage(withExposes(one({ action: `harness.toast`, args: {} })))).toThrow(/exponential.<noun>.<op> operations/)
-    expect(() => validateAppPackage(withExposes(one({ action: `exponential.people.invites_create`, args: {} })))).toThrow(/owner-only/)
-    expect(() => validateAppPackage(withExposes(one({ action: `exponential.sessions.send`, args: { sessionId: `\${input.s}`, stop: true } })))).toThrow(/destructive call/)
-    expect(validateAppPackage(withExposes(one({ action: `exponential.sessions.send`, args: { sessionId: `\${input.s}`, text: `hi` } }))).exposes).toHaveLength(1)
+    expect(() => validateAppPackage(withExposes(one({ action: `harness_toast`, args: {} })))).toThrow(/exponential_<noun>_<op> operations/)
+    expect(() => validateAppPackage(withExposes(one({ action: `exponential_people_invites_create`, args: {} })))).toThrow(/owner-only/)
+    expect(() => validateAppPackage(withExposes(one({ action: `exponential_sessions_send`, args: { sessionId: `\${input.s}`, stop: true } })))).toThrow(/destructive call/)
+    expect(validateAppPackage(withExposes(one({ action: `exponential_sessions_send`, args: { sessionId: `\${input.s}`, text: `hi` } }))).exposes).toHaveLength(1)
   })
 
   it(`upstreams name MCP servers of the app's team`, () => {

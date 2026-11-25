@@ -1,41 +1,182 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "acme.album",
   "name": "Album",
   "version": "1.0.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "description": "The web runner's sample: albums as records, photos through the photos capability (an ask scope, so the shell offers Permissions).",
-  "sources": ["records:album"],
-  "functions": ["records.*", "app.navigate", "photos.pick"],
+  "sources": [
+    "records:album"
+  ],
+  "functions": [
+    "records_*",
+    "app_navigate",
+    "photos_pick"
+  ],
   "records": {
     "album": {
       "title": "Album",
-      "schema": { "type": "object", "additionalProperties": false, "required": ["title"], "properties": { "title": { "type": "string", "maxLength": 80 }, "photos": { "type": "integer", "minimum": 0 } } }
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "photos": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
     }
   },
-  "capabilities": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
+  "capabilities": [
+    {
+      "id": "photos.read",
+      "why": "Pick the photos for an album."
+    }
+  ],
   "screens": [
-    { "template": "albums", "title": "Albums", "icon": "ui-photos" },
-    { "template": "about", "title": "About", "icon": "ui-info" }
+    {
+      "template": "albums",
+      "title": "Albums",
+      "icon": "ui-photos"
+    },
+    {
+      "template": "about",
+      "title": "About",
+      "icon": "ui-info"
+    }
   ],
   "templates": {
     "albums": {
-      "data": { "albums": { "rows": [], "count": 0 }, "draft": "" },
-      "bindings": [{ "path": "/albums", "source": "records:album?sort=title&order=asc&limit=100" }],
+      "data": {
+        "albums": {
+          "rows": [],
+          "count": 0
+        },
+        "draft": ""
+      },
+      "bindings": [
+        {
+          "path": "/albums",
+          "source": "records:album?sort=title&order=asc&limit=100"
+        }
+      ],
       "components": [
-        { "id": "root", "component": "Page", "title": "Albums", "children": ["add", "list"], "slots": { "trailing": "pick" } },
-        { "id": "pick", "component": "Button", "label": "Add photos", "icon": "ui-photos", "variant": "outline", "on": { "press": { "functionCall": { "call": "photos.pick", "args": { "limit": 5 } } } } },
-        { "id": "add", "component": "Stack", "direction": "horizontal", "gap": "sm", "children": ["title", "create"] },
-        { "id": "title", "component": "Input", "name": "title", "label": "New album", "placeholder": "Summer 2026", "value": { "path": "/draft" } },
-        { "id": "create", "component": "Button", "label": "Create", "on": { "press": { "functionCall": { "call": "records.upsert", "args": { "kind": "album", "data": { "title": { "path": "/draft" }, "photos": 0 } } } } } },
-        { "id": "list", "component": "List", "divided": true, "children": { "componentId": "row", "path": "/albums/rows", "key": "id" } },
-        { "id": "row", "component": "Row", "title": { "path": "title" }, "icon": "ui-photos", "meta": { "path": "photos" } }
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Albums",
+          "children": [
+            "add",
+            "list"
+          ],
+          "slots": {
+            "trailing": "pick"
+          }
+        },
+        {
+          "id": "pick",
+          "component": "Button",
+          "label": "Add photos",
+          "icon": "ui-photos",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "@call": "photos_pick",
+                "args": {
+                  "limit": 5
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "add",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "children": [
+            "title",
+            "create"
+          ]
+        },
+        {
+          "id": "title",
+          "component": "Input",
+          "name": "title",
+          "label": "New album",
+          "placeholder": "Summer 2026",
+          "value": {
+            "@path": "/draft"
+          }
+        },
+        {
+          "id": "create",
+          "component": "Button",
+          "label": "Create",
+          "on": {
+            "press": {
+              "functionCall": {
+                "@call": "records_upsert",
+                "args": {
+                  "kind": "album",
+                  "data": {
+                    "title": {
+                      "@path": "/draft"
+                    },
+                    "photos": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "list",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "row",
+            "path": "/albums/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "row",
+          "component": "Row",
+          "title": {
+            "@path": "title"
+          },
+          "icon": "ui-photos",
+          "meta": {
+            "@path": "photos"
+          }
+        }
       ]
     },
     "about": {
       "components": [
-        { "id": "root", "component": "Page", "title": "About", "children": ["text"] },
-        { "id": "text", "component": "Text", "text": "Albums live on this device only: no account, no server." }
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "About",
+          "children": [
+            "text"
+          ]
+        },
+        {
+          "id": "text",
+          "component": "Text",
+          "text": "Albums live on this device only: no account, no server."
+        }
       ]
     }
   }

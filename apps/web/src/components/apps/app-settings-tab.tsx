@@ -71,7 +71,7 @@ export function AppSettingsTab({
   )
   const declared = useMemo(() => declaredActions((grantPackage?.functions ?? []) as string[]), [grantPackage])
   // FEED-159: a stored grant that is no longer grantable reads as none.
-  const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined).map(flatAction)
+  const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined)
   const [toolBusy, setToolBusy] = useState<string | null>(null)
   const toggleTool = async (name: string, on: boolean) => {
     if (!app || !canGrant || !actionGrantable(name)) return

@@ -21,7 +21,7 @@ use crate::types::ExtensionDef;
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
 pub const PACKAGE_FORMAT_VERSION: u32 = 6;
-/// Round 9 §12: the format `upgrade09` reads while `ACCEPT_V09` holds.
+/// Round 9 §12: the format `upgrade09` reads (the stored-data pass, §14).
 pub const PACKAGE_FORMAT_VERSION_09: u32 = 5;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";

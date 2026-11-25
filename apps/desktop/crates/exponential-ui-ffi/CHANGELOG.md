@@ -24,6 +24,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+- A2UI 1.0 flag day (#VAPP-289): removed `routeWithBridgeJson`, `acceptV09`, `upgrade09Json`; `cardV10Json` takes one argument; `upgradeCard09` returns a `"version":"1.0"` card unchanged and is display only. Bindings regenerate.
 
 ## 0.19.0 (2026-11-07)
 
@@ -134,6 +135,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.4.0 (2026-11-02)
 
 - EXP-1605: `motion_read_dotlottie_machine(data)`: a `.lottie`'s first state machine (manifest order) as JSON, "" without one.
+
 ## 0.3.0 (2026-10-31)
 
 - VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.

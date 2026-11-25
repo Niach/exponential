@@ -1,7 +1,7 @@
 /**
  * VAPP-289 (round 9 contract §14.1): the A2UI 1.0 stored-data migration, by
- * hand. The logic lives in `lib/apps/a2ui10-migrate.ts`, which the flag-day PR
- * also runs at boot. Idempotent; safe beside a live server and after a crash.
+ * hand. The logic lives in `lib/apps/a2ui10-migrate.ts`, which also runs
+ * at boot, once per instance. Idempotent; safe beside a live server and after a crash.
  *
  * Usage (from apps/web):
  *   bun scripts/a2ui10-migrate.ts                          # dry run: counts, writes nothing

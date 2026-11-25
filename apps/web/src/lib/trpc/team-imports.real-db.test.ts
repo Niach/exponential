@@ -60,7 +60,7 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
     const takenLabel = uuid()
     await db.insert(labels).values({ id: takenLabel, teamId: other!.id, name: `Taken` })
     // An app elsewhere with a record whose id the local file reuses too.
-    const PACKAGE = { formatVersion: 5, records: { note: { schema: { type: `object`, properties: { text: { type: `string` } } } } } }
+    const PACKAGE = { formatVersion: 6, records: { note: { schema: { type: `object`, properties: { text: { type: `string` } } } } } }
     const [otherApp] = await db.insert(apps).values({ teamId: other!.id, slug: `notes`, name: `Notes`, package: PACKAGE }).returning({ id: apps.id })
     const takenRecord = uuid()
     await db.insert(appRecords).values({ id: takenRecord, appId: otherApp!.id, teamId: other!.id, kind: `note`, data: { text: `elsewhere` } })

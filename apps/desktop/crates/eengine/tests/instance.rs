@@ -44,12 +44,12 @@ impl Clock for FixedClock {
 
 fn package() -> Value {
     json!({
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.album",
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app_navigate", "photos_pick"],
+        "functions": ["records_*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}, "policy": {"update": "author", "delete": "owners"}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],

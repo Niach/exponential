@@ -176,10 +176,10 @@ function documentMode(): `light` | `dark` {
   return document.documentElement.classList.contains(`dark`) ? `dark` : `light`
 }
 
-/** Round 9 §14: what a card paints: a stored card without a version is the
- *  0.9 form, shown through the upgrade for good (a sealed one never migrates). */
+/** Round 9 §18.2: what a card paints: a stored card without a version (a
+ *  sealed one never migrates) is shown through `upgradeCard09`, display only. */
 export function paintedCard(surface: CardSurface): CardSurface {
-  const out = cardV10(surface, true)
+  const out = cardForDisplay(surface)
   return `card` in out ? (out.card as CardSurface) : surface
 }
 

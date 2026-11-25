@@ -17,7 +17,7 @@ fn surface() -> Surface {
 #[test]
 fn a_grid_item_keeps_the_height_of_its_content() {
     let mut s = surface();
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [
         {"id": "root", "component": "Box", "style": {"display": "grid"}, "children": ["a", "b"]},
         {"id": "a", "component": "Box", "style": {"width": 180}, "children": ["tall"]},
         {"id": "tall", "component": "Box", "style": {"height": 160}},
@@ -39,7 +39,7 @@ fn a_grid_item_keeps_the_height_of_its_content() {
 #[test]
 fn update_components_reports_its_components_issues() {
     let mut s = surface();
-    let out = s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [
+    let out = s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [
         {"id": "root", "component": "Stack", "children": ["x", "later"]},
         {"id": "x", "component": "NoSuchThing"},
     ]}}))
@@ -48,7 +48,7 @@ fn update_components_reports_its_components_issues() {
     assert_eq!(messages, vec!["x: unknown component NoSuchThing".to_string()]);
     // The tree's issues (a missing child) come with the reduce.
     assert!(s.issues().iter().any(|i| i.id == "later"), "{:?}", s.issues());
-    let ok = s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "later", "component": "Text", "text": "hi"}]}})).unwrap();
+    let ok = s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": "later", "component": "Text", "text": "hi"}]}})).unwrap();
     assert!(ok.issues.is_empty(), "{:?}", ok.issues);
 }
 

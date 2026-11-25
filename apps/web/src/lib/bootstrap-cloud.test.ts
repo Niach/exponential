@@ -110,6 +110,15 @@ describe(`bootstrap-cloud`, () => {
     expect(updateWhere).toHaveBeenCalledTimes(1)
   })
 
+  // VAPP-289: stored grants are flat only after the migration, and the strip
+  // knows flat names alone.
+  it(`runs the A2UI 1.0 migration after the custom SQL, before the grant strip`, async () => {
+    const mod = await importModule()
+    await mod.runBootstrapPass()
+    expect(execute.mock.invocationCallOrder[0]!).toBeLessThan(migrateA2ui10Once.mock.invocationCallOrder[0]!)
+    expect(migrateA2ui10Once.mock.invocationCallOrder[0]!).toBeLessThan(updateWhere.mock.invocationCallOrder[0]!)
+  })
+
   it(`returns the same in-flight promise on repeat calls`, async () => {
     const mod = await importModule()
     expect(mod.bootstrapCloud()).toBe(mod.bootstrapCloud())

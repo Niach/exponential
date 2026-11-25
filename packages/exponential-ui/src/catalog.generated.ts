@@ -9,8 +9,8 @@ export const LITE_CATALOG_ID = "https://ui.exponential.at/catalogs/core-lite/v1"
 export const BASIC_CATALOG_ID = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
 /** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json `a2uiVersion`). */
 export const A2UI_VERSION = "1.0"
-/** VAPP-289 (round 9 §14): while true, every core entry upgrades 0.9 input through upgrade09 (catalog/host.json `transition.acceptV09`). */
-export const ACCEPT_V09: boolean = true
+/** VAPP-289 (round 9 §14): false since the flag day: every core entry refuses 0.9 (catalog/host.json `transition.acceptV09`). */
+export const ACCEPT_V09: boolean = false
 export const CATALOG_VERSION = "1"
 export const UNKNOWN_COMPONENT_NAME = "Unknown"
 

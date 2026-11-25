@@ -254,6 +254,8 @@ final class PlanCardTests: XCTestCase {
         XCTAssertEqual(surface.data?.compactString, #"{"a":true,"b":1}"#)
         XCTAssertNil(surface.version)
         XCTAssertEqual(CardSurface.parse(["version": "1.0", "root": ["id": "r"]])?.version, "1.0")
+        XCTAssertEqual(CardSurface.parse(["root": ["id": "r"]])?.displayJSON, #"{"root":{"id":"r"}}"#)
+        XCTAssertEqual(CardSurface.parse(["version": "1.0", "root": ["id": "r"]])?.displayJSON, #"{"root":{"id":"r"},"version":"1.0"}"#)
         XCTAssertNil(CardSurface.parse(["nope": true]))
         XCTAssertNil(CardSurface.parse(["root": "text"]))
     }

@@ -53,19 +53,65 @@
       "input": {
         "file": {
           "format": "exponential-app/1",
-          "app": { "name": "Standup", "icon": "users", "color": "#f59e0b", "description": "The daily standup." },
-          "package": { "formatVersion": 5, "id": "exponential.standup", "name": "Standup", "version": "1.0.0", "templates": {} },
-          "records": [{ "kind": "update", "data": { "date": "2026-11-04", "yesterday": "Reviews", "today": "Ship" } }],
-          "author": { "name": "Exponential", "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs" },
-          "signature": { "alg": "ed25519", "value": "AA" }
+          "app": {
+            "name": "Standup",
+            "icon": "users",
+            "color": "#f59e0b",
+            "description": "The daily standup."
+          },
+          "package": {
+            "formatVersion": 6,
+            "id": "exponential.standup",
+            "name": "Standup",
+            "version": "1.0.0",
+            "templates": {}
+          },
+          "records": [
+            {
+              "kind": "update",
+              "data": {
+                "date": "2026-11-04",
+                "yesterday": "Reviews",
+                "today": "Ship"
+              }
+            }
+          ],
+          "author": {
+            "name": "Exponential",
+            "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
+          },
+          "signature": {
+            "alg": "ed25519",
+            "value": "AA"
+          }
         },
         "includeRecords": true
       },
       "expected": {
         "format": "exponential-app/1",
-        "app": { "name": "Standup", "icon": "users", "color": "#f59e0b", "description": "The daily standup." },
-        "package": { "formatVersion": 5, "id": "exponential.standup", "name": "Standup", "version": "1.0.0", "templates": {} },
-        "records": [{ "kind": "update", "data": { "date": "2026-11-04", "yesterday": "Reviews", "today": "Ship" } }]
+        "app": {
+          "name": "Standup",
+          "icon": "users",
+          "color": "#f59e0b",
+          "description": "The daily standup."
+        },
+        "package": {
+          "formatVersion": 6,
+          "id": "exponential.standup",
+          "name": "Standup",
+          "version": "1.0.0",
+          "templates": {}
+        },
+        "records": [
+          {
+            "kind": "update",
+            "data": {
+              "date": "2026-11-04",
+              "yesterday": "Reviews",
+              "today": "Ship"
+            }
+          }
+        ]
       }
     },
     {
@@ -73,18 +119,55 @@
       "input": {
         "file": {
           "format": "exponential-app/1",
-          "app": { "name": "Standup", "icon": "users", "color": "#f59e0b", "description": "The daily standup." },
-          "package": { "formatVersion": 5, "id": "exponential.standup", "name": "Standup", "version": "1.0.0", "templates": {} },
-          "records": [{ "kind": "update", "data": { "date": "2026-11-04", "yesterday": "Reviews", "today": "Ship" } }],
-          "author": { "name": "Exponential", "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs" },
-          "signature": { "alg": "ed25519", "value": "AA" }
+          "app": {
+            "name": "Standup",
+            "icon": "users",
+            "color": "#f59e0b",
+            "description": "The daily standup."
+          },
+          "package": {
+            "formatVersion": 6,
+            "id": "exponential.standup",
+            "name": "Standup",
+            "version": "1.0.0",
+            "templates": {}
+          },
+          "records": [
+            {
+              "kind": "update",
+              "data": {
+                "date": "2026-11-04",
+                "yesterday": "Reviews",
+                "today": "Ship"
+              }
+            }
+          ],
+          "author": {
+            "name": "Exponential",
+            "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
+          },
+          "signature": {
+            "alg": "ed25519",
+            "value": "AA"
+          }
         },
         "includeRecords": false
       },
       "expected": {
         "format": "exponential-app/1",
-        "app": { "name": "Standup", "icon": "users", "color": "#f59e0b", "description": "The daily standup." },
-        "package": { "formatVersion": 5, "id": "exponential.standup", "name": "Standup", "version": "1.0.0", "templates": {} }
+        "app": {
+          "name": "Standup",
+          "icon": "users",
+          "color": "#f59e0b",
+          "description": "The daily standup."
+        },
+        "package": {
+          "formatVersion": 6,
+          "id": "exponential.standup",
+          "name": "Standup",
+          "version": "1.0.0",
+          "templates": {}
+        }
       }
     }
   ]

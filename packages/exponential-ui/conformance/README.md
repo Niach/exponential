@@ -214,6 +214,6 @@ Once two platforms pass, the A2UI ecosystem's renderers page gets an entry
 (a pull request to google/A2UI, a person's call: it is outward-facing):
 
 > **genUI** (React, SwiftUI, Jetpack Compose, gpui): native renderers
-> of the A2UI v0.9 basic catalog plus an 81-component core catalog, runtime
+> of the A2UI 1.0 basic catalog plus an 81-component core catalog, runtime
 > themes, extension catalogs and a host API (transports, functions, bindings,
 > policy). Apache-2.0. https://exponential.at/sdk/genui/

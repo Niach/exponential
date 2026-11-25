@@ -159,11 +159,11 @@ packages) are the Rust core's, reached through the bindings.
 ```swift
 let host = ExponentialHost(HostOptions(
     transport: JSONLStreamTransport(url: stream, postUrl: actionURL),
-    functions: ["harness.toast": { args, call in /* … */ nil }],
+    functions: ["harness_toast": { args, call in /* … */ nil }],
     sources: ["exp": { source, emit in /* subscribe */ return { /* cancel */ } }],
     extensions: [HostExtension(json: catalogJSON, painters: ["TrendLine": TrendLinePainter()])],
     packages: [packageJSON],
-    policy: HostPolicy(functions: FunctionPolicy(ask: ["app.*"]), onFunctionCall: { call in await askUser(call) },
+    policy: HostPolicy(functions: FunctionPolicy(ask: ["app_*"]), onFunctionCall: { call in await askUser(call) },
                        urls: UrlPolicy(hosts: ["*.example.com"]), media: MediaOptions(baseUrl: "https://app.example.com", rules: [.init(prefix: "https://app.example.com/api/", headers: ["authorization": "Bearer …"])])),
     theme: try ThemeHandle.load(json: themeJSON), mode: .light, plugin: myIcons))
 host.connect()

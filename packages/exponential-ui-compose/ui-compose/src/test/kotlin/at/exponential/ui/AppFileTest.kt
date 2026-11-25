@@ -83,7 +83,7 @@ class AppFileTest {
             val t = MemoryTransport()
             val h = ExponentialHost(options.copy(transport = t), CoroutineScope(Dispatchers.Unconfined))
             h.connect()
-            t.feed(JsonValue.parse("""{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"https://ui.exponential.at/catalogs/core/v1"}}"""))
+            t.feed(JsonValue.parse("""{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"https://ui.exponential.at/catalogs/core/v1"}}"""))
             return h.surface("s1")!!
         }
         assertNotNull(surfaceOf(HostOptions(policy = HostPolicy(appFile = { bytes }))).mediaRequest("app-file:blob-1"))

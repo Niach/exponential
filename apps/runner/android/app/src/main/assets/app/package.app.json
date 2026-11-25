@@ -1,14 +1,14 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "at.exponential.runner.notes",
   "name": "Notes",
   "version": "1.0.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "description": "The runner template's placeholder bundle: E7 replaces this directory with the exported app.",
   "functions": [
-    "records.*",
-    "app.navigate",
-    "photos.pick"
+    "records_*",
+    "app_navigate",
+    "photos_pick"
   ],
   "sources": [
     "records:*"
@@ -113,7 +113,7 @@
           "name": "draft",
           "placeholder": "Write something",
           "value": {
-            "path": "/draft"
+            "@path": "/draft"
           }
         },
         {
@@ -124,10 +124,10 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "actions.add",
+                "@call": "actions_add",
                 "args": {
                   "text": {
-                    "path": "/draft"
+                    "@path": "/draft"
                   }
                 }
               }
@@ -148,7 +148,7 @@
           "id": "noteRow",
           "component": "Row",
           "title": {
-            "path": "text"
+            "@path": "text"
           }
         }
       ]
@@ -189,7 +189,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "photos.pick",
+                "@call": "photos_pick",
                 "args": {}
               }
             }
@@ -217,7 +217,7 @@
           "message": "Write something first"
         },
         {
-          "records.upsert": {
+          "records_upsert": {
             "kind": "note",
             "data": {
               "text": "params.text"

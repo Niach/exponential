@@ -17,7 +17,7 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 
 ## Checklist
 
-- `formatVersion` is exactly 5; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
+- `formatVersion` is exactly 6; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
 - Declare every record kind with a schema; pick its `policy` (read/create/update/delete: member | author | owners; create never author) before writing screens.
 - A kind's add/edit form or its list of records = ONE `RecordForm` / `RecordTable` node (`references/records.md`, Record macros), never a hand-built Form or Table.
 - Prefer a named query (group, aggregate, running) over summing rows in expressions.

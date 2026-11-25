@@ -1,7 +1,8 @@
 // VAPP-289 (round 9 contract §14): `upgrade09`, the PURE A2UI v0.9 → 1.0
-// converter. It bridges 0.9 input on every core entry while `ACCEPT_V09`
-// holds and then serves only the stored-data migration
-// (`apps/web/scripts/a2ui10-migrate.ts`). The Rust core mirrors it
+// converter. Every core entry refuses 0.9 since the flag day; this
+// serves only the stored-data migration (`apps/web/scripts/a2ui10-migrate.ts`)
+// and, through `upgradeCard09`, the display of a stored card with no version
+// (`cardForDisplay`, §18.2). The Rust core mirrors it
 // (`eui-core/src/upgrade09.rs`); fixtures/upgrade09.json locks both.
 //
 // Rules (§14.3): the envelope, the dynamic forms (`{path}` → `{"@path"}`,

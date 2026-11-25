@@ -194,17 +194,15 @@ the old surface paints until the new one exists.
 ### 1.5 Entries that check the version
 
 Every core entry checks the version the same way (§1.1 steps 3 and 4)
-through one function, `checkEnvelope(message, acceptV09)` (Rust
-`check_envelope`):
+through one function, `checkEnvelope(message)` (Rust `check_envelope`):
 
 - `HostRouter.route`
 - the bare surface path (TS `SurfaceStore.apply` used by React
-  `useSurface` and Solid `createSurface`; Rust `Surface::apply`, which
-  currently ignores `version`)
+  `useSurface` and Solid `createSurface`; Rust `Surface::apply`)
 - `reduceNested` for cards (§13)
 - `loadPackage` / `validatePackage` for `formatVersion` (§12)
 
-React `use-surface.ts` and Solid `create-surface.ts` stop parsing messages
+React `use-surface.ts` and Solid `create-surface.ts` do not parse messages
 themselves. They call the TS core's `SurfaceStore.apply`.
 
 ## 2. Host-internal messages
@@ -1235,7 +1233,7 @@ What changes from 5:
 
 ## 13. `exponential_show` cards
 
-A card surface stays the NESTED form `{root, data}` and gains a version:
+A card surface is the NESTED form `{version, root, data}`:
 
 ```json
 {"version": "1.0",
@@ -1247,8 +1245,9 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
 ```
 
 - `version` is required and must be `"1.0"`. A missing `version` is the
-  0.9 form: upgraded by §14 while `ACCEPT_V09` holds, refused after
-  (BAD_REQUEST naming the fix).
+  0.9 form: refused (BAD_REQUEST naming the fix). Clients only DISPLAY a
+  stored card without one (`cardForDisplay` through `upgradeCard09`: a
+  sealed card the server cannot rewrite, §18.2).
 - `data` is an object, null or absent.
 - A node is `{id, component, catalogId?, props?, children?, slots?, on?,
   style?, visible?, accessibility?, metadata?, template?}`.
@@ -1270,16 +1269,18 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
 
 ## 14. Transition and flag day
 
-### 14.1 Plan (approved 2026-11-07)
+### 14.1 Plan (approved 2026-11-07, carried out)
 
-1. **Phases A–C on master, shipped by the normal client trains.** Every core entry accepts 1.0. The generated constant `ACCEPT_V09` (from `host.json` `transition.acceptV09: true`) makes each entry below run `upgrade09` on 0.9 input and continue with the result:
+The flag day has passed: `transition.acceptV09` is `false`, every core entry refuses 0.9, and a package names format 6. The steps below are the record of how it went.
+
+1. **Phases A–C on master, shipped by the normal client trains.** Every core entry accepted 1.0. The generated constant `ACCEPT_V09` (from `host.json` `transition.acceptV09: true`) made each entry below run `upgrade09` on 0.9 input and continue with the result:
    - `route()`: version `"v0.9"` or absent;
    - `SurfaceStore.apply` / `Surface::apply`: likewise;
    - `reduceNested` card entries: no `version`;
    - package load: `formatVersion` 5.
 
-   Renderers emit 1.0. The server still stores and serves 0.9 (agents and stored data are unchanged), and on intake it accepts both versions of `action`/`error` messages. No min-version bump yet.
-2. **Release.** The 1.0-reading clients go live everywhere: desktop/CLI published, Android promoted, iOS approved and released manually, web deployed.
+   Renderers emitted 1.0. The server still stored and served 0.9 (agents and stored data unchanged), and on intake accepted both versions of `action`/`error` messages. No min-version bump yet.
+2. **Release.** The 1.0-reading clients went live everywhere: desktop/CLI published, Android promoted, iOS approved and released manually, web deployed.
 3. **Flag day D** (one held draft PR, merged only with Danny's OK):
    - The server and the `exponential_show` tool text emit 1.0.
    - `transition.acceptV09: false`: each entry refuses 0.9 with INVALID_MESSAGE (§1.1 check 3). Cards answer BAD_REQUEST, and packages give the install issue of §12.
@@ -1288,7 +1289,7 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
      - `apps.granted_tools` (flat names, through `flatAction`);
      - `messages.card`: every clear card with a `surface` object, of ANY kind (`surface`, `plan`, `question`) → `version: "1.0"`. `{sealed}` and an `ask`'s `sealedCard` are skipped and counted.
    - The shepherd bumps `CLIENT_MIN_VERSION_*` (Coolify env; `selfhost/.env.example` in the PR) to the first release that reads 1.0.
-   - `upgrade09` stays in the migration script. Clients keep only `upgradeCard09`, and only to DISPLAY a stored card that has no `version: "1.0"` (sealed cards the server cannot rewrite). Nothing is ever emitted in 0.9.
+   - `upgrade09` stays in the migration script and a Local desktop's store-open pass. Clients keep only `upgradeCard09`, and only to DISPLAY a stored card that has no `version: "1.0"` (sealed cards the server cannot rewrite). Nothing is ever emitted in 0.9.
    - `vendor/a2ui/v0_9/` stays vendored as upgrade09's reference.
 
 **Audited, no rewrite.** Each of these was read for a surface, a package, a function name or a dotted grant:
@@ -1320,17 +1321,17 @@ A card surface stays the NESTED form `{root, data}` and gains a version:
 
 The dry run's `electric` block is the exact figure for an instance.
 
-**Boot (the flag-day PR wires it, this phase does not).** An operator runs `bun scripts/a2ui10-migrate.ts --report dry.json` on the target first and reads the failures. The same module then runs in `runBootstrapPass`, on self-host and cloud alike, before the server listens, after `applyCustomSql`, under a Postgres advisory lock so that replicas take turns. A marker row (a one-row `data_migrations` entry the flag-day PR adds) skips it from then on. The marker is written when a run finishes, failures included: a failed row is reported in the log and the marker's report, does not stop the boot, and is no worse off than before (a sealed-style display for a card, the install issue for a package); the operator re-runs the script for it. Rows a still-running old replica writes after the marker are 0.9: the deploy runs the script once more when the rollout ends. `INSTALL.md` and `selfhost/` wording land in that PR.
+**Boot (wired by the flag-day PR).** An operator ran `bun scripts/a2ui10-migrate.ts --report dry.json` on the target first and read the failures. The same module then runs in `runBootstrapPass`, on self-host and cloud alike, before the server listens, after `applyCustomSql`, under a Postgres advisory lock so that replicas take turns. A marker row (a one-row `data_migrations` entry the flag-day PR added) skips it from then on. The marker is written when a run finishes, failures included: a failed row is reported in the log and the marker's report, does not stop the boot, and is no worse off than before (a sealed-style display for a card, the install issue for a package); the operator re-runs the script for it. Rows a still-running old replica writes after the marker are 0.9: the deploy runs the script once more when the rollout ends. `INSTALL.md` and `selfhost/` carry the wording.
 
-**The flag-day PR must also** (found while auditing):
+**The flag-day PR also** (found while auditing):
 
-- store flat grants: drop `storedAction` from `apps.update` and from `stripUngrantableGrants`;
-- keep a card's version: `validateCardSurface` returns `{root, data}` and `cardSurfaceInput` / `cardSurfaceSchema` have no `version`, so a 1.0 card stored without it would be read as 0.9 and upgraded twice;
-- move the bundled format 5 packages to 6: `packages/ui/exponential-ui/templates/*.json` (`devices.json` is `include_str!`'d by the desktop), `apps/runner/*`, `apps/desktop/crates/ui/src/app_screen.test-package.json`, the skills' examples;
-- re-sign `samples/apps/*.app.json`: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (they are `{package, author, signature}` files, which `upgradePackageBody09` leaves alone; the script reads `.package`, and without the seed it writes nothing);
-- upgrade at `imports.commit`: a team import writes staged rows straight into `apps`, `app_versions` and `messages`, so it runs `upgradeStoredPackage`, `upgradeGrants` and `upgradeStoredCard` on them (they are pure and exported);
-- decide the Local desktops: `crates/elocal`'s store holds `apps` and messages this migration never sees, and format 5 stops loading there too, so the desktop needs its own pass over `upgrade09` (the Rust mirror) when it opens a store;
-- rewrite `docs/package-format.md` to format 6 (§12).
+- stored flat grants: dropped `storedAction` from `apps.update` and from `stripUngrantableGrants`;
+- kept a card's version: `validateCardSurface` returned `{root, data}` and `cardSurfaceInput` / `cardSurfaceSchema` had no `version`, so a 1.0 card stored without it would have been read as 0.9 and upgraded twice;
+- moved the bundled format 5 packages to 6: `packages/ui/exponential-ui/templates/*.json` (`devices.json` is `include_str!`'d by the desktop), `apps/runner/*`, `apps/desktop/crates/ui/src/app_screen.test-package.json`, the skills' examples;
+- re-signed `samples/apps/*.app.json`: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (they are `{package, author, signature}` files, which `upgradePackageBody09` leaves alone; the script reads `.package`, and without the seed it writes nothing);
+- upgraded at `imports.commit`: a team import writes staged rows straight into `apps`, `app_versions` and `messages`, so it runs `upgradeStoredPackage`, `upgradeGrants` and `upgradeStoredCard` on them (they are pure and exported);
+- covered the Local desktops: `crates/elocal`'s store holds `apps` and messages this migration never sees, and format 5 stopped loading there too, so the desktop runs its own pass over `upgrade09` (the Rust mirror) when it opens a store;
+- rewrote `docs/package-format.md` to format 6 (§12).
 
 In the repo, drafts, samples (`samples/exponential-ui`, the site playground, `eval/fixtures`, `eval/baseline-1181`, guides, skills) and fixtures are re-keyed `user-card` → `user_card` in phase A.
 

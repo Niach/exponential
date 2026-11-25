@@ -18,6 +18,8 @@ eagent = { path = "../eagent" }
 eagent-hub-core = { path = "../eagent-hub-core" }
 emcp = { path = "../emcp" }
 ecore = { path = "../ecore" }
+# Round 9 §14.1: the store-open pass over `upgrade09` (eui-core is UI-toolkit-free).
+eui-core = { path = "../eui-core" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

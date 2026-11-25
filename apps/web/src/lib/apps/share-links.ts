@@ -8,7 +8,7 @@ import { createHmac, randomBytes } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { and, count, eq, gt, lt, isNull, ne, or, sql } from "drizzle-orm"
 import { APP_SHARE_CAPS, APP_SHARE_COPY, linkState, shareFields, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "@exp/domain-contract/app-share"
-import { bridgePackage, CORE_CATALOG_ID, guestTemplate, PACKAGE_FORMAT_VERSION, validatePackage, validatePackageShares, type AppPackage, type PackageShare, type RecordKind } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, guestTemplate, PACKAGE_FORMAT_VERSION, validatePackage, validatePackageShares, type AppPackage, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { db } from "@/db/connection"
 import { apps, appShareLinks, appShareSubmissions, teamMembers } from "@/db/schema"
 import { readAppRecordRows, serverRecordsValue, teamMemberNames, teamToday, upsertRecord } from "@/lib/apps/records-service"
@@ -150,10 +150,8 @@ export interface GuestPage {
  *  re-checked here, so a package that skipped install never reaches a guest;
  *  null = gone. Pure. */
 export function guestPackage(stored: Record<string, unknown>, share: PackageShare, kind: RecordKind, fields: readonly string[], title: string): AppPackage | null {
-  // Round 9 §14: a stored format 5 template goes into a format 6 guest package.
-  const published = bridgePackage(stored)
-  const template = share.mode === `view` && share.template ? (published.templates as Record<string, Record<string, unknown>> | undefined)?.[share.template] : undefined
-  if (share.mode === `view` && share.template && (!template || validatePackageShares({ ...published, share: [share] }).length > 0)) return null
+  const template = share.mode === `view` && share.template ? (stored.templates as Record<string, Record<string, unknown>> | undefined)?.[share.template] : undefined
+  if (share.mode === `view` && share.template && (!template || validatePackageShares({ ...stored, share: [share] }).length > 0)) return null
   const node = share.mode === `submit` ? { id: `form`, component: `RecordForm`, kind: share.kind } : { id: `table`, component: `RecordTable`, kind: share.kind, editable: false, add: false }
   const pkg = {
     formatVersion: PACKAGE_FORMAT_VERSION,

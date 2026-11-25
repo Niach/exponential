@@ -105,6 +105,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+- A2UI 1.0 flag day (#VAPP-289, `docs/round-9-contract.md` §14): a hard cut. Every entry (`route`, `SurfaceStore.apply`, cards, package load) refuses 0.9: `"version": "1.0"` is required, MIME `application/a2ui+json` only, `{"@path"}` / `{"@call", args}`, identifier ids, flat function names (`records_upsert`, `actions_<name>`, `app_navigate`, `tools_<id>__<tool>`), `formatVersion` 6 only (a 5 is `format version 5 is no longer read; 6 is required`). `catalog/host.json` version 4, `transition.acceptV09: false`. `upgrade09` serves only the stored-data migration and a Local desktop's store-open pass; `upgradeCard09` stays to display a stored card with no version.
 
 ## 0.19.0 (2026-11-07)
 

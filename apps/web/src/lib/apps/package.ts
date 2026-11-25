@@ -7,8 +7,6 @@ import {
   MAX_SCREEN_TITLE,
   ACCEPT_V09,
   PACKAGE_FORMAT_VERSION,
-  PACKAGE_FORMAT_VERSION_09,
-  bridgePackage,
   availableExtensions,
   defineExtension,
   packageScreens,
@@ -21,7 +19,7 @@ import { catalogIndex, catalogPrompt, componentPrompt } from "@exponential_app/e
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS, APPS_SCREENS } from "@exp/domain-contract/apps"
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS, storedAction } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
 import { validateExposes, type Expose } from "@exp/emcp/exposes"
 import { UPSTREAM_BINDING, upstreamDeclareIssues } from "@exp/emcp/upstream"
 import { AUTOMATIONS_LIMITS } from "@exp/emcp/automations"
@@ -52,7 +50,7 @@ type PackageIssue = { path: string; message: string }
 /** Every rule a stored package must pass, in order: the shape and bytes, the
  *  SDK's validator (`sdk` = its issue list), then the app hosts' own rules
  *  (the first one wins, like the throwing form always did). */
-function checkPackage(pkg: unknown, acceptV09: boolean = ACCEPT_V09): { sdk: PackageIssue[]; rules: PackageIssue[] } {
+function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[] } {
   const none = { sdk: [], rules: [] }
   if (!pkg || typeof pkg !== `object` || Array.isArray(pkg)) {
     return { ...none, rules: [{ path: `/`, message: `package must be an object {id, name, version, catalogId, templates}` }] }
@@ -61,17 +59,9 @@ function checkPackage(pkg: unknown, acceptV09: boolean = ACCEPT_V09): { sdk: Pac
   if (bytes > APP_PACKAGE_MAX_BYTES) {
     return { ...none, rules: [{ path: `/`, message: `package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it` }] }
   }
-  // Round 9 §14: a stored package syncs to every client, and a released one
-  // reads format 5 alone.
-  if (acceptV09 && (pkg as { formatVersion?: unknown }).formatVersion === PACKAGE_FORMAT_VERSION) {
-    return { ...none, rules: [{ path: `/formatVersion`, message: `format ${PACKAGE_FORMAT_VERSION} is not stored yet: write formatVersion ${PACKAGE_FORMAT_VERSION_09}` }] }
-  }
-  // Round 9 §12: format 5 is what the server stores until the flag day; every
-  // check reads its upgraded form, what every client runs.
-  const upgraded = acceptV09 ? bridgePackage(pkg) : pkg
-  const sdk = validatePackage(upgraded, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
+  const sdk = validatePackage(pkg, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
   if (sdk.length > 0) return { ...none, sdk }
-  const valid = upgraded as AppPackage
+  const valid = pkg as AppPackage
   const rules: PackageIssue[] = []
   // VAPP-107: an app's bindings follow only what it declares, and only the
   // sources every client's app host resolves (the SDK treats a missing list
@@ -110,13 +100,13 @@ function checkPackage(pkg: unknown, acceptV09: boolean = ACCEPT_V09): { sdk: Pac
   })
   // VAPP-161: the format's tools need a host that runs MCP servers and
   // scripts; Exponential's app hosts run none (an app calls the typed
-  // exponential.<noun>.<op> functions or harness.mcp instead).
+  // exponential_<noun>_<op> functions or harness_mcp instead).
   if (valid.tools !== undefined) {
-    rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential.<noun>.<op> or harness.mcp instead` })
+    rules.push({ path: `/tools`, message: `Exponential's app hosts run no package tools: call exponential_<noun>_<op> or harness_mcp instead` })
   }
   // VAPP-180: the SDK checked the format of `exposes`; eMCP's contract adds
   // what only this host knows: an action binding names an OFFERED, grantable
-  // exponential.<noun>.<op> whose call is not destructive by its arguments.
+  // exponential_<noun>_<op> whose call is not destructive by its arguments.
   if (valid.exposes !== undefined) {
     const ctx = { kinds: Object.keys(valid.records ?? {}), upstreams: valid.upstreams ?? [] }
     for (const error of validateExposes(valid.exposes as unknown as Expose[], ctx)) {
@@ -153,7 +143,7 @@ function upstreamDeclareMessage(code: string, source: string): string {
 /** VAPP-180: the eMCP codes the SDK leaves to the host (an action binding
  *  over Exponential's typed operations). */
 const EXPOSE_HOST_MESSAGES: Record<string, string> = {
-  action: `an exposed action is one of the exponential.<noun>.<op> operations (exponential_apps {op: "catalog"} lists them)`,
+  action: `an exposed action is one of the exponential_<noun>_<op> operations (exponential_apps {op: "catalog"} lists them)`,
   ownerOnly: `an owner-only operation is never grantable, so never exposed`,
   destructive: `a destructive call (a delete, merge, close, end, remove or trash, or sessions.send with stop) is never exposed`,
 }
@@ -175,13 +165,13 @@ export function upstreamIssues(pkg: AppPackage, teamServers: readonly string[], 
 
 /** VAPP-121: everything wrong with a package as `{path, message}` rows (the
  *  import step lists them inline); empty = valid. */
-export function appPackageIssues(pkg: unknown, acceptV09: boolean = ACCEPT_V09): PackageIssue[] {
-  const { sdk, rules } = checkPackage(pkg, acceptV09)
+export function appPackageIssues(pkg: unknown): PackageIssue[] {
+  const { sdk, rules } = checkPackage(pkg)
   return [...sdk, ...rules]
 }
 
 /** Round 9 §14: what the stored-data migration asks of an upgraded package:
- *  what every client's load checks (the SDK's validator, no 0.9 bridge) and
+ *  what every client's load checks (the SDK's validator) and
  *  the contract's caps. The upsert rules stay out: a stored package that a
  *  later rule would refuse still runs, and format 5 stops loading on the flag
  *  day. */
@@ -244,10 +234,10 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
 export const APP_SOURCE_NAMES: readonly string[] = APP_HOST_SOURCES.map((s) => s.source.split(`?`)[0]!)
 
 export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: string }[] = [
-  { name: `harness.toast`, args: `{message, tone?: "error"}`, effect: `shows a toast` },
-  { name: `harness.mcp`, args: `{tool, arguments}`, effect: `a tools/call on Exponential's MCP as the viewer, after the person allows it` },
-  { name: `records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
-  { name: `records.delete`, args: `{id}`, effect: `deletes one record of the app` },
+  { name: `harness_toast`, args: `{message, tone?: "error"}`, effect: `shows a toast` },
+  { name: `harness_mcp`, args: `{tool, arguments}`, effect: `a tools/call on Exponential's MCP as the viewer, after the person allows it` },
+  { name: `records_upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
+  { name: `records_delete`, args: `{id}`, effect: `deletes one record of the app` },
 ]
 
 /** #EXP-1674: `apps get`'s `linkableScreens`: what can be linked to in a

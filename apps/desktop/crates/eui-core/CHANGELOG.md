@@ -82,6 +82,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.19.1 (2026-11-07)
 
 - Released with the SDK at 0.19.1: the Swift and Compose hosts check an app's calls against its upgraded package, so a format-5 app's `records_upsert` is no longer refused silently (VAPP-272).
+- A2UI 1.0 flag day (#VAPP-289): `ACCEPT_V09` is false: `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. `upgrade09` remains for a Local desktop's store-open pass.
 
 ## 0.19.0 (2026-11-07)
 

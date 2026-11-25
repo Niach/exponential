@@ -68,11 +68,7 @@ fn flows() {
             check(&mut failed, &format!("{name}: install {id}"), &serde_json::to_value(issues).unwrap(), &flow["installIssues"][&id]);
         }
         for (i, s) in list(flow, "steps").iter().enumerate() {
-            let mut options = RouteOptions::default();
-            options.trusted = s["trusted"] == json!(true);
-            if s["acceptV09"] == json!(false) {
-                options.accept_v09 = false;
-            }
+            let options = RouteOptions { trusted: s["trusted"] == json!(true) };
             check(&mut failed, &format!("{name} [{i}] {}", s["message"].to_string().chars().take(90).collect::<String>()), &Value::Array(router.route(&s["message"], options)), &s["expected"]);
         }
     }
@@ -143,7 +139,7 @@ fn cards() {
     let mut failed = Vec::new();
     for c in list(&fixture("a2ui10-messages.json"), "cards") {
         let name = c["name"].as_str().unwrap();
-        let got = match card_v10(&c["input"], c.get("acceptV09").and_then(Value::as_bool).unwrap_or(true)) {
+        let got = match card_v10(&c["input"]) {
             Err(error) => json!({"error": error}),
             Ok(card) => {
                 let root: NestedNode = serde_json::from_value(card["root"].clone()).unwrap();

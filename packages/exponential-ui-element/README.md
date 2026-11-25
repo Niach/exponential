@@ -31,7 +31,7 @@ the Solid package's `serializeDom` and `renderReact`.
 </script>
 ```
 
-Without a server, call `apply()` to feed it A2UI v0.9 messages:
+Without a server, call `apply()` to feed it A2UI 1.0 messages:
 
 ```js
 const el = document.createElement("exponential-surface")

@@ -32,7 +32,7 @@ fn flat(list: &[Value]) -> Vec<FlatComponent> {
 
 fn surface(list: Vec<Value>) -> Surface {
     let mut s = Surface::new("t", SurfaceOptions { theme: eui_core::themes::builtin_theme("neutral"), ..SurfaceOptions::default() });
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": list}})).expect("message");
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": list}})).expect("message");
     s.set_viewport(400.0, 800.0, None);
     s
 }
@@ -215,7 +215,7 @@ fn two_thousand_streamed_messages_cost_linear() {
     let mut s = timed(20_000, "2,000 streamed updateComponents", || streamed(2000)).2;
     assert!(s.issues().is_empty(), "{:?}", &s.issues()[..3]);
     // A replaced component replaces in place (order kept).
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "c5", "component": "Text", "text": "five"}]}})).unwrap();
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": "c5", "component": "Text", "text": "five"}]}})).unwrap();
     assert_eq!(s.root().unwrap().children.len(), 2000);
     // Load-proof: the costs are this thread's CPU time (`cpu_now`), not wall
     // time a busy shared runner stretches unevenly, and the sizes run
@@ -310,7 +310,7 @@ fn data_pointers_refuse_gaps_huge_indices_and_long_paths() {
     // The longest allowed pointer writes (iteratively).
     s.set_data(&"/k".repeat(MAX_POINTER_SEGMENTS), Some(json!(1))).unwrap();
     // updateDataModel reports the refusal as an issue.
-    let out = s.apply(&json!({"updateDataModel": {"surfaceId": "t", "path": "/a/99", "value": 1}})).unwrap();
+    let out = s.apply(&json!({"version": "1.0", "updateDataModel": {"surfaceId": "t", "path": "/a/99", "value": 1}})).unwrap();
     assert_eq!(messages(&out.issues), vec!["/a/99: data: index 99 is past the end of the array (6 items)".to_string()]);
 }
 

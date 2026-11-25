@@ -34,8 +34,8 @@ const page = \`<!doctype html><html lang="en"><head><meta charset="utf-8"><title
 <script type="module">
   await customElements.whenDefined("exponential-surface")
   const el = document.getElementById("s")
-  el.apply({ version: "v0.9", createSurface: { surfaceId: "s1", catalogId: "https://ui.exponential.at/catalogs/core/v1" } })
-  el.apply({ version: "v0.9", updateComponents: { surfaceId: "s1", components: [
+  el.apply({ version: "1.0", createSurface: { surfaceId: "s1", catalogId: "https://ui.exponential.at/catalogs/core/v1" } })
+  el.apply({ version: "1.0", updateComponents: { surfaceId: "s1", components: [
     { id: "root", component: "Box", children: ["hi", "go", "docs", "router", "js", "cam"] },
     { id: "hi", component: "Text", text: { path: "/name" } },
     { id: "go", component: "Button", label: "Go" },
@@ -44,7 +44,7 @@ const page = \`<!doctype html><html lang="en"><head><meta charset="utf-8"><title
     { id: "js", component: "Link", label: "Script", href: "javascript:alert(1)" },
     { id: "cam", component: "Image", src: "http://10.0.0.9/cam.jpg", alt: "cam" },
   ] } })
-  el.apply({ version: "v0.9", updateDataModel: { surfaceId: "s1", path: "/name", value: "Hello from the bundle" } })
+  el.apply({ version: "1.0", updateDataModel: { surfaceId: "s1", path: "/name", value: "Hello from the bundle" } })
 </script></body></html>\`
 Bun.serve({
   port: Number(process.env.PORT),

@@ -3,8 +3,8 @@
   "version": 4,
   "a2uiVersion": "1.0",
   "transition": {
-    "$comment": "VAPP-289 (docs/round-9-contract.md §14): while `acceptV09` is true every core entry (route, SurfaceStore.apply / Surface::apply, reduceNested cards, package load) runs upgrade09 on A2UI v0.9 input (version \"v0.9\" or absent; a card without version; formatVersion 5) and continues with the 1.0 result. The flag-day PR sets it false: 0.9 is refused.",
-    "acceptV09": true
+    "$comment": "VAPP-289 (docs/round-9-contract.md §14): the flag day has passed: every core entry (route, SurfaceStore.apply / Surface::apply, cards, package load) refuses A2UI v0.9 input (INVALID_MESSAGE; a card BAD_REQUEST; a format 5 package the /formatVersion install issue). upgrade09 serves only the stored-data migration and a Local desktop's store-open pass; clients keep upgradeCard09 to DISPLAY a stored card with no version (a sealed card the server cannot rewrite).",
+    "acceptV09": false
   },
   "messages": {
     "$comment": "Agent → renderer (docs/round-9-contract.md §1). The six A2UI 1.0 messages plus two HOST-INTERNAL kinds only a trusted route takes: `applyTemplate` (a registered declarative package's template expands into one createSurface + binds) and `bindDataModel` (a data model path follows a host `source`). A message is ONE object with `version` (required, equal to a2uiVersion) and exactly one kind key; the check order is §1.1.",
