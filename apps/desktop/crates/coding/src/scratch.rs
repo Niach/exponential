@@ -362,11 +362,11 @@ mod tests {
     fn reclaim_removes_the_run_dir_and_its_emptied_root_dir() {
         let dir = temp_dir("scratch-reclaim");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
-        assert!(reclaim(&dir.0, &run, SystemTime::now(), false));
+        assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
         assert!(!run.parent().unwrap().exists(), "the empty root dir goes too");
         // Already gone: a no-op, not an error.
-        assert!(!reclaim(&dir.0, &run, SystemTime::now(), false));
+        assert!(!reclaim(&dir.0, &run, SystemTime::now()));
     }
 
     #[test]
@@ -374,7 +374,7 @@ mod tests {
         let dir = temp_dir("scratch-reclaim-sibling");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let sibling = scratch(&dir.0, "root-1", "ffffffff");
-        assert!(reclaim(&dir.0, &run, SystemTime::now(), false));
+        assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
         assert!(sibling.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
@@ -488,7 +488,7 @@ mod tests {
         );
         // And `reclaim` says the same thing to its own callers.
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
-        let reclaimed = reclaim(&dir.0, &run, SystemTime::now(), false);
+        let reclaimed = reclaim(&dir.0, &run, SystemTime::now());
         std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!reclaimed);
     }
@@ -502,11 +502,11 @@ mod tests {
         let dir = temp_dir("scratch-reclaim-resumed");
         let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let requested_at = SystemTime::now() - Duration::from_secs(5);
-        assert!(!reclaim(&dir.0, &run, requested_at, false));
+        assert!(!reclaim(&dir.0, &run, requested_at));
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         // Untouched since the run ended, it goes on the next pass.
         age(&run, OLD);
-        assert!(reclaim(&dir.0, &run, requested_at, false));
+        assert!(reclaim(&dir.0, &run, requested_at));
         assert!(!run.exists());
     }
 
@@ -519,7 +519,7 @@ mod tests {
         std::fs::create_dir_all(&foreign).unwrap();
         assert!(!reclaim(&dir.0, &root_dir, SystemTime::now()));
         assert!(!reclaim(&dir.0, &scratch_root(&dir.0), SystemTime::now()));
-        assert!(!reclaim(&dir.0, &foreign, SystemTime::now(), false));
+        assert!(!reclaim(&dir.0, &foreign, SystemTime::now()));
         assert!(run.exists());
         assert!(foreign.exists());
     }
