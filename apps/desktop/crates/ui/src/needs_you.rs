@@ -783,6 +783,18 @@ impl Render for NeedsYouView {
 mod tests {
     use super::*;
 
+    /// #EXP-2108: the rows' text is web md+'s `text-sm` / `text-xs`: the type
+    /// tokens on web's root size.
+    #[test]
+    fn the_rows_text_is_webs_size() {
+        let css = include_str!("../../../../../packages/ui/src/styles.css");
+        let root: f32 = css.split("font-size: ").nth(1).unwrap().split("rem").next().unwrap().parse().unwrap();
+        use theme::tokens::typography::{line_height, size};
+        assert_eq!([TITLE_PX, TITLE_LINE_PX, LINE_PX, LINE_LINE_PX], [size::SM * root, line_height::SM * root, size::XS * root, line_height::XS * root]);
+        assert_eq!(GLYPH_PX, 16. * root);
+    }
+
+
     fn row(kind: NeedsYouKind, meta: &str) -> NeedsYouRow {
         NeedsYouRow {
             message_id: "m".into(),
