@@ -24,6 +24,10 @@ export interface DevicePickerDevice {
   /** A muted reason under the name (`Offline`, `No agent signed in`). */
   description?: ReactNode
   disabled?: boolean
+  /** The heading of its run of rows (a team's name). */
+  section?: string
+  /** The picked device's other row (it is listed under two teams). */
+  checked?: boolean
 }
 
 export interface DevicePickerProps extends PickerSurfaceProps {
@@ -56,6 +60,8 @@ export function devicePickerItems(devices: readonly DevicePickerDevice[]): Picke
     icon: getDeviceIcon(device),
     description: device.description,
     disabled: device.disabled,
+    section: device.section,
+    checked: device.checked,
   }))
 }
 

@@ -9,6 +9,9 @@
 // for keys; an install that asked and is not approved gets no wraps from it.
 // It APPROVES only when a person presses Approve (`approve`), and the installs
 // that existed with it once (`approveExisting`), never a new one by itself.
+// #EXP-2161 (member-space.json, THE INSTALL): it asks for its own spaces'
+// installs, Approve on one signs `space`, and a space's pin counts only for a
+// root that is the member's own Assistant conversation (`ownAssistant`).
 // An older server without `installs.trust` (NOT_FOUND): `unavailable`, every
 // target is wrapped as before and recorded `legacy`.
 
@@ -17,6 +20,7 @@ import {
   keepWrap,
   reconcileTrust,
   recordKey,
+  registrationClass,
   sealTo,
   signApproval,
   TRUST_MODE,
@@ -38,10 +42,10 @@ import type { TrustStoreIO } from "./trust-store"
 
 /** tRPC `installs` (lib/trpc/installs.ts), the approval part. */
 export type TrustApi = {
-  trust: (input: { installId: string }) => Promise<{ installs: ServedInstall[]; approvals: ServedApproval[] }>
+  trust: (input: { installId: string; spaces: true }) => Promise<{ installs: ServedInstall[]; approvals: ServedApproval[] }>
   requestApproval: (input: { installId: string }) => Promise<unknown>
   claimRoot: (input: { installId: string; signature: string; approvals?: { subjectInstallId: string; signature: string }[] }) => Promise<unknown>
-  approve: (input: { installId: string; subjectInstallId: string; kind: `approve` | `reset` | `decline`; signature: string }) => Promise<unknown>
+  approve: (input: { installId: string; subjectInstallId: string; kind: `approve` | `reset` | `decline` | `space`; signature: string }) => Promise<unknown>
   revoke: (input: { installId: string }) => Promise<unknown>
 }
 
@@ -72,7 +76,13 @@ export class InstallTrust {
     readonly userId: string,
     readonly installId: string,
     private readonly identity: Uint8Array,
-    private readonly deps: { api: TrustApi; io: TrustStoreIO; mode?: TrustMode }
+    private readonly deps: {
+      api: TrustApi
+      io: TrustStoreIO
+      mode?: TrustMode
+      /** #EXP-2161 (`pinCovers`): whether a root is the member's own Assistant conversation. */
+      ownAssistant?: (rootId: string) => boolean
+    }
   ) {
     this.endpointId = endpointIdOf(identity)
     this.store = emptyTrustStore(this.endpointId, userId)
@@ -80,6 +90,11 @@ export class InstallTrust {
 
   get mode(): TrustMode {
     return this.deps.mode ?? TRUST_MODE
+  }
+
+  /** #EXP-2161: whether `rootId` is the member's own Assistant conversation. */
+  ownAssistant(rootId: string): boolean {
+    return this.deps.ownAssistant?.(rootId) ?? false
   }
 
   /** The pin store this install kept (its own endpoint's; another is
@@ -116,7 +131,7 @@ export class InstallTrust {
     for (let round = 0; round < 3; round++) {
       let answer: Awaited<ReturnType<TrustApi[`trust`]>>
       try {
-        answer = await this.deps.api.trust({ installId: this.installId })
+        answer = await this.deps.api.trust({ installId: this.installId, spaces: true })
       } catch (error) {
         if (errorCode(error) === `NOT_FOUND`) this.setStatus(`unavailable`)
         return
@@ -169,7 +184,7 @@ export class InstallTrust {
     if (this.status !== `trusted`) throw new Error(`this install is not trusted`)
     const subject = this.served.get(row.endpointId)
     if (!subject) throw new Error(`install not found`)
-    const kind: ApprovalKind = row.kind === `reset` ? `reset` : `approve`
+    const kind: ApprovalKind = row.kind === `reset` ? `reset` : registrationClass(subject) === `space` ? `space` : `approve`
     await this.deps.api.approve({ installId: this.installId, subjectInstallId: row.installId, kind, signature: signApproval(this.identity, kind, subject) })
     await this.sync()
   }
@@ -202,7 +217,7 @@ export class InstallTrust {
 
   /** R1: whether a served wrap is kept, recorded in the store. */
   keep(wrap: ServedWrap, installSecret: Uint8Array): KeepVerdict {
-    const verdict = keepWrap(wrap, { identity: this.identity, installSecret }, this.store, this.mode)
+    const verdict = keepWrap(wrap, { identity: this.identity, installSecret }, this.store, this.mode, this.ownAssistant(wrap.rootId))
     this.log(`R1`, `${wrap.rootId}#${wrap.epoch}`, verdict.keep ? verdict.record : `refused:${verdict.reason}`)
     if (verdict.keep) this.record(wrap.rootId, wrap.epoch, verdict.record)
     return verdict
@@ -221,14 +236,15 @@ export class InstallTrust {
   }
 
   /** R2 + R3: whether this install seals to (root, epoch, key). */
-  seal(input: Parameters<typeof sealTo>[0]): SealVerdict {
-    const verdict = sealTo(input, this.store, this.mode)
+  seal(input: Parameters<typeof sealTo>[0], ownAssistant = this.ownAssistant(input.rootId)): SealVerdict {
+    const verdict = sealTo(input, this.store, this.mode, ownAssistant)
     this.log(`R3`, `${input.rootId}#${input.epoch}`, verdict.seal ? verdict.record : `refused:${verdict.reason}`)
     return verdict
   }
 
-  /** R4: whether this install wraps a key for `target`. */
-  target(target: WrapTargetInput): TargetVerdict {
+  /** R4: whether this install wraps a key for `target`; `ownAssistant` = of
+   *  the member's own Assistant conversation (the one root a space reads). */
+  target(target: WrapTargetInput, ownAssistant = false): TargetVerdict {
     if (this.status === `unavailable`) return { wrap: true, record: `legacy` }
     const known = target.endpointId ? this.served.get(target.endpointId) : [...this.served.values()].find((row) => row.installId === target.installId)
     const served: ServedInstall = {
@@ -246,7 +262,7 @@ export class InstallTrust {
       this.log(`R4`, target.installId, `refused:keyMismatch`)
       return { wrap: false, reason: `keyMismatch` }
     }
-    const verdict = wrapTarget(served, this.store, this.mode, this.roots)
+    const verdict = wrapTarget(served, this.store, this.mode, this.roots, ownAssistant)
     this.log(`R4`, target.installId, verdict.wrap ? verdict.record : `refused:${verdict.reason}`)
     return verdict
   }

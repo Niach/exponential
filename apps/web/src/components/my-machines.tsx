@@ -72,6 +72,8 @@ import {
   loginLimitHit,
   useDeviceLogins,
 } from "@/components/device-logins"
+import { dropAssistantTeam } from "@/components/devices/member-spaces"
+import { MEMBER_SPACE_COPY } from "@exp/domain-contract/member-space"
 import { Empty } from "@/components/empty"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
@@ -258,6 +260,12 @@ export function MyMachines({
                   teamId={teamId}
                   readOnly
                   onRemoveFromTeam={removable ? () => setDropTarget(device) : undefined}
+                  // #EXP-2161: a team owner's off switch, beside it.
+                  onAssistantsOff={
+                    removable && teamId && device.rowId && device.assistantTeamIds?.includes(teamId)
+                      ? () => void dropAssistantTeam(device.rowId!, teamId)
+                      : undefined
+                  }
                 />
               )
             }}
@@ -352,6 +360,7 @@ function DeviceCard({
   readOnly = false,
   onSettings,
   onRemoveFromTeam,
+  onAssistantsOff,
 }: {
   device: SteerDevice
   now: Date
@@ -362,6 +371,8 @@ function DeviceCard({
   onSettings?: () => void
   /** FEED-149: a team owner's Remove on a teammate's shared card. */
   onRemoveFromTeam?: () => void
+  /** #EXP-2161: a team owner switches members' Assistants off here. */
+  onAssistantsOff?: () => void
 }) {
   const [updating, setUpdating] = useState(false)
   const online = deviceIsOnline(device)
@@ -424,6 +435,9 @@ function DeviceCard({
   if (onSettings) {
     if (entries.length > 0) entries.push({ kind: `separator`, id: `sep` })
     entries.push({ kind: `item`, id: `settings`, label: DEVICES_LIST_COPY.settings, icon: SettingsIcon, onSelect: onSettings })
+  }
+  if (onAssistantsOff) {
+    entries.push({ kind: `toggle`, id: `assistants`, label: MEMBER_SPACE_COPY.optIn, checked: true, onChange: onAssistantsOff })
   }
   if (onRemoveFromTeam) {
     entries.push({

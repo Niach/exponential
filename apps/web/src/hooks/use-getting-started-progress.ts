@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { deviceCollection, sessionCollection } from "@/lib/collections"
+import { listedDevices } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import { useIsMobile } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
@@ -172,7 +173,7 @@ export function useGettingStartedProgress(
   )
   const deviceKinds = useMemo(() => {
     if (deviceRows === undefined || !currentUserId) return null
-    const own = (deviceRows as Device[]).filter(
+    const own = listedDevices(deviceRows as Device[]).filter(
       (device) => device.userId === currentUserId
     )
     return {

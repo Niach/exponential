@@ -14,6 +14,8 @@ import {
   fillPromptTemplate,
   leaveTeamPrompt,
   makeMemberPrompt,
+  memberSpaceOptInPrompt,
+  memberSpacePickPrompt,
   makeOwnerPrompt,
   mergeIssuePrPrompt,
   mergeNowPrPrompt,
@@ -227,6 +229,8 @@ describe(`prompts (contract fixture)`, () => {
 describe(`web-only prompts`, () => {
   it(`follow the same rules: one question, focus never destructive`, () => {
     const copies = [
+      memberSpaceOptInPrompt(),
+      memberSpacePickPrompt(`unraid`, `Jonas`),
       WEB_PROMPTS.updateDevice(`Mac`),
       WEB_PROMPTS.sweepImages(2),
       WEB_PROMPTS.deleteWidget(`Site`),

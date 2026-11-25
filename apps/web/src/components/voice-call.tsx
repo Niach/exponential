@@ -29,6 +29,7 @@ import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deviceCollection } from "@/lib/collections"
+import { listedDevices } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import { SEAL_HOLDER_WAIT_MS } from "@exp/domain-contract/sealed-content"
 import { awaitKeyHolder, currentKeyHolder } from "@/lib/enet/current-key-holder"
@@ -49,7 +50,7 @@ const WEB_CALL_KEYS: CallKeySource = {
   // dials at once, as it always did.
   ready: async () => {
     if (currentKeyHolder()) return true
-    const sealable = [...deviceCollection.values()].some((row) => (row.caps ?? []).includes(VOICE_CALL_SEAL.cap))
+    const sealable = listedDevices([...deviceCollection.values()]).some((row) => (row.caps ?? []).includes(VOICE_CALL_SEAL.cap))
     return sealable ? (await awaitKeyHolder(SEAL_HOLDER_WAIT_MS)) !== undefined : false
   },
   target: (agentId) => trpc.sessions.sendTarget.query({ agentId }, SKIP_ERROR_TOAST),
@@ -112,7 +113,7 @@ export function useVoiceCallAvailability(agentDevice: string | null, language?: 
   )
   const now = useNow(15_000)
   return useMemo(() => {
-    const target = webCallTarget(settings, agentDevice, rows ?? [], userId, now)
+    const target = webCallTarget(settings, agentDevice, listedDevices(rows ?? []), userId, now)
     return { ...target, device: target.name ?? ``, language: language ?? settings?.language }
   }, [settings, agentDevice, rows, userId, now, language])
 }

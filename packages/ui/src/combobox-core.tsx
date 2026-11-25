@@ -103,6 +103,10 @@ function resolveSelection<TValue extends string>(
         return option.checked ? `selected` : `unselected`
       }
     }
+    // #EXP-2161: the same pick listed twice (a device under two teams).
+    if (!multiple && option.checked === true) {
+      return `selected`
+    }
     return selectedSet.has(option.value) ? `selected` : `unselected`
   }
 
