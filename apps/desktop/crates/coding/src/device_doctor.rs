@@ -619,6 +619,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
         &mut doctor,
         crate::worktree_lifecycle::free_bytes(&settings.repos_root_path()),
         &crate::worktree_lifecycle::kept_rows(data_dir),
+        crate::disk_alert::low_bytes(data_dir),
     );
     add_store_conflicts(&mut doctor, crate::agent_profiles::claude_store_conflicts(data_dir));
     add_cargo_sweep(&mut doctor, crate::cargo_target_gc::last_sweep(data_dir).as_ref());
@@ -641,16 +642,17 @@ fn computer_state(settings: &Settings, read: impl FnOnce() -> ComputerState) -> 
 }
 
 /// EXP-1375: append the storage group (pure): the `disk` row (`{size} free`;
-/// `action` below [`crate::worktree_lifecycle::LOW_DISK_BYTES`], no pill),
+/// `action` below `low`, [`crate::disk_alert::low_bytes`], no pill),
 /// then one indented `off` row per kept worktree. `free = None` (unreadable)
 /// adds nothing — the kept rows hang off the disk row.
 pub fn add_storage(
     doctor: &mut DeviceDoctor,
     free: Option<u64>,
     kept: &[crate::worktree_lifecycle::KeptRow],
+    low: u64,
 ) {
     let Some(free) = free else { return };
-    let state = if free < crate::worktree_lifecycle::LOW_DISK_BYTES {
+    let state = if free < low {
         DoctorState::Action
     } else {
         DoctorState::Ok
@@ -1227,7 +1229,7 @@ mod tests {
                 add_speech(&mut doctor, speech);
             }
             if let Some((free, kept)) = case_storage(index) {
-                add_storage(&mut doctor, Some(free), &kept);
+                add_storage(&mut doctor, Some(free), &kept, crate::worktree_lifecycle::LOW_DISK_BYTES);
             }
             // #EXP-1865: the low-disk case's machine also swept its build cache.
             if index == 14 {
@@ -1398,7 +1400,7 @@ mod tests {
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_cargo_sweep(&mut doctor, Some(&last));
         assert!(doctor.items.is_empty(), "no disk row, no sweep row");
-        add_storage(&mut doctor, Some(50_000_000_000), &[]);
+        add_storage(&mut doctor, Some(50_000_000_000), &[], crate::worktree_lifecycle::LOW_DISK_BYTES);
         add_cargo_sweep(&mut doctor, None);
         assert_eq!(doctor.items.len(), 1, "no sweep yet, no row");
         add_cargo_sweep(&mut doctor, Some(&last));
@@ -1414,7 +1416,7 @@ mod tests {
         // #EXP-1892: a later sweep that freed nothing says when it ran; one
         // within the minute of the freeing one says nothing more.
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
-        add_storage(&mut doctor, Some(50_000_000_000), &[]);
+        add_storage(&mut doctor, Some(50_000_000_000), &[], crate::worktree_lifecycle::LOW_DISK_BYTES);
         add_cargo_sweep(&mut doctor, Some(&crate::cargo_target_gc::SweepRecord { checked_at: Some(last.at + 30), ..last.clone() }));
         add_cargo_sweep(&mut doctor, Some(&crate::cargo_target_gc::SweepRecord { checked_at: Some(last.at + 3_600), ..last.clone() }));
         assert!(!doctor.items[1].detail.as_deref().unwrap().contains("checked"));
@@ -1427,7 +1429,7 @@ mod tests {
         // GB, and the last sweep found two profiles building. A first
         // sweep that was locked out of everything is a row too.
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
-        add_storage(&mut doctor, Some(8_000_000_000), &[]);
+        add_storage(&mut doctor, Some(8_000_000_000), &[], crate::worktree_lifecycle::LOW_DISK_BYTES);
         add_cargo_sweep_at(&mut doctor, 4_217_397_948, false, "16 Nov 18:27", Some("16 Nov 18:45"), 2);
         add_cargo_sweep_at(&mut doctor, 0, false, "16 Nov 18:45", None, 2);
         assert_eq!(
