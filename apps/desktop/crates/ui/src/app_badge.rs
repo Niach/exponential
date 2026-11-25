@@ -1,5 +1,5 @@
 //! #FEED-232: the OS app icon's count = `nav_badges::app_icon_badge` over
-//! every team's needs-you rows (0 clears it). macOS: the dock tile's badge
+//! the signed-in account's Needs you total (0 clears it). macOS: the dock tile's badge
 //! label; Linux: the Unity LauncherEntry `Update` signal (GNOME docks, KDE,
 //! Plank read it); Windows: none yet (a taskbar overlay icon needs a drawn
 //! bitmap per count).

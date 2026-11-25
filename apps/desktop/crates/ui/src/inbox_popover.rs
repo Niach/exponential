@@ -19,6 +19,8 @@ use gpui_component::{
 };
 use sync::Store;
 
+use crate::chats_view::{row_team, TeamMarks};
+use crate::user_avatar::{with_team_mark, RowTeam};
 use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::navigation::{nav_for_window, navigate, Navigation, Screen};
@@ -135,11 +137,16 @@ fn type_icon(kind: Option<&str>) -> Icon {
     }
 }
 
-/// The compact row: glyph · identifier · title (medium while unread) · time ·
+/// The compact row's lead cell (`size_4`).
+const LEAD_PX: f32 = 16.;
+
+/// The compact row: glyph (its team's mark on it) · identifier · title (medium while unread) · time ·
 /// the unread dot (its slot kept while read, so the times line up).
 struct RowParts {
     id: SharedString,
     icon: Icon,
+    /// The row's team (its mark on the glyph).
+    team: Option<RowTeam>,
     identifier: Option<String>,
     title: String,
     time: String,
@@ -150,7 +157,7 @@ fn compact_row(parts: RowParts, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     crate::surface::flat_row_compact()
-        .id(parts.id)
+        .id(parts.id.clone())
         .w_full()
         .min_w_0()
         .flex_shrink_0()
@@ -158,14 +165,14 @@ fn compact_row(parts: RowParts, cx: &App) -> gpui::Stateful<gpui::Div> {
         .cursor_pointer()
         .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .when(!parts.unread, |row| row.opacity(READ_OPACITY))
-        .child(
-            h_flex()
-                .size_4()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .child(parts.icon.xsmall().text_color(muted)),
-        )
+        .child(with_team_mark(
+            &parts.id,
+            h_flex().size_4().flex_shrink_0().items_center().justify_center().child(parts.icon.xsmall().text_color(muted)),
+            LEAD_PX,
+            parts.team.as_ref(),
+            theme.popover,
+            cx,
+        ))
         .children(parts.identifier.map(|identifier| {
             div().flex_shrink_0().text_xs().text_color(muted).child(SharedString::from(identifier))
         }))
@@ -216,7 +223,7 @@ impl InboxPopoverBody {
 
     /// One issue group: the latest notification's type glyph; a press marks the
     /// group read and opens the issue.
-    fn issue_row(group: &queries::InboxGroup, cx: &App) -> AnyElement {
+    fn issue_row(group: &queries::InboxGroup, marks: &TeamMarks, cx: &App) -> AnyElement {
         let unread_ids: Vec<String> = group.items.iter().filter(|item| item.read_at.is_none()).map(|item| item.id.clone()).collect();
         // Items are newest first.
         let latest = group.items.first();
@@ -225,6 +232,7 @@ impl InboxPopoverBody {
             RowParts {
                 id: SharedString::from(format!("inbox-row-{}", group.issue.id)),
                 icon: type_icon(latest.and_then(|item| item.kind.as_deref())),
+                team: row_team(marks, queries::issue_team_id(cx, &group.issue.id).as_deref()).cloned(),
                 identifier: Some(group.issue.identifier.clone()),
                 title: group.issue.title.clone(),
                 time: time_of(latest.and_then(|item| item.created_at.as_deref())),
@@ -244,7 +252,7 @@ impl InboxPopoverBody {
     /// (inbox-route.json), opens the session it names (#EXP-1662: a session
     /// waiting on its own plan opens its chat's plan tab); a broadcast only
     /// marks read.
-    fn message_row(entry: &queries::MessageInboxEntry, cx: &App) -> AnyElement {
+    fn message_row(entry: &queries::MessageInboxEntry, marks: &TeamMarks, cx: &App) -> AnyElement {
         let unread = entry.unread() > 0;
         let unread_ids: Vec<String> = if unread { vec![entry.item.id.clone()] } else { Vec::new() };
         let session_id = entry.session_id();
@@ -252,6 +260,7 @@ impl InboxPopoverBody {
             RowParts {
                 id: SharedString::from(format!("inbox-message-{}", entry.item.id)),
                 icon: type_icon(Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)),
+                team: row_team(marks, entry.item.team_id.as_deref()).cloned(),
                 identifier: None,
                 title: entry.item.title.clone().unwrap_or_default(),
                 time: time_of(entry.item.created_at.as_deref()),
@@ -274,7 +283,7 @@ impl InboxPopoverBody {
     /// One blocked session (EXP-980): a press marks it read and opens the
     /// session (a pruned one only marks read). #EXP-1534: a signed-out login
     /// opens its device's settings.
-    fn session_row(entry: &queries::SessionInboxEntry, cx: &App) -> AnyElement {
+    fn session_row(entry: &queries::SessionInboxEntry, marks: &TeamMarks, cx: &App) -> AnyElement {
         let unread = entry.unread() > 0;
         let unread_ids: Vec<String> = if unread { vec![entry.item.id.clone()] } else { Vec::new() };
         let device_id = match entry.target() {
@@ -286,6 +295,7 @@ impl InboxPopoverBody {
             RowParts {
                 id: SharedString::from(format!("inbox-session-{}", entry.item.id)),
                 icon: type_icon(entry.item.kind.as_deref()),
+                team: row_team(marks, entry.item.team_id.as_deref()).cloned(),
                 identifier: None,
                 title: entry.item.title.clone().unwrap_or_default(),
                 time: time_of(entry.item.created_at.as_deref()),
@@ -333,13 +343,14 @@ impl Render for InboxPopoverBody {
         } else if data.groups.is_empty() {
             crate::controls::empty_state_list(Icon::new(registry::NAV_INBOX), crate::empty_state_copy::INBOX, cx).into_any_element()
         } else {
+            let marks = crate::chats_view::team_marks(cx);
             let rows: Vec<AnyElement> = data
                 .groups
                 .iter()
                 .map(|entry| match entry {
-                    queries::InboxEntry::Issue(group) => Self::issue_row(group, cx),
-                    queries::InboxEntry::Message(entry) => Self::message_row(entry, cx),
-                    queries::InboxEntry::Session(entry) => Self::session_row(entry, cx),
+                    queries::InboxEntry::Issue(group) => Self::issue_row(group, &marks, cx),
+                    queries::InboxEntry::Message(entry) => Self::message_row(entry, &marks, cx),
+                    queries::InboxEntry::Session(entry) => Self::session_row(entry, &marks, cx),
                 })
                 .collect();
             div()

@@ -24,7 +24,7 @@
 //! by name via the `ui::init` panel registry. v1 scope: layout only — no
 //! per-panel inner-state round-trip.
 
-use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
@@ -266,10 +266,13 @@ pub struct Shell {
     /// window's size (see [`crate::window_size::WindowSizeTracker`]). Only
     /// ordinal 0 observes bounds, so it is inert on further windows.
     size_tracker: crate::window_size::WindowSizeTracker,
-    /// #FEED-232: each team's needs-you count — the team switcher's badges
-    /// and the OS app icon. Held (not derived per paint) so the switcher
-    /// repaints only when a count actually moves.
-    team_needs_you: BTreeMap<String, usize>,
+}
+
+/// The OS app icon (`nav_badges::app_icon_badge`): Needs you's total of the
+/// signed-in account (the desktop syncs one at a time), none = cleared.
+fn refresh_app_icon(cx: &mut App) {
+    let account = crate::queries::active_account(cx).map(|_| crate::needs_you::counts(cx).total as i64);
+    crate::app_badge::set(domain::nav_badges::app_icon_badge(account));
 }
 
 impl Shell {
@@ -306,19 +309,26 @@ impl Shell {
         // changes.
         let shared = Store::global(cx).state();
         cx.observe(&shared, |_, _, cx| cx.notify()).detach();
+        // A sign-out clears the app icon.
+        cx.observe(&shared, |_, _, cx| refresh_app_icon(cx)).detach();
 
-        // #FEED-232: the team switcher's counts (`needs_you::counts_by_team`).
+        // The OS app icon = Needs you: all it reads.
         let collections = Store::global(cx).collections().clone();
-        cx.observe(&collections.sessions, |this: &mut Self, _, cx| {
-            this.refresh_team_runs(cx)
-        })
-        .detach();
-        cx.observe(&collections.pull_requests, |this: &mut Self, _, cx| {
-            this.refresh_team_runs(cx)
-        })
-        .detach();
+        cx.observe(&collections.sessions, |_, _, cx| refresh_app_icon(cx)).detach();
+        cx.observe(&collections.pull_requests, |_, _, cx| refresh_app_icon(cx)).detach();
+        cx.observe(&collections.agents, |_, _, cx| refresh_app_icon(cx)).detach();
+        cx.observe(&collections.teams, |_, _, cx| refresh_app_icon(cx)).detach();
+        cx.observe(&collections.devices, |_, _, cx| refresh_app_icon(cx)).detach();
         // #EXP-1950: installs waiting for approval count in Needs you.
-        cx.observe_global::<crate::install_approval::InstallTrustTick>(|this: &mut Self, cx| this.refresh_team_runs(cx)).detach();
+        cx.observe_global::<crate::install_approval::InstallTrustTick>(|_, cx| refresh_app_icon(cx)).detach();
+        // Stuck PRs age with the clock.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_secs(60)).await;
+            if this.update(cx, |_: &mut Self, cx| refresh_app_icon(cx)).is_err() {
+                break;
+            }
+        })
+        .detach();
         // EXP-1326: the dock area (every screen) renders as a CACHED view
         // (see `render`), reused until it or a view inside it is notified.
         // A screen that reads a collection without observing it would go
@@ -330,8 +340,7 @@ impl Shell {
         }) {
             subscription.detach();
         }
-        let team_needs_you = crate::needs_you::counts_by_team(cx);
-        crate::app_badge::set(domain::nav_badges::app_icon_badge(std::iter::once(crate::needs_you::total_count(cx) as i64)));
+        refresh_app_icon(cx);
 
         // Re-render when the launch-time update check flips the "update
         // available" flag (§11.2) so the dismissible banner appears without a
@@ -554,20 +563,6 @@ impl Shell {
             size_tracker: crate::window_size::WindowSizeTracker::new(
                 crate::window_size::launch_size(),
             ),
-            team_needs_you,
-        }
-    }
-
-    /// #FEED-232 — re-derive each team's needs-you count
-    /// ([`crate::needs_you::counts_by_team`]). Notifies ONLY when the map
-    /// moved: every session delta fires far more often than a count
-    /// changes, and the fixed header repaints the whole column.
-    fn refresh_team_runs(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = crate::needs_you::counts_by_team(cx);
-        if next != self.team_needs_you {
-            crate::app_badge::set(domain::nav_badges::app_icon_badge(std::iter::once(crate::needs_you::total_count(cx) as i64)));
-            self.team_needs_you = next;
-            cx.notify();
         }
     }
 
@@ -642,8 +637,7 @@ impl Shell {
             cx,
         );
         let nav = navigation::nav_for_window(window, cx);
-        let live = self.team_needs_you.clone();
-        self.header.update(cx, |header, cx| header.refresh(&nav, &live, cx));
+        self.header.update(cx, |header, cx| header.refresh(&nav, cx));
         let header = self.header.clone();
 
         // EXP-1192: under the fixed header the column is ONE slot — the rail

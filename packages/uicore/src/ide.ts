@@ -2,20 +2,17 @@
 // host's state. `fixtures/ide-sidebar.json` is the spec; the document
 // (`apps/ede/ui/sidebar.express`) binds the result under /shell/ide.
 import fixture from "../fixtures/ide-sidebar.json" with { type: "json" }
-// #EXP-1832: the folder tree is domain-contract's (sidebar-folders.json), by
-// path: uicore takes no package dependencies.
+// The badges (nav-badges.json) and the folder tree (#EXP-1832
+// sidebar-folders.json) are domain-contract's, by path: uicore takes no
+// package dependencies.
+import { countBadgeLabel, rowBadge, sumBadges, teamBadge, type CountBadgeTone, type CountBadgeValue } from "../../domain-contract/src/nav-badges"
 import { SIDEBAR_FOLDER_DEFAULT_NAME, sidebarRows, sidebarTree, type SidebarEntry, type SidebarNode } from "../../domain-contract/src/sidebar-folders"
 
-export type IdeDot = `amber` | `green` | `primary`
-
 /** #FEED-232 (`nav-badges.json`): a nav row's count badge tone; no dots. */
-export type IdeTone = `attention` | `muted`
+export type IdeTone = CountBadgeTone
 
 /** A count the host computed (`chatsBadge`): 0 = no badge. */
-export interface IdeCount {
-  count: number
-  tone: IdeTone
-}
+export type IdeCount = CountBadgeValue
 
 /** #EXP-2027 (domain-contract sidebar-tree.json): one item of a team's mixed
  *  list in the host's default order (`sidebarTeamItems`). */
@@ -26,7 +23,7 @@ export interface IdeItemInput {
   icon: string
   /** An app's slug (its row lights on it too). */
   slug?: string
-  /** An agent: needs you / its conversation's unread agent messages. */
+  /** An agent or a placed session: needs you / its unread agent messages. */
   needsYou?: boolean
   unread?: number
   /** A session: every session of its tree (its row lights on any). */
@@ -42,7 +39,7 @@ export interface IdeTeamInput {
   open?: boolean
   /** Owners get New › Board | Agent | App and the board gears. */
   owner?: boolean
-  /** The team's needs-you count (attention). */
+  /** The team's share of Needs you (`needsYouCounts(...).teams`). */
   needsYou?: number
   items: IdeItemInput[]
   /** The member's `sidebar_layout` rows of the team's `team` list. */
@@ -62,7 +59,7 @@ export interface IdeSidebarInput {
   devicesOpen?: boolean
   /** #EXP-2027: one entry per team (`sidebarTeams`). */
   teams?: IdeTeamInput[]
-  active: { id: string; title: string; icon: string; sessionIds: string[]; unread: boolean; teamMark?: string | null; team?: string | null }[]
+  active: { id: string; title: string; icon: string; sessionIds: string[]; teamMark?: string | null; team?: string | null }[]
   /** #EXP-1832: the folders this device keeps folded (none = open). */
   closed?: string[]
   /** #EXP-1832: the folder whose name is being edited in place. */
@@ -115,7 +112,7 @@ export interface IdeRow {
   tone: IdeTone | null
   /** The hover gear: agents and apps for every member, boards for owners. */
   gear: boolean
-  /** A FOLDED folder's item count; null otherwise. */
+  /** A FOLDED folder's item count; null otherwise (its count badge sits left of it). */
   meta: string | null
   /** A team's or folder's fold glyph: ui-chevron-down open, ui-chevron-right folded. */
   foldIcon: string | null
@@ -136,8 +133,10 @@ export interface IdeDeviceRow {
   selected: boolean
   /** Offline: drawn muted. */
   muted: boolean
-  /** A teammate's server: its team's mark; an online device: the green dot. */
+  /** The viewer's own online device: the green dot. */
   mark: string | null
+  /** A teammate's server: the team's mark, on the device glyph (nav-badges.json THE TEAM MARK ON A ROW). */
+  teamMark: string | null
   foldIcon: string | null
 }
 
@@ -166,10 +165,12 @@ const compareEntries = (a: SidebarEntry, b: SidebarEntry) => (a.sortOrder !== b.
 
 /** A team's rows as the member arranged them, one level under the team
  *  row: a folded folder's items left out. */
-export function folderRows(rows: IdeRowBase[], entries: readonly SidebarEntry[], closed: readonly string[], editing: string | null): IdeRow[] {
+export function folderRows(rows: IdeRowBase[], counts: ReadonlyMap<string, IdeCount>, entries: readonly SidebarEntry[], closed: readonly string[], editing: string | null): IdeRow[] {
   const byId = new Map(rows.map((row) => [row.id, row]))
   const shut = new Set(closed)
-  return sidebarRows(teamTree(rows.map((row) => row.id), entries, editing), (id) => !shut.has(id)).map((r): IdeRow => {
+  const tree = teamTree(rows.map((row) => row.id), entries, editing)
+  const hidden = new Map(tree.flatMap((n) => (n.kind === `folder` && shut.has(n.id) ? [[n.id, sumBadges(n.children.flatMap((id) => counts.get(id) ?? []))] as const] : [])))
+  return sidebarRows(tree, (id) => !shut.has(id)).map((r): IdeRow => {
     const node = { kind: r.kind, id: r.id, depth: (r.depth + 1) as 1 | 2, group: r.group, open: r.open, newItems: [] }
     if (r.kind === `item`) return { ...node, ...(byId.get(r.id) as IdeRowBase), meta: null, foldIcon: null, editing: false }
     return {
@@ -178,8 +179,7 @@ export function folderRows(rows: IdeRowBase[], entries: readonly SidebarEntry[],
       title: r.name ?? ``,
       icon: FOLDER_ICON,
       selected: false,
-      count: null,
-      tone: null,
+      ...badge(hidden.get(r.id) ?? NONE),
       gear: false,
       meta: r.open ? null : String(r.count),
       foldIcon: foldIcon(r.open),
@@ -194,7 +194,7 @@ export interface IdeSidebar {
   nav: IdeNavRow[]
   devices: IdeDeviceRow[]
   teams: { id: string; rows: IdeRow[] }[]
-  active: { id: string; title: string; icon: string; selected: boolean; unread: boolean; teamMark: string | null }[]
+  active: { id: string; title: string; icon: string; selected: boolean; teamMark: string | null }[]
   prs: IdePrRow[]
 }
 
@@ -211,12 +211,11 @@ export interface IdeTabs {
 
 const COPY = fixture.copy
 
-/** The badge's label: null at zero, `99+` past 99 (nav-badges.json `labelCases`). */
-export const countLabel = (count: number): string | null => count <= 0 ? null : count > 99 ? `99+` : String(count)
+const NONE: IdeCount = { count: 0, tone: `muted` }
 
-const badge = (count: number, tone: IdeTone) => {
-  const label = countLabel(count)
-  return { count: label, tone: label === null ? null : tone }
+const badge = ({ count, tone }: IdeCount): { count: string | null; tone: IdeTone | null } => {
+  const label = countBadgeLabel(count)
+  return label ? { count: label, tone } : { count: null, tone: null }
 }
 
 const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: number, tone: IdeTone): IdeNavRow => ({
@@ -224,13 +223,8 @@ const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: numb
   title: COPY[id],
   icon,
   selected,
-  ...badge(count, tone),
+  ...badge({ count, tone }),
 })
-
-/** An agent row's badge (`rowBadge`): its unread, at least 1 while it needs
- *  you, attention when it does. Busy is no badge. */
-export const agentCount = (unread: number, needsYou: boolean): IdeCount =>
-  needsYou ? { count: Math.max(1, unread), tone: `attention` } : { count: unread, tone: `muted` }
 
 /** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board for owners). */
 export const newItems = (owner: boolean): IdeMenuEntry[] => [
@@ -249,8 +243,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const on = (kind: string, id: string) => screen === `${kind}:${id}`
   const rows: IdeNavRow[] = []
   if (input.assistant) {
-    const { count, tone } = agentCount(input.assistant.unread ?? 0, input.assistant.needsYou ?? false)
-    rows.push({ id: `assistant`, title: input.assistant.name, icon: `brand-exponential`, selected: on(`agent`, input.assistant.id), ...badge(count, tone) })
+    rows.push({ id: `assistant`, title: input.assistant.name, icon: `brand-exponential`, selected: on(`agent`, input.assistant.id), ...badge(rowBadge({ unreadCount: input.assistant.unread ?? 0, needsYou: input.assistant.needsYou ?? false })) })
   }
   rows.push(nav(`home`, `nav-home`, screen === `home`, 0, `muted`))
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
@@ -258,7 +251,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, input.drafts, `muted`))
   const devicesOpen = input.devicesOpen ?? true
   const devices: IdeDeviceRow[] = [
-    { kind: `devices`, id: `devices`, depth: 0, group: true, open: devicesOpen, title: COPY.devices, icon: `nav-devices`, selected: false, muted: false, mark: null, foldIcon: foldIcon(devicesOpen) },
+    { kind: `devices`, id: `devices`, depth: 0, group: true, open: devicesOpen, title: COPY.devices, icon: `nav-devices`, selected: false, muted: false, mark: null, teamMark: null, foldIcon: foldIcon(devicesOpen) },
     ...(devicesOpen ? input.devices ?? [] : []).map((d): IdeDeviceRow => ({
       kind: `device`,
       id: d.id,
@@ -269,15 +262,16 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       icon: d.icon,
       selected: on(`device`, d.id) || on(`device-settings`, d.id),
       muted: !d.online,
-      mark: d.teamMark ?? (d.online ? `ide:dot:green` : null),
+      mark: d.online && !d.teamMark ? `ide:dot:green` : null,
+      teamMark: d.teamMark ?? null,
       foldIcon: null,
     })),
   ]
   const teams = (input.teams ?? []).map((team) => {
     const open = team.open ?? true
     const owner = team.owner ?? false
+    const counts = new Map(team.items.filter((i) => i.kind === `agent` || i.kind === `session`).map((i) => [i.id, rowBadge({ unreadCount: i.unread ?? 0, needsYou: i.needsYou ?? false })]))
     const items = team.items.map((item): IdeRowBase => {
-      const count = item.kind === `agent` ? badge(agentCount(item.unread ?? 0, item.needsYou ?? false).count, agentCount(item.unread ?? 0, item.needsYou ?? false).tone) : { count: null, tone: null }
       const selected =
         item.kind === `app`
           ? on(`app`, item.id) || (item.slug !== undefined && on(`app`, item.slug))
@@ -285,7 +279,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
             ? on(`chat`, item.id) || on(`session`, item.id) || (item.sessionIds ?? []).some((id) => on(`session`, id))
             : on(item.kind, item.id)
       const gear = item.kind === `agent` || item.kind === `app` || (item.kind === `board` && owner)
-      return { item: item.kind, id: item.id, title: item.name, icon: item.icon, selected, ...count, gear }
+      return { item: item.kind, id: item.id, title: item.name, icon: item.icon, selected, ...badge(counts.get(item.id) ?? NONE), gear }
     })
     const head: IdeRow = {
       kind: `team`,
@@ -297,14 +291,14 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       title: team.name,
       icon: team.mark,
       selected: false,
-      ...badge(team.needsYou ?? 0, `attention`),
+      ...badge(teamBadge({ needsYou: team.needsYou ?? 0, open, rows: [...counts.values()] })),
       gear: false,
       meta: null,
       foldIcon: foldIcon(open),
       editing: false,
       newItems: newItems(owner),
     }
-    return { id: team.id, rows: open ? [head, ...folderRows(items, team.layout ?? [], input.closed ?? [], input.editingFolder ?? null)] : [head] }
+    return { id: team.id, rows: open ? [head, ...folderRows(items, counts, team.layout ?? [], input.closed ?? [], input.editingFolder ?? null)] : [head] }
   })
   return {
     nav: rows,
@@ -315,7 +309,6 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
       title: a.title,
       icon: a.icon,
       selected: on(`chat`, a.id) || a.sessionIds.some((id) => on(`session`, id)),
-      unread: a.unread,
       teamMark: a.teamMark ?? null,
     })),
     prs: (input.repos ?? []).filter((r) => r.prs.length > 0).flatMap((r): IdePrRow[] => [

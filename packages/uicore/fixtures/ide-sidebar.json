@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.express binds the result under /shell/ide; eDE never feeds that path. #EXP-2027 (domain-contract sidebar-tree.json is THE spec; this is its IDE projection): there is NO active team. nav = #EXP-2124 the Assistant (while the host has one: `assistant` {id, name, unread, needsYou}; title its name, icon brand-exponential, lit on agent:<id>, count = rowBadge(unread, needsYou) like an agent row), Home (always, lit on `home`), Needs you (while any, or on its page), Chats, Drafts (while any, or on its page). devices = the Devices row (kind devices, depth 0, group, no nav target: its press folds it, its hover + adds a device; open = devicesOpen, the device-local `openKeys.devices`, absent = open; foldIcon ui-chevron-down open, ui-chevron-right folded) then, while open, one row per device in the host's sidebarDeviceRows order (kind device, depth 1): selected on device:<id> and device-settings:<id>, muted while offline, mark = a teammate's server's team mark, else the green dot (`ide:dot:green`) while online, else null. teams = one List per team in sidebarTeams order: its TEAM row (kind team, depth 0, group, title the name, icon the team mark the host paints, open = the device-local `openKeys.team` flag, absent = open, count = the team's needs-you count (attention), foldIcon, newItems = the team menu's New submenu: THE New list (#EXP-2124, domain-contract sidebar-menus.json newKinds + newCopy: Chat for every member, then Agent, App, Board for owners; sidebar-tree.json teamMenu)) then, while open, the team's ONE mixed list: items = its boards, agents, apps and placed root sessions in the host's sidebarTeamItems order, arranged by its `layout` (the member's sidebar_layout rows of section team) through sidebarTree + sidebarRows one level deeper (folder depth 1, an item depth 1, or 2 inside a folder: sidebarTeamRows). An item row carries item = its kind; selected = board:<id> | agent:<id> | app:<id or slug> | a session on chat:<id> or session:<any id of its tree>; gear (the hover gear) = agents and apps for every member, boards for owners, sessions none; an agent's count = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; other items no count. A folder row = title its name (New folder when unnamed), icon ui-folder, never selected, no count, no gear, meta = a FOLDED folder's item count as text, editing = editingFolder's row; a folder with no visible item is not shown EXCEPT the folder being named (sidebar-tree.json New folder), which sits among the placed nodes by its sortOrder. closed = the folder ids this device keeps folded (absent = open). active = Active across every team: each row's teamMark, lit on its root and on any session of its tree. prs (#EXP-1616, repo-page.json): the Pull requests section, repos with live PRs (rows at depth 0, icon ui-repository, selected on repo:<id>), their PRs at their tree depth + 1 (icon null, lit while the chat that opened it is open); hidden while empty. #FEED-232: a row's badge is THE count badge (count = its label, null at zero, 99+ past 99; tone attention | muted, null without a count). screen = the open screen as <kind> or <kind>:<id>. base holds the input every case starts from; a case overrides keys of it. copy = the words (chat-list.json copy.title, needs-you.json copy.entry, sidebar-tree.json copy). tabs: the IDE's tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged in ONE strip (a terminal is a tab like any other: same strip, same close, close others/all and neighbour rules), activeTab = the active key while a tab holds the screen. placement (Danny 2026-11-13): where that strip sits: top in the standalone IDE (macOS, Windows, Linux; the band above the content card that also carries the window controls and the drag), bottom while the IDE runs inside Exponential Desktop (eDE = XDG_CURRENT_DESKTOP names Exponential; its taskbar holds the top edge's role), the +N menu opening away from the window edge.",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.express binds the result under /shell/ide; eDE never feeds that path. #EXP-2027 (domain-contract sidebar-tree.json is THE spec; this is its IDE projection): there is NO active team. nav = #EXP-2124 the Assistant (while the host has one: `assistant` {id, name, unread, needsYou}; title its name, icon brand-exponential, lit on agent:<id>, count = rowBadge(unread, needsYou) like an agent row), Home (always, lit on `home`), Needs you (while any, or on its page), Chats, Drafts (while any, or on its page). devices = the Devices row (kind devices, depth 0, group, no nav target: its press folds it, its hover + adds a device; open = devicesOpen, the device-local `openKeys.devices`, absent = open; foldIcon ui-chevron-down open, ui-chevron-right folded) then, while open, one row per device in the host's sidebarDeviceRows order (kind device, depth 1): selected on device:<id> and device-settings:<id>, muted while offline, mark = the green dot (`ide:dot:green`) on the viewer's own online device, else null; teamMark = a teammate's server's team mark, drawn ON the device glyph (nav-badges.json THE TEAM MARK ON A ROW), else null. teams = one List per team in sidebarTeams order: its TEAM row (kind team, depth 0, group, title the name, icon the team mark the host paints, open = the device-local `openKeys.team` flag, absent = open, count = nav-badges.json teamBadge (its share of Needs you, attention; while folded plus its hidden agent and session rows' muted counts), foldIcon, newItems = the team menu's New submenu: THE New list (#EXP-2124, domain-contract sidebar-menus.json newKinds + newCopy: Chat for every member, then Agent, App, Board for owners; sidebar-tree.json teamMenu)) then, while open, the team's ONE mixed list: items = its boards, agents, apps and placed root sessions in the host's sidebarTeamItems order, arranged by its `layout` (the member's sidebar_layout rows of section team) through sidebarTree + sidebarRows one level deeper (folder depth 1, an item depth 1, or 2 inside a folder: sidebarTeamRows). An item row carries item = its kind; selected = board:<id> | agent:<id> | app:<id or slug> | a session on chat:<id> or session:<any id of its tree>; gear (the hover gear) = agents and apps for every member, boards for owners, sessions none; an agent's and a session's count = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; boards and apps no count. A folder row = title its name (New folder when unnamed), icon ui-folder, never selected, count = while FOLDED sumBadges of the rows it hides (left of its item count and chevron; open = none), no gear, meta = a FOLDED folder's item count as text, editing = editingFolder's row; a folder with no visible item is not shown EXCEPT the folder being named (sidebar-tree.json New folder), which sits among the placed nodes by its sortOrder. closed = the folder ids this device keeps folded (absent = open). active = Active across every team: each row's teamMark (drawn on its glyph, nav-badges.json), lit on its root and on any session of its tree. prs (#EXP-1616, repo-page.json): the Pull requests section, repos with live PRs (rows at depth 0, icon ui-repository, selected on repo:<id>), their PRs at their tree depth + 1 (icon null, lit while the chat that opened it is open); hidden while empty. #FEED-232: a row's badge is THE count badge (count = its label, null at zero, 99+ past 99; tone attention | muted, null without a count). screen = the open screen as <kind> or <kind>:<id>. base holds the input every case starts from; a case overrides keys of it. copy = the words (chat-list.json copy.title, needs-you.json copy.entry, sidebar-tree.json copy). tabs: the IDE's tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged in ONE strip (a terminal is a tab like any other: same strip, same close, close others/all and neighbour rules), activeTab = the active key while a tab holds the screen. placement (Danny 2026-11-13): where that strip sits: top in the standalone IDE (macOS, Windows, Linux; the band above the content card that also carries the window controls and the drag), bottom while the IDE runs inside Exponential Desktop (eDE = XDG_CURRENT_DESKTOP names Exponential; its taskbar holds the top edge's role), the +N menu opening away from the window edge.",
   "version": 1,
   "copy": {
     "home": "Home",
@@ -61,6 +61,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -119,6 +120,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -176,6 +178,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -220,6 +223,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -281,6 +285,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -333,6 +338,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -385,6 +391,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -432,6 +439,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -503,6 +511,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           },
           {
@@ -516,6 +525,7 @@
             "selected": false,
             "muted": false,
             "mark": "ide:dot:green",
+            "teamMark": null,
             "foldIcon": null
           },
           {
@@ -529,6 +539,7 @@
             "selected": true,
             "muted": false,
             "mark": "ide:dot:green",
+            "teamMark": null,
             "foldIcon": null
           },
           {
@@ -542,6 +553,7 @@
             "selected": false,
             "muted": true,
             "mark": null,
+            "teamMark": null,
             "foldIcon": null
           },
           {
@@ -554,7 +566,8 @@
             "icon": "ide:device:d9",
             "selected": false,
             "muted": true,
-            "mark": "ide:team:t-acme",
+            "mark": null,
+            "teamMark": "ide:team:t-acme",
             "foldIcon": null
           }
         ],
@@ -608,6 +621,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-right"
           }
         ],
@@ -746,6 +760,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -1094,6 +1109,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -1348,6 +1364,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -1651,6 +1668,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -1942,6 +1960,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2213,6 +2232,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2404,7 +2424,6 @@
             "sessionIds": [
               "r1"
             ],
-            "unread": false,
             "teamMark": "ide:team:t-acme"
           },
           {
@@ -2415,7 +2434,6 @@
               "r2",
               "r2-child"
             ],
-            "unread": true,
             "teamMark": "ide:team:t-side"
           }
         ]
@@ -2451,6 +2469,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2461,7 +2480,6 @@
             "title": "CI P1",
             "icon": "ide:run:r1",
             "selected": false,
-            "unread": false,
             "teamMark": "ide:team:t-acme"
           },
           {
@@ -2469,7 +2487,6 @@
             "title": "Landing page copy",
             "icon": "ide:run:r2",
             "selected": true,
-            "unread": true,
             "teamMark": "ide:team:t-side"
           }
         ],
@@ -2518,6 +2535,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2609,6 +2627,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2762,6 +2781,7 @@
             "selected": false,
             "muted": false,
             "mark": null,
+            "teamMark": null,
             "foldIcon": "ui-chevron-down"
           }
         ],
@@ -2829,6 +2849,699 @@
             "selected": false
           }
         ]
+      }
+    },
+    {
+      "name": "nav-badges: a folded folder sums the rows it hides, left of its item count; a placed session wears its rowBadge",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme",
+            "mark": "ide:team:t1",
+            "open": true,
+            "owner": false,
+            "needsYou": 1,
+            "items": [
+              {
+                "kind": "board",
+                "id": "b1",
+                "name": "App",
+                "icon": "ide:board:b1"
+              },
+              {
+                "kind": "agent",
+                "id": "a1",
+                "name": "Triage",
+                "icon": "ide:agent:a1",
+                "needsYou": true,
+                "unread": 2
+              },
+              {
+                "kind": "agent",
+                "id": "a2",
+                "name": "Docs",
+                "icon": "ide:agent:a2",
+                "needsYou": false,
+                "unread": 3
+              },
+              {
+                "kind": "session",
+                "id": "s1",
+                "name": "Fix login",
+                "icon": "ide:run:s1",
+                "needsYou": false,
+                "unread": 1,
+                "sessionIds": [
+                  "s1"
+                ]
+              }
+            ],
+            "layout": [
+              {
+                "id": "f1",
+                "kind": "folder",
+                "targetId": null,
+                "parentId": null,
+                "name": "Bots",
+                "sortOrder": 1
+              },
+              {
+                "id": "e1",
+                "kind": "item",
+                "targetId": "a1",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 1
+              },
+              {
+                "id": "e2",
+                "kind": "item",
+                "targetId": "a2",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 2
+              },
+              {
+                "id": "e3",
+                "kind": "item",
+                "targetId": "s1",
+                "parentId": null,
+                "name": null,
+                "sortOrder": 2
+              }
+            ]
+          }
+        ],
+        "closed": [
+          "f1"
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Home",
+            "icon": "nav-home",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "devices": [
+          {
+            "kind": "devices",
+            "id": "devices",
+            "depth": 0,
+            "group": true,
+            "open": true,
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "muted": false,
+            "mark": null,
+            "teamMark": null,
+            "foldIcon": "ui-chevron-down"
+          }
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "rows": [
+              {
+                "kind": "team",
+                "item": null,
+                "id": "t1",
+                "depth": 0,
+                "group": true,
+                "open": true,
+                "title": "Acme",
+                "icon": "ide:team:t1",
+                "selected": false,
+                "count": "1",
+                "tone": "attention",
+                "gear": false,
+                "meta": null,
+                "foldIcon": "ui-chevron-down",
+                "editing": false,
+                "newItems": [
+                  {
+                    "label": "Chat",
+                    "value": "session",
+                    "icon": "action-chat"
+                  }
+                ]
+              },
+              {
+                "kind": "folder",
+                "id": "f1",
+                "depth": 1,
+                "group": true,
+                "open": false,
+                "newItems": [],
+                "item": null,
+                "title": "Bots",
+                "icon": "ui-folder",
+                "selected": false,
+                "count": "5",
+                "tone": "attention",
+                "gear": false,
+                "meta": "2",
+                "foldIcon": "ui-chevron-right",
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "s1",
+                "depth": 1,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "session",
+                "title": "Fix login",
+                "icon": "ide:run:s1",
+                "selected": false,
+                "count": "1",
+                "tone": "muted",
+                "gear": false,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "b1",
+                "depth": 1,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "board",
+                "title": "App",
+                "icon": "ide:board:b1",
+                "selected": false,
+                "count": null,
+                "tone": null,
+                "gear": false,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              }
+            ]
+          }
+        ],
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "nav-badges: an open folder has no badge, its rows show theirs",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme",
+            "mark": "ide:team:t1",
+            "open": true,
+            "owner": false,
+            "needsYou": 1,
+            "items": [
+              {
+                "kind": "board",
+                "id": "b1",
+                "name": "App",
+                "icon": "ide:board:b1"
+              },
+              {
+                "kind": "agent",
+                "id": "a1",
+                "name": "Triage",
+                "icon": "ide:agent:a1",
+                "needsYou": true,
+                "unread": 2
+              },
+              {
+                "kind": "agent",
+                "id": "a2",
+                "name": "Docs",
+                "icon": "ide:agent:a2",
+                "needsYou": false,
+                "unread": 3
+              },
+              {
+                "kind": "session",
+                "id": "s1",
+                "name": "Fix login",
+                "icon": "ide:run:s1",
+                "needsYou": false,
+                "unread": 1,
+                "sessionIds": [
+                  "s1"
+                ]
+              }
+            ],
+            "layout": [
+              {
+                "id": "f1",
+                "kind": "folder",
+                "targetId": null,
+                "parentId": null,
+                "name": "Bots",
+                "sortOrder": 1
+              },
+              {
+                "id": "e1",
+                "kind": "item",
+                "targetId": "a1",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 1
+              },
+              {
+                "id": "e2",
+                "kind": "item",
+                "targetId": "a2",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 2
+              },
+              {
+                "id": "e3",
+                "kind": "item",
+                "targetId": "s1",
+                "parentId": null,
+                "name": null,
+                "sortOrder": 2
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Home",
+            "icon": "nav-home",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "devices": [
+          {
+            "kind": "devices",
+            "id": "devices",
+            "depth": 0,
+            "group": true,
+            "open": true,
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "muted": false,
+            "mark": null,
+            "teamMark": null,
+            "foldIcon": "ui-chevron-down"
+          }
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "rows": [
+              {
+                "kind": "team",
+                "item": null,
+                "id": "t1",
+                "depth": 0,
+                "group": true,
+                "open": true,
+                "title": "Acme",
+                "icon": "ide:team:t1",
+                "selected": false,
+                "count": "1",
+                "tone": "attention",
+                "gear": false,
+                "meta": null,
+                "foldIcon": "ui-chevron-down",
+                "editing": false,
+                "newItems": [
+                  {
+                    "label": "Chat",
+                    "value": "session",
+                    "icon": "action-chat"
+                  }
+                ]
+              },
+              {
+                "kind": "folder",
+                "id": "f1",
+                "depth": 1,
+                "group": true,
+                "open": true,
+                "newItems": [],
+                "item": null,
+                "title": "Bots",
+                "icon": "ui-folder",
+                "selected": false,
+                "count": null,
+                "tone": null,
+                "gear": false,
+                "meta": null,
+                "foldIcon": "ui-chevron-down",
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "a1",
+                "depth": 2,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "agent",
+                "title": "Triage",
+                "icon": "ide:agent:a1",
+                "selected": false,
+                "count": "2",
+                "tone": "attention",
+                "gear": true,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "a2",
+                "depth": 2,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "agent",
+                "title": "Docs",
+                "icon": "ide:agent:a2",
+                "selected": false,
+                "count": "3",
+                "tone": "muted",
+                "gear": true,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "s1",
+                "depth": 1,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "session",
+                "title": "Fix login",
+                "icon": "ide:run:s1",
+                "selected": false,
+                "count": "1",
+                "tone": "muted",
+                "gear": false,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              },
+              {
+                "kind": "item",
+                "id": "b1",
+                "depth": 1,
+                "group": false,
+                "open": false,
+                "newItems": [],
+                "item": "board",
+                "title": "App",
+                "icon": "ide:board:b1",
+                "selected": false,
+                "count": null,
+                "tone": null,
+                "gear": false,
+                "meta": null,
+                "foldIcon": null,
+                "editing": false
+              }
+            ]
+          }
+        ],
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "nav-badges: a folded team adds its hidden rows' muted counts to its share",
+      "input": {
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme",
+            "mark": "ide:team:t1",
+            "open": false,
+            "owner": false,
+            "needsYou": 1,
+            "items": [
+              {
+                "kind": "board",
+                "id": "b1",
+                "name": "App",
+                "icon": "ide:board:b1"
+              },
+              {
+                "kind": "agent",
+                "id": "a1",
+                "name": "Triage",
+                "icon": "ide:agent:a1",
+                "needsYou": true,
+                "unread": 2
+              },
+              {
+                "kind": "agent",
+                "id": "a2",
+                "name": "Docs",
+                "icon": "ide:agent:a2",
+                "needsYou": false,
+                "unread": 3
+              },
+              {
+                "kind": "session",
+                "id": "s1",
+                "name": "Fix login",
+                "icon": "ide:run:s1",
+                "needsYou": false,
+                "unread": 1,
+                "sessionIds": [
+                  "s1"
+                ]
+              }
+            ],
+            "layout": [
+              {
+                "id": "f1",
+                "kind": "folder",
+                "targetId": null,
+                "parentId": null,
+                "name": "Bots",
+                "sortOrder": 1
+              },
+              {
+                "id": "e1",
+                "kind": "item",
+                "targetId": "a1",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 1
+              },
+              {
+                "id": "e2",
+                "kind": "item",
+                "targetId": "a2",
+                "parentId": "f1",
+                "name": null,
+                "sortOrder": 2
+              },
+              {
+                "id": "e3",
+                "kind": "item",
+                "targetId": "s1",
+                "parentId": null,
+                "name": null,
+                "sortOrder": 2
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Home",
+            "icon": "nav-home",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "devices": [
+          {
+            "kind": "devices",
+            "id": "devices",
+            "depth": 0,
+            "group": true,
+            "open": true,
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "muted": false,
+            "mark": null,
+            "teamMark": null,
+            "foldIcon": "ui-chevron-down"
+          }
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "rows": [
+              {
+                "kind": "team",
+                "item": null,
+                "id": "t1",
+                "depth": 0,
+                "group": true,
+                "open": false,
+                "title": "Acme",
+                "icon": "ide:team:t1",
+                "selected": false,
+                "count": "5",
+                "tone": "attention",
+                "gear": false,
+                "meta": null,
+                "foldIcon": "ui-chevron-right",
+                "editing": false,
+                "newItems": [
+                  {
+                    "label": "Chat",
+                    "value": "session",
+                    "icon": "action-chat"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "active": [],
+        "prs": []
+      }
+    },
+    {
+      "name": "nav-badges: a shared device wears its team's mark on its glyph, never trailing",
+      "input": {
+        "devices": [
+          {
+            "id": "d1",
+            "name": "Mint",
+            "icon": "device-laptop",
+            "online": true
+          },
+          {
+            "id": "d2",
+            "name": "Box",
+            "icon": "ui-server",
+            "online": true,
+            "teamMark": "ide:team:t1"
+          }
+        ]
+      },
+      "expected": {
+        "nav": [
+          {
+            "id": "home",
+            "title": "Home",
+            "icon": "nav-home",
+            "selected": false,
+            "count": null,
+            "tone": null
+          },
+          {
+            "id": "chats",
+            "title": "Chats",
+            "icon": "nav-chats",
+            "selected": true,
+            "count": null,
+            "tone": null
+          }
+        ],
+        "devices": [
+          {
+            "kind": "devices",
+            "id": "devices",
+            "depth": 0,
+            "group": true,
+            "open": true,
+            "title": "Devices",
+            "icon": "nav-devices",
+            "selected": false,
+            "muted": false,
+            "mark": null,
+            "teamMark": null,
+            "foldIcon": "ui-chevron-down"
+          },
+          {
+            "kind": "device",
+            "id": "d1",
+            "depth": 1,
+            "group": false,
+            "open": false,
+            "title": "Mint",
+            "icon": "device-laptop",
+            "selected": false,
+            "muted": false,
+            "mark": "ide:dot:green",
+            "teamMark": null,
+            "foldIcon": null
+          },
+          {
+            "kind": "device",
+            "id": "d2",
+            "depth": 1,
+            "group": false,
+            "open": false,
+            "title": "Box",
+            "icon": "ui-server",
+            "selected": false,
+            "muted": false,
+            "mark": null,
+            "teamMark": "ide:team:t1",
+            "foldIcon": null
+          }
+        ],
+        "teams": [],
+        "active": [],
+        "prs": []
       }
     }
   ],

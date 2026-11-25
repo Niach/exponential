@@ -391,6 +391,7 @@ fn nothing_pins_to_a_foot_without_the_fab_foot() {
         ("toast.rs", 2, "the toast stack (lifts by `toastLift`)"),
         ("trace.rs", 1, "a trace rail line"),
         ("tree_guides.rs", 1, "a tree guide line"),
+        ("user_avatar.rs", 1, "the team mark on a row's lead"),
     ];
     fn walk(dir: &std::path::Path, root: &std::path::Path, found: &mut std::collections::BTreeMap<String, usize>) {
         for entry in std::fs::read_dir(dir).unwrap() {

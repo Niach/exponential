@@ -8,7 +8,7 @@
 //! issue and its board are synced, one entry per issue-less agent message,
 //! blocked session or signed-out login), where a row opens
 //! (`domain::inbox_route`, inbox-route.json) and Needs you's fold
-//! (`domain::needs_you`, needs-you.json) per team. The bell lists what is
+//! (`domain::needs_you`, needs-you.json) over all of them at once. The bell lists what is
 //! UNREAD (the inbox has no archive: dismissing a row marks it read, as the
 //! IDE's row press and mark-all-read do; it stays in the IDE's inbox, dimmed).
 //! Opening a row hands off to the Exponential app on that item
@@ -285,7 +285,7 @@ impl NeedsYouItem {
     }
 
     fn to_json(&self) -> Value {
-        let chat = if self.row.chat.is_empty() { self.team.clone() } else { format!("{} · {}", self.row.chat, self.team) };
+        let chat = [self.row.chat.as_str(), self.team.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" · ");
         let icon = match self.row.kind {
             domain::needs_you::NeedsYouKind::Plan => domain::waiting_cards::WAITING_CARDS.icons.plan.clone(),
             domain::needs_you::NeedsYouKind::Question => domain::waiting_cards::WAITING_CARDS.icons.question.clone(),
@@ -337,9 +337,12 @@ pub fn space_sessions(rows: &AccountRows, wanted: &HashSet<String>, opener: &syn
         .collect()
 }
 
-/// Every team's Needs you of one account (the IDE's `needs_you::input` per
-/// team, the stuck-PR rows aside: they need the devices' presence), the
-/// team's rows in the fold's order, the teams by name.
+/// One account's Needs you, ONE read over every member team and the personal
+/// home (the Assistant's conversation), as the IDE's `rows_in_all_teams`: an
+/// ask mirrored into the Assistant's chat is one row with its origin. Of the
+/// stuck PRs only the held ones (the offline ones need the devices, which the
+/// shell does not sync); the installs waiting for approval are the app's
+/// keeper's, not here.
 pub fn needs_you_items(rows: &AccountRows, now_ms: i64) -> Vec<NeedsYouItem> {
     let agents: HashMap<&str, &AgentDefRow> = rows.agents.iter().map(|a| (a.id.as_str(), a)).collect();
     let issues: HashMap<&str, &Issue> = rows.issues.iter().map(|i| (i.id.as_str(), i)).collect();
@@ -362,71 +365,106 @@ pub fn needs_you_items(rows: &AccountRows, now_ms: i64) -> Vec<NeedsYouItem> {
         let first: Vec<&MessageRow> = digests.get(session.id.as_str()).into_iter().flatten().filter(|m| first_prompt_candidate(m, &session.id)).collect();
         domain::session_title::session_title(session, &links, &tree, &first)
     };
-    let mut teams: Vec<&Team> = rows.teams.iter().collect();
-    teams.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    let mut out = Vec::new();
-    for team in teams {
-        let sessions: Vec<NeedsYouSessionInput> = rows
-            .sessions
-            .iter()
-            .filter(|s| s.team_id.as_deref() == Some(team.id.as_str()))
-            .map(|s| NeedsYouSessionInput {
-                id: s.id.clone(),
-                root_id: s.root_id_or_self().to_string(),
-                name: s.agent_id.as_deref().and_then(|a| agents.get(a)).and_then(|a| a.name.clone()).unwrap_or_else(|| title_of(s)),
-                status: s.status.clone().unwrap_or_default(),
-                agent_id: s.agent_id.clone(),
-                user_id: s.user_id.clone(),
-                busy: s.busy,
-            })
-            .collect();
-        if sessions.is_empty() {
-            continue;
-        }
-        let ids: HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
-        let messages: Vec<NeedsYouMessageInput> = digests
-            .iter()
-            .filter(|(owner, _)| ids.contains(*owner))
-            .flat_map(|(_, messages)| messages.iter())
-            .filter(|m| matches!(m.card.as_ref().and_then(|c| c.get("kind")).and_then(Value::as_str), Some("plan" | "question" | "ask")))
-            .map(|m| NeedsYouMessageInput {
-                id: m.id.clone(),
-                session_id: m.session_id.clone(),
-                author_session_id: m.author_session_id.clone(),
-                body: m.body.clone().unwrap_or_default(),
-                created_at: m.created_at.clone().unwrap_or_default(),
-                answered_at: m.answered_at.clone(),
-                card: m.card.clone(),
-            })
-            .collect();
-        let pull_requests: Vec<NeedsYouPullRequestInput> = rows
-            .pull_requests
-            .iter()
-            .filter(|p| p.team_id.as_deref() == Some(team.id.as_str()))
-            .map(|p| NeedsYouPullRequestInput {
-                id: p.id.clone(),
-                root_session_id: p.root_session_id.clone(),
-                number: p.number.unwrap_or_default(),
-                title: p.title.clone().unwrap_or_default(),
-                state: p.state.clone().unwrap_or_default(),
-                checks_state: p.checks_state.clone(),
-                base_pull_request_id: p.base_pull_request_id.clone(),
-                created_at: p.created_at.clone().unwrap_or_default(),
-            })
-            .collect();
-        let input = NeedsYouInput {
-            now: now_ms,
-            me: non_empty(Some(&rows.user_id)).map(str::to_string),
-            sessions,
-            messages,
-            pull_requests,
-            merge_mode: Some(team.merge_mode().to_string()),
-            // #EXP-1990: the team agents' group chats count for every member.
-            group_chat_ids: rows.agents.iter().filter_map(|a| a.group_chat_id.clone()).collect(),
-        };
-        out.extend(needs_you(&input).into_iter().map(|row| NeedsYouItem { account_id: rows.account_id.clone(), team: team.name.clone(), row }));
+    let me = non_empty(Some(&rows.user_id));
+    let teams: HashMap<&str, &Team> = rows.teams.iter().map(|t| (t.id.as_str(), t)).collect();
+    if teams.is_empty() {
+        return Vec::new();
     }
-    out
+    let listed = |s: &&SessionRow| s.team_id.as_deref().is_some_and(|team| teams.contains_key(team) || (me.is_some() && s.user_id.as_deref() == me));
+    let sessions: Vec<NeedsYouSessionInput> = rows
+        .sessions
+        .iter()
+        .filter(listed)
+        .map(|s| NeedsYouSessionInput {
+            id: s.id.clone(),
+            root_id: s.root_id_or_self().to_string(),
+            name: s.agent_id.as_deref().and_then(|a| agents.get(a)).and_then(|a| a.name.clone()).unwrap_or_else(|| title_of(s)),
+            status: s.status.clone().unwrap_or_default(),
+            agent_id: s.agent_id.clone(),
+            user_id: s.user_id.clone(),
+            busy: s.busy,
+        })
+        .collect();
+    let messages: Vec<NeedsYouMessageInput> = sessions
+        .iter()
+        .filter_map(|s| digests.get(s.id.as_str()))
+        .flatten()
+        .filter(|m| matches!(m.card.as_ref().and_then(|c| c.get("kind")).and_then(Value::as_str), Some("plan" | "question" | "ask")))
+        .map(|m| NeedsYouMessageInput {
+            id: m.id.clone(),
+            session_id: m.session_id.clone(),
+            author_session_id: m.author_session_id.clone(),
+            body: m.body.clone().unwrap_or_default(),
+            created_at: m.created_at.clone().unwrap_or_default(),
+            answered_at: m.answered_at.clone(),
+            card: m.card.clone(),
+        })
+        .collect();
+    // #EXP-1710: an `auto` team's PRs wait for nobody.
+    let pull_requests: Vec<NeedsYouPullRequestInput> = rows
+        .pull_requests
+        .iter()
+        .filter(|p| p.team_id.as_deref().and_then(|team| teams.get(team)).is_some_and(|team| team.merge_mode() != domain::contract::TEAM_MERGE_MODE_AUTO))
+        .map(|p| NeedsYouPullRequestInput {
+            id: p.id.clone(),
+            root_session_id: p.root_session_id.clone(),
+            number: p.number.unwrap_or_default(),
+            title: p.title.clone().unwrap_or_default(),
+            state: p.state.clone().unwrap_or_default(),
+            checks_state: p.checks_state.clone(),
+            base_pull_request_id: p.base_pull_request_id.clone(),
+            created_at: p.created_at.clone().unwrap_or_default(),
+        })
+        .collect();
+    let input = NeedsYouInput {
+        now: now_ms,
+        me: me.map(str::to_string),
+        sessions,
+        messages,
+        pull_requests,
+        merge_mode: None,
+        // #EXP-1990: the team agents' group chats count for every member.
+        group_chat_ids: rows.agents.iter().filter_map(|a| a.group_chat_id.clone()).collect(),
+    };
+    let held = held_rows(rows, &teams, &input);
+    let ids: HashSet<&str> = held.iter().map(|row| row.message_id.as_str()).collect();
+    let mut out: Vec<NeedsYouRow> = needs_you(&input).into_iter().filter(|row| !ids.contains(row.message_id.as_str())).collect();
+    out.extend(held.iter().cloned());
+    // needs-you.json: plans and questions on top, each group newest first.
+    out.sort_by_key(|row| (row.kind == domain::needs_you::NeedsYouKind::Pr, std::cmp::Reverse(ms(Some(&row.created_at)))));
+    let team_of: HashMap<&str, &str> = rows.sessions.iter().filter_map(|s| Some((s.id.as_str(), teams.get(s.team_id.as_deref()?)?.name.as_str()))).collect();
+    out.into_iter()
+        // The Assistant's rows name no team.
+        .map(|row| NeedsYouItem { account_id: rows.account_id.clone(), team: team_of.get(row.session_id.as_str()).copied().unwrap_or_default().to_string(), row })
+        .collect()
+}
+
+/// The PRs whose auto-merge is held (merge-train.json `stuckRow`), as their
+/// one row (its actions live in the app).
+fn held_rows(rows: &AccountRows, teams: &HashMap<&str, &Team>, input: &NeedsYouInput) -> Vec<NeedsYouRow> {
+    let names: HashMap<&str, &str> = input.sessions.iter().map(|s| (s.id.as_str(), s.name.as_str())).collect();
+    rows.pull_requests
+        .iter()
+        .filter(|p| p.team_id.as_deref().is_some_and(|team| teams.contains_key(team)))
+        .filter(|p| p.is_open() || p.state.as_deref() == Some(domain::contract::PR_STATE_DRAFT))
+        .filter_map(|p| {
+            let root = p.root_session_id.as_deref()?;
+            let view = domain::merge_train::stuck_row(p.number.unwrap_or_default(), domain::merge_train::pr_merge_state(p), p.merge_hold.as_deref(), None, input.now, false)?;
+            let created_at = p.created_at.clone().unwrap_or_default();
+            Some(NeedsYouRow {
+                message_id: p.id.clone(),
+                session_id: root.to_string(),
+                root_id: root.to_string(),
+                kind: domain::needs_you::NeedsYouKind::Pr,
+                opens: NeedsYouOpens::Results,
+                title: view.title,
+                chat: names.get(root).map(|name| name.to_string()).unwrap_or_default(),
+                meta: view.meta,
+                age: domain::results_tab::result_age(ms(Some(&created_at)), input.now),
+                created_at,
+            })
+        })
+        .collect()
 }
 
 /// `/needsYou`: the tray button shows while `count` > 0; its list's rows.
@@ -625,6 +663,27 @@ mod tests {
         let none = needs_you_items(&needs_you_account(true), now);
         assert!(none.is_empty());
         assert_eq!(needs_you_feed(&none)["count"], 0);
+    }
+
+    /// The Assistant's home counts too, and an ask mirrored there is one row
+    /// with its origin (its team's).
+    #[test]
+    fn a_mirrored_ask_is_one_row_and_the_assistants_own_names_no_team() {
+        let now = ms(Some("2026-11-08T10:05:00Z"));
+        let mut rows = needs_you_account(false);
+        let wait = |id: &str, card: Value| json!({"id": id, "authorKind": "agent", "body": "Asks: Which branch?", "card": card, "createdAt": "2026-11-08T10:02:00Z", "answeredAt": null});
+        let digest = json!({"waits": [
+            wait("mirror", json!({"kind": "ask", "sessionId": "s1", "messageId": "m1"})),
+            wait("own", json!({"kind": "question", "question": "Book the train?", "options": [{"label": "Yes"}]})),
+        ]});
+        rows.agents = vec![serde_json::from_value(json!({"id": "as1", "team_id": "home", "owner_id": "u1", "name": "Bro"})).unwrap()];
+        rows.sessions.push(serde_json::from_value(json!({"id": "h1", "team_id": "home", "root_id": "h1", "user_id": "u1", "agent_id": "as1", "status": "idle", "digest": digest})).unwrap());
+        // Somebody else's home never lists.
+        rows.sessions.push(serde_json::from_value(json!({"id": "h2", "team_id": "other-home", "root_id": "h2", "user_id": "u2", "status": "idle", "digest": json!({"waits": [wait("theirs", json!({"kind": "question", "question": "?", "options": []}))]})})).unwrap());
+        let items = needs_you_items(&rows, now);
+        assert_eq!(items.iter().map(|i| (i.row.message_id.as_str(), i.team.as_str())).collect::<Vec<_>>(), [("own", ""), ("m1", "Acme")]);
+        assert_eq!(items[0].to_json()["subtitle"], "Bro");
+        assert_eq!(items[1].to_json()["subtitle"], "Release · Acme");
     }
 
     #[test]
