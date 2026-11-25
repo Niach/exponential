@@ -4014,6 +4014,42 @@ fn pins_persist(shell: &SharedShell) {
 
 /// The compositor's window and workspace lists (one round trip each); the
 /// person's windows only (#EDE-91).
+/// #EDE-225: runs `session` on each connection `connect` makes, for the
+/// shell's life: one that drops (`session` returns `true`) or cannot be made
+/// is tried again after `sleep` (1 s, doubling to 10 s; back to 1 s once a
+/// connection held), said once in the log per outage; `false` (the shell's
+/// end of a channel went) ends it.
+fn keep_connected<C, E: std::fmt::Display>(what: &str, mut connect: impl FnMut() -> Result<C, E>, mut sleep: impl FnMut(Duration), mut session: impl FnMut(C) -> bool) {
+    const FIRST: Duration = Duration::from_secs(1);
+    const MOST: Duration = Duration::from_secs(10);
+    let mut wait = FIRST;
+    let mut said = false;
+    loop {
+        match connect() {
+            Ok(c) => {
+                if said {
+                    tracing::info!("{what}: connected again");
+                }
+                (wait, said) = (FIRST, false);
+                if !session(c) {
+                    return;
+                }
+                tracing::warn!("{what}: the connection ended; connecting again");
+            }
+            Err(e) => {
+                if !said {
+                    tracing::info!("{what}: no connection ({e}); trying again");
+                    said = true;
+                }
+                sleep(wait);
+                wait = (wait * 2).min(MOST);
+                continue;
+            }
+        }
+        sleep(wait);
+    }
+}
+
 fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)> {
     let windows = ede_protocol::persons(calls.windows().ok()?);
     let workspaces = calls.workspaces().unwrap_or_default();
@@ -4074,49 +4110,58 @@ fn main() {
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     // #EXP-2024: the session's lock (the capture loop stops while it holds).
     let (locks_tx, locks_rx) = mpsc::channel::<bool>();
+    // #EDE-225: a connection that drops (a read failed, the compositor's
+    // socket went) is connected again, as the services thread does: the
+    // shell never draws on without its hotkeys and its window list.
     std::thread::Builder::new()
         .name("ede-shell-events".into())
         .spawn(move || {
-            let Ok(mut events) = control::connect() else {
-                tracing::info!("no ede-protocol socket: the taskbar stays empty");
-                return;
-            };
-            let Ok(mut calls) = control::connect() else { return };
-            if !demo {
-                if let Some(list) = lists(&mut calls) {
-                    let _ = windows_tx.send(list);
-                }
-            }
-            if events.subscribe().is_err() {
-                return;
-            }
-            while let Ok(event) = events.next_event() {
-                // #EDE-91: an agent space's windows and outputs are not the person's.
-                if !ede_protocol::is_persons_event(&event) {
-                    continue;
-                }
-                if event.kind == ede_protocol::events::SESSION_LOCKED || event.kind == ede_protocol::events::SESSION_UNLOCKED {
-                    if locks_tx.send(event.kind == ede_protocol::events::SESSION_LOCKED).is_err() {
-                        return;
-                    }
-                } else if event.kind == ede_protocol::events::HOTKEY {
-                    if let Some(name) = event.data.get("name").and_then(Value::as_str) {
-                        if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
-                            return;
-                        }
-                    }
-                } else if event.kind.starts_with("output.") {
-                    if outputs_tx.send(()).is_err() {
-                        return;
-                    }
-                } else if !demo && (event.kind.starts_with("window.") || event.kind.starts_with("workspace.")) {
+            let connect = || -> Result<_, ede_protocol::Error> { Ok((control::connect()?, control::connect()?)) };
+            let mut again = false;
+            keep_connected("the ede-protocol events", connect, std::thread::sleep, |(mut events, mut calls): (ede_protocol::Client, ede_protocol::Client)| {
+                if !demo {
                     if let Some(list) = lists(&mut calls) {
                         if windows_tx.send(list).is_err() {
-                            return;
+                            return false;
                         }
                     }
                 }
-            }
+                // The outputs may have changed while it was away.
+                if std::mem::replace(&mut again, true) && outputs_tx.send(()).is_err() {
+                    return false;
+                }
+                if events.subscribe().is_err() {
+                    return true;
+                }
+                while let Ok(event) = events.next_event() {
+                    // #EDE-91: an agent space's windows and outputs are not the person's.
+                    if !ede_protocol::is_persons_event(&event) {
+                        continue;
+                    }
+                    if event.kind == ede_protocol::events::SESSION_LOCKED || event.kind == ede_protocol::events::SESSION_UNLOCKED {
+                        if locks_tx.send(event.kind == ede_protocol::events::SESSION_LOCKED).is_err() {
+                            return false;
+                        }
+                    } else if event.kind == ede_protocol::events::HOTKEY {
+                        if let Some(name) = event.data.get("name").and_then(Value::as_str) {
+                            if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
+                                return false;
+                            }
+                        }
+                    } else if event.kind.starts_with("output.") {
+                        if outputs_tx.send(()).is_err() {
+                            return false;
+                        }
+                    } else if !demo && (event.kind.starts_with("window.") || event.kind.starts_with("workspace.")) {
+                        if let Some(list) = lists(&mut calls) {
+                            if windows_tx.send(list).is_err() {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            });
         })
         .expect("the events thread");
     let mut installed = if demo { apps::demo() } else { apps::scan() };
@@ -5697,5 +5742,36 @@ mod sender_avatar {
         assert!(super::plain_icon("no-such-icon", 18.0, white).is_none());
         // Whatever size genUI's Icon hands over: the IDE's 32 px disc, 18 px glyph.
         assert_eq!(super::avatar_sizes(), (domain::transcript_grouping::layout().avatar, 18.0));
+    }
+}
+
+#[cfg(test)]
+mod keep_connected_tests {
+    use super::*;
+
+    /// #EDE-225: a connection that drops once is made again (after the
+    /// first wait), and the session runs on it; a session that says stop
+    /// ends the loop.
+    #[test]
+    fn a_dropped_connection_is_made_again() {
+        let mut tries = vec![Err("no socket"), Ok(1), Ok(2)].into_iter();
+        let (mut sleeps, mut ran) = (Vec::new(), Vec::new());
+        keep_connected("test", || tries.next().expect("no connect after the stop"), |d| sleeps.push(d), |c: i32| {
+            ran.push(c);
+            // The first connection drops; the shell's channel goes on the second.
+            c == 1
+        });
+        assert_eq!(ran, [1, 2], "the session ran again on the new connection");
+        assert_eq!(sleeps, [Duration::from_secs(1), Duration::from_secs(1)]);
+    }
+
+    /// No compositor for a while: the waits double to 10 s, and a
+    /// connection that held starts them at 1 s again.
+    #[test]
+    fn the_waits_back_off_and_reset_once_a_connection_held() {
+        let mut tries = vec![Err("down"), Err("down"), Err("down"), Err("down"), Err("down"), Ok(1), Err("down"), Ok(2)].into_iter();
+        let mut sleeps = Vec::new();
+        keep_connected("test", || tries.next().unwrap(), |d| sleeps.push(d.as_secs()), |c: i32| c == 1);
+        assert_eq!(sleeps, [1, 2, 4, 8, 10, 1, 1]);
     }
 }
