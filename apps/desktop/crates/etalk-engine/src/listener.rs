@@ -993,6 +993,15 @@ impl<H: Hearing> Calling<H> {
             self.ears = Some(CallEars { vad, mic, echo });
         }
         if !self.listening && (links.voice_ready)() {
+            // #NEW-142 (EXP-1857's rule): the caller's audio from before the
+            // call listens is dropped, also what still waits in the queue (a
+            // load blocks this loop for seconds and the whole stream piles
+            // up behind it). A turn call keeps it, in order.
+            if self.remote && self.turn.is_none() {
+                backlog.extend(rx.try_iter());
+                let id = self.call.id();
+                backlog.retain(|job| !matches!(job, Job::Audio { id: other, .. } | Job::Lost { id: other, .. } if other == id));
+            }
             self.listening = true;
             self.level = InputLevel::default();
             eprintln!(
@@ -2357,6 +2366,20 @@ mod tests {
             self.send(Job::Call { id: id.into(), language: "en".into(), remote, turn: None });
         }
 
+        /// A remote call that listens: audio sent from here on is heard.
+        fn listening_remote_call(&self, id: &str) {
+            self.call(id, true);
+            let listening = |events: &[Event]| events.iter().any(|event| matches!(event, Event::CallListening { id: other } if other == id));
+            assert!(listening(&self.until(listening)), "{id} never listened");
+        }
+
+        /// The caller streams one phrase of 0.8 s, in 20 ms chunks.
+        fn stream_phrase(&self, id: &str) {
+            for chunk in phrase(0.8).chunks(320) {
+                self.send(Job::Audio { id: id.into(), samples: chunk.to_vec() });
+            }
+        }
+
         /// The events once `done` holds (10 s at most).
         fn until(&self, done: impl Fn(&[Event]) -> bool) -> Vec<Event> {
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -2850,10 +2873,8 @@ mod tests {
     #[test]
     fn a_remote_call_hears_streamed_audio() {
         let harness = Harness::new();
-        harness.call("c1", true);
-        for chunk in phrase(0.8).chunks(320) {
-            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
-        }
+        harness.listening_remote_call("c1");
+        harness.stream_phrase("c1");
         // Audio of another call is dropped.
         for chunk in phrase(0.8).chunks(320) {
             harness.send(Job::Audio { id: "other".into(), samples: chunk.to_vec() });
@@ -2880,7 +2901,7 @@ mod tests {
     #[test]
     fn an_utterance_that_lost_too_much_is_not_said() {
         let harness = Harness::new();
-        harness.call("c1", true);
+        harness.listening_remote_call("c1");
         let most = etalk::CALL_MAX_LOST_MS;
         let say = |lost: &[u32]| {
             let chunks: Vec<Vec<f32>> = phrase(0.8).chunks(320).map(<[f32]>::to_vec).collect();
@@ -2938,22 +2959,58 @@ mod tests {
     /// recognizer is still downloading drops the caller's streamed audio
     /// until its ears are up, instead of panicking the listen thread on
     /// engines that are not loaded; it then listens and hears as usual.
+    /// #NEW-142: the download ends only once the whole phrase is streamed,
+    /// so it was all streamed before the call listened, however much of it
+    /// the loop has taken off its queue by then.
     #[test]
     fn a_remote_call_drops_streamed_audio_while_it_downloads() {
         let harness = Harness::new();
-        *harness.probe.downloads.lock().unwrap() = (3, false);
+        *harness.probe.downloads.lock().unwrap() = (usize::MAX, false);
         harness.call("c1", true);
-        for chunk in phrase(0.8).chunks(320) {
-            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
-        }
-        let events = harness.until(|events| events.iter().any(|event| matches!(event, Event::CallListening { .. })));
-        assert!(!events.iter().any(|event| matches!(event, Event::Said { .. } | Event::ListenFailed { .. })));
-        assert_eq!(harness.probe.downloads.lock().unwrap().0, 0, "it waited the download out");
-        for chunk in phrase(0.8).chunks(320) {
-            harness.send(Job::Audio { id: "c1".into(), samples: chunk.to_vec() });
-        }
+        harness.stream_phrase("c1");
+        assert!(harness.events.lock().unwrap().is_empty(), "nothing while it downloads");
+        *harness.probe.downloads.lock().unwrap() = (0, false);
+        hears_only_what_follows(harness);
+    }
+
+    /// #NEW-142: the engine load blocks the listen thread for seconds; what
+    /// the caller streamed meanwhile waits in the queue and is dropped too:
+    /// words from before the call listened are never answered.
+    #[test]
+    fn a_remote_call_drops_audio_streamed_during_a_blocking_load() {
+        let harness = Harness::new();
+        let (loaded, loads) = std::sync::mpsc::channel();
+        *harness.probe.loads.lock().unwrap() = Some(loads);
+        harness.call("c1", true);
+        harness.stream_phrase("c1");
+        loaded.send(()).unwrap();
+        hears_only_what_follows(harness);
+    }
+
+    /// #NEW-142: the same while the voice still loads (the ears are up).
+    #[test]
+    fn a_remote_call_drops_audio_streamed_before_the_voice_is_up() {
+        let harness = Harness::new();
+        harness.voice.store(false, Ordering::SeqCst);
+        harness.call("c1", true);
+        harness.stream_phrase("c1");
+        harness.voice.store(true, Ordering::SeqCst);
+        hears_only_what_follows(harness);
+    }
+
+    /// Call `c1` listens now: the phrase streamed from here on is the only
+    /// one ever said (the fake's clips count up), to the thread's end.
+    fn hears_only_what_follows(harness: Harness) {
+        let listens = |events: &[Event]| events.iter().any(|event| matches!(event, Event::CallListening { .. }));
+        assert!(listens(&harness.until(listens)), "the call never listened");
+        harness.stream_phrase("c1");
         harness.said(1);
-        harness.close();
+        // The thread works its queue off before it ends: nothing more comes.
+        let events = harness.close();
+        assert_eq!(said(&events), ["clip1"], "{:?}", without_levels(&events));
+        let first = without_levels(&events)[0];
+        assert_eq!(first, &Event::CallListening { id: "c1".into() }, "nothing heard before it listens");
+        assert!(!events.iter().any(|event| matches!(event, Event::ListenFailed { .. })), "{:?}", without_levels(&events));
     }
 
     /// S-3: a download (or load) that fails fails the call `unavailable`,
