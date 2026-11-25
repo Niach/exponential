@@ -321,9 +321,17 @@ pub trait InstallRegistry: Send + Sync + 'static {
     fn trust(self: Arc<Self>) -> Option<Arc<dyn crate::install_trust::TrustApi>> {
         None
     }
+    /// #FEED-311: the account's client, for the local MCP clients' endpoint
+    /// (`coding::client_mcp`); `None` = not served (tests).
+    fn client(self: Arc<Self>) -> Option<Arc<api::TrpcClient>> {
+        None
+    }
 }
 
 impl InstallRegistry for api::TrpcClient {
+    fn client(self: Arc<Self>) -> Option<Arc<api::TrpcClient>> {
+        Some(self)
+    }
     fn register(&self, input: &RegisterInstall) -> Result<String, ApiError> {
         api::installs::register(self, input).map(|r| r.install_id)
     }
@@ -403,6 +411,8 @@ struct Inner {
     /// EXP-1458: the key holder, once registered (`seal_keys.rs`).
     holder: Mutex<Option<KeyHolder>>,
     holder_wake: Arc<Notify>,
+    /// #FEED-311: this device's own MCP clients, while the holder runs.
+    client_mcp: Mutex<Option<coding::client_mcp::ClientMcp>>,
     /// The last allowlist's entries (the user's other installs a new
     /// tree's key is wrapped for).
     entries: Mutex<Vec<InstallEntry>>,
@@ -441,6 +451,7 @@ impl InstallNode {
             passes,
             holder: Mutex::new(None),
             holder_wake: Arc::new(Notify::new()),
+            client_mcp: Mutex::new(None),
             entries: Mutex::new(Vec::new()),
             team_entries: Mutex::new(HashMap::new()),
             stored: Mutex::new(None),
@@ -573,6 +584,7 @@ impl InstallNode {
     pub fn stop(&self) {
         self.inner.stopped.store(true, Ordering::SeqCst);
         coding::sealing::holder_off(coding::sealing::HolderOff::Stopped);
+        drop(lock(&self.inner.client_mcp).take());
         if let Some(holder) = lock(&self.inner.holder).take() {
             if let Some(trust) = holder.trust() {
                 trust.stop();
@@ -741,6 +753,7 @@ async fn run_node(inner: &Arc<Inner>) {
         }
         if matches!(registered, Registered::Yes) {
             start_holder(&inner, &identity);
+            serve_clients(&inner).await;
             match lock(&inner.holder).as_ref() {
                 Some(holder) => {
                     holder.set_direct_sender(direct_sender(&inner));
@@ -803,6 +816,30 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
     *lock(&inner.holder) = Some(holder);
     log::info!("enet: key holder running");
+}
+
+/// #FEED-311: this device's own MCP clients reach the holder (idempotent; a
+/// changed credential is granted again).
+async fn serve_clients(inner: &Arc<Inner>) {
+    if lock(&inner.holder).is_none() {
+        return;
+    }
+    let Some(trpc) = Arc::clone(&inner.registry).client() else { return };
+    let inner = Arc::clone(inner);
+    let _ = blocking(move || {
+        let mut slot = lock(&inner.client_mcp);
+        // Under the slot's lock: `stop` sets the flag before it takes it.
+        if inner.stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(client) = slot.as_ref() {
+            return client.refresh();
+        }
+        let daemon = matches!(inner.spec.kind, InstallKind::Daemon);
+        let path = coding::client_mcp::endpoint_path(&keyring_path(&inner.spec), daemon);
+        *slot = Some(coding::client_mcp::ClientMcp::start(path, daemon, trpc));
+    })
+    .await;
 }
 
 /// The install's persisted keyring, beside its identity.
