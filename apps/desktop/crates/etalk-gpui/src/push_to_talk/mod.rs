@@ -54,6 +54,15 @@ const MAX_TURN_SECONDS: usize = 60;
 /// have sent a dialled turn (the reply is the first after that).
 const SENT_SLACK_MS: i64 = 2_000;
 
+/// EXP-1859: what bounds a dialled turn whatever its host does (an older one
+/// answers it as an ordinary call). Not `said` this long after `call_ready`
+/// (talk-listen.json `maxTurnMs` + a margin for a cold host): heard here.
+const TURN_SAID_WITHIN: Duration = Duration::from_secs(MAX_TURN_SECONDS as u64 + 15);
+/// After `said`: no reply this much past the host's own `turnReplyWaitMs`.
+const TURN_REPLY_MARGIN: Duration = Duration::from_secs(10);
+/// The longest spoken reply.
+const TURN_REPLY_AT_MOST: Duration = Duration::from_secs(300);
+
 /// EXP-1859: how a dialled turn ends on the caller.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ending {
@@ -147,8 +156,14 @@ struct TurnDial {
     held: Vec<i16>,
     /// `call_ready` came (the fallback timer no longer applies).
     ready: bool,
-    /// The host's `said` came: from here a failure only ends it.
+    /// The host stepped `ready`: a turn host does at once, cold too (an older
+    /// build rings first: it answered an ordinary call).
+    answered: bool,
+    /// The host's `said` came: from here a failure only ends it, and nothing
+    /// of the microphone leaves.
     said: bool,
+    /// The host's reply plays.
+    replying: bool,
 }
 
 pub struct PushToTalk {
@@ -937,17 +952,20 @@ impl PushToTalk {
     /// the phrase's start) when the dial is refused, when `call_ready` has not
     /// come within `turnDialMs`, or on a failure before the host's `said`.
     fn dial_turn(&mut self, id: String, agent_id: String, phrase: String, cx: &mut Context<Self>) {
-        self.turn_dial = Some(TurnDial { id: id.clone(), agent_id: agent_id.clone(), link: None, held: Vec::new(), ready: false, said: false });
+        self.turn_dial = Some(TurnDial { id: id.clone(), agent_id: agent_id.clone(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
         let Some(connecting) = host::host(cx).and_then(|host| host.dial_turn(&agent_id, &phrase, cx)) else {
             log::info!("[voice] wake turn {id}: nothing to dial through: heard here");
             return self.fall_back(&id, cx);
         };
         log::info!("[voice] wake turn {id}: dialling the agent's own device");
+        // The worker counts its wake turns from 1 again after a restart: what
+        // an older turn left behind never reaches this one.
+        let generation = self.generation;
         let waiting = id.clone();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(etalk::call::VOICE_CALL.constants.turn_dial_ms)).await;
             let _ = this.update(cx, |this, cx| {
-                if this.turn_dial.as_ref().is_some_and(|turn| turn.id == waiting && !turn.ready) {
+                if this.generation == generation && this.turn_dial.as_ref().is_some_and(|turn| turn.id == waiting && !turn.ready) {
                     log::info!("[voice] wake turn {waiting}: not connected in time: heard here");
                     this.fall_back(&waiting, cx);
                 }
@@ -960,13 +978,15 @@ impl PushToTalk {
                 Err(err) => {
                     let _ = this.update(cx, |this, cx| {
                         log::info!("[voice] wake turn {id}: the dial was refused ({err:?}): heard here");
-                        this.turn_failed(&id, cx);
+                        if this.generation == generation {
+                            this.turn_failed(&id, cx);
+                        }
                     });
                     return;
                 }
             };
             let (link, rx) = (connection.link, connection.events);
-            let kept = this.update(cx, |this, _| match this.turn_dial.as_mut().filter(|turn| turn.id == id) {
+            let kept = this.update(cx, |this, _| match this.turn_dial.as_mut().filter(|turn| turn.id == id && this.generation == generation) {
                 Some(turn) => {
                     turn.link = Some(link);
                     true
@@ -981,7 +1001,13 @@ impl PushToTalk {
                 return;
             }
             while let Ok(event) = rx.recv_async().await {
-                if this.update(cx, |this, cx| this.on_turn_dial(&id, event, cx)).is_err() {
+                let current = this.update(cx, |this, cx| {
+                    if this.generation == generation {
+                        this.on_turn_dial(&id, event, cx);
+                    }
+                    this.generation == generation
+                });
+                if !current.unwrap_or(false) {
                     break;
                 }
             }
@@ -996,6 +1022,8 @@ impl PushToTalk {
         let Ok(samples) = etalk::decode_pcm(pcm) else { return };
         let peak = samples.iter().map(|sample| i32::from(*sample).unsigned_abs()).max().unwrap_or(0);
         self.level = (peak as f32 / 32768. * 2.).min(1.);
+        // After `said` the microphone's own samples never reach the link.
+        let samples = if turn.said { vec![0; samples.len()] } else { samples };
         match turn.link.as_ref() {
             Some(link) if turn.ready => link.send_audio(samples),
             _ => {
@@ -1017,6 +1045,18 @@ impl PushToTalk {
                 if let Some(link) = turn.link.as_ref().filter(|_| !turn.held.is_empty()) {
                     link.send_audio(std::mem::take(&mut turn.held));
                 }
+                self.bound_turn(id, TURN_SAID_WITHIN, cx);
+                let (waiting, generation) = (id.to_string(), self.generation);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_millis(etalk::call::VOICE_CALL.constants.turn_dial_ms)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.turn_dial.as_ref().is_some_and(|turn| turn.id == waiting && this.generation == generation && !turn.answered && !turn.said) {
+                            log::info!("[voice] wake turn {waiting}: its host rings (an ordinary call): heard here");
+                            this.fall_back(&waiting, cx);
+                        }
+                    });
+                })
+                .detach();
             }
             DialLinkEvent::Audio(pcm) => {
                 if let Some(client) = self.client.as_ref() {
@@ -1039,10 +1079,36 @@ impl PushToTalk {
                         client.dial_flush(id);
                     }
                 }
+                // A turn host says nothing of a reply before `said`, and ONE
+                // utterance: this one runs an ordinary call (an older build
+                // ignores the ring's mode). Before `said` the turn is heard here.
+                Some(etalk::call::CallEvent::ReplyStarted(_) | etalk::call::CallEvent::ReplyFinished | etalk::call::CallEvent::NoSound) if !turn.said => {
+                    log::info!("[voice] wake turn {id}: its host runs an ordinary call: heard here");
+                    self.turn_failed(id, cx);
+                }
+                Some(etalk::call::CallEvent::Said(_)) if turn.said => {
+                    log::info!("[voice] wake turn {id}: its host heard a second utterance: ended");
+                    self.turn_failed(id, cx);
+                }
                 Some(event) => {
                     let sent = turn.said;
-                    if let etalk::call::CallEvent::Said(_) = &event {
-                        turn.said = true;
+                    let mut bound = None;
+                    match &event {
+                        etalk::call::CallEvent::Said(_) => {
+                            turn.said = true;
+                            // The turn is over: the frames go on as silence
+                            // (the relay's idle clock), never the microphone.
+                            if let Some(link) = turn.link.as_ref() {
+                                link.set_muted(true);
+                            }
+                            bound = Some(Duration::from_millis(etalk::call::VOICE_CALL.constants.turn_reply_wait_ms) + TURN_REPLY_MARGIN);
+                        }
+                        etalk::call::CallEvent::Ready => turn.answered = true,
+                        etalk::call::CallEvent::ReplyStarted(_) if !turn.replying => {
+                            turn.replying = true;
+                            bound = Some(TURN_REPLY_AT_MOST);
+                        }
+                        _ => {}
                     }
                     let newest = match &event {
                         etalk::call::CallEvent::ReplyStarted(first) => {
@@ -1053,6 +1119,9 @@ impl PushToTalk {
                     };
                     for step in etalk::call::turn_capsule(&etalk::call::TurnCallEvent::Flow(event), sent, &newest) {
                         self.step(step, cx);
+                    }
+                    if let Some(bound) = bound {
+                        self.bound_turn(id, bound, cx);
                     }
                 }
                 None => {}
@@ -1071,6 +1140,22 @@ impl PushToTalk {
                 self.turn_failed(id, cx);
             }
         }
+    }
+
+    /// EXP-1859: the dialled turn ends unless it moved on `within` this long.
+    fn bound_turn(&mut self, id: &str, within: Duration, cx: &mut Context<Self>) {
+        let stage = |this: &Self, id: &str| this.turn_dial.as_ref().filter(|turn| turn.id == id).map(|turn| (turn.said, turn.replying));
+        let (id, armed, generation) = (id.to_string(), stage(self, id), self.generation);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(within).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation == generation && armed.is_some() && stage(this, &id) == armed {
+                    log::info!("[voice] wake turn {id}: its host did not go on in time: ended");
+                    this.turn_failed(&id, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// EXP-1859: the dialled turn failed: before the host's `said` it is the
@@ -1556,7 +1641,7 @@ mod tests {
         rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some("a-ops".into()) }, cx);
         cx.update(|cx| {
             global(cx).unwrap().update(cx, |this, _| {
-                let turn = TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: Some(Box::new(link.clone())), held: Vec::new(), ready: true, said: false };
+                let turn = TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: Some(Box::new(link.clone())), held: Vec::new(), ready: true, answered: false, said: false, replying: false };
                 this.turn_dial = Some(turn);
             })
         });
@@ -1606,7 +1691,7 @@ mod tests {
         assert_eq!(phase(cx), PttPhase::Spoken);
         turn_event(DialLinkEvent::Ended { reason: None }, cx);
         assert!(rig.requests().contains(&etalk::Request::Hangup { id: "wake-1".into() }));
-        assert_eq!(*link.0.borrow(), ["audio 320"], "the host hung up: nothing to tell it");
+        assert_eq!(*link.0.borrow(), ["audio 320", "mute true"], "the host hung up: nothing to tell it");
         cx.update(|cx| assert!(global(cx).unwrap().read(cx).turn_dial.is_none()));
     }
 
@@ -1652,7 +1737,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(phase(cx), PttPhase::Speaking);
         cx.update(on_pill);
-        assert_eq!((phase(cx), link.0.borrow().clone()), (PttPhase::Spoken, vec!["end".to_string()]));
+        assert_eq!((phase(cx), link.0.borrow().clone()), (PttPhase::Spoken, vec!["mute true".to_string(), "end".to_string()]));
     }
 
     /// EXP-1859: an agent's device that comes online makes its wake turn a
@@ -1681,6 +1766,79 @@ mod tests {
         assert_eq!(dials(cx), [true], "a new worker is told again");
     }
 
+    /// EXP-1859: whatever its host does, a dialled turn ends: an ordinary
+    /// call's host (an older build) is noticed and the turn heard here, one
+    /// that never says it too, a second `said` or a missing reply ends it.
+    /// After `said` nothing of the microphone leaves.
+    #[gpui::test]
+    async fn nothing_a_host_does_keeps_a_dialled_turn_open(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        let event = |value: serde_json::Value, cx: &mut gpui::TestAppContext| turn_event(DialLinkEvent::Event(value), cx);
+        let gone = |cx: &mut gpui::TestAppContext| cx.update(|cx| global(cx).unwrap().read(cx).turn_dial.is_none());
+        let fallback = etalk::Request::Fallback { id: "wake-1".into() };
+        let hangup = etalk::Request::Hangup { id: "wake-1".into() };
+        let fresh = |cx: &mut gpui::TestAppContext| {
+            let link = TurnLink::default();
+            dialled_turn(&rig, &link, cx);
+            turn_event(DialLinkEvent::Ready, cx);
+            link
+        };
+        // An older host: its ring answers, then it picks up like a call.
+        for old in [serde_json::json!({ "t": "noSound" }), serde_json::json!({ "t": "replyFinished" }), serde_json::json!({ "t": "replyStarted", "text": "Hi." })] {
+            let link = fresh(cx);
+            event(serde_json::json!({ "t": "rang" }), cx);
+            event(serde_json::json!({ "t": "ready" }), cx);
+            assert!(!gone(cx));
+            event(old, cx);
+            assert_eq!(rig.requests(), [fallback.clone()]);
+            assert_eq!(*link.0.borrow(), ["end"]);
+            assert_eq!(phase(cx), PttPhase::Listening, "heard here");
+        }
+        // It only rings: noticed within turnDialMs.
+        let dial = Duration::from_millis(etalk::call::VOICE_CALL.constants.turn_dial_ms);
+        let link = fresh(cx);
+        event(serde_json::json!({ "t": "rang" }), cx);
+        cx.executor().advance_clock(dial + Duration::from_millis(100));
+        cx.run_until_parked();
+        assert!(gone(cx));
+        assert_eq!(rig.requests(), [fallback.clone()]);
+        assert_eq!(*link.0.borrow(), ["end"]);
+        // Never said (the timers the turns above left behind end nothing).
+        let link = fresh(cx);
+        event(serde_json::json!({ "t": "ready" }), cx);
+        cx.executor().advance_clock(TURN_SAID_WITHIN - Duration::from_secs(1));
+        cx.run_until_parked();
+        assert!(!gone(cx));
+        cx.executor().advance_clock(Duration::from_secs(2));
+        cx.run_until_parked();
+        assert!(gone(cx));
+        assert_eq!(rig.requests(), [fallback]);
+        assert_eq!(*link.0.borrow(), ["end"]);
+        // A second said; no word of the microphone after the first.
+        let link = fresh(cx);
+        event(serde_json::json!({ "t": "said", "text": "Status?" }), cx);
+        assert_eq!(*link.0.borrow(), ["mute true"]);
+        event(serde_json::json!({ "t": "said", "text": "And more." }), cx);
+        assert_eq!(rig.requests(), [hangup.clone()]);
+        assert_eq!(link.0.borrow().last().map(String::as_str), Some("end"));
+        // No reply, and a reply without an end.
+        for replying in [false, true] {
+            let link = fresh(cx);
+            event(serde_json::json!({ "t": "said", "text": "Status?" }), cx);
+            if replying {
+                event(serde_json::json!({ "t": "replyStarted", "text": "Green." }), cx);
+                cx.executor().advance_clock(Duration::from_secs(100));
+                cx.run_until_parked();
+                assert!(!gone(cx), "a long reply plays on");
+            }
+            cx.executor().advance_clock(if replying { TURN_REPLY_AT_MOST } else { Duration::from_secs(71) });
+            cx.run_until_parked();
+            assert!(gone(cx));
+            assert_eq!(rig.requests(), [hangup.clone()]);
+            assert_eq!(link.0.borrow().last().map(String::as_str), Some("end"));
+        }
+    }
+
     /// EXP-1859: until `call_ready` the turn's audio is held, not handed to
     /// the link (it would drop it); then ALL of it goes first, in order, then
     /// the live audio. A cancel during the wait sends none of it.
@@ -1707,7 +1865,7 @@ mod tests {
             rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some("a-ops".into()) }, cx);
             cx.update(|cx| {
                 global(cx).unwrap().update(cx, |this, _| {
-                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: None, held: Vec::new(), ready: false, said: false });
+                    this.turn_dial = Some(TurnDial { id: "wake-1".into(), agent_id: "a-ops".into(), link: None, held: Vec::new(), ready: false, answered: false, said: false, replying: false });
                 })
             });
             rig.requests();
@@ -1725,6 +1883,7 @@ mod tests {
             }
             turn_event(DialLinkEvent::Ready, cx);
             said(640, cx);
+            turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "ready" })), cx);
             assert_eq!(*link.0.borrow(), (0..960).collect::<Vec<i16>>(), "all of it, in order");
             // A cold host: no timer of this side ends the wait.
             cx.executor().advance_clock(Duration::from_secs(20));
@@ -1757,7 +1916,7 @@ mod tests {
         turn_event(DialLinkEvent::Dropped("gone".into()), cx);
         assert_eq!(rig.requests(), [etalk::Request::Hangup { id: "wake-1".into() }]);
         assert_eq!(phase(cx), PttPhase::Thinking, "Thinking until the reply lands in the chat");
-        assert_eq!(*link.0.borrow(), ["end"], "the far side's failure");
+        assert_eq!(*link.0.borrow(), ["mute true", "end"], "the far side's failure");
         // The key replaces a dialled turn.
         let link = TurnLink::default();
         dialled_turn(&rig, &link, cx);
