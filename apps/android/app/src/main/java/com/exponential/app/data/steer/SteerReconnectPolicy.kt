@@ -284,6 +284,14 @@ fun <T> steerSyncedTail(
 }
 
 /**
+ * #EXP-2138 (fixtures/steer-enet.json "SYNCED TAIL" `unreachable`, TS
+ * `steerTailUnreachable`): the last dial said NO FEED, or a row not ended
+ * whose device is offline.
+ */
+fun steerTailUnreachable(ended: Boolean, noFeed: Boolean, deviceOffline: Boolean): Boolean =
+    noFeed || (!ended && deviceOffline)
+
+/**
  * #FEED-260 (fixtures/steer-enet.json "OFFLINE LINE", TS `steerOfflineLine`):
  * a not-live transcript showing rows ends with THE inline marker
  * `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
