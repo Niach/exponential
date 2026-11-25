@@ -48,6 +48,7 @@ mod linux {
                 args: std::iter::once("__inside".to_string()).chain(args.iter().cloned()).collect(),
                 env: environment(std::env::vars()),
                 instance: None,
+                only: None,
                 grace_secs: 2,
             }
         }
@@ -98,7 +99,8 @@ mod linux {
             return;
         }
         println!("probe ... ok");
-        let tests: [(&str, fn()); 13] = [
+        let tests: [(&str, fn()); 14] = [
+            ("the_last_save_reaches_its_remote_alone", the_last_save_reaches_its_remote_alone),
             ("no_process_names_a_writable_program", no_process_names_a_writable_program),
             ("the_control_pipe_is_not_inside", the_control_pipe_is_not_inside),
             ("a_fork_bomb_is_bounded", a_fork_bomb_is_bounded),
@@ -176,6 +178,24 @@ mod linux {
             .map_or("127.0.0.2".to_string(), |addr| addr.ip().to_string());
         let mut spec = dirs.spec(&args(&["net", &instance.to_string(), &other.to_string(), &lan]));
         spec.instance = Some(("127.0.0.1".into(), instance));
+        let (code, out, err) = finish(launch(&spec));
+        assert_eq!((code, out.trim()), (Some(0), "ok"), "{err}");
+    }
+
+    /// Finding 5: with `only`, nothing else is reachable, no name resolves.
+    fn the_last_save_reaches_its_remote_alone() {
+        let dirs = Dirs::new("only");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let _ = stream.write_all(b"hello");
+            }
+        });
+        let mut spec = dirs.spec(&args(&["only", &port.to_string()]));
+        spec.instance = Some(("127.0.0.1".into(), port));
+        spec.only = Some(vec![("localhost".into(), 1)]);
         let (code, out, err) = finish(launch(&spec));
         assert_eq!((code, out.trim()), (Some(0), "ok"), "{err}");
     }
@@ -347,6 +367,22 @@ mod linux {
                 for pid in ["self", "1"] {
                     println!("{}", String::from_utf8_lossy(&std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default()));
                 }
+            }
+            "only" => {
+                let port: u16 = args[1].parse().unwrap();
+                assert!(hello((member_space::net::INSTANCE_ADDR, port).into()), "the instance");
+                for addr in ["1.1.1.1:443", "1.1.1.1:53", "140.82.121.4:443"] {
+                    let addr: SocketAddr = addr.parse().unwrap();
+                    let answered = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok_and(|mut stream| {
+                        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                        let _ = stream.write_all(b"GET / HTTP/1.0\r\n\r\n");
+                        stream.read(&mut [0u8; 8]).is_ok_and(|n| n > 0)
+                    });
+                    assert!(!answered, "{addr}");
+                }
+                use std::net::ToSocketAddrs as _;
+                assert!(("github.com", 443).to_socket_addrs().is_err(), "a name resolved");
+                println!("ok");
             }
             "exe" => exes(),
             "pipe" => pipe(),

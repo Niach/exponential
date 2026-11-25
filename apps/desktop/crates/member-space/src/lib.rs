@@ -71,6 +71,10 @@ pub struct Spec {
     pub env: Vec<(String, String)>,
     /// The instance's host and port: reachable whatever its address.
     pub instance: Option<(String, u16)>,
+    /// Nothing else is reachable but these and the instance, resolved by the
+    /// host when the space starts (its last save); None = public addresses.
+    #[serde(default)]
+    pub only: Option<Vec<(String, u16)>>,
     /// How long SIGTERM has before SIGKILL.
     pub grace_secs: u64,
 }

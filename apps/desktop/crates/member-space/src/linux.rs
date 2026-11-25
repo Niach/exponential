@@ -136,6 +136,19 @@ fn home_dir() -> Option<PathBuf> {
     }
 }
 
+/// `name:port`s as the host resolves them now, those a space may reach.
+fn resolve(names: &[(String, u16)]) -> Vec<(String, std::net::SocketAddr)> {
+    use std::net::ToSocketAddrs as _;
+    names
+        .iter()
+        .flat_map(|(name, port)| {
+            let plain = name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+            let found = if plain { (name.as_str(), *port).to_socket_addrs().ok() } else { None };
+            found.into_iter().flatten().filter(|addr| addr.is_ipv4()).map(|addr| (name.clone(), addr)).collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 pub(crate) fn exclusive(host: &Path) -> Step<OwnedFd> {
     let path = cstr(&host.join(".running"))?;
     let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o600) };
@@ -164,6 +177,7 @@ fn launch() -> Step<i32> {
     for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
         unsafe { libc::signal(signal, libc::SIG_IGN) };
     }
+    let pinned = resolve(spec.only.as_deref().unwrap_or_default());
     let (tun_out, tun_in) = pair(libc::SOCK_SEQPACKET)?;
     let (stop_out, stop_in) = pair(libc::SOCK_STREAM)?;
     let me = unsafe { libc::getpid() };
@@ -173,7 +187,7 @@ fn launch() -> Step<i32> {
     }
     if child == 0 {
         drop((tun_out, stop_out));
-        let code = enter(&spec, me, tun_in, stop_in).unwrap_or_else(|err| {
+        let code = enter(&spec, &pinned, me, tun_in, stop_in).unwrap_or_else(|err| {
             eprintln!("member-space: {err}");
             SETUP_FAILED
         });
@@ -219,7 +233,11 @@ fn launch() -> Step<i32> {
     // The network, on this thread (the child's parent-death signal is this
     // thread's): without it the space ends.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| format!("the network: {err}"))?;
-    let ended = runtime.block_on(net::stack::serve(tun, spec.instance.clone()));
+    let ended = runtime.block_on(net::stack::serve(
+        tun,
+        spec.instance.clone(),
+        spec.only.clone().map(|only| (only, pinned.iter().map(|(_, addr)| *addr).collect())),
+    ));
     unsafe { libc::kill(child, libc::SIGKILL) };
     Err(format!("the network ended: {ended:?}"))
 }
@@ -285,7 +303,7 @@ fn receive_fd(socket: &OwnedFd) -> Step<OwnedFd> {
 
 /// In the launcher's child: every namespace, the network device, then the
 /// space's first process.
-fn enter(spec: &Spec, parent: libc::pid_t, tun_in: OwnedFd, stop: OwnedFd) -> Step<i32> {
+fn enter(spec: &Spec, pinned: &[(String, std::net::SocketAddr)], parent: libc::pid_t, tun_in: OwnedFd, stop: OwnedFd) -> Step<i32> {
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
         // The host's control pipe stays with the launcher: nothing that can
@@ -329,7 +347,7 @@ fn enter(spec: &Spec, parent: libc::pid_t, tun_in: OwnedFd, stop: OwnedFd) -> St
         check(first, "fork")?;
         if first == 0 {
             drop(stop);
-            let err = first_process(spec).err().unwrap_or_default();
+            let err = first_process(spec, pinned).err().unwrap_or_default();
             eprintln!("member-space: {err}");
             libc::_exit(SETUP_FAILED);
         }
@@ -499,7 +517,7 @@ fn pivot(new_root: &CStr, put_old: &CStr) -> Step<()> {
     check(result as libc::c_int, "pivot_root")
 }
 
-fn private_root(spec: &Spec) -> Step<()> {
+fn private_root(spec: &Spec, pinned: &[(String, std::net::SocketAddr)]) -> Step<()> {
     let root = Path::new("/");
     mount(Path::new("none"), root, "", libc::MS_REC | libc::MS_PRIVATE, "")?;
     // A staging tmpfs becomes the root; the machine's lies under /oldroot
@@ -525,7 +543,13 @@ fn private_root(spec: &Spec) -> Step<()> {
     for (name, text) in [
         ("passwd", format!("space:x:{uid}:{gid}::{SPACE_HOME}:/bin/sh\nnobody:x:65534:65534::/nonexistent:/bin/false\n")),
         ("group", format!("space:x:{gid}:\nnogroup:x:65534:\n")),
-        ("hosts", "127.0.0.1 localhost space\n::1 localhost\n".to_string()),
+        ("hosts", {
+            let mut hosts = "127.0.0.1 localhost space\n::1 localhost\n".to_string();
+            for (name, addr) in pinned {
+                hosts.push_str(&format!("{} {name}\n", addr.ip()));
+            }
+            hosts
+        }),
         ("hostname", "space\n".to_string()),
         ("nsswitch.conf", "passwd: files\ngroup: files\nhosts: files dns\n".to_string()),
         ("resolv.conf", format!("nameserver {}\n", net::DNS_ADDR)),
@@ -590,12 +614,12 @@ fn devices(old: &Path, new: &Path) -> Step<()> {
 /// the space's own read-only copy of the binary as its init. (A fork of the
 /// launcher that stayed would carry the host's binary as its `exe`, through
 /// the host's writable mount.)
-fn first_process(spec: &Spec) -> Step<()> {
+fn first_process(spec: &Spec, pinned: &[(String, std::net::SocketAddr)]) -> Step<()> {
     unsafe {
         check(libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL), "the parent-death signal")?;
         check(libc::setsid(), "setsid")?;
         check(libc::sethostname(c"space".as_ptr().cast(), 5), "the host name")?;
-        private_root(spec)?;
+        private_root(spec, pinned)?;
         // Process ids must differ from an earlier run's: files in the space
         // (registries, pid files) name them. Best effort.
         let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", (300 + nonce() / 1000 % 25_000).to_string());
@@ -852,6 +876,7 @@ pub fn probe(exe: &Path) -> Result<(), String> {
             args: vec![PROBE_ARG.into(), port.to_string(), std::process::id().to_string()],
             env: crate::environment(std::iter::empty()),
             instance: None,
+            only: None,
             grace_secs: 1,
         };
         let mut child = crate::command(&exe).spawn().map_err(|err| format!("the launcher: {err}"))?;
