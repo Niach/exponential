@@ -13,6 +13,7 @@ import {
   WorkHeader,
   WorkStickyTray,
 } from "@exp/ui"
+import type { OfferedBoard } from "@/components/issue-properties/board-picker"
 import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import {
@@ -83,7 +84,11 @@ export interface IssueDraftPageProps {
   draftId: string
   teamId: string
   teamSlug: string
-  boards: Board[]
+  /** #EXP-2125: every board the picker offers, in order; the draft's own
+   *  team's and the others'. */
+  boards: OfferedBoard[]
+  /** A pick moved the draft to another team's board: the URL follows. */
+  onTeamChange?: (board: Board) => void
   users: User[]
   labels: readonly { id: string }[]
   /** The synced row present on open (a reopened draft), else undefined. */
@@ -106,6 +111,7 @@ export function IssueDraftPage({
   teamId,
   teamSlug,
   boards,
+  onTeamChange,
   users,
   labels,
   draft,
@@ -174,6 +180,13 @@ export function IssueDraftPage({
     boards.find((row) => row.id === editor.boardId) ??
     boards.find((row) => row.id === initialBoardId) ??
     boards[0]
+
+  const pickBoard = (boardId: string) => {
+    const picked = boards.find((row) => row.id === boardId)
+    if (!picked) return
+    editor.setBoard(picked)
+    if (picked.teamId !== teamId) onTeamChange?.(picked)
+  }
 
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null)
 
@@ -533,7 +546,8 @@ export function IssueDraftPage({
           boardIcon={board?.icon}
           boardRepositoryId={board?.repositoryId}
           boardId={editor.boardId}
-          onBoardChange={editor.setBoardId}
+          boards={boards}
+          onBoardChange={pickBoard}
           boardConfirm={false}
           hideBoard={boards.length <= 1}
           creatableOnly

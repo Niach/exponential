@@ -24,7 +24,12 @@ interface BoardPickerProps {
   /** EXP-1170: false = the pick lands at once, no move confirm — the New
    *  issue page's board picker (a draft has no identifier to renumber). */
   confirm?: boolean
+  /** #EXP-2125: the rows instead of the team's (New issue: every member
+   *  team's, in order, each naming its team while they span several). */
+  boards?: readonly OfferedBoard[]
 }
+
+export type OfferedBoard = Board & { teamName?: string | null }
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select over
 // the team's boards (same team only; trashed boards never reach the client) on
@@ -44,6 +49,7 @@ export function BoardPicker({
   hideTrigger,
   trigger,
   confirm = true,
+  boards: offered,
 }: BoardPickerProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = controlledOpen ?? uncontrolledOpen
@@ -52,20 +58,21 @@ export function BoardPicker({
 
   const { data: boardRows } = useLiveQuery(
     (q) =>
-      teamId
+      teamId && !offered
         ? q
             .from({ boards: boardCollection })
             .where(({ boards }) => eq(boards.teamId, teamId))
         : undefined,
-    [teamId]
+    [teamId, Boolean(offered)]
   )
 
-  const boards = useMemo(
+  const boards = useMemo<readonly (Board & { teamName?: string | null })[]>(
     () =>
+      offered ??
       [...((boardRows ?? []) as Board[])].sort((left, right) =>
         left.name.localeCompare(right.name)
       ),
-    [boardRows]
+    [boardRows, offered]
   )
   const boardsById = useMemo(
     () => new Map(boards.map((board) => [board.id, board])),

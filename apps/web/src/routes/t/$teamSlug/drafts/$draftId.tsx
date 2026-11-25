@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react"
-import { createFileRoute, Navigate, redirect } from "@tanstack/react-router"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
+import { issueDraftBoards } from "@exp/domain-contract/issue-draft"
 import { SkeletonRows, useIsMobile } from "@exp/ui"
+import { useMemberTeams } from "@/components/home/use-member-teams"
 import { IssueDraftPage } from "@/components/issue-draft-page"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 import {
-  useTeamBoardsWithReady,
+  useBoardsForTeams,
   useTeamBySlug,
   useTeamLabelsWithReady,
   useTeamUsers,
@@ -44,7 +46,6 @@ function IssueDraftRoute() {
   const search = Route.useSearch()
   const isMobile = useIsMobile()
   const team = useTeamBySlug(teamSlug)
-  const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
   const { users, members } = useTeamUsers(team?.id)
   const { labels, labelsReady } = useTeamLabelsWithReady(team?.id)
   const { isReady: draftsReady } = useTeamDraftsWithReady(team?.id)
@@ -54,6 +55,25 @@ function IssueDraftRoute() {
   // pending, and deciding then would bounce a member to the team home.
   const { data: session, isPending: sessionPending } = useSession()
   const sessionReady = !sessionPending && Boolean(session?.user)
+  // #EXP-2125 (issue-draft.json `boards`): every member team's boards; a
+  // chat's, a share's draft stays in its team.
+  const { teams, teamIds, byId } = useMemberTeams(session?.user?.id)
+  const { boards: allBoards, boardsReady } = useBoardsForTeams(teamIds)
+  const only = search.chat || search.share || draft?.sessionId ? team?.id : null
+  const offered = useMemo(() => {
+    const { boards, showTeam } = issueDraftBoards({
+      teams: teams.map((row) => ({ id: row.id, name: row.name, kind: `team` })),
+      boards: allBoards,
+      only,
+    })
+    return boards.map((board) => ({ ...board, teamName: showTeam ? (byId.get(board.teamId)?.name ?? null) : null }))
+  }, [teams, byId, allBoards, only])
+  const boards = useMemo(() => offered.filter((board) => board.teamId === team?.id), [offered, team?.id])
+  const navigate = useNavigate()
+  // A pick of another team's board moves the open page's URL: what it holds
+  // stays mounted while the new team's rows load.
+  const openedRef = useRef<string | null>(null)
+  const opened = openedRef.current === draftId
   // `members` empty = still syncing (a member always sees themselves).
   const membersReady = members.length > 0 && users.length > 0
 
@@ -77,11 +97,7 @@ function IssueDraftRoute() {
   if (
     share === undefined ||
     !team ||
-    !boardsReady ||
-    !draftsReady ||
-    !labelsReady ||
-    !membersReady ||
-    !sessionReady
+    (!opened && (!boardsReady || !draftsReady || !labelsReady || !membersReady || !sessionReady))
   ) {
     // D8 first load: the detail page's placeholder (3 list rows).
     return (
@@ -91,13 +107,21 @@ function IssueDraftRoute() {
     )
   }
 
-  if (boards.length === 0 || !permissions.canCreate) {
+  if (!opened && (boards.length === 0 || !permissions.canCreate)) {
     return <Navigate to="/t/$teamSlug" params={{ teamSlug }} replace />
   }
 
   // A reopened draft whose board is gone (trashed, archived) has nowhere to
   // file: back to the list it came from.
-  if (draft && !boards.some((board) => board.id === draft.boardId)) {
+  const draftBoard = draft && offered.find((board) => board.id === draft.boardId)
+  const draftTeam = draftBoard && draftBoard.teamId !== team.id ? byId.get(draftBoard.teamId) : undefined
+  // #EXP-2125: moved to another team meanwhile: its page is that team's.
+  if (!opened && draftTeam) {
+    return (
+      <Navigate to="/t/$teamSlug/drafts/$draftId" params={{ teamSlug: draftTeam.slug, draftId }} search={search} replace />
+    )
+  }
+  if (!opened && draft && !draftBoard) {
     return isMobile ? (
       <Navigate
         to="/t/$teamSlug/inbox"
@@ -110,10 +134,13 @@ function IssueDraftRoute() {
     )
   }
 
+  openedRef.current = draftId
   const initialBoard =
     boards.find((board) => board.id === search.board) ??
     resolveBoardTarget(teamSlug, boards, undefined) ??
-    boards[0]
+    boards[0] ??
+    offered[0]
+  if (!initialBoard) return null
 
   return (
     <IssueDraftPage
@@ -121,7 +148,18 @@ function IssueDraftRoute() {
       draftId={draftId}
       teamId={team.id}
       teamSlug={teamSlug}
-      boards={boards}
+      boards={offered}
+      onTeamChange={(board) => {
+        const next = byId.get(board.teamId)
+        if (!next) return
+        void navigate({
+          to: `/t/$teamSlug/drafts/$draftId`,
+          params: { teamSlug: next.slug, draftId },
+          search: { ...search, board: board.id, status: undefined },
+          replace: true,
+          ignoreBlocker: true,
+        })
+      }}
       users={users}
       labels={labels}
       draft={draft}

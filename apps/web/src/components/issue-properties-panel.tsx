@@ -37,7 +37,7 @@ import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { useAgentRows } from "@/hooks/use-agent-row"
 import type { IssueAssignee } from "@/lib/issue-assignee"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
-import { BoardPicker } from "@/components/issue-properties/board-picker"
+import { BoardPicker, type OfferedBoard } from "@/components/issue-properties/board-picker"
 
 export interface IssuePropertiesPanelProps {
   // EXP-314: the RESOLVED team status row. The duplicate-category row stays in
@@ -93,6 +93,8 @@ export interface IssuePropertiesPanelProps {
   /** EXP-1170: false = a board pick lands at once, without the move confirm.
    *  Default true. */
   boardConfirm?: boolean
+  /** #EXP-2125: the New issue page's board rows (every member team's). */
+  boards?: readonly OfferedBoard[]
   /** Extra classes for the chip row's own container, so hosts can drop it
    *  into their own card without fighting a baked-in border. */
   className?: string
@@ -340,6 +342,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
         issueIdentifier={props.issueIdentifier}
         onSelect={props.onBoardChange}
         confirm={props.boardConfirm ?? true}
+        boards={props.boards}
       />
     ) : (
       <BoardChip
