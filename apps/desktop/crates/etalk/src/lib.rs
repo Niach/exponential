@@ -88,8 +88,9 @@ pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// NEW-78: 3 = listening. NEW-56 (#1263): 4 = the wake word. NEW-55: 5 = calls.
 /// NEW-57: 6 = meetings. S-3: 7 = the ring and CallListening.
 /// EXP-1857: 8 = caller mode (Dial, DialPlay, DialFlush, DialAudio).
-/// #ERR-29: 9 = Panicked.
-pub const PROTOCOL: u32 = 9;
+/// #ERR-29: 9 = Panicked. EXP-1859: 10 = turn calls (Call's `turn`, a
+/// listener's `dial`, Fallback).
+pub const PROTOCOL: u32 = 10;
 
 /// S-3: a worker stderr line starting with this is logged at debug (the
 /// rest at info): the call's per-second input level.
@@ -124,14 +125,23 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+fn is_false(flag: &bool) -> bool {
+    !*flag
+}
+
 /// EXP-1859 (talk-listen.json `wake.multi`): one agent the wake word
-/// listens for: its resolved `phrase`, heard in `language`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// listens for: its resolved `phrase`, heard in `language`. `dial` = its
+/// turn is a TURN CALL to another device (voice-call.json EXP-1859): at its
+/// `woke` the worker streams the turn as [`Event::DialAudio`] instead of
+/// hearing it, until Hangup or [`Request::Fallback`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WakeListener {
     pub agent_id: String,
     pub phrase: String,
     pub language: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dial: bool,
 }
 
 /// Host → worker, one JSON object per line.
@@ -161,12 +171,19 @@ pub enum Request {
     /// most while the worker warms up (EXP-1423: its first Speak, the
     /// opening, ends it sooner; 0 = no ring; a remote call never rings
     /// here); [`Event::CallListening`] follows once it hears.
+    /// EXP-1859: `turn` = a TURN call (the wake phrase its caller heard):
+    /// the stream is heard as ONE wake turn (talk-listen.json `wake.turn`),
+    /// its transcript loses the phrase (`modelMatch`), and the worker
+    /// answers ONE [`Event::Said`], or [`Event::Empty`] when only the phrase
+    /// was heard, then hears nothing more.
     Call {
         id: String,
         language: String,
         remote: bool,
         #[serde(default)]
         ring_ms: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<String>,
     },
     /// NEW-55: caller audio of remote call `id`: base64 of i16 little-endian
     /// mono [`CALL_RATE`] samples ([`encode_pcm`]). #EXP-1941: `lost_ms` =
@@ -241,6 +258,11 @@ pub enum Request {
     DialPlay { id: String, pcm: String, rate: u32 },
     /// EXP-1857: barge-in: drop what call `id` has queued to play.
     DialFlush { id: String },
+    /// EXP-1859 (talk-listen.json `wake.multi`): dialled wake turn `id`
+    /// did not connect: it becomes the LOCAL wake turn, heard from the
+    /// phrase's start (the worker kept every sample), and ends as one does
+    /// (Heard or Empty).
+    Fallback { id: String },
 }
 
 /// NEW-57: which desktop audio a meeting hears beside the microphone
@@ -919,7 +941,18 @@ impl SpeechClient {
     /// rings on this device (until the first Speak, at most `ring_ms`) while
     /// the worker warms up.
     pub fn call(&self, id: impl Into<String>, language: impl Into<String>, remote: bool, ring_ms: u32) {
-        self.send(&Request::Call { id: id.into(), language: language.into(), remote, ring_ms });
+        self.call_for(id, language, remote, ring_ms, None);
+    }
+
+    /// EXP-1859: [`Self::call`], as a TURN call when `turn` names the wake
+    /// phrase its caller heard.
+    pub fn call_for(&self, id: impl Into<String>, language: impl Into<String>, remote: bool, ring_ms: u32, turn: Option<String>) {
+        self.send(&Request::Call { id: id.into(), language: language.into(), remote, ring_ms, turn });
+    }
+
+    /// EXP-1859: dialled wake turn `id` becomes the local turn ([`Request::Fallback`]).
+    pub fn fallback(&self, id: impl Into<String>) {
+        self.send_if_running(&Request::Fallback { id: id.into() });
     }
 
     /// NEW-55: the caller's audio of remote call `id`: mono [`CALL_RATE`] Hz
@@ -1396,7 +1429,7 @@ mod tests {
         assert_eq!(bare, Request::Dial { id: "c1".into(), ring_ms: 0 });
         let audio = Event::DialAudio { id: "c1".into(), pcm: "AQA=".into() };
         assert_eq!(serde_json::to_string(&audio).unwrap(), r#"{"t":"dialAudio","id":"c1","pcm":"AQA="}"#);
-        assert_eq!(PROTOCOL, 9);
+        assert!(PROTOCOL >= 9);
     }
 
     /// #ERR-29: a worker's panic line; `Exited` carries the status.
@@ -1429,7 +1462,7 @@ mod tests {
     fn protocol_5_calls() {
         let requests = [
             (
-                Request::Call { id: "c1".into(), language: "de".into(), remote: true, ring_ms: 0 },
+                Request::Call { id: "c1".into(), language: "de".into(), remote: true, ring_ms: 0, turn: None },
                 r#"{"t":"call","id":"c1","language":"de","remote":true,"ringMs":0}"#,
             ),
             (Request::CallAudio { id: "c1".into(), pcm: encode_pcm(&[1, -2, i16::MAX, i16::MIN]), lost_ms: 0 }, r#"{"t":"callAudio","id":"c1","pcm":"AQD+//9/AIA="}"#),
@@ -1460,12 +1493,12 @@ mod tests {
     #[test]
     fn protocol_7_rings() {
         assert!(PROTOCOL >= 7);
-        let call = Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 3000 };
+        let call = Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 3000, turn: None };
         let json = r#"{"t":"call","id":"c1","language":"en","remote":false,"ringMs":3000}"#;
         assert_eq!(serde_json::to_string(&call).unwrap(), json);
         assert_eq!(serde_json::from_str::<Request>(json).unwrap(), call);
         let old: Request = serde_json::from_str(r#"{"t":"call","id":"c1","language":"en","remote":false}"#).unwrap();
-        assert_eq!(old, Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 0 }, "an old host rings nothing");
+        assert_eq!(old, Request::Call { id: "c1".into(), language: "en".into(), remote: false, ring_ms: 0, turn: None }, "an old host rings nothing");
         let listening = Event::CallListening { id: "c1".into() };
         assert_eq!(serde_json::to_string(&listening).unwrap(), r#"{"t":"callListening","id":"c1"}"#);
         assert_eq!(serde_json::from_str::<Event>(r#"{"t":"callListening","id":"c1"}"#).unwrap(), listening);
@@ -1481,6 +1514,27 @@ mod tests {
         assert_eq!(constants["upRate"], CALL_RATE);
     }
 
+    /// EXP-1859: turn calls. A field that is absent leaves every line as
+    /// protocol 9 wrote it (an older worker or host reads it unchanged).
+    #[test]
+    fn protocol_10_turn_calls() {
+        let call = Request::Call { id: "c1".into(), language: "en".into(), remote: true, ring_ms: 0, turn: Some("Hey Ops".into()) };
+        assert_eq!(serde_json::to_string(&call).unwrap(), r#"{"t":"call","id":"c1","language":"en","remote":true,"ringMs":0,"turn":"Hey Ops"}"#);
+        assert_eq!(serde_json::from_str::<Request>(r#"{"t":"call","id":"c1","language":"en","remote":true,"ringMs":0,"turn":"Hey Ops"}"#).unwrap(), call);
+        let plain = Request::Call { id: "c1".into(), language: "en".into(), remote: true, ring_ms: 0, turn: None };
+        assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"t":"call","id":"c1","language":"en","remote":true,"ringMs":0}"#, "an ordinary call's line is unchanged");
+        assert_eq!(serde_json::from_str::<Request>(r#"{"t":"call","id":"c1","language":"en","remote":true,"ringMs":0}"#).unwrap(), plain);
+        let dial = WakeListener { agent_id: "a-ops".into(), phrase: "Hey Ops".into(), language: "en".into(), dial: true };
+        assert_eq!(serde_json::to_string(&dial).unwrap(), r#"{"agentId":"a-ops","phrase":"Hey Ops","language":"en","dial":true}"#);
+        let local: WakeListener = serde_json::from_str(r#"{"agentId":"a-ops","phrase":"Hey Ops","language":"en"}"#).unwrap();
+        assert!(!local.dial, "absent = a local turn");
+        assert_eq!(serde_json::to_string(&local).unwrap(), r#"{"agentId":"a-ops","phrase":"Hey Ops","language":"en"}"#);
+        assert_eq!(serde_json::to_string(&Request::Fallback { id: "wake-1".into() }).unwrap(), r#"{"t":"fallback","id":"wake-1"}"#);
+        assert_eq!(serde_json::from_str::<Request>(r#"{"t":"fallback","id":"wake-1"}"#).unwrap(), Request::Fallback { id: "wake-1".into() });
+        // A turn call that heard only the phrase answers the Empty a Listen does.
+        assert_eq!(serde_json::to_string(&Event::Empty { id: "c1".into() }).unwrap(), r#"{"t":"empty","id":"c1"}"#);
+    }
+
     #[test]
     fn protocol_4_wakes() {
         assert_eq!(
@@ -1491,8 +1545,8 @@ mod tests {
         assert_eq!(event, Event::Woke { id: "wake-1".into(), agent_id: None });
         // EXP-1859: several listeners, and the winner's agent.
         let listeners = vec![
-            WakeListener { agent_id: "a-bro".into(), phrase: "Hey Bro".into(), language: "en".into() },
-            WakeListener { agent_id: "a-ops".into(), phrase: "Hey Ops".into(), language: "de".into() },
+            WakeListener { agent_id: "a-bro".into(), phrase: "Hey Bro".into(), language: "en".into(), dial: false },
+            WakeListener { agent_id: "a-ops".into(), phrase: "Hey Ops".into(), language: "de".into(), dial: false },
         ];
         assert_eq!(
             serde_json::to_string(&Request::Wake { phrase: "Hey Bro".into(), language: "en".into(), listeners }).unwrap(),

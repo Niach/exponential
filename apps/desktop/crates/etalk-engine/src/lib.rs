@@ -642,7 +642,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             Request::CancelListen { id } => {
                 let _ = listen.send(listener::Job::Cancel { id });
             }
-            Request::Call { id, language, remote, ring_ms } => {
+            Request::Call { id, language, remote, ring_ms, turn } => {
                 // Replaces a Listen or Call; replies keep playing.
                 listening.begin_call(&id, remote);
                 // The call it replaced (or this one, turned remote) closes its stream.
@@ -654,7 +654,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                     shared.ring(&id, ring_ms);
                 }
                 let _ = tx.send(Job::Warm);
-                let _ = listen.send(listener::Job::Call { id, language, remote });
+                let _ = listen.send(listener::Job::Call { id, language, remote, turn });
             }
             Request::CallAudio { id, pcm, lost_ms } => match etalk::decode_pcm(&pcm) {
                 Ok(pcm) => {
@@ -725,6 +725,14 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 }
             }
             Request::DialFlush { id } => shared.dial_flush(&id),
+            Request::Fallback { id } => {
+                // EXP-1859: the dialled turn is the local one now: a Listen
+                // to the gate (a reply is refused while it hears), its far
+                // end's stream closed.
+                listening.fall_back(&id);
+                shared.close_call_out(Some(&id));
+                let _ = listen.send(listener::Job::Fallback { id });
+            }
         }
     }
     // EOF: the host is gone. Silence and let the engines wind down; the

@@ -46,6 +46,29 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-25-desktop-cli-0-14-183-android",
+    date: "2026-11-25",
+    title: "A woken agent answers from its own device",
+    summary: "Desktop and CLI 0.14.183 and Android 0.14.159: what you say after a wake phrase runs on the agent's own device, and a failed Add passkey on Android says why.",
+    body: r##"- **Wake phrases on the desktop**: what you say after a wake phrase now runs on the agent's own device, with that device's voice. When the device is offline or does not answer, your own device takes over and nothing is lost.
+- **Encrypted chats on the desktop**: a first message that had to be sent again keeps the right key.
+- **Android**: a failed Add passkey now says why."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_363: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-25-desktop-cli-0-14-182",
+    date: "2026-11-25",
+    title: "An agent's chat keeps its answers",
+    summary: "Desktop and CLI 0.14.182: a team agent's chat keeps its answers on the desktop after the server ended its run.",
+    body: r##"- **Agent chats on the desktop**: a team agent's chat keeps the answers it already showed after the server ended the agent's run.
+- **Everything from 0.14.181**: a team agent you wake by its phrase answers out loud, and a chat locked by a new device opens again by itself."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_362: ChangelogEntry = ChangelogEntry {
     id: "2026-11-25-desktop-cli-0-14-181",
     date: "2026-11-25",
     title: "A woken team agent answers out loud",

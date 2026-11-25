@@ -1,0 +1,1 @@
+- A failed Add passkey now says why, for example that you need to sign in again first

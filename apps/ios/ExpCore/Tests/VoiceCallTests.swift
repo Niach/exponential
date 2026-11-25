@@ -110,6 +110,8 @@ final class VoiceCallTests: XCTestCase {
         XCTAssertEqual(constants.mapValues(\.intValue), [
             "minRingMs": VoiceCall.Constants.minRingMs,
             "ringJitterMs": VoiceCall.Constants.ringJitterMs,
+            "turnDialMs": VoiceCall.Constants.turnDialMs,
+            "turnReplyWaitMs": VoiceCall.Constants.turnReplyWaitMs,
             "ringToneMs": VoiceCall.Constants.ringToneMs,
             "ringGapMs": VoiceCall.Constants.ringGapMs,
             "ringLowHz": VoiceCall.Constants.ringLowHz,

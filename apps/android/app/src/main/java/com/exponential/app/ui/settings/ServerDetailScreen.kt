@@ -47,6 +47,12 @@ import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.CredentialManager
 import androidx.credentials.exceptions.CreateCredentialCancellationException
+import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
+import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
+import androidx.credentials.exceptions.CreateCredentialUnsupportedException
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -104,6 +110,25 @@ internal fun passkeyRpMatchesInstance(instanceUrl: String, requestJson: String):
     }.getOrNull()?.trim()?.trimEnd('.')?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
     return rpId == host
 }
+
+/**
+ * EXP-1637: what a failed Add passkey says. The server's own sentence when it
+ * answered; the actionable Credential Manager outcomes in our words; the rest
+ * is framework jargon, so the toast's title alone (iOS parity).
+ */
+internal fun addPasskeyFailure(e: Exception): FailedAction = FailedAction(
+    "add",
+    "the passkey",
+    when (e) {
+        is CreateCredentialCancellationException -> "Passkey registration was cancelled."
+        is CreateCredentialNoCreateOptionException,
+        is CreateCredentialProviderConfigurationException,
+        is CreateCredentialUnsupportedException,
+        -> "No passkey provider is available. Set up a password manager in your phone's settings."
+        is CreateCredentialException -> null
+        else -> e.message?.takeIf { it.isNotBlank() }
+    },
+)
 
 @HiltViewModel
 class ServerDetailViewModel @Inject constructor(
@@ -334,16 +359,20 @@ class ServerDetailViewModel @Inject constructor(
      * EXP-1554 Add passkey (web `PasskeysSection` handleAdd): the creation
      * options for this account's session, the platform authenticator signs
      * them, the attestation goes back. Named as web names an Android device.
-     * A dismissed system sheet is silent; every other failure is the failed
-     * action toast (FEED-79), the server's message (a stale session) as its
-     * description. Options for any rp but this instance are refused, the same
+     * Every outcome but success is the failed action toast ([addPasskeyFailure]),
+     * a cancellation too: Credential Manager also answers one when it never
+     * showed a sheet (EXP-1637; web toasts it as well). Options for any rp but this instance are refused, the same
      * guard as the login path ([passkeyRpIdMatchesInstance]).
      */
-    fun addPasskey(accountId: String, activity: Activity) {
+    fun addPasskey(accountId: String, activity: Activity?) {
         if (addingPasskey) return
-        val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+        val token = account?.token
+        if (activity == null || token == null) {
+            failure = addPasskeyFailure(IllegalStateException(""))
+            return
+        }
         val baseUrl = account.instanceUrl
-        val token = account.token ?: return
         addingPasskey = true
         viewModelScope.launch {
             try {
@@ -351,17 +380,17 @@ class ServerDetailViewModel @Inject constructor(
                 if (!passkeyRpMatchesInstance(baseUrl, options.requestJson)) {
                     throw IllegalStateException("")
                 }
-                val responseJson = try {
-                    val result = CredentialManager.create(activity)
-                        .createCredential(activity, CreatePublicKeyCredentialRequest(options.requestJson))
-                    (result as? CreatePublicKeyCredentialResponse)?.registrationResponseJson
-                } catch (e: CreateCredentialCancellationException) {
-                    return@launch
-                } ?: throw IllegalStateException("")
+                val result = CredentialManager.create(activity)
+                    .createCredential(activity, CreatePublicKeyCredentialRequest(options.requestJson))
+                val responseJson = (result as? CreatePublicKeyCredentialResponse)?.registrationResponseJson
+                    ?: throw IllegalStateException("")
                 authApi.verifyPasskeyRegistration(baseUrl, token, options.cookies, responseJson, PASSKEY_NAME).getOrThrow()
                 loadMethods(accountId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                failure = FailedAction("add", "the passkey", e.message?.takeIf { it.isNotBlank() })
+                Log.w("Passkey", "Add passkey failed: ${e.javaClass.simpleName}")
+                failure = addPasskeyFailure(e)
             } finally {
                 addingPasskey = false
             }
@@ -723,7 +752,6 @@ fun ServerDetailScreen(
 
     // EXP-1031 / FEED-79: a failed delete is an error toast, consumed at once.
     FailedActionToast(viewModel.deleteAccountError, "delete", "the account", onShown = { viewModel.deleteAccountError = null })
-    FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
 
     if (showRemoveConfirm) {
         PromptAlert(

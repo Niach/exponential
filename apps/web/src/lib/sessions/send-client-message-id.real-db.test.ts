@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { apps, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, apps, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 
@@ -116,6 +116,29 @@ describe.skipIf(!ready.ok)(`F21 sessions.send clientMessageId`, () => {
     const theirs = await caller(w.mate).send({ sessionId: mates.sessionId, text: `x`, clientMessageId: key })
     expect(theirs.messageId).not.toBe(first.messageId)
     expect(theirs.sessionId).toBe(mates.sessionId)
+  })
+
+  it(`EXP-1859: a turn call's two ends post one message to the agent, racing or not, first chat or not`, async () => {
+    const w = await world()
+    const me = caller(w.owner)
+    const [agent] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Ops`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const turn = (text: string, key: string) => me.send({ teamId: w.teamId, agentId: agent!.id, text, clientMessageId: key })
+    for (const round of [`first`, `later`]) {
+      const key = `turn-${crypto.randomUUID()}`
+      // The host and the caller that fell back heard it a little differently.
+      const [host, fallen] = await Promise.all([turn(`Status ${round}?`, key), turn(`Status, ${round}?`, key)])
+      expect(fallen.messageId).toBe(host.messageId)
+      expect(fallen.sessionId).toBe(host.sessionId)
+      const late = await turn(`Status ${round}`, key)
+      expect(late.messageId).toBe(host.messageId)
+      expect(await db.select({ id: messages.id }).from(messages).where(eq(messages.clientMessageId, key))).toHaveLength(1)
+      // Into the chat (the caller names the session, the host the agent): the same row.
+      const named = await me.send({ sessionId: host.sessionId!, text: `Status`, clientMessageId: key })
+      expect(named.messageId).toBe(host.messageId)
+    }
   })
 
   it(`rejects an over-long key`, async () => {
