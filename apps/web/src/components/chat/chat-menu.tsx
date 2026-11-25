@@ -12,10 +12,12 @@ import {
   sessionScreenMenu,
   type SessionScreenMenuEntry,
 } from "@exp/domain-contract/session-screen"
+import { HEADER_MENU_DROPS } from "@exp/domain-contract/header-actions"
 import {
   Button,
   chatMenuRows,
   sessionScreenMenuRows,
+  tidyMenuEntries,
   conceptIcon,
   Menu,
   Prompt,
@@ -425,6 +427,10 @@ export function AgentHeaderMenu({
   className?: string
 }) {
   const isMobile = useIsMobile()
-  const entries = findInChatMenuEntries(useAgentMenuRows({ team, agentId, onSettings, linkIssue }), onFind, isMobile)
+  // header-actions.json: New conversation is the header's own +.
+  const rows = tidyMenuEntries(
+    useAgentMenuRows({ team, agentId, onSettings, linkIssue }).filter((row) => !HEADER_MENU_DROPS.includes(row.id ?? ``))
+  )
+  const entries = findInChatMenuEntries(rows, onFind, isMobile)
   return <SessionScreenMenuButton entries={entries} title={title} className={className} closeRef={closeRef} />
 }

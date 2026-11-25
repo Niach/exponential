@@ -2652,8 +2652,8 @@ pub(crate) struct ScreenHeader {
     /// #FEED-257 THE LINE LEADS TO IT: while the word is needs input the
     /// subtitle is ONE press opening the waiting item (no new style).
     pub(crate) on_subtitle: Option<OnPress>,
-    /// Before the `…`: the merge status pill, an app's Publish, an agent's
-    /// telephone.
+    /// Before the `…`, in header-actions.json `order`: the waiting chips,
+    /// the merge status pill or an app's Publish, an agent's telephone, its +.
     pub(crate) trailing: Vec<AnyElement>,
     /// THE `…` ([`crate::chat_actions::screen_menu_button`]; #FEED-239: no gear).
     pub(crate) menu: Option<AnyElement>,
@@ -2707,8 +2707,9 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         // waiting chips (#EXP-1785) give way before it.
                         .child(v_flex().flex_1().min_w(px(160.)).child(header.title).children(subtitle))
                         .children(header.tabs.map(|tabs| div().flex_shrink_0().child(tabs)))
-                        .children(header.trailing)
-                        .children(header.menu),
+                        // #EXP-2109: the trailing actions in THE order
+                        // (header-actions.json), the `…` last.
+                        .child(crate::controls::header_cluster(header.trailing.into_iter().chain(header.menu))),
                 ),
         )
         .child(div().w_full().h(px(1.)).bg(theme.border))
@@ -4054,12 +4055,13 @@ impl SessionChatScreenView {
                 let name = agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default();
                 let panel = self.call_panel.read(cx).focus_handle(cx);
                 let call = agent.as_ref().map(|agent| crate::agent_screen::agent_header_call(&agent.id, &name, panel, cx));
+                let add = crate::agent_screen::agent_header_add(agent_id, cx);
                 let link = chat_member(model, cx).then(|| self.menu_target(None, cx));
                 let menu = crate::agent_screen::agent_header_menu(agent_id, on_settings, link, cx);
                 let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
                 let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
                 let title = title_row(&name, &marks, cx).id("chat-title").into_any_element();
-                (avatar, title, merge.into_iter().chain(call).collect::<Vec<_>>(), menu, agent)
+                (avatar, title, merge.into_iter().chain(call).chain(add).collect::<Vec<_>>(), menu, agent)
             }
             // EXP-1316: a chat's title is derived, plain text (no rename).
             None => {

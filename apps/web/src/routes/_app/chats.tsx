@@ -151,10 +151,10 @@ function ChatsRoute() {
     void navigate({ to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug: slugOf(agentId), agentId } })
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full max-md:h-dvh">
       <div className="h-full overflow-y-auto">
         <div className={`mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 ${
-            isMobile ? `pt-[max(1rem,env(safe-area-inset-top))]` : `pt-4 pb-4`
+            isMobile ? `` : `pt-4 pb-4`
           } ${PAGE_END_CLEARANCE} ${selection ? `md:pb-20` : ``}`}>
           {isMobile ? (
             <ChatsHeader

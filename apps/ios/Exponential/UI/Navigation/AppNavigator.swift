@@ -9,10 +9,8 @@ import GRDB
 enum AppRoute: Hashable {
     /// Search (EXP-686): a pushed detail off a root page's search button.
     case search
-    /// #EXP-2109 (sidebar-tree.json `phone`): a team's page, a folder of it,
-    /// and its settings page (its `…` menu).
-    case team(accountId: String, teamId: String)
-    case folder(accountId: String, teamId: String, folderId: String)
+    /// #EXP-2109 (sidebar-tree.json `phone`): a team's settings page (its
+    /// row's `…`).
     case teamSettings(accountId: String, teamId: String)
     /// The Devices page (Settings › Devices).
     case devices(accountId: String)
@@ -114,8 +112,6 @@ enum AppRoute: Hashable {
     /// is one of the bar's; nil = a detail: no bar.
     var phonePage: Chats.Shell.Page? {
         switch self {
-        case .team: .team
-        case .folder: .folder
         case .board: .board
         case .teamSettings, .teamSettingsSection, .prompt, .skill, .mcpActivity, .repo: .teamSettings
         case .devices: .devices
@@ -591,7 +587,7 @@ struct MainNavigator: View {
     /// closure for the navigator's lifetime, like `pushRouteAction`.
     @State private var markdownLinks: MarkdownLinkHandler?
     /// A pick of another server's team rebuilds this navigator
-    /// (`.id(activeAccountId)`); the new one lands on that team's page.
+    /// (`.id(activeAccountId)`); the new one lands on that team.
     @MainActor private static var landOnTeam: String?
     /// #NEW-12: regular width (iPad full screen, the ⅔ split) = the split
     /// layout (`TabletShell`); compact = the phone's.
@@ -675,7 +671,7 @@ struct MainNavigator: View {
             if let teamId = Self.landOnTeam {
                 Self.landOnTeam = nil
                 tab = .teams
-                path = [.team(accountId: deps.auth.activeAccountId ?? "", teamId: teamId)]
+                sidebarTree.revealTeam = teamId
             }
             listPushAction.setHandler { route in
                 if let item = sidebarItem(for: route) {
@@ -1345,8 +1341,6 @@ extension MainNavigator {
             return AnyView(TabletDraftsColumn().environment(\.accountId, accountId))
         case .settings:
             return AnyView(SettingsTabView().environment(\.accountId, accountId))
-        case let .team(teamId):
-            return AnyView(TeamTreePage(teamId: teamId).id(teamId).environment(\.accountId, accountId))
         case let .board(boardId):
             return AnyView(BoardPageView(boardId: boardId).id(boardId).environment(\.accountId, accountId))
         case .agent, .devices, .agentChannel, .app, .chat:
@@ -1369,7 +1363,7 @@ extension MainNavigator {
         case let .chat(rootId):
             return AnyView(ChatScreen(rootId: rootId, initialPage: .conversation).id(rootId)
                 .environment(\.accountId, accountId))
-        case .needsYou, .chats, .drafts, .settings, .team, .board:
+        case .needsYou, .chats, .drafts, .settings, .board:
             return nil
         }
     }
@@ -1380,14 +1374,6 @@ extension MainNavigator {
         case .search:
             SearchView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case let .team(accountId, teamId):
-            TeamTreePage(teamId: teamId)
-                .id(teamId)
-                .environment(\.accountId, accountId)
-        case let .folder(accountId, teamId, folderId):
-            TeamTreePage(teamId: teamId, folderId: folderId)
-                .id(folderId)
-                .environment(\.accountId, accountId)
         case let .teamSettings(accountId, teamId):
             TeamSettingsView(teamId: teamId)
                 .id(teamId)

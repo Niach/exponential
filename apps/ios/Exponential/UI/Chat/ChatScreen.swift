@@ -501,12 +501,17 @@ struct ChatScreen: View {
                     agentDevice: rows.agent?.deviceId, agentLanguage: rows.agent?.voice.language
                 )
                 .buttonStyle(.plain)
+                HeaderCircleButton(
+                    icon: AppIcons.uiAdd, label: SidebarMenus.copy[.newConversation] ?? "", identifier: "agent-new-conversation"
+                ) {
+                    if let text = Chats.agentMenuSends[.newConversation] { reply(text, sessionId: rows.root.id) }
+                }
             }
             if let trailing = editor?.trailing {
                 trailing
             }
             if !chatMenuEntries.isEmpty {
-                ChatHeaderGhostButton(
+                HeaderCircleButton(
                     icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu
                 ) {
                     openChatMenu()
@@ -1015,6 +1020,7 @@ struct ChatScreen: View {
         guard let rows else { return [] }
         let screenKind = kind(rows)
         let app = editor?.menu
+        // header-actions.json: an agent chat's New conversation is its +.
         let entries = SessionScreen.menu(
             kind: screenKind,
             phone: true,
@@ -1026,7 +1032,8 @@ struct ChatScreen: View {
             export: app?.export ?? false,
             delete: screenKind == .app ? (app?.delete ?? false) : (screenKind == .session && canSteer && canDelete)
         )
-        var own = ChatMenuSheet.screenEntries(entries, kind: screenKind)
+        let agentChat = screenKind == .agent || screenKind == .assistant
+        var own = ChatMenuSheet.screenEntries(entries.filter { !(agentChat && $0 == .newConversation) }, kind: screenKind)
         // #EDE-130 (find-in-chat.json `menuCases`): Search in chat first, its
         // own group, while the chat shows (an item over it: not).
         if tab == .chat, opened == nil {
@@ -2185,7 +2192,7 @@ private struct AgentChatEmpty: View {
             SessionScreen.menu(
                 kind: kind, phone: true, member: false, linkIssue: false, settings: settings,
                 publish: false, export: false, delete: false
-            ),
+            ).filter { $0 != .newConversation },
             kind: kind
         )
     }
@@ -2250,7 +2257,7 @@ private struct AgentChatEmpty: View {
                     )
                     .buttonStyle(.plain)
                     if !menuEntries.isEmpty {
-                        ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
+                        HeaderCircleButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
                             UIApplication.endEditing()
                             menuOpen = true
                         }

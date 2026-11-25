@@ -42,7 +42,7 @@ struct AgentCallButton: View {
                 keys: HolderCallKeys(holder: deps.treeKeyHolder, accountId: accountId, sealable: model.sealable)
             )
         } label: {
-            ChatHeaderGhostGlyph(
+            HeaderCircleFace(
                 icon: AppIcons.voiceCall,
                 opacity: availability.enabled ? TextOpacity.secondary : TextOpacity.quaternary
             )

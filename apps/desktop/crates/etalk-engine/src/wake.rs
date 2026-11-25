@@ -249,11 +249,18 @@ pub struct Listener {
     pub agent_id: String,
     pub phrase: String,
     pub language: &'static str,
+    /// Its turn is a turn call to another device (the worker streams it).
+    pub dial: bool,
 }
 
 impl Listener {
     pub fn new(agent_id: impl Into<String>, phrase: impl Into<String>, language: &str) -> Self {
-        Listener { agent_id: agent_id.into(), phrase: phrase.into(), language: wake_language(language) }
+        Listener { agent_id: agent_id.into(), phrase: phrase.into(), language: wake_language(language), dial: false }
+    }
+
+    /// Its turn is dialled (`dial`).
+    pub fn dialled(self, dial: bool) -> Self {
+        Listener { dial, ..self }
     }
 }
 

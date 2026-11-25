@@ -46,6 +46,33 @@ pub(crate) use eui_gpui::controls::{
     CTL_MD_H, CTL_SM_H, SEARCH_FIELD_SM_H, SKELETON_PULSE,
 };
 
+/// #EXP-2109 (header-actions.json): THE round icon button of every header
+/// ([`glass_icon_button`] at `wideCircle`, its glyph at `wideGlyph`), named
+/// by its tooltip.
+pub(crate) fn header_button(
+    id: impl Into<ElementId>,
+    icon: crate::icons::ExpIcon,
+    label: impl Into<SharedString>,
+    cx: &App,
+) -> gpui_component::button::Button {
+    use gpui_component::{Sizable as _, Size};
+    let spec = &*domain::header_actions::HEADER_ACTIONS;
+    let label = label.into();
+    glass_icon_button(id, Icon::new(icon), cx)
+        .with_size(Size::Size(px(spec.wide_glyph / HEADER_GLYPH_RATIO)))
+        .size(px(spec.wide_circle))
+        .accessibility_label(label.clone())
+        .tooltip(label)
+}
+
+/// The component's icon share of a `Size::Size` button.
+const HEADER_GLYPH_RATIO: f32 = 0.75;
+
+/// A header's trailing side: `actions` in their order, `gap` apart.
+pub(crate) fn header_cluster(actions: impl IntoIterator<Item = AnyElement>) -> Div {
+    gpui_component::h_flex().min_w_0().items_center().gap(px(domain::header_actions::HEADER_ACTIONS.gap)).children(actions)
+}
+
 /// S-3: a push-to-talk binding as THE keycaps (the web `ShortcutKeys`): one
 /// [`kbd`] per `shortcutLabel` part in a [`kbd_group`]; empty =
 /// `copy.shortcutNone` as muted words.

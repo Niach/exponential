@@ -675,7 +675,7 @@ fun SessionHeaderBar(
     com.exponential.app.ui.work.WorkTopBar(
         title = sessionName,
         titleContent = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column {
                 if (onOpenChat != null && !chatTitle.isNullOrBlank()) {
                     Row(
                         modifier = Modifier

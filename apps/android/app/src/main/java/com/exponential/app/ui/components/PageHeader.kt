@@ -23,9 +23,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.HeaderActions
 import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.TextEmphasis
 
 // #EXP-1384, #EXP-2109 (chats.json `shell.header`): THE phone page header.
 // The root pages (`header.pages`: Chats, Teams, Settings) wear the large
@@ -33,7 +35,7 @@ import com.exponential.app.ui.icons.ExpIcons
 // `header.buttons` (the FAB chrome [BarCircle], web `FabButton`, at
 // `header.circle`), SEARCH (pushes the phone search) then the INBOX (concept
 // nav-inbox, the count badge = the unread notifications of every team; pushes
-// the inbox page); [ownActions] (Teams' +) stand before them. A PUSHED
+// the inbox page); [ownActions] (Teams' +) stand after them. A PUSHED
 // page ([onBack]) wears the phone detail header: the back control, its leading
 // glyph, the title, and its own trailing circle. Web `@exp/ui` `PageHeader` /
 // `MobileDetailHeader` are the twins; iOS paints the native large title +
@@ -60,8 +62,8 @@ fun PageHeader(
     onBack: (() -> Unit)? = null,
     /** A pushed page's glyph before its title (team mark, folder, board). */
     leading: (@Composable () -> Unit)? = null,
-    /** The page's own circles: before Search on a root page (Teams' +), at
-     *  the end of a pushed page's header (a team's `…`). */
+    /** The page's own circles, last (header-actions.json: Teams' +, a
+     *  board's + and `…`). */
     ownActions: (@Composable () -> Unit)? = null,
     actions: PageHeaderActions? = LocalPageHeaderActions.current,
     /** EXP-1635: false = no Search + Inbox circles (a share's own step). */
@@ -88,13 +90,15 @@ fun PageHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            ownActions?.invoke()
+            if (ownActions != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(HeaderActions.GAP.dp)) { ownActions() }
+            }
         }
         return
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(HeaderActions.GAP.dp),
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
@@ -112,7 +116,6 @@ fun PageHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        ownActions?.invoke()
         if (buttons) Chats.Shell.Header.BUTTONS.forEach { concept ->
             when (concept) {
                 "nav-search" -> BarCircle(
@@ -140,21 +143,37 @@ fun PageHeader(
                 }
             }
         }
+        ownActions?.invoke()
     }
 }
 
-/** A page's own header circle (Teams' +, a team's `…`). */
+/** THE round header button (header-actions.json): every action of a header but
+ *  its status and its one labelled verb. */
 @Composable
-fun PageHeaderCircle(icon: ImageVector, description: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PageHeaderCircle(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    /** #EXP-1878: the disabled look on a control that still takes its press. */
+    dimmed: Boolean = false,
+) {
     BarCircle(
         onClick = onClick,
-        size = Chats.Shell.Header.CIRCLE.dp,
+        size = HeaderActions.CIRCLE.dp,
+        enabled = enabled,
         modifier = modifier.semantics { contentDescription = description },
-    ) { HeaderGlyph(icon) }
+    ) { HeaderGlyph(icon, dimmed = dimmed || !enabled) }
 }
 
 /** A header circle's glyph: 20dp at full emphasis (web `FabButton emphasis="primary"`). */
 @Composable
-private fun HeaderGlyph(icon: ImageVector) {
-    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+private fun HeaderGlyph(icon: ImageVector, dimmed: Boolean = false) {
+    Icon(
+        icon,
+        contentDescription = null,
+        modifier = Modifier.size(HeaderActions.GLYPH.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dimmed) TextEmphasis.Quaternary else 1f),
+    )
 }

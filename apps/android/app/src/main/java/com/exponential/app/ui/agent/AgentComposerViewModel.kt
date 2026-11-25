@@ -734,6 +734,11 @@ class AgentComposerViewModel @Inject constructor(
             _subject.value = ComposerSubject.Issues(seed.effectiveIssueIds.distinct())
         }
         seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
+        // #EXP-2109: a team's New › Chat, whoever the message goes to.
+        seed.teamId?.let { id ->
+            _teamsPick.value = listOf(id)
+            _plainPick.value = listOf(id)
+        }
         val text = seed.text
         if (!text.isNullOrEmpty() && _draft.value.isBlank()) _draft.value = text
     }

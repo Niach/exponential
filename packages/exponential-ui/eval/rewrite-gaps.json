@@ -104,7 +104,7 @@
     { "id": "terminal", "class": "native", "with": "a TERMINAL (pty, cursor, selection); CodeBlock ansi is output only" },
     { "id": "getting-started", "class": "expressible", "with": "Section (title, Meter in the leading slot, Docs Link trailing) + Collapsible + Row" },
     { "id": "teams", "class": "expressible", "with": "Page + Section of Row (Avatar, CountBadge, chevron)" },
-    { "id": "team", "class": "expressible", "with": "Page + Section of Row (icon, CountBadge, chevron)" },
+    { "id": "teams-menu", "class": "expressible", "with": "Page + Section of nested Row + Menu" },
     { "id": "assistant-tab", "class": "expressible", "with": "the chat screen's row" },
     { "id": "app", "class": "native", "with": "the editor session's conversation feed native; the preview is a nested Exponential UI surface, the versions Drawer is Row + Chip, the phones' switch Segmented" },
     { "id": "app-run", "class": "native", "with": "the app running full screen: a nested Exponential UI surface (the published package) in the host's screens shell (sidebar rows or the phone tab bar); phones add the detail header with a … Menu" },

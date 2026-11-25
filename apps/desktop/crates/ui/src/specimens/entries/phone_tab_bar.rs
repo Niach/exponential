@@ -65,7 +65,7 @@ fn cell(tab: &str, selected: bool, cx: &App) -> AnyElement {
                                     inset: false,
                                 }])
                             })
-                            .child(Icon::new(crate::icons::ExpIcon::BrandExponential).with_size(px(dock.mark)).text_color(cx.theme().foreground)),
+                            .child(Icon::new(crate::icons::ExpIcon::Logo).with_size(px(dock.mark)).text_color(cx.theme().foreground)),
                     ),
                 ),
             )

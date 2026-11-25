@@ -145,13 +145,15 @@ vi.mock(`@/components/session-composer`, () => ({
 vi.mock(`@/components/chat/chat-markdown`, () => ({ renderChatText: (text: string) => text }))
 // #FEED-239: THE session screen menu's Agent settings entry (no gear).
 vi.mock(`@/components/chat/chat-menu`, () => ({
+  useAgentSends: () => null,
   AgentHeaderMenu: ({ onSettings }: { onSettings: () => void }) => (
     <button type="button" data-testid="session-menu-settings" onClick={onSettings} />
   ),
 }))
 vi.mock(`@/components/team/mobile-detail-header`, () => ({
   MobileDetailHeader: () => <div data-testid="mobile-header" />,
-  HEADER_BUTTON_CLASS: ``,
+  HEADER_ACTION_CLASS: ``,
+  HeaderAction: () => null,
 }))
 vi.mock(`@/components/voice-call`, () => ({
   CallButton: () => null,

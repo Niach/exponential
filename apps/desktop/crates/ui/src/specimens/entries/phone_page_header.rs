@@ -20,8 +20,9 @@ pub(crate) const OWNER: &str = "EXP-1384";
 /// The phone column (the web island's 390px).
 const PHONE_W: f32 = 390.;
 
-fn circle(icon: crate::icons::ExpIcon, dot: bool, cx: &App) -> AnyElement {
-    let size = CHATS.shell.header.circle;
+pub(super) fn circle(icon: crate::icons::ExpIcon, dot: bool, cx: &App) -> AnyElement {
+    let spec = &*domain::header_actions::HEADER_ACTIONS;
+    let size = spec.circle;
     let mut circle = div()
         .relative()
         .size(px(size))
@@ -33,7 +34,7 @@ fn circle(icon: crate::icons::ExpIcon, dot: bool, cx: &App) -> AnyElement {
         .bg(theme::tokens::glass::FILL_CARD.to_hsla())
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .child(Icon::new(icon).with_size(px(20.)).text_color(cx.theme().foreground));
+        .child(Icon::new(icon).with_size(px(spec.glyph)).text_color(cx.theme().foreground));
     if dot {
         circle = circle.child(
             div()
@@ -104,5 +105,6 @@ mod tests {
     fn the_header_follows_the_shell() {
         assert_eq!(CHATS.shell.header.buttons, ["nav-search", "nav-inbox"]);
         assert_eq!(CHATS.shell.header.circle, 44.);
+        assert_eq!(domain::header_actions::HEADER_ACTIONS.circle, CHATS.shell.header.circle);
     }
 }

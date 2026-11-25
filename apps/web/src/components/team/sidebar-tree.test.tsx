@@ -59,6 +59,10 @@ vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBoards: () => [
     { id: `b-1`, slug: `mobile`, name: `Mobile App`, color: `#fff`, sortOrder: 1, icon: null, repositoryId: null },
   ],
+
+  useTeamBoardsWithReady: () => ({ boardsReady: true, boards: [
+    { id: `b-1`, slug: `mobile`, name: `Mobile App`, color: `#fff`, sortOrder: 1, icon: null, repositoryId: null },
+  ] }),
 }))
 vi.mock(`@/hooks/use-apps`, () => ({
   useApps: () => ({ apps: [{ id: `p-1`, slug: `crm`, name: `CRM`, icon: null, color: null, row: null }] }),

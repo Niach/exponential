@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
@@ -110,6 +111,9 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
             }
         }
     }
+    // The section's own failed actions (EXP-1637): raised HERE, so every screen
+    // that shows the section shows them (Settings › Security had none).
+    FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
     // A link outcome or email change is a success toast (web parity).
     val toaster = LocalToaster.current
     LaunchedEffect(viewModel.methodsNotice) {
@@ -133,7 +137,7 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
                             size = PillSize.Sm,
                             enabled = !viewModel.addingPasskey,
                             loading = viewModel.addingPasskey,
-                            onClick = { context.findActivity()?.let { viewModel.addPasskey(accountId, it) } },
+                            onClick = { viewModel.addPasskey(accountId, context.findActivity()) },
                             modifier = Modifier.testTag("passkey-add"),
                         )
                     }

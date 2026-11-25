@@ -498,6 +498,9 @@ const sidebarMenuButtonVariants = cva(
       density: {
         default: ``,
         compact: `h-7 text-sm`,
+        // #EXP-2109: the phones' Teams tab (the same tree on a glass group):
+        // 48px or taller, the row's own edges, no capsule.
+        touch: `h-auto min-h-12 gap-3 rounded-none px-4 py-3 text-[15px] [&>svg]:size-[18px]`,
       },
     },
     defaultVariants: {

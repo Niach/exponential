@@ -141,6 +141,13 @@ async function recipeOpenOnboardingCreateTeam(page: Page): Promise<void> {
  * choice button and the step it opens — so this waits on the link field.
  * Continuing would navigate to `/invite/$token` and burn the invite.
  */
+/** #EXP-2109: a board row of the Teams tab held (the context-menu path). */
+async function recipeOpenTeamsRowMenu(page: Page): Promise<void> {
+  const row = page.locator(`[data-testid=sidebar-board-row] [data-menu-id]`).first()
+  await row.waitFor({ state: `visible`, timeout: 30_000 })
+  await row.dispatchEvent(`contextmenu`, { bubbles: true, cancelable: true, clientX: 120, clientY: 200 })
+}
+
 /**
  * VAPP-122: the phone-width `app` view photographs the PREVIEW tab (the app
  * rendered through the host with its records), like the iOS and Android
@@ -1106,6 +1113,7 @@ export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`
  */
 export const RECIPES: Record<string, Recipe> = {
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
+  openTeamsRowMenu: recipeOpenTeamsRowMenu,
   openAppPreviewTab: recipeOpenAppPreviewTab,
   openAppExport: recipeOpenAppExport,
   openAppImport: recipeOpenAppImport,

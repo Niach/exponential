@@ -22,6 +22,8 @@
 //! (`queries::my_issues`, `domain::chats::board_mine_issues`). A board switch
 //! lands on All issues again, like web's `?chip=`.
 //!
+//! #EXP-2109: the strip's right end = the board's header actions.
+//!
 //! State ownership (§4.1): this entity owns the scope [`IssueQuery`] and
 //! hands it to the list, which re-renders off the synced collections.
 
@@ -35,6 +37,7 @@ use sync::Store;
 
 use domain::chats::CHATS;
 
+use crate::icons::registry;
 use crate::issue_list::{IssueListView, IssueQuery};
 use crate::queries;
 /// The strip's height: the session screen's tab strip (`session_chat`
@@ -184,15 +187,11 @@ impl BoardView {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_chip(chip, cx)))
             })
             .collect();
-        h_flex()
+        let strip = h_flex()
             .id("board-chips-scroll")
-            .flex_shrink_0()
-            .w_full()
+            .flex_1()
             .min_w_0()
             .overflow_x_scroll()
-            .px_4()
-            .pt_3()
-            .pb_2()
             .child(
                 crate::controls::segmented(cx)
                     .id(SharedString::from(CHATS.test_ids.board_chip.clone()))
@@ -201,7 +200,29 @@ impl BoardView {
                     .justify_start()
                     .h(px(BOARD_TABS_H))
                     .children(segments),
+            );
+        h_flex().flex_shrink_0().w_full().min_w_0().items_center().gap_3().px_4().pt_3().pb_2().child(strip).children(self.actions(cx))
+    }
+
+    /// #EXP-2109 (header-actions.json `board`): the + (New issue on this
+    /// board), then the `…` (the board's sidebar menu without it).
+    fn actions(&self, cx: &gpui::App) -> Option<gpui::Div> {
+        use domain::sidebar_menus::sidebar_menu_copy;
+        let board_id = self.board_id.clone()?;
+        let add_board = board_id.clone();
+        let add = crate::controls::header_button("board-header-add", registry::UI_ADD, sidebar_menu_copy("new-issue"), cx)
+            .on_click(move |_, window, cx| crate::issue_draft_screen::open_new_from_rail(window, cx, add_board.clone()))
+            .into_any_element();
+        let entries = crate::shell_regions::board_header_menu(&board_id, cx);
+        let more = (!entries.is_empty()).then(|| {
+            crate::controls::PointerMenu::for_button(
+                crate::controls::header_button("board-header-menu", registry::UI_MORE, "More", cx),
+                move |menu, window, cx| crate::shell_regions::board_header_menu_items(menu, &board_id, &entries, window, cx),
             )
+            .anchor(gpui::Anchor::TopRight)
+            .into_any_element()
+        });
+        Some(crate::controls::header_cluster([add].into_iter().chain(more)).flex_shrink_0())
     }
 }
 

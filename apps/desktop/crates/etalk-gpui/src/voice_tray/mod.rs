@@ -724,7 +724,7 @@ impl VoiceTray {
             meeting: Some(MeetingTrayState { on: meeting_on, who: &who }),
             pause: pausable.then_some(meeting_state.paused),
             // S-3: while a call runs here Call reads End call.
-            in_call: crate::voice_call::active(cx),
+            in_call: crate::voice_call::shown(cx),
             wake_phrases: &wake_phrases,
         };
         let menu = tray_menu(&settings, &context);

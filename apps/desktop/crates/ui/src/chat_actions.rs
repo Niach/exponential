@@ -22,9 +22,8 @@
 
 use std::rc::Rc;
 
-use gpui::{div, px, AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use gpui::{div, AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::menu::PopupMenu;
-use gpui_component::Icon;
 
 use domain::chats::{chat_menu_entries, ChatMenuEntry, CHATS};
 use domain::rows::SessionRow;
@@ -347,7 +346,7 @@ pub(crate) fn screen_menu_items(
     menu
 }
 
-/// THE `…` trigger of the session screen header (the ghost `ui-more`,
+/// THE `…` trigger of the session screen header (#EXP-2109: the round `ui-more`,
 /// testId `testIds.menu`) over `build`'s rows; `None` = no entries.
 pub(crate) fn screen_menu_button(
     has_entries: bool,
@@ -357,16 +356,15 @@ pub(crate) fn screen_menu_button(
     if !has_entries {
         return None;
     }
-    let trigger = crate::controls::ghost_icon_button(
+    let trigger = crate::controls::header_button(
         SharedString::from(SESSION_SCREEN.test_ids.menu.clone()),
-        Icon::new(registry::UI_MORE),
+        registry::UI_MORE,
+        "More",
         cx,
-    )
-    .accessibility_label("More");
+    );
     Some(
         div()
             .flex_shrink_0()
-            .mr(px(-crate::work_header::GHOST_ICON_HANG))
             .child(crate::controls::PointerMenu::for_button(trigger, build))
             .into_any_element(),
     )

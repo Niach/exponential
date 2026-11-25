@@ -54,11 +54,12 @@ pub fn glass_icon_button(
     let foreground = cx.theme().foreground;
     // Custom variants paint at a fifth of the handed-in alpha (EXP-698,
     // [`custom_variant_fill`]): pre-divide so the circle lands on the same
-    // card/active fills as the pills beside it.
+    // card fill as the pills beside it.
     let variant = ButtonCustomVariant::new(cx)
         .color(custom_variant_fill(chrome.fill_card))
-        .hover(custom_variant_fill(chrome.fill_active))
-        .active(custom_variant_fill(chrome.fill_active))
+        // Hover and press are painted unmixed (see [`ghost_icon_button`]).
+        .hover(chrome.fill_active)
+        .active(chrome.fill_active)
         .foreground(foreground.opacity(0.7));
     // a11y: named by the caller (the tooltip or `accessibility_label` it chains).
     gpui_component::button::Button::new(id)

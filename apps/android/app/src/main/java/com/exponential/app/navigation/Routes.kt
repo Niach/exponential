@@ -62,12 +62,6 @@ object Routes {
         NeedsYou.Opens.Chat -> chat(rootId)
     }
 
-    /** #EXP-2109 (sidebar-tree.json `phone`): the Teams tab's pages. */
-    const val TEAM_PATTERN = "team/{teamId}"
-    fun team(teamId: String): String = "team/$teamId"
-    const val FOLDER_PATTERN = "team/{teamId}/folder/{folderId}"
-    fun folder(teamId: String, folderId: String): String = "team/$teamId/folder/$folderId"
-
     const val BOARD_PATTERN = "board/{boardId}"
     fun board(boardId: String): String = "board/$boardId"
 
@@ -140,6 +134,7 @@ object Routes {
     const val APP_PATTERN = "app/{appId}?tab={tab}&screen={screen}&params={params}"
     val APP_ARGS = listOf("tab", "screen", "params")
     fun app(appId: String): String = "app/$appId"
+    fun appSettings(appId: String): String = "app/$appId?tab=${com.exponential.app.domain.Apps.EditorTabs.SETTINGS}"
 
     /** VAPP-242 (apps.json THE RUN VIEW): an app as a member uses it, its
      *  PUBLISHED package; `screen` + `params` (a JSON object of strings) =

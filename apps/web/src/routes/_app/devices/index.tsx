@@ -46,7 +46,7 @@ function PhoneDevices({ device }: { device: string | undefined }) {
   const enabled = Boolean(steerConfig?.enabled)
   const remote = useSteerDevices({ enabled, currentUserId: user.id, teamId: team?.id, listTeamIds: teamIds })
   return (
-    <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh min-h-0 flex-col pt-[env(safe-area-inset-top)]">
       <MobileDetailHeader
         title={<PushedTitle>{CHATS_COPY.headers.devices}</PushedTitle>}
         onBack={() => void navigate({ to: `/settings` })}

@@ -510,7 +510,8 @@ fun ChatHeaderSpecimenScreen() {
                 },
                 onBack = {},
                 menu = more,
-                call = { ChatHeaderButton(ExpIcons.voiceCall, "Call", onClick = {}) },
+                call = { com.exponential.app.ui.components.PageHeaderCircle(ExpIcons.voiceCall, "Call", onClick = {}) },
+                onAdd = {},
             )
         }
     }

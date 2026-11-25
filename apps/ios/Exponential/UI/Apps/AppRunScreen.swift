@@ -60,7 +60,9 @@ struct AppRunScreen: View {
                 .workHeaderBand(ground: true) { EmptyView() }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
-                .ownChromeToolbarItem(placement: .topBarTrailing, enabled: hasMenu(app)) { menuButton }
+                .toolbar {
+                    if hasMenu(app) { ToolbarItem(placement: .topBarTrailing) { menuButton } }
+                }
                 .toolbar {
                     ToolbarItem(placement: .principal) { title(app) }
                 }

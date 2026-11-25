@@ -4,7 +4,7 @@ import { CHATS_COPY, railAgents } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
 import type { CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import type { SidebarEntry } from "@exp/domain-contract/sidebar-folders"
-import { SIDEBAR_MENU_COPY, type SidebarMenuKind } from "@exp/domain-contract/sidebar-menus"
+import { SIDEBAR_MENU_COPY, sidebarMoveTargets, type SidebarMenuKind } from "@exp/domain-contract/sidebar-menus"
 import {
   SIDEBAR_DEVICES_OPEN_KEY,
   SIDEBAR_TREE_COPY,
@@ -22,7 +22,6 @@ import {
   Menu,
   MenuGestureHost,
   menuProps,
-  Prompt,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -44,12 +43,11 @@ import type { Board, Team } from "@/db/schema"
 import type { ChatsListRow } from "@/lib/session-tree"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { sidebarLayoutCollection } from "@/lib/collections"
-import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { NEW_RUN_TAB, type WorkTab } from "@/lib/work-tabs"
 import { useApps } from "@/hooks/use-apps"
-import { useTeamBoards } from "@/hooks/use-team-data"
+import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
 import { sidebarTeamSlice, useSidebarTeamsData, type SidebarChatMark, type SidebarTeamSlice } from "@/hooks/use-sidebar-teams-data"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useSidebarFolders, type SidebarFolders } from "@/hooks/use-sidebar-folders"
@@ -62,7 +60,7 @@ import {
   useSidebarOpenFlag,
   type SidebarDevice,
 } from "@/hooks/use-sidebar-tree"
-import { SidebarFolderRows, SidebarNameInput, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
+import { SidebarFolderRows, SidebarNameInput, useSidebarTreeDensity, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import { SidebarAgentRow } from "@/components/team/sidebar-agents"
 import { SidebarAppRow } from "@/components/team/sidebar-apps"
 import { ChatRunMark } from "@/components/team/sidebar-running"
@@ -70,11 +68,13 @@ import { NavCountBadge } from "@/components/team/sidebar-shared"
 import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
 import { AssistantMark } from "@/components/team/assistant-mark"
 import {
+  headerMenuEntries,
   newTeamEntries,
   openHandlers,
   sidebarMenuEntries,
   SidebarPointerMenu,
 } from "@/components/team/sidebar-menus"
+import { useBoardArchive } from "@/components/team/board-archive"
 import { useAgentSends } from "@/components/chat/chat-menu"
 
 // #EXP-2027 (fixtures/sidebar-tree.json, its `$comment` is the spec): the
@@ -490,9 +490,6 @@ export function SidebarTeamsGroup({
   onNewTeam: () => void
   onJoinTeam: () => void
 }) {
-  // #PERF-13: every team's lists read ONCE, each section its own slice.
-  const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
-  const data = useSidebarTeamsData(teamIds, me, chatRows)
   // #EXP-2124: the label's + and its right-click are THE table's `teams` row.
   const teamsMenu = () => sidebarMenuEntries(`teams`, {}, { "new-team": onNewTeam, "join-team": onJoinTeam })
   return (
@@ -518,36 +515,59 @@ export function SidebarTeamsGroup({
         }
       />
       <SidebarGroupContent className="flex flex-col gap-1">
-        {teams.map((team) => (
-          <SidebarTeamSection
-            key={team.id}
-            team={team}
-            owner={owners.has(team.id)}
-            needsYou={needsYou.get(team.id) ?? 0}
-            data={sidebarTeamSlice(data, team.id)}
-            active={active}
-          />
-        ))}
+        <SidebarTeamSections teams={teams} owners={owners} needsYou={needsYou} chatRows={chatRows} me={me} active={active} />
       </SidebarGroupContent>
     </SidebarGroup>
   )
+}
+
+/** Every team's tree (the sidebar's Teams group and, at touch density, the
+ *  phones' Teams tab). #PERF-13: the lists are read ONCE, each section its
+ *  own slice. */
+export function SidebarTeamSections({
+  teams,
+  owners,
+  needsYou,
+  chatRows,
+  me,
+  active,
+  sessionBadges,
+  onCount,
+}: {
+  teams: readonly Team[]
+  owners: ReadonlySet<string>
+  needsYou: ReadonlyMap<string, number>
+  chatRows: ReadonlyMap<string, ChatsListRow>
+  me: string | null | undefined
+  active: SidebarActive
+  /** #EXP-2109: a placed session's count badge (touch density). */
+  sessionBadges?: ReadonlyMap<string, CountBadgeValue>
+  /** #EXP-2109: a team's top-level node count, once its lists are in. */
+  onCount?: (teamId: string, count: number) => void
+}) {
+  const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
+  const data = useSidebarTeamsData(teamIds, me, chatRows)
+  return teams.map((team) => (
+    <SidebarTeamSection
+      key={team.id}
+      team={team}
+      owner={owners.has(team.id)}
+      needsYou={needsYou.get(team.id) ?? 0}
+      data={sidebarTeamSlice(data, team.id)}
+      active={active}
+      sessionBadges={sessionBadges}
+      onCount={onCount}
+    />
+  ))
 }
 
 /** #EXP-2124 Move to folder ›: the team's folders (into that folder; not the
  *  one holding it), then New folder (a new folder holding it, its name in
  *  edit) and, for an item inside a folder, Top level. */
 export function moveEntries(folders: Pick<SidebarFolders, `rows` | `move` | `moveToNewFolder`>, id: string): MenuEntry[] {
-  const at = folders.rows.findIndex((row) => row.id === id)
-  let holder: string | null = null
-  for (let index = at - 1; at >= 0 && index >= 0; index--) {
-    const row = folders.rows[index]
-    if (row.depth < folders.rows[at].depth) {
-      holder = row.group ? row.id : null
-      break
-    }
-  }
-  const into = folders.rows
-    .filter((row) => row.group && row.id !== holder)
+  const targets = sidebarMoveTargets(folders.rows, id)
+  const holder = targets.topLevel
+  const into = targets.folders
     .map(
       (row): MenuEntry => ({
         kind: `item`,
@@ -591,22 +611,28 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   needsYou,
   data,
   active,
+  sessionBadges,
+  onCount,
 }: {
   team: Team
   owner: boolean
   needsYou: number
   data: SidebarTeamSlice
   active: SidebarActive
+  sessionBadges?: ReadonlyMap<string, CountBadgeValue>
+  onCount?: (teamId: string, count: number) => void
 }) {
   const navigate = useNavigate()
+  const density = useSidebarTreeDensity()
+  const touch = density === `touch`
   const [open, setOpen] = useSidebarOpenFlag(sidebarTeamOpenKey(team.id))
-  const boards = useTeamBoards(team.id)
+  const { boards, boardsReady } = useTeamBoardsWithReady(team.id)
   const { agents, badges, titles, chatRows } = data
   const { apps } = useApps(team.id)
   const openNewDraft = useOpenNewDraft(team.slug)
   // #EXP-2124 board Archive: the board settings' archive behind its confirm.
-  const [archiving, setArchiving] = useState<Board | null>(null)
-  const [archiveBusy, setArchiveBusy] = useState(false)
+  const here = active.teamSlug === team.slug
+  const boardArchive = useBoardArchive((board) => here && active.board === board.slug)
   // #FEED-239 / #EXP-1837 (`railAgents`): an app's agent shows as its app,
   // the Assistant never.
   const agentRows = useMemo(
@@ -634,6 +660,11 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   )
   const folders = useSidebarFolders(team.id, `team`, itemsOf)
 
+  const count = boardsReady ? folders.items.length : null
+  useEffect(() => {
+    if (count !== null) onCount?.(team.id, count)
+  }, [onCount, team.id, count])
+
   // An Active row's drag (and its Add to sidebar) drops into this list.
   const { dropSession } = folders
   useEffect(() => registerSidebarTeamDrop(team.id, dropSession), [team.id, dropSession])
@@ -645,7 +676,6 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   // against the team's boards, agents and apps, else it is a session.
   const kindOf = (id: string): SidebarItemKind =>
     boardsById.has(id) ? `board` : agentsById.has(id) ? `agent` : appsById.has(id) ? `app` : `session`
-  const here = active.teamSlug === team.slug
   const base = `/t/${encodeURIComponent(team.slug)}`
   const tabTeam = { teamId: team.id, teamSlug: team.slug }
 
@@ -684,7 +714,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
               "new-issue": () => openNewDraft({ boardId: board.id }),
               move,
               settings: () => go(`${base}/settings/boards/${board.id}`),
-              archive: () => setArchiving(board),
+              archive: () => boardArchive.ask(board),
             })}
           />
         )
@@ -739,51 +769,61 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
     }
   }
 
-  const archive = async (board: Board) => {
-    setArchiveBusy(true)
-    try {
-      await trpc.boards.archive.mutate({ boardId: board.id })
-      setArchiving(null)
-      if (here && active.board === board.slug) void navigate({ to: `/home` })
-    } finally {
-      setArchiveBusy(false)
-    }
-  }
-  const archiveCopy = archiving ? WEB_PROMPTS.archiveBoard(archiving.name) : null
-
   const renderTeamRow = (itemProps: SidebarRowItemProps) => (
-    <SidebarMenuItem {...itemProps} data-testid="sidebar-team-row">
+    <SidebarMenuItem {...itemProps} data-testid="sidebar-team-row" data-team-slug={team.slug}>
       <SidebarMenuButton
-        density="compact"
+        density={density}
+        className={touch ? `pr-36!` : `group-hover/menu-item:pr-18!`}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         {...menuProps(sidebarTeamMenuKind(team.id), team.id)}
       >
-        <TeamAvatar iconUrl={team.iconUrl} size={16} />
+        <TeamAvatar iconUrl={team.iconUrl} size={touch ? 20 : 16} />
         <span className="min-w-0 flex-1 truncate">{team.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuTrailing className="pointer-events-none gap-1 text-muted-foreground">
+      <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-muted-foreground`, touch && `right-4 justify-end`)}>
         {needsYou > 0 && (
           <Badge
             count={needsYou}
             tone="attention"
             title={NEEDS_YOU_COPY.entry}
             data-testid="sidebar-team-needs-you"
-            className="group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible"
+            className={
+              touch ? `mr-18` : `group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible`
+            }
           />
         )}
         <ChevronIcon className={cn(`size-4 transition-transform`, open && `rotate-90`)} />
       </SidebarMenuTrailing>
+      {/* header-actions.json `rows.team`: the +, then the `…`. */}
+      <Menu
+        align="start"
+        side="right"
+        aria-label={SIDEBAR_TREE_COPY.new}
+        title={team.name}
+        entries={newTeamEntries(team, owner, go)}
+        trigger={
+          <SidebarMenuAction
+            showOnHover
+            className={touch ? `inset-y-0 right-19 my-auto top-0!` : `right-12`}
+            title={SIDEBAR_TREE_COPY.new}
+            aria-label={`${SIDEBAR_TREE_COPY.new}: ${team.name}`}
+            data-testid="sidebar-team-new-button"
+          >
+            <AddIcon />
+          </SidebarMenuAction>
+        }
+      />
       <Menu
         align="start"
         side="right"
         aria-label={SIDEBAR_TREE_COPY.teamActions}
         title={team.name}
-        entries={teamMenuEntries()}
+        entries={headerMenuEntries(teamMenuEntries())}
         trigger={
           <SidebarMenuAction
             showOnHover
-            className="right-7"
+            className={touch ? `inset-y-0 right-10 my-auto top-0!` : `right-7`}
             title={SIDEBAR_TREE_COPY.teamActions}
             aria-label={SIDEBAR_TREE_COPY.teamActions}
             data-testid="sidebar-team-menu-button"
@@ -852,6 +892,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             menu={itemMenuProps(id)}
             title={titles.get(id) ?? chatRows.get(id)?.title ?? ``}
             row={chatRows.get(id)}
+            badge={sessionBadges?.get(id)}
             active={here && active.session === id}
             itemProps={itemProps}
             guides={guides}
@@ -872,21 +913,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         testId="sidebar-team-items"
         listProps={{ [SIDEBAR_TEAM_LIST_ATTR]: team.id }}
       />
-      {archiveCopy && archiving && (
-        <Prompt
-          open
-          onOpenChange={(next) => {
-            if (!next && !archiveBusy) setArchiving(null)
-          }}
-          busy={archiveBusy}
-          title={archiveCopy.title}
-          body={archiveCopy.body}
-          data-testid="sidebar-board-archive-confirm"
-          actions={promptActions(archiveCopy, {
-            archive: { busy: archiveBusy, onSelect: () => void archive(archiving) },
-          })}
-        />
-      )}
+      {boardArchive.dialog}
     </>
   )
 })
@@ -955,17 +982,18 @@ function SidebarBoardRow({
   itemProps: SidebarRowItemProps
   guides: ReactNode
 }) {
+  const density = useSidebarTreeDensity()
   const TypeIcon = getBoardIcon(board)
   return (
     <SidebarMenuItem {...itemProps} data-testid="sidebar-board-row">
       {guides}
-      <SidebarMenuButton asChild density="compact" isActive={active}>
+      <SidebarMenuButton asChild density={density} isActive={active}>
         <Link to="/t/$teamSlug/boards/$boardSlug" params={{ teamSlug, boardSlug: board.slug }} {...menu}>
           <TypeIcon className="h-4 w-4 shrink-0" style={{ color: board.color }} />
           <span className="min-w-0 flex-1 truncate">{board.name}</span>
         </Link>
       </SidebarMenuButton>
-      {owner && (
+      {owner && density === `compact` && (
         <SidebarMenuAction asChild showOnHover title="Board settings">
           <Link
             to="/t/$teamSlug/settings/boards/$boardId"
@@ -988,6 +1016,7 @@ function SidebarSessionRow({
   menu,
   title,
   row,
+  badge,
   active,
   itemProps,
   guides,
@@ -997,14 +1026,16 @@ function SidebarSessionRow({
   menu: ReturnType<typeof menuProps>
   title: string
   row: SidebarChatMark | undefined
+  badge?: CountBadgeValue
   active: boolean
   itemProps: SidebarRowItemProps
   guides: ReactNode
 }) {
+  const density = useSidebarTreeDensity()
   return (
     <SidebarMenuItem {...itemProps} data-testid="sidebar-session-row">
       {guides}
-      <SidebarMenuButton asChild density="compact" isActive={active}>
+      <SidebarMenuButton asChild density={density} isActive={active}>
         <Link to="/t/$teamSlug/sessions/$sessionId" params={{ teamSlug, sessionId }} {...menu}>
           <ChatRunMark row={{ sessionId, needsYou: row?.needsYou ?? false, busy: row?.busy ?? false }} />
           <span
@@ -1015,6 +1046,11 @@ function SidebarSessionRow({
           </span>
         </Link>
       </SidebarMenuButton>
+      {density === `touch` && badge && badge.count > 0 && (
+        <SidebarMenuTrailing className="pointer-events-none right-4">
+          <Badge count={badge.count} tone={badge.tone} />
+        </SidebarMenuTrailing>
+      )}
     </SidebarMenuItem>
   )
 }

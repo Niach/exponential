@@ -99,6 +99,7 @@
     "./app-share": "./src/app-share.ts",
     "./sidebar-folders": "./src/sidebar-folders.ts",
     "./sidebar-tree": "./src/sidebar-tree.ts",
+    "./header-actions": "./src/header-actions.ts",
     "./sidebar-menus": "./src/sidebar-menus.ts",
     "./sidebar-compat": "./src/sidebar-compat.ts",
     "./image-actions": "./src/image-actions.ts"

@@ -84,8 +84,8 @@ fun ChatHeaderButton(
  * chat's Merge pill ([action]) · NEW-69: the telephone ([call], an agent chat
  * only, left of `…`) · the `…` menu (the chat's own entries,
  * `chatMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
- * divider). #EXP-1688: one leading row, nothing centred, ghost buttons
- * (`shell.chatHeader`). #FEED-239: no gear (settings = a `…` entry); THE
+ * divider). #EXP-1688: one leading row, nothing centred, a ghost back
+ * (`shell.chatHeader`), THE header circles trailing (header-actions.json). #FEED-239: no gear (settings = a `…` entry); THE
  * session screen's tabs ([SessionScreenTabs]) ride under it ([tabs]) on the
  * same band.
  */
@@ -103,6 +103,8 @@ fun ChatHeader(
     tabs: (@Composable () -> Unit)? = null,
     /** NEW-69: the agent chat's telephone (`AgentCallButton`), left of `…`. */
     call: (@Composable () -> Unit)? = null,
+    /** header-actions.json: an agent chat's + (New conversation); null = none. */
+    onAdd: (() -> Unit)? = null,
     /** S-3: the action slot left of `…` (the chat's Merge pill; it may
      *  draw nothing). */
     action: (@Composable () -> Unit)? = null,
@@ -134,6 +136,7 @@ fun ChatHeader(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val gap = Chats.Shell.ChatHeader.GAP.dp
+                val actionGap = com.exponential.app.domain.HeaderActions.GAP.dp
                 if (onBack != null) {
                     ChatHeaderButton(ExpIcons.uiBack, "Back", onClick = onBack)
                     Spacer(Modifier.width(gap))
@@ -188,15 +191,24 @@ fun ChatHeader(
                 // Draws its own leading gap (nothing while there is no action).
                 action?.invoke()
                 if (call != null) {
-                    Spacer(Modifier.width(gap))
+                    Spacer(Modifier.width(actionGap))
                     call()
+                }
+                if (onAdd != null) {
+                    Spacer(Modifier.width(actionGap))
+                    com.exponential.app.ui.components.PageHeaderCircle(
+                        ExpIcons.uiAdd,
+                        com.exponential.app.domain.SessionScreen.Copy.Menu.NEW_CONVERSATION,
+                        onClick = onAdd,
+                        modifier = Modifier.testTag("chat-header-add"),
+                    )
                 }
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (more != null) {
-                    Spacer(Modifier.width(gap))
+                    Spacer(Modifier.width(actionGap))
                     more()
                 } else if (groups.isNotEmpty()) {
-                    Spacer(Modifier.width(gap))
+                    Spacer(Modifier.width(actionGap))
                     ChatHeaderMenu(groups)
                 }
             }
@@ -213,7 +225,7 @@ private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>) {
     var open by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<ChatMenuItem?>(null) }
     Box {
-        ChatHeaderButton(
+        com.exponential.app.ui.components.PageHeaderCircle(
             ExpIcons.uiMore,
             "More",
             onClick = {

@@ -454,13 +454,11 @@ fun ChatScreen(
             closeItem()
             findInChat.openBar()
         },
-        entries = SessionScreen.menu(
+        // header-actions.json: what the + does is never in the `…`.
+        entries = SessionScreen.headerMenu(
             kind = kind,
-            phone = true,
             member = isMember,
             settings = mayOpenSettings,
-            publish = false,
-            export = false,
             delete = agent == null && rootRow != null &&
                 com.exponential.app.domain.Chats.chatMenuEntries(rootRow.status, canSteer, rootRow.userId == me || isOwner).isNotEmpty(),
             // #EXP-1834: Link or file an issue (a member), on every tab.
@@ -699,6 +697,12 @@ fun ChatScreen(
                 menuGroups = chatMenu.drop(1) + listOf(guideMenuItems),
                 // NEW-69: an agent's conversation carries the telephone.
                 headerCall = agent?.let { a -> { com.exponential.app.ui.call.AgentCallButton(agentId = rootRow?.agentId, agentName = a.name, agentIcon = if (a.assistant) null else a.icon, agentColor = a.color) } },
+                // header-actions.json `agent-chat`: + = New conversation, SENT.
+                headerAdd = if (agent != null && isMember) {
+                    { SessionScreen.MenuEntry.NewConversation.send?.let { viewModel.send(it) } }
+                } else {
+                    null
+                },
                 callAgentId = rootRow?.agentId?.takeIf { agent != null },
                 // S-3: the Merge rides the header, left of `…` (phones too).
                 headerAction = if (agent == null) {
@@ -978,6 +982,8 @@ fun ChatContent(
     issueTitle: (String) -> String? = { null },
     /** NEW-69: the agent chat's telephone in the header (null = none). */
     headerCall: (@Composable () -> Unit)? = null,
+    /** header-actions.json: an agent chat's + (null = none). */
+    headerAdd: (() -> Unit)? = null,
     /** FEED-272: the agent this chat calls: its call's Chat tab replaces the header. */
     callAgentId: String? = null,
     /** S-3: the header's action slot left of `…` (the chat's Merge). */
@@ -1163,6 +1169,7 @@ fun ChatContent(
                 menu = menu,
                 menuGroups = menuGroups,
                 call = headerCall,
+                onAdd = headerAdd,
                 action = headerAction,
                 waiting = if (waitingChips.isNotEmpty()) {
                     { SessionWaitingButton(count = waitingChips.size, onClick = { waitingSheet = true }) }

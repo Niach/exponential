@@ -324,8 +324,7 @@ impl Render for InboxPopoverBody {
         let copy = domain::chats::CHATS.copy.inbox.clone();
         let muted = cx.theme().muted_foreground;
         let mark_all = (data.total_unread > 0).then(|| {
-            crate::controls::ghost_icon_button("inbox-mark-all-read", Icon::from(registry::NOTIFICATION_MARK_READ), cx)
-                .tooltip("Mark all read")
+            crate::controls::header_button("inbox-mark-all-read", registry::NOTIFICATION_MARK_READ, "Mark all read", cx)
                 .on_click(move |_: &ClickEvent, _, cx: &mut App| mark_all_read(team.clone(), cx))
         });
         let body: AnyElement = if !data.is_ready {

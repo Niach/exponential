@@ -319,7 +319,8 @@ class AuthApi @Inject constructor(
                 parameter("name", name)
             }
             if (!response.status.isSuccess()) {
-                val message = authErrorMessage(response.bodyAsText())
+                val body = response.bodyAsText()
+                val message = AuthWire.passkeyRegisterErrorMessage(authErrorCode(body), authErrorMessage(body))
                     ?: "Couldn't start adding the passkey (HTTP ${response.status.value})"
                 return Result.failure(IllegalStateException(message))
             }
@@ -352,7 +353,8 @@ class AuthApi @Inject constructor(
                 setBody(AuthWire.passkeyRegisterBody(json, responseJson, name))
             }
             if (!response.status.isSuccess()) {
-                val message = authErrorMessage(response.bodyAsText())
+                val body = response.bodyAsText()
+                val message = AuthWire.passkeyRegisterErrorMessage(authErrorCode(body), authErrorMessage(body))
                 return Result.failure(IllegalStateException(message ?: "Couldn't add the passkey (HTTP ${response.status.value})"))
             }
             Result.success(Unit)

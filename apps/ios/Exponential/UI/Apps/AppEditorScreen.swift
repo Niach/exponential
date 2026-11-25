@@ -298,7 +298,7 @@ struct AppEditorScreen: View {
         AnyView(
             HStack(spacing: 4) {
                 AppOutboxPendingGlyph(appId: app.id)
-                ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
+                HeaderCircleButton(icon: AppIcons.uiMore, label: "More", identifier: SessionScreen.TestIds.menu) {
                     UIApplication.endEditing()
                     menuOpen = true
                 }
