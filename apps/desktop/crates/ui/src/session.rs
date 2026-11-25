@@ -222,6 +222,12 @@ fn claim_timezone(account: &api::Account, cx: &mut App) {
 /// (Local claude children survive sign-out unchanged — pre-existing
 /// behavior; only the synced rows are closed out here.)
 pub fn sign_out_active(cx: &mut App) {
+    // #EDE-226: on Exponential Desktop the app holds the login's account, so
+    // its sign-out is the login's: the keys and the stores go too.
+    sign_out_with(crate::session_holder::holds_login(), cx);
+}
+
+pub(crate) fn sign_out_with(forget: bool, cx: &mut App) {
     let store = Store::global(cx).clone();
     let Some(account_id) = store.session(cx).account_id().map(String::from) else {
         return;
@@ -271,7 +277,13 @@ pub fn sign_out_active(cx: &mut App) {
         // round trips settle (offline included: they are best-effort, so
         // no error toast).
         crate::feedback::Blocking::begin(crate::feedback::BLOCKING_SIGN_OUT, cx);
+        let forgetting = forget.then(|| Arc::clone(&auth.auth));
         let ends = cx.background_executor().spawn(async move {
+            if forgetting.is_some() {
+                // The CLI daemon's install of this login too.
+                let trpc = api::TrpcClient::new(&account.instance_url, Arc::new(api::StaticToken(token.clone())));
+                steer::enet::revoke_stored_blocking(&trpc, &steer::enet::identity_path(&data_dir, &account.id, steer::enet::InstallKind::Daemon));
+            }
             if let Some(enet) = enet {
                 let trpc = api::TrpcClient::new(
                     &account.instance_url,
@@ -299,6 +311,9 @@ pub fn sign_out_active(cx: &mut App) {
             if let Err(err) = client.sign_out(&account.instance_url, &token) {
                 eprintln!("[exp-desktop] session: server-side sign-out failed: {err}");
             }
+            if let Some(store) = forgetting {
+                store.forget_account(&account.id, &data_dir);
+            }
         });
         cx.spawn(async move |cx| {
             ends.await;
@@ -309,6 +324,23 @@ pub fn sign_out_active(cx: &mut App) {
 
     auth.auth.sign_out(&account_id);
     store.sign_out(&account_id, cx);
+}
+
+/// #EDE-226: another process signed `account_id` out (the CLI, the shell):
+/// this app lets go of it. Nothing is revoked or deleted here (the token is
+/// gone; an expiry elsewhere looks the same).
+pub(crate) fn signed_out_elsewhere(account_id: &str, cx: &mut App) {
+    let store = Store::global(cx).clone();
+    let active = store.session(cx).account_id() == Some(account_id);
+    if active {
+        crate::steer_viewer::StreamSlotMemo::clear(cx);
+        crate::chat_store::stop(cx);
+    }
+    crate::steer_wiring::stop_control_channel(account_id, cx);
+    crate::device_sync::stop_device_sync(account_id, cx);
+    if active {
+        store.sign_out(account_id, cx);
+    }
 }
 
 /// EXP-367 "Reset IDE data" (Settings → Tools → Danger zone; built for
@@ -485,6 +517,12 @@ pub(crate) fn pick_account(accounts: Vec<api::accounts::Account>, wanted: Option
         Some(i) => Some(accounts.swap_remove(i)),
         None => accounts.into_iter().next(),
     }
+}
+
+/// #EDE-226: the person picked in eDE's switcher (a fresh login has not, nor
+/// has one after a sign-out: the shell forgets the pick).
+pub(crate) fn ede_picked(ede_config: Option<&std::path::Path>) -> bool {
+    ede_config.is_some_and(|dir| dir.join("switcher.json").exists())
 }
 
 pub(crate) fn ede_pick(ede_config: Option<&std::path::Path>) -> EdePick {

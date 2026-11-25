@@ -1199,13 +1199,33 @@ impl Render for LoginView {
             );
         }
 
+        // #EDE-226: on Exponential Desktop the shell's Connect is the one
+        // sign-in; the app offers the way there.
+        let shell_signs_in = crate::session_holder::shell_signs_in();
+        if shell_signs_in {
+            form = form.child(
+                Button::new("login-connect")
+                    .primary()
+                    .cursor_pointer()
+                    .w_full()
+                    .label("Connect Exponential")
+                    .on_click(|_, _, cx| {
+                        if let Err(err) = crate::session_holder::open_connect() {
+                            crate::action_error::failed_action("open", "Connect Exponential", Some(err.to_string()), cx);
+                        }
+                    }),
+            );
+        }
+
         // -- self-hosted URL field (cloud needs none) ----------------
-        if let Some(server_input) = self.render_server_input(window, cx) {
+        if shell_signs_in {
+        } else if let Some(server_input) = self.render_server_input(window, cx) {
             form = form.child(server_input);
         }
 
         // -- the method list + the revealed email step (per auth-config) ----
-        if config_loading {
+        if shell_signs_in {
+        } else if config_loading {
             // EXP-1259 D8: the method list's rows as placeholders, so the
             // card doesn't jump when the real list swaps in.
             form = form.child(crate::feedback::skeleton_rows(
@@ -1220,15 +1240,17 @@ impl Render for LoginView {
 
         // -- copyable-URL degradation --------------------------------
         // INVALID INPUT (FEED-79): the form's own line, 13px rose.
-        if let Some(error) = &self.error {
+        if let Some(error) = self.error.as_ref().filter(|_| !shell_signs_in) {
             form = form.child(crate::action_error::field_error(error.clone(), cx));
         }
-        if let Some(url) = self.copy_url.clone() {
+        if let Some(url) = self.copy_url.clone().filter(|_| !shell_signs_in) {
             form = form.child(self.render_copy_url(&url, cx));
         }
 
         // -- instance toggle (self-host demoted to a small link) -----
-        form = form.child(self.render_instance_toggle(cx));
+        if !shell_signs_in {
+            form = form.child(self.render_instance_toggle(cx));
+        }
         // #EXP-1727: an account is optional: a Local desktop lives on this
         // machine alone.
         form = gpui::prelude::FluentBuilder::when(form, crate::local_desktops::available(), |form| form.child(
