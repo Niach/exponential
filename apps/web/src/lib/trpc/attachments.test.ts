@@ -314,7 +314,19 @@ describe(`attachments.delete`, () => {
   })
 })
 
-describe(`attachments.sweepUnreferencedImages`, () => {
+describe(`attachments.sweepUnreferencedImages paused (EXP-2115)`, () => {
+  beforeEach(resetState)
+
+  it(`refuses and deletes nothing`, async () => {
+    state.attachmentRows = [imageRow({ id: ATT_B, storageKey: `stale` })]
+    await expect(caller.sweepUnreferencedImages({ teamId: TEAM })).rejects.toThrow(/paused/)
+    expect(state.deletedTables).toEqual([])
+    expect(h.deleteStorageObjects).not.toHaveBeenCalled()
+  })
+})
+
+// Paused (#EXP-2115).
+describe.skip(`attachments.sweepUnreferencedImages`, () => {
   beforeEach(resetState)
 
   it(`deletes only unreferenced images older than the grace window`, async () => {
