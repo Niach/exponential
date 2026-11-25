@@ -604,8 +604,8 @@ public protocol AppInstanceProtocol: AnyObject, Sendable {
     func appId()  -> String
     
     /**
-     * A host function call from the app's UI: `records.upsert` /
-     * `records.delete` / `records.batch`, `app.navigate`, or a capability
+     * A host function call from the app's UI: `records_upsert` /
+     * `records_delete` / `records_batch`, `app_navigate`, or a capability
      * (`<capability>.<tool>`, through the broker). `newIds` = the client
      * ids of the creates, in order.
      */
@@ -765,8 +765,8 @@ open func appId() -> String  {
 }
     
     /**
-     * A host function call from the app's UI: `records.upsert` /
-     * `records.delete` / `records.batch`, `app.navigate`, or a capability
+     * A host function call from the app's UI: `records_upsert` /
+     * `records_delete` / `records_batch`, `app_navigate`, or a capability
      * (`<capability>.<tool>`, through the broker). `newIds` = the client
      * ids of the creates, in order.
      */
@@ -5969,7 +5969,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_method_appinstance_app_id() != 65035) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_method_appinstance_call() != 5206) {
+    if (uniffi_eengine_ffi_checksum_method_appinstance_call() != 25972) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_method_appinstance_event() != 52419) {
