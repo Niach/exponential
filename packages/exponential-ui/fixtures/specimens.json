@@ -11448,6 +11448,32 @@
             ]
           },
           {
+            "id": "specimen_link_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_link_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "press only (no href)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_press_link",
+                "component": "Link",
+                "props": {
+                  "label": "View all"
+                }
+              }
+            ]
+          },
+          {
             "id": "specimen_link_state_0",
             "component": "Stack",
             "props": {
