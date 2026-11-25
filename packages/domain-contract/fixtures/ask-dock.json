@@ -266,6 +266,7 @@
           "card": {
             "kind": "surface",
             "surface": {
+              "version": "1.0",
               "root": {
                 "id": "root",
                 "component": "Text",

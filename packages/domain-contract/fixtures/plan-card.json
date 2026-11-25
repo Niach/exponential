@@ -227,6 +227,7 @@
         "kind": "plan",
         "plan": "1. One",
         "surface": {
+          "version": "1.0",
           "root": {
             "id": "r",
             "component": "Text",
@@ -300,6 +301,7 @@
         "question": "Fill the form",
         "options": [],
         "surface": {
+          "version": "1.0",
           "root": {
             "id": "r",
             "component": "Text",

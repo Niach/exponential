@@ -211,7 +211,9 @@ final class SessionTreeTests: XCTestCase {
 
     private func json(_ surface: CardSurface?) -> Any {
         guard let surface else { return NSNull() }
-        return ["root": surface.root.any, "data": surface.data?.any ?? NSNull()] as [String: Any]
+        var out: [String: Any] = ["root": surface.root.any, "data": surface.data?.any ?? NSNull()]
+        if let version = surface.version { out["version"] = version }
+        return out
     }
 
     private func questionJSON(_ row: ChatQuestionRow) -> [String: Any] {
