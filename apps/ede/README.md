@@ -184,7 +184,9 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - **Window frames**: a client that leaves decorations to the compositor
   (xdg-decoration, or an X11 window without its own per its Motif hints)
   gets a 36 px title bar: the title, maximize and close, a draggable bar
-  (double-click maximizes), a 6 px resize band around the window. The frame
+  (double-click maximizes), a 6 px resize band around the window (an X11
+  window's too; one drawing its own chrome, Steam, resizes and moves through
+  `_NET_WM_MOVERESIZE`, #EDE-222). The frame
   stays when maximized or tiled, goes when fullscreen. A client that
   insists on its own decorations (GTK 4, libadwaita) keeps them.
 - **Recovery screen**: while the shell is not subscribed to ede-protocol

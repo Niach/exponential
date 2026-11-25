@@ -41,7 +41,7 @@ use smithay::{
 use crate::{
     desk::DeskId,
     spaces::x11::XwmDesk,
-    grabs::{MoveSurfaceGrab, BTN_LEFT},
+    grabs::{MoveSurfaceGrab, ResizeEdge, ResizeSurfaceGrab, BTN_LEFT},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
 };
@@ -580,9 +580,46 @@ impl XwmHandler for Ede {
         }
     }
 
-    fn resize_request(&mut self, _xwm: XwmId, _surface: X11Surface, _button: u32, _edges: X11ResizeEdge) {
-        // X11 windows resize from their own frame or by the app; interactive
-        // edge resizing for them comes with server-side decorations.
+    /// `_NET_WM_MOVERESIZE` from a client drawing its own chrome (Steam,
+    /// #EDE-222): the same grab as eDE's frame band and xdg-shell's request.
+    fn resize_request(&mut self, xwm: XwmId, surface: X11Surface, _button: u32, edges: X11ResizeEdge) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => {
+                let _ = surface;
+                return;
+            }
+            XwmDesk::Gone => return,
+        }
+        let Some(window) = self.x11_window(&surface) else { return };
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
+        // Resizing a tiled window makes it float at its new size; a
+        // fullscreen one keeps the output.
+        let mut st = window_state(&window);
+        if st.fullscreen.is_some() {
+            return;
+        }
+        if st.tile.take().is_some() {
+            st.restore = None;
+            set_window_state(&window, st);
+            let _ = surface.set_maximized(false);
+        }
+        let edges = match edges {
+            X11ResizeEdge::Top => ResizeEdge::TOP,
+            X11ResizeEdge::Bottom => ResizeEdge::BOTTOM,
+            X11ResizeEdge::Left => ResizeEdge::LEFT,
+            X11ResizeEdge::Right => ResizeEdge::RIGHT,
+            X11ResizeEdge::TopLeft => ResizeEdge::TOP_LEFT,
+            X11ResizeEdge::TopRight => ResizeEdge::TOP_RIGHT,
+            X11ResizeEdge::BottomLeft => ResizeEdge::BOTTOM_LEFT,
+            X11ResizeEdge::BottomRight => ResizeEdge::BOTTOM_RIGHT,
+        };
+        let pointer = self.desk.seat.get_pointer().unwrap();
+        let start = pointer
+            .grab_start_data()
+            .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
+        let rect = Rectangle::new(loc, window.geometry().size);
+        pointer.set_grab(self, ResizeSurfaceGrab::start(start, window, edges, rect), SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 
     fn move_request(&mut self, xwm: XwmId, surface: X11Surface, _button: u32) {
