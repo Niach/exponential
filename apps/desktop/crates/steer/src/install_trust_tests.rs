@@ -195,6 +195,7 @@ fn fixture_store(fx: &Value, spec: &Value) -> TrustStore {
                 x25519_public: text(&k["x25519Public"]).into(),
                 via: serde_json::from_value(pin[0].clone()).unwrap(),
                 by: pin[1].as_str().map(|by| endpoint(fx, by)),
+                class: InstallClass::Install,
             },
         );
     }
@@ -934,4 +935,72 @@ fn a_joined_install_rotates_a_stranded_root_it_holds_no_secret_of() {
     // Already rotated: nothing again.
     assert_eq!(holder.rotate_due(), 0);
     assert_eq!(server.creates(), 1);
+}
+
+// ── #EXP-2161: a member space ─────────────────────────────────────────────
+
+#[test]
+fn a_space_gets_no_wrap_until_its_approval_and_then_for_the_own_assistant_alone() {
+    let fx = fixture();
+    let s = &fx["space"]["keys"]["S"];
+    let row = ServedInstall {
+        install_id: "install-S".into(),
+        user_id: text(&s["userId"]).into(),
+        endpoint_id: text(&s["endpointId"]).into(),
+        x25519_public: text(&s["x25519Public"]).into(),
+        registration_signature: Some(text(&s["registrationSignature"]).into()),
+        registration_signed_at: Some(text(&s["signedAt"]).into()),
+        approval_requested: true,
+        label: Some("unraid".into()),
+    };
+    let (assistant, other) = ("01234567-89ab-4def-8123-456789abcdef", "11111111-89ab-4def-8123-456789abcdef");
+    let v = victim(TRUST_MODE);
+    v.keeper.set_own_assistant(Arc::new(move |root| root == assistant));
+    lock(&v.liar.installs).push(row.clone());
+    v.keeper.sync();
+    let wraps = |root: Option<&str>| {
+        matches!(
+            v.keeper.target(root, "install-S", &row.x25519_public, Some(&row.endpoint_id), None),
+            TargetVerdict::Wrap(_)
+        )
+    };
+    assert!(!wraps(Some(assistant)), "not approved");
+    // Every account key the server may forge as an ordinary approval is ignored.
+    let subject = ApprovalSubject { user_id: &row.user_id, endpoint_id: &row.endpoint_id, x25519_public: &row.x25519_public };
+    lock(&v.liar.approvals).push(ServedApproval {
+        kind: ApprovalKind::Approve,
+        subject_endpoint_id: row.endpoint_id.clone(),
+        approver_endpoint_id: endpoint(&fx, "A"),
+        signature: sign_approval(&identity(&fx, "A"), ApprovalKind::Approve, &subject).unwrap(),
+    });
+    v.keeper.sync();
+    assert!(!wraps(Some(assistant)), "`approve` is no approval of a space");
+    let pressed = v.keeper.snapshot().rows.into_iter().find(|r| r.endpoint_id == row.endpoint_id).unwrap();
+    v.keeper.approve(&pressed).unwrap();
+    assert_eq!(lock(&v.liar.approves).last().unwrap().2, ApprovalKind::Space);
+    assert!(wraps(Some(assistant)));
+    assert!(!wraps(Some(other)), "another tree");
+    assert!(!wraps(None), "a root that does not exist yet");
+    // Gone from the server: no wrap.
+    lock(&v.liar.installs).retain(|i| i.install_id != "install-S");
+    v.keeper.sync();
+    assert!(!v.keeper.store().pins.contains_key(&row.endpoint_id));
+}
+
+#[test]
+fn a_space_itself_waits_and_never_claims() {
+    let fx = fixture();
+    let s = &fx["space"]["keys"]["S"];
+    let id = Identity::from_bytes(hex32(&s["identity"]));
+    let v = victim(TRUST_MODE);
+    let path = store_file();
+    let keeper = TrustKeeper::open_space(path.clone(), &id, text(&s["userId"]), "install-S".into(), v.liar.clone(), TRUST_MODE);
+    keeper.sync();
+    assert_eq!(keeper.snapshot().state, TrustState::Waiting);
+    assert_eq!(keeper.snapshot().code.as_deref(), s["code"].as_str());
+    assert!(!keeper.makes_keys());
+    assert!(keeper.store().space && keeper.snapshot().rows.is_empty());
+    // Kept as one across a restart.
+    let again = TrustKeeper::open_space(path, &id, text(&s["userId"]), "install-S".into(), v.liar.clone(), TRUST_MODE);
+    assert!(again.store().space);
 }

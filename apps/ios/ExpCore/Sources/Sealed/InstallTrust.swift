@@ -563,6 +563,8 @@ public enum InstallTrust {
                 if install.userId != store.userId { continue }
                 ownSpaces.insert(install.endpointId)
             }
+            // A space knows its own member's ordinary installs and itself, nobody else.
+            if store.space, install.userId != store.userId || (registered == .space && install.endpointId != store.selfEndpointId) { continue }
             if registered != nil {
                 if valid[install.endpointId] == nil { order.append(install.endpointId) }
                 valid[install.endpointId] = install

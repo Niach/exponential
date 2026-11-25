@@ -98,7 +98,9 @@ mod linux {
             return;
         }
         println!("probe ... ok");
-        let tests: [(&str, fn()); 7] = [
+        let tests: [(&str, fn()); 9] = [
+            ("one_run_at_a_time", one_run_at_a_time),
+            ("a_group_signal_still_saves", a_group_signal_still_saves),
             ("sees_nothing_of_the_host", sees_nothing_of_the_host),
             ("the_environment_does_not_leak", the_environment_does_not_leak),
             ("only_the_instance_is_reachable", only_the_instance_is_reachable),
@@ -204,6 +206,31 @@ mod linux {
         let before = beat();
         std::thread::sleep(Duration::from_millis(700));
         assert_eq!(beat(), before, "the space's processes are gone");
+    }
+
+    fn one_run_at_a_time() {
+        let dirs = Dirs::new("lock");
+        let mut first = launch(&dirs.spec(&args(&["wait"])));
+        started(&dirs);
+        let (code, _, err) = finish(launch(&dirs.spec(&args(&["env"]))));
+        assert_eq!(code, Some(125));
+        assert!(err.contains("already running"), "{err}");
+        first.stdin.as_mut().unwrap().write_all(b"stop\n").unwrap();
+        assert_eq!(finish(first).0, Some(0));
+        assert_eq!(finish(launch(&dirs.spec(&args(&["env"])))).0, Some(0), "free again");
+    }
+
+    fn a_group_signal_still_saves() {
+        let dirs = Dirs::new("group");
+        let mut child = launch(&dirs.spec(&args(&["wait"])));
+        started(&dirs);
+        // A service stop signals the launcher too; the host then closes stdin.
+        unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(child.try_wait().unwrap().is_none());
+        drop(child.stdin.take());
+        assert_eq!(finish(child).0, Some(0));
+        assert!(dirs.0.join("a/data/saved").exists());
     }
 
     fn a_link_is_no_directory() {

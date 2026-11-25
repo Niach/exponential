@@ -136,6 +136,17 @@ fn home_dir() -> Option<PathBuf> {
     }
 }
 
+fn exclusive(host: &Path) -> Step<OwnedFd> {
+    let path = cstr(&host.join(".running"))?;
+    let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o600) };
+    check(fd, "the space's lock")?;
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("already running".into());
+    }
+    Ok(fd)
+}
+
 fn pair(kind: libc::c_int) -> Step<(OwnedFd, OwnedFd)> {
     let mut fds = [0 as RawFd; 2];
     check(unsafe { libc::socketpair(libc::AF_UNIX, kind | libc::SOCK_CLOEXEC, 0, fds.as_mut_ptr()) }, "socketpair")?;
@@ -145,6 +156,14 @@ fn pair(kind: libc::c_int) -> Step<(OwnedFd, OwnedFd)> {
 fn launch() -> Step<i32> {
     let spec = read_spec()?;
     validate(&spec)?;
+    // One run of a space at a time: a host killed and started again must not
+    // meet the one that still saves. Held by the launcher and its child.
+    let _lock = exclusive(&spec.host)?;
+    // A service manager signals the whole group: the space's program gets
+    // its own SIGTERM, the launcher only ends with it.
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        unsafe { libc::signal(signal, libc::SIG_IGN) };
+    }
     let (tun_out, tun_in) = pair(libc::SOCK_SEQPACKET)?;
     let (stop_out, stop_in) = pair(libc::SOCK_STREAM)?;
     let me = unsafe { libc::getpid() };
@@ -553,6 +572,9 @@ fn first_process(spec: &Spec, parent: libc::pid_t, stop: OwnedFd) -> Step<i32> {
         check(program, "fork")?;
         if program == 0 {
             libc::sigprocmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
+            for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+                libc::signal(signal, libc::SIG_DFL);
+            }
             libc::setpgid(0, 0);
             let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY);
             libc::dup2(null, 0);

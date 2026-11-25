@@ -464,6 +464,8 @@ object InstallTrust {
                 if (install.userId != userId) continue
                 ownSpaces += install.endpointId
             }
+            // A space knows its own member's ordinary installs and itself, nobody else.
+            if (before.space && (install.userId != userId || (registered == InstallClass.Space && install.endpointId != self))) continue
             if (registered != null) valid[install.endpointId] = install
             if (valid.containsKey(install.endpointId) || install.registrationSignature == null) {
                 counted[install.endpointId] = install
