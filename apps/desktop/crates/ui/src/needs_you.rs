@@ -43,7 +43,14 @@ use crate::user_avatar::{card_ground, with_team_mark, RowTeam};
 const COLUMN_W: f32 = 768.;
 
 /// A row's leading glyph.
-const GLYPH_PX: f32 = 16.;
+const GLYPH_PX: f32 = 18.5;
+
+/// #EXP-2108: web md+ in px (its root is 18.5 px: `text-sm` 16.19, `text-xs`
+/// 13.88, `gap-3` / `px-3` 13.88, `py-2` 9.25); the IDE's rem is 14.
+const TITLE_PX: f32 = 16.1875;
+const TITLE_LINE_PX: f32 = 23.125;
+const LINE_PX: f32 = 13.875;
+const LINE_LINE_PX: f32 = 18.5;
 
 fn is_waiting_kind(card: Option<&serde_json::Value>) -> bool {
     matches!(card.and_then(|card| card.get("kind")).and_then(|kind| kind.as_str()), Some("plan" | "question" | "ask"))
@@ -567,10 +574,10 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<&RowTeam>, actions: 
         .w_full()
         .min_w_0()
         .items_start()
-        .gap_3()
-        .px_3()
-        .py_2()
-        .child(div().flex_shrink_0().mt(px(2.)).child(with_team_mark(
+        .gap(px(13.875))
+        .px(px(13.875))
+        .py(px(9.25))
+        .child(div().flex_shrink_0().mt(px(2.3125)).child(with_team_mark(
             &row.message_id,
             Icon::new(row_glyph(row.kind)).with_size(px(GLYPH_PX)).text_color(theme::tokens::YELLOW.to_hsla()),
             GLYPH_PX,
@@ -586,21 +593,22 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<&RowTeam>, actions: 
                     h_flex()
                         .w_full()
                         .min_w_0()
-                        .gap_2()
+                        .gap(px(9.25))
                         .items_center()
                         .child(
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .text_sm()
+                                .text_size(px(TITLE_PX))
+                                .line_height(px(TITLE_LINE_PX))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme.foreground)
                                 .child(SharedString::from(row.title.clone())),
                         )
                         .child(div().flex_1())
-                        .child(div().flex_shrink_0().pl_2().text_xs().text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
+                        .child(div().flex_shrink_0().pl(px(9.25)).text_size(px(LINE_PX)).line_height(px(LINE_LINE_PX)).text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
                 )
-                .child(div().mt(px(2.)).truncate().text_xs().text_color(theme.muted_foreground).child(SharedString::from(second_line(row))))
+                .child(div().mt(px(2.3125)).truncate().text_size(px(LINE_PX)).line_height(px(LINE_LINE_PX)).text_color(theme.muted_foreground).child(SharedString::from(second_line(row))))
                 .children(actions),
         )
 }
