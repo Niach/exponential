@@ -39,6 +39,7 @@ data class TeamsPickBinding(
     /** null = every team. */
     val picked: List<String>?,
     val onChange: (List<String>?) -> Unit,
+    val owner: TeamsPick.Owner = TeamsPick.Owner.Assistant,
 ) {
     val ids: List<String> get() = teams.map { it.id }
 
@@ -90,6 +91,7 @@ fun teamChipTestId(teamId: String): String = "agent-composer-chip-team-$teamId"
 internal fun TeamPickChips(binding: TeamsPickBinding, enabled: Boolean, modifier: Modifier = Modifier) {
     val chosen = TeamsPick.chips(binding.picked, binding.teams) { it.id }
     if (chosen.isEmpty()) return
+    val removable = TeamsPick.removable(binding.owner, chosen.map { it.id })
     FlowRow(
         modifier = modifier.fillMaxWidth().padding(bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -100,12 +102,14 @@ internal fun TeamPickChips(binding: TeamsPickBinding, enabled: Boolean, modifier
                 team.name,
                 size = PillSize.Sm,
                 leading = { TeamAvatar(team.iconUrl, size = 12.dp) },
-                trailing = {
-                    ChipClose(
-                        contentDescription = "Remove ${team.name}",
-                        testTag = "agent-composer-chip-team-${team.id}-remove",
-                        onClick = { if (enabled) binding.onChange(TeamsPick.remove(binding.picked, binding.ids, team.id)) },
-                    )
+                trailing = if (team.id !in removable) null else {
+                    {
+                        ChipClose(
+                            contentDescription = "Remove ${team.name}",
+                            testTag = "agent-composer-chip-team-${team.id}-remove",
+                            onClick = { if (enabled) binding.onChange(TeamsPick.remove(binding.picked, binding.ids, team.id)) },
+                        )
+                    }
                 },
                 shrinkLabel = true,
                 modifier = Modifier

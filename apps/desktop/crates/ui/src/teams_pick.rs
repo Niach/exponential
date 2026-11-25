@@ -113,6 +113,51 @@ pub(crate) fn next_teams_pick(next: &[String], teams: &[PickTeam]) -> TeamsPick 
     (!kept.is_empty() && kept.len() != teams.len()).then_some(kept)
 }
 
+/// #EXP-2122 (`plainCases`, TS `plainTeamsPick`): a plain root's pick: its
+/// own team always, the others from the composer's `picked` (`None` =
+/// untouched: the stored ones). `scope` = the next send's `scopeTeamIds`
+/// (`None` = left out, `Some(None)` = its own team only).
+pub(crate) struct PlainTeamsPick {
+    pub shown: Vec<String>,
+    pub scope: Option<Option<Vec<String>>>,
+}
+
+pub(crate) fn plain_teams_pick(own: &str, stored: Option<&[String]>, picked: Option<&[String]>, teams: &[PickTeam]) -> PlainTeamsPick {
+    let ordered = |ids: &[String]| -> Vec<String> {
+        teams.iter().filter(|team| team.id != own && ids.contains(&team.id)).map(|team| team.id.clone()).collect()
+    };
+    let stored = ordered(stored.unwrap_or_default());
+    let others = picked.map_or_else(|| stored.clone(), ordered);
+    PlainTeamsPick {
+        shown: teams.iter().filter(|team| team.id == own || others.contains(&team.id)).map(|team| team.id.clone()).collect(),
+        scope: (others != stored).then(|| (!others.is_empty()).then_some(others)),
+    }
+}
+
+/// Who a pick belongs to (`removableCases`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickOwner<'a> {
+    Assistant,
+    /// A plain root, by its own team.
+    Root(&'a str),
+    /// Home's plain chat.
+    Home,
+}
+
+/// The chips with an ×: never one that could only widen a plain chat's pick.
+pub(crate) fn removable_chips<'a>(owner: PickOwner, chips: &[&'a str]) -> Vec<&'a str> {
+    match owner {
+        PickOwner::Root(own) => chips.iter().copied().filter(|id| *id != own).collect(),
+        PickOwner::Home if chips.len() == 1 => Vec::new(),
+        PickOwner::Home | PickOwner::Assistant => chips.to_vec(),
+    }
+}
+
+/// A plain root's changed pick (`None` = every team) as its `picked`.
+pub(crate) fn plain_others(own: &str, next: TeamsPick, teams: &[PickTeam]) -> Vec<String> {
+    next.unwrap_or_else(|| teams.iter().map(|team| team.id.clone()).collect()).into_iter().filter(|id| id != own).collect()
+}
+
 /// A row's toggle; `None` = refused (the last checked team stays).
 pub(crate) fn toggle_team(picked: Option<&[String]>, teams: &[PickTeam], id: &str) -> Option<TeamsPick> {
     let mut next = picked_team_ids(picked, teams);
@@ -214,6 +259,7 @@ pub(crate) fn team_chips(
     prefix: &'static str,
     teams: &[PickTeam],
     picked: Option<&[String]>,
+    owner: PickOwner,
     disabled: bool,
     on_change: OnTeamsPick,
     cx: &mut App,
@@ -221,7 +267,10 @@ pub(crate) fn team_chips(
     let chosen: Vec<PickTeam> = chip_teams(picked, teams).into_iter().cloned().collect();
     let muted = cx.theme().muted_foreground;
     let mut chips = Vec::new();
+    let ids: Vec<&str> = chosen.iter().map(|team| team.id.as_str()).collect();
+    let removable_ids = removable_chips(owner, &ids);
     for team in &chosen {
+        let removable = removable_ids.contains(&team.id.as_str());
         let rest: Vec<String> = chosen.iter().filter(|row| row.id != team.id).map(|row| row.id.clone()).collect();
         let next = if rest.is_empty() { None } else { next_teams_pick(&rest, teams) };
         let on_change = on_change.clone();
@@ -229,12 +278,13 @@ pub(crate) fn team_chips(
         chips.push(
             glass_pill(SharedString::from(format!("{prefix}-team-{}", team.id)), PillSize::Sm, PillMode::Readonly, cx)
                 .max_w(px(CHIP_MAX_W))
-                .pr_1()
+                .when(removable, |chip| chip.pr_1())
                 .gap_1()
                 .child(div().flex_shrink_0().child(mark))
                 .child(div().min_w_0().truncate().text_xs().child(SharedString::from(team.name.clone())))
-                .child(
-                    crate::composer::composer_tool(
+                .when(removable, |chip| {
+                    chip.child(
+                        crate::composer::composer_tool(
                         SharedString::from(format!("{prefix}-team-{}-remove", team.id)),
                         registry::UI_CLOSE,
                         cx,
@@ -244,7 +294,8 @@ pub(crate) fn team_chips(
                     .flex_shrink_0()
                     .disabled(disabled)
                     .on_click(move |_, window, cx| on_change(next.clone(), window, cx)),
-                )
+                    )
+                })
                 .into_any_element(),
         );
     }
@@ -257,11 +308,12 @@ pub(crate) fn chips_row(
     prefix: &'static str,
     teams: &[PickTeam],
     picked: Option<&[String]>,
+    owner: PickOwner,
     disabled: bool,
     on_change: OnTeamsPick,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    let chips = team_chips(prefix, teams, picked, disabled, on_change, cx);
+    let chips = team_chips(prefix, teams, picked, owner, disabled, on_change, cx);
     (!chips.is_empty()).then(|| h_flex().w_full().flex_wrap().items_center().gap_2().children(chips).into_any_element())
 }
 
@@ -293,6 +345,26 @@ mod tests {
         let pick = &fixture["teamsPick"];
         assert_eq!(pick["copy"]["all"], COPY_ALL);
         assert_eq!(pick["copy"]["many"], COPY_MANY);
+        let ids = |value: &serde_json::Value| -> TeamsPick {
+            value.as_array().map(|ids| ids.iter().map(|id| id.as_str().unwrap().to_string()).collect())
+        };
+        for case in pick["removableCases"].as_array().unwrap() {
+            let owner = match case["kind"].as_str().unwrap() {
+                "root" => PickOwner::Root(case["own"].as_str().unwrap()),
+                "home" => PickOwner::Home,
+                _ => PickOwner::Assistant,
+            };
+            let chips: Vec<&str> = case["chips"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(serde_json::json!(removable_chips(owner, &chips)), case["expected"], "{}", case["name"]);
+        }
+        let plain = pick["plainCases"].as_array().unwrap();
+        assert!(!plain.is_empty());
+        for case in plain {
+            let got = plain_teams_pick(case["own"].as_str().unwrap(), ids(&case["stored"]).as_deref(), ids(&case["picked"]).as_deref(), &teams_of(&case["teams"]));
+            assert_eq!(Some(got.shown), ids(&case["expected"]["shown"]), "{}", case["name"]);
+            let scope = &case["expected"]["scope"];
+            assert_eq!(got.scope, (scope.as_str() != Some("unchanged")).then(|| ids(scope)), "{}", case["name"]);
+        }
         let cases = pick["valueCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {

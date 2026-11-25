@@ -6162,7 +6162,12 @@ internal fun SessionComposer(
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
         account = composerAccount,
         teams = teamsPickState?.let { state ->
-            com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
+            com.exponential.app.ui.agent.TeamsPickBinding(
+                state.teams,
+                state.picked,
+                viewModel::setTeamsPick,
+                state.own?.let { com.exponential.app.domain.TeamsPick.Owner.Root(it) } ?: com.exponential.app.domain.TeamsPick.Owner.Assistant,
+            )
         },
     )
 
@@ -6891,7 +6896,9 @@ private fun ExpandedSteerComposer(
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
         strip = {
             // #EXP-1715: the Assistant's picked teams (a subset only).
-            menu.teams?.let { com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending) }
+            menu.teams?.let {
+                com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp))
+            }
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,
