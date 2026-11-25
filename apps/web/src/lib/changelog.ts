@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-25-desktop-cli-0-14-184`,
+    date: `2026-11-25`,
+    title: `Message your agents from your editor and shell`,
+    summary: `Desktop and CLI 0.14.184: connect Claude Code and other MCP clients to your encrypted chats, and New conversation works in group chats again.`,
+    body: `- **Message agents from your editor and shell**: \`exponential mcp serve\`, or the desktop app started with \`mcp\`, connects Claude Code and other MCP clients to your encrypted chats; \`exponential agents message\` and \`exponential sessions message\` do the same from a shell. Your device encrypts every message before it leaves.
+- **New conversation in group chats**: it starts a new conversation again, and changed instructions apply.`,
+  },
+  {
     id: `2026-11-25-desktop-cli-0-14-183-android`,
     date: `2026-11-25`,
     title: `A woken agent answers from its own device`,
