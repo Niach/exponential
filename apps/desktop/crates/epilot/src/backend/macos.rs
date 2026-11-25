@@ -117,6 +117,7 @@ extern "C" {
     fn CGEventGetIntegerValueField(event: core_graphics::sys::CGEventRef, field: u32) -> i64;
     fn CGEventSourceKeyState(state: CGEventSourceStateID, key: CGKeyCode) -> bool;
     fn CGEventSourceButtonState(state: CGEventSourceStateID, button: u32) -> bool;
+    fn CGSessionCopyCurrentDictionary() -> CFDictionaryRef;
 }
 
 #[link(name = "Carbon", kind = "framework")]
@@ -284,6 +285,19 @@ impl Mac {
 }
 
 impl Backend for Mac {
+    fn screen_locked(&self) -> bool {
+        // SAFETY: a +1 dictionary or null (no window server session).
+        let session = unsafe { CGSessionCopyCurrentDictionary() };
+        if session.is_null() {
+            return false;
+        }
+        let session: CFDictionary<CFString, CFType> = unsafe { TCFType::wrap_under_create_rule(session) };
+        session
+            .find(CFString::from_static_string("CGSSessionScreenIsLocked"))
+            .and_then(|value| value.downcast::<CFBoolean>())
+            .is_some_and(bool::from)
+    }
+
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
         Ok(active_displays()?.into_iter().map(|(_, info)| info).collect())
     }

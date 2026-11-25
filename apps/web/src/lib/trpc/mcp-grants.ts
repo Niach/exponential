@@ -22,6 +22,8 @@ import {
   writeAppsGrant,
 } from "@/lib/emcp/apps-consent"
 import { authedProcedure, router, type Context } from "@/lib/trpc"
+import { metadataClientHost } from "@/lib/auth/mcp-oauth-config"
+
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
 // what the user can grant, and the accept/deny action that both persists the
@@ -126,7 +128,7 @@ export const mcpGrantsRouter = router({
   // Client display info for the consent screen. Authed-only and limited to
   // name/icon — never the secret.
   consentInfo: authedProcedure
-    .input(z.object({ clientId: z.string().min(1).max(255) }))
+    .input(z.object({ clientId: z.string().min(1).max(2048) }))
     .query(async ({ input }) => {
       const [client] = await db
         .select({
@@ -143,7 +145,11 @@ export const mcpGrantsRouter = router({
           message: `Unknown OAuth client. Re-run authentication from your MCP client.`,
         })
       }
-      return { name: client.name ?? `MCP client`, icon: client.icon }
+      // #NEW-141: a metadata-document client's name is its own claim; the host
+      // serving the document is what is proven, so both are named.
+      const host = metadataClientHost(input.clientId)
+      const name = client.name ?? `MCP client`
+      return { name: host ? `${name} (${host})` : name, icon: client.icon }
     }),
 
   // Everything the signed-in user could grant: their teams with each
@@ -187,7 +193,7 @@ export const mcpGrantsRouter = router({
   grantAndConsent: authedProcedure
     .input(
       scopeSelectionInput.extend({
-        clientId: z.string().min(1).max(255),
+        clientId: z.string().min(1).max(2048),
         // The consent page's signed query (`location.search`).
         oauthQuery: z.string().min(1).max(16_384),
         accept: z.boolean(),
@@ -263,7 +269,7 @@ export const mcpGrantsRouter = router({
   grantAppsAndConsent: authedProcedure
     .input(
       z.object({
-        clientId: z.string().min(1).max(255),
+        clientId: z.string().min(1).max(2048),
         // The consent page's signed query (`location.search`).
         oauthQuery: z.string().min(1).max(16_384),
         accept: z.boolean(),

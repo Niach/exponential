@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use etalk::call::host::HostReport;
 use etalk::meeting::{AudioApp, DesktopAudioCapability, MeetingStopReason};
 use etalk::voice::{UtteranceTarget, VoiceMessage, VoiceSettings};
 use gpui::{App, Global, Task};
@@ -354,8 +355,10 @@ pub trait TalkHost: 'static {
         None
     }
     /// #EXP-1961: the hang-up of a call with its own session (`voice.callEnded`).
-    fn call_ended(&self, session_id: &str, cx: &App) {
-        let _ = (session_id, cx);
+    /// EXP-2110: `report` = what the host knows of the end (None = it had ended
+    /// before its session came).
+    fn call_ended(&self, session_id: &str, report: Option<&HostReport>, cx: &App) {
+        let _ = (session_id, report, cx);
     }
     /// Store a settings change; the host hands the stored settings to
     /// [`crate::set_settings`] (or says the write failed), then runs `done`.
@@ -478,9 +481,9 @@ pub(crate) fn call_session(agent_id: &str, call_id: Option<&str>, cx: &App) -> O
 }
 
 /// #EXP-1961: see [`TalkHost::call_ended`].
-pub(crate) fn call_ended(session_id: &str, cx: &App) {
+pub(crate) fn call_ended(session_id: &str, report: Option<&HostReport>, cx: &App) {
     if let Some(host) = host(cx) {
-        host.call_ended(session_id, cx);
+        host.call_ended(session_id, report, cx);
     }
 }
 

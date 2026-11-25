@@ -28,7 +28,7 @@ describe(`work-screen.json`, () => {
       expect(workScreenPickedId(c.key)).toBe(c.value)
     })
   }
-  for (const c of [...fixture.gateCases, ...fixture.spaceGateCases]) {
+  for (const c of [...fixture.gateCases, ...fixture.spaceGateCases, ...fixture.lockedGateCases]) {
     it(`gate: ${c.name}`, () => {
       const state = c.state as WorkScreenState
       expect(workDisplays(state)).toEqual(c.work)

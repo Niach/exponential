@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use coding::device_doctor::SpeechState;
 use coding::sealing::{self, NewRootSeal, SealError};
-use etalk::call::host::{CallHost, HostEffect, HostInput, HostStart};
+use etalk::call::host::{CallHost, HostEffect, HostInput, HostReport, HostStart};
 use etalk::call::{call_ring_random, VOICE_CALL};
 use etalk::voice::{reply_to_speak, VoiceContext, VoiceMessage};
 
@@ -210,7 +210,8 @@ pub trait Net: Send {
     /// source adopted the root; the answer comes back as [`Input::Session`].
     fn ask_call_session(&self, call_id: String, agent_id: String);
     /// #EXP-1961: the hang-up of a call with its own session.
-    fn call_ended(&self, session: String);
+    /// EXP-2110: `report` = what the host knows of the end.
+    fn call_ended(&self, session: String, report: Option<HostReport>);
     /// The rows of `root` (opened), for the reply watch: EXP-1930 only those
     /// created at or after `since` (None = all, once at the answer).
     fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow>;
@@ -508,7 +509,7 @@ impl Host {
         if !self.call.as_ref().is_some_and(|call| call.call_id == call_id) {
             for effect in CallHost::session_after_end(call_id, session) {
                 if let HostEffect::CallEnded { session } = effect {
-                    self.net.call_ended(session);
+                    self.net.call_ended(session, None);
                 }
             }
             return;
@@ -650,7 +651,7 @@ impl Host {
                     let key = call.host.is_turn().then(|| etalk::call::turn_message_id(&call.call_id));
                     self.net.send(call.call_id.clone(), call.agent.clone(), call.root.clone(), session, text, key);
                 }
-                HostEffect::CallEnded { session } => self.net.call_ended(session),
+                HostEffect::CallEnded { session } => self.net.call_ended(session, call.host.report().cloned()),
                 // A server has no screen: the caller got the code.
                 HostEffect::Toast { .. } => {}
             }
@@ -1221,10 +1222,11 @@ impl Net for DaemonNet {
         });
     }
 
-    fn call_ended(&self, session: String) {
+    fn call_ended(&self, session: String, report: Option<HostReport>) {
+        let report = report.and_then(|report| serde_json::to_value(report).ok());
         let deps = Arc::clone(&self.deps);
         let _ = std::thread::Builder::new().name("voice-ended".into()).spawn(move || {
-            if let Err(err) = api::voice::voice_call_ended(&deps.trpc, &session) {
+            if let Err(err) = api::voice::voice_call_ended(&deps.trpc, &session, report.as_ref()) {
                 log::warn!("[voice] the call's end did not reach the server: {err}");
             }
         });
@@ -1632,7 +1634,7 @@ mod tests {
         fn ask_call_session(&self, call_id: String, agent_id: String) {
             self.log.push(format!("session {call_id} {agent_id}"));
         }
-        fn call_ended(&self, session: String) {
+        fn call_ended(&self, session: String, _: Option<HostReport>) {
             self.log.push(format!("ended {session}"));
         }
         fn messages(&self, root: &str, since: Option<&str>) -> Vec<domain::rows::MessageRow> {

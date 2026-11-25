@@ -363,6 +363,70 @@ export async function relayPostCompact(
   }
 }
 
+const RELAY_CALL_REPORTS_TIMEOUT_MS = 5_000
+
+/** EXP-2110: one answer of `POST /calls/reports` (instants = the relay's
+ *  clock in ms). */
+export interface RelayCallReports {
+  boot: string
+  startedAt: number
+  now: number
+  ended: {
+    seq: number
+    callId: string
+    rangAt: number | null
+    pairedAt: number | null
+    answeredAt: number | null
+    firstDownAt: number | null
+    lastUpAt: number | null
+    lastDownAt: number | null
+    framesUp: number
+    framesDown: number
+    framesDropped: number
+    framesSkipped: number
+    endedAt: number
+    by: string
+    reason: string
+  }[]
+  more: boolean
+  live: { callId: string; rangAt: number; pairedAt: number | null; answeredAt: number | null }[]
+  counters: Record<string, number>
+}
+
+/**
+ * POST /calls/reports `{ack?}` — the calls that ended on the relay since the
+ * last `ack`, the live ones and its counters. Null = unreachable, or a relay
+ * older than the route. Never throws.
+ */
+export async function relayPostCallReports(
+  config: SteerRelayConfig,
+  ack: { boot: string; seq: number } | null,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<RelayCallReports | null> {
+  try {
+    const res = await fetchImpl(`${steerServerHttpBase(config)}/calls/reports`, {
+      method: `POST`,
+      headers: { "content-type": `application/json`, "x-relay-secret": config.secret },
+      body: JSON.stringify(ack ? { ack } : {}),
+      signal: AbortSignal.timeout(RELAY_CALL_REPORTS_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const json = (await res.json().catch(() => null)) as Partial<RelayCallReports> | null
+    if (typeof json?.boot !== `string` || typeof json.startedAt !== `number` || !Array.isArray(json.ended) || !Array.isArray(json.live)) return null
+    return {
+      boot: json.boot,
+      startedAt: json.startedAt,
+      now: typeof json.now === `number` ? json.now : Date.now(),
+      ended: json.ended,
+      more: json.more === true,
+      live: json.live,
+      counters: json.counters ?? {},
+    }
+  } catch {
+    return null
+  }
+}
+
 const RELAY_NUDGE_TIMEOUT_MS = 3_000
 
 /**

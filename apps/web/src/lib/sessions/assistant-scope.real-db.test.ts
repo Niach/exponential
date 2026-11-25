@@ -33,6 +33,7 @@ if (!ready.ok) console.info(`[assistant-scope.real-db] skipped: ${ready.reason}`
 const { sendSession, SCOPE_NOT_PICKABLE_MESSAGE, TEAM_OUT_OF_SCOPE_MESSAGE, AGENT_TEAM_ONLY_MESSAGE } = await import(
   `@/lib/sessions/send`
 )
+const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const { treeTeams } = await import(`@/lib/sessions/tree-teams`)
 const { confineMcpAccessToActingSession } = await import(`@/lib/sessions/acting`)
 const { FULL_ACCESS } = await import(`@/lib/emcp/scope`)
@@ -132,6 +133,28 @@ describe.skipIf(!ready.ok)(`#EXP-1720 the Assistant's teams`, () => {
     expect(await treeTeams(w.conv)).toEqual([w.personal, w.b])
     await sendSession({ userId: w.me, input: { sessionId: w.conv, text: `All again.`, scopeTeamIds: null } })
     expect((await treeTeams(w.conv)).sort()).toEqual([w.personal, w.a, w.b].sort())
+  })
+
+  it(`#FEED-313: a chat the Assistant starts in another team reports back into its conversation`, async () => {
+    const w = await world()
+    const as = { userId: w.me, callerSessionId: w.conv, viaMcp: true }
+    const started = await sendSession({ ...as, input: { teamId: w.a, deviceId: w.deviceId, text: `Read a window title.` } })
+    const inConv = async () => db.select().from(messages).where(eq(messages.sessionId, w.conv))
+    expect((await inConv()).map((m) => m.card)).toContainEqual({ kind: `thread_started`, sessionId: started.sessionId })
+    await endSession({ userId: w.me, sessionId: started.sessionId, summary: `The screen is locked.` })
+    expect((await inConv()).filter((m) => m.authorSessionId === started.sessionId)).toMatchObject([
+      { body: `The screen is locked.`, card: { kind: `report`, sessionId: started.sessionId, final: true }, consumedAt: null },
+    ])
+  })
+
+  it(`#FEED-313: from a conversation others read, nothing crosses teams`, async () => {
+    const w = await world()
+    const as = { userId: w.me, callerSessionId: w.conv, viaMcp: true }
+    await db.update(sessions).set({ shared: true }).where(eq(sessions.id, w.conv))
+    const started = await sendSession({ ...as, input: { teamId: w.a, deviceId: w.deviceId, text: `Read a window title.` } })
+    await endSession({ userId: w.me, sessionId: started.sessionId, summary: `Mine.` })
+    const rows = await db.select().from(messages).where(eq(messages.sessionId, w.conv))
+    expect(rows.filter((m) => m.authorSessionId === started.sessionId)).toEqual([])
   })
 
   it(`#EXP-1714: a message to the Assistant naming any team of the member lands in its conversation`, async () => {
