@@ -304,8 +304,13 @@ impl StoragePane {
         let plural = if candidates == 1 { "" } else { "s" };
         let spec = AlertSpec::new(
             format!("Sweep {candidates} unreferenced image{plural}?"),
-            "They are deleted in 30 days, unless something still shows them. \
-             Uploads from the last 24 hours are kept.",
+            if candidates == 1 {
+                "It is deleted in 30 days, unless something still shows it. \
+                 Uploads from the last 24 hours are kept."
+            } else {
+                "They are deleted in 30 days, unless something still shows them. \
+                 Uploads from the last 24 hours are kept."
+            },
             "Sweep images",
         )
         .ok_variant(ButtonVariant::Danger)

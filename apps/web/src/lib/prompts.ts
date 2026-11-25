@@ -350,7 +350,9 @@ export const WEB_PROMPTS = {
       count === 1
         ? `Sweep 1 unreferenced image?`
         : `Sweep ${count} unreferenced images?`,
-      `They are deleted in 30 days, unless something still shows them. Uploads from the last 24 hours are kept.`,
+      count === 1
+        ? `It is deleted in 30 days, unless something still shows it. Uploads from the last 24 hours are kept.`
+        : `They are deleted in 30 days, unless something still shows them. Uploads from the last 24 hours are kept.`,
       `delete`,
       `Delete`
     ),
