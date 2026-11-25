@@ -735,7 +735,7 @@ fn collect_card_ids(node: &Value, out: &mut Vec<String>) {
         }
         if let Some(slots) = n.get("slots").and_then(Value::as_object) {
             let mut names: Vec<&String> = slots.keys().collect();
-            names.sort_by(|a, b| eui_core::host::utf16_cmp(a, b));
+            names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
             for name in names {
                 collect_card_ids(&slots[name.as_str()], out);
             }

@@ -1890,11 +1890,6 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(RustBuffer 
 RustBuffer uniffi_exponential_ui_ffi_fn_func_transitions_from_json(RustBuffer kind_json, RustBuffer record_json, RustBuffer viewer_json, RustBuffer row_json, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE_CARD09
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_UPGRADE_CARD09
-RustBuffer uniffi_exponential_ui_ffi_fn_func_upgrade_card09(RustBuffer card_json, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_PACKAGE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_PACKAGE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_validate_package_json(RustBuffer package_json, RustBuffer catalog_ids, RustCallStatus *_Nonnull out_status
@@ -2812,12 +2807,6 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TRANSITIONS_FROM_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TRANSITIONS_FROM_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE_CARD09
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_UPGRADE_CARD09
-uint16_t uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(void
     
 );
 #endif

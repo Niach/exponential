@@ -22,6 +22,7 @@ ecore = { path = "../ecore" }
 eui-core = { path = "../eui-core" }
 serde.workspace = true
 serde_json.workspace = true
+indexmap = { version = "2", features = ["serde"] }
 uuid.workspace = true
 flume.workspace = true
 jiff = { version = "0.2", default-features = false, features = ["std"] }
