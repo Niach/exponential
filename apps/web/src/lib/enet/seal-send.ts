@@ -33,6 +33,7 @@
 import type { SessionsSendInput } from "@exp/db-schema/domain"
 import {
   createFailure,
+  dedupedSendStep,
   isStaleTreeRefusal,
   keylessStep,
   type CreateFailure,
@@ -79,7 +80,7 @@ export type SealSessionRow = {
 export type InstallRow = ReaderInstall & { userId?: string; deviceId?: string | null; revokedAt?: unknown }
 
 export type SealDeps = {
-  holder: (Pick<KeyHolder, `userId` | `installId` | `newTreeKey` | `keep` | `createTree` | `current` | `keysFor`> & Partial<Pick<KeyHolder, `adoptNewRoot` | `trust` | `makesKeys`>>) | undefined
+  holder: (Pick<KeyHolder, `userId` | `installId` | `newTreeKey` | `keep` | `createTree` | `current` | `keysFor`> & Partial<Pick<KeyHolder, `adoptNewRoot` | `trust` | `makesKeys` | `fetchKey`>>) | undefined
   me: string
   session: (id: string) => SealSessionRow | undefined
   sessions: () => readonly SealSessionRow[]
@@ -389,8 +390,22 @@ export async function sealSendInput(
     )
     key = { epoch: created.epoch, publicKey: created.publicKey }
     seal = { installId: holder.installId, publicKey: created.publicKey, epoch: 1, wraps: created.wraps }
-    after = (result: { sessionId: string }) =>
-      holder.adoptNewRoot ? holder.adoptNewRoot(result.sessionId, created) : holder.keep(result.sessionId, created.epoch, created.secret)
+    // tRPC only, beside the MCP-shared input (use-session-outbox.ts).
+    const keyed = typeof (input as { clientMessageId?: unknown }).clientMessageId === `string`
+    const named = !conversation && !!(input.sessionId || input.parentId)
+    after = async (result: { sessionId: string }) => {
+      // #EXP-2141 (`dedupedSend`): a keyed send may be answered with the row
+      // another send stored, whose key the tree has: this one's would lock it.
+      const rootId = deps.session(result.sessionId)?.rootId ?? result.sessionId
+      const server = keyed ? ((await deps.publicKey(rootId).catch(() => undefined)) ?? null) : null
+      const step = dedupedSendStep({ keyed, own: created, server })
+      // A named session was no new root: a key of another epoch is its own.
+      if (server && (step === `fetch` || (named && server.epoch !== created.epoch))) {
+        await holder.fetchKey?.(rootId, server.epoch)
+        return
+      }
+      await (holder.adoptNewRoot ? holder.adoptNewRoot(result.sessionId, created) : holder.keep(result.sessionId, created.epoch, created.secret))
+    }
   }
 
   // #EXP-1950 R2 + R3 (install-trust.json `sealCases`): only to the key of

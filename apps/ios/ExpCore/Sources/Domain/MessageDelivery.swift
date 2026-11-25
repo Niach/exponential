@@ -291,6 +291,40 @@ public enum MessageDelivery {
         return kept
     }
 
+    /// ECHOED PENDING (#EXP-2129, `echoedPendingCases`, TS `echoedPending`):
+    /// the not-consumed person rows, every person's, whose line the transcript
+    /// holds already (a woken run echoes its input seconds before the device
+    /// stamps it consumed): the echo draws them, never a pending bubble too.
+    public static func echoedPending(rows: [HandoffRow], echoes: [HandoffEcho]) -> [String] {
+        let people = rows
+            .filter { row in
+                row.authorKind == "user" && !(row.authorId ?? "").isEmpty && !row.hasCard
+                    && !row.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .sorted { a, b in
+                let (at, bt) = (millis(a.createdAt), millis(b.createdAt))
+                return at != bt ? at < bt : a.id < b.id
+            }
+        guard !echoes.isEmpty, let oldest = people.first(where: { ($0.consumedAt ?? "").isEmpty }) else { return [] }
+        let since = millis(oldest.createdAt) - matchWindowMs
+        var taken = Set<Int>()
+        var echoed: [String] = []
+        for row in people {
+            let consumedAt = (row.consumedAt ?? "").isEmpty ? nil : row.consumedAt
+            if let consumedAt, millis(consumedAt) < since { continue }
+            let body = row.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let from = millis(row.createdAt) - matchWindowMs
+            let echo = echoes.indices.first { index in
+                guard !taken.contains(index), let at = echoes[index].at, at >= from else { return false }
+                return echoMatches(echoes[index].text, body: body, viewerId: row.authorId ?? "")
+            }
+            guard let echo else { continue }
+            taken.insert(echo)
+            if consumedAt == nil { echoed.append(row.id) }
+        }
+        return echoed
+    }
+
     /// #FEED-239: an echo is the row's when its trimmed text equals the
     /// body, or it is the session's BRIEFED first prompt (`## Request` + the
     /// body without its attachment lines + the brief's other sections).

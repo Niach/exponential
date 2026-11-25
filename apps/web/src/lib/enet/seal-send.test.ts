@@ -341,6 +341,65 @@ describe(`sealSendInput (fixture staleTree)`, () => {
   })
 })
 
+// #EXP-2141: a keyed first send answered with another send's row.
+describe(`sendSealed (fixture dedupedSend)`, () => {
+  const ROOT = `00000000-0000-4000-8000-0000000000e1`
+  /** What sealSendInput made, and the tree as the server has it. */
+  async function run(input: Parameters<typeof sendSealed>[0], server: string) {
+    const asked: string[] = []
+    const { holder } = holderWith({
+      // The first send's seal wrapped the tree's key to this install.
+      mine: async ({ rootIds }) => (rootIds?.includes(ROOT) ? [{ rootId: ROOT, epoch: 1, wrapped: fixture.wrap.wrapped }] : []),
+    })
+    let own = ``
+    const d: SealDeps = {
+      ...deps(holder),
+      publicKey: async (rootId) => {
+        asked.push(rootId)
+        if (server === `unknown`) throw new Error(`offline`)
+        if (server === `keyless`) return undefined
+        if (server === `own`) return { epoch: 1, publicKey: own }
+        return { epoch: server === `other` ? 1 : 2, publicKey: fixture.tree.publicKey }
+      },
+    }
+    await sendSealed(input, d, async (sealed) => {
+      own = sealed.seal!.publicKey
+      return { sessionId: ROOT }
+    })
+    return { holder, own, asked }
+  }
+
+  for (const c of fixture.dedupedSend.cases) {
+    it(c.name, async () => {
+      const { holder, own, asked } = await run(
+        { agentId: `a1`, teamId: `t1`, text: `hi`, ...(c.keyed ? { clientMessageId: `c1` } : {}) } as never,
+        c.server
+      )
+      expect(asked).toEqual(c.asks ? [ROOT] : [])
+      // `fetch` = the chat's rows open here: the server's key, never this send's.
+      expect(holder.current(ROOT)?.publicKey).toBe(c.step === `fetch` ? fixture.tree.publicKey : own)
+    })
+  }
+
+  it(`a reload's resend names a chat this tab has not synced yet: its key is never replaced, whatever its epoch`, async () => {
+    for (const server of [`other`, `otherEpoch`]) {
+      const { holder, own } = await run({ sessionId: ROOT, teamId: `t1`, text: `hi`, clientMessageId: `c1` } as never, server)
+      expect(holder.current(ROOT)?.publicKey).not.toBe(own)
+      expect(holder.current(ROOT)?.publicKey).toBe(fixture.tree.publicKey)
+    }
+  })
+
+  it(`a wrap not served yet is asked for again by the next pass`, async () => {
+    let served = false
+    const { holder } = holderWith({ mine: async () => (served ? [{ rootId: ROOT, epoch: 1, wrapped: fixture.wrap.wrapped }] : []) })
+    await holder.fetchKey(ROOT, 1)
+    expect(holder.current(ROOT)).toBeUndefined()
+    served = true
+    await holder.pass()
+    expect(holder.current(ROOT)?.publicKey).toBe(fixture.tree.publicKey)
+  })
+})
+
 describe(`#EXP-1960 keyless trees (fixture clearTree.keylessCases), real shapes`, () => {
   // Real-shaped ids: uuids for sessions, teams and installs; `sessions.device_id`
   // and `installs.list`'s `deviceId` = the MACHINE id, `devices.id` = a row uuid.

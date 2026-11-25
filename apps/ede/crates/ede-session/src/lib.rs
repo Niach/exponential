@@ -156,7 +156,7 @@ pub enum DeviceStart {
 
 /// What tells the Exponential app it runs as the session's device: it
 /// starts without a window and stays up when its last window closes
-/// (#EDE-64; the app's `SESSION_DEVICE_ENV`).
+/// (#EDE-64; the app's `ui::take_session_device`).
 pub const DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
 
 /// The launcher entries that make a machine a device, in order.

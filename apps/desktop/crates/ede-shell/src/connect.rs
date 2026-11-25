@@ -20,7 +20,7 @@ use api::AuthStore;
 use serde_json::{json, Value};
 
 const HANDLER_DESKTOP: &str = "at.exponential.ede-connect.desktop";
-const SOCKET_NAME: &str = "exponential-shell-url.sock";
+const SOCKET_NAME: &str = api::holder::URL_SOCKET;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
@@ -75,7 +75,7 @@ impl Connect {
     pub fn start(&mut self, instance: &str) {
         self.begin(instance);
         if !ensure_handler() {
-            tracing::info!("another app handles exponential:// links: the code flow instead");
+            tracing::info!("exponential:// links do not come here: the code flow instead");
             return self.start_code(&self.instance.clone());
         }
         let pkce = api::login::generate_pkce();
@@ -138,6 +138,11 @@ impl Connect {
             .expect("the connect thread");
     }
 
+    /// The sign-in runs in the browser (its return is awaited).
+    pub fn in_browser(&self) -> bool {
+        self.verifier.is_some()
+    }
+
     /// The code page, in the browser.
     pub fn open_page(&self) {
         if let State::Code { uri, complete, .. } = &self.state {
@@ -152,14 +157,14 @@ impl Connect {
     }
 
     /// An `exponential://` URL the handler forwarded: the browser flow's end.
-    pub fn callback(&mut self, url: &str) {
-        let Some(callback) = api::login::parse_oauth_callback(url) else {
-            tracing::info!(url, "not an OAuth callback");
-            return;
+    /// `false`: no sign-in's return (the app's link).
+    pub fn callback(&mut self, url: &str) -> bool {
+        let Some(callback) = api::login::parse_oauth_callback(url).filter(|c| !matches!(c, OAuthCallback::Linked(_))) else {
+            return false;
         };
         let Some(verifier) = self.verifier.take() else {
             tracing::info!("an OAuth callback with no sign-in pending");
-            return;
+            return true;
         };
         let (client, auth, tx, instance) = (self.client.clone(), self.auth.clone(), self.tx.clone(), self.instance.clone());
         std::thread::Builder::new()
@@ -169,7 +174,7 @@ impl Connect {
                     OAuthCallback::Token(token) => Ok(token),
                     OAuthCallback::Code(code) => client.exchange_oauth_code(&instance, &code, &verifier),
                     OAuthCallback::Error(reason) => Err(api::ApiError::Decode(reason)),
-                    OAuthCallback::Linked(_) => Err(api::ApiError::Decode("not a sign-in".into())),
+                    OAuthCallback::Linked(_) => unreachable!("no sign-in's return"),
                 };
                 let event = match token {
                     Ok(token) => sign_in(&client, &auth, &instance, &token),
@@ -178,6 +183,7 @@ impl Connect {
                 let _ = tx.send(event);
             })
             .expect("the oauth thread");
+        true
     }
 
     /// A background event into the state; `Some(account)` when one signed in.
@@ -264,6 +270,40 @@ pub fn listen_urls(tx: mpsc::Sender<String>) {
         .expect("the url thread");
 }
 
+/// #EDE-226: the app's button opens Connect (`api::holder::CONNECT_SOCKET`).
+pub fn listen_open(tx: mpsc::Sender<()>) {
+    let Some(path) = socket_path().map(|p| p.with_file_name(api::holder::CONNECT_SOCKET)) else { return };
+    let _ = std::fs::remove_file(&path);
+    let sock = match UnixDatagram::bind(&path) {
+        Ok(sock) => sock,
+        Err(e) => return tracing::warn!(path = %path.display(), "connect socket: {e}"),
+    };
+    std::thread::Builder::new()
+        .name("ede-shell-connect-open".into())
+        .spawn(move || {
+            let mut buf = [0u8; 64];
+            while let Ok(n) = sock.recv(&mut buf) {
+                if &buf[..n] == api::holder::CONNECT_OPEN.as_bytes() && tx.send(()).is_err() {
+                    return;
+                }
+            }
+        })
+        .expect("the connect thread");
+}
+
+/// #EDE-226: Connect shows at the first login with no account, once (the
+/// file says it did; signing in or an account that is there settles it too).
+pub fn first_login(config_dir: &std::path::Path, signed_in: bool) -> bool {
+    let shown = config_dir.join("connect-shown");
+    if shown.exists() {
+        return false;
+    }
+    if let Err(e) = std::fs::create_dir_all(config_dir).and_then(|()| std::fs::write(&shown, "")) {
+        tracing::warn!(path = %shown.display(), "{e}");
+    }
+    !signed_in
+}
+
 fn applications_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let data_home = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local").join("share"));
@@ -295,12 +335,24 @@ fn other_handler() -> Option<PathBuf> {
     None
 }
 
-/// The shell as the scheme's handler, unless another app is one already.
-/// Returns whether the browser's callback will reach this shell.
+/// #EDE-226: a running holder hands a sign-in's return on to this shell.
+fn holder_forwards(runtime: &std::path::Path) -> bool {
+    let pid = std::fs::read_to_string(runtime.join(api::holder::HOLDER_PID)).ok().and_then(|text| text.trim().parse::<u32>().ok());
+    pid.is_some_and(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists())
+}
+
+/// Whether the browser's callback will reach this shell. With the app
+/// installed the app is the scheme's handler, the only one (a second one
+/// makes the portal ask a snap browser's person which to open), and the
+/// holder hands the sign-in's return on (#EDE-226); without it the shell is
+/// the handler.
 pub fn ensure_handler() -> bool {
     if let Some(other) = other_handler() {
-        tracing::info!(handler = %other.display(), "exponential:// has a handler");
-        return false;
+        let dir = applications_dirs().into_iter().next().unwrap_or_default();
+        drop_handler_in(&dir, &config_home());
+        let forwards = socket_path().and_then(|p| p.parent().map(holder_forwards)).unwrap_or(false);
+        tracing::info!(handler = %other.display(), forwards, "exponential:// has a handler");
+        return forwards;
     }
     let Ok(exe) = std::env::current_exe() else { return false };
     let dir = applications_dirs().into_iter().next().unwrap_or_default();
@@ -319,10 +371,39 @@ pub fn ensure_handler() -> bool {
     set_default_handler().is_ok()
 }
 
-/// `mimeapps.list`: the scheme's default = the shell's entry (in place, so
-/// it works without xdg-utils; other lines kept).
+/// `exponential-mimeapps.list`: the scheme's default = the shell's entry (in
+/// place, so it works without xdg-utils; other lines kept). An earlier build
+/// set it in `mimeapps.list`, for every desktop: that line goes.
 fn set_default_handler() -> std::io::Result<()> {
-    let path = config_home().join("mimeapps.list");
+    set_default_handler_in(&config_home())
+}
+
+/// The app is the handler: the shell's own entry and its defaults go.
+fn drop_handler_in(applications: &std::path::Path, config: &std::path::Path) {
+    if std::fs::remove_file(applications.join(HANDLER_DESKTOP)).is_ok() {
+        let _ = std::process::Command::new("update-desktop-database").arg(applications).status();
+    }
+    for list in ["mimeapps.list", "exponential-mimeapps.list"] {
+        if let Err(e) = drop_default(&config.join(list)) {
+            tracing::warn!(list, "{e}");
+        }
+    }
+}
+
+/// Takes the shell's line out of a `mimeapps.list` (others kept).
+fn drop_default(path: &std::path::Path) -> std::io::Result<()> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Ok(()) };
+    let ours = format!("x-scheme-handler/{OAUTH_CALLBACK_SCHEME}={HANDLER_DESKTOP}");
+    if !text.lines().any(|l| l.trim() == ours) {
+        return Ok(());
+    }
+    let kept: String = text.lines().filter(|l| l.trim() != ours).map(|l| format!("{l}\n")).collect();
+    std::fs::write(path, kept)
+}
+
+fn set_default_handler_in(config: &std::path::Path) -> std::io::Result<()> {
+    drop_default(&config.join("mimeapps.list"))?;
+    let path = config.join("exponential-mimeapps.list");
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let key = format!("x-scheme-handler/{OAUTH_CALLBACK_SCHEME}");
     let line = format!("{key}={HANDLER_DESKTOP}");
@@ -362,7 +443,7 @@ fn set_default_handler() -> std::io::Result<()> {
         out.push('\n');
     }
     if out != existing {
-        std::fs::create_dir_all(config_home())?;
+        std::fs::create_dir_all(config)?;
         std::fs::write(&path, out)?;
     }
     Ok(())
@@ -385,5 +466,62 @@ mod tests {
         assert_eq!(connect.feed()["error"], "nope");
         connect.cancel();
         assert_eq!(connect.state, State::Idle);
+    }
+
+    /// #EDE-226: the sign-in's return is the shell's, every other link the app's.
+    #[test]
+    fn only_a_sign_ins_return_is_the_shells() {
+        let (tx, _rx) = mpsc::channel();
+        let mut connect = Connect::new(AuthStore::load(tempfile::tempdir().unwrap().path().to_path_buf()), tx);
+        assert!(connect.callback("exponential://oauth-return?code=abc"), "ours, though nothing waits for it");
+        for link in ["exponential://new-issue", "exponential://issue/EXP-12", "exponential://github-connected?error=x", "exponential://invite/tok"] {
+            assert!(!connect.callback(link), "{link}");
+        }
+    }
+
+    #[test]
+    fn connect_shows_at_the_first_login_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("exponential-desktop");
+        assert!(first_login(&config, false));
+        assert!(!first_login(&config, false), "once");
+        let other = dir.path().join("other");
+        assert!(!first_login(&other, true), "an existing install gets no prompt");
+        assert!(!first_login(&other, false), "nor after a sign-out");
+    }
+
+    /// The handler is this desktop's alone; an earlier build's line for every desktop goes.
+    #[test]
+    fn the_handler_is_exponential_desktops_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let every = dir.path().join("mimeapps.list");
+        std::fs::write(&every, format!("[Default Applications]\ntext/html=firefox.desktop\nx-scheme-handler/exponential={HANDLER_DESKTOP}\n")).unwrap();
+        set_default_handler_in(dir.path()).unwrap();
+        assert_eq!(std::fs::read_to_string(&every).unwrap(), "[Default Applications]\ntext/html=firefox.desktop\n");
+        let own = dir.path().join("exponential-mimeapps.list");
+        let line = format!("[Default Applications]\nx-scheme-handler/exponential={HANDLER_DESKTOP}\n");
+        assert_eq!(std::fs::read_to_string(&own).unwrap(), line);
+        set_default_handler_in(dir.path()).unwrap();
+        assert_eq!(std::fs::read_to_string(&own).unwrap(), line, "idempotent");
+    }
+
+    /// With the app installed the app is the one handler (two make the
+    /// portal ask), and the browser sign-in needs a holder that hands on.
+    #[test]
+    fn with_the_app_installed_the_shell_is_no_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let (apps, config) = (dir.path().join("applications"), dir.path().join("config"));
+        std::fs::create_dir_all(&apps).unwrap();
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(apps.join(HANDLER_DESKTOP), "[Desktop Entry]\n").unwrap();
+        set_default_handler_in(&config).unwrap();
+        drop_handler_in(&apps, &config);
+        assert!(!apps.join(HANDLER_DESKTOP).exists());
+        assert!(!std::fs::read_to_string(config.join("exponential-mimeapps.list")).unwrap().contains(HANDLER_DESKTOP));
+        assert!(!holder_forwards(dir.path()), "no holder");
+        std::fs::write(dir.path().join(api::holder::HOLDER_PID), "999999999").unwrap();
+        assert!(!holder_forwards(dir.path()), "a holder that ended");
+        std::fs::write(dir.path().join(api::holder::HOLDER_PID), std::process::id().to_string()).unwrap();
+        assert!(holder_forwards(dir.path()));
     }
 }

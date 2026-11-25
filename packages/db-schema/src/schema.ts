@@ -985,6 +985,10 @@ export const attachments = pgTable(
     appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `set null`,
     }),
+    // #EXP-2115 (SERVER-ONLY, no shape): the Storage sweep marked this
+    // unreferenced issue image; it stays readable, a read or a reference
+    // found by the purge (30 days) clears the mark (lib/swept-images.ts).
+    sweptAt: timestamp(`swept_at`, { withTimezone: true }),
     // #EXP-1730 (one-tree model): a RESULT, the session that filed it
     // (a Guide picture). Not an owner (`attachments_owner_check`): a result
     // also names its issue. SYNCED.
@@ -997,6 +1001,9 @@ export const attachments = pgTable(
     index(`idx_attachments_session`)
       .on(table.sessionId)
       .where(sql`session_id IS NOT NULL`),
+    index(`idx_attachments_swept`)
+      .on(table.sweptAt)
+      .where(sql`swept_at IS NOT NULL`),
     index(`idx_attachments_app`)
       .on(table.appId)
       .where(sql`app_id IS NOT NULL`),

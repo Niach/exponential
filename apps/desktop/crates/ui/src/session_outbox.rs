@@ -101,6 +101,12 @@ pub(crate) fn merge_rows(rows: &[MessageRow]) -> Vec<OutboxRow> {
 }
 
 impl SessionOutbox {
+    /// Tests: an outbox that never reads or writes a data dir.
+    #[cfg(test)]
+    pub(crate) fn in_memory_for_test() -> Self {
+        Self { loaded: true, ..Self::default() }
+    }
+
     fn ensure_loaded(&mut self) {
         if self.loaded {
             return;
@@ -284,6 +290,14 @@ pub(crate) fn send(
     outbox.persist();
     dispatch(session_id, &client_id, cx);
     client_id
+}
+
+/// Tests: the full input the press of `text` sent.
+#[cfg(test)]
+pub(crate) fn sent_input_for_test(session_id: &str, text: &str, cx: &App) -> Option<api::sessions::SendInput> {
+    let outbox = cx.try_global::<SessionOutbox>()?;
+    let entry = outbox.sessions.get(session_id)?.iter().find(|entry| entry.text == text)?;
+    outbox.inputs.get(&entry.client_id).cloned()
 }
 
 /// The bubble menu's Retry: the SAME clientId, back to `sending`.
@@ -569,49 +583,11 @@ pub(crate) fn held_rows(
     (held, expiry)
 }
 
-/// #EXP-2119: the not-consumed person rows whose line the transcript holds
-/// ALREADY (a woken run echoes its seed seconds before the device stamps it
-/// consumed): the echo draws them, never the own tail as well. Matched by the
-/// HANDOFF's own rule, each author's rows against their own lines.
-pub(crate) fn echoed_pending(now_ms: i64, rows: &[MessageRow], echoes: &[domain::message_delivery::HandoffEcho]) -> Vec<String> {
-    let now = chrono::DateTime::from_timestamp_millis(now_ms).unwrap_or_default().to_rfc3339();
-    let rows = handoff_rows(rows);
-    let pending: Vec<&str> =
-        rows.iter().filter(|row| row.consumed_at.as_deref().is_none_or(str::is_empty)).map(|row| row.id.as_str()).collect();
-    let taken: Vec<domain::message_delivery::HandoffRow> = rows
-        .iter()
-        .cloned()
-        .map(|mut row| {
-            if row.consumed_at.as_deref().is_none_or(str::is_empty) {
-                row.consumed_at = Some(now.clone());
-            }
-            row
-        })
-        .collect();
-    let mut authors: Vec<&str> = taken
-        .iter()
-        .filter(|row| row.author_kind == "user" && !row.has_card && pending.contains(&row.id.as_str()))
-        .filter_map(|row| row.author_id.as_deref())
-        .collect();
-    authors.sort_unstable();
-    authors.dedup();
-    let mut out = Vec::new();
-    for author in authors {
-        let kept = domain::message_delivery::own_handoff(author, now_ms, false, &taken, echoes);
-        out.extend(
-            taken
-                .iter()
-                .filter(|row| {
-                    row.author_kind == "user"
-                        && !row.has_card
-                        && row.author_id.as_deref() == Some(author)
-                        && pending.contains(&row.id.as_str())
-                        && !kept.contains(&row.id)
-                })
-                .map(|row| row.id.clone()),
-        );
-    }
-    out
+/// #EXP-2119 (message-delivery.json ECHOED PENDING, `echoedPendingCases`):
+/// the not-consumed person rows the transcript echoes already; the echo
+/// draws them, never the own tail as well.
+pub(crate) fn echoed_pending(rows: &[MessageRow], echoes: &[domain::message_delivery::HandoffEcho]) -> Vec<String> {
+    domain::message_delivery::echoed_pending(&handoff_rows(rows), echoes)
 }
 
 /// One of the bubbles at the transcript's bottom: a consumed own row whose
@@ -798,14 +774,14 @@ mod tests {
         let echo = |text: &str| HandoffEcho { text: text.into(), at: Some(now - 2_000) };
         let mine = row("m1", "u-mira", "Tea or coffee?", None);
         let member = echo("Message from Mira Chen (member u-mira): Tea or coffee?");
-        assert_eq!(echoed_pending(now, std::slice::from_ref(&mine), &[member.clone()]), ["m1"]);
-        assert_eq!(echoed_pending(now, std::slice::from_ref(&mine), &[echo("Tea or coffee?")]), ["m1"]);
-        assert!(echoed_pending(now, std::slice::from_ref(&mine), &[]).is_empty());
+        assert_eq!(echoed_pending(std::slice::from_ref(&mine), &[member.clone()]), ["m1"]);
+        assert_eq!(echoed_pending(std::slice::from_ref(&mine), &[echo("Tea or coffee?")]), ["m1"]);
+        assert!(echoed_pending(std::slice::from_ref(&mine), &[]).is_empty());
         // Another member's same words are not theirs.
-        assert!(echoed_pending(now, &[row("m2", "u-jo", "Tea or coffee?", None)], &[member.clone()]).is_empty());
+        assert!(echoed_pending(&[row("m2", "u-jo", "Tea or coffee?", None)], &[member.clone()]).is_empty());
         // The consumed twin takes the one echo, the pending one keeps its bubble.
         let twin = row("m0", "u-mira", "Tea or coffee?", Some("2026-11-24T20:27:00.000Z"));
-        assert!(echoed_pending(now, &[twin, mine], &[member]).is_empty());
+        assert!(echoed_pending(&[twin, mine], &[member]).is_empty());
     }
 
     /// HANDOFF: a consumed own row keeps its bubble (`read`, ahead of the

@@ -3175,11 +3175,17 @@ struct AgentSessionView: View {
     /// view is the viewer's OWN Assistant conversation ROOT; nil anywhere
     /// else (a child included: the server refuses a scope there).
     private var teamsPick: ComposerTeamsBinding? {
+        let teams = ComposerTeamsBinding.teams(teamState?.teams ?? [])
+        if let plain = ComposerTeamsBinding(
+            root: model?.session ?? session, me: deps.auth.userId, draft: teamsDraft, teams: teams,
+            onPick: { teamsDraft.pick($0) }
+        ) { return plain }
         guard session.parentId == nil,
               AgentSettings.isMyAssistant(transcriptRows?.agent, me: deps.auth.userId)
         else { return nil }
         return ComposerTeamsBinding(
-            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            owner: .assistant,
+            teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }
         )

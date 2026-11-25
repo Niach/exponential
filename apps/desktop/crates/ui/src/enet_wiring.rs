@@ -149,6 +149,8 @@ fn watch_key_holder(cx: &mut App) {
                     let tick = cx.try_global::<crate::install_approval::InstallTrustTick>().map_or(0, |tick| tick.0) + 1;
                     cx.set_global(crate::install_approval::InstallTrustTick(tick));
                     cx.refresh_windows();
+                    // #EDE-226: eDE's shell draws them too.
+                    crate::session_holder::publish(cx);
                 }
             });
         }
@@ -206,6 +208,11 @@ fn own_assistant_lookup(
 /// syncs one account at a time, so at most one node runs.
 pub(crate) fn install_trust(cx: &App) -> Option<Arc<steer::install_trust::TrustKeeper>> {
     cx.try_global::<EnetInstalls>()?.by_account.values().find_map(|node| node.trust())
+}
+
+/// #EDE-226: [`install_trust`] with its account.
+pub(crate) fn trusted(cx: &App) -> Option<(String, Arc<steer::install_trust::TrustKeeper>)> {
+    cx.try_global::<EnetInstalls>()?.by_account.iter().find_map(|(account, node)| Some((account.clone(), node.trust()?)))
 }
 
 /// #EDE-108: `account_id`'s running node (the chat store's catch-up asks

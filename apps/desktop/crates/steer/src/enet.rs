@@ -209,21 +209,7 @@ pub fn forget_identity(path: &Path) {
 /// logout` while the daemon runs or not): revokes the install whose identity
 /// is stored at `path` and forgets it. Never mints. BLOCKING.
 pub fn revoke_stored_blocking(trpc: &api::TrpcClient, path: &Path) {
-    let Some(identity) = std::fs::read_to_string(path).ok().and_then(|text| parse_identity(&text)) else {
-        return;
-    };
-    let endpoint = endpoint_hex(&identity.endpoint_id());
-    match api::installs::mine(trpc) {
-        Ok(rows) => {
-            for row in rows.iter().filter(|row| row.endpoint_id == endpoint && row.revoked_at.is_none()) {
-                if let Err(err) = api::installs::revoke(trpc, &row.install_id) {
-                    log::warn!("enet: installs.revoke failed: {err}");
-                }
-            }
-        }
-        Err(err) => log::warn!("enet: installs.mine failed: {err}"),
-    }
-    forget_identity(path);
+    api::installs::revoke_stored(trpc, path);
 }
 
 fn parse_identity(text: &str) -> Option<Identity> {
@@ -1101,6 +1087,18 @@ async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `api::installs::revoke_stored` reads the same endpoint id off the
+    /// identity file this crate writes.
+    #[test]
+    fn a_stored_identity_has_the_endpoint_id_the_api_reads() {
+        let dir = std::env::temp_dir().join(format!("exp-enet-endpoint-{}", std::process::id()));
+        let path = dir.join("enet-identity");
+        let identity = load_or_create_identity(&path).unwrap();
+        assert_eq!(api::device_identity::stored_endpoint_id(&path), Some(endpoint_hex(&identity.endpoint_id())));
+        assert_eq!(api::device_identity::stored_endpoint_id(&dir.join("none")), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn entry(install: &str, user: &str, device: Option<&str>) -> InstallEntry {
         serde_json::from_value(serde_json::json!({

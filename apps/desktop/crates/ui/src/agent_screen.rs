@@ -1151,6 +1151,7 @@ impl AgentScreenView {
                 "agent-composer-chip",
                 &teams,
                 self.first.teams_picked.as_deref(),
+                crate::teams_pick::PickOwner::Assistant,
                 self.first.sending,
                 self.teams_change(cx),
                 cx,

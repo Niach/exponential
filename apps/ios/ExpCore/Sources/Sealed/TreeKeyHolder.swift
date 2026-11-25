@@ -444,6 +444,25 @@ public actor TreeKeyHolder {
         }
     }
 
+    /// #EXP-2141 (`dedupedSend`): the tree has another send's key: this one
+    /// (`newChatSeal`) is never stored, recorded or signed again.
+    public func drop(key: GeneratedTreeKey) {
+        unsignedSeals[key.publicKey] = nil
+    }
+
+    /// #EXP-2141: asks for the key of a chat this install sent into until it
+    /// is here (its maker may still be wrapping it to this install).
+    func wantSecret(accountId: String, rootId: String, epoch: UInt32) async {
+        for wait in Self.secretAsks {
+            if ring.holds(rootId: rootId, epoch: epoch) { return }
+            if wait > .zero { try? await Task.sleep(for: wait) }
+            await pull(accountId: accountId, rootId: rootId)
+        }
+    }
+
+    /// The wait before each ask.
+    static let secretAsks: [Duration] = [.zero, .seconds(1), .seconds(1), .seconds(2), .seconds(3), .seconds(3)]
+
     /// #EXP-1950 decision (c): fresh wraps of the current epoch, made and
     /// signed by this install, replace the unsigned ones (`sessionKeys.resign`;
     /// the server never touches a signed row and skips a stale epoch): for a

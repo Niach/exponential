@@ -152,6 +152,11 @@ fn finish_link(result: Result<String, SharedString>, cx: &mut App) {
 /// (eDE's switcher); anything else is ignored.
 pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
     for url in urls {
+        // #EDE-226: what eDE's shell asks of the login's holder (no link:
+        // it comes on the app's socket alone).
+        if crate::session_holder::command(&url, cx) {
+            continue;
+        }
         // EXP-368: checked before parse_oauth_callback — the host-agnostic
         // param scan would otherwise adopt `github-connected?error=…` as an
         // OAuth Error callback and silently eat it (complete() ignores
@@ -162,6 +167,12 @@ pub fn handle_open_urls(urls: Vec<String>, cx: &mut App) {
             continue;
         }
         if let Some(callback) = api::login::parse_oauth_callback(&url) {
+            // #EDE-226: the shell's Connect waits for it, not the app.
+            let own = cx.try_global::<PendingOAuth>().is_some_and(|pending| pending.instance_url.is_some() || pending.link.is_some());
+            if crate::session_holder::forward_return(&url, &callback, own) {
+                log::info!("[ui] oauth: the sign-in's return went to the shell");
+                continue;
+            }
             complete(callback, cx);
             continue;
         }
@@ -376,6 +387,8 @@ fn land_when_ready(slot: &'static std::sync::atomic::AtomicU64, cx: &mut App, mu
 /// back to the account first, the team remembered for when it has synced.
 fn open_team_deep_link(team_id: String, cx: &mut App) {
     if crate::local_desktops::open_id(cx).is_some_and(|open| open != team_id) {
+        // #EDE-226: the shell may have signed in a moment ago.
+        crate::session::AuthContext::global(cx).auth.reload();
         crate::local_desktops::leave(cx);
         match crate::navigation::active_or_primary_window(cx) {
             Some(window) => {

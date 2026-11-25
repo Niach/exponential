@@ -1,5 +1,5 @@
 {
-  "id": "51fe07dd-4020-469d-a037-02693b05b59b",
+  "id": "af3f0573-ab64-4ad9-b205-d3087dfd69f5",
   "prevId": "a4dbc6e6-8a24-474d-9a9c-4e8d3ddb0da4",
   "version": "7",
   "dialect": "postgresql",
@@ -2081,6 +2081,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "swept_at": {
+          "name": "swept_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "session_id": {
           "name": "session_id",
           "type": "uuid",
@@ -2115,6 +2121,22 @@
           ],
           "isUnique": false,
           "where": "session_id IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_attachments_swept": {
+          "name": "idx_attachments_swept",
+          "columns": [
+            {
+              "expression": "swept_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "swept_at IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5014,25 +5036,6 @@
           "notNull": true,
           "default": "'{}'::uuid[]"
         },
-        "assistant_team_ids": {
-          "name": "assistant_team_ids",
-          "type": "uuid[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::uuid[]"
-        },
-        "space_host_id": {
-          "name": "space_host_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "space_team_id": {
-          "name": "space_team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "is_default": {
           "name": "is_default",
           "type": "boolean",
@@ -5153,38 +5156,6 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
-        },
-        "uniq_devices_space_user": {
-          "name": "uniq_devices_space_user",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"devices\".\"space_host_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_devices_space_host": {
-          "name": "idx_devices_space_host",
-          "columns": [
-            {
-              "expression": "space_host_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"devices\".\"space_host_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5199,32 +5170,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "devices_space_host_id_devices_id_fk": {
-          "name": "devices_space_host_id_devices_id_fk",
-          "tableFrom": "devices",
-          "tableTo": "devices",
-          "columnsFrom": [
-            "space_host_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "devices_space_team_id_teams_id_fk": {
-          "name": "devices_space_team_id_teams_id_fk",
-          "tableFrom": "devices",
-          "tableTo": "teams",
-          "columnsFrom": [
-            "space_team_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
