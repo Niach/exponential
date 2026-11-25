@@ -354,7 +354,7 @@ fun ChatsContent(
     }
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
-        contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
+        contentPadding = PaddingValues(bottom = BottomBarInset),
     ) {
         item(key = "__header__") {
             if (archivedPage) {

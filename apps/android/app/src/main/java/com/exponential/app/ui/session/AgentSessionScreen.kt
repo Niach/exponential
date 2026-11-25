@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
@@ -6570,6 +6571,7 @@ private enum class ComposerMenu { None, Slash, Autocomplete }
  * renders while the stream is down ([live] false), with sending disabled: a
  * reconnect must never eat what the user was typing.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SteerComposer(
     /**
@@ -6631,11 +6633,24 @@ internal fun SteerComposer(
     // [FloatingComposer] the chat wears too; this keeps the steer card.
     // EXP-893: the folded composer IS the Work screen's bar — the placeholder
     // capsule that opens the card, the host's circle on the right.
+    // #EXP-2109: a composer coming back (another tab, a popped page) takes the
+    // keyboard only if it had it: the Assistant tab must not open over its own
+    // bar. An empty one folds.
+    val hasDraft = value.text.isNotBlank() || pendingImages.isNotEmpty()
+    var keyboard by rememberSaveable { mutableStateOf(false) }
+    var takeFocus by remember { mutableStateOf(keyboard) }
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(Unit) { if (expanded && !hasDraft && !takeFocus) onExpandedChange(false) }
+    LaunchedEffect(imeVisible) { keyboard = imeVisible }
     FloatingComposer(
         expanded = expanded,
-        onExpandedChange = onExpandedChange,
+        onExpandedChange = { open ->
+            // A draft that arrives opens the card without the keyboard.
+            if (open && !hasDraft) takeFocus = true
+            onExpandedChange(open)
+        },
         placeholder = shownPlaceholder,
-        hasDraft = value.text.isNotBlank() || pendingImages.isNotEmpty(),
+        hasDraft = hasDraft,
         working = working,
         capsuleTestTag = capsuleTestTag,
         // The folded bar is the capsule alone: the ring lives in the card.
@@ -6645,6 +6660,7 @@ internal fun SteerComposer(
     ) {
         ExpandedSteerComposer(
             value = value,
+            takeFocus = takeFocus,
             onValueChange = onValueChange,
             onValueRewrite = onValueRewrite,
             fieldModifier = fieldModifier.then(this.fieldModifier),
@@ -6752,6 +6768,8 @@ internal data class SessionComposerAccount(
 
 @Composable
 private fun ExpandedSteerComposer(
+    /** Opened by the person (or back with its keyboard): the field takes focus. */
+    takeFocus: Boolean,
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     onValueRewrite: (TextFieldValue) -> Unit,
@@ -6793,7 +6811,7 @@ private fun ExpandedSteerComposer(
     // Opening the card is what a tap on the folded capsule means: the field
     // takes focus (and the keyboard) at once.
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { if (takeFocus) focusRequester.requestFocus() }
     // EXP-893: the model menu = THE model list (all four claude models, no
     // Default: every model is explicit); a pick sends `/model <alias>` as a
     // plain message and the re-emitted `config_state` is the confirmation,
