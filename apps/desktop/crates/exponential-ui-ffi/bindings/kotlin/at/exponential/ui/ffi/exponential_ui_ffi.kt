@@ -798,8 +798,6 @@ internal object IntegrityCheckingUniffiLib {
     internal fun ensureInitialized() = Unit
     external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
     ): Int
-    external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
-    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
@@ -998,10 +996,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
     ): Int
-    external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
-    ): Int
-    external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
-    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
@@ -1097,8 +1091,6 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
-    ): Int
-    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
     ): Int
@@ -1499,8 +1491,6 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1811,8 +1801,6 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
     external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1839,7 +1827,7 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -2010,10 +1998,6 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -4908,17 +4892,14 @@ public interface HostRouterInterface {
      */
     fun `registerInlineCatalog`(`id`: kotlin.String)
     
-    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
-    
     /**
      * One agent message (JSON) → the ops to perform, in order, as a JSON
      * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
      * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
      * §1.1: a transport routes with `trusted = false`; only host code passes
      * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
      */
-    fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String
+    fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String
     
     fun `supportedCatalogIds`(): List<kotlin.String>
     
@@ -5145,7 +5126,14 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     
     
 
-    override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
+    
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     */override fun `routeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
@@ -5154,30 +5142,6 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
         
         FfiConverterString.lower(`messageJson`),
         FfiConverterBoolean.lower(`trusted`),_status)
-}
-    }
-    )
-    }
-    
-
-    
-    /**
-     * One agent message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
-     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
-     * §1.1: a transport routes with `trusted = false`; only host code passes
-     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
-     */override fun `routeWithBridgeJson`(`messageJson`: kotlin.String, `trusted`: kotlin.Boolean, `acceptV09`: kotlin.Boolean): kotlin.String {
-            return FfiConverterString.lift(
-    callWithHandle {
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
-        it,
-        
-        FfiConverterString.lower(`messageJson`),
-        FfiConverterBoolean.lower(`trusted`),
-        FfiConverterBoolean.lower(`acceptV09`),_status)
 }
     }
     )
@@ -13387,19 +13351,6 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     
 
         /**
-         * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
-         */ fun `acceptV09`(): kotlin.Boolean {
-            return FfiConverterBoolean.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_accept_v09(
-    
-        _status)
-}
-    )
-    }
-    
-
-        /**
          * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
          * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
          */
@@ -13481,7 +13432,7 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     
 
         /**
-         * VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+         * VAPP-194: apply a `records_batch` (`eui_core::host::apply_record_batch`)
          * to `rows_json` (record rows) all or nothing, checked against
          * `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
          * `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
@@ -13645,14 +13596,13 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
          * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
          * 1.0, `cardProblems`, its reduce over the core catalog).
          */
-    @Throws(UiException::class) fun `cardV10Json`(`cardJson`: kotlin.String, `acceptV09`: kotlin.Boolean): kotlin.String {
+    @Throws(UiException::class) fun `cardV10Json`(`cardJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_card_v10_json(
     
         
-        FfiConverterString.lower(`cardJson`),
-        FfiConverterBoolean.lower(`acceptV09`),_status)
+        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }
@@ -14367,7 +14317,7 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     
 
         /**
-         * VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+         * VAPP-218 (U1): an `app_navigate` call's args → `{screen, params}` or
          * `{error}` (`fixtures/host-router.json` `navigate`).
          */
     @Throws(UiException::class) fun `navigateTargetJson`(`packageJson`: kotlin.String, `argsJson`: kotlin.String): kotlin.String {
@@ -15120,38 +15070,6 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
         FfiConverterOptionalString.lower(`recordJson`),
         FfiConverterOptionalString.lower(`viewerJson`),
         FfiConverterOptionalString.lower(`rowJson`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
-         * documented on `eui_core::upgrade09::upgrade09_json`.
-         */
-    @Throws(UiException::class) fun `upgrade09Json`(`requestJson`: kotlin.String): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCallWithError(UiException) { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
-    
-        
-        FfiConverterString.lower(`requestJson`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
-         * (§18: to DISPLAY a card that has no `version: "1.0"`).
-         */
-    @Throws(UiException::class) fun `upgradeCard09`(`cardJson`: kotlin.String): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCallWithError(UiException) { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
-    
-        
-        FfiConverterString.lower(`cardJson`),_status)
 }
     )
     }
