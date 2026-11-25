@@ -500,6 +500,22 @@ export function isStaleTreeRefusal(message: string | null | undefined): boolean 
   return message === STALE_TREE_REFUSAL || /^The tree is at epoch \d+$/.test(message)
 }
 
+// ── a deduped first send (fixtures/sealed-content.json `dedupedSend`) ──────
+
+/** #EXP-2141: whether a send keeps the new tree's key it carried inline.
+ *  `server` = the answered root's current key as the server has it, read only
+ *  for a keyed send (`clientMessageId`); null = keyless or no answer. `fetch`
+ *  = another send made the tree: drop this key, ask for the tree's. */
+export function dedupedSendStep(input: {
+  keyed: boolean
+  own: { epoch: number; publicKey: string }
+  server: { epoch: number; publicKey: string } | null
+}): `adopt` | `fetch` {
+  const { own, server } = input
+  if (!input.keyed || !server) return `adopt`
+  return server.epoch === own.epoch && server.publicKey !== own.publicKey ? `fetch` : `adopt`
+}
+
 // ── sealed by default (fixtures/sealed-content.json `clearTree`, #EDE-97) ──
 
 /** The failed send's description when a text cannot be sealed (no key holder,

@@ -220,6 +220,20 @@ public struct PreparedSend: Sendable {
     let newKey: GeneratedTreeKey?
     /// The account a new root's key is recorded for (#EXP-1950 `newRoot`).
     var accountId: String? = nil
+    /// #EXP-2141: the existing tree's key this send was sealed to.
+    var sealedTo: (rootId: String, epoch: UInt32)? = nil
+}
+
+/// #EXP-2141 (sealed-content.json `dedupedSend`): a first send's inline key.
+public enum DedupedSendStep: String, Sendable { case adopt, fetch }
+
+/// Whether a send keeps the new tree's key it carried inline: a keyed one
+/// (`clientMessageId`) may be answered with the row ANOTHER send stored, whose
+/// key the tree then has. `server` = the answered root's current key (nil =
+/// keyless or no answer: this key may be the tree's only copy).
+public func dedupedSendStep(keyed: Bool, own: TreeSealKey, server: TreeSealKey?) -> DedupedSendStep {
+    guard keyed, let server else { return .adopt }
+    return server.epoch == own.epoch && server.publicKey != own.publicKey ? .fetch : .adopt
 }
 
 /// The root a send lands in, as the local database knows it.
@@ -241,19 +255,24 @@ public struct SendSealing: Sendable {
     private let holderWait: Duration
     private let keyWait: Duration
     private let createRetry: Duration
+    private let asksForSecrets: Bool
 
+    /// `asksForSecrets` false = a process that only writes (the share
+    /// extension): the app fetches the chats' keys.
     public init(
         holder: TreeKeyHolder,
         crypto: SealedCrypto,
         holderWait: Duration = sealHolderWait,
         keyWait: Duration = sealKeyWait,
-        createRetry: Duration = sealCreateRetry
+        createRetry: Duration = sealCreateRetry,
+        asksForSecrets: Bool = true
     ) {
         self.holder = holder
         self.crypto = crypto
         self.holderWait = holderWait
         self.keyWait = keyWait
         self.createRetry = createRetry
+        self.asksForSecrets = asksForSecrets
     }
 
     /// Seals the text of a send (and keys the root when it has no key).
@@ -321,7 +340,10 @@ public struct SendSealing: Sendable {
                 logger.error("The key of this send's tree is refused: nothing sent")
                 throw SealRefusal()
             }
-            return PreparedSend(input: try self.seal(input, to: key, mentions: mentions, actionCard: actionCard), newKey: nil)
+            return PreparedSend(
+                input: try self.seal(input, to: key, mentions: mentions, actionCard: actionCard), newKey: nil,
+                accountId: accountId, sealedTo: (rootId, key.epoch)
+            )
         }
         let target: ServerSendTarget? = if let conversation, root == nil || fresh {
             await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
@@ -449,9 +471,34 @@ public struct SendSealing: Sendable {
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
+        if let sealedTo = prepared.sealedTo { want(accountId: prepared.accountId, rootId: sealedTo.rootId, epoch: sealedTo.epoch) }
         // A new chat / first conversation answers with its new root.
         guard let key = prepared.newKey else { return }
-        await holder.adopt(rootId: result.sessionId, key: key, accountId: prepared.accountId)
+        let rootId = result.sessionId
+        let own = TreeSealKey(publicKey: key.publicKey, epoch: 1)
+        let keyed = prepared.input.clientMessageId != nil
+        let server: TreeSealKey? = if keyed, let accountId = prepared.accountId {
+            await holder.serverKey(accountId: accountId, rootId: rootId)
+        } else {
+            nil
+        }
+        switch dedupedSendStep(keyed: keyed, own: own, server: server) {
+        case .adopt:
+            await holder.adopt(rootId: rootId, key: key, accountId: prepared.accountId)
+        case .fetch:
+            logger.info("Another send keyed \(rootId, privacy: .public): this one's key is dropped")
+            await holder.drop(key: key)
+            want(accountId: prepared.accountId, rootId: rootId, epoch: own.epoch)
+        }
+    }
+
+    /// #EXP-2141: a chat was sent into: its key is asked for now when this
+    /// install lacks it, never only at the next pass.
+    private func want(accountId: String?, rootId: String, epoch: UInt32) {
+        guard asksForSecrets, let accountId else { return }
+        Task.detached(priority: .utility) { [holder] in
+            await holder.wantSecret(accountId: accountId, rootId: rootId, epoch: epoch)
+        }
     }
 
     /// The text (and a new child's `name`, as `sealedName`) sealed to
