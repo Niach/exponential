@@ -5,7 +5,7 @@ import { deviceCollection, userCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useTeamMemberships } from "@/hooks/use-team-data"
-import { steerDeviceFromRow, type SteerDevice } from "@/lib/steer-devices"
+import { listedDevices, steerDeviceFromRow, type SteerDevice } from "@/lib/steer-devices"
 
 // #EXP-2027 (sidebar-tree.json DEVICES): the device a device page shows. The
 // param is the sidebar row's id: the devices row id, or (an old link, an
@@ -15,10 +15,11 @@ import { steerDeviceFromRow, type SteerDevice } from "@/lib/steer-devices"
 
 /** The visible device row for `param`, else null (pure). */
 export function findPageDevice(
-  rows: readonly Device[],
+  all: readonly Device[],
   param: string,
   viewer: { userId: string; teamIds: readonly string[] }
 ): Device | null {
+  const rows = listedDevices(all)
   const row = rows.find((device) => device.id === param) ?? rows.find((device) => device.deviceId === param)
   if (!row) return null
   if (row.userId === viewer.userId) return row

@@ -45,8 +45,11 @@ export interface PickerItem<T extends string = string> {
   /** Extra search terms when `label` is not a string (an identifier, an
    *  email). */
   keywords?: string[]
-  /** Multi mode only: what THIS row reads as when membership in `value` is
-   *  not the whole story — a bulk edit over rows that disagree marks a
+  /** #EXP-2161: the muted heading this row's run of rows sits under (a
+   *  team's devices in Runs on). Rows without one come first, unheaded. */
+  section?: string
+  /** What THIS row reads as when membership in `value` is not the whole story
+   *  — a device listed under two teams (single mode, `true`), a bulk edit over rows that disagree marks a
    *  label on all of them `true`, on some `"indeterminate"`. */
   checked?: boolean | `indeterminate`
 }

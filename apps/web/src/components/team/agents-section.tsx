@@ -93,7 +93,6 @@ import {
   LEAD_NONE,
   leadOptions,
   assistantModelValue,
-  runsOnRows,
 } from "@exp/domain-contract/agent-settings"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import {
@@ -110,6 +109,7 @@ import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
 import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { AssistantDeviceRow, runsOnPickerRows, spaceDevice, useSpaceRows } from "@/components/team/assistant-device-row"
 import { AssistantTeamPicks } from "@/components/team/assistant-team-picks"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
@@ -205,40 +205,6 @@ export function useAgentDevices(teamId: string | undefined, own = false): SteerD
   }, [enabled, currentUserId, deviceRows, userRows, now, teamId, own])
 }
 
-/** The Device row's entries (`runsOnRows`, `runsOnRowCases`): online
- *  machines are pickable, an offline one stays listed (disabled unless bound)
- *  so a bound agent still names it, and a binding the viewer cannot see (a
- *  teammate's private machine) renders by its raw id.
- *  NEW-99: an Assistant's lists desktops only (`runsOnDeviceIds`). */
-function deviceRows(
-  all: readonly SteerDevice[],
-  boundId: string | null,
-  assistant: boolean
-): DevicePickerDevice[] {
-  const byId = new Map(all.map((device) => [device.deviceId, device]))
-  return runsOnRows(
-    all.map((device) => ({
-      deviceId: device.deviceId,
-      kind: device.kind,
-      online: deviceIsOnline(device),
-    })),
-    boundId,
-    assistant
-  ).map((row) => {
-    const device = byId.get(row.id)
-    if (!device) return { id: row.id, name: row.id }
-    return {
-      id: row.id,
-      name: device.deviceLabel || device.deviceId,
-      icon: device.icon,
-      kind: device.kind,
-      ...(row.description
-        ? { description: row.description, disabled: row.disabled }
-        : {}),
-    }
-  })
-}
-
 /** #EXP-1849: the slot picker's `Each member's own device` entry. */
 const EACH_MEMBER = `__each-member__`
 
@@ -317,7 +283,7 @@ export function AgentSettingsPage({
     setName(agent?.name ?? ``)
     setIcon(((agent?.icon as BoardIcon | null) ?? DEFAULT_AGENT_ICON))
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
-    setDeviceId(agent?.defaults?.deviceId ?? null)
+    setDeviceId(agent?.defaults?.deviceId || null)
     setSkillIds(agent?.skillIds ?? [])
     setMcpServerIds(agent?.mcpServerIds ?? [])
     setPin({ agent: agent?.defaults?.cli ?? ``, account: agent?.defaults?.account ?? `` })
@@ -339,8 +305,9 @@ export function AgentSettingsPage({
     if (syncedColor) setColor(syncedColor)
   }, [syncedColor])
   useEffect(() => {
-    if (syncedDevice || appSlot) setDeviceId(syncedDevice ?? null)
-  }, [syncedDevice, appSlot])
+    // #EXP-2161: an Assistant loses its device when its space ends.
+    if (syncedDevice || appSlot || assistant) setDeviceId(syncedDevice || null)
+  }, [syncedDevice, appSlot, assistant])
   const syncedSkillIds = agent?.skillIds
   useEffect(() => {
     if (syncedSkillIds) setSkillIds(syncedSkillIds)
@@ -362,7 +329,16 @@ export function AgentSettingsPage({
     if (first) setDeviceId(first)
   }, [creating, deviceId, devices])
 
-  const device = devices?.find((candidate) => candidate.deviceId === deviceId)
+  // #EXP-2161: an Assistant on a member space reads that row's logins.
+  const spaces = useSpaceRows(assistant ? deviceId : null, assistant)
+  const now = useNow(30_000)
+  const device = useMemo(
+    () =>
+      spaces.space
+        ? spaceDevice(spaces.space, spaces.host, spaces.me, now)
+        : devices?.find((candidate) => candidate.deviceId === deviceId),
+    [spaces, devices, deviceId, now]
+  )
 
   // ── persistence (an existing agent) ──
   type AgentUpdate = Omit<Parameters<typeof trpc.agents.update.mutate>[0], `id`>
@@ -723,13 +699,24 @@ export function AgentSettingsPage({
       />
     ) : null
 
-  const deviceRow = (
+  const deviceRow = assistant ? (
+    <AssistantDeviceRow
+      deviceId={deviceId}
+      devices={devices ?? []}
+      onPickOwn={pickDevice}
+      onPickedSpace={(next) => {
+        // `memberSpaces.request` binds it and clears the account.
+        setDeviceId(next)
+        setPin({ agent: lockedCli ?? ``, account: `` })
+      }}
+    />
+  ) : (
     <DevicePicker
       triggerVariant="row"
       mobileTitle="Device"
       value={deviceId}
       onChange={pickDevice}
-      devices={deviceRows(devices ?? [], deviceId, assistant)}
+      devices={runsOnPickerRows(devices ?? [], deviceId, false)}
       disabled={readOnly}
       emptyText="No devices online"
       data-testid="agent-device"
@@ -758,7 +745,7 @@ export function AgentSettingsPage({
   if (appSlot) {
     const slotRows: DevicePickerDevice[] = [
       { id: EACH_MEMBER, name: APPS_AGENT_SLOT.copy.eachMember },
-      ...deviceRows(devices ?? [], deviceId, false).filter((row) =>
+      ...runsOnPickerRows(devices ?? [], deviceId, false).filter((row) =>
         (devices ?? []).some((d) => d.deviceId === row.id && (d.sharedTeamIds ?? []).includes(team.id))
       ),
     ]

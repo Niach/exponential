@@ -255,7 +255,7 @@ export class KeyHolder {
         const { publicKey } = treeKeyFromSecret(secret)
         if (pair.publicKey !== `` && publicKey !== pair.publicKey) continue
         // R4: never for a target that is not pinned (and asked) or whose key is not the pinned one.
-        const verdict = this.deps.trust?.target({ installId: pair.targetInstallId, x25519Public: pair.targetX25519Public, endpointId: pair.targetEndpointId })
+        const verdict = this.deps.trust?.target({ installId: pair.targetInstallId, x25519Public: pair.targetX25519Public, endpointId: pair.targetEndpointId }, this.deps.trust.ownAssistant(pair.rootId))
         if (verdict && !verdict.wrap) continue
         try {
           const wrapped = wrapTreeKey(pair.targetX25519Public, secret)
@@ -360,15 +360,16 @@ export class KeyHolder {
   }
 
   /** A new tree key (epoch 1) wrapped for `readers` (this install always
-   *  among them); `holdFor(rootId)` keeps it once the root exists. */
-  newTreeKey(readers: ReaderInstall[]): NewTreeKey {
+   *  among them); `holdFor(rootId)` keeps it once the root exists.
+   *  `ownAssistant`: the root is the member's own Assistant conversation. */
+  newTreeKey(readers: ReaderInstall[], ownAssistant = false): NewTreeKey {
     const key = generateTreeKey()
     const wraps = new Map<string, string>()
     const recipients = new Map<string, string>()
     for (const reader of readers) {
       if (wraps.has(reader.installId)) continue
       // R4: a reader this install may not wrap for is skipped (its holders decide later).
-      if (reader.installId !== this.installId && this.deps.trust && !this.deps.trust.target(reader).wrap) continue
+      if (reader.installId !== this.installId && this.deps.trust && !this.deps.trust.target(reader, ownAssistant).wrap) continue
       try {
         wraps.set(reader.installId, wrapTreeKey(reader.x25519Public, key.secret))
         if (reader.endpointId) recipients.set(reader.installId, reader.endpointId)
@@ -439,7 +440,7 @@ export class KeyHolder {
   /** The first key of an EXISTING keyless root (`sessionKeys.create`). A
    *  writer asks `makesKeys` first (#EXP-2123). */
   async createTree(rootId: string, readers: ReaderInstall[]): Promise<{ epoch: number; publicKey: string }> {
-    const key = this.newTreeKey(readers)
+    const key = this.newTreeKey(readers, this.deps.trust?.ownAssistant(rootId))
     await this.deps.api.create({
       rootId,
       installId: this.installId,

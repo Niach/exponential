@@ -11,6 +11,8 @@ import { Empty } from "@/components/empty"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { DeviceAccountsSection } from "@/components/devices/device-accounts-section"
 import { DeviceRunningSection } from "@/components/devices/device-running-section"
+import { TeamOwnerSpaces } from "@/components/devices/member-spaces"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useDevicePage } from "@/components/devices/use-device-page"
 
 // #EXP-2027 (sidebar-tree.json DEVICES): a device row opens its DETAIL page
@@ -65,6 +67,8 @@ function DeviceHeading({
 export function DeviceDetailPage({ deviceId, userId }: { deviceId: string; userId: string }) {
   const navigate = useNavigate()
   const page = useDevicePage(deviceId, userId)
+  const { memberships } = useTeamMemberships(userId)
+  const owned = new Set(memberships.filter((row) => row.role === `owner`).map((row) => row.teamId))
   const now = useNow(30_000)
   const device = page.device
   usePageTitle(device ? pageTitle(deviceName(device)) : undefined)
@@ -90,6 +94,8 @@ export function DeviceDetailPage({ deviceId, userId }: { deviceId: string; userI
       {/* A teammate's shared server shows its logins read-only, as the old
           Team devices card did. */}
       <DeviceAccountsSection device={device} now={now} latestVersions={page.latestVersions} />
+      {/* #EXP-2161: a team owner's off switch on a device they do not own. */}
+      {!page.mine && <TeamOwnerSpaces device={device} ownedTeams={page.teams.filter((team) => owned.has(team.id))} />}
       <DeviceRunningSection deviceId={device.deviceId} teams={page.teams} />
     </div>
   )

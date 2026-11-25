@@ -65,6 +65,9 @@ export interface SteerDevice {
   /** EXP-432/FEED-33: the teams this device is shared with (empty/absent =
    * private). */
   sharedTeamIds?: string[]
+  /** #EXP-2161: the teams whose members may run their Assistant here
+   *  (absent = none). */
+  assistantTeamIds?: string[]
   /** EXP-432: set only on teammates' shared rows — the device owner. Absent
    * on the caller's own rows. */
   owner?: { id: string; name: string }
@@ -397,6 +400,7 @@ export function steerDeviceFromRow(
     updateRequested,
     updateBlocked: updateRequested && row.activeSessions > 0,
     sharedTeamIds: row.sharedTeamIds ?? [],
+    ...((row.assistantTeamIds ?? []).length > 0 ? { assistantTeamIds: row.assistantTeamIds } : {}),
     // EXP-622: a default belongs to the row's OWNER — never surface a
     // teammate's shared server as the caller's default.
     isDefault: row.userId === opts.currentUserId && row.isDefault,
@@ -406,13 +410,21 @@ export function steerDeviceFromRow(
   }
 }
 
+/** #EXP-2161 (member-space.json `listed`): THE selector of every device list
+ *  and picker. A member space (`space_host_id`) is never a device: a list of
+ *  devices drops it; only what RESOLVES a machine id a session or the
+ *  Assistant names (presence, its logins) reads the raw rows. */
+export function listedDevices<T extends { spaceHostId?: string | null }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => !row.spaceHostId)
+}
+
 /** EXP-481: compose the device list from synced rows — own rows first, then
  * servers shared with `teamId`. Within
  * each group online machines lead, sorted by label so heartbeats can't
  * reorder them (EXP-623); offline rows don't beat, so last-seen desc is
  * stable there. */
 export function composeDeviceList(
-  rows: Device[],
+  allRows: Device[],
   usersById: Map<string, Pick<User, `id` | `name`>>,
   now: Date,
   currentUserId: string,
@@ -421,6 +433,7 @@ export function composeDeviceList(
    *  once. */
   teamId?: string | readonly string[]
 ): SteerDevice[] {
+  const rows = listedDevices(allRows)
   const teams = new Set<string>(
     teamId === undefined ? [] : typeof teamId === `string` ? [teamId] : teamId
   )
