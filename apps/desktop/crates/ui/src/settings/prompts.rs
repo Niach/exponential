@@ -793,8 +793,7 @@ fn sm_button(ink: &Ink, id: &str, icon: Option<Value>, label: Value, fill: &str,
 /// (`gap_3`: the icon + name group with its inline error, the body group
 /// with the cap's line, Save), then the owner's Delete.
 fn page_document(ink: &Ink, chrome: &PageChrome) -> Value {
-    let mut band = ink.band("band", "", None);
-    band["children"][0]["props"]["text"] = path("/pane/header");
+    let band = ink.band("band", path("/pane/header"), None);
 
     // Icon and name are ONE row (web parity): the glyph picker leads, the
     // name types straight into the row; a reader sees the glyph.
@@ -893,6 +892,10 @@ mod tests {
             radius: 6.,
             skeleton: "#a1a1aa2e".into(),
         };
+        // #EXP-2132: the page's band says its header (the skill page's too,
+        // off the same `Ink::band`).
+        assert_eq!(ink.band("band", path("/pane/header"), None)["children"][0]["props"]["text"], path("/pane/header"));
+        assert!(page_document(&ink, &chrome)["children"].to_string().contains("\"band_label\""));
         for tree in [document(&ink, "#ffffff0a", "#a1a1aa2e"), page_document(&ink, &chrome)] {
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new("settings-prompts", Default::default());
