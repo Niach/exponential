@@ -730,7 +730,10 @@ impl VoiceCall {
                     }
                 }
                 HostEffect::Send { text, session } => self.send(&agent_id, text, session, cx),
-                HostEffect::CallEnded { session } => host::call_ended(&session, cx),
+                HostEffect::CallEnded { session } => {
+                    let report = self.active.as_ref().and_then(|active| active.call.as_ref()).and_then(|call| call.report());
+                    host::call_ended(&session, report, cx);
+                }
                 // EXP-1859: a turn call has no surface here, a toast neither.
                 HostEffect::Toast { .. } if self.active.as_ref().is_some_and(|active| active.turn) => {}
                 HostEffect::Toast { text } => self.toast(text, cx),
@@ -914,7 +917,7 @@ impl VoiceCall {
                         // #EXP-1981: the call ended while it asked: its session hears the hang-up.
                         for effect in CallHost::session_after_end(&call, session) {
                             if let HostEffect::CallEnded { session } = effect {
-                                host::call_ended(&session, cx);
+                                host::call_ended(&session, None, cx);
                             }
                         }
                         return;

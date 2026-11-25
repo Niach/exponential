@@ -772,6 +772,29 @@ export function callerStep(state: CallerState, input: CallerInput): CallerSteppe
 // (opening) replay.
 export const VOICE_CALL_SESSION = fixture.callSession
 
+/** EXP-2110 (`record`): the durable call record's constants. */
+export const VOICE_CALL_RECORD = fixture.record
+
+export interface CallRecordCloseInput {
+  /** Since the mint. */
+  ageMs: number
+  /** The relay reported it ringing. */
+  rang: boolean
+  /** What the relay says now; null = it did not answer. */
+  relay: { live: boolean; startedAfterMint: boolean; sameBoot: boolean } | null
+}
+
+/** `closeCases`: why an open record is closed without an end report (null =
+ *  it stays open). */
+export function callRecordClose(input: CallRecordCloseInput): `relay_restarted` | `not_dialled` | `no_report` | null {
+  const { closeAfterMs, noReportAfterMs } = fixture.record
+  if (input.ageMs < closeAfterMs) return null
+  if (input.relay === null) return input.ageMs < noReportAfterMs ? null : `no_report`
+  if (input.relay.live) return null
+  if (input.relay.startedAfterMint && !input.relay.sameBoot) return `relay_restarted`
+  return input.rang ? `no_report` : `not_dialled`
+}
+
 export type CallSessionPick = `start` | `resume` | `replace`
 
 /** `pickCases`: the chat's newest call child (`prev`: its status and its

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
 import {
+  callRecordClose,
   callDuration,
   callOpening,
   callSessionPick,
@@ -206,6 +207,14 @@ describe(`#EXP-2017 callerStep (caller.cases)`, () => {
       { do: `toast`, text: fixture.copy.failed.dropped },
     ])
   })
+})
+
+describe(`EXP-2110 the durable call record`, () => {
+  for (const entry of fixture.record.closeCases) {
+    test(`close: ${entry.name}`, () => {
+      expect(callRecordClose(entry.input)).toBe(entry.expected as never)
+    })
+  }
 })
 
 describe(`EXP-1961 callSession`, () => {
