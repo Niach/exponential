@@ -374,6 +374,25 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theTailUnreachableCasesAreTheFixtures() {
+        // #EXP-2138: fixtures/steer-enet.json SYNCED TAIL.
+        val cases = fixture["tailUnreachableCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val c = element.jsonObject
+            assertEquals(
+                c["name"]!!.jsonPrimitive.content,
+                c["unreachable"]!!.jsonPrimitive.boolean,
+                steerTailUnreachable(
+                    ended = c["ended"]!!.jsonPrimitive.boolean,
+                    noFeed = c["noFeed"]!!.jsonPrimitive.boolean,
+                    deviceOffline = c["deviceOffline"]!!.jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun theOfflineLineCasesAreTheFixtures() {
         // #FEED-260: fixtures/steer-enet.json OFFLINE LINE.
         val cases = fixture["offlineLineCases"]!!.jsonArray

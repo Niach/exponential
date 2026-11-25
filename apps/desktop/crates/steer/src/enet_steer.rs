@@ -291,6 +291,13 @@ pub fn synced_tail<'r, T>(
     tail.into_iter().skip(skip).map(|(_, item)| item).collect()
 }
 
+/// #EXP-2138 (steer-enet.json SYNCED TAIL `unreachable`, TS
+/// `steerTailUnreachable`): an empty feed's live transcript cannot be loaded:
+/// the last dial said NO FEED, or a row not ended whose device is offline.
+pub fn tail_unreachable(ended: bool, no_feed: bool, device_offline: bool) -> bool {
+    no_feed || (!ended && device_offline)
+}
+
 /// #FEED-260 (steer-enet.json OFFLINE LINE, TS `steerOfflineLine`): whether a
 /// not-live transcript showing `rows` ends with THE inline marker reading
 /// `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
@@ -1457,6 +1464,19 @@ mod tests {
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #EXP-2138: `tailUnreachableCases` (SYNCED TAIL).
+    #[test]
+    fn tail_unreachable_cases() {
+        for case in fixture()["tailUnreachableCases"].as_array().unwrap() {
+            let unreachable = tail_unreachable(
+                case["ended"].as_bool().unwrap(),
+                case["noFeed"].as_bool().unwrap(),
+                case["deviceOffline"].as_bool().unwrap(),
+            );
+            assert_eq!(unreachable, case["unreachable"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

@@ -830,7 +830,7 @@ public enum SteerNoFeed {
     /// a body; a feed input that parses with `parseActionInput` is that press
     /// (its body the parsed one; a bodiless press compared by its card). An
     /// empty feed takes the tail only while its live transcript cannot be
-    /// loaded (`unreachable`, the OFFLINE LINE's condition) and only when it
+    /// loaded (`tailUnreachable`) and only when it
     /// holds an agent line.
     public static func syncedTail<T>(
         live: Bool, feed: [TailFeedRow], messages: [T], max: Int = syncedTailMax, unreachable: Bool = false,
@@ -894,6 +894,13 @@ public enum SteerNoFeed {
         if feed.isEmpty, !tail.contains(where: { $0.row.authorKind == "agent" }) { return [] }
         let picked: [T] = tail.map { $0.item }
         return Array(picked.suffix(Swift.max(0, max)))
+    }
+
+    /// SYNCED TAIL `unreachable` (#EXP-2138, TS `steerTailUnreachable`,
+    /// `tailUnreachableCases`): the last dial said NO FEED, or a row not ended
+    /// whose device is offline.
+    public static func tailUnreachable(ended: Bool, noFeed: Bool, deviceOffline: Bool) -> Bool {
+        noFeed || (!ended && deviceOffline)
     }
 
     /// OFFLINE LINE (#FEED-260, TS `steerOfflineLine`, `offlineLineCases`):

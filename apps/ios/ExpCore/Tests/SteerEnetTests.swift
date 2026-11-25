@@ -436,6 +436,23 @@ final class SteerEnetTests: XCTestCase {
     }
 
     // #FEED-260 OFFLINE LINE: a not-live transcript ends with the marker.
+    func testTailUnreachableCases() throws {
+        let all = try cases("tailUnreachableCases")
+        XCTAssertFalse(all.isEmpty)
+        for c in all {
+            let name = c["name"] as? String ?? "?"
+            XCTAssertEqual(
+                SteerNoFeed.tailUnreachable(
+                    ended: try XCTUnwrap(c["ended"] as? Bool, name),
+                    noFeed: try XCTUnwrap(c["noFeed"] as? Bool, name),
+                    deviceOffline: try XCTUnwrap(c["deviceOffline"] as? Bool, name)
+                ),
+                c["unreachable"] as? Bool,
+                name
+            )
+        }
+    }
+
     func testOfflineLineCases() throws {
         let all = try cases("offlineLineCases")
         XCTAssertFalse(all.isEmpty)

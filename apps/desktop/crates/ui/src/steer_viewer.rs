@@ -6644,9 +6644,10 @@ impl SteerSessionView {
             return;
         }
         let rows = crate::session_data::messages_of_session(&self.session_id, cx);
-        // The OFFLINE LINE's condition: an empty feed takes the tail only
-        // while its live transcript cannot be loaded.
-        let unreachable = if self.row_ended() { self.phase.is_device_offline() } else { self.host_away(cx) };
+        // An empty feed takes the tail only while its live transcript cannot
+        // be loaded (#EXP-2138: the last dial said NO FEED, whatever the row).
+        let no_feed = self.phase == ViewerPhase::Starting || self.phase.is_device_offline();
+        let unreachable = steer::enet_steer::tail_unreachable(self.row_ended(), no_feed, self.host_away(cx));
         let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), unreachable);
         if self.synced_tail_key == Some(key) {
             return;
