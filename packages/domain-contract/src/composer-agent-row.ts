@@ -45,6 +45,18 @@ export function composerAgentRow<T extends ComposerAgentRowAgent>(input: {
   return { agents, options, selected, agent, label }
 }
 
+/** The row's agents that wear their team's mark (`agentRow.teamMarkCases`,
+ *  #EXP-2136): another team's agent has the same name. Ids in row order. */
+export function composerAgentTeamMarks(
+  agents: readonly { id: string; name: string; teamId: string; role?: string | null }[]
+): string[] {
+  const key = (name: string) => name.trim().toLowerCase()
+  const team = agents.filter((agent) => agent.role !== `assistant`)
+  return team
+    .filter((agent) => team.some((other) => other.teamId !== agent.teamId && key(other.name) === key(agent.name)))
+    .map((agent) => agent.id)
+}
+
 /** The pick a page mount starts on (`agentRow.seedCases`): a seed with a
  *  subject (issues, a prompt, a device) is a LAUNCH, so the row starts on
  *  Temporary session and the subject stays the headline; anything else =
