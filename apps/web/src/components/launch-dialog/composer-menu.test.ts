@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { plainTeamsPick } from "./team-pick"
 import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
 import searchList from "@exp/domain-contract/fixtures/search-list.json"
 import icons from "@exp/icons/icons.json"
@@ -116,6 +117,12 @@ describe(`implementButtonLabel`, () => {
 })
 
 describe(`teamsPickValue (#EXP-1715)`, () => {
+  for (const testCase of fixture.teamsPick.plainCases) {
+    it(`plain chat: ${testCase.name}`, () => {
+      const { shown, scope } = plainTeamsPick(testCase)
+      expect({ shown, scope: scope === undefined ? `unchanged` : scope }).toEqual(testCase.expected)
+    })
+  }
   for (const testCase of fixture.teamsPick.valueCases) {
     it(testCase.name, () => {
       expect(teamsPickValue(testCase.picked, testCase.teams)).toBe(testCase.expected)

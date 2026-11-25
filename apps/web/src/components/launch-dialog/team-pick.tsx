@@ -65,6 +65,25 @@ export function teamPickShowsChips(picked: readonly string[] | null, teams: read
   return chosen > 0 && chosen < teams.length
 }
 
+/** #EXP-2122 (`plainCases`): a plain root's pick: its own team always, the
+ *  others from the composer's `picked` (null = untouched: the stored ones);
+ *  `scope` = the next send's `scopeTeamIds` (undefined = left out). */
+export function plainTeamsPick(input: {
+  own: string
+  stored: readonly string[] | null
+  picked: readonly string[] | null
+  teams: readonly { id: string }[]
+}): { shown: string[]; scope: string[] | null | undefined } {
+  const ordered = (ids: readonly string[]) =>
+    input.teams.filter((team) => team.id !== input.own && ids.includes(team.id)).map((team) => team.id)
+  const stored = ordered(input.stored ?? [])
+  const others = input.picked === null ? stored : ordered(input.picked)
+  return {
+    shown: input.teams.filter((team) => team.id === input.own || others.includes(team.id)).map((team) => team.id),
+    scope: others.join(`,`) === stored.join(`,`) ? undefined : others.length > 0 ? others : null,
+  }
+}
+
 /** The picked teams as the composer's chips (a subset only). */
 export function TeamPickChips({
   teams,

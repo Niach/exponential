@@ -197,9 +197,21 @@
   },
   "addFile": {
     "phoneChoices": [
-      { "id": "camera", "label": "Camera", "icon": "ui-camera" },
-      { "id": "photos", "label": "Photos", "icon": "ui-photos" },
-      { "id": "file", "label": "File", "icon": "ui-file" }
+      {
+        "id": "camera",
+        "label": "Camera",
+        "icon": "ui-camera"
+      },
+      {
+        "id": "photos",
+        "label": "Photos",
+        "icon": "ui-photos"
+      },
+      {
+        "id": "file",
+        "label": "File",
+        "icon": "ui-file"
+      }
     ]
   },
   "implementButton": {
@@ -212,14 +224,76 @@
     "cap": "computer-use-run",
     "switchCap": "computer-use-switch",
     "offered": [
-      { "name": "switch on, can drive", "caps": ["computer-use-run"], "doctorState": "ok", "launchDefault": true, "offered": true },
-      { "name": "switch on, an OS permission missing", "caps": ["computer-use-run"], "doctorState": "action", "launchDefault": true, "offered": true },
-      { "name": "switch off", "caps": ["computer-use-run"], "doctorState": "off", "launchDefault": false, "offered": false },
-      { "name": "switch on, a Wayland session", "caps": ["computer-use-run"], "doctorState": "missing", "launchDefault": true, "offered": false },
-      { "name": "an older build without the cap", "caps": [], "doctorState": "ok", "launchDefault": true, "offered": false },
-      { "name": "no doctor, switch on", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": true, "offered": true },
-      { "name": "no doctor, switch off", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": false, "offered": false },
-      { "name": "#EXP-1514: switch on, the Work screen is Agent space only and no space is offered", "caps": ["computer-use-run"], "doctorState": "missing", "launchDefault": true, "offered": false }
+      {
+        "name": "switch on, can drive",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": "ok",
+        "launchDefault": true,
+        "offered": true
+      },
+      {
+        "name": "switch on, an OS permission missing",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": "action",
+        "launchDefault": true,
+        "offered": true
+      },
+      {
+        "name": "switch off",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": "off",
+        "launchDefault": false,
+        "offered": false
+      },
+      {
+        "name": "switch on, a Wayland session",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": "missing",
+        "launchDefault": true,
+        "offered": false
+      },
+      {
+        "name": "an older build without the cap",
+        "caps": [],
+        "doctorState": "ok",
+        "launchDefault": true,
+        "offered": false
+      },
+      {
+        "name": "no doctor, switch on",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": null,
+        "launchDefault": true,
+        "offered": true
+      },
+      {
+        "name": "no doctor, switch off",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": null,
+        "launchDefault": false,
+        "offered": false
+      },
+      {
+        "name": "#EXP-1514: switch on, the Work screen is Agent space only and no space is offered",
+        "caps": [
+          "computer-use-run"
+        ],
+        "doctorState": "missing",
+        "launchDefault": true,
+        "offered": false
+      }
     ],
     "agentStart": {
       "$comment": "#FEED-302: a session may START another with computer use over MCP (`sessions_send {computerUse: true}`, a root or a child) when all three hold: a session makes the call (`caller`; a connection outside a session never does), the person that session works for owns both its tree and the target device (`ownTree`, `ownDevice`: their Assistant and every session of a tree they own; never another member's session, never another member's device, shared or not), and that device's Computer use switch is on (`switchOn`, launch_defaults.computerUse). The switch stays the gate: the launcher still grants only while it is on. First failing rule = the refusal, in that order. A RUNNING session is never raised over MCP (`refusals.running`: a message's or configure's true on a session that is off), only turned off. Every start this rule allows is logged: `log` as a server line in the new session ({session} = the calling session's id) and a `[computer-use]` server log line.",
@@ -231,25 +305,186 @@
       },
       "log": "Computer use is on: session {session} started this one with it.",
       "cases": [
-        { "name": "the owner's Assistant or own session, their device, switch on", "caller": true, "ownTree": true, "ownDevice": true, "switchOn": true, "expected": "allowed" },
-        { "name": "the switch is off", "caller": true, "ownTree": true, "ownDevice": true, "switchOn": false, "expected": "switch" },
-        { "name": "another member's device, shared with the team, switch on", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": true, "expected": "owner" },
-        { "name": "another member's session on the owner's shared device", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": true, "expected": "owner" },
-        { "name": "the owner's session inside a tree another member owns", "caller": true, "ownTree": false, "ownDevice": true, "switchOn": true, "expected": "owner" },
-        { "name": "a connection outside a session (an outside MCP client)", "caller": false, "ownTree": false, "ownDevice": true, "switchOn": true, "expected": "caller" },
-        { "name": "nothing holds: the first failing rule answers", "caller": false, "ownTree": false, "ownDevice": false, "switchOn": false, "expected": "caller" },
-        { "name": "not the owner and the switch off: the owner rule answers (the switch of another member's device is never told)", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": false, "expected": "owner" }
+        {
+          "name": "the owner's Assistant or own session, their device, switch on",
+          "caller": true,
+          "ownTree": true,
+          "ownDevice": true,
+          "switchOn": true,
+          "expected": "allowed"
+        },
+        {
+          "name": "the switch is off",
+          "caller": true,
+          "ownTree": true,
+          "ownDevice": true,
+          "switchOn": false,
+          "expected": "switch"
+        },
+        {
+          "name": "another member's device, shared with the team, switch on",
+          "caller": true,
+          "ownTree": true,
+          "ownDevice": false,
+          "switchOn": true,
+          "expected": "owner"
+        },
+        {
+          "name": "another member's session on the owner's shared device",
+          "caller": true,
+          "ownTree": true,
+          "ownDevice": false,
+          "switchOn": true,
+          "expected": "owner"
+        },
+        {
+          "name": "the owner's session inside a tree another member owns",
+          "caller": true,
+          "ownTree": false,
+          "ownDevice": true,
+          "switchOn": true,
+          "expected": "owner"
+        },
+        {
+          "name": "a connection outside a session (an outside MCP client)",
+          "caller": false,
+          "ownTree": false,
+          "ownDevice": true,
+          "switchOn": true,
+          "expected": "caller"
+        },
+        {
+          "name": "nothing holds: the first failing rule answers",
+          "caller": false,
+          "ownTree": false,
+          "ownDevice": false,
+          "switchOn": false,
+          "expected": "caller"
+        },
+        {
+          "name": "not the owner and the switch off: the owner rule answers (the switch of another member's device is never told)",
+          "caller": true,
+          "ownTree": true,
+          "ownDevice": false,
+          "switchOn": false,
+          "expected": "owner"
+        }
       ]
     }
   },
   "cases": [
-    {"name": "#FEED-204: an app editor's composer reads its device", "surface": "session", "conditions": {"device": true}, "expected": ["add-file", "implement-issue", "-", "device"]},
-    {"name": "#EXP-1729: an app editor's composer is the session composer: Device, Account, Model", "surface": "session", "conditions": {"device": true, "account": true, "model": true}, "expected": ["add-file", "implement-issue", "-", "device", "account", "model"]},
-    {"name": "#EXP-1715: the viewer's Assistant chat in several teams: Teams after Prompts", "surface": "agent", "conditions": {"assistant": true, "teams": true, "model": true, "prompts": true}, "expected": ["add-file", "implement-issue", "prompts", "teams", "-", "model"]},
-    {"name": "#EXP-1793: an agent chat in a team with MCP servers: MCP servers after the runner rows", "surface": "agent", "conditions": {"model": true, "account": true, "mcp": true, "mcpPick": true}, "expected": ["add-file", "implement-issue", "-", "account", "model", "-", "mcp-servers"]},
-    {"name": "#EXP-1793: an agent chat in a team without MCP servers: no row", "surface": "agent", "conditions": {"model": true, "mcp": false, "mcpPick": true}, "expected": ["add-file", "implement-issue", "-", "model"]},
-    {"name": "#EXP-1793: a session never offers MCP servers", "surface": "session", "conditions": {"model": true, "mcp": true, "mcpPick": true}, "expected": ["add-file", "implement-issue", "-", "model"]},
-    {"name": "#EXP-1715: one team only = no Teams row", "surface": "agent", "conditions": {"assistant": true, "teams": false, "model": true}, "expected": ["add-file", "implement-issue", "-", "model"]},
+    {
+      "name": "#FEED-204: an app editor's composer reads its device",
+      "surface": "session",
+      "conditions": {
+        "device": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "device"
+      ]
+    },
+    {
+      "name": "#EXP-1729: an app editor's composer is the session composer: Device, Account, Model",
+      "surface": "session",
+      "conditions": {
+        "device": true,
+        "account": true,
+        "model": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "device",
+        "account",
+        "model"
+      ]
+    },
+    {
+      "name": "#EXP-1715: the viewer's Assistant chat in several teams: Teams after Prompts",
+      "surface": "agent",
+      "conditions": {
+        "assistant": true,
+        "teams": true,
+        "model": true,
+        "prompts": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "prompts",
+        "teams",
+        "-",
+        "model"
+      ]
+    },
+    {
+      "name": "#EXP-1793: an agent chat in a team with MCP servers: MCP servers after the runner rows",
+      "surface": "agent",
+      "conditions": {
+        "model": true,
+        "account": true,
+        "mcp": true,
+        "mcpPick": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "account",
+        "model",
+        "-",
+        "mcp-servers"
+      ]
+    },
+    {
+      "name": "#EXP-1793: an agent chat in a team without MCP servers: no row",
+      "surface": "agent",
+      "conditions": {
+        "model": true,
+        "mcp": false,
+        "mcpPick": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "model"
+      ]
+    },
+    {
+      "name": "#EXP-1793: a session never offers MCP servers",
+      "surface": "session",
+      "conditions": {
+        "model": true,
+        "mcp": true,
+        "mcpPick": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "model"
+      ]
+    },
+    {
+      "name": "#EXP-1715: one team only = no Teams row",
+      "surface": "agent",
+      "conditions": {
+        "assistant": true,
+        "teams": false,
+        "model": true
+      },
+      "expected": [
+        "add-file",
+        "implement-issue",
+        "-",
+        "model"
+      ]
+    },
     {
       "name": "launch, temporary, claude on a computer-use device with MCP servers and two repos: every row",
       "surface": "launch",
@@ -528,7 +763,7 @@
   "submenuRowHeight": 32,
   "submenuMaxRows": 8,
   "teamsPick": {
-    "$comment": "#EXP-1715 (owner 2026-11-06, ×4 the same): the Assistant's TEAMS pick, which teams a turn may touch (server: sessions.send `scopeTeamIds`, emcp access.json `assistantScope`). The `teams` row = THE search list (search-list.json) of MULTI picker rows over the teams the viewer belongs to, in their team switcher order: the team's own avatar (the switcher's team image or initials) + its name, the check TRAILING. Nothing picked yet = EVERY team (null; all rows checked); unchecking narrows the pick; the last checked team cannot be unchecked; checking every team again = null. The row's value = `teamsPickValue`. While the pick is a SUBSET, the picked teams ride as CHIPS in the composer's chip row (THE removable pill chip the composer's prompt subject uses: the team avatar + its name + the remove ×); removing a chip unchecks it, removing the last one = every team again. The pick is the next send's `scopeTeamIds` (null = every team) and every later turn's until changed; the composer seeds it from the conversation root's synced `scope_team_ids` (null = every team). #EXP-2027 (owner 2026-11-20): the pick is no longer Assistant-only. A PLAIN chat (a root with no agent, its starter only) shows it in the + menu too: its own team is the primary (repos, prompts, skills, MCP servers and the device come from it; Home's New › Session preset) and stays checked; the other picked teams ride `sessions.send` as `scopeTeamIds` (a new chat: `teamId` = the primary + the others; an existing root: `sessionId` + `scopeTeamIds`, null = its own team only; checking every team stores each id, so a team joined later stays out until picked). The Assistant is unchanged (null = every team). An agent chat (a team agent's tree) gets no Teams pick.",
+    "$comment": "#EXP-1715 (owner 2026-11-06, ×4 the same): the Assistant's TEAMS pick, which teams a turn may touch (server: sessions.send `scopeTeamIds`, emcp access.json `assistantScope`). The `teams` row = THE search list (search-list.json) of MULTI picker rows over the teams the viewer belongs to, in their team switcher order: the team's own avatar (the switcher's team image or initials) + its name, the check TRAILING. Nothing picked yet = EVERY team (null; all rows checked); unchecking narrows the pick; the last checked team cannot be unchecked; checking every team again = null. The row's value = `teamsPickValue`. While the pick is a SUBSET, the picked teams ride as CHIPS in the composer's chip row (THE removable pill chip the composer's prompt subject uses: the team avatar + its name + the remove ×); removing a chip unchecks it, removing the last one = every team again. The pick is the next send's `scopeTeamIds` (null = every team) and every later turn's until changed; the composer seeds it from the conversation root's synced `scope_team_ids` (null = every team). #EXP-2027 (owner 2026-11-20): the pick is no longer Assistant-only. A PLAIN chat (a root with no agent, its starter only) shows it in the + menu too: its own team is the primary (repos, prompts, skills, MCP servers and the device come from it; Home's New › Session preset) and stays checked; the other picked teams ride `sessions.send` as `scopeTeamIds` (a new chat: `teamId` = the primary + the others; an existing root: `sessionId` + `scopeTeamIds`, null = its own team only; checking every team stores each id, so a team joined later stays out until picked). The Assistant is unchanged (null = every team). An agent chat (a team agent's tree) gets no Teams pick. #EXP-2122: EVERY composer of a plain chat (Home's and the session screen's, ×4) has the pick, chips included (a pick of its own team alone is a subset too: its chip shows). `plainCases` (plainTeamsPick over a root's own team, its synced `scope_team_ids` `stored`, the composer's `picked` other teams, null = untouched = `stored`, and the viewer's teams): `shown` = the ids the picker and the chips hold, in the teams' order; `scope` = the next send's `scopeTeamIds`: \"unchanged\" = the field is left out, null = its own team only, else the other teams, in the teams' order. A pick made elsewhere re-seeds it; a tap in the picker or on a chip's × = the new `shown` (null = every team) minus the own team.",
     "copy": {
       "all": "All teams",
       "many": "{n} teams"
@@ -627,6 +862,218 @@
           }
         ],
         "expected": "Acme"
+      }
+    ],
+    "plainCases": [
+      {
+        "name": "untouched, its own team only: its own chip, nothing sent",
+        "own": "t1",
+        "stored": null,
+        "picked": null,
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1"
+          ],
+          "scope": "unchanged"
+        }
+      },
+      {
+        "name": "untouched, stored others",
+        "own": "t2",
+        "stored": [
+          "t3"
+        ],
+        "picked": null,
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t2",
+            "t3"
+          ],
+          "scope": "unchanged"
+        }
+      },
+      {
+        "name": "a team added",
+        "own": "t2",
+        "stored": null,
+        "picked": [
+          "t1"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1",
+            "t2"
+          ],
+          "scope": [
+            "t1"
+          ]
+        }
+      },
+      {
+        "name": "every team: each other id",
+        "own": "t1",
+        "stored": null,
+        "picked": [
+          "t3",
+          "t2"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "scope": [
+            "t2",
+            "t3"
+          ]
+        }
+      },
+      {
+        "name": "the others unchecked: null",
+        "own": "t1",
+        "stored": [
+          "t2"
+        ],
+        "picked": [],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1"
+          ],
+          "scope": null
+        }
+      },
+      {
+        "name": "picked back to the stored set: unchanged",
+        "own": "t1",
+        "stored": [
+          "t3",
+          "t2"
+        ],
+        "picked": [
+          "t2",
+          "t3"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "scope": "unchanged"
+        }
+      },
+      {
+        "name": "a stored team the viewer left is not shown",
+        "own": "t1",
+        "stored": [
+          "t9"
+        ],
+        "picked": null,
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": {
+          "shown": [
+            "t1"
+          ],
+          "scope": "unchanged"
+        }
       }
     ]
   }
