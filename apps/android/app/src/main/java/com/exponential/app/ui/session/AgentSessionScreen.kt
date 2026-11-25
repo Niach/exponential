@@ -6891,7 +6891,9 @@ private fun ExpandedSteerComposer(
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
         strip = {
             // #EXP-1715: the Assistant's picked teams (a subset only).
-            menu.teams?.let { com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending) }
+            menu.teams?.let {
+                com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp))
+            }
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,
