@@ -477,6 +477,18 @@ pub fn session_screen_menu_label(kind: &str, entry: SessionScreenMenuEntry) -> S
     }
 }
 
+/// #EXP-2109 (header-actions.json `headerMenu`): the `…` of a header that
+/// carries the + (an agent chat's New conversation).
+pub fn header_session_menu(entries: &[SessionScreenMenuEntry]) -> Vec<SessionScreenMenuEntry> {
+    crate::header_actions::header_menu_by(entries, |entry| match entry {
+        SessionScreenMenuEntry::NewConversation => "newConversation",
+        SessionScreenMenuEntry::Separator => SEPARATOR_ID,
+        _ => "",
+    })
+}
+
+const SEPARATOR_ID: &str = "separator";
+
 /// A menu entry's icon concept (`menuIcons`; the separator has none).
 pub fn session_screen_menu_icon(entry: SessionScreenMenuEntry) -> &'static str {
     use SessionScreenMenuEntry as E;

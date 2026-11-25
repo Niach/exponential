@@ -1504,10 +1504,10 @@ impl HostPlugin for PanePlugin {
 
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
         // The Assistant's mark is the IDE's own logo (the rail's
-        // `ExpIcon::Logo`, full bleed) at three quarters of its 36 px disc
+        // `ExpIcon::Logo`, full bleed) filling its 36 px box
         // (web `AssistantMark size-9`), past the theme's icon rung.
         if name == "brand-exponential" {
-            return Some(gpui_component::Icon::from(crate::icons::ExpIcon::Logo).size(gpui::px(27.)).text_color(color).into_any_element());
+            return Some(gpui_component::Icon::from(crate::icons::ExpIcon::Logo).size(gpui::px(36.)).text_color(color).into_any_element());
         }
         self.inner.icon_element(name, size, color, cx)
     }

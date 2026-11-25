@@ -655,10 +655,15 @@ fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
         return loading_chip(cx);
     };
     ChipContent {
-        lead: ChipLead::Tinted(
-            crate::icons::agent_glyph(agent.icon.as_deref()),
-            crate::icons::agent_tint(agent.color.as_deref()),
-        ),
+        // The viewer's Assistant wears the brand mark, like its rail row.
+        lead: if agent.is_assistant() {
+            ChipLead::Tinted(ExpIcon::Logo, cx.theme().foreground)
+        } else {
+            ChipLead::Tinted(
+                crate::icons::agent_glyph(agent.icon.as_deref()),
+                crate::icons::agent_tint(agent.color.as_deref()),
+            )
+        },
         identifier: None,
         title: Some(screen_title(
             &Screen::Agent {
