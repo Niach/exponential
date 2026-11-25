@@ -1,3 +1,4 @@
+import { assertAssistantHasDevice, assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
@@ -574,6 +575,8 @@ async function postSendMessage(
   // agent acts with its host's key, so the caller is the uploader set's
   // first entry, never the effective starter).
   const sealUserId = uploaderIds[0]!
+  // #EXP-2161: the device went since the send was checked.
+  await assertTreeHasDevice(tx, session.rootId)
   // #EXP-1720/#EXP-2027: the turn's Teams pick becomes the root's scope, even with nothing to post.
   const scope = input.scopeTeamIds === undefined ? undefined : await applyTeamsPick(tx, session, authorId, input.scopeTeamIds)
   let text = input.text ?? ``
@@ -1365,6 +1368,8 @@ async function messageSession(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const target = await loadSessionForUser(userId, sent.sessionId!)
+  // #EXP-2161: an Assistant without a device takes nothing.
+  await assertTreeHasDevice(db, target.id)
   if (target.subagentKey !== null && target.parentId) {
     // #EXP-1731: a subagent runs inside its parent's process and takes no
     // input of its own (a message mid-run would resume a second copy of
@@ -1636,6 +1641,7 @@ async function messageAgent(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const agent = await loadAgentForUser(userId, input.agentId!)
+  assertAssistantHasDevice(agent)
   // #EXP-1714: the member's Assistant answers from every team (clients send
   // the team they are in; the global one lives in their personal team).
   if (input.teamId && input.teamId !== agent.teamId && agent.role !== `assistant`) {
@@ -1941,6 +1947,7 @@ async function startChild(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
+  await assertTreeHasDevice(db, parent.id)
   // #EXP-1731: the CLI's subagents attach to the session that runs the CLI.
   if (parent.subagentKey !== null) throw new TRPCError({ code: `BAD_REQUEST`, message: SUBAGENT_NO_CHILDREN })
   await assertCanSteer(userId, parent)

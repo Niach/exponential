@@ -19,6 +19,8 @@ Object.defineProperty(window, `localStorage`, {
 const send = vi.fn()
 vi.mock(`@/lib/enet/send-sealed`, () => ({ sendSessionMessage: (...args: unknown[]) => send(...args) }))
 vi.mock(`@/lib/collections`, () => ({ messageCollection: { utils: { awaitTxId: () => Promise.resolve() } } }))
+const failedAction = vi.fn()
+vi.mock(`@/lib/action-error`, () => ({ failedAction: (...args: unknown[]) => failedAction(...args), SKIP_ERROR_TOAST: {} }))
 const upload = vi.fn()
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadTeamSessionImageFile: (...args: unknown[]) => upload(...args),
@@ -70,6 +72,15 @@ describe(`the session outbox`, () => {
     expect(stored(`s1`)).toMatchObject([{ state: `sending`, messageId: `m1` }])
     deleteOutboxEntry(`s1`, clientId)
     expect(localStorage.getItem(`exp-outbox:s1`)).toBeNull()
+  })
+
+  it(`#EXP-2161: an Assistant without a device refuses: the text stays, the toast says why`, async () => {
+    const refusal = new Error(`Pick a device`)
+    send.mockRejectedValueOnce(refusal)
+    sendThroughOutbox({ teamId: `t1`, sessionId: `s1`, text: `ship it` })
+    await flush()
+    expect(stored(`s1`)).toMatchObject([{ text: `ship it`, state: `failed` }])
+    expect(failedAction.mock.calls).toEqual([[`send`, `the message`, refusal]])
   })
 
   const pick = (name: string) => new File([name], name, { type: `image/png` })
