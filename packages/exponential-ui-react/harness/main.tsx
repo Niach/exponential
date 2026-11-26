@@ -456,6 +456,8 @@ function remount(node: ReactNode): HTMLElement {
   flushSync(() => mounted!.render(node))
   return el
 }
+/** Round 4 motion: neutral with 600 ms exits (`__xuiPresence`: timers far apart). */
+const SLOW_EXITS = { $schema: THEME_SCHEMA_ID, id: `slow-exits`, name: `Slow exits`, extends: `neutral`, tokens: { motion: { standard: 600 } } } as never
 function Mount() {
   useEffect(() => {
     window.__xuiMount = async (tree, options = {}) => {
@@ -473,7 +475,7 @@ function Mount() {
         const [s, set] = useState({ components: c.components, data: c.data })
         update = set
         const r = reduceSurface(s.components, { catalogId: CORE_CATALOG_ID })
-        return <ExponentialSurface id="m" root={r.root} templates={r.templates} data={s.data} theme="neutral" mode="light" width={c.viewport?.width ?? 400} host={{ icons: harnessIcons }} />
+        return <ExponentialSurface id="m" root={r.root} templates={r.templates} data={s.data} theme={SLOW_EXITS} mode="light" width={c.viewport?.width ?? 400} host={{ icons: harnessIcons }} />
       }
       const el = remount(<Presence />)
       await frames(3)
@@ -484,8 +486,10 @@ function Mount() {
         if (step.data) data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
         if (step.components) components = step.components
         if (step.data || step.components) flushSync(() => update!({ components, data }))
+        // Exits last 600 ms here (a slow theme): steps 250 ms apart start (and end) them well apart.
+        if (step.data || step.components) await new Promise((r) => setTimeout(r, 250))
         // The painter ends an exit itself (its timer): wait it out.
-        for (let k = 0; step.finishExit && k < 60 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
+        for (let k = 0; step.finishExit && k < 240 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
         await frames(2)
         out.push(readPresence(el, c.container, c.first))
       }

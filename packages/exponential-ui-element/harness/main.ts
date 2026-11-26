@@ -401,6 +401,8 @@ function remount(): HTMLElement {
   host.appendChild(el)
   return el
 }
+/** Round 4 motion: neutral with 600 ms exits (`__xuiPresence`: timers far apart). */
+const SLOW_EXITS = { $schema: THEME_SCHEMA_ID, id: `slow-exits`, name: `Slow exits`, extends: `neutral`, tokens: { motion: { standard: 600 } } } as never
 function Mount(): Node {
   window.__xuiMount = async (tree, options = {}) => {
     const { root, templates } = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
@@ -417,7 +419,7 @@ function Mount(): Node {
   window.__xuiPresence = async (c) => {
     const box = remount()
     const first = reduceSurface(c.components, { catalogId: CORE_CATALOG_ID })
-    const el = surfaceEl({ surfaceId: `m`, root: first.root, templates: first.templates, data: c.data, theme: `neutral`, mode: `light`, width: c.viewport?.width ?? 400, plugin: { icons: harnessIcons } })
+    const el = surfaceEl({ surfaceId: `m`, root: first.root, templates: first.templates, data: c.data, theme: SLOW_EXITS, mode: `light`, width: c.viewport?.width ?? 400, plugin: { icons: harnessIcons } })
     box.appendChild(el)
     disposeMounted = () => el.remove()
     await frames(3)
@@ -430,8 +432,10 @@ function Mount(): Node {
         el.root = r.root
       }
       if (step.data) el.data = data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
+      // Exits last 600 ms here (a slow theme): steps 250 ms apart start (and end) them well apart.
+      if (step.data || step.components) await new Promise((r) => setTimeout(r, 250))
       // The painter ends an exit itself (its timer): wait it out.
-      for (let k = 0; step.finishExit && k < 60 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
+      for (let k = 0; step.finishExit && k < 240 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
       await frames(2)
       out.push(readPresence(el, c.container, c.first))
     }
