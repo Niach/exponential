@@ -100,58 +100,6 @@ final class InstallTrustFixtureTests: XCTestCase {
         }
     }
 
-    /// #EXP-2161: a server that stops serving a space (or its registration)
-    /// does not make it an unpinned ordinary install.
-    func testOnceASpaceAlwaysASpace() throws {
-        let fx = try self.fx
-        let s = try fx.keys.endpoint("S")
-        func seen(_ store: TrustStore, _ specs: [Object]) throws -> TrustStore {
-            InstallTrust.reconcile(store, served: TrustAnswer(installs: try specs.map { try fx.served($0) }, approvals: []), crypto: crypto).store
-        }
-        let a: Object = ["key": "A"]
-        let bare: Object = ["key": "S", "registration": "none"]
-        let (joined, identity, secret) = try fx.namedStore("withoutSpace", inSpace: true)
-        let known = try seen(joined, [a, ["key": "S"]])
-        XCTAssertTrue(known.knownSpaces.contains(s))
-        for specs in [[a], [a, bare]] {
-            var store = try seen(known, specs)
-            XCTAssertTrue(store.knownSpaces.contains(s))
-            XCTAssertNil(store.pins[s])
-            store.existing = true
-            store.joined = false
-            XCTAssertNil(try seen(store, specs).pins[s])
-        }
-        let keep = try XCTUnwrap(try Self.cases(fx.space, "keepCases").first { $0["store"] as? String == "withoutSpace" })
-        let w = try Self.object(keep, "wrap")
-        let wrap = HeldTreeKey(
-            rootId: try Self.text(w, "rootId"), epoch: UInt32(try XCTUnwrap(w["epoch"] as? Int)), wrapped: try Self.text(w, "wrapped"),
-            signature: w["signature"] as? String, signerEndpointId: w["signerEndpointId"] as? String
-        )
-        func kept(_ store: TrustStore) -> InstallTrust.KeepVerdict {
-            InstallTrust.keepWrap(wrap, identity: identity, installSecret: secret, store: store, mode: .record, crypto: crypto, rootIsOwnAssistant: true)
-        }
-        if case .refuse = kept(joined) { XCTFail("kept before it was known") }
-        let gone = try seen(known, [a])
-        guard case .refuse(.unpinned) = kept(gone) else { return XCTFail("a known space's wrap") }
-        let c = try XCTUnwrap(try Self.cases(fx.space, "sealCases").first { $0["store"] as? String == "withoutSpace" })
-        let v = try Self.object(c, "vouch")
-        let vouch = InstallTrust.Vouch(
-            recipientEndpointId: try Self.text(v, "recipientEndpointId"), wrapped: try Self.text(v, "wrapped"),
-            signature: try Self.text(v, "signature"), signerEndpointId: try Self.text(v, "signerEndpointId")
-        )
-        XCTAssertEqual(
-            InstallTrust.sealTo(
-                rootId: try Self.text(c, "rootId"), epoch: 1, publicKey: try Self.text(c, "publicKey"), held: nil, vouch: vouch,
-                store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true
-            ),
-            .refuse(.unpinned)
-        )
-        XCTAssertEqual(
-            InstallTrust.wrapTarget(try fx.served(bare), store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true),
-            .refuse(.unapproved)
-        )
-    }
-
     /// #EXP-2161 (member-space.json).
     func testMemberSpacePinCases() throws {
         let f = try Self.memberSpace()
@@ -159,10 +107,11 @@ final class InstallTrustFixtureTests: XCTestCase {
         XCTAssertEqual(ApprovalKind.space.rawValue, try Self.text(f, "approvalKind"))
         XCTAssertEqual(Int(ApprovalKind.space.byte), f["approvalKindByte"] as? Int)
         for c in try Self.cases(f, "pinCases") {
+            let name = try Self.text(c, "name")
             let pin = try (c["pin"] as? String).map { try XCTUnwrap(InstallClass(rawValue: $0)) }
             XCTAssertEqual(
                 pinCovers(pin, rootIsOwnAssistant: try XCTUnwrap(c["rootIsOwnAssistant"] as? Bool)),
-                try XCTUnwrap(c["expected"] as? Bool), try Self.text(c, "name")
+                try XCTUnwrap(c["expected"] as? Bool), name
             )
         }
     }
@@ -310,6 +259,58 @@ final class InstallTrustFixtureTests: XCTestCase {
     private func served(_ spec: Object, _ keys: TrustFixture.Keys) throws -> ServedInstall { try fx.served(spec) }
     private func store(_ spec: Object, _ keys: TrustFixture.Keys) throws -> TrustStore { try fx.store(spec) }
     private func namedStore(_ name: String) throws -> (store: TrustStore, identity: Data, installSecret: Data) { try fx.namedStore(name) }
+
+    /// #EXP-2161: a server that stops serving a space (or its registration)
+    /// does not make it an unpinned ordinary install.
+    func testOnceASpaceAlwaysASpace() throws {
+        let fx = try self.fx
+        let s = try fx.keys.endpoint("S")
+        func seen(_ store: TrustStore, _ specs: [Object]) throws -> TrustStore {
+            InstallTrust.reconcile(store, served: TrustAnswer(installs: try specs.map { try fx.served($0) }, approvals: []), crypto: crypto).store
+        }
+        let a: Object = ["key": "A"]
+        let bare: Object = ["key": "S", "registration": "none"]
+        let (joined, identity, secret) = try fx.namedStore("withoutSpace", inSpace: true)
+        let known = try seen(joined, [a, ["key": "S"]])
+        XCTAssertTrue(known.knownSpaces.contains(s))
+        for specs in [[a], [a, bare]] {
+            var store = try seen(known, specs)
+            XCTAssertTrue(store.knownSpaces.contains(s))
+            XCTAssertNil(store.pins[s])
+            store.existing = true
+            store.joined = false
+            XCTAssertNil(try seen(store, specs).pins[s])
+        }
+        let keep = try XCTUnwrap(try Self.cases(fx.space, "keepCases").first { $0["store"] as? String == "withoutSpace" })
+        let w = try Self.object(keep, "wrap")
+        let wrap = HeldTreeKey(
+            rootId: try Self.text(w, "rootId"), epoch: UInt32(try XCTUnwrap(w["epoch"] as? Int)), wrapped: try Self.text(w, "wrapped"),
+            signature: w["signature"] as? String, signerEndpointId: w["signerEndpointId"] as? String
+        )
+        func kept(_ store: TrustStore) -> InstallTrust.KeepVerdict {
+            InstallTrust.keepWrap(wrap, identity: identity, installSecret: secret, store: store, mode: .record, crypto: crypto, rootIsOwnAssistant: true)
+        }
+        if case .refuse = kept(joined) { XCTFail("kept before it was known") }
+        let gone = try seen(known, [a])
+        guard case .refuse(.unpinned) = kept(gone) else { return XCTFail("a known space's wrap") }
+        let c = try XCTUnwrap(try Self.cases(fx.space, "sealCases").first { $0["store"] as? String == "withoutSpace" })
+        let v = try Self.object(c, "vouch")
+        let vouch = InstallTrust.Vouch(
+            recipientEndpointId: try Self.text(v, "recipientEndpointId"), wrapped: try Self.text(v, "wrapped"),
+            signature: try Self.text(v, "signature"), signerEndpointId: try Self.text(v, "signerEndpointId")
+        )
+        XCTAssertEqual(
+            InstallTrust.sealTo(
+                rootId: try Self.text(c, "rootId"), epoch: 1, publicKey: try Self.text(c, "publicKey"), held: nil, vouch: vouch,
+                store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true
+            ),
+            .refuse(.unpinned)
+        )
+        XCTAssertEqual(
+            InstallTrust.wrapTarget(try fx.served(bare), store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true),
+            .refuse(.unapproved)
+        )
+    }
 
     private func at(_ c: Object, _ mode: TrustMode) throws -> Object {
         try Self.object(c, mode == .record ? "now" : "mandatory")

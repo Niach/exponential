@@ -210,4 +210,31 @@ class ControlPaintTest {
         assertTrue("the popup shows its options: $rows", rows.all { it != null })
         capture("exp1629-inline-open")
     }
+
+    /**
+     * #EXP-2161: a Select's option `section`s (the IDE's Runs on device
+     * picker): the member's own machine first, unheaded, then each team's
+     * devices under its heading (web's picker group heading: the
+     * `sectionHeading` recipe, muted, never an option). Pictures:
+     * build/tmp/control-paint/exp2161-sections-open.png.
+     */
+    @Test
+    fun selectSectionsPaint() {
+        val m = render("""{"id": "root", "component": "Stack", "style": {"height": 360}, "children": [
+            {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "button", "value": "mint", "options": [
+                {"label": "build", "value": "acme:build", "icon": "server", "description": "Offline", "disabled": true, "section": "Acme"},
+                {"label": "mint", "value": "mint", "icon": "monitor"},
+                {"label": "unraid", "value": "acme:unraid", "icon": "server", "section": "Acme"},
+                {"label": "build", "value": "side:build", "icon": "server", "section": "Side project"}]}, "style": {"width": 160}}]}""")
+        m.press("device.trigger")
+        compose.waitForIdle()
+        fun top(text: String) = compose.onAllNodes(androidx.compose.ui.test.hasText(text), useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot.top }
+        val (acme, side) = top("Acme").single() to top("Side project").single()
+        val unraid = top("unraid").single()
+        val builds = top("build").sorted()
+        assertEquals("two build rows: $builds", 2, builds.size)
+        assertTrue("Acme heads its rows ($acme < ${builds[0]} < $unraid)", acme < builds[0] && builds[0] < unraid)
+        assertTrue("Side project after Acme's rows ($unraid < $side < ${builds[1]})", unraid < side && side < builds[1])
+        capture("exp2161-sections-open")
+    }
 }

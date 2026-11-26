@@ -1399,6 +1399,24 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `skills`, component: `Select`, props: { label: `Skills`, name: `skills`, triggerVariant: `row`, multiple: true, searchable: true, value: `deploy,review`, options: [{ label: `deploy`, value: `deploy`, icon: `ui-docs`, description: `Ship a build to staging` }, { label: `review`, value: `review`, icon: `ui-docs`, description: `Review the open pull request` }, { label: `triage`, value: `triage`, icon: `ui-docs`, description: `Sort the inbox by priority` }] } },
       ],
     },
+  }, {
+    // #EXP-2161: the IDE's Runs on device picker: the member's own machine
+    // first, unheaded, then each team's devices under its name (web's
+    // picker group heading, never pickable); one host listed under two
+    // teams.
+    label: `option section`,
+    node: {
+      id: `runs_on`,
+      component: `Group`,
+      children: [
+        { id: `runs_on_device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [
+          { label: `build`, value: `acme:build`, icon: `server`, description: `Offline`, disabled: true, section: `Acme` },
+          { label: `mint`, value: `mint`, icon: `monitor` },
+          { label: `unraid`, value: `acme:unraid`, icon: `server`, section: `Acme` },
+          { label: `build`, value: `side:build`, icon: `server`, description: `Offline`, disabled: true, section: `Side project` },
+        ] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).

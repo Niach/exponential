@@ -1,5 +1,8 @@
 package com.exponential.app.ui.components.picker
 
+import com.exponential.app.ui.theme.DesignTokens
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.exponential.app.ui.components.EmptyState
 import at.exponential.ui.primitives.EmptyStateSize
 import androidx.compose.foundation.background
@@ -634,8 +637,16 @@ fun <T : Any> Picker(
 internal fun PickerSectionHeading(title: String) {
     Text(
         title,
-        style = MaterialTheme.typography.labelMedium,
-        color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+        // #EXP-2161: web's picker heading (genUI `Select/sectionHeading`):
+        // 12/16, medium, muted, no tracking; 6 above and below, 8 between
+        // the row before and the heading.
+        style = MaterialTheme.typography.labelMedium.copy(
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.sp,
+        ),
+        color = DesignTokens.Palette.MutedForeground,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
@@ -643,8 +654,8 @@ internal fun PickerSectionHeading(title: String) {
             .padding(
                 start = PickerDefaults.RowOuterPadding + PickerDefaults.RowInnerPadding,
                 end = PickerDefaults.RowOuterPadding + PickerDefaults.RowInnerPadding,
-                top = 10.dp,
-                bottom = 4.dp,
+                top = 14.dp,
+                bottom = 6.dp,
             ),
     )
 }
