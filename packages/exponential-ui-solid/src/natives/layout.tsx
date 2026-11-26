@@ -194,9 +194,9 @@ export function ListNative(props: NativeProps): JSX.Element {
     return !row || `header` in row ? undefined : row.item < childCount() ? props.node.children[row.item] : tpl()?.tpl
   }
   const renderRow = (r: Accessor<number>) => {
-    const view = <ListRowView row={rows()[r()]} node={props.node} tpl={tpl()} sections={sections()} childCount={childCount()} part={part} />
+    const view = () => <ListRowView row={rows()[r()]} node={props.node} tpl={tpl()} sections={sections()} childCount={childCount()} part={part} />
     const per = untrack(stagger)
-    if (!untrack(windowed) || ctx.reducedMotion || enterDelay(0, 1, per) <= 0) return view
+    if (!untrack(windowed) || ctx.reducedMotion || enterDelay(0, 1, per) <= 0) return view()
     const key = untrack(() => keyOf(r()))
     if (!closing) {
       closing = true
@@ -204,7 +204,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     }
     if (!mounted && !firstWindow.has(key)) firstWindow.set(key, enterDelay((untrack(() => rowNode(r()))?.style as Record<string, unknown> | undefined)?.animationDelay, firstWindow.size, per))
     const delayMs = firstWindow.get(key) ?? 0
-    return delayMs > 0 ? <MotionContext.Provider value={{ delayMs: () => delayMs, exit: () => undefined }}>{view}</MotionContext.Provider> : view
+    return delayMs > 0 ? <MotionContext.Provider value={{ delayMs: () => delayMs, exit: () => undefined }}>{view()}</MotionContext.Provider> : view()
   }
   // Round 3: a Section body with `tree` asks for role `tree`.
   const listRole = () => ((props.rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`)

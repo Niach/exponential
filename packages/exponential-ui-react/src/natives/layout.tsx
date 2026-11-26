@@ -235,6 +235,20 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
     const before = dividerBefore(r)
     return before === null ? null : <div {...(part.at(`divider`, before) as Record<string, string>)} role="separator" />
   }
+  const axis = horizontal ? `horizontal` : `vertical`
+  const flatRow = (r: number) => {
+    const line = divider(r)
+    return (
+      <div key={keyOf(r)} className="xui-list-row" data-axis={axis} data-xui-row={r} {...itemAttrs(r)}>
+        {line ? (
+          <div className="xui-list-gap" aria-hidden="true" data-axis={axis} style={horizontal ? { [rtl ? `right` : `left`]: -(step / 2) } : { top: -(step / 2) }}>
+            {line}
+          </div>
+        ) : null}
+        {renderRow(r)}
+      </div>
+    )
+  }
   // A row whose node has an exit and is hidden (`visible` false) leaves
   // through its exit (its slot as a ghost).
   const hiddenExit = (r: number): boolean => {
@@ -271,20 +285,6 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
   // Flat: each row is a real box (the listitem; a `display: contents`
   // role is dropped by some engines) stretching its node as the List would;
   // the divider sits centred in the gap before it, as WindowedList draws it.
-  const axis = horizontal ? `horizontal` : `vertical`
-  const flatRow = (r: number) => {
-    const line = divider(r)
-    return (
-      <div key={keyOf(r)} className="xui-list-row" data-axis={axis} data-xui-row={r} {...itemAttrs(r)}>
-        {line ? (
-          <div className="xui-list-gap" aria-hidden="true" data-axis={axis} style={horizontal ? { [rtl ? `right` : `left`]: -(step / 2) } : { top: -(step / 2) }}>
-            {line}
-          </div>
-        ) : null}
-        {renderRow(r)}
-      </div>
-    )
-  }
   const out: ReactNode[] = []
   for (const p of flat) out.push(<Fragment key={p.key}>{p.node}</Fragment>)
   return (
