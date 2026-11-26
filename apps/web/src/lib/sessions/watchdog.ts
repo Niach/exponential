@@ -51,6 +51,8 @@ export interface WatchdogRun {
   timeWatches: number
   /** #NEW-147: MCP task time watches fired; expired tasks, spent requestStates and URL elicitations swept. */
   mcpTasks: { fired: number; tasks: number; states: number; elicitations: number }
+  /** #NEW-149: MCP file uploads staged, never finalized, swept. */
+  mcpFileStagings: number
   offline: number
   /** #FEED-211: parked runs that spoke again, busy again. */
   spoke: number
@@ -825,6 +827,13 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
       .catch((err) => {
         console.error(`[watchdog] mcp tasks failed`, err)
         return { fired: 0, tasks: 0, states: 0, elicitations: 0 }
+      }),
+    // #NEW-149: MCP file uploads staged and never finalized (files.json).
+    mcpFileStagings: await import(`@/lib/emcp/files`)
+      .then((m) => m.sweepExpiredFileStagings(now))
+      .catch((err) => {
+        console.error(`[watchdog] mcp file stagings failed`, err)
+        return 0
       }),
     // #EXP-2161: a member space whose teams are gone ends.
     spacesEnded: await import(`@/lib/spaces/end`).then((m) => m.endInvalidSpaces()).catch((err) => {

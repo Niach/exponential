@@ -11,6 +11,8 @@ import { verifyRequestState, type RequestStateError, type VerifyContext } from "
 
 export const FILES_EXTENSION: string = fixture.extension
 export const MAX_INLINE_BYTES: number = fixture.capability.maxInlineBytes
+/** How long a staging URL takes bytes (files.json `staging.ttlMs`). */
+export const STAGING_TTL_MS: number = fixture.staging.ttlMs
 
 /** Is the extension on in this deployment? */
 export function filesEnabled(env: Record<string, string | undefined>): boolean {
@@ -141,6 +143,17 @@ export function retryVerdict(
     const at = key.indexOf(`:`)
     staged[key.slice(0, at)] = key.slice(at + 1)
   }
+  return stagedVerdict(staged, inputs, lookup)
+}
+
+/** The retry's byte checks once its state verified (the server's state is
+ *  mrtr's sealed one, its `data` the staged map): every out-of-band file
+ *  arrived with exactly its size and its digest when one was given. */
+export function stagedVerdict(
+  staged: Readonly<Record<string, string>>,
+  inputs: readonly FileInput[],
+  lookup: (stagingId: string) => StagedObject | null
+): RetryVerdict {
   for (const f of inputs) {
     if (typeof f.data === `string` || f.size === 0) continue
     const stagingId = staged[f.id]
@@ -149,7 +162,7 @@ export function retryVerdict(
     if (!object || object.size !== f.size) return { kind: `error`, error: `missingBytes`, fileId: f.id }
     if (f.digest && object.digest !== f.digest.value) return { kind: `error`, error: `digestMismatch`, fileId: f.id }
   }
-  return { kind: `run`, staged }
+  return { kind: `run`, staged: { ...staged } }
 }
 
 /** The isError tool result of a refused file. */
@@ -161,4 +174,66 @@ export function fileErrorResult(error: FileError, fileId: string | null) {
 export function uploadCapabilityError(inputs: readonly FileInput[], declaredUpload: boolean) {
   if (declaredUpload || !inputs.some((f) => typeof f.data !== `string` && f.size > 0)) return null
   return { code: fixture.missingCapability.code, message: fixture.missingCapability.message, data: { requiredCapabilities: { extensions: { [FILES_EXTENSION]: { upload: {} } } } } }
+}
+
+// ── #NEW-149: the schema, what a client declared, downloads ──────────
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === `object` && value !== null && !Array.isArray(value)
+
+/** The server's `capabilities.extensions` entry (flag on). */
+export const FILES_CAPABILITY: Readonly<Record<string, unknown>> = fixture.capability
+
+/** The JSON schema of a tool's file argument (`x-mcp-file` beside `type`), or null. */
+export function fileInputSchema(tool: string, op: unknown): Record<string, unknown> | null {
+  const spec = fileInputSpec(tool, op)
+  if (!spec) return null
+  return {
+    type: `object`,
+    "x-mcp-file": { accept: spec.accept, maxSize: spec.maxSize },
+    properties: {
+      id: { type: `string`, minLength: 1, maxLength: fixture.idMax },
+      name: { type: `string` },
+      mimeType: { type: `string`, minLength: 1 },
+      size: { type: `integer`, minimum: 0 },
+      digest: { type: `object`, properties: { algorithm: { type: `string`, const: fixture.digestAlgorithm }, value: { type: `string` } }, required: [`algorithm`, `value`] },
+      data: { type: `string` },
+    },
+    required: [`id`, `mimeType`, `size`],
+  }
+}
+
+/** What one request's client declared of the extension (`clientCapabilities.extensions`). */
+export function filesDeclared(extensions: unknown): { upload: boolean; download: boolean } {
+  const entry = isObject(extensions) ? extensions[FILES_EXTENSION] : undefined
+  if (!isObject(entry)) return { upload: false, download: false }
+  return { upload: isObject(entry.upload), download: isObject(entry.download) }
+}
+
+export interface DownloadableAttachment {
+  filename: string
+  contentType: string
+  sizeBytes: number
+  /** The signed, short-lived URL (the URL is the capability). */
+  downloadUrl: string
+  /** RFC 3339. */
+  expiresAt: string
+}
+
+/** The `_meta` an attachment read adds for a client that declared `download`, else null. */
+export function downloadMeta(attachment: DownloadableAttachment, declaredDownload: boolean): Record<string, unknown> | null {
+  if (!declaredDownload) return null
+  return {
+    [FILES_EXTENSION]: {
+      downloads: [
+        {
+          name: attachment.filename,
+          mimeType: attachment.contentType || fixture.download.unknownMimeType,
+          size: attachment.sizeBytes,
+          url: attachment.downloadUrl,
+          credentials: fixture.download.credentials,
+          expiresAt: attachment.expiresAt,
+        },
+      ],
+    },
+  }
 }
