@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
 import { SIDEBAR_MENU_COPY } from "@exp/domain-contract/sidebar-menus"
-import { Button, conceptIcon, HEADER_ACTION_CLASS, HeaderAction, Menu } from "@exp/ui"
+import { conceptIcon, HeaderAction, Menu } from "@exp/ui"
 import type { Board } from "@/db/schema"
 import { useBoardArchive } from "@/components/team/board-archive"
 import { headerMenuEntries, openHandlers, sidebarMenuEntries } from "@/components/team/sidebar-menus"
@@ -48,9 +48,9 @@ export function BoardHeaderActions({
         title={board.name}
         entries={entries}
         trigger={
-          <Button variant="ghost" size="icon" className={HEADER_ACTION_CLASS} aria-label={`${board.name} actions`} data-testid="board-menu">
+          <HeaderAction aria-label={`${board.name} actions`} data-testid="board-menu">
             <MoreIcon />
-          </Button>
+          </HeaderAction>
         }
       />
       {archive.dialog}

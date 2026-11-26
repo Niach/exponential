@@ -17,15 +17,14 @@ struct InboxPage: View {
                 InboxListContent(viewModel: vm)
             }
         }
-        .navigationTitle(Chats.Copy.inbox)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
+        // #EXP-2168: the pushed page header (THE round back, the title
+        // LEFT); Mark all read = the page's own round button.
+        .pageHeader(Chats.Copy.inbox, pushed: true, glyph: nil) {
             if (inboxViewModel?.totalUnread ?? 0) > 0 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    PageHeaderButton(icon: AppIcons.notificationMarkRead, label: "Mark all read") { inboxViewModel?.markAllRead() }
-                }
+                PageHeaderButton(icon: AppIcons.notificationMarkRead, label: "Mark all read") { inboxViewModel?.markAllRead() }
             }
+        } more: {
+            EmptyView()
         }
         .onAppear {
             if inboxViewModel == nil {

@@ -16,7 +16,7 @@ const h = vi.hoisted(() => {
     comments: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
-    repositories: { list: vi.fn(), add: vi.fn() },
+    repositories: { list: vi.fn(), add: vi.fn(), create: vi.fn() },
     prompts: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     // EXP-1663
     skills: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -611,6 +611,15 @@ const descriptors: Array<Descriptor> = [
     resolved: { repository: { id: REPO, fullName: `a/b` } },
     expected: { id: REPO, fullName: `a/b` },
     calledWith: { teamId: WS, fullName: `a/b` },
+  },
+  {
+    // #EXP-2170: a hosted repository, named without an owner.
+    tool: `exponential_repositories_add`,
+    pick: () => caller.repositories.create,
+    args: { teamId: WS, fullName: `dogfood`, provider: `exponential` },
+    resolved: { repository: { id: REPO, fullName: `t/dogfood` } },
+    expected: { id: REPO, fullName: `t/dogfood` },
+    calledWith: { teamId: WS, name: `dogfood`, mirrorUrl: null },
   },
   {
     tool: `exponential_boards_delete`,

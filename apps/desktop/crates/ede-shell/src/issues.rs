@@ -274,6 +274,8 @@ mod tests {
             icon: None,
             keywords: String::new(),
             categories: vec![],
+            wm_class: None,
+            steam_app: None,
         };
         assert_eq!(crate::ide_command(&app, Some(&issue_deep_link("LOC-3"))), "exponential-desktop 'exponential://issue/LOC-3'");
     }

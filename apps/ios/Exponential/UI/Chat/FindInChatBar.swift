@@ -138,15 +138,15 @@ extension EnvironmentValues {
 /// COMPACT (find-in-chat.json WHERE THE BAR SITS): the bar REPLACES the chat
 /// header while open: back (closes), the field, the counter, previous
 /// (chevron up), next (chevron down); the status line under it. THE chat
-/// header's row, its ghost buttons and the glass field, nothing new.
+/// header's row, THE round header buttons (#EXP-2168) and the glass field, nothing new.
 struct FindInChatHeader: View {
     @Bindable var find: ChatFind
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: CGFloat(Measures.gap)) {
-                ChatHeaderGhostButton(icon: AppIcons.uiBack, label: FindInChat.Copy.close, identifier: FindInChat.TestIds.close) {
+            HStack(spacing: CGFloat(HeaderActions.gap)) {
+                HeaderCircleButton(icon: AppIcons.uiBack, label: FindInChat.Copy.close, identifier: FindInChat.TestIds.close) {
                     find.close()
                 }
                 GlassTextField(
@@ -180,14 +180,14 @@ struct FindInChatHeader: View {
                         .fixedSize()
                         .accessibilityIdentifier(FindInChat.TestIds.counter)
                 }
-                ChatHeaderGhostButton(icon: AppIcons.uiChevronUp, label: FindInChat.Copy.previous, identifier: FindInChat.TestIds.previous) {
+                HeaderCircleButton(icon: AppIcons.uiChevronUp, label: FindInChat.Copy.previous, identifier: FindInChat.TestIds.previous) {
                     find.go(.previous)
                 }
-                ChatHeaderGhostButton(icon: AppIcons.uiChevronDown, label: FindInChat.Copy.next, identifier: FindInChat.TestIds.next) {
+                HeaderCircleButton(icon: AppIcons.uiChevronDown, label: FindInChat.Copy.next, identifier: FindInChat.TestIds.next) {
                     find.go(.next)
                 }
             }
-            .padding(.horizontal, CGFloat(Measures.paddingX))
+            .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: CGFloat(Measures.row), maxHeight: CGFloat(Measures.row), alignment: .leading)
             if let status = find.report.status {
                 // The status line: the transcript's first line under the bar.
