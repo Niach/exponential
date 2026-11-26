@@ -66,6 +66,7 @@ describe.skipIf(!ready.ok)(`built-in skills (real db)`, () => {
       [`exponential-apps`, true],
       [`exponential-genui`, false],
       [`exponential-motion`, true],
+      [`exponential-workflow`, true],
     ])
   })
 
@@ -86,6 +87,7 @@ describe.skipIf(!ready.ok)(`built-in skills (real db)`, () => {
       [`exponential-apps`, true],
       [`exponential-genui`, false],
       [`exponential-motion`, true],
+      [`exponential-workflow`, true],
     ])
     expect(rows[0]!.body).toBe(BUILTINS.find((b) => b.name === `exponential-apps`)!.body)
     expect(rows[1]!.body).toBe(`# ours`)
