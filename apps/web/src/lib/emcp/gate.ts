@@ -24,7 +24,7 @@ import { sessions } from "@/db/schema"
 import { getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
 import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/emcp/helpers"
-import { auditRows, recordMcpCalls, requestsOf, type AuditOptions } from "@/lib/emcp/audit"
+import { auditedRequests, auditRows, recordMcpCalls, type AuditOptions } from "@/lib/emcp/audit"
 import { resolveMcpToolGates, type McpToolGates } from "@/lib/emcp/gates"
 import { MCP_SESSION_HEADER, parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { actingSession } from "@exp/emcp/access"
@@ -355,8 +355,6 @@ async function serveGated(gatedCaller: EmcpCaller, request: Request, provider: T
     .clone()
     .json()
     .catch(() => null)
-  // #NEW-147: every request is audited (`mcp_calls.method`), not only tools/call.
-  const audited = requestsOf(body).length > 0
   // #NEW-144: the client's declared capabilities, read ONCE (ctx.client).
   const call = callOf(body)
   const caller: EmcpCaller = { ...gatedCaller, client: clientContextOf(body), ...(call ? { call } : {}) }
@@ -365,6 +363,8 @@ async function serveGated(gatedCaller: EmcpCaller, request: Request, provider: T
   if (served instanceof Response) return served
   // `audit` tells the pair apart (an McpServer has a `server` of its own).
   const { server, audit } = `audit` in served ? served : { server: served, audit: options }
+  // #NEW-147: every request is audited (`mcp_calls.method`), not only tools/call.
+  const audited = auditedRequests(body, audit).length > 0
   const started = performance.now()
   // #EXP-1720: an Assistant tree's request reaches several teams; its rows
   // name the team its session works in (a child in its target team), never

@@ -170,6 +170,14 @@ export interface McpCallRow {
 export interface AuditOptions {
   appIdOf?: (tool: string) => string | null
   classify?: (response: unknown) => { outcome: CallOutcome; error: string | null }
+  /** #NEW-147: only `tools/call` rows (`/api/mcp/apps`; audit.json audits every method of `/api/mcp`). */
+  toolCallsOnly?: boolean
+}
+
+/** The requests of `body` an endpoint audits. */
+export function auditedRequests(body: unknown, options: Pick<AuditOptions, `toolCallsOnly`> = {}): McpRequestEntry[] {
+  const requests = requestsOf(body)
+  return options.toolCallsOnly ? requests.filter((call) => call.method === `tools/call`) : requests
 }
 
 /** The audit rows of one request: #NEW-147 one per JSON-RPC request (every
@@ -183,7 +191,7 @@ export function auditRows(
 ): McpCallRow[] {
   const responses = responsesById(responseBody)
   const classify = options.classify ?? classifyToolResponse
-  return requestsOf(requestBody).map((call) => {
+  return auditedRequests(requestBody, options).map((call) => {
     const tool = call.method === `tools/call`
     const { outcome, error } = (tool ? classify : classifyRequestResponse)(call.id === null ? null : responses.get(call.id))
     return {
