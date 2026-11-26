@@ -2320,6 +2320,15 @@
         "sha256": "c82b62338093210a10b9e79f537fcaaedaaa223c9c1e5c2de2f9ee3918980b7f"
       }
     },
+    "elicitation-card": {
+      "desktop": {
+        "file": "shots/elicitation-card/desktop.webp",
+        "width": 597,
+        "height": 1800,
+        "bytes": 29432,
+        "sha256": "99d5828893f05aebb8a97d4ec1d51b7ce5d49319a696d7c0970102fd77d0be3e"
+      }
+    },
     "exponential-ui-accordion": {
       "android": {
         "file": "shots/exponential-ui-accordion/android.webp",

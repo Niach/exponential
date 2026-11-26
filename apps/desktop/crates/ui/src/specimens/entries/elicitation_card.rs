@@ -124,4 +124,43 @@ mod tests {
         assert_eq!(data["form"]["estimate"], json!(3));
         assert_eq!(data["form"]["due"], json!("2026-12-01"));
     }
+
+    /// The view's desktop picture (views.json `elicitation-card`), drawn
+    /// HEADLESS by the real chat card: on a Linux machine the shots lane
+    /// (macOS screencapture) cannot run, so this writes
+    /// `$EXP_ELICITATION_SHOT` (a PNG path). CPU rendering works:
+    /// `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+    /// EXP_ELICITATION_SHOT=/tmp/e.png cargo test -p ui --lib -- --ignored elicitation_card_shot`.
+    #[test]
+    #[ignore]
+    fn elicitation_card_shot() {
+        use gpui::{AppContext as _, IntoElement, Render, Styled as _};
+        let Ok(out) = std::env::var("EXP_ELICITATION_SHOT") else { return };
+        struct Frame;
+        impl Render for Frame {
+            fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+                div().size_full().bg(cx.theme().background).p_6().child(super::render(window, cx))
+            }
+        }
+        let mut cx = crate::shell_bench::headless();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let window = cx
+            .open_window(gpui::size(px(720.), px(2560.)), |window: &mut Window, cx| {
+                let view = cx.new(|_| Frame);
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+            })
+            .expect("a headless window");
+        let window: gpui::AnyWindowHandle = window.into();
+        for _ in 0..8 {
+            crate::transcript_bench::draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(&out).expect("the PNG");
+        std::mem::forget(cx);
+    }
 }
