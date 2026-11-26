@@ -644,6 +644,9 @@
         },
         "durationMs": {
           "description": "Known length for the scrubber."
+        },
+        "peaks": {
+          "description": "Waveform 0 to 1; press seeks."
         }
       },
       "description": "Audio with a play control.",
@@ -801,7 +804,7 @@
           "description": "Selected value (comma-joined when multiple); bind it."
         },
         "variant": {
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, joined buttons, icon bar."
         },
         "size": {
           "description": "Control height class."
@@ -893,7 +896,7 @@
           "description": "Muted detail (a duration)."
         },
         "status": {
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "Step state."
         },
         "size": {
           "description": "sm = compact."
@@ -1432,6 +1435,9 @@
         },
         "value": {
           "description": "Formatted value after the track."
+        },
+        "range": {
+          "description": "Band [low, high]."
         }
       },
       "description": "Usage bar: coloured segments against a max.",
@@ -1455,6 +1461,12 @@
       "props": {
         "value": {
           "description": "Fraction 0 to 1."
+        },
+        "rings": {
+          "description": "Outermost first, instead of value."
+        },
+        "sweep": {
+          "description": "Degrees; under 360 = gauge."
         },
         "size": {
           "description": "Diameter class."
@@ -1826,7 +1838,7 @@
           "description": "URL a press opens; `press` still fires."
         },
         "variant": {
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "description": "`icon` = square icon-only, `icon-xs` = small round."
@@ -1990,7 +2002,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare`/`code` = chromeless; `box` = boxed."
         },
         "size": {
           "description": "sm = compact."
@@ -2334,7 +2346,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `inline` = text + chevron."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
@@ -2479,7 +2491,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2732,7 +2744,7 @@
           "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
         }
       },
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "example": {
         "placeholder": "Ask anything"
       }
@@ -2991,7 +3003,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation.",
       "example": {
         "size": [
           48,
@@ -3448,7 +3460,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3568,7 +3580,7 @@
           "description": "Delivery state."
         }
       },
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "A message's delivery mark.",
       "example": {
         "status": "read"
       }
@@ -4179,6 +4191,20 @@
         }
       },
       "description": "One person of an AvatarGroup."
+    },
+    "ring": {
+      "properties": {
+        "value": {
+          "description": "Amount."
+        },
+        "max": {
+          "description": "Full amount, default 1."
+        },
+        "tone": {
+          "description": "Arc tone."
+        }
+      },
+      "description": "One concentric ring."
     }
   },
   "functions": {

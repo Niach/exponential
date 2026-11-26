@@ -347,7 +347,7 @@ struct AudioLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        AudioFace(model: cx.model, title: cx.props.str("title"), src: cx.props.str("src"), durationMs: cx.props.num("durationMs"), ink: cx.ink, font: cx.font, titleColor: cx.part("AudioPlayer", "track").color, size: cx.inner.size)
+        AudioFace(model: cx.model, title: cx.props.str("title"), src: cx.props.str("src"), durationMs: cx.props.num("durationMs"), peaks: (cx.props["peaks"]?.array ?? []).map(dataVizNumber), ink: cx.ink, font: cx.font, titleColor: cx.part("AudioPlayer", "track").color, size: cx.inner.size)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
     }
 }
@@ -359,6 +359,8 @@ struct AudioFace: View {
     let title: String
     let src: String
     var durationMs: Double? = nil
+    /// Group D: the `peaks` waveform in place of the plain track.
+    var peaks: [Double?] = []
     let ink: Color
     let font: Font
     var titleColor: Color? = nil
@@ -396,15 +398,34 @@ struct AudioFace: View {
                 .buttonStyle(.plain)
                 .disabled(request == nil || playback.loading)
                 GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(mutedFg.opacity(0.35))
-                        Capsule().fill(mutedFg).frame(width: geo.size.width * progress)
+                    Group {
+                        if peaks.isEmpty {
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(mutedFg.opacity(0.35))
+                                Capsule().fill(mutedFg).frame(width: geo.size.width * progress)
+                            }
+                            .frame(height: 4)
+                        } else {
+                            // Group D (fixtures/data-viz.json): the waveform bars, the played ones in the ink.
+                            let w = geo.size.width
+                            let rtl = model.isRTL
+                            Canvas { ctx, _ in
+                                for bar in DataViz.waveformBars(width: w, peaks: peaks, progress: progress) {
+                                    let x = rtl ? w - bar.x - bar.width : bar.x
+                                    let rect = CGRect(x: x, y: bar.y, width: bar.width, height: bar.height)
+                                    ctx.fill(Path(roundedRect: rect, cornerRadius: bar.width / 2), with: .color(bar.played ? ink : mutedFg.opacity(0.35)))
+                                }
+                            }
+                            .frame(height: DataViz.height)
+                        }
                     }
-                    .frame(height: 4)
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0).onEnded { g in
-                        playback.seek(fraction: geo.size.width > 0 ? g.location.x / geo.size.width : 0, fallbackDuration: known)
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                        // Group D: a press or drag seeks (x / width).
+                        if !peaks.isEmpty { playback.seek(fraction: DataViz.seekFraction(x: model.isRTL ? geo.size.width - g.location.x : g.location.x, width: geo.size.width), fallbackDuration: known) }
+                    }.onEnded { g in
+                        playback.seek(fraction: DataViz.seekFraction(x: model.isRTL ? geo.size.width - g.location.x : g.location.x, width: geo.size.width), fallbackDuration: known)
                     })
                 }
                 Text("\(formatDuration(playback.time * 1000)) / \(length.map { formatDuration($0 * 1000) } ?? "0:00")").font(.system(size: 12)).foregroundStyle(mutedFg)
@@ -421,22 +442,61 @@ struct AudioFace: View {
     }
 }
 
-/// `Ring`: track circle + value arc from 12 o'clock, the label centred.
+/// A JSON number only (no string or bool coercion: the TS `finite`).
+func dataVizNumber(_ v: JSONValue?) -> Double? {
+    if case let .number(n)? = v { return n }
+    return nil
+}
+
+/// Group D: a Ring's arcs (`sweep`, `rings`) over `DataViz.ringArcs`.
+func ringArcs(_ props: Props, size: Double, stroke: Double) -> DataViz.RingArcs {
+    let rings = props["rings"]?.array?.compactMap(\.object).map { DataViz.RingSpec(value: dataVizNumber($0["value"]), max: dataVizNumber($0["max"]), tone: $0["tone"]?.string) }
+    return DataViz.ringArcs(size: size, stroke: stroke, value: dataVizNumber(props["value"]), tone: props["tone"]?.string, sweep: dataVizNumber(props["sweep"]), rings: rings)
+}
+
+/// One arc of a Ring, clockwise from `start` degrees (12 o'clock = 0) over
+/// `sweep`, mirrored in RTL, round caps.
+private struct RingArcShape: Shape {
+    let r: Double
+    let start: Double
+    let sweep: Double
+    let rtl: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        // SwiftUI angles: from 3 o'clock, `clockwise: false` = clockwise on screen.
+        let from = rtl ? 180 - (start - 90) : start - 90
+        let to = rtl ? from - sweep : from + sweep
+        p.addArc(center: c, radius: r, startAngle: .degrees(from), endAngle: .degrees(to), clockwise: rtl)
+        return p
+    }
+}
+
+/// `Ring` (Group D, fixtures/data-viz.json): per ring a track arc and a
+/// value arc (`sweep`, `rings`), round caps, no fill at 0; label centred.
 struct RingLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        let value = min(1, max(0, cx.props.num("value") ?? 0))
         let track = cx.part("Ring", "track")
-        let fill = cx.part("Ring", "fill")
         let stroke = track.px("borderWidth") ?? 2
-        let fillStroke = fill.px("borderWidth") ?? stroke
         let trackColor = track.color ?? cx.ink.opacity(0.15)
-        let fillColor = fill.color ?? cx.tone(cx.props.str("tone")) ?? cx.ink
         let label = cx.part("Ring", "label")
         let size = min(cx.size.width, cx.size.height)
+        let arcs = ringArcs(cx.props, size: size, stroke: stroke)
+        let style = StrokeStyle(lineWidth: stroke, lineCap: .round)
         ZStack {
-            RingView(value: value, lineWidth: stroke, fillWidth: fillStroke, track: trackColor, fill: fillColor).frame(width: size, height: size)
+            ZStack {
+                ForEach(Array(arcs.rings.enumerated()), id: \.offset) { _, ring in
+                    let fill = cx.part("Ring", "fill", props: cx.ownerProps.merging(["tone": .string(ring.tone)]) { _, b in b })
+                    RingArcShape(r: ring.r, start: arcs.start, sweep: arcs.sweep, rtl: cx.rtl).stroke(trackColor, style: style)
+                    if ring.fraction > 0 {
+                        RingArcShape(r: ring.r, start: arcs.start, sweep: arcs.sweep * ring.fraction, rtl: cx.rtl).stroke(fill.color ?? cx.tone(ring.tone) ?? cx.ink, style: style)
+                    }
+                }
+            }
+            .frame(width: size, height: size)
             if !cx.props.str("label").isEmpty {
                 Text(cx.props.str("label")).font(.system(size: label.px("fontSize") ?? 12)).foregroundStyle(label.color ?? cx.ink).lineLimit(1).fixedSize()
             }

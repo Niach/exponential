@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.state.ToggleableState
 import at.exponential.ui.json.Props
+import at.exponential.ui.json.list
 import at.exponential.ui.json.num
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.str
@@ -284,7 +285,7 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
         c == "Slider" && p == "track" -> sliderSemantics(node, model)
         c == "Spinner" || c == "Ring" -> clearAndSetSemantics {
             contentDescription = label ?: model.string("loading")
-            if (c == "Ring") node.props.num("value")?.let { v -> progressBarRangeInfo = ProgressBarRangeInfo(v.toFloat().coerceIn(0f, 1f), 0f..1f) } else progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+            if (c == "Ring") ringFraction(node.props)?.let { v -> progressBarRangeInfo = ProgressBarRangeInfo(v, 0f..1f) } else progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
         }
         node.isPickerTrigger || c == "Segmented" -> this
         // VAPP-162, EXP-1604: a QrCode / Motion is an image named by its label (decorative
@@ -444,4 +445,12 @@ private fun radioLabel(node: NodeInfo, model: SurfaceModel): String {
     val suffix = node.id.split('.').lastOrNull() ?: ""
     val owner = model.owner(node.index)
     return model.indexOf("${owner?.id ?: ""}.label.$suffix")?.let(model::node)?.props?.str("text") ?: ""
+}
+
+/** Group D: a Ring's accessibility value = its first ring's fraction (`rings`, else `value`). */
+internal fun ringFraction(props: Props): Float? {
+    val rings = props.list("rings").mapNotNull { it.obj }
+    if (rings.isEmpty()) return props.num("value")?.toFloat()?.coerceIn(0f, 1f)
+    val first = rings[0]
+    return at.exponential.ui.primitives.DataViz.ringArcs(1000.0, 0.0, null, null, null, listOf(at.exponential.ui.primitives.DataViz.RingSpec(first["value"]?.number, first["max"]?.number, null))).rings[0].fraction.toFloat()
 }

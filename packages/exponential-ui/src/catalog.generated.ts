@@ -228,6 +228,7 @@ export interface Shapes {
   treeItem: { id: string; title: string; icon?: IconName; meta?: string; children?: Shapes["treeItem"][]; hasChildren?: boolean }
   highlight: { query: string; current?: number; before?: string }
   person: { name: string; src?: string; seed?: string }
+  ring: { value: number; max?: number; tone?: ToneValue }
 }
 /** Every component's props, by name. */
 export interface ComponentProps {
@@ -258,7 +259,7 @@ export interface ComponentProps {
   ZoomableImage: { src: string | Dynamic; alt: string | Dynamic; naturalWidth?: number; naturalHeight?: number; initial?: ZoomInitialValue; maxScale?: number; controls?: ZoomControlsValue; scale?: number | Dynamic; style?: Style }
   Icon: { name: IconName | Dynamic; size?: IconSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
-  AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
+  AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number; peaks?: number[] | Dynamic }
   Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: AvatarSizeValue; seed?: string | Dynamic }
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
@@ -287,8 +288,8 @@ export interface ComponentProps {
   Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue | Dynamic; dot?: string; icon?: IconName; image?: string; detail?: string | Dynamic; removable?: boolean; pressable?: boolean }
   EmptyState: { icon: IconName; title: string; description?: string; actionLabel?: string; size?: "page" | "list" }
   Progress: { value: number | Dynamic; max?: number; label?: string; valueText?: string | Dynamic; detail?: string | Dynamic; tone?: ToneValue }
-  Meter: { segments: Shapes["segment"][] | Dynamic; max?: number; label?: string; value?: string }
-  Ring: { value: number | Dynamic; size?: ControlSizeValue; tone?: ToneValue; label?: string }
+  Meter: { segments: Shapes["segment"][] | Dynamic; max?: number; label?: string; value?: string; range?: number[] }
+  Ring: { value?: number | Dynamic; rings?: Shapes["ring"][] | Dynamic; sweep?: number; size?: ControlSizeValue; tone?: ToneValue; label?: string }
   Spinner: { size?: SpinnerSizeValue; label?: string }
   Skeleton: { width?: string; height?: string; rounded?: boolean; rows?: number; rowHeight?: number; dot?: boolean }
   VoiceWave: { activity?: VoiceWaveActivityValue | Dynamic; variant?: VoiceWaveVariantValue; level?: number | Dynamic; bands?: number[] | Dynamic; size?: VoiceWaveSizeValue; label?: string }

@@ -18,7 +18,7 @@
         "fixtures/catalog-macros.json"
       ],
       "unit": "case",
-      "cases": 497,
+      "cases": 498,
       "check": "Expand the case: the tree equals `expanded` (JSON-equal, recipes included)."
     },
     {

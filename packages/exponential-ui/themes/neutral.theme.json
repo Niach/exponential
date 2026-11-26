@@ -5669,6 +5669,14 @@
             "backgroundColor": "$color.mutedForeground"
           }
         }
+      ],
+      "range": [
+        {
+          "style": {
+            "backgroundColor": "$color.foreground",
+            "opacity": 0.3
+          }
+        }
       ]
     },
     "Row": {

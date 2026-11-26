@@ -23903,56 +23903,72 @@
             }
           },
           {
-            "id": "meter.track",
+            "id": "meter.bar",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "meter.track.segment.0",
+                "id": "meter.bar.track",
                 "component": "Box",
                 "props": {},
-                "children": [],
+                "children": [
+                  {
+                    "id": "meter.bar.track.segment.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "40%"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "segment",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "meter.bar.track.segment.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "25%"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "segment",
+                      "props": {
+                        "tone": "warning"
+                      }
+                    }
+                  }
+                ],
                 "style": {
-                  "height": "100%",
-                  "width": "40%"
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "height": "$control.meter",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
                 },
                 "recipe": {
                   "macro": "Meter",
-                  "part": "segment",
-                  "props": {
-                    "tone": "primary"
-                  }
-                }
-              },
-              {
-                "id": "meter.track.segment.1",
-                "component": "Box",
-                "props": {},
-                "children": [],
-                "style": {
-                  "height": "100%",
-                  "width": "25%"
-                },
-                "recipe": {
-                  "macro": "Meter",
-                  "part": "segment",
-                  "props": {
-                    "tone": "warning"
-                  }
+                  "part": "track",
+                  "props": {}
                 }
               }
             ],
             "style": {
-              "display": "flex",
-              "flexDirection": "row",
-              "height": "$control.meter",
-              "borderRadius": "$radius.full",
-              "overflow": "hidden",
+              "position": "relative",
               "width": "100%"
             },
             "recipe": {
               "macro": "Meter",
-              "part": "track",
+              "part": "bar",
               "props": {}
             }
           }
@@ -115188,6 +115204,157 @@
               "name": "openSender"
             }
           }
+        }
+      }
+    },
+    {
+      "name": "Meter/range",
+      "input": {
+        "id": "heart",
+        "component": "Meter",
+        "props": {
+          "label": "Resting",
+          "max": 120,
+          "segments": [
+            {
+              "value": 64,
+              "tone": "success"
+            }
+          ],
+          "range": [
+            50,
+            80
+          ]
+        }
+      },
+      "expected": {
+        "id": "heart",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "heart.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "heart.header.label",
+                "component": "Text",
+                "props": {
+                  "text": "Resting",
+                  "variant": "caption"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Meter",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm"
+            },
+            "recipe": {
+              "macro": "Meter",
+              "part": "header",
+              "props": {}
+            }
+          },
+          {
+            "id": "heart.bar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "heart.bar.track",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "heart.bar.track.segment.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "height": "100%",
+                      "width": "53.33%"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "segment",
+                      "props": {
+                        "tone": "success"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "height": "$control.meter",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Meter",
+                  "part": "track",
+                  "props": {}
+                }
+              },
+              {
+                "id": "heart.bar.range",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "borderRadius": "$radius.full",
+                  "left": "41.67%",
+                  "width": "25%"
+                },
+                "recipe": {
+                  "macro": "Meter",
+                  "part": "range",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "relative",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Meter",
+              "part": "bar",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Meter",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "meter",
+          "label": "Resting"
         }
       }
     }

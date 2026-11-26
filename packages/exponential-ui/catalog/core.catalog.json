@@ -993,6 +993,25 @@
           "description": "Stable hue seed."
         }
       }
+    },
+    "ring": {
+      "description": "One concentric ring.",
+      "properties": {
+        "value": {
+          "type": "number",
+          "required": true,
+          "description": "Amount."
+        },
+        "max": {
+          "type": "number",
+          "description": "Full amount, default 1."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "description": "Arc tone."
+        }
+      }
     }
   },
   "functions": {
@@ -2647,6 +2666,14 @@
         "durationMs": {
           "type": "number",
           "description": "Known length for the scrubber."
+        },
+        "peaks": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Waveform 0 to 1; press seeks."
         }
       },
       "example": {
@@ -2914,7 +2941,7 @@
           "type": "enum",
           "enum": "segmentedVariant",
           "default": "segmented",
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, joined buttons, icon bar."
         },
         "size": {
           "type": "enum",
@@ -3066,7 +3093,7 @@
         "status": {
           "type": "enum",
           "enum": "traceStatus",
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "Step state."
         },
         "size": {
           "type": "enum",
@@ -3994,6 +4021,13 @@
         "value": {
           "type": "string",
           "description": "Formatted value after the track."
+        },
+        "range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Band [low, high]."
         }
       },
       "example": {
@@ -4021,9 +4055,22 @@
       "props": {
         "value": {
           "type": "number",
-          "required": true,
           "bindable": true,
           "description": "Fraction 0 to 1."
+        },
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "ring"
+          },
+          "bindable": true,
+          "description": "Outermost first, instead of value."
+        },
+        "sweep": {
+          "type": "number",
+          "default": 360,
+          "description": "Degrees; under 360 = gauge."
         },
         "size": {
           "type": "enum",
@@ -4642,7 +4689,7 @@
           "type": "enum",
           "enum": "buttonVariant",
           "default": "default",
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "type": "enum",
@@ -4937,7 +4984,7 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare`/`code` = chromeless; `box` = boxed."
         },
         "size": {
           "type": "enum",
@@ -5539,7 +5586,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `inline` = text + chevron."
         },
         "triggerIcon": {
           "type": "boolean",
@@ -5750,7 +5797,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -6174,7 +6221,7 @@
         "trailing",
         "above"
       ],
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -6542,7 +6589,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation.",
       "props": {
         "layers": {
           "type": "array",
@@ -7162,7 +7209,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -7443,7 +7490,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "A message's delivery mark.",
       "props": {
         "status": {
           "type": "enum",

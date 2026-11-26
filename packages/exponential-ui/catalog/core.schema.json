@@ -3946,6 +3946,23 @@
           "type": "number",
           "description": "Known length for the scrubber."
         },
+        "peaks": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
+          "description": "Waveform 0 to 1; press seeks."
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -4305,7 +4322,7 @@
             "outline",
             "bar"
           ],
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar.",
+          "description": "Pill track, toggles, joined buttons, icon bar.",
           "default": "segmented"
         },
         "size": {
@@ -5138,7 +5155,7 @@
             "done",
             "skipped"
           ],
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "Step state."
         },
         "size": {
           "enum": [
@@ -9521,6 +9538,13 @@
           "type": "string",
           "description": "Formatted value after the track."
         },
+        "range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Band [low, high]."
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -9555,6 +9579,28 @@
           "$ref": "common_types.json#/$defs/DynamicNumber",
           "description": "Fraction 0 to 1."
         },
+        "rings": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ring"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
+          "description": "Outermost first, instead of value."
+        },
+        "sweep": {
+          "type": "number",
+          "description": "Degrees; under 360 = gauge.",
+          "default": 360
+        },
         "size": {
           "enum": [
             "sm",
@@ -9588,8 +9634,7 @@
         }
       },
       "required": [
-        "component",
-        "value"
+        "component"
       ],
       "allowedChildren": [],
       "metadata": {
@@ -11022,7 +11067,7 @@
             "link",
             "fab"
           ],
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button.",
+          "description": "`default` = primary; `fab` = floating round icon.",
           "default": "default"
         },
         "size": {
@@ -12073,7 +12118,7 @@
             "code",
             "box"
           ],
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden.",
+          "description": "`row` = Group row; `bare`/`code` = chromeless; `box` = boxed.",
           "default": "field"
         },
         "size": {
@@ -13418,7 +13463,7 @@
             "button",
             "inline"
           ],
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron.",
+          "description": "`row` = Group row; `pill` = capsule; `inline` = text + chevron.",
           "default": "field"
         },
         "triggerIcon": {
@@ -13661,7 +13706,7 @@
     },
     "KeyRecorder": {
       "type": "object",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "properties": {
         "component": {
           "const": "KeyRecorder"
@@ -14817,7 +14862,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -15929,7 +15974,7 @@
     },
     "Motion": {
       "type": "object",
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation.",
       "properties": {
         "component": {
           "const": "Motion"
@@ -16417,7 +16462,7 @@
     },
     "RecordTable": {
       "type": "object",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "properties": {
         "component": {
           "const": "RecordTable"
@@ -16582,7 +16627,7 @@
     },
     "MessageStatus": {
       "type": "object",
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "A message's delivery mark.",
       "properties": {
         "component": {
           "const": "MessageStatus"
@@ -28491,6 +28536,35 @@
       },
       "required": [
         "name"
+      ],
+      "additionalProperties": false
+    },
+    "ring": {
+      "type": "object",
+      "description": "One concentric ring.",
+      "properties": {
+        "value": {
+          "type": "number",
+          "description": "Amount."
+        },
+        "max": {
+          "type": "number",
+          "description": "Full amount, default 1."
+        },
+        "tone": {
+          "enum": [
+            "neutral",
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info"
+          ],
+          "description": "Arc tone."
+        }
+      },
+      "required": [
+        "value"
       ],
       "additionalProperties": false
     },

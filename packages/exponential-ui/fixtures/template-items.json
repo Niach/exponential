@@ -4555,26 +4555,42 @@
               }
             },
             {
-              "id": "disk.track",
+              "id": "disk.bar",
               "component": "Box",
               "props": {},
-              "children": [],
+              "children": [
+                {
+                  "id": "disk.bar.track",
+                  "component": "Box",
+                  "props": {},
+                  "children": [],
+                  "style": {
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "height": "$control.meter",
+                    "borderRadius": "$radius.full",
+                    "overflow": "hidden",
+                    "width": "100%"
+                  },
+                  "recipe": {
+                    "macro": "Meter",
+                    "part": "track",
+                    "props": {}
+                  },
+                  "template": {
+                    "component": "disk.bar.track.segment",
+                    "path": "/disk"
+                  }
+                }
+              ],
               "style": {
-                "display": "flex",
-                "flexDirection": "row",
-                "height": "$control.meter",
-                "borderRadius": "$radius.full",
-                "overflow": "hidden",
+                "position": "relative",
                 "width": "100%"
               },
               "recipe": {
                 "macro": "Meter",
-                "part": "track",
+                "part": "bar",
                 "props": {}
-              },
-              "template": {
-                "component": "disk.track.segment",
-                "path": "/disk"
               }
             }
           ],
@@ -4596,8 +4612,8 @@
         },
         "issues": [],
         "templates": {
-          "disk.track.segment": {
-            "id": "disk.track.segment",
+          "disk.bar.track.segment": {
+            "id": "disk.bar.track.segment",
             "component": "Box",
             "props": {},
             "children": [],

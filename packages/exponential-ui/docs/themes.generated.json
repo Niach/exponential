@@ -3740,8 +3740,10 @@
         "header",
         "label",
         "value",
+        "bar",
         "track",
-        "segment"
+        "segment",
+        "range"
       ],
       "props": [
         "tone"

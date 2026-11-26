@@ -1,6 +1,6 @@
 // VAPP-87: Image, Video, AudioPlayer, Avatar, Carousel.
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { useBoundState } from "./bound"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
@@ -8,7 +8,8 @@ import { CHROME, IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import type { HostPlugin } from "../host"
 import { NodeView, mergeStyle, withClass } from "../node-view"
-import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
+import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH, seekFraction, waveformBars, WAVEFORM } from "@exponential_app/eui"
+import { useElementSize } from "../platform"
 import type { UiNode } from "@exponential_app/eui"
 import { imageSourceOf, mediaClock, type ImageSourceVerdict } from "@exponential_app/eui/web"
 import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
@@ -144,7 +145,7 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
 /** AudioPlayer (×4 since EXP-1556): the title over a bar of the round
  *  play/pause button, the progress track and `position / duration`, as
  *  desktop, iOS and Android draw it; a hidden `<audio>` plays. */
-export function AudioFace({ host, t, rootProps, part, src, durationMs: given, title = `` }: MediaFaceProps & { title?: string }) {
+export function AudioFace({ host, t, rootProps, part, src, durationMs: given, title = ``, peaks }: MediaFaceProps & { title?: string; peaks?: unknown }) {
   const url = useMediaSrc(host, src, `stream`)
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -165,9 +166,16 @@ export function AudioFace({ host, t, rootProps, part, src, durationMs: given, ti
         <button type="button" className="xui-media-play" data-size="sm" aria-label={t(playing ? `pause` : `play`)} disabled={!url} onClick={toggle}>
           <Glyph aria-hidden="true" />
         </button>
-        <span className="xui-audio-progress" aria-hidden="true">
-          <span style={{ width: `${durationMs > 0 ? Math.min(100, (position / durationMs) * 100) : 0}%` }} />
-        </span>
+        {Array.isArray(peaks) && peaks.length > 0 ? (
+          <AudioWave peaks={peaks} progress={durationMs > 0 ? position / durationMs : 0} onSeek={(f) => {
+            const el = audio.current
+            if (el && durationMs > 0) el.currentTime = (f * durationMs) / 1000
+          }} />
+        ) : (
+          <span className="xui-audio-progress" aria-hidden="true">
+            <span style={{ width: `${durationMs > 0 ? Math.min(100, (position / durationMs) * 100) : 0}%` }} />
+          </span>
+        )}
         <span className="xui-audio-clock">{`${mediaClock(position)} / ${mediaClock(durationMs)}`}</span>
       </div>
       <audio
@@ -185,10 +193,34 @@ export function AudioFace({ host, t, rootProps, part, src, durationMs: given, ti
   )
 }
 
+/** Group D (fixtures/data-viz.json): the `peaks` waveform in place of the
+ *  progress track: WAVEFORM bars, the played ones in the fill colour; a
+ *  press or drag seeks to x / width. */
+function AudioWave({ peaks, progress, onSeek }: { peaks: unknown[]; progress: number; onSeek: (fraction: number) => void }) {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null)
+  const { width } = useElementSize(el)
+  const seek = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    const box = e.currentTarget.getBoundingClientRect()
+    onSeek(seekFraction(getComputedStyle(e.currentTarget).direction === `rtl` ? box.right - e.clientX : e.clientX - box.left, box.width))
+  }
+  return (
+    <span ref={setEl} className="xui-audio-wave" aria-hidden="true" onPointerDown={(e) => {
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      seek(e)
+    }} onPointerMove={(e) => {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) seek(e)
+    }}>
+      <svg width={width} height={WAVEFORM.height} viewBox={`0 0 ${width} ${WAVEFORM.height}`}>
+        {waveformBars({ width, peaks, progress }).map((b, i) => <rect key={i} x={b.x} y={b.y} width={b.width} height={b.height} rx={b.width / 2} data-played={b.played ? `` : undefined} />)}
+      </svg>
+    </span>
+  )
+}
+
 export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  return <AudioFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} title={str(props.title)} durationMs={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
+  return <AudioFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} title={str(props.title)} durationMs={props.durationMs !== undefined ? num(props.durationMs) : undefined} peaks={props.peaks} />
 }
 
 /** #EXP-1629 (fixtures/avatar.json): the hue key (#EXP-1754: the seed, a

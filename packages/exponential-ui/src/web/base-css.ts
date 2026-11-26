@@ -115,6 +115,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-AudioPlayer-controls{display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;flex-shrink:0;padding:0 8px;border-radius:9999px;background-color:var(--xui-color-muted)}
 .xui-audio-progress{flex:1 1 0;height:4px;border-radius:9999px;overflow:hidden;background-color:color-mix(in srgb,var(--xui-color-mutedForeground) 35%,transparent)}
 .xui-audio-progress>span{display:block;height:100%;background-color:var(--xui-color-foreground)}
+.xui-audio-wave{flex:1 1 0;min-width:0;height:24px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+.xui-audio-wave>svg{display:block;overflow:visible}
+.xui-audio-wave:dir(rtl)>svg,[data-xui-c="Ring"].xui-el:dir(rtl)>svg{transform:scaleX(-1)}
+.xui-audio-wave rect{fill:color-mix(in srgb,var(--xui-color-mutedForeground) 35%,transparent)}
+.xui-audio-wave rect[data-played]{fill:var(--xui-color-foreground)}
 .xui-audio-clock{font-size:12px;color:var(--xui-color-mutedForeground);font-variant-numeric:tabular-nums;white-space:nowrap}
 [data-xui-c="Avatar"].xui-el{overflow:clip;flex-shrink:0;align-items:center;justify-content:center}
 .xui-Avatar-image{width:100%;height:100%;object-fit:cover;object-position:calc(50% + 0px) 50%;border-radius:inherit}
