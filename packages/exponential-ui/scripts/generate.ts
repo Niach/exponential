@@ -1622,6 +1622,35 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   // VAPP-162: the serif family token on a node style.
   Text: [{
+    // Round 4 (fixtures/text-runs.json): styled spans wrapping as one paragraph.
+    label: `runs · weight, tone, marks, link`,
+    node: {
+      id: `rich`,
+      component: `Text`,
+      style: { maxWidth: 320 },
+      props: {
+        runs: [
+          { text: `Deploy ` },
+          { text: `v2.4`, weight: `semibold` },
+          { text: ` shipped `, tone: `success` },
+          { text: `today`, mark: `highlight` },
+          { text: `. Run ` },
+          { text: `bun install`, mark: `code` },
+          { text: `, drop the ` },
+          { text: `old flag`, mark: `strike` },
+          { text: ` and read the ` },
+          { text: `release notes`, link: `https://exponential.at/changelog` },
+          { text: ` before ` },
+          { text: `Friday`, weight: `bold`, tone: `danger`, mark: `underline` },
+          { text: `.` },
+        ],
+      },
+    },
+  }, {
+    // Round 4: the first letter spans three lines, the text wraps beside it.
+    label: `dropCap · 3`,
+    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it within minutes, so nobody waits on a button.` } },
+  }, {
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
   }, {
