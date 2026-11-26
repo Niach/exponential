@@ -3,7 +3,7 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { countBadgeLabel, resolveRecipe, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
+import { arcPath, countBadgeLabel, resolveRecipe, ringArcs, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web/motion"
 import type { Component } from "solid-js"
@@ -20,34 +20,35 @@ function sizeOf(ctx: SurfaceContextValue, component: string, part: string, props
 export function RingNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
+  // Group D (fixtures/data-viz.json): `sweep` + `rings`, round caps, no fill dot at 0 (React's).
   const geo = createMemo(() => {
     const size = sizeOf(ctx, `Ring`, `root`, props.props, 32)
-    const value = Math.max(0, Math.min(1, num(props.props.value, 0)))
-    const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: nativeRecipeProps(`Ring`, props.props) }, ctx.mode)
-    const fillStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: nativeRecipeProps(`Ring`, props.props) }, ctx.mode)
+    const recipeProps = nativeRecipeProps(`Ring`, props.props)
+    const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: recipeProps }, ctx.mode)
     const stroke = typeof trackStyle.borderWidth === `number` ? trackStyle.borderWidth : 2
-    const r = size / 2 - stroke / 2
-    const c = 2 * Math.PI * r
-    return { size, value, trackStyle, fillStyle, stroke, r, c, fillStroke: typeof fillStyle.borderWidth === `number` ? fillStyle.borderWidth : stroke }
+    const arcs = ringArcs({ size, stroke, value: props.props.value, tone: props.props.tone, sweep: props.props.sweep, rings: props.props.rings })
+    const rings = arcs.rings.map((ring) => ({
+      ...ring,
+      track: arcPath(size / 2, ring.r, arcs.start, arcs.sweep),
+      fill: ring.fraction > 0 ? arcPath(size / 2, ring.r, arcs.start, arcs.sweep * ring.fraction) : ``,
+      color: String(resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: { ...recipeProps, tone: ring.tone } }, ctx.mode).color ?? `currentColor`),
+    }))
+    return { size, stroke, trackColor: String(trackStyle.color ?? `currentColor`), rings }
   })
   const label = () => str(props.props.label)
   return (
-    <span {...props.rootProps} role="progressbar" aria-valuemin={0} aria-valuemax={1} aria-valuenow={geo().value} aria-label={label() || undefined} style={mergeStyle(props.rootProps, { width: geo().size, height: geo().size })}>
+    <span {...props.rootProps} role="progressbar" aria-valuemin={0} aria-valuemax={1} aria-valuenow={geo().rings[0]?.fraction ?? 0} aria-label={label() || undefined} style={mergeStyle(props.rootProps, { width: geo().size, height: geo().size })}>
       <svg viewBox={`0 0 ${geo().size} ${geo().size}`} width={geo().size} height={geo().size}>
-        <circle {...part(`track`)} cx={geo().size / 2} cy={geo().size / 2} r={geo().r} fill="none" stroke="currentColor" stroke-width={geo().stroke} style={css({ color: String(geo().trackStyle.color ?? `currentColor`) })} />
-        <circle
-          {...part(`fill`)}
-          cx={geo().size / 2}
-          cy={geo().size / 2}
-          r={geo().r}
-          fill="none"
-          stroke="currentColor"
-          stroke-width={geo().fillStroke}
-          stroke-dasharray={`${geo().c * geo().value} ${geo().c}`}
-          stroke-linecap="round"
-          transform={`rotate(-90 ${geo().size / 2} ${geo().size / 2})`}
-          style={css({ color: String(geo().fillStyle.color ?? `currentColor`) })}
-        />
+        <For each={geo().rings}>
+          {(ring) => (
+            <g>
+              <path {...part(`track`)} d={ring.track} fill="none" stroke="currentColor" stroke-width={geo().stroke} stroke-linecap="round" style={css({ color: geo().trackColor })} />
+              <Show when={ring.fill}>
+                <path {...part(`fill`)} d={ring.fill} fill="none" stroke="currentColor" stroke-width={geo().stroke} stroke-linecap="round" style={css({ color: ring.color })} />
+              </Show>
+            </g>
+          )}
+        </For>
       </svg>
       <Show when={label()}>
         <span {...part(`label`)}>{label()}</span>

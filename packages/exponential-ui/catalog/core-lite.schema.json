@@ -721,7 +721,7 @@
         },
         "reorderable": {
           "type": "boolean",
-          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}.",
+          "description": "Rows drag to reorder; fires `move` {id, before|after|into}.",
           "default": false
         },
         "maxDepth": {
@@ -2149,7 +2149,7 @@
             "document",
             "inline"
           ],
-          "description": "`inline` = a text run; `document` = full prose.",
+          "description": "`inline` = a text run.",
           "default": "document"
         },
         "variant": {
@@ -2267,7 +2267,7 @@
         },
         "follow": {
           "type": "boolean",
-          "description": "Sticks to the bottom as it grows (a live log).",
+          "description": "Sticks to the bottom as it grows.",
           "default": false
         },
         "variant": {
@@ -4061,7 +4061,7 @@
             "done",
             "skipped"
           ],
-          "description": "running shimmers, error tints, done ticks, skipped strikes."
+          "description": "Step state."
         },
         "size": {
           "enum": [
@@ -6550,6 +6550,13 @@
           "type": "string",
           "description": "Formatted value after the track."
         },
+        "range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Band [low, high]."
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -6584,6 +6591,28 @@
           "$ref": "common_types.json#/$defs/DynamicNumber",
           "description": "Fraction 0 to 1."
         },
+        "rings": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ring"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
+          "description": "Outermost first."
+        },
+        "sweep": {
+          "type": "number",
+          "description": "Degrees; <360 = gauge.",
+          "default": 360
+        },
         "size": {
           "enum": [
             "sm",
@@ -6617,8 +6646,7 @@
         }
       },
       "required": [
-        "component",
-        "value"
+        "component"
       ],
       "allowedChildren": [],
       "metadata": {
@@ -7857,7 +7885,7 @@
             "code",
             "box"
           ],
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden.",
+          "description": "`row` = Group row; `bare`/`code` = chromeless; `box` = boxed.",
           "default": "field"
         },
         "size": {
@@ -8382,7 +8410,7 @@
             "button",
             "inline"
           ],
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron.",
+          "description": "`row` = Group row; `pill` = capsule; `inline` = text + chevron.",
           "default": "field"
         },
         "triggerIcon": {
@@ -8969,7 +8997,7 @@
             "stacked",
             "flat"
           ],
-          "description": "stacked = field over controls; flat = one row.",
+          "description": "flat = one row.",
           "default": "stacked"
         },
         "menuKeys": {
@@ -10048,7 +10076,7 @@
     },
     "Motion": {
       "type": "object",
-      "description": "Lottie-compatible vector animation (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation.",
       "properties": {
         "component": {
           "const": "Motion"
@@ -10163,7 +10191,7 @@
         },
         "stateMachine": {
           "type": "object",
-          "description": "DotLottie state machine (a .lottie src has its own)."
+          "description": "DotLottie state machine."
         },
         "inputs": {
           "$ref": "common_types.json#/$defs/DynamicValue",
@@ -10496,7 +10524,7 @@
     },
     "MessageStatus": {
       "type": "object",
-      "description": "Message delivery mark: clock, check, double check, error.",
+      "description": "A message's delivery mark.",
       "properties": {
         "component": {
           "const": "MessageStatus"
@@ -22579,6 +22607,35 @@
       },
       "required": [
         "text"
+      ],
+      "additionalProperties": false
+    },
+    "ring": {
+      "type": "object",
+      "description": "One concentric ring.",
+      "properties": {
+        "value": {
+          "type": "number",
+          "description": "Amount."
+        },
+        "max": {
+          "type": "number",
+          "description": "Full amount, default 1."
+        },
+        "tone": {
+          "enum": [
+            "neutral",
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info"
+          ],
+          "description": "Arc tone."
+        }
+      },
+      "required": [
+        "value"
       ],
       "additionalProperties": false
     },

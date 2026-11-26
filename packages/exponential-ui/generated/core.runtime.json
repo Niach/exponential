@@ -943,6 +943,21 @@
           "type": "url"
         }
       }
+    },
+    "ring": {
+      "properties": {
+        "value": {
+          "type": "number",
+          "required": true
+        },
+        "max": {
+          "type": "number"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        }
+      }
     }
   },
   "functions": {
@@ -2288,6 +2303,13 @@
         },
         "durationMs": {
           "type": "number"
+        },
+        "peaks": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
         }
       }
     },
@@ -3237,6 +3259,12 @@
         },
         "value": {
           "type": "string"
+        },
+        "range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
         }
       }
     },
@@ -3248,8 +3276,19 @@
       "props": {
         "value": {
           "type": "number",
-          "required": true,
           "bindable": true
+        },
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "ring"
+          },
+          "bindable": true
+        },
+        "sweep": {
+          "type": "number",
+          "default": 360
         },
         "size": {
           "type": "enum",

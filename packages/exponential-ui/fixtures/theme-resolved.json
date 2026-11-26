@@ -5732,6 +5732,14 @@
                 "backgroundColor": "$color.mutedForeground"
               }
             }
+          ],
+          "range": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "opacity": 0.3
+              }
+            }
           ]
         },
         "Row": {
@@ -16094,6 +16102,14 @@
                 "backgroundColor": "$color.mutedForeground"
               }
             }
+          ],
+          "range": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "opacity": 0.3
+              }
+            }
           ]
         },
         "Row": {
@@ -25845,6 +25861,14 @@
               },
               "style": {
                 "backgroundColor": "$color.mutedForeground"
+              }
+            }
+          ],
+          "range": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "opacity": 0.3
               }
             }
           ]
@@ -36398,6 +36422,14 @@
               },
               "style": {
                 "backgroundColor": "$color.mutedForeground"
+              }
+            }
+          ],
+          "range": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground",
+                "opacity": 0.3
               }
             }
           ]
