@@ -188,7 +188,8 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
       return
     }
     const rows = board && column !== undefined ? board.els[column] : drag.els
-    const el = drop ? rows.find((row) => row.getAttribute(REORDER_KEY_ATTR) === drop.key) : null
+    const target = drop
+    const el = target ? rows.find((row) => row.getAttribute(REORDER_KEY_ATTR) === target.key) : null
     if (drop && !el) return
     const indent = el ? Number(el.getAttribute(REORDER_INDENT_ATTR) ?? 0) || 0 : 0
     const box = el && drop ? listDropBox(el.getBoundingClientRect(), indent, drop) : listDropBox(empty!.getBoundingClientRect(), 0, { key: ``, position: `into` })
