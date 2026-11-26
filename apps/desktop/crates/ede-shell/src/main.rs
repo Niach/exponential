@@ -746,6 +746,10 @@ impl HostPlugin for Host {
                     other => tracing::warn!(action = ?other, "unknown history action"),
                 }
             }
+            // #EDE-245: the corner bar, Muffin's toggle_desktop.
+            "ede_show_desktop" => {
+                with_ede(&self.shell, |ede| ede.toggle_desktop());
+            }
             "ede_close" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.close_window(id));
@@ -1929,6 +1933,10 @@ fn applets_json(services: &Value) -> Value {
         "sound": {"icon": sound_icon},
         "bluetooth": {"show": bluetooth["available"].as_bool() == Some(true) && bluetooth["powered"].as_bool() == Some(true)},
         "battery": {"show": battery["present"].as_bool() == Some(true), "icon": if charging { "ede-battery-charging" } else { "ede-battery" }},
+        // #EDE-245: Cinnamon's printers applet "When printers exist", its
+        // removable-drives applet while one is mounted.
+        "printers": {"show": services["printers"]["printers"].as_array().is_some_and(|p| !p.is_empty())},
+        "drives": {"show": services["disks"]["removable"].as_array().is_some_and(|d| !d.is_empty())},
     })
 }
 
