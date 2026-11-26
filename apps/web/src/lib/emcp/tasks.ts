@@ -277,11 +277,14 @@ export async function handleTaskRequest(
 
 const looseParams = z.looseObject({})
 
-/** Serves tasks/get, tasks/update and tasks/cancel on this request's server. */
+/** Serves tasks/get, tasks/update and tasks/cancel on this request's server.
+ *  The SDK lifts a request's `inputResponses` (an MRTR retry field) off its
+ *  params into `mcpReq` (bare ElicitResults only): tasks/update reads it there. */
 export function registerTasks(server: McpServer, ctx: EmcpContext): void {
   for (const method of [`tasks/get`, `tasks/update`, `tasks/cancel`] as const) {
-    server.server.setRequestHandler(method, { params: looseParams }, async (params: Record<string, unknown>) =>
-      handleTaskRequest(method, params, ctx)
-    )
+    server.server.setRequestHandler(method, { params: looseParams }, async (params: Record<string, unknown>, sdkCtx: { mcpReq?: { inputResponses?: unknown } }) => {
+      const responses = sdkCtx?.mcpReq?.inputResponses
+      return handleTaskRequest(method, responses === undefined ? params : { ...params, inputResponses: responses }, ctx)
+    })
   }
 }
