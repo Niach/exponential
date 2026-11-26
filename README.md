@@ -5,49 +5,113 @@
 [![Google Play](https://img.shields.io/badge/Google_Play-Android-34A853?logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=at.exponential)
 [![Desktop](https://img.shields.io/badge/Desktop-macOS_·_Linux_·_Windows-18181b?logoColor=white)](https://exponential.at/download/?ref=github)
 
-**The next generation dev platform for teams.** Issues, customer feedback, and coding agents in one realtime tracker. Agents run on your own machines, on your own subscription. Web, macOS, Linux, Windows, iOS, Android.
+Exponential is a development platform where agents do the work and your team steers it. You talk to your Assistant or a team agent; it starts coding sessions on your own machines, in a worktree per session, on your own Claude Code or Codex login, opens the pull request and lands it through a merge train. Issues, boards, chats, CI and git hosting live in the same realtime app on web, desktop, iOS and Android. The monorepo also holds the pieces this is built on: **genUI**, an A2UI 1.0 UI framework with native renderers on five platforms, and **Exponential Desktop**, a Wayland desktop environment for Linux where agents get a screen of their own. Everything is open source under Apache-2.0 and self-hostable.
 
 <p align="center">
-  <img src="./docs/images/hero.webp" alt="The Exponential board in the browser, with the Agent page on iPhone" width="100%">
+  <img src="./docs/readme/desktop.webp" alt="The desktop app: a chat on an issue beside its coding session, with a question card waiting for an answer" width="100%">
 </p>
 
-- **Cloud**: [app.exponential.at](https://app.exponential.at/?ref=github), free for up to three people
-- **Self-host**: one `docker compose`, no seat caps, no licence gate
-- **Desktop app**: [exponential.at/download](https://exponential.at/download/?ref=github)
-- **Mobile apps**: [App Store](https://apps.apple.com/app/exponential-vibecode-together/id6788189402) · [Google Play](https://play.google.com/store/apps/details?id=at.exponential)
+<table>
+  <tr>
+    <td width="72%"><img src="./docs/readme/web.webp" alt="A board in the web app"></td>
+    <td width="28%"><img src="./docs/readme/ios.webp" alt="A coding session on iPhone"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="./docs/readme/ede.webp" alt="Exponential Desktop on Linux"></td>
+  </tr>
+</table>
 
-## What you get
+<sub>Top: the desktop app (gpui), a chat on an issue next to the session doing the work. Middle: a board on the web; a session on iPhone. Bottom: Exponential Desktop, captured on a headless compositor. All pictures use the seeded demo team.</sub>
 
-- **Issues** with statuses, priorities, labels, estimates, due dates, sub-issues and relations, markdown, @mentions and #issue references, full-text search, drafts that follow you across devices. Realtime sync on every client via [ElectricSQL](https://electric-sql.com). Moving from Linear? Settings → Import brings your issues over.
-- **Boards backed by a GitHub repo**: a session's branch and PR are tracked on every issue it works; several issues started together share one branch and one PR. The PR opening moves the issue to In Review, the merge to Done.
-- **Start**: hand an issue to Claude Code or Codex from any client, on any of your machines. It codes in a worktree and opens the PR.
-- **Chats**: one chat per piece of work, with its conversation, its issues, every session it runs and the results it showed you next to its PR. Watch the transcript, answer the agent's questions and approve its plans, read the diff and the screenshots it publishes, from your phone or the desktop.
-- **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a session to another account when one hits its limit.
-- **Prompts and agents**: saved team prompts run from the composer's `/` menu; team agents wake on a schedule or an issue event and run on your own machines.
-- **Apps**: New app opens the editor; describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions. Apps keep their own records, read the team's boards, issues and chats, act as you through the tools an owner grants, and travel as one file.
-- **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
-- **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
-- **End-to-end encrypted sessions**: session content is encrypted on your devices and the server stores only ciphertext; watching and steering a session goes over P2P, straight to the machine it runs on.
-- **MCP server** at `/api/mcp` (22 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client, and your team's app tools at `/api/mcp/apps`.
+## What's in the box
 
-## Exponential SDK
+### Exponential: the agent dev platform
 
-Exponential is built on the open Exponential SDK, whose modules it shares with other apps ([docs/libraries.md](./docs/libraries.md)):
+- **Agents.** Your **Assistant** works across all your teams; **team agents** are definitions that wake on a schedule or an event and post to their own channel; **group chats** put several people and agents in one conversation. Every agent runs as a session on one of your devices, never on a hosted model account. ([Sessions](https://exponential.at/docs/using/sessions/), [Agents SDK](https://exponential.at/docs/sdk/agents/))
+- **Coding sessions.** One tree of sessions per chat: a root that plans and delegates, children that each get a git worktree and a branch on a chosen device. They ask questions and propose plans as cards, publish screenshots as results, and open the PR. **Needs you** collects every question, plan and blocked session across teams in one list.
+- **PRs, CI and git.** PR open and merge move the linked issues. A merge train batches green PRs onto the base and resolves generated files (changelog, migrations) itself. **eCode** adds repositories hosted on the Exponential server (`git-remote-exp`) and its own CI from `.exponential/ci.json`, with runners on your devices; GitHub stays a supported forge. ([Code SDK](https://exponential.at/docs/sdk/code/))
+- **Boards and issues.** Statuses, priorities, labels, estimates, due dates, sub-issues and relations, markdown, semantic search, a Linear import and a feedback widget. Realtime on every client via [ElectricSQL](https://electric-sql.com).
+- **Voice and computer use.** Call your Assistant or hold push-to-talk; speech runs on your own desktop (beta, English and German). Agents can see and drive a screen, on Exponential Desktop in a separate agent space. ([Voice](https://exponential.at/docs/using/voice/), [Computer Use](https://exponential.at/docs/sdk/computer-use/))
+- **End-to-end encryption.** Chats and session content are encrypted on your devices by default; the server stores ciphertext. Watching and steering a session, and calls, go peer to peer over [iroh](https://iroh.computer). ([P2P](https://exponential.at/docs/sdk/p2p/))
+- **MCP server** at `/api/mcp`: 22 tools for Claude Code, Codex, ChatGPT, Cursor or any MCP client, team skills, MCP Apps views (`ui://`) for hosts that render them, and team **Apps**, small tools an agent builds for you, at `/api/mcp/apps`. ([Apps](https://exponential.at/docs/sdk/apps/))
+- **Clients.** Web (TanStack Start), a native desktop app in Rust on [gpui](https://gpui.rs) for macOS, Linux and Windows, the headless `exponential` CLI daemon for servers, and native iOS (SwiftUI) and Android (Jetpack Compose) apps. Coding sessions run on the desktop app and the daemon; phones and the web start, watch and answer them.
 
-| | what | code | docs |
-|---|---|---|---|
-| **genUI** | Generative UI: agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `packages/exponential-ui*`, `apps/desktop/crates/eui-core*` | [exponential.at/sdk/genui](https://exponential.at/sdk/genui/) |
-| **Voice** | Speech in and out for agents: push to talk, wake word, spoken replies, calls | `apps/desktop/crates/etalk*`, `packages/etalk` | [exponential.at/sdk/voice](https://exponential.at/sdk/voice/) |
-| **Computer Use** | The agent sees the real screen and drives the real pointer and keyboard | `apps/desktop/crates/epilot*` | [exponential.at/sdk/computer-use](https://exponential.at/sdk/computer-use/) |
-| **P2P** | Peer to peer, end-to-end encrypted networking on iroh: encrypted sessions, steering, calls, encrypted push | `apps/desktop/crates/enet-core*` | [exponential.at/sdk/p2p](https://exponential.at/sdk/p2p/) |
-| **MCP Proxy** | MCP on rmcp: a loopback server, a client with OAuth and a vault, the app tool contract | `apps/desktop/crates/emcp`, `packages/emcp` | [exponential.at/sdk/mcp-proxy](https://exponential.at/sdk/mcp-proxy/) |
-| **Apps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` (runtime crate `eapps` planned) | [exponential.at/sdk/apps](https://exponential.at/sdk/apps/) |
-| **Agents** | The server-free agent core: run the user's own Claude Code or Codex, plus the orchestration spec (tree, bus, wake-ups) | `apps/desktop/crates/eagent`, `packages/eagent` | [exponential.at/sdk/agents](https://exponential.at/sdk/agents/) |
-| **Core** | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin (unreleased) | `apps/desktop/crates/ecore`, `packages/ecore` | [exponential.at/sdk/core](https://exponential.at/sdk/core/) |
+### Exponential Desktop (eDE)
 
-In progress: **Exponential Desktop**, a Linux desktop environment (`apps/ede`; [the vision](https://exponential.at/blog/exponentialos/)).
+A Linux desktop environment: a [Smithay](https://github.com/Smithay/smithay) Wayland compositor with Xwayland, and a shell (panel, menu, Alt+Tab switcher, notifications, OSD, settings) drawn in genUI from documents on disk that you or an agent can edit, with every edit a git commit. The layout and behaviour are modelled on Cinnamon. **Agent spaces** give an agent its own off-screen desktop for computer use while you keep your keyboard and pointer. Packages for Ubuntu, Linux Mint, Debian, Fedora and Arch. ([Features](https://exponential.at/docs/desktop/features/), [Agent spaces](https://exponential.at/docs/desktop/agent-spaces/), [Install](https://exponential.at/docs/desktop/install/), [`apps/ede`](./apps/ede))
 
-## Self-host
+### genUI (eUI): the UI framework
+
+Agents send [A2UI](https://a2ui.org) 1.0 (components from a catalog, a data model, actions) and native renderers paint it: **React** and **Solid** on the web, **SwiftUI**, **Jetpack Compose** and **gpui**, one shared Rust core (`eui-core`, layout on taffy), held to the same look by conformance tests across all five. The catalog, themes, Motion (vector animation) and a playground are at [exponential.at/sdk/genui](https://exponential.at/sdk/genui/). The Exponential apps and the eDE shell draw their agent views with it.
+
+- [`a2ui-express`](https://github.com/Niach/a2ui-express-compiler-rust): a compact text format for models that compiles to A2UI messages; on [crates.io](https://crates.io/crates/a2ui-express) and npm as [`@mrniach/a2ui-express`](https://www.npmjs.com/package/@mrniach/a2ui-express). ([Express docs](https://exponential.at/docs/sdk/genui/express/))
+- [`a2ui-gen-eui`](https://github.com/Niach/a2ui-gen-eui): generates genUI screens locally with a small model on llama.cpp, grammar-guided by the catalog, with an MCP server.
+- Packages: `@exponential_app/eui*` on npm, `eui-core` on crates.io, Swift and Compose packages. ([Install](https://exponential.at/docs/sdk/genui/guides/))
+
+### The Exponential SDK
+
+The modules under the product, each usable on its own: genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Code, Core and Apps. Overview and status per module: [exponential.at/docs/sdk](https://exponential.at/docs/sdk/) and [docs/libraries.md](./docs/libraries.md).
+
+## Repository layout
+
+```
+apps/
+  web            TanStack Start app: UI, tRPC API, MCP server, Electric shape proxies, merge train, CI
+  desktop        Cargo workspace: the gpui desktop app and the SDK crates
+    crates/cli         the `exponential` CLI daemon
+    crates/eagent      the server-free agent core (Claude Code / Codex over ACP)
+    crates/coding      launches coding sessions in worktrees
+    crates/eui-*       genUI core, gpui painter, Motion
+    crates/etalk*      voice     crates/epilot*  computer use    crates/enet-core  P2P
+    crates/ecode*      git + CI  crates/emcp     MCP proxy       crates/ede-shell  eDE shell
+  ede            Exponential Desktop: compositor, session, portal, services, packaging
+  ios            SwiftUI (Tuist + GRDB)
+  android        Jetpack Compose
+  site           exponential.at: landing, docs, blog, the genUI catalogue (Astro + Starlight)
+  push-relay     mobile push relay
+  steer-relay    presence, device control and call signalling
+  runner         prebuilt shells an exported App runs in (web, iOS, Android)
+packages/
+  db-schema      Drizzle schema (source of truth)
+  domain-contract  enums + behaviour fixtures replayed on web, desktop, iOS and Android
+  exponential-ui*  genUI: shared core, React, Solid, Swift, Compose, element renderers
+  eagent, ecode, ecore, eengine, emcp, etalk   SDK contracts and fixtures
+  ui, design-tokens, icons, view-catalog, shots, widget, ...
+selfhost/        docker compose + .env for self-hosting
+shots/           committed screenshots of every view on every platform
+```
+
+[`CLAUDE.md`](./CLAUDE.md) has the architecture notes and conventions.
+
+## Quick start
+
+### Use it
+
+- **Cloud:** [app.exponential.at](https://app.exponential.at/?ref=github), free for up to three people.
+- **Desktop app:** [exponential.at/download](https://exponential.at/download/?ref=github) (macOS, Windows, Linux AppImage).
+- **A server as an agent machine:** `curl -fsSL https://exponential.at/install.sh | sh` installs the CLI daemon (Linux x86_64/arm64, macOS Apple Silicon).
+- **Phones:** [App Store](https://apps.apple.com/app/exponential-vibecode-together/id6788189402) · [Google Play](https://play.google.com/store/apps/details?id=at.exponential).
+- **MCP:** `claude mcp add --transport http exponential https://app.exponential.at/api/mcp`
+
+[Getting started](https://exponential.at/docs/get-started/) walks through team, device and first session.
+
+### Develop it
+
+Needs [bun](https://bun.sh), Node ≥ 22.12 and Docker Compose; Rust for the desktop app and eDE, Xcode + Tuist for iOS, Android Studio for Android.
+
+```sh
+bun install
+cp .env.example .env
+cp Caddyfile.example Caddyfile
+bun run backend        # Postgres, Electric, Garage (S3), Caddy + the web dev server on localhost:3000
+bun run storage:init   # one time: bootstraps S3, prints the keys for .env
+```
+
+Then `bun run dev:desktop`, `bun run ios`, `bun run android`, `bun run dev:site`; checks with `bun run typecheck` and `bun run test`. Don't run `bun run lint` (its `--fix` breaks `typeof import()` sites). eDE runs nested in an existing session for development; see [`apps/ede/README.md`](./apps/ede/README.md).
+
+## Self-hosting
+
+One container image (`ghcr.io/niach/exponential-web`) next to PostgreSQL 18, Electric and S3-compatible storage, all in one compose file:
 
 ```sh
 mkdir exponential && cd exponential
@@ -57,39 +121,24 @@ curl -fsSL https://raw.githubusercontent.com/Niach/exponential/master/selfhost/.
 docker compose up -d
 ```
 
-App at `http://localhost`. Migrations run on boot. A GitHub App is only needed for the coding features. Full runbook: [`INSTALL.md`](./INSTALL.md), env reference: [`.env.example`](./.env.example). Upgrade with `docker compose pull && docker compose up -d`.
+The app is on `http://localhost`; migrations run on boot. No seat caps or licence gate. A GitHub App is only needed for GitHub repositories. Domains, optional subsystems, upgrades and backups: [`INSTALL.md`](./INSTALL.md). Mobile push is the one cloud-only feature (the store apps use the first-party Firebase project). Devices connect with the same desktop app or `install.sh` plus `EXP_INSTANCE=https://your.host`.
 
-The only cloud-only feature is mobile push (store apps are built against the first-party Firebase project).
+## Status
 
-## Connect an MCP client
+| | State |
+|---|---|
+| Issues, boards, chats, sessions, PRs, MCP server, web/desktop/iOS/Android apps, self-hosting | In production on app.exponential.at, released continuously |
+| Agents (Assistant, team agents, group chats), end-to-end encrypted chats, the merge train | In production, still changing quickly |
+| Voice (English, German), computer use, Apps | Beta |
+| eCode: hosted git and own CI | New; GitHub remains the default forge |
+| genUI / eUI | Released as the `eui-v*` packages; the catalog still grows; `eui-gpui` stays a git dependency until gpui is on crates.io |
+| Exponential Desktop | In progress: installable from signed package repositories, expect rough edges |
+| Core, the Code device crate | Unreleased |
 
-```sh
-claude mcp add --transport http exponential https://app.exponential.at/api/mcp
-```
+Work is tracked in Exponential itself; releases and changelogs are on [GitHub Releases](https://github.com/Niach/exponential/releases) and in the app.
 
-## Development
+## Licence and links
 
-Needs [bun](https://bun.sh), Node ≥ 22.12, and Docker Compose.
+[Apache-2.0](./LICENSE). Third-party licences: [`docs/third-party-licences.md`](./docs/third-party-licences.md). [Enterprise support](https://exponential.at/contact/?ref=github) for self-hosters who want an SLA or deployment help.
 
-```sh
-bun install
-cp .env.example .env
-cp Caddyfile.example Caddyfile
-bun run backend        # docker compose up -d + web dev server (localhost:3000)
-bun run storage:init   # one-time S3 bootstrap, prints keys for .env
-```
-
-```
-apps/web        TanStack Start app: tracker, API, Electric shape proxies
-apps/desktop    Rust IDE (gpui)
-apps/ios        SwiftUI
-apps/android    Kotlin / Compose
-apps/site       exponential.at (Astro + Starlight)
-packages/       db schema, widget, icons, contracts
-```
-
-Other scripts: `bun run ios`, `bun run android`, `bun run dev:desktop`, `bun run typecheck`, `bun run test`. Don't run `bun run lint` (its `--fix` breaks `typeof import()` sites). Architecture notes live in [`CLAUDE.md`](./CLAUDE.md).
-
-## License
-
-[Apache-2.0](./LICENSE). [Enterprise Support](https://exponential.at/contact/?ref=github) is available for self-hosters who want an SLA or deployment help.
+[Website](https://exponential.at) · [Docs](https://exponential.at/docs/) · [genUI catalogue](https://exponential.at/sdk/genui/) · [Exponential Desktop](https://exponential.at/desktop/) · [Download](https://exponential.at/download/?ref=github)
