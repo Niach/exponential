@@ -150,13 +150,33 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export OUTPUT="${TARGET_DIR}/Exponential-${CHANNEL}-${ARCH}.AppImage"
 rm -f "$OUTPUT"
 
+# Deploy first (the bundled libraries, their RUNPATHs), then sign what will
+# ship, then pack: the list must name the files as the AppImage holds them.
 "$LINUXDEPLOY" \
   --appdir "$APPDIR" \
   --executable "$APPDIR/usr/bin/exp-desktop" \
   --desktop-file "$DESKTOP" \
   --icon-file "$ICON_PNG" \
-  --custom-apprun "$APPRUN" \
-  --output appimage
+  --custom-apprun "$APPRUN"
+
+# --- Signed binaries list (eDE's first-party screen consent) --------------
+"${DESKTOP_DIR}/scripts/sign-binaries.sh" "$APPDIR" "$CHANNEL"
+
+"$LINUXDEPLOY" --appdir "$APPDIR" --output appimage
+
+# The list must hold for the packed AppImage (a pack step that rewrote a
+# file after signing would ship a list eDE refuses): checked on its content.
+LIST=usr/share/exponential/binaries.sha256
+if [ -f "$APPDIR/$LIST" ]; then
+  CHECK="${WORK}/check"
+  rm -rf "$CHECK" && mkdir -p "$CHECK"
+  (cd "$CHECK" && "$OUTPUT" --appimage-extract >/dev/null)
+  (cd "$CHECK/squashfs-root" && sha256sum --quiet -c "$LIST") \
+    || { echo "the packed AppImage does not match its signed binaries list" >&2; exit 1; }
+  cmp "$APPDIR/$LIST.minisig" "$CHECK/squashfs-root/$LIST.minisig"
+  rm -rf "$CHECK"
+  echo "the packed AppImage matches its signed binaries list"
+fi
 
 # The raw `.AppImage` is the ONLY Linux release asset (EXP-68 — the old
 # `.tar.gz` twin is gone). A browser download strips the +x bit, so first-time

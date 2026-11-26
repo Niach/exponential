@@ -1044,6 +1044,127 @@ fn an_x11_client_still_moves_itself() {
     x11_moveresize(&h, &conn, win, 8, from, (from.0 - 120.0, from.1 + 70.0), want);
 }
 
+/// Sends the X11 client message `name` about `win` to the root window, as
+/// a client asks its window manager.
+#[cfg(feature = "xwayland")]
+fn x11_ask(conn: &x11rb::rust_connection::RustConnection, win: u32, name: &[u8], data: [u32; 5]) {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{ClientMessageEvent, ConnectionExt as _, EventMask},
+    };
+    let root = conn.setup().roots[0].root;
+    let atom = conn.intern_atom(false, name).unwrap().reply().unwrap().atom;
+    conn.send_event(false, root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, ClientMessageEvent::new(32, win, atom, data)).unwrap();
+    conn.flush().unwrap();
+}
+
+/// `_NET_WM_STATE` `action` (0 = remove, 1 = add) of both maximized atoms.
+#[cfg(feature = "xwayland")]
+fn x11_maximize(conn: &x11rb::rust_connection::RustConnection, win: u32, action: u32) {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    let vert = conn.intern_atom(false, b"_NET_WM_STATE_MAXIMIZED_VERT").unwrap().reply().unwrap().atom;
+    let horz = conn.intern_atom(false, b"_NET_WM_STATE_MAXIMIZED_HORZ").unwrap().reply().unwrap().atom;
+    x11_ask(conn, win, b"_NET_WM_STATE", [action, vert, horz, 1, 0]);
+}
+
+/// Waits until the compositor holds `want` for `win`.
+#[cfg(feature = "xwayland")]
+#[track_caller]
+fn wait_for_x11_geometry(h: &Harness, win: u32, want: Rectangle<i32, smithay::utils::Logical>) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while x11_geometry(h, win) != want {
+        assert!(Instant::now() < deadline, "the window never became {want:?}: {:?}", x11_geometry(h, win));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Steam on eDE 0.2.38: after a drag of its own title bar ends, the
+/// window stays where it was let go; the pointer moves alone.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_drag_ends_on_the_release() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 100) as f64, (geo.loc.y + 10) as f64);
+    let want = Rectangle::new((geo.loc.x + 60, geo.loc.y + 40).into(), geo.size);
+    x11_moveresize(&h, &conn, win, 8, from, (from.0 + 60.0, from.1 + 40.0), want);
+    for step in 0..5 {
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 300.0 + step as f64, from.1 + 200.0).into(), 2000 + step));
+    }
+    assert_eq!(x11_geometry(&h, win), want, "the window stays where it was let go");
+    assert!(!h.with(|ede| ede.desk.seat.get_pointer().unwrap().is_grabbed()), "nothing holds the pointer");
+}
+
+/// Steam on eDE 0.2.38: a quick click on its title bar asks for a move
+/// that arrives after the button is up. No drag starts (it would glue the
+/// window to the pointer), and the maximize asked next holds.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_move_asked_after_the_release_starts_no_drag_and_maximize_holds() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 100) as f64, (geo.loc.y + 10) as f64);
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        ede.pointer_button(BTN_LEFT, ButtonState::Released, 2);
+    });
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [from.0 as u32, from.1 as u32, 8, 1, 1]);
+    // In order after the move: once it is maximized, the move was handled.
+    x11_maximize(&conn, win, 1);
+    let full = Rectangle::new((0, 0).into(), (1280, 800).into());
+    wait_for_x11_geometry(&h, win, full);
+    wait_for_x_size(&conn, win, (1280, 800));
+    for step in 0..5 {
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 200.0 + 10.0 * step as f64, from.1 + 150.0).into(), 10 + step));
+    }
+    assert_eq!(x11_geometry(&h, win), full, "no drag pulled it off");
+    assert!(!h.with(|ede| ede.desk.seat.get_pointer().unwrap().is_grabbed()), "nothing holds the pointer");
+    x11_maximize(&conn, win, 0);
+    wait_for_x11_geometry(&h, win, geo);
+    wait_for_x_size(&conn, win, (geo.size.w, geo.size.h));
+}
+
+/// Steam's maximize while its own title bar drag still runs (a double
+/// click's second press): the drag ends, the window stays maximized as
+/// the pointer goes on moving.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_maximize_mid_drag_ends_the_drag() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 100) as f64, (geo.loc.y + 10) as f64);
+    let moved = Rectangle::new((geo.loc.x + 30, geo.loc.y + 20).into(), geo.size);
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [from.0 as u32, from.1 as u32, 8, 1, 1]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut step = 0;
+    while x11_geometry(&h, win) != moved {
+        step += 1;
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 30.0, from.1 + 20.0).into(), 1 + step));
+        assert!(Instant::now() < deadline, "the drag never started: {:?}", x11_geometry(&h, win));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    x11_maximize(&conn, win, 1);
+    let full = Rectangle::new((0, 0).into(), (1280, 800).into());
+    wait_for_x11_geometry(&h, win, full);
+    for i in 0..5 {
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 200.0 + 10.0 * i as f64, from.1 + 150.0).into(), 1000 + i));
+    }
+    assert_eq!(x11_geometry(&h, win), full, "the ended drag pulls it off no more");
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 2000));
+    assert_eq!(x11_geometry(&h, win), full);
+}
+
 /// #EDE-222: an X11 window in eDE's frame resizes from the band around it,
 /// as a Wayland one does (README, Tier A).
 #[cfg(feature = "xwayland")]
@@ -1524,4 +1645,360 @@ fn a_press_on_a_layer_popup_over_a_title_bar_is_the_popups() {
 #[test]
 fn a_press_on_a_grabbing_layer_popup_over_a_title_bar_is_the_popups() {
     assert_eq!(click_a_panel_popup_over_a_close_button(true), (false, true), "(window closed, popup got the press)");
+}
+
+/// Alt+drag from `from` to `to` with the button still held (the release
+/// is the caller's, [`release`]).
+fn alt_drag_hold(h: &Harness, from: (f64, f64), to: (f64, f64)) {
+    key(h, KEY_LEFTALT, KeyState::Pressed);
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+        for i in 1..=4 {
+            let t = i as f64 / 4.0;
+            ede.pointer_motion_to((from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t).into(), 1 + i);
+        }
+    });
+}
+
+fn release(h: &Harness) {
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 100));
+    key(h, KEY_LEFTALT, KeyState::Released);
+}
+
+fn first_tile(h: &Harness) -> Option<Tile> {
+    h.with(|ede| window_state(ede.desk.space.elements().next().unwrap()).tile)
+}
+
+fn preview(h: &Harness) -> Option<Rectangle<i32, smithay::utils::Logical>> {
+    h.with(|ede| ede.desk.tile_preview.shown.as_ref().map(|(_, r)| *r))
+}
+
+/// Muffin's edge tiling while a window moves: the tile a release would
+/// fill shows under it (a ring around a translucent fill) as soon as the
+/// pointer reaches the edge, and goes when it leaves; a release there
+/// tiles: the top edge maximizes, a side takes half, a corner a quarter.
+#[test]
+fn a_move_to_an_edge_previews_the_tile_and_the_release_tiles_it() {
+    const RING: u32 = 0xff73_7373;
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = c.toplevel("w");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+
+    // The left edge: the left half, previewed under the window.
+    alt_drag_hold(&h, (640.0, 400.0), (0.0, 400.0));
+    assert_eq!(preview(&h), Some(Rectangle::new((0, 0).into(), (640, 800).into())));
+    let frame = h.capture(0);
+    assert_eq!(frame.at(639, 400), RING, "the preview's ring");
+    let fill = frame.at(400, 100);
+    assert!(fill != BACKGROUND && fill != RING, "a translucent fill: {fill:08x}");
+    assert_eq!(frame.at(100, 400), RED, "the window stays above its preview");
+    assert_eq!(first_tile(&h), None, "nothing tiles before the release");
+    // Back off the edge: the preview goes.
+    h.with(|ede| ede.pointer_motion_to((300.0, 400.0).into(), 50));
+    assert_eq!(preview(&h), None);
+    assert_ne!(h.capture(0).at(639, 400), RING);
+    h.with(|ede| ede.pointer_motion_to((0.0, 400.0).into(), 51));
+    release(&h);
+    assert_eq!(preview(&h), None, "the release clears it");
+    assert_eq!(first_tile(&h), Some(Tile::Left));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (640, 800));
+
+    // A quarter from the top-right corner (pulled off the half first).
+    c.draw_configured(&t, 0, 0, RED);
+    alt_drag_hold(&h, (320.0, 400.0), (1279.0, 0.0));
+    assert_eq!(preview(&h), Some(Rectangle::new((640, 0).into(), (640, 400).into())));
+    release(&h);
+    assert_eq!(first_tile(&h), Some(Tile::TopRight));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (640, 400));
+
+    // The top edge maximizes.
+    c.draw_configured(&t, 0, 0, RED);
+    alt_drag_hold(&h, (960.0, 200.0), (640.0, 0.0));
+    assert_eq!(preview(&h), Some(Rectangle::new((0, 0).into(), (1280, 800).into())));
+    release(&h);
+    assert_eq!(first_tile(&h), Some(Tile::Maximized));
+    wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Maximized));
+}
+
+/// A maximized window dragged away comes back at its floating size with
+/// the pointer at the same fraction of its width it grabbed the
+/// maximized one at (Muffin).
+#[test]
+fn a_maximized_window_dragged_away_floats_under_the_pointer_at_the_same_grab_point() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = c.toplevel("w");
+    c.draw(&t, 400, 300, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    chord(&h, KEY_LEFTMETA, KEY_UP);
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 800));
+    c.draw_configured(&t, 0, 0, RED);
+    // Grabbed at a quarter of its width, 20 px down.
+    alt_drag(&h, (320.0, 20.0), (500.0, 420.0));
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (400, 300));
+    c.draw_configured(&t, 0, 0, RED);
+    assert_eq!(first_tile(&h), None);
+    let geo = windows(&h)[0].1;
+    assert_eq!(geo, Rectangle::new((400, 400).into(), (400, 300).into()), "a quarter of 400 left of the pointer, 20 px above it");
+}
+
+/// Muffin's size rules for tiling: a window whose minimum width is more
+/// than half the screen takes no half (no preview either) but still
+/// maximizes; one of a fixed size (minimum = maximum) neither maximizes
+/// nor tiles, whether asked by a key, its own request or the frame.
+#[test]
+fn tiling_respects_the_clients_minimum_and_fixed_sizes() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let t = c.toplevel("w");
+    c.draw(&t, 700, 300, RED);
+    t.toplevel.set_min_size(700, 300);
+    c.draw_configured(&t, 700, 300, RED);
+    wait_for(&mut c, |_| !windows(&h).is_empty());
+    alt_drag_hold(&h, (640.0, 400.0), (0.0, 400.0));
+    assert_eq!(preview(&h), None, "640 px can't hold its 700 px minimum");
+    release(&h);
+    assert_eq!(first_tile(&h), None);
+    chord(&h, KEY_LEFTMETA, KEY_LEFT);
+    assert_eq!(first_tile(&h), None, "Super+Left neither");
+    chord(&h, KEY_LEFTMETA, KEY_UP);
+    assert_eq!(first_tile(&h), Some(Tile::Maximized), "the whole screen holds it");
+    chord(&h, KEY_LEFTMETA, KEY_DOWN);
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (700, 300));
+    c.draw_configured(&t, 0, 0, RED);
+
+    // Fixed size.
+    t.toplevel.set_max_size(700, 300);
+    c.draw_configured(&t, 0, 0, RED);
+    chord(&h, KEY_LEFTMETA, KEY_UP);
+    assert_eq!(first_tile(&h), None, "a fixed size never maximizes");
+    let configures = c.state.toplevels[0].configures;
+    t.toplevel.set_maximized();
+    c.roundtrip();
+    wait_for(&mut c, |c| c.state.toplevels[0].configures > configures);
+    assert!(!c.state.toplevels[0].states.contains(&XdgState::Maximized), "its own request is answered, unmaximized");
+    assert_eq!(first_tile(&h), None);
+    let from = { let g = windows(&h)[0].1; ((g.loc.x + 350) as f64, (g.loc.y + 150) as f64) };
+    alt_drag(&h, from, (640.0, 0.0));
+    assert_eq!(first_tile(&h), None, "nor from the top edge");
+}
+
+/// Muffin: a double click on the title bar maximizes, another restores.
+#[test]
+fn a_double_click_on_the_title_bar_maximizes_and_restores() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(1280, 800)]);
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 400, 300, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    let geo = windows(&h)[0].1;
+    let click = |at: (f64, f64)| {
+        h.with(move |ede| {
+            ede.pointer_motion_to(at.into(), 0);
+            ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 0);
+            ede.pointer_button(BTN_LEFT, ButtonState::Released, 0);
+        })
+    };
+    let title = ((geo.loc.x + 60) as f64, (geo.loc.y - 18) as f64);
+    click(title);
+    click(title);
+    assert_eq!(first_tile(&h), Some(Tile::Maximized));
+    wait_for(&mut app, |c| c.state.toplevels[0].states.contains(&XdgState::Maximized));
+    app.draw_configured(&t, 0, 0, BLUE);
+    let max = windows(&h)[0].1;
+    let title = ((max.loc.x + 60) as f64, (max.loc.y - 18) as f64);
+    click(title);
+    click(title);
+    assert_eq!(first_tile(&h), None);
+    wait_for(&mut app, |c| c.state.toplevels[0].size == (400, 300));
+    app.draw_configured(&t, 0, 0, BLUE);
+    assert_eq!(windows(&h)[0].1, geo, "back where it was");
+}
+
+/// The X11 window `win` as the compositor's window.
+#[cfg(feature = "xwayland")]
+fn x11_tile(h: &Harness, win: u32) -> Option<Tile> {
+    h.with(move |ede| {
+        let w = ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).cloned().unwrap();
+        window_state(&w).tile
+    })
+}
+
+#[cfg(feature = "xwayland")]
+fn x11_atom(conn: &x11rb::rust_connection::RustConnection, name: &[u8]) -> u32 {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+    conn.intern_atom(false, name).unwrap().reply().unwrap().atom
+}
+
+/// EWMH lets a client name one maximized atom per message: the two
+/// halves as two messages maximize, either one removed restores (Muffin
+/// keeps the half state; eDE has none, so a lone half restores).
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_maximize_named_one_atom_at_a_time_holds() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let (vert, horz) = (x11_atom(&conn, b"_NET_WM_STATE_MAXIMIZED_VERT"), x11_atom(&conn, b"_NET_WM_STATE_MAXIMIZED_HORZ"));
+    let full = Rectangle::new((0, 0).into(), (1280, 800).into());
+    // Two messages, each one atom (add).
+    x11_ask(&conn, win, b"_NET_WM_STATE", [1, vert, 0, 1, 0]);
+    x11_ask(&conn, win, b"_NET_WM_STATE", [1, horz, 0, 1, 0]);
+    wait_for_x11_geometry(&h, win, full);
+    assert_eq!(x11_tile(&h, win), Some(Tile::Maximized));
+    // Removing one restores.
+    x11_ask(&conn, win, b"_NET_WM_STATE", [0, horz, 0, 1, 0]);
+    wait_for_x11_geometry(&h, win, geo);
+    x11_ask(&conn, win, b"_NET_WM_STATE", [0, vert, 0, 1, 0]);
+    // Toggles, one atom each (a double click on an app's own title bar).
+    x11_ask(&conn, win, b"_NET_WM_STATE", [2, vert, 0, 1, 0]);
+    x11_ask(&conn, win, b"_NET_WM_STATE", [2, horz, 0, 1, 0]);
+    wait_for_x11_geometry(&h, win, full);
+    x11_ask(&conn, win, b"_NET_WM_STATE", [2, vert, 0, 1, 0]);
+    x11_ask(&conn, win, b"_NET_WM_STATE", [2, horz, 0, 1, 0]);
+    wait_for_x11_geometry(&h, win, geo);
+    // In order after them: once maximized again, the toggles are all in.
+    x11_maximize(&conn, win, 1);
+    wait_for_x11_geometry(&h, win, full);
+}
+
+/// A double click on Steam's own title bar: the second press starts a
+/// move, then the unmaximize toggle arrives. The drag ends; the window
+/// floats where it was, not where the maximized one stood.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_unmaximize_mid_drag_ends_the_drag_and_restores_in_place() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    x11_maximize(&conn, win, 1);
+    let full = Rectangle::new((0, 0).into(), (1280, 800).into());
+    wait_for_x11_geometry(&h, win, full);
+    let from = (600.0, 10.0);
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [600, 10, 8, 1, 1]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !moving(&h) {
+        assert!(Instant::now() < deadline, "the move never started");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    x11_maximize(&conn, win, 2);
+    wait_for_x11_geometry(&h, win, geo);
+    for i in 0..5 {
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 3.0 + i as f64, from.1 + 2.0).into(), 10 + i));
+    }
+    assert_eq!(x11_geometry(&h, win), geo, "no drag pulled it");
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 100));
+}
+
+/// Is a move grab running?
+fn moving(h: &Harness) -> bool {
+    h.with(|ede| ede.desk.seat.get_pointer().unwrap().with_grab(|_, g| g.downcast_ref::<ede_compositor::grabs::MoveSurfaceGrab>().is_some()).unwrap_or(false))
+}
+
+/// `_NET_WM_MOVERESIZE_CANCEL` (11): the client's own drag ends where the
+/// window is, with the button still held.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_moveresize_cancel_ends_the_drag() {
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 100) as f64, (geo.loc.y + 10) as f64);
+    let moved = Rectangle::new((geo.loc.x + 30, geo.loc.y + 20).into(), geo.size);
+    h.with(move |ede| {
+        ede.pointer_motion_to(from.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [from.0 as u32, from.1 as u32, 8, 1, 1]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut step = 0;
+    while x11_geometry(&h, win) != moved {
+        step += 1;
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 30.0, from.1 + 20.0).into(), 1 + step));
+        assert!(Instant::now() < deadline, "the drag never started");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [0, 0, 11, 1, 1]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while moving(&h) {
+        assert!(Instant::now() < deadline, "the cancel never ended the drag");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    for i in 0..5 {
+        h.with(move |ede| ede.pointer_motion_to((from.0 + 200.0 + i as f64, from.1 + 100.0).into(), 1000 + i));
+    }
+    assert_eq!(x11_geometry(&h, win), moved, "it stays where the drag was cancelled");
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 2000));
+}
+
+/// Steam's own title bar dragged to the left edge: the preview shows,
+/// the release tiles it to the left half; dragged off again it floats at
+/// its old size under the pointer. A `WM_NORMAL_HINTS` minimum wider than
+/// half the screen takes no half.
+#[cfg(feature = "xwayland")]
+#[test]
+fn an_x11_client_drag_tiles_at_the_edge_and_respects_its_minimum() {
+    use x11rb::{connection::Connection, properties::WmSizeHints};
+    let h = harness(&[(1280, 800)]);
+    let Some(conn) = xwayland(&h) else { return };
+    let win = map_x11(&h, &conn, Some([2, 0, 0, 0, 0]));
+    let geo = x11_geometry(&h, win);
+    let from = ((geo.loc.x + 80) as f64, (geo.loc.y + 10) as f64);
+    let at_edge = Rectangle::new((geo.loc.x - from.0 as i32, geo.loc.y + 100).into(), geo.size);
+    x11_moveresize(&h, &conn, win, 8, from, (0.0, from.1 + 100.0), at_edge);
+    // x11_moveresize released: the window took the left half.
+    let half = Rectangle::new((0, 0).into(), (640, 800).into());
+    wait_for_x11_geometry(&h, win, half);
+    wait_for_x_size(&conn, win, (640, 800));
+    assert_eq!(x11_tile(&h, win), Some(Tile::Left));
+
+    // Off the tile, grabbed at a quarter of the half: a quarter of 320.
+    let grab = (160.0, 10.0);
+    h.with(move |ede| {
+        ede.pointer_motion_to(grab.into(), 0);
+        ede.pointer_button(BTN_LEFT, ButtonState::Pressed, 1);
+    });
+    x11_ask(&conn, win, b"_NET_WM_MOVERESIZE", [160, 10, 8, 1, 1]);
+    let want = Rectangle::new((600 - 80, 300 - 10).into(), geo.size);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut step = 0;
+    while x11_geometry(&h, win) != want {
+        step += 1;
+        h.with(move |ede| ede.pointer_motion_to((600.0, 300.0).into(), 1 + step));
+        assert!(Instant::now() < deadline, "never floated under the pointer: {:?}", x11_geometry(&h, win));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.with(|ede| ede.pointer_button(BTN_LEFT, ButtonState::Released, 1000));
+    wait_for_x_size(&conn, win, (geo.size.w, geo.size.h));
+    assert_eq!(x11_tile(&h, win), None);
+
+    // A minimum wider than half: the left edge takes nothing.
+    let mut hints = WmSizeHints::new();
+    hints.min_size = Some((700, 200));
+    hints.set_normal_hints(&conn, win).unwrap().check().unwrap();
+    conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.with(move |ede| ede.desk.space.elements().find_map(|w| w.x11_surface().filter(|x| x.window_id() == win).and_then(|x| x.min_size()))) != Some((700, 200).into()) {
+        assert!(Instant::now() < deadline, "the compositor never read the hints");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let now = x11_geometry(&h, win);
+    let from = ((now.loc.x + 80) as f64, (now.loc.y + 10) as f64);
+    let at_edge = Rectangle::new((now.loc.x - from.0 as i32, now.loc.y).into(), now.size);
+    x11_moveresize(&h, &conn, win, 8, from, (0.0, from.1), at_edge);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(x11_tile(&h, win), None, "no half for a 700 px minimum");
+    assert_eq!(x11_geometry(&h, win), at_edge);
 }

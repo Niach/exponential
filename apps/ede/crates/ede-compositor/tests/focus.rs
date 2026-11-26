@@ -86,6 +86,28 @@ fn another_apps_window_opens_behind_and_without_the_keyboard() {
     assert_eq!(h.capture(0).at(600, 400), RED, "the focused window stays in front");
 }
 
+/// A portal's dialog (xdg-desktop-portal-gtk's "Allow Applications to
+/// Take Screenshots?") answers the person's own action: unlike another
+/// app's window it opens in front with the keyboard (Muffin), instead of
+/// timing out unseen behind the focused window. This process stands in
+/// for the portal (the real check reads a root-owned
+/// `xdg-desktop-portal*` binary).
+#[test]
+fn a_portal_dialog_opens_in_front_with_the_keyboard() {
+    let h = harness();
+    let (mut app, _a) = focused_app(&h, "browser", RED);
+    h.with(|ede| ede.portal_process = |pid| pid == std::process::id());
+    let (mut portal, _d) = other_app(&h, "Allow Applications to Take Screenshots?", BLUE);
+    wait_for(&mut portal, |c| c.state.keyboard_focus.is_some());
+    assert!(portal.state.toplevels[0].states.contains(&XdgState::Activated));
+    assert_eq!(stack(&h), [("browser".to_string(), false), ("Allow Applications to Take Screenshots?".to_string(), true)]);
+    assert_eq!(h.capture(0).at(600, 400), BLUE, "in front of the focused window");
+    press(&h, KEY_A);
+    wait_for(&mut portal, |c| c.state.keys == [KEY_A]);
+    app.roundtrip();
+    assert!(app.state.keys.is_empty());
+}
+
 #[test]
 fn a_dialog_of_the_focused_app_takes_the_keyboard() {
     let h = harness();

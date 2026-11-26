@@ -4,11 +4,8 @@ set -euo pipefail
 
 SUMS=SHA256SUMS.txt
 SIG=SHA256SUMS.txt.minisig
-# minisign is pinned to an upstream release tarball (static x86_64 + aarch64
-# Linux binaries) by sha256 — apt's minisign is 0.9 on 22.04 and writes
-# legacy (non-prehashed) signatures the clients refuse.
-MINISIGN_VERSION=0.12
-MINISIGN_SHA256=9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+# shellcheck source=minisign.sh
+source "$(dirname "$0")/minisign.sh"
 
 cd "$FEED_DIR"
 
@@ -44,41 +41,10 @@ if [ -z "$FEED_SIGNING_KEY" ]; then
   exit 0
 fi
 
-[ "$(uname -s)" = Linux ] || { echo "::error::updater-feed signs on Linux runners only" >&2; exit 1; }
-case "$(uname -m)" in
-  x86_64 | amd64) arch=x86_64 ;;
-  aarch64 | arm64) arch=aarch64 ;;
-  *) echo "::error::no minisign binary for $(uname -m)" >&2; exit 1 ;;
-esac
-
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/updater-feed.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-# The pinned release, checked against its digest; when github.com's release
-# download is down (the 2026-11-08 504s), the distro's minisign instead (same
-# key and signature format; `-H` signs prehashed on every version since 0.8).
-if curl -fsSL --retry 3 -o "$work/minisign.tgz" \
-  "https://github.com/jedisct1/minisign/releases/download/$MINISIGN_VERSION/minisign-$MINISIGN_VERSION-linux.tar.gz" &&
-  echo "$MINISIGN_SHA256  $work/minisign.tgz" | sha256sum -c --quiet -; then
-  tar --warning=no-unknown-keyword -xzf "$work/minisign.tgz" -C "$work"
-  minisign="$work/minisign-linux/$arch/minisign"
-else
-  echo "::warning::the minisign release download failed; using the distro's minisign"
-  if ! command -v minisign >/dev/null; then
-    # The shared mirror fallback (#2668) when the checkout carries it.
-    apt_mirror="$(dirname "$0")/../apt-mirror/apt-mirror.sh"
-    if [ -f "$apt_mirror" ]; then bash "$apt_mirror" >/dev/null; else sudo apt-get update -qq; fi
-    sudo apt-get install -y -qq minisign >/dev/null
-  fi
-  minisign="$(command -v minisign)"
-fi
-
-# The key arrives raw (the file) or base64 of it.
-umask 077
-if printf '%s' "$FEED_SIGNING_KEY" | head -n1 | grep -q '^untrusted comment:'; then
-  printf '%s\n' "$FEED_SIGNING_KEY" > "$work/feed.key"
-else
-  printf '%s' "$FEED_SIGNING_KEY" | tr -d ' \r\n' | base64 -d > "$work/feed.key"
-fi
+fetch_minisign "$work"
+load_minisign_key "$FEED_SIGNING_KEY" "$work/feed.key"
 
 comment="$FEED_COMMENT"
 [ -n "$comment" ] || comment="repo:${GITHUB_REPOSITORY:-} ref:${GITHUB_REF_NAME:-} timestamp:$(date -u +%s)"
