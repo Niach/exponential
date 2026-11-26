@@ -3031,6 +3031,7 @@ dependencies = [
  "uicore-gpui",
  "uicore-model",
  "uuid",
+ "x11rb",
  "zbus",
 ]
 

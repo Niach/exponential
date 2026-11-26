@@ -31,6 +31,12 @@ pub struct App {
     /// `Categories=` (freedesktop main and additional categories), for the
     /// start menu's groups.
     pub categories: Vec<String>,
+    /// #EDE-242: `StartupWMClass=`, the window class its windows carry.
+    pub wm_class: Option<String>,
+    /// #EDE-242: the Steam game it starts (`SteamAppId=`, else the id in
+    /// `steam://rungameid/<id>`), for windows of class `steam_app_<id>` and
+    /// native games whose process carries `SteamAppId`.
+    pub steam_app: Option<String>,
 }
 
 impl App {
@@ -93,7 +99,7 @@ pub fn scan() -> Vec<App> {
                     seen.insert(id, app);
                 }
                 Parsed::Hidden => {
-                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), exec_url: None, icon: None, keywords: String::new(), categories: Vec::new() });
+                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), exec_url: None, icon: None, keywords: String::new(), categories: Vec::new(), wm_class: None, steam_app: None });
                 }
                 Parsed::NotAnApp => {}
             }
@@ -115,7 +121,7 @@ pub fn demo() -> Vec<App> {
         ("terminal", "Terminal", "Use the command line", "x-terminal-emulator", "System"),
     ]
     .into_iter()
-    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), exec_url: None, icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()] })
+    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), exec_url: None, icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()], wm_class: None, steam_app: None })
     .collect()
 }
 
@@ -183,7 +189,47 @@ pub fn parse(id: &str, text: &str, desktop: &str) -> Parsed {
         icon: Some(get("Icon")).filter(|i| !i.is_empty()).and_then(icon_file),
         keywords,
         categories: list(get("Categories")).into_iter().map(String::from).collect(),
+        wm_class: Some(get("StartupWMClass")).filter(|c| !c.is_empty()).map(String::from),
+        steam_app: Some(get("SteamAppId")).filter(|i| !i.is_empty()).map(String::from).or_else(|| steam_game(raw)),
     })
+}
+
+/// The game id of an `Exec` that runs `steam://rungameid/<id>`.
+fn steam_game(exec: &str) -> Option<String> {
+    let id: String = exec.split("steam://rungameid/").nth(1)?.chars().take_while(char::is_ascii_digit).collect();
+    (!id.is_empty()).then_some(id)
+}
+
+/// #EDE-242: the entry of a window's app id (Wayland `app_id`, X11
+/// `WM_CLASS` class), in Cinnamon's window tracker's order: the entry whose
+/// `StartupWMClass` is the class, then the desktop id (`firefox`,
+/// `org.gnome.Calculator` or its last segment `Calculator`), then a Steam
+/// game's class `steam_app_<id>` to the entry that starts that game. Also
+/// takes a desktop id (a pin).
+pub fn for_window<'a>(apps: &'a [App], app: &str) -> Option<&'a App> {
+    let wanted = app.trim_end_matches(".desktop");
+    if wanted.is_empty() {
+        return None;
+    }
+    let by_class = |exact: bool| apps.iter().find(|a| a.wm_class.as_deref().is_some_and(|c| if exact { c == wanted } else { c.eq_ignore_ascii_case(wanted) }));
+    let id = |a: &&App| a.id.trim_end_matches(".desktop").to_string();
+    by_class(true)
+        .or_else(|| apps.iter().find(|a| id(a).eq_ignore_ascii_case(wanted)))
+        .or_else(|| by_class(false))
+        .or_else(|| apps.iter().find(|a| id(a).rsplit('.').next().is_some_and(|tail| tail.eq_ignore_ascii_case(wanted))))
+        .or_else(|| wanted.strip_prefix("steam_app_").and_then(|game| for_steam_game(apps, game)))
+}
+
+/// The entry that starts Steam game `game` (`570`).
+pub fn for_steam_game<'a>(apps: &'a [App], game: &str) -> Option<&'a App> {
+    apps.iter().find(|a| a.steam_app.as_deref() == Some(game))
+}
+
+/// `SteamAppId` in a process's environment: Steam sets it on every game it
+/// starts, native ones included (Dota 2's class is plain `dota2`).
+pub fn steam_game_of_pid(pid: u32) -> Option<String> {
+    let env = fs::read(format!("/proc/{pid}/environ")).ok()?;
+    env.split(|b| *b == 0).find_map(|kv| kv.strip_prefix(b"SteamAppId=")).map(|v| String::from_utf8_lossy(v).into_owned()).filter(|v| !v.is_empty() && v != "0")
 }
 
 fn executable_exists(name: &str) -> bool {
@@ -320,6 +366,35 @@ mod tests {
     use super::*;
 
     const CALC: &str = "[Desktop Entry]\nType=Application\nName=Calculator\nComment=Do sums\nExec=gnome-calculator %U\nIcon=/nonexistent/calc.png\nKeywords=math;arithmetic;\nCategories=Utility;\n";
+
+    fn shown(id: &str, text: &str) -> App {
+        match parse(id, text, "X-Cinnamon") {
+            Parsed::Shown(a) => a,
+            _ => panic!("{id} not shown"),
+        }
+    }
+
+    /// #EDE-242: the window tracker's order, Steam's games included (Dota 2's
+    /// entry as Steam writes it: no StartupWMClass, the game in SteamAppId).
+    #[test]
+    fn a_window_finds_its_entry_like_cinnamon() {
+        let dota = shown("Dota 2.desktop", "[Desktop Entry]\nName=Dota 2\nExec=steam steam://rungameid/570\nIcon=steam_icon_570\nType=Application\nCategories=Game;\nSteamAppId=570\n");
+        let portal = shown("Portal.desktop", "[Desktop Entry]\nName=Portal\nExec=steam steam://rungameid/400\nIcon=steam_icon_400\nType=Application\n");
+        let code = shown("code.desktop", "[Desktop Entry]\nName=Visual Studio Code\nExec=/usr/share/code/code %F\nType=Application\nStartupWMClass=Code\n");
+        let calc = shown("org.gnome.Calculator.desktop", CALC);
+        let apps = vec![dota.clone(), portal.clone(), code.clone(), calc.clone()];
+        assert_eq!(dota.steam_app.as_deref(), Some("570"));
+        assert_eq!(portal.steam_app.as_deref(), Some("400"), "the id in steam://rungameid/");
+        assert_eq!(for_window(&apps, "Code").map(|a| a.id.as_str()), Some("code.desktop"), "StartupWMClass");
+        assert_eq!(for_window(&apps, "code").map(|a| a.id.as_str()), Some("code.desktop"), "the desktop id");
+        assert_eq!(for_window(&apps, "org.gnome.Calculator").map(|a| a.id.as_str()), Some("org.gnome.Calculator.desktop"));
+        assert_eq!(for_window(&apps, "calculator").map(|a| a.id.as_str()), Some("org.gnome.Calculator.desktop"), "the id's last segment");
+        assert_eq!(for_window(&apps, "steam_app_400").map(|a| a.id.as_str()), Some("Portal.desktop"), "a Proton game's class");
+        assert_eq!(for_window(&apps, "dota2"), None, "a native game's class names no entry: the process's SteamAppId does");
+        assert_eq!(for_steam_game(&apps, "570").map(|a| a.id.as_str()), Some("Dota 2.desktop"));
+        assert_eq!(for_window(&apps, ""), None);
+        assert_eq!(steam_game_of_pid(std::process::id()), std::env::var("SteamAppId").ok().filter(|v| !v.is_empty() && v != "0"));
+    }
 
     #[test]
     fn parses_an_application_and_strips_field_codes() {
