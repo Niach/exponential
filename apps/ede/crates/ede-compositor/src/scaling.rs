@@ -20,7 +20,9 @@
 //!   environment: they would scale native Wayland Qt and GTK windows a
 //!   second time and stay fixed when the person changes the scale.
 
-use smithay::{output::Output, xwayland::xwm::settings::Value};
+use smithay::output::Output;
+#[cfg(feature = "xwayland")]
+use smithay::xwayland::xwm::settings::Value;
 
 use crate::state::Ede;
 
@@ -29,6 +31,7 @@ const HIDPI_LIMIT: f64 = 192.0;
 /// Mutter's `HIDPI_MIN_HEIGHT`: a shorter mode is never HiDPI.
 const HIDPI_MIN_HEIGHT: i32 = 1200;
 /// A cursor's size at 100 % ([`crate::backend::cursor`] reads the same).
+#[cfg(feature = "xwayland")]
 const CURSOR_SIZE: u32 = 24;
 
 /// The scale an output with no configured one starts at: 2 for a HiDPI
@@ -64,6 +67,7 @@ pub fn x11_scale<'a>(native: bool, scales: impl Iterator<Item = f64>) -> f64 {
     scales.fold(1.0_f64, f64::max)
 }
 
+#[cfg(feature = "xwayland")]
 /// What X11 apps are told at `scale`: the XSETTINGS GTK's
 /// xsettings daemon would set (gnome-settings-daemon's arithmetic: an
 /// integer window scale, the rest of the scale in the font DPI).
@@ -101,6 +105,7 @@ pub fn global_output_scale(scale: f64) -> u32 {
     scale.round().max(1.0) as u32
 }
 
+#[cfg(feature = "xwayland")]
 /// The person's cursor size at 100 % (`$XCURSOR_SIZE`, the theme bridge's).
 fn cursor_size() -> u32 {
     std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok()).filter(|s| *s > 0).unwrap_or(CURSOR_SIZE)
@@ -244,6 +249,7 @@ mod tests {
         assert_eq!(x11_scale(false, [2.0].into_iter()), 1.0, "native scaling off: stretched");
     }
 
+    #[cfg(feature = "xwayland")]
     #[test]
     fn xsettings_split_the_scale_like_gnome_settings_daemon() {
         let get = |s: &[(String, Value)], k: &str| s.iter().find(|(n, _)| n == k).map(|(_, v)| format!("{v:?}"));
