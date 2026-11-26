@@ -1035,6 +1035,8 @@ fn tile_edges(tile: Tile) -> Vec<xdg_toplevel::State> {
         Tile::Maximized => vec![],
         Tile::Left => vec![TiledLeft, TiledTop, TiledBottom],
         Tile::Right => vec![TiledRight, TiledTop, TiledBottom],
+        Tile::Top => vec![TiledTop, TiledLeft, TiledRight],
+        Tile::Bottom => vec![TiledBottom, TiledLeft, TiledRight],
         Tile::TopLeft => vec![TiledLeft, TiledTop],
         Tile::TopRight => vec![TiledRight, TiledTop],
         Tile::BottomLeft => vec![TiledLeft, TiledBottom],
