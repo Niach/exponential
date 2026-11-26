@@ -120274,6 +120274,10 @@
                   "lines": 1
                 },
                 "children": [],
+                "style": {
+                  "paddingHorizontal": "$spacing.xs",
+                  "borderRadius": "$radius.sm"
+                },
                 "recipe": {
                   "macro": "MapPlaceholder",
                   "part": "label",
@@ -120521,6 +120525,10 @@
                       "lines": 1
                     },
                     "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
                     "recipe": {
                       "macro": "MapPlaceholder",
                       "part": "label",
@@ -120755,6 +120763,10 @@
                       "lines": 1
                     },
                     "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
                     "recipe": {
                       "macro": "MapPlaceholder",
                       "part": "label",
@@ -120986,6 +120998,10 @@
                       "lines": 1
                     },
                     "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
                     "recipe": {
                       "macro": "MapPlaceholder",
                       "part": "label",

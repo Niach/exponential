@@ -8871,6 +8871,7 @@
       "label": [
         {
           "style": {
+            "backgroundColor": "$color.muted",
             "color": "$color.mutedForeground"
           }
         }

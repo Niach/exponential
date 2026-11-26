@@ -10969,6 +10969,10 @@
                   "text": "{props.label}",
                   "variant": "caption",
                   "lines": 1
+                },
+                "style": {
+                  "paddingHorizontal": "$spacing.xs",
+                  "borderRadius": "$radius.sm"
                 }
               }
             ]
