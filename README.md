@@ -21,7 +21,7 @@ Exponential is a development platform where agents do the work and your team ste
   </tr>
 </table>
 
-<sub>Top: the desktop app (gpui), a chat on an issue next to the session doing the work. Middle: a board on the web; a session on iPhone. Bottom: Exponential Desktop, captured on a headless compositor. All pictures use the seeded demo team.</sub>
+<sub>Top: the desktop app (gpui), a chat on an issue next to the session doing the work. Middle: a board on the web; a session on iPhone. Bottom: Exponential Desktop with an agent's chat open above the taskbar, captured on a headless compositor. All pictures use the seeded demo team.</sub>
 
 ## What's in the box
 
