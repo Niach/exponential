@@ -1660,6 +1660,28 @@ fn resolve_team_skills(deps: &CodingDeps, session_id: &str) -> crate::team_skill
     resolved
 }
 
+/// #NEW-148 (@exp/emcp hub-client.json): mount the run's team MCP servers
+/// behind the device hub, leaving ONE `team` entry in `team_mcp`, and write
+/// their owner-approved skills into the session's skill dir. Called BEFORE
+/// the device's own entries (computer use, code mode, screen memory) are
+/// attached; never a blocker (every miss is a logged warning).
+fn route_team_mcp(
+    deps: &CodingDeps,
+    team_mcp: &mut ResolvedMcp,
+    team_skills: &mut crate::team_skills::ResolvedSkills,
+    session_id: &str,
+    label: &str,
+) {
+    let warned = team_mcp.warnings.len();
+    let skills_warned = team_skills.warnings.len();
+    let mounted = crate::team_hub::route(team_mcp, &deps.data_dir, deps.trpc.clone(), session_id, label);
+    let approvals = team_mcp.skill_approvals.clone();
+    crate::team_hub::write_mcp_skills(&deps.data_dir, session_id, &mounted, &approvals, team_skills);
+    for warning in team_mcp.warnings[warned..].iter().chain(&team_skills.warnings[skills_warned..]) {
+        log::warn!("{warning}");
+    }
+}
+
 fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
     let resolved = crate::mcp_servers::resolve(&deps.trpc, None, session_id);
     for warning in &resolved.warnings {
@@ -2408,8 +2430,11 @@ fn prepare_session(
     // blocker). The pick lives on the row, so no ids are named here.
     let mut team_mcp = resolve_mcp_servers(deps, &session_id);
     // #EXP-1658: the row's skill pick, written outside the worktree.
-    let team_skills = resolve_team_skills(deps, &session_id);
+    let mut team_skills = resolve_team_skills(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
+    // #NEW-148: the team servers go behind the device hub (ONE `team`
+    // entry), their approved skills into the session's skill dir.
+    route_team_mcp(deps, &mut team_mcp, &mut team_skills, &session_id, &label);
     // #EXP-1514: a record of this row from before (a start that was retried)
     // keeps saying it had a space.
     let had_space = crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|record| record.had_space());
@@ -3166,12 +3191,15 @@ fn prepare_resume(
     };
     // #EXP-1658: re-resolved on every resume (a pick or an edit since lands
     // now); an aside runs without skills, like without team servers.
-    let team_skills = if aside {
+    let mut team_skills = if aside {
         crate::team_skills::ResolvedSkills::default()
     } else {
         resolve_team_skills(deps, &session_id)
     };
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
+    // #NEW-148: behind the device hub again (a resume re-mounts, and the
+    // session's persisted third-party tasks are polled again).
+    route_team_mcp(deps, &mut team_mcp, &mut team_skills, &session_id, &label);
     // #EXP-1514: the record as written now: the previous run's first space
     // may have landed on it after the resume was planned.
     let had_space = record.had_space() || crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|now| now.had_space());
@@ -3471,7 +3499,7 @@ pub fn claude_transcript_exists_in(
 /// a member roster, the [`crate::mcp_servers::delegation_note`], blank-line
 /// separated. Unchanged otherwise.
 fn with_delegation_note(append: String, team_mcp: &ResolvedMcp) -> String {
-    match crate::mcp_servers::delegation_note(&team_mcp.members, &team_mcp.servers) {
+    match crate::mcp_servers::delegation_note(&team_mcp.members, team_mcp.team_servers()) {
         Some(note) => format!("{}\n\n{note}", append.trim_end()),
         None => append,
     }
@@ -5562,7 +5590,7 @@ mod tests {
         let prepared = ready(launch(req, &deps));
         let append = &prepared.acp.system_append;
         let note = "## Team MCP connections\n\
-linear = your connection (Danny). linear_as_chris = acts as Chris (shared).\n\
+linear = your connection (Danny). linear-as-chris = acts as Chris (shared).\n\
 Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them by @email in your reply.";
         assert!(append.ends_with(&format!("\n\n{note}")), "{append}");
         let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
@@ -5576,7 +5604,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             context_layout::team_bytes(&unnoted)
         );
         let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, vec!["linear", "linear_as_chris", "codemode"]);
+        // #NEW-148: the team servers ride ONE hub entry.
+        assert_eq!(names, vec!["team", "codemode"]);
     }
 
     // ---- the disabled surfaces (explain, never crash) ----
@@ -6068,6 +6097,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             warnings: Vec::new(),
             members: Vec::new(),
             pick: None,
+            ..ResolvedMcp::default()
         }
     }
 

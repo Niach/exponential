@@ -1802,6 +1802,7 @@ dependencies = [
  "domain",
  "eagent",
  "ecode",
+ "emcp",
  "enet-core",
  "epilot",
  "epilot-screen",

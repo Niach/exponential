@@ -3992,6 +3992,31 @@ export const mcpCredentials = pgTable(
   ]
 )
 
+// #NEW-148 (@exp/emcp hub-client.json `approvalCases`): a team OWNER's
+// approval of one skill a team MCP server serves (its `skill://` SKILL.md
+// URI), BOUND to the skill's digest set: a changed skill reads `changed`
+// until approved again. Only an approved skill reaches a session (the
+// device hub writes it into the session's skills). `mcpServers.skills`
+// reads it, `approveSkill` / `revokeSkill` write it, `resolveForLaunch`
+// hands each server's rows out as `skillApprovals`. Server-only, never synced.
+export const mcpServerSkillApprovals = pgTable(
+  `mcp_server_skill_approvals`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    serverId: uuid(`server_id`)
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: `cascade` }),
+    uri: text().notNull(),
+    digestSet: text(`digest_set`).notNull(),
+    approvedByUserId: text(`approved_by_user_id`).references(() => users.id, { onDelete: `set null` }),
+    approvedAt: timestamp(`approved_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique().on(table.serverId, table.uri)]
+)
+
 // VAPP-239 (eApps M2): ONE app call routed to a member's device (@exp/emcp
 // upstream.json `device`). The relay carries only `id`; the device CLAIMS the
 // row over its own authenticated API (`mcpServers.claimDeviceCall`: the
@@ -5270,6 +5295,7 @@ export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
 export type McpDeviceCall = InferSelectModel<typeof mcpDeviceCalls>
 export type McpCredential = InferSelectModel<typeof mcpCredentials>
+export type McpServerSkillApproval = InferSelectModel<typeof mcpServerSkillApprovals>
 export type McpOauthClient = InferSelectModel<typeof mcpOauthClients>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>

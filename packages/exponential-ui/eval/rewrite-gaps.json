@@ -91,6 +91,7 @@
     { "id": "settings-worktrees", "class": "expressible", "with": "Section + Row + Button (Prune) + AlertDialog" },
     { "id": "settings-boards-archived", "class": "expressible", "with": "Section + Row + Button; the pending-deletion Card" },
     { "id": "settings-mcp", "class": "expressible", "with": "Section + Row (Chip Default, trailing Button + Menu) + Dialog + Form; Tabs (Mine | Everyone) + Select for the access levels" },
+    { "id": "settings-mcp-skills", "class": "expressible", "with": "#NEW-148: Row (medium name, muted description) under a sub-label + trailing Badge of the state + an outline small Button (owners)" },
     { "id": "settings-mcp-activity", "class": "expressible", "with": "List of Row (mono Text lead, caption, trailing Badge status)" },
     { "id": "settings-issues", "class": "expressible", "with": "Page + Group + Segmented (estimate scale) + FieldGroup (the PR targets) + FormActions" },
     { "id": "settings-import", "class": "expressible", "with": "Stepper + Card + Table (the mapping) + Progress + Button" },

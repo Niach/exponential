@@ -2294,6 +2294,29 @@
       }
     },
     {
+      "id": "settings-mcp-skills",
+      "group": "settings",
+      "title": "Settings · MCP · Skills",
+      "blurb": "#NEW-148 (settings-mcp.json `skillsStateCases`, @exp/emcp hub-client.json `approvalCases`): an open team server row's skills after its tools, under the Skills sub-label: one row per skill (name, muted description, a state Pill Approved / Changed / Not approved) and, for owners only, one small outline Approve or Revoke; members read the badges; a failed list = the muted skillsFailed line.",
+      "order": 27,
+      "web": {
+        "route": "/home?dev=mcp-skills",
+        "anchor": {
+          "testId": "mcp-skills-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "The DEV-ONLY `?dev=mcp-skills`: the open row over static rows (an owner's and a member's), no live MCP server; live inside Settings › MCP (settings-mcp).",
+        "web-mobile": "Inherits web.",
+        "desktop": "#NEW-148: the desktop Settings › MCP skills rows are not wired to a capture yet.",
+        "ios": "#NEW-148: the native skills rows (McpSettingsPage.swift) have no capture wired into the shots pipeline yet.",
+        "android": "#NEW-148: the native skills rows (McpSettingsScreen.kt) have no capture wired into the shots pipeline yet."
+      }
+    },
+    {
       "id": "settings-issues",
       "group": "settings",
       "title": "Settings · Issues",

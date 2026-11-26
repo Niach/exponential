@@ -19,6 +19,9 @@ export interface FakeProviderOptions {
   tools?: number
   /** Fields merged over the AS metadata document (hostile-provider cases). */
   metadata?: Record<string, unknown>
+  /** #NEW-148: the skills extension's listing (declared in initialize when
+   *  set) + the bytes `resources/read` serves per file uri. */
+  skills?: { list: unknown[]; files: Record<string, string> }
 }
 
 export interface FakeProvider {
@@ -112,13 +115,32 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
         }
         if (body.method === `initialize`) {
           return json(
-            { jsonrpc: `2.0`, id: body.id, result: { protocolVersion: `2025-06-18`, capabilities: {} } },
+            {
+              jsonrpc: `2.0`,
+              id: body.id,
+              result: {
+                protocolVersion: `2025-06-18`,
+                capabilities: options.skills ? { resources: {}, extensions: { "io.modelcontextprotocol/skills": {} } } : {},
+              },
+            },
             200,
             { "mcp-session-id": `sess-1` }
           )
         }
         if (body.method === `notifications/initialized`) {
           return new Response(null, { status: 202 })
+        }
+        if (body.method === `skills/list` && options.skills) {
+          return json({ jsonrpc: `2.0`, id: body.id, result: { resultType: `complete`, skills: options.skills.list } })
+        }
+        if (body.method === `resources/read` && options.skills) {
+          const uri = String((body.params as { uri?: unknown }).uri)
+          const text = options.skills.files[uri]
+          return json(
+            text === undefined
+              ? { jsonrpc: `2.0`, id: body.id, error: { code: -32602, message: `No skill is served at ${uri}` } }
+              : { jsonrpc: `2.0`, id: body.id, result: { contents: [{ uri, mimeType: `text/markdown`, text }] } }
+          )
         }
         if (body.method === `tools/list`) {
           const tools = Array.from({ length: options.tools ?? 3 }, (_, i) => ({ name: `t${i}` }))
