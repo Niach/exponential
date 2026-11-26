@@ -231,7 +231,7 @@ pub fn decompile_document(name: &str, document: &Value) -> Result<String, Vec<Is
         create.insert("dataModel".into(), data.clone());
     }
     create.insert("metadata".into(), json!({"extensions": {EXTENSION: header}}));
-    let messages = [json!({"version": "v1.0", "createSurface": create})];
+    let messages = [json!({"version": "1.0", "createSurface": create})];
     let options = DecompileOptions { keyword_args: true, order: Order::Upstream };
     let body = decompile(compiler().catalogs(), &messages, &options).map_err(|e| vec![Issue::new("express", e.to_string())])?;
     let mut out = String::new();

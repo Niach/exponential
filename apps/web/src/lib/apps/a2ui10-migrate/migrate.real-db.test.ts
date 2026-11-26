@@ -1,12 +1,15 @@
 // @vitest-environment node
-import { readFileSync, readdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
-import { sql } from "drizzle-orm"
+import { describe, expect, it, vi } from "vitest"
+import { eq, sql } from "drizzle-orm"
 import { HostRouter, availableExtensions, CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, reduceSurface, validatePackage, type AppPackage, type NestedNode } from "@exponential_app/eui"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
-import fixture from "./a2ui10-migrate.fixture.json"
+import { dataMigrations } from "@/db/schema"
+import fixture from "./fixture.json"
 
 // VAPP-289 (round 9 §14.1): the migration against the real migrated Postgres.
 // Each case rolls back and walks its own seeded team only (`teamId`): the
@@ -14,19 +17,27 @@ import fixture from "./a2ui10-migrate.fixture.json"
 // their committed rows (a foreign failed row turned `ok` false) and, applying,
 // row-locked them until the rollback (their writes and cleanup deadlocked).
 
+// One test breaks the converter on purpose; every other call is the real one.
+vi.mock(`./upgrade09`, async (original) => {
+  const real = await original<typeof import("./upgrade09")>()
+  return { ...real, upgradePackage09: vi.fn(real.upgradePackage09) }
+})
+
 const ready = await probeRealDb(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'refresh_conversation_digests_update') AS ok`)
 if (!ready.ok) console.info(`[a2ui10-migrate.real-db] skipped: ${ready.reason}`)
 
-const { runA2ui10Migration } = await import(`@/lib/apps/a2ui10-migrate`)
+const { A2UI10_MIGRATION, migrateA2ui10Once, runA2ui10Migration, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
+const upgrades = await import(`./upgrade09`)
 const { APP_CATALOG_IDS, appExtension } = await import(`@/lib/apps/package`)
 const { stripUngrantableGrants } = await import(`@/lib/bootstrap-cloud`)
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`)
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`, `..`)
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const FIXED = `2026-01-02T03:04:05.000Z`
 
 interface Seed {
   teamId: string
+  userId: string
   conversationId: string
   sessionId: string
   app: (slug: string, values: { package?: unknown; draft?: unknown; grants?: unknown }) => Promise<string>
@@ -47,6 +58,7 @@ async function seed(tx: RealDbTx): Promise<Seed> {
   const conversationId = conv.rows[0]!.id
   return {
     teamId,
+    userId,
     conversationId,
     sessionId,
     app: async (slug, { package: pkg = null, draft = null, grants = [] }) => {
@@ -94,14 +106,14 @@ const xmins = async (tx: RealDbTx, teamId: string) =>
 
 const CAT = fixture.packages
 const router = () => new HostRouter({ extensionIds: [appExtension.id], extensions: availableExtensions([appExtension]) })
-/** A stored package through the client's load with the bridge OFF. */
+/** A stored package through the client's load with 1.0 alone. */
 function expectPackageLoads(pkg: unknown) {
   expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
   const host = router()
   expect(host.installPackage(pkg as AppPackage)).toEqual([])
   const p = pkg as AppPackage
   for (const templateId of Object.keys(p.templates)) {
-    const ops = host.route({ version: `1.0`, applyTemplate: { surfaceId: `s_${id8()}`, packageId: p.id, templateId } }, { trusted: true, acceptV09: false })
+    const ops = host.route({ version: `1.0`, applyTemplate: { surfaceId: `s_${id8()}`, packageId: p.id, templateId } }, { trusted: true })
     expect(ops.filter((op) => op.op === `send`)).toEqual([])
     const painted = ops.find((op) => op.op === `components`)
     if (painted?.op !== `components`) throw new Error(`template ${templateId} paints nothing`)
@@ -109,7 +121,7 @@ function expectPackageLoads(pkg: unknown) {
   }
 }
 function expectCardLoads(card: { surface?: unknown }) {
-  const entry = cardV10(card.surface, false)
+  const entry = cardV10(card.surface)
   if (`error` in entry) throw new Error(entry.error)
   expect(cardProblems(entry.card.root)).toEqual([])
   expect(reduceNested(entry.card.root, { catalogId: CORE_CATALOG_ID }).issues).toEqual([])
@@ -133,6 +145,19 @@ async function seedAll(s: Seed) {
 }
 
 describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
+  it(`boot runs once: the marker skips the next pass, failed rows included`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      await seedAll(s)
+      await tx.delete(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION))
+      const first = await migrateA2ui10Once(tx as Client)
+      expect(first?.mode).toBe(`apply`)
+      const [marker] = await tx.select().from(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION))
+      expect((marker!.report as { mode: string }).mode).toBe(`apply`)
+      expect(await migrateA2ui10Once(tx as Client)).toBeNull()
+    })
+  })
+
   it(`a dry run counts and changes nothing`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
@@ -159,7 +184,118 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
     })
   })
 
-  it(`apply rewrites, keeps timestamps and the digest, and every row loads with the bridge off`, async () => {
+  it(`an agent's run triggers move to flat action names, once`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const run = (action: string) => ({ id: crypto.randomUUID(), enabled: true, kind: `event`, name: `pr.merged`, run: { action, args: { title: `\${event.title}` } } })
+      const wake = { id: crypto.randomUUID(), enabled: true, kind: `event`, name: `pr.merged`, prompt: `Log it` }
+      const dotted = run(`exponential.issues.create`)
+      const agent = (
+        await tx.execute<{ id: string }>(sql`
+        INSERT INTO agents (team_id, owner_id, device_id, name, triggers, created_at, updated_at)
+        VALUES (${s.teamId}, ${s.userId}, 'dev', 'Runner', ${JSON.stringify([wake, dotted])}::jsonb, ${FIXED}::timestamptz, ${FIXED}::timestamptz) RETURNING id`)
+      ).rows[0]!.id
+      const dry = await runA2ui10Migration(tx as Client, { apply: false, teamId: s.teamId })
+      expect(dry.columns[`agents.triggers`]).toMatchObject({ total: 1, toRewrite: 1, rewritten: 0, synced: true })
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(report.columns[`agents.triggers`]!.rewritten).toBe(1)
+      const row = (await tx.execute<{ triggers: unknown; updated_at: string }>(sql`SELECT triggers, updated_at FROM agents WHERE id = ${agent}::uuid`)).rows[0]!
+      expect(row.triggers).toEqual([wake, { ...dotted, run: { ...dotted.run, action: `exponential_issues_create` } }])
+      expect(new Date(row.updated_at).toISOString()).toBe(FIXED)
+      const again = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(again.columns[`agents.triggers`]).toMatchObject({ total: 1, alreadyV10: 1, toRewrite: 0 })
+    })
+  })
+
+  /** A format 5 package whose own test expects `error` from a bad param. */
+  const crm = (error: string) => ({
+    formatVersion: 5,
+    id: `acme.crm`,
+    name: `CRM`,
+    version: `1.0.0`,
+    catalogId: CORE_CATALOG_ID,
+    functions: [`records.*`],
+    sources: [`records:*`],
+    records: { deal: { schema: { type: `object`, properties: { stage: { type: `string`, enum: [`lead`, `won`] } }, required: [`stage`] } } },
+    actions: { move: { params: { type: `object`, properties: { stage: { type: `string`, enum: [`lead`, `won`] } }, required: [`stage`] }, steps: [{ "records.upsert": { kind: `deal`, data: { stage: `params.stage` } } }] } },
+    templates: { main: { components: [{ id: `root`, component: `Text`, text: `x` }] } },
+    tests: [
+      { name: `a known stage writes`, action: { name: `move`, params: { stage: `won` } }, expect: { records: { deal: [{ stage: `won` }] } } },
+      { name: `unknown stage is refused by the params`, action: { name: `move`, params: { stage: `nope` } }, expect: { error } },
+    ],
+  })
+
+  it(`staging's shapes: a test that already failed migrates, an unloadable row is left alone`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const stale = await s.app(`stale-${id8()}`, { package: crm(`params: /stage must be equal to one of the allowed values`) })
+      const good = await s.app(`good-${id8()}`, { package: crm(`stage must be one of lead, won`) })
+      const { formatVersion: _none, ...bare } = crm(`x`)
+      const unloadable = await s.app(`bare-${id8()}`, { package: bare, grants: [`exponential.issues.update`] })
+      for (const apply of [false, true]) {
+        const report = await runA2ui10Migration(tx as Client, { apply, teamId: s.teamId })
+        const column = report.columns[`apps.package`]!
+        expect(report.ok).toBe(true)
+        expect(column).toMatchObject({ total: 3, toRewrite: 2, rewritten: apply ? 2 : 0, failed: [] })
+        expect(column.unloadable).toEqual([{ id: unloadable, reason: `format version undefined is read by no client` }])
+        expect(column.testsAlreadyFailing.map((row) => row.id)).toEqual([stale])
+        expect(column.testsAlreadyFailing[0]!.reason).toContain(`/tests/1`)
+      }
+      expect((await appRow(tx, stale)).package!.formatVersion).toBe(6)
+      expectPackageLoads((await appRow(tx, good)).package)
+      const left = await appRow(tx, unloadable)
+      expect(left.package).toEqual(bare)
+      expect(left.granted_tools).toEqual([`exponential_issues_update`])
+    })
+  })
+
+  it(`production's shape: a ~129 KB package its upgrade grows past the cap migrates and is listed`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const base = structuredClone(CAT.fieldVisits) as Record<string, unknown>
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+      // Its templates again and again, as a big app grows (the upgrade adds ~6.5 %).
+      const templates = Object.entries(base.templates as Record<string, unknown>)
+      for (let i = 0; bytes(base) < 128_000; i++) for (const [id, template] of templates) (base.templates as Record<string, unknown>)[`${id}${i}`] = structuredClone(template)
+      expect(bytes(base)).toBeLessThan(131_072)
+      const big = await s.app(`big-${id8()}`, { package: base })
+      const version = await s.version(big, 1, base)
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(report.ok).toBe(true)
+      const pkg = (await appRow(tx, big)).package!
+      expect(pkg.formatVersion).toBe(6)
+      expect(bytes(pkg)).toBeGreaterThan(131_072)
+      expect(report.columns[`apps.package`]!.overCap).toEqual([{ id: big, bytes: bytes(pkg) }])
+      expect(report.columns[`app_versions.package`]!.overCap.map((row) => row.id)).toEqual([version])
+      expectPackageLoads(pkg)
+    })
+  })
+
+  it(`a test the upgrade broke still fails its row`, async () => {
+    const pkg = crm(`stage must be one of lead, won`)
+    // Passes on format 5; a conversion that touched the action's data would not.
+    const broken = { ...pkg, tests: [{ name: `t`, action: { name: `move`, params: { stage: `won` } }, expect: { records: { deal: [{ stage: `lead` }] } } }] }
+    expect(await upgradeStoredPackage(broken)).toMatchObject({ kind: `rewrite`, testsFailing: expect.stringContaining(`/tests/0`) })
+    vi.mocked(upgrades.upgradePackage09).mockResolvedValueOnce({ package: { ...broken, formatVersion: 6, functions: [`records_*`], actions: { move: { ...pkg.actions.move, steps: [{ records_upsert: { kind: `deal`, data: { stage: `'lead'` } } }] } }, tests: pkg.tests }, status: `unsigned` } as never)
+    expect(await upgradeStoredPackage(pkg)).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`/tests/0`) })
+  })
+
+  it(`the script's dry run connects read-only and loads no server module`, async () => {
+    const { connectMigration } = await import(`./connect`)
+    const readOnly = connectMigration(process.env.DATABASE_URL!, { readOnly: true })
+    await expect(readOnly.db.execute(sql`CREATE TABLE a2ui_probe (x int)`)).rejects.toMatchObject({ cause: { message: expect.stringContaining(`read-only transaction`) } })
+    await readOnly.close()
+    const out = execFileSync(`bun`, [`scripts/a2ui10-migrate.ts`], { cwd: join(ROOT, `apps/web`), encoding: `utf8`, env: { ...process.env, BETTER_AUTH_SECRET: ``, NODE_ENV: `` }, stdio: `pipe` })
+    expect(out).toContain(`a2ui10-migrate (dry-run)`)
+    expect(out).not.toContain(`better-auth`)
+    const dir = mkdtempSync(join(tmpdir(), `a2ui10-`))
+    execFileSync(`bun`, [`build`, `scripts/a2ui10-migrate.ts`, `--target=bun`, `--packages=external`, `--outdir=${dir}`], { cwd: join(ROOT, `apps/web`), stdio: `pipe` })
+    const graph = readFileSync(join(dir, `a2ui10-migrate.js`), `utf8`)
+    rmSync(dir, { recursive: true })
+    for (const server of [`better-auth"`, `src/lib/auth/`, `src/db/connection.ts`, `src/lib/trpc.ts`]) expect(graph).not.toContain(server)
+  }, 60_000)
+
+  it(`apply rewrites, keeps timestamps and the digest, and every row loads as 1.0`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
       const seeded = await seedAll(s)
@@ -233,7 +369,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       expect(report.columns[`apps.draft_package`]!.failed).toEqual([{ id: broken, reason: expect.stringContaining(`no component has the id root`) }])
       expect(report.columns[`apps.package`]!.heldBack).toBe(1)
       expect(report.columns[`apps.granted_tools`]!.heldBack).toBe(1)
-      expect(report.columns[`app_versions.package`]!.failed).toEqual([{ id: format4, reason: `format version 4 has no upgrade` }])
+      expect(report.columns[`app_versions.package`]!.unloadable).toEqual([{ id: format4, reason: `format version 4 is read by no client` }])
       expect(report.columns[`messages.card`]!.failed).toEqual([{ id: card, reason: expect.stringContaining(`NoSuchComponent`) }])
       const app = await appRow(tx, broken)
       expect(app.package).toEqual(CAT.fieldVisits)
@@ -371,15 +507,13 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
   })
 })
 
-describe.skipIf(!ready.ok)(`stripUngrantableGrants (FEED-159) across the flag day`, () => {
-  it(`keeps a grantable action in either spelling, drops the rest`, async () => {
+describe.skipIf(!ready.ok)(`stripUngrantableGrants (FEED-159) after the flag day`, () => {
+  it(`keeps a grantable flat action and a dotted one (it waits for the migration), drops the rest`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
-      const dotted = await s.app(`dotted-${id8()}`, { grants: [`exponential.issues.update`, `exponential.issues.delete`, `exponential.nope.nope`] })
-      const flat = await s.app(`flat-${id8()}`, { grants: [`exponential_issues_update`, `exponential_issues_delete`] })
+      const flat = await s.app(`flat-${id8()}`, { grants: [`exponential_issues_update`, `exponential_issues_delete`, `exponential.issues.update`] })
       await stripUngrantableGrants(tx as never)
-      expect((await appRow(tx, dotted)).granted_tools).toEqual([`exponential.issues.update`])
-      expect((await appRow(tx, flat)).granted_tools).toEqual([`exponential_issues_update`])
+      expect((await appRow(tx, flat)).granted_tools).toEqual([`exponential_issues_update`, `exponential.issues.update`])
     })
   })
 })

@@ -1,13 +1,13 @@
 {
-  "formatVersion": 5,
+  "formatVersion": 6,
   "id": "acme.album",
   "name": "Album",
   "version": "1.0.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "functions": [
-    "records.*",
-    "app.navigate",
-    "photos.pick"
+    "records_*",
+    "app_navigate",
+    "photos_pick"
   ],
   "sources": [
     "records:*"
@@ -78,7 +78,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "records.upsert",
+                "@call": "records_upsert",
                 "args": {
                   "kind": "note",
                   "data": {
@@ -103,7 +103,7 @@
           "id": "row",
           "component": "Row",
           "title": {
-            "path": "text"
+            "@path": "text"
           },
           "icon": "ui-file"
         }
@@ -127,7 +127,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "photos.pick",
+                "@call": "photos_pick",
                 "args": {
                   "limit": 5
                 }

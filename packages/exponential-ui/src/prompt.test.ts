@@ -1,5 +1,6 @@
 // VAPP-85: the model-facing prompt and its budget on record.
 
+import { isCheckMixin } from "./mixins"
 import { describe, expect, test } from "bun:test"
 import { EXPRESSION_CALL_NAMES } from "./cel"
 import budget from "../fixtures/prompt-budget.json" with { type: "json" }
@@ -33,11 +34,11 @@ describe(`catalog prompt`, () => {
       for (const [prop, schema] of Object.entries(def.props)) {
         // VAPP-217: a host-filled prop (the record macros') is never authored.
         if (schema.host) expect(full, `${name}.${prop}`).not.toMatch(new RegExp(`\\n${name}: [^\\n]*(\\n  [^\\n]*)*\\n  ${prop}[*~^]*: `))
-        else expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
+        else expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${isCheckMixin(schema) ? `@` : ``}${prop}[*~^]*: `))
       }
     }
     // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.
-    for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app.toast`])
+    for (const needle of [`Functions ({"@call": name, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {"@call": name, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app_toast`])
       expect(full, needle).toContain(needle)
     // VAPP-191: same signatures share an entry (add|sub(…)); the expression
     // functions are reached through expr (the apps catalog lists them).

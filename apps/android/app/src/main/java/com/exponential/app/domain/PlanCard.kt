@@ -8,7 +8,12 @@ import kotlinx.serialization.json.doubleOrNull
 
 /** EXP-1280: the surface an agent authored: an Exponential UI core NestedNode
  *  ([root]) + its data model ([data]). */
-data class CardSurface(val root: JsonObject, val data: JsonObject?, val version: String? = null)
+data class CardSurface(val root: JsonObject, val data: JsonObject?, val version: String? = null) {
+    /** plan-card.json `surfaceReadableCases`: only A2UI `"1.0"` paints; any
+     *  other card shows THE inline marker (`ChatExpress.Copy.BLOCK_FAILED`) in
+     *  its surface's place. */
+    val readable: Boolean get() = version == "1.0"
+}
 
 /**
  * EXP-1280 custom plan mode: THE plan / question card's behaviour ×4 — the

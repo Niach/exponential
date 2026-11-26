@@ -18,8 +18,8 @@
 //!   JSON text in and out; a `Theme` object painters query per part (VAPP-88).
 //! - Round 9 (A2UI 1.0, `docs/round-9-contract.md`): `routeJson(message,
 //!   trusted)`, `mintSurfaceId`, the `call` / `respond` ops, the renderer →
-//!   agent builders, `rendererCapabilitiesJson`, `upgrade09Json`,
-//!   `upgradeCard09`, `a2uiVersion`, `acceptV09`.
+//!   agent builders, `rendererCapabilitiesJson`,
+//!   `a2uiVersion`.
 //!
 //! Round 1:
 //! - `layout(measurer)` calls the measurer WITHOUT holding the surface lock
@@ -2763,15 +2763,6 @@ impl HostRouter {
     /// Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
     /// §1.1: a transport routes with `trusted = false`; only host code passes
     /// `true` (the host-internal `applyTemplate` / `bindDataModel`).
-    /// [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
-    pub fn route_with_bridge_json(&self, message_json: String, trusted: bool, accept_v09: bool) -> String {
-        shield("route_with_bridge_json", || "[]".to_string(), || {
-            let options = h::RouteOptions { trusted, accept_v09 };
-            let message: Value = serde_json::from_str(&message_json).unwrap_or(Value::Null);
-            Value::Array(self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message, options)).to_string()
-        })
-    }
-
     pub fn route_json(&self, message_json: String, trusted: bool) -> String {
         shield("route_json", || "[]".to_string(), || {
             // VAPP-103: an oversized message is refused before it is parsed.
@@ -3335,12 +3326,6 @@ pub fn a2ui_version() -> String {
     eui_core::catalog::A2UI_VERSION.to_string()
 }
 
-/// `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
-#[uniffi::export]
-pub fn accept_v09() -> bool {
-    eui_core::catalog::ACCEPT_V09
-}
-
 /// Round 9 §4.1: UAX #31 over the generated tables.
 #[uniffi::export]
 pub fn is_identifier(id: String) -> bool {
@@ -3356,10 +3341,10 @@ pub fn mangle_id(id: String) -> String {
 /// Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
 /// 1.0, `cardProblems`, its reduce over the core catalog).
 #[uniffi::export]
-pub fn card_v10_json(card_json: String, accept_v09: bool) -> Result<String, UiError> {
+pub fn card_v10_json(card_json: String) -> Result<String, UiError> {
     guarded("card_v10_json", || {
         let card: Value = parse(&card_json)?;
-        Ok(match eui_core::reducer::card_v10(&card, accept_v09) {
+        Ok(match eui_core::reducer::card_v10(&card) {
             Err(error) => serde_json::json!({"error": error}).to_string(),
             Ok(card) => {
                 let root: NestedNode = serde_json::from_value(card["root"].clone()).map_err(invalid)?;
@@ -3367,26 +3352,6 @@ pub fn card_v10_json(card_json: String, accept_v09: bool) -> Result<String, UiEr
                 serde_json::json!({"card": card, "problems": eui_core::reducer::card_problems(&card["root"]), "issues": reduced.issues, "root": reduced.root}).to_string()
             }
         })
-    })
-}
-
-/// Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
-/// documented on `eui_core::upgrade09::upgrade09_json`.
-#[uniffi::export]
-pub fn upgrade09_json(request_json: String) -> Result<String, UiError> {
-    guarded("upgrade09_json", || {
-        let request: Value = parse(&request_json)?;
-        Ok(eui_core::upgrade09::upgrade09_json(&request).to_string())
-    })
-}
-
-/// A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
-/// (§18: to DISPLAY a card that has no `version: "1.0"`).
-#[uniffi::export]
-pub fn upgrade_card09(card_json: String) -> Result<String, UiError> {
-    guarded("upgrade_card09", || {
-        let card: Value = parse(&card_json)?;
-        Ok(eui_core::upgrade09::upgrade_card09(&card).to_string())
     })
 }
 
@@ -3525,7 +3490,7 @@ pub fn run_package_tests_json(package_json: String) -> Result<String, UiError> {
     })
 }
 
-/// VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+/// VAPP-194: apply a `records_batch` (`eui_core::host::apply_record_batch`)
 /// to `rows_json` (record rows) all or nothing, checked against
 /// `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
 /// `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
@@ -3742,7 +3707,7 @@ pub fn resolve_screen_json(package_json: String, screen: Option<String>, params_
     })
 }
 
-/// VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+/// VAPP-218 (U1): an `app_navigate` call's args → `{screen, params}` or
 /// `{error}` (`fixtures/host-router.json` `navigate`).
 #[uniffi::export]
 pub fn navigate_target_json(package_json: String, args_json: String) -> Result<String, UiError> {

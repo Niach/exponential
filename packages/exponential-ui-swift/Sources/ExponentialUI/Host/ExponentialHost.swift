@@ -206,14 +206,7 @@ public final class ExponentialHost {
     @discardableResult
     public func installPackage(_ json: String) -> [JSONValue] {
         let issues = JSONValue.parse((try? router.installPackage(packageJson: json)) ?? #"[{"path":"","message":"not JSON"}]"#).array ?? []
-        var pkg = JSONValue.parse(json)
-        // Round 9 §12: the router installed a format-5 package UPGRADED (flat
-        // function names): the policy gate, the actions and navigation read
-        // that copy too, or `records.*` never matches `records_upsert`.
-        if pkg["formatVersion"]?.number == 5 {
-            let request = JSONValue.object(["kind": .string("package"), "input": pkg]).json
-            if let upgraded = JSONValue.parse((try? upgrade09Json(requestJson: request)) ?? "null")["package"], upgraded != .null { pkg = upgraded }
-        }
+        let pkg = JSONValue.parse(json)
         if issues.isEmpty, let id = pkg["id"]?.string { packages[id] = pkg }
         return issues
     }
@@ -696,7 +689,7 @@ public final class ExponentialHost {
         return FunctionOutcome(decision: .allow, result: committed)
     }
 
-    /// VAPP-218: `app.navigate {screen, params?}` → the host's shell, when
+    /// VAPP-218: `app_navigate {screen, params?}` → the host's shell, when
     /// the surface's package has that screen. A refusal = INVALID_FUNCTION_CALL.
     @discardableResult
     public func navigate(_ call: FunctionCallInfo) -> FunctionOutcome {

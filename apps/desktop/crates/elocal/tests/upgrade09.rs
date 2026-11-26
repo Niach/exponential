@@ -1,13 +1,13 @@
-//! VAPP-289 (round 9 §14): replays `fixtures/upgrade09.json` byte for byte
-//! (key order included), like `src/upgrade09.test.ts`. The Ed25519 itself is
+//! VAPP-289 (round 9 §14): replays the migration's `upgrade09.json` byte for byte
+//! (key order included), like its `upgrade09.test.ts`. The Ed25519 itself is
 //! the host's: the `verify` cases hand the verifier the fixture's status.
 
-use eui_core::upgrade09::{
+use elocal::upgrade09::{
     upgrade_card09, upgrade_client_message09, upgrade_message09, upgrade_package09, upgrade_package_body09, PackageVerification, Upgrade09State,
 };
 use serde_json::Value;
 
-const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/upgrade09.json");
+const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/web/src/lib/apps/a2ui10-migrate/upgrade09.json");
 
 fn bytes(v: &Value) -> String {
     serde_json::to_string(v).unwrap()

@@ -151,17 +151,9 @@ public enum AppActions {
         "exponential_team_config_statuses_update": "exponential_statuses_update",
     ]
 
-    /// Round 9 §14: a stored name from before the flat names (a grant, a v5
-    /// package's `functions`): `exponential.issues.update` is
-    /// `exponential_issues_update` until the flag-day migration rewrites it.
-    public static func flatAction(_ name: String) -> String {
-        name.hasPrefix("exponential.") ? name.replacingOccurrences(of: ".", with: "_") : name
-    }
-
     /// The name an action is judged by: an alias's new name, else the name.
     public static func canonicalAction(_ name: String) -> String {
-        let flat = flatAction(name)
-        return aliases[flat] ?? flat
+        aliases[name] ?? name
     }
 
     /// The `copy.tools` strings (the editor's Settings Tools group; VAPP-177:
@@ -258,7 +250,7 @@ public enum AppActions {
     /// over the aliases too: an alias declares its NEW name), in the
     /// fixture's order; anything that is not an offered action is dropped.
     public static func declaredActions(_ functions: [String]) -> [String] {
-        let named = { (name: String) in functions.contains { matches(flatAction($0), name) } }
+        let named = { (name: String) in functions.contains { matches($0, name) } }
         let viaAlias = Set(aliases.filter { named($0.key) }.values)
         return all.filter { named($0) || viaAlias.contains($0) }
     }

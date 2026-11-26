@@ -28,6 +28,7 @@
 //! gpui-free and Engine-free (`tests/dependency_gate.rs`): eDE hosts it now,
 //! the IDE after the parity gate, the Engine's record store later.
 
+pub mod a2ui10;
 pub mod blobs;
 pub mod desktops;
 pub mod executor;
@@ -37,6 +38,7 @@ pub mod runs;
 pub mod share;
 pub mod store;
 pub mod time;
+pub mod upgrade09;
 
 pub use blobs::FsBlobStore;
 pub use desktops::{ede_legacy_root, machine_root, DesktopEntry, DesktopMeta, Desktops, Imported, LocalDesktop, LocalRepository, SharedAs, TrashedIssue, MIGRATED_MARKER};

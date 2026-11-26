@@ -97,7 +97,7 @@ struct AppEditorScreen: View {
     @State private var access: String?
     /// VAPP-218 (apps.json `screens`): the screen the preview is asked for
     /// (nil = the package's first): a link's, a bar tap's (its own params)
-    /// or the package's `app.navigate`; kept in memory across repaints.
+    /// or the package's `app_navigate`; kept in memory across repaints.
     @State private var screenRequest: Apps.ScreenRequest?
     /// The link's screen is applied once (a pop back here keeps the tab).
     @State private var screenLinkApplied = false

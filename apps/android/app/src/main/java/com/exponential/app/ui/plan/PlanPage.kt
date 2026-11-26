@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.exponential.app.ui.components.ImageActionsBox
 import com.exponential.app.ui.components.imageBytesForSrc
+import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
@@ -338,7 +339,7 @@ private fun PlanDocument(
             if (surface != null) {
                 item(key = "surface") {
                     val handle = remember { CardSurfaceHandle() }
-                    CardSurfaceView(surface, handle, inert = true)
+                    CardSurfaceView(surface, handle, inert = true, modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp))
                 }
             }
         }

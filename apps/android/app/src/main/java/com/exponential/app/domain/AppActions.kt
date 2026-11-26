@@ -135,13 +135,8 @@ object AppActions {
         "exponential_team_config_statuses_update" to "exponential_statuses_update",
     )
 
-    /** Round 9 §14: a stored name from before the flat names (a grant, a v5
-     *  package's `functions`): `exponential.issues.update` is
-     *  `exponential_issues_update` until the flag-day migration rewrites it. */
-    fun flatAction(name: String): String = if (name.startsWith("exponential.")) name.replace('.', '_') else name
-
     /** The name an action is judged by: an alias's new name, else the name. */
-    fun canonicalAction(name: String): String = flatAction(name).let { ALIASES[it] ?: it }
+    fun canonicalAction(name: String): String = ALIASES[name] ?: name
 
     /** The settings page's `copy.tools` strings (web + desktop render them; phones have no app settings). */
     object Copy {
@@ -190,7 +185,7 @@ object AppActions {
      *  the aliases too: an alias declares its NEW name), in the fixture's
      *  order; anything that is not an offered action is dropped. */
     fun declaredActions(functions: List<String>): List<String> {
-        val named = { name: String -> functions.any { matches(flatAction(it), name) } }
+        val named = { name: String -> functions.any { matches(it, name) } }
         val viaAlias = ALIASES.filterKeys(named).values.toSet()
         return ALL.filter { named(it) || it in viaAlias }
     }

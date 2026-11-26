@@ -207,7 +207,7 @@ final class RunnerKitTests: XCTestCase {
         var bare = samplePackage
         bare["screens"] = nil
         bare["capabilities"] = nil
-        bare["functions"] = ["records.*"]
+        bare["functions"] = ["records_*"]
         bare["templates"] = ["only": ["components": [["id": "root", "component": "Text", "text": "Only"]]]]
         let painter2 = Recorder()
         _ = running(painter2, package: bare)
@@ -224,7 +224,7 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertNotNil(painter.last("records"))
         let value = await withCheckedContinuation { c in s.recordsValue(source: "records:note") { c.resume(returning: $0) } }
         XCTAssertEqual((RunnerJSON.object(value ?? "{}")?["count"] as? NSNumber)?.intValue, 1)
-        // runner.navigate = app.navigate.
+        // runner.navigate = app_navigate.
         XCTAssertTrue(s.handleEvent(name: "runner.navigate", context: ["screen": "pages"]))
         s.settle()
         XCTAssertEqual(painter.opened.last, "pages")

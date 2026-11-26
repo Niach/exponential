@@ -6,18 +6,18 @@ import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
-import { CORE_CATALOG_ID, bridgePackage, cardProblems, cardV10, reduceNested, signPackageFile, validatePackage, verifyPackageFile, type NestedNode, type PackageShare, type RecordKind } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, signPackageFile, validatePackage, verifyPackageFile, type NestedNode, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { declaredActions } from "@exp/domain-contract/app-actions"
 import { APP_PACKAGE_MAX_BYTES } from "@exp/domain-contract/apps"
-import fixture from "./a2ui10-migrate.fixture.json"
+import fixture from "./fixture.json"
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
-const { upgradeGrants, upgradePackageFile, upgradeStoredCard, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
+const { upgradeGrants, stagedV09, upgradePackageFile, upgradeStoredCard, upgradeStoredPackage, upgradeTriggers } = await import(`@/lib/apps/a2ui10-migrate`)
 const { APP_CATALOG_IDS, appExtension, appPackageIssues, linkableScreens, migratedPackageIssues } = await import(`@/lib/apps/package`)
 const { guestPackage } = await import(`@/lib/apps/share-links`)
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`)
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`, `..`)
 const json = (path: string) => JSON.parse(readFileSync(join(ROOT, path), `utf8`)) as Record<string, unknown>
 const inDir = (dir: string, suffix: string) => readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(suffix)).map((f) => join(dir, f))
 
@@ -40,6 +40,13 @@ const rewritten = (verdict: { kind: string; value?: unknown; reason?: string }) 
   return verdict.value as Record<string, unknown>
 }
 
+/** A shipped file as a client reads it: at format 6, or (the signed samples,
+ *  until the pinned signer re-signs them) its upgrade. */
+const atFormat6 = async (body: Record<string, unknown>) => {
+  const verdict = await upgradeStoredPackage(body)
+  return verdict.kind === `current` ? body : rewritten(verdict)
+}
+
 describe(`upgradeStoredPackage`, () => {
   it(`takes a real-shaped package to a format 6 every client loads`, async () => {
     const pkg = rewritten(await upgradeStoredPackage(fixture.packages.fieldVisits))
@@ -55,13 +62,15 @@ describe(`upgradeStoredPackage`, () => {
   it(`skips format 6, reports what it cannot read`, async () => {
     expect(await upgradeStoredPackage(fixture.packages.alreadyV6)).toEqual({ kind: `current` })
     expect(await upgradeStoredPackage(null)).toEqual({ kind: `empty` })
-    expect(await upgradeStoredPackage(fixture.packages.formatFour)).toEqual({ kind: `failed`, reason: `format version 4 has no upgrade` })
+    expect(await upgradeStoredPackage(fixture.packages.formatFour)).toEqual({ kind: `unloadable`, reason: `format version 4 is read by no client` })
     expect(await upgradeStoredPackage([])).toEqual({ kind: `failed`, reason: `a package is an object` })
     const broken = await upgradeStoredPackage(fixture.packages.brokenTemplate)
     expect(broken).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`no component has the id root`) })
   })
 
-  it(`a package the upgrade grows past the cap fails, never truncates`, async () => {
+  // Production's shape: ~129 KB of format 5 whose upgrade (mostly the 0.9
+  // presence wraps, then `@path`/`@call`) passes 131,072 bytes.
+  it(`a package the upgrade grows past the cap migrates whole and is reported`, async () => {
     const base = structuredClone(fixture.packages.fieldVisits) as Record<string, unknown>
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
     const before = bytes(base)
@@ -70,13 +79,20 @@ describe(`upgradeStoredPackage`, () => {
     // Fills the original to the cap exactly: it fits, its upgrade cannot.
     base.description = `${base.description}${`x`.repeat(APP_PACKAGE_MAX_BYTES - before)}`
     expect(bytes(base)).toBe(APP_PACKAGE_MAX_BYTES)
-    expect(await upgradeStoredPackage(base)).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`the cap is ${APP_PACKAGE_MAX_BYTES}`) })
+    const big = await upgradeStoredPackage(base)
+    expect(big).toMatchObject({ kind: `rewrite`, bytes: APP_PACKAGE_MAX_BYTES + growth })
+    const pkg = rewritten(big)
+    expect(pkg.description).toBe(base.description)
+    // Every client's load takes it; only this server's write rule refuses it.
+    expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
+    expect(migratedPackageIssues(pkg)).toEqual([])
+    expect(appPackageIssues(pkg).map((issue) => issue.message)).toEqual([expect.stringContaining(`the cap is ${APP_PACKAGE_MAX_BYTES}`)])
   })
 })
 
 describe(`upgradeStoredCard`, () => {
   const load = (card: { surface: unknown }) => {
-    const entry = cardV10(card.surface, false)
+    const entry = cardV10(card.surface)
     if (`error` in entry) throw new Error(entry.error)
     expect(cardProblems(entry.card.root)).toEqual([])
     expect(reduceNested(entry.card.root as NestedNode, { catalogId: CORE_CATALOG_ID }).issues).toEqual([])
@@ -127,9 +143,8 @@ describe(`upgradeGrants`, () => {
 
 describe(`every package the platform ships`, () => {
   for (const path of SHIPPED) {
-    it(`${path} upgrades and loads with the bridge off`, async () => {
-      const verdict = await upgradeStoredPackage(bodyOf(json(path)))
-      const pkg = rewritten(verdict)
+    it(`${path} loads at format 6`, async () => {
+      const pkg = await atFormat6(bodyOf(json(path)))
       expect(pkg.formatVersion).toBe(6)
       expect(migratedPackageIssues(pkg)).toEqual([])
       expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
@@ -139,7 +154,7 @@ describe(`every package the platform ships`, () => {
 
   for (const path of inDir(`samples/apps`, `.app.json`)) {
     it(`${path} passes the flag-day upsert`, async () => {
-      expect(appPackageIssues(rewritten(await upgradeStoredPackage(bodyOf(json(path)))), false)).toEqual([])
+      expect(appPackageIssues(await atFormat6(bodyOf(json(path))))).toEqual([])
     })
   }
 
@@ -148,15 +163,46 @@ describe(`every package the platform ships`, () => {
   })
 })
 
-describe(`a stored format 6 row, read today (the bridge still on)`, () => {
+describe(`upgradeTriggers`, () => {
+  it(`flattens a run binding's action and nothing else`, () => {
+    const wake = { id: `w`, kind: `event`, name: `pr.merged`, prompt: `exponential.issues.create` }
+    const run = (action: string) => ({ id: `r`, kind: `schedule`, cron: `0 8 * * 1`, run: { action, args: { title: `\${firedAt}` } } })
+    expect(upgradeTriggers([wake, run(`exponential.issues.create`)])).toEqual({ kind: `rewrite`, value: [wake, run(`exponential_issues_create`)] })
+    expect(upgradeTriggers([wake, run(`exponential_issues_create`)])).toEqual({ kind: `current` })
+    expect(upgradeTriggers([])).toEqual({ kind: `empty` })
+  })
+})
+
+describe(`stagedV09 (imports.commit)`, () => {
+  it(`names the first 0.9 row a team import would write`, () => {
+    expect(stagedV09([{ tableName: `apps`, row: { package: fixture.packages.fieldVisits } }])).toContain(`format 5`)
+    expect(stagedV09([{ tableName: `apps`, row: { granted_tools: fixture.grants.dotted } }])).toContain(`grants`)
+    expect(stagedV09([{ tableName: `app_versions`, row: { package: fixture.packages.fieldVisits } }])).toContain(`format 5`)
+    expect(stagedV09([{ tableName: `messages`, row: { card: fixture.cards.surface } }])).toContain(`card`)
+    expect(stagedV09([{ tableName: `agents`, row: { triggers: [{ run: { action: `exponential.issues.create` } }] } }])).toContain(`triggers`)
+  })
+
+  it(`takes 1.0 rows, sealed cards and everything else`, () => {
+    expect(
+      stagedV09([
+        { tableName: `apps`, row: { package: { formatVersion: 6 }, draft_package: null, granted_tools: [`exponential_issues_create`] } },
+        { tableName: `messages`, row: { card: { kind: `surface`, surface: { version: `1.0`, root: {} } } } },
+        { tableName: `messages`, row: { card: { kind: `surface`, sealed: `v1:1:abc` } } },
+        { tableName: `messages`, row: { card: null } },
+        { tableName: `issues`, row: { package: { formatVersion: 5 } } },
+      ])
+    ).toBeNull()
+  })
+})
+
+describe(`a stored format 6 row`, () => {
   const row = async () => rewritten(await upgradeStoredPackage(fixture.packages.fieldVisits))
 
   it(`the server's readers take it as it is`, async () => {
     const pkg = await row()
-    expect(bridgePackage(pkg)).toBe(pkg)
     expect(declaredActions(pkg.functions as string[])).toContain(`exponential_issues_create`)
     expect(linkableScreens(`visits`, pkg).map((s) => s.screen)).toEqual([`visits`])
-    expect(appPackageIssues(pkg, false).map((issue) => issue.path)).toEqual([`/tools`])
+    expect(appPackageIssues(pkg).map((issue) => issue.path)).toEqual([`/tools`])
   })
 
   it(`a share link serves its guest template from it`, async () => {

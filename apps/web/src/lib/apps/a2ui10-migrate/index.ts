@@ -1,11 +1,14 @@
 // VAPP-289 (round 9 contract §14.1): the one-shot stored-data migration of the
-// A2UI 1.0 flag day. DORMANT until the flag-day PR runs it: `--dry-run` from
-// `scripts/a2ui10-migrate.ts`, then this module at boot.
+// A2UI 1.0 flag day: a dry run from `scripts/a2ui10-migrate.ts`, then this
+// module at boot on a self-hosted instance (`migrateA2ui10Once`, once: a
+// `data_migrations` row). On the cloud only an operator runs the script. The
+// 0.9 converter (`./upgrade09`) lives here and nowhere else in the app.
 //
 // What moves: `apps.package`, `apps.draft_package`, `app_versions.package` →
 // format 6; `apps.granted_tools` → flat names; every clear card surface in
-// `messages.card` → `"version": "1.0"`. A sealed card stays (the server cannot
-// read it): clients show it through `upgradeCard09`.
+// `messages.card` → `"version": "1.0"`; `agents.triggers[].run.action` → flat
+// names. A sealed card stays (the server cannot read it; it is counted):
+// clients show THE inline marker for it (plan-card.json).
 //
 // Safe beside a live server and after a crash. Rows are read outside any
 // transaction and each write compares the fingerprint of the columns it read,
@@ -19,19 +22,27 @@
 // `conversations.digest` never names a surface, so it does not move.
 
 import { Buffer } from "node:buffer"
-import { sql, type SQL } from "drizzle-orm"
-import { flatAction } from "@exp/domain-contract/app-actions"
-import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, PACKAGE_FORMAT_VERSION_09, cardV10, signPackageFile, upgradeCard09, upgradePackage09, upgradePackageBody09, verifyPackageFile } from "@exponential_app/eui"
+import { eq, sql, type SQL } from "drizzle-orm"
+import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, cardV10, runPackageTests, signPackageFile, verifyPackageFile } from "@exponential_app/eui"
 import type { db as appDb } from "@/db/connection"
-import { migratedPackageIssues } from "@/lib/apps/package"
-import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/plan"
+import { dataMigrations } from "@/db/schema"
+import { migratedPackageIssues, packageBytes } from "@/lib/apps/package"
+import { APP_PACKAGE_MAX_BYTES } from "@exp/domain-contract/apps"
+import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/card-surface"
 import { isSealedCard } from "@/lib/sessions/sealed"
+import { rename09, upgradeCard09, upgradePackage09, upgradePackageBody09 } from "./upgrade09"
+
+/** The package format the converter reads. */
+export const PACKAGE_FORMAT_VERSION_09 = 5
 
 /** The connection or transaction a run goes through. */
 export type MigrationDb = Pick<typeof appDb, `execute` | `transaction`>
 
-/** What one stored value needs. `empty` = nothing of ours in it (not counted). */
-export type Verdict = { kind: `empty` } | { kind: `current` } | { kind: `sealed` } | { kind: `rewrite`; value: unknown } | { kind: `failed`; reason: string }
+/** What one stored value needs. `empty` = nothing of ours in it (not counted);
+ *  `unloadable` = no client loads it, before or after: left as it is;
+ *  `testsFailing` = its own tests failed before the upgrade too; `bytes` = the
+ *  upgrade grew it past `packageMaxBytes` (a write rule of this server alone). */
+export type Verdict = { kind: `empty` } | { kind: `current` } | { kind: `sealed` } | { kind: `unloadable`; reason: string } | { kind: `rewrite`; value: unknown; testsFailing?: string; bytes?: number } | { kind: `failed`; reason: string }
 
 export interface ColumnReport {
   /** Rows holding a value of ours (a NULL package is none; for
@@ -45,6 +56,13 @@ export interface ColumnReport {
   /** Upgradable, but another column of the row failed: the row stays whole. */
   heldBack: number
   failed: { id: string; reason: string }[]
+  /** No client loads it, before or after the migration: left as it is. */
+  unloadable: { id: string; reason: string }[]
+  /** Rewritten although its own tests fail: they failed before the upgrade. */
+  testsAlreadyFailing: { id: string; reason: string }[]
+  /** Rewritten past `packageMaxBytes`: every client loads it (none checks
+   *  the cap), the app's next save asks its owner to trim it. */
+  overCap: { id: string; bytes: number }[]
   /** Changed under every read of this run; a later run takes them. */
   conflicted: string[]
   /** The JSON bytes of `toRewrite`. */
@@ -76,6 +94,8 @@ export interface MigrationOptions {
   batchSize?: number
   /** Test seam: runs between a batch's read and its write. */
   afterRead?: (table: string, ids: string[]) => Promise<void>
+  /** Set by a dry run on itself: already inside its read-only transaction. */
+  readOnly?: boolean
   /** Test seam: walks one team's rows only (every table here carries
    *  `team_id`), so a real-DB suite never reads or row-locks the rows the
    *  suites beside it commit. The script and boot walk everything. */
@@ -91,6 +111,24 @@ const NIL_UUID = `00000000-0000-0000-0000-000000000000`
 // ---------------------------------------------------------------------------
 // One value
 
+/** The paths of a format 5 package's OWN failing tests. The test engine reads
+ *  format 6's two spellings inside an action (the step keys, the called names)
+ *  and nothing else differs for it, so only those are respelled, in the raw
+ *  package: what the full upgrade does to the rest cannot hide a break. */
+function failingTests09(pkg: Record<string, unknown>): string[] {
+  const named = (value: unknown): unknown => {
+    if (typeof value === `string`) return /^[A-Za-z_][\w-]*(\.[\w-]+)+$/.test(value) ? rename09(value) : value
+    if (Array.isArray(value)) return value.map(named)
+    return isObj(value) ? Object.fromEntries(Object.entries(value).map(([key, v]) => [key, named(v)])) : value
+  }
+  const step = (value: unknown): unknown => (isObj(value) ? Object.fromEntries(Object.entries(value).map(([key, v]) => (key === `records.upsert` || key === `records.delete` ? [rename09(key), v] : key === `call` ? [key, named(v)] : [key, v]))) : value)
+  const actions = isObj(pkg.actions)
+    ? Object.fromEntries(Object.entries(pkg.actions).map(([name, action]) => [name, isObj(action) && Array.isArray(action.steps) ? { ...action, steps: action.steps.map(step) } : action]))
+    : pkg.actions
+  const tests = Array.isArray(pkg.tests) ? pkg.tests.map((test) => (isObj(test) ? { ...test, expect: named(test.expect) } : test)) : pkg.tests
+  return runPackageTests({ ...pkg, actions, tests }).flatMap((result, i) => (result.pass ? [] : [`/tests/${i}`]))
+}
+
 /** A stored package → format 6: the SDK's validator (no 0.9 bridge) and the
  *  caps must pass on the result. A stored package carries no file signature
  *  (§18.1); a stray one must verify, like any file's. */
@@ -98,15 +136,21 @@ export async function upgradeStoredPackage(value: unknown): Promise<Verdict> {
   if (value === null || value === undefined) return { kind: `empty` }
   if (!isObj(value)) return { kind: `failed`, reason: `a package is an object` }
   if (value.formatVersion === PACKAGE_FORMAT_VERSION) return { kind: `current` }
-  if (value.formatVersion !== PACKAGE_FORMAT_VERSION_09) return { kind: `failed`, reason: `format version ${JSON.stringify(value.formatVersion)} has no upgrade` }
+  if (value.formatVersion !== PACKAGE_FORMAT_VERSION_09) return { kind: `unloadable`, reason: `format version ${JSON.stringify(value.formatVersion)} is read by no client` }
   const upgraded = await upgradePackage09(value)
   if (upgraded.package === null) return { kind: `failed`, reason: `its signature does not verify` }
-  const issues = migratedPackageIssues(upgraded.package)
+  const all = migratedPackageIssues(upgraded.package)
+  // A package's own test fails the row only when the upgrade broke it.
+  const already = new Set(all.some((issue) => issue.path.startsWith(`/tests/`)) ? failingTests09(value) : [])
+  const issues = all.filter((issue) => !already.has(issue.path))
+  const bytes = packageBytes(upgraded.package)
+  const over = bytes > APP_PACKAGE_MAX_BYTES ? { bytes } : {}
+  if (issues.length === 0 && all.length > 0) return { kind: `rewrite`, value: upgraded.package, testsFailing: all.map((issue) => `${issue.path}: ${issue.message}`).join(`; `), ...over }
   if (issues.length > 0) {
     const listed = issues.slice(0, 3).map((issue) => `${issue.path}: ${issue.message}`)
     return { kind: `failed`, reason: listed.join(`; `) + (issues.length > 3 ? `; and ${issues.length - 3} more` : ``) }
   }
-  return { kind: `rewrite`, value: upgraded.package }
+  return { kind: `rewrite`, value: upgraded.package, ...over }
 }
 
 /** A `messages.card`: its surface, if clear and 0.9, → 1.0. The upgraded
@@ -121,7 +165,7 @@ export function upgradeStoredCard(card: unknown): Verdict {
   if (surface.version === A2UI_VERSION) return { kind: `current` }
   if (surface.version !== undefined) return { kind: `failed`, reason: `unsupported surface version ${JSON.stringify(surface.version)}` }
   const upgraded = upgradeCard09(surface)
-  const entry = cardV10(upgraded, false)
+  const entry = cardV10(upgraded)
   if (`error` in entry) return { kind: `failed`, reason: entry.error }
   try {
     validateCardSurface(upgraded as CardSurfaceInput)
@@ -132,11 +176,29 @@ export function upgradeStoredCard(card: unknown): Verdict {
 }
 
 /** `apps.granted_tools` → flat names, stored order kept. */
+const flatGrant = (name: string): string => (name.startsWith(`exponential.`) ? name.replaceAll(`.`, `_`) : name)
+
 export function upgradeGrants(value: unknown): Verdict {
   if (value === null || value === undefined) return { kind: `empty` }
   if (!Array.isArray(value) || value.some((name) => typeof name !== `string`)) return { kind: `failed`, reason: `granted_tools is a list of names` }
-  const flat = [...new Set((value as string[]).map(flatAction))]
+  const flat = [...new Set((value as string[]).map(flatGrant))]
   return flat.length === value.length && flat.every((name, i) => name === value[i]) ? { kind: `current` } : { kind: `rewrite`, value: flat }
+}
+
+/** `agents.triggers`: a run binding's action → its flat name. */
+export function upgradeTriggers(value: unknown): Verdict {
+  if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) return { kind: `empty` }
+  if (!Array.isArray(value)) return { kind: `failed`, reason: `triggers is a list` }
+  let moved = false
+  const next = value.map((trigger) => {
+    const run = isObj(trigger) ? trigger.run : undefined
+    if (!isObj(run) || typeof run.action !== `string`) return trigger
+    const action = flatGrant(run.action)
+    if (action === run.action) return trigger
+    moved = true
+    return { ...(trigger as Record<string, unknown>), run: { ...run, action } }
+  })
+  return moved ? { kind: `rewrite`, value: next } : { kind: `current` }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +227,7 @@ const TABLES: readonly TableSpec[] = [
       { column: `granted_tools`, plan: upgradeGrants, synced: true },
     ],
   },
+  { table: `agents`, columns: [{ column: `triggers`, plan: upgradeTriggers, synced: true }] },
   { table: `app_versions`, columns: [{ column: `package`, plan: upgradeStoredPackage, synced: false }] },
   {
     table: `messages`,
@@ -185,7 +248,7 @@ interface RowPlan {
 const rowsOf = <T>(result: unknown): T[] => (result as { rows: T[] }).rows
 const keyOf = (spec: TableSpec, column: ColumnSpec) => `${spec.table}.${column.column}`
 
-const emptyColumn = (synced: boolean): ColumnReport => ({ total: 0, alreadyV10: 0, toRewrite: 0, rewritten: 0, sealedSkipped: 0, heldBack: 0, failed: [], conflicted: [], bytes: 0, synced })
+const emptyColumn = (synced: boolean): ColumnReport => ({ total: 0, alreadyV10: 0, toRewrite: 0, rewritten: 0, sealedSkipped: 0, heldBack: 0, failed: [], unloadable: [], testsAlreadyFailing: [], overCap: [], conflicted: [], bytes: 0, synced })
 
 function selectRows(spec: TableSpec): SQL {
   const columns = spec.columns.map((c) => c.column)
@@ -227,11 +290,15 @@ async function planRow(spec: TableSpec, row: Row, columns: Record<string, Column
     if (verdict.kind === `empty`) continue
     if (recount) report.total += 1
     if (verdict.kind === `failed`) report.failed.push({ id: row.id, reason: verdict.reason })
-    else if (verdict.kind === `current` && recount) report.alreadyV10 += 1
+    else if (verdict.kind === `unloadable`) {
+      if (recount) report.unloadable.push({ id: row.id, reason: verdict.reason })
+    } else if (verdict.kind === `current` && recount) report.alreadyV10 += 1
     else if (verdict.kind === `sealed` && recount) report.sealedSkipped += 1
     else if (verdict.kind === `rewrite`) {
       const bytes = Buffer.byteLength(JSON.stringify(verdict.value))
       if (recount) {
+        if (verdict.bytes) report.overCap.push({ id: row.id, bytes: verdict.bytes })
+        if (verdict.testsFailing) report.testsAlreadyFailing.push({ id: row.id, reason: verdict.testsFailing })
         report.toRewrite += 1
         report.bytes += bytes
       }
@@ -340,10 +407,13 @@ async function migrateTable(client: MigrationDb, spec: TableSpec, options: Migra
   for (const id of conflicted) columns[keyOf(spec, spec.columns[0]!)]!.conflicted.push(id)
 }
 
-/** THE entry: the script's and, from the flag-day PR on, boot's. Dry run
+/** THE entry: the script's and boot's. Dry run
  *  unless `apply`. Throws only when the database does. */
 export async function runA2ui10Migration(client: MigrationDb, options: MigrationOptions): Promise<MigrationReport> {
   const startedAt = new Date().toISOString()
+  // A dry run cannot write: the whole of it is one read-only transaction
+  // (inside a caller's transaction, a savepoint: a test's).
+  if (!options.apply && !options.readOnly) return client.transaction((tx) => runA2ui10Migration(tx as MigrationDb, { ...options, readOnly: true }), { accessMode: `read only`, isolationLevel: `repeatable read` })
   const batchSize = options.batchSize ?? DEFAULT_BATCH
   const columns: Record<string, ColumnReport> = {}
   for (const spec of TABLES) for (const column of spec.columns) columns[keyOf(spec, column)] = emptyColumn(column.synced)
@@ -361,13 +431,47 @@ export async function runA2ui10Migration(client: MigrationDb, options: Migration
   }
 }
 
+/** The name of this migration's `data_migrations` row. */
+export const A2UI10_MIGRATION = `a2ui10`
+
+/** Boot of a self-hosted instance (§14.1): one run. Replicas take turns on an advisory
+ *  lock; the marker is written when a run finishes, failures included: a
+ *  failed row is in the log and the marker's report, stops nothing, and is
+ *  no worse off than before (the operator re-runs the script for it). A
+ *  database error throws, so the bootstrap pass retries. */
+export async function migrateA2ui10Once(client: MigrationDb): Promise<MigrationReport | null> {
+  return await client.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`data_migration:${A2UI10_MIGRATION}`}))`)
+    const [done] = await tx.select({ name: dataMigrations.name }).from(dataMigrations).where(eq(dataMigrations.name, A2UI10_MIGRATION)).limit(1)
+    if (done) return null
+    const report = await runA2ui10Migration(client, { apply: true })
+    console[report.ok ? `log` : `error`](`[a2ui10-migrate]\n${formatMigrationReport(report)}`)
+    await tx.insert(dataMigrations).values({ name: A2UI10_MIGRATION, report }).onConflictDoNothing()
+    return report
+  })
+}
+
+/** §14.1: what a team import may not write: staged rows still at A2UI 0.9 (a
+ *  Local desktop older than the flag day; a current one migrates its store
+ *  when it opens). The first one named, or null. Pure. */
+export function stagedV09(rows: readonly { tableName: string; row: Record<string, unknown> }[]): string | null {
+  const format5 = (pkg: unknown) => isObj(pkg) && pkg.formatVersion === PACKAGE_FORMAT_VERSION_09
+  for (const { tableName, row } of rows) {
+    if ((tableName === `apps` || tableName === `app_versions`) && (format5(row.package) || format5(row.draft_package))) return `an app package at format ${PACKAGE_FORMAT_VERSION_09}`
+    if (tableName === `apps` && upgradeGrants(row.granted_tools).kind === `rewrite`) return `an app's grants under their old names`
+    if (tableName === `agents` && upgradeTriggers(row.triggers).kind === `rewrite`) return `an agent's triggers under their old action names`
+    if (tableName === `messages` && isObj(row.card) && !isSealedCard(row.card) && !(`sealedCard` in row.card) && isObj(row.card.surface) && row.card.surface.version !== A2UI_VERSION) return `a card that is not A2UI ${A2UI_VERSION}`
+  }
+  return null
+}
+
 /** The report as the operator reads it. */
 export function formatMigrationReport(report: MigrationReport): string {
-  const header = [`column`, `total`, `1.0`, `to rewrite`, `rewritten`, `sealed`, `held`, `failed`, `conflicted`]
-  const rows = Object.entries(report.columns).map(([name, c]) => [name, c.total, c.alreadyV10, c.toRewrite, c.rewritten, c.sealedSkipped, c.heldBack, c.failed.length, c.conflicted.length].map(String))
+  const header = [`column`, `total`, `1.0`, `to rewrite`, `rewritten`, `sealed`, `unloadable`, `tests failing`, `over cap`, `held`, `failed`, `conflicted`]
+  const rows = Object.entries(report.columns).map(([name, c]) => [name, c.total, c.alreadyV10, c.toRewrite, c.rewritten, c.sealedSkipped, c.unloadable.length, c.testsAlreadyFailing.length, c.overCap.length, c.heldBack, c.failed.length, c.conflicted.length].map(String))
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)))
   const line = (cells: string[]) => cells.map((cell, i) => (i === 0 ? cell.padEnd(widths[i]!) : cell.padStart(widths[i]!))).join(`  `)
-  const failures = Object.entries(report.columns).flatMap(([name, c]) => [...c.failed.map((f) => `  ${name} ${f.id}: ${f.reason}`), ...c.conflicted.map((id) => `  ${name} ${id}: changed under every read; run it again`)])
+  const failures = Object.entries(report.columns).flatMap(([name, c]) => [...c.failed.map((f) => `  FAILED ${name} ${f.id}: ${f.reason}`), ...c.unloadable.map((f) => `  unloadable before and after, left as it is: ${name} ${f.id}: ${f.reason}`), ...c.testsAlreadyFailing.map((f) => `  migrated, its tests already failed: ${name} ${f.id}: ${f.reason}`), ...c.overCap.map((f) => `  migrated past the ${APP_PACKAGE_MAX_BYTES}-byte cap (the next save asks to trim it): ${name} ${f.id}: ${f.bytes} bytes`), ...c.conflicted.map((id) => `  CONFLICTED ${name} ${id}: changed under every read; run it again`)])
   return [
     `a2ui10-migrate (${report.mode}): ${report.ok ? `ok` : `NOT ok`}`,
     line(header),

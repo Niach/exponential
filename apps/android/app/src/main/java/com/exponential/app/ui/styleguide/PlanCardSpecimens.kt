@@ -149,9 +149,9 @@ private val PENDING_PLAN = """
    {"label":"One column","picture":"one"},{"label":"Neither"}]},
   {"id":"platforms","prompt":"Platforms","multi":true,"options":[{"label":"iOS"},{"label":"Android","description":""}]},
   {"id":"broken","options":[]},"junk"],
- "surface":{"root":{"id":"s","component":"Stack","props":{"direction":"vertical","gap":"sm"},"children":[
+ "surface":{"version":"1.0","root":{"id":"s","component":"Stack","props":{"direction":"vertical","gap":"sm"},"children":[
    {"id":"t","component":"Text","props":{"text":"Pick the accent"}},
-   {"id":"c","component":"ChoiceTiles","props":{"name":"accent","options":[{"label":"Blue","value":"blue"},{"label":"Green","value":"green"}],"value":{"path":"/accent"}}}]},
+   {"id":"c","component":"ChoiceTiles","props":{"name":"accent","options":[{"label":"Blue","value":"blue"},{"label":"Green","value":"green"}],"value":{"@path":"/accent"}}}]},
   "data":{"accent":"blue"}},
  "decision":null,"fresh":null,"feedback":null,"answers":null,"surfaceData":null}
 """.trimIndent()

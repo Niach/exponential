@@ -140,7 +140,6 @@ pub mod themes;
 pub mod tracks;
 pub mod tree_guides;
 pub mod types;
-pub mod upgrade09;
 pub mod validate;
 
 #[cfg(feature = "shaping")]

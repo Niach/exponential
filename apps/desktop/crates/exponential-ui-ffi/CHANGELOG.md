@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): removed `routeWithBridgeJson`, `acceptV09`, `upgrade09Json`, `upgradeCard09`; `cardV10Json` takes one argument. Bindings regenerate.
 - `FfiVisual.background_image_json` (genUI round 4): the resolved `backgroundImage`; `background_gradient_json` carries `kind: radial` + `centre [x, y]`.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): every component and nested JSON writes `@catalogId`, `@accessibility`, `@metadata`, `@checks`.
 - `answer_renderer_call_json(op_json, data_json, available_catalog_ids)` (#VAPP-289): the `rendererFunctionResponse` of a router `call` op.
@@ -137,6 +138,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.4.0 (2026-11-02)
 
 - EXP-1605: `motion_read_dotlottie_machine(data)`: a `.lottie`'s first state machine (manifest order) as JSON, "" without one.
+
 ## 0.3.0 (2026-10-31)
 
 - VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.

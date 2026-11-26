@@ -1,7 +1,7 @@
 //! VAPP-261: an `AppInstance`, one running app over a host's providers:
 //! load and verify its package, drive its lifecycle (lifecycle.json) and
 //! carry out the effects, resolve `records:<kind>` sources against the store
-//! with genUI's one records query, dispatch `records.*`, `app.navigate` and
+//! with genUI's one records query, dispatch `records_*`, `app_navigate` and
 //! capability calls (the broker), and keep O1's outbox when the host has a
 //! sync provider (outbox.json: direct writes otherwise).
 
@@ -65,9 +65,7 @@ impl AppInstance {
         if let Verification::Invalid { issues } = &verification {
             return Err(LoadError::Signature(issues.clone()));
         }
-        // Round 9 §12: a format 5 file runs as its upgrade while the bridge is on.
-        let raw = package_of(file);
-        let pkg = if eui_core::catalog::ACCEPT_V09 { eui_core::upgrade09::upgrade_package_body09(raw) } else { raw.clone() };
+        let pkg = package_of(file).clone();
         let issues = validate(&pkg);
         if !issues.is_empty() {
             return Err(LoadError::Invalid(issues));
@@ -210,8 +208,8 @@ impl AppInstance {
         eui_core::host::records_value(&row_refs, &query, ctx)
     }
 
-    /// A host function call from the app's UI: `records.upsert` /
-    /// `records.delete` / `records.batch`, `app.navigate`, or a capability
+    /// A host function call from the app's UI: `records_upsert` /
+    /// `records_delete` / `records_batch`, `app_navigate`, or a capability
     /// (`<capability>.<tool>`, through the broker).
     pub fn call(&mut self, name: &str, args: &Value, new_ids: &[String]) -> CallResult {
         let _span = tracing::debug_span!("engine.call", name).entered();

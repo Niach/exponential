@@ -1,6 +1,6 @@
 // #EXP-1797 (issue-lifecycle.json `trash`): the issue trash. Every issue
 // delete (tRPC issues.delete + bulkDelete, MCP issues_write {op: delete}, an
-// app's exponential.issues.delete) lands here: a SOFT delete that stamps
+// app's exponential_issues_delete) lands here: a SOFT delete that stamps
 // deleted_at + who, cascades nothing, and emits `issue.deleted`. Restore
 // clears it (`issue.restored`); the watchdog's sweep purges it after the
 // retention window, an owner's Delete forever purges it now (`issue.purged`).

@@ -178,7 +178,7 @@ final class ActionsTests: XCTestCase {
                 zone: FixedZone(Int32(f["env"]?["offset"]?.number ?? 0))
             ))
             host.receive(JSONValue.object([
-                "version": .string("v0.9"),
+                "version": .string("1.0"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
             ]), trusted: true)
             let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "add", name: "actions_\(c["action"]?.string ?? "")", args: [:]))
@@ -254,7 +254,7 @@ final class ActionsTests: XCTestCase {
             self.host = host
             box = self
             host.receive(JSONValue.object([
-                "version": .string("v0.9"),
+                "version": .string("1.0"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("month")]),
             ]), trusted: true)
         }
@@ -327,7 +327,7 @@ final class ActionsTests: XCTestCase {
                 policy: HostPolicy(openUrl: { opened.append($0.absoluteString) })
             ))
             host.receive(JSONValue.object([
-                "version": .string("v0.9"),
+                "version": .string("1.0"),
                 "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
             ]), trusted: true)
             let args = c["args"]?.object ?? [:]

@@ -3469,6 +3469,7 @@
                 "junk"
               ],
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "s",
                   "component": "Stack",
@@ -3674,6 +3675,7 @@
               }
             ],
             "surface": {
+              "version": "1.0",
               "root": {
                 "id": "s",
                 "component": "Stack",
@@ -3931,6 +3933,7 @@
               "kind": "surface",
               "title": " Launch path ",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "root",
                   "component": "Text",
@@ -3956,6 +3959,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "root",
                   "component": "Text",
@@ -4066,6 +4070,7 @@
             "sessionId": "r1",
             "title": "Launch path",
             "surface": {
+              "version": "1.0",
               "root": {
                 "id": "root",
                 "component": "Text",
@@ -4084,6 +4089,7 @@
             "sessionId": "r1",
             "title": null,
             "surface": {
+              "version": "1.0",
               "root": {
                 "id": "root",
                 "component": "Text",

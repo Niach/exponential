@@ -5,7 +5,6 @@ export {
   CORE_LITE_CATALOG_ID,
   A2UI_BASIC_CATALOG_ID,
   A2UI_VERSION,
-  ACCEPT_V09,
   SUPPORTED_CATALOG_IDS,
   UNKNOWN_COMPONENT,
   TOKEN_GROUPS,
@@ -22,8 +21,8 @@ export {
 } from "./catalog"
 export type { CatalogView } from "./catalog"
 export * from "./catalog.generated"
-export { newSurfaceBridge, surfaceUpdates } from "./surface-updates"
-export type { SurfaceBridge, SurfaceRefusal, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
+export { surfaceUpdates } from "./surface-updates"
+export type { SurfaceRefusal, SurfaceStream, SurfaceUpdate, SurfaceUpdatesOptions } from "./surface-updates"
 export {
   STYLE_KEYS,
   STYLE_LAYOUT_KEYS,
@@ -62,7 +61,7 @@ export { agentCallRefusal, nestedCallRefusal, allowedCallers, checkArgs, declare
 export type { AllowedCallers } from "./functions"
 export { MALFORMED_TEMPLATE, parseTemplate } from "./format-template"
 export type { TemplatePart } from "./format-template"
-export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
 export { MIXIN_NAMES, bareMixin, declaresBare, isCheckMixin, isCheckable } from "./mixins"
 export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
@@ -211,7 +210,6 @@ export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"
 // Round 8: the Canvas node's pure core and the Checkbox press rule.
 export * from "./canvas"
 export * from "./checkbox"
-export * from "./upgrade09"
 export { isIdentifier, mangle } from "./ids"
 // #EDE-65: Embed, a sandboxed nested surface (fixtures/embed.json).
 export { EMBED_ERROR_ROOT, EMBED_EVENT, embedCard, embedMount, embedPayload, embedSurfaceId } from "./embed"

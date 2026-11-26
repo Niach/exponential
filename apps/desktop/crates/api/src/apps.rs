@@ -544,13 +544,13 @@ mod tests {
             name: "Dash".into(),
             icon: "puzzle".into(),
             color: "#6366f1".into(),
-            granted_tools: Some(vec!["exponential.issues.update".into()]),
+            granted_tools: Some(vec!["exponential_issues_update".into()]),
             head_version: Some(3),
             ..AppInput::default()
         };
         assert_eq!(
             serde_json::to_value(&grant).unwrap(),
-            serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential.issues.update"], "headVersion": 3})
+            serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential_issues_update"], "headVersion": 3})
         );
         assert_eq!(
             serde_json::to_value(ImportInput { team_id: "t", text: "{}" }).unwrap(),

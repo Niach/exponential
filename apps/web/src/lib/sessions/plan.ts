@@ -1,21 +1,11 @@
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
-import {
-  CORE_CATALOG_ID,
-  cardProblems,
-  cardV10,
-  reduceNested,
-  type ReduceResult,
-} from "@exponential_app/eui"
-import { motionPropsProblems } from "@exponential_app/eui/motion/server"
+import { A2UI_VERSION } from "@exponential_app/eui"
 import {
   MESSAGE_BODY_MAX,
   PLAN_CARD_DESCRIPTION_MAX,
-  PLAN_CARD_SURFACE_MAX_BYTES,
-  PLAN_CARD_SURFACE_MAX_COMPONENTS,
   PLAN_CARD_UPLOAD_SCHEME,
-  type CardSurface,
   type MessageCard,
   type PlanCardPicture,
   type PlanCardQuestion,
@@ -33,6 +23,7 @@ import { isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { isAssistantConversation, statusCardTarget } from "@/lib/agents/assistant-chat"
 import { notifySessionAsk } from "@/lib/integrations/notifications"
 import { insertMessage, postOwnAskCard, inSession, messageSessionId } from "@/lib/sessions/messages"
+import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/card-surface"
 import type { Tx } from "@/lib/sessions/tx"
 import { assertNotPlainInSealedTree } from "@/lib/sessions/send"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
@@ -71,11 +62,6 @@ export interface PlanQuestionInput {
   multi?: boolean
   custom?: boolean
   options: CardOptionInput[]
-}
-
-export interface CardSurfaceInput {
-  root: Record<string, unknown>
-  data?: Record<string, unknown>
 }
 
 export interface PlanProposeInput {
@@ -269,76 +255,6 @@ export function uploadEmbeds(markdown: string): string[] {
   return [...markdown.matchAll(UPLOAD_EMBED)].map((match) => match[1] ?? ``)
 }
 
-function countNodes(result: ReduceResult): number {
-  type Node = { children?: Node[]; slots?: Record<string, Node> }
-  const walk = (node: Node): number =>
-    1 +
-    (node.children ?? []).reduce((sum, child) => sum + walk(child), 0) +
-    Object.values(node.slots ?? {}).reduce((sum, slot) => sum + walk(slot), 0)
-  return (
-    walk(result.root as Node) +
-    Object.values(result.templates ?? {}).reduce((sum, node) => sum + walk(node as Node), 0)
-  )
-}
-
-/** The inline surface: the core catalog only (no extensions), within the
- *  byte and component caps, with no reducer issue. */
-export function validateCardSurface(surface: CardSurfaceInput | undefined): CardSurface | null {
-  if (!surface) return null
-  const bytes = new TextEncoder().encode(JSON.stringify(surface)).byteLength
-  if (bytes > PLAN_CARD_SURFACE_MAX_BYTES) {
-    throw bad(`surface is ${bytes} bytes; the cap is ${PLAN_CARD_SURFACE_MAX_BYTES}: simplify it`)
-  }
-  const root = surface.root
-  if (typeof root.id !== `string` || typeof root.component !== `string`) {
-    throw bad(`surface.root must be a genUI node: {id, component, props?, children?}`)
-  }
-  // Round 9 §13: the server keeps what it was given (0.9 until the flag day)
-  // and checks its 1.0 form, what every client paints.
-  const upgraded = cardV10(surface)
-  if (`error` in upgraded) throw bad(`surface: ${upgraded.error}`)
-  const problems = cardProblems(upgraded.card.root)
-  if (problems.length > 0) throw bad(`surface is not valid: ${problems.slice(0, 10).join(`; `)}${problems.length > 10 ? `; and ${problems.length - 10} more` : ``}`)
-  let result: ReduceResult
-  try {
-    result = reduceNested(upgraded.card.root, { catalogId: CORE_CATALOG_ID })
-  } catch (error) {
-    throw bad(`surface.root is not a valid genUI tree: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  const count = countNodes(result)
-  if (count > PLAN_CARD_SURFACE_MAX_COMPONENTS) {
-    throw bad(`surface has ${count} components; the cap is ${PLAN_CARD_SURFACE_MAX_COMPONENTS}`)
-  }
-  if (result.issues.length > 0) {
-    const listed = result.issues.slice(0, 10).map((issue) => `${issue.id}: ${issue.message}`)
-    const more = result.issues.length > 10 ? `; and ${result.issues.length - 10} more` : ``
-    throw bad(`surface is not valid in the genUI core catalog: ${listed.join(`; `)}${more}`)
-  }
-  // EXP-1604: a Motion's animation is checked by the engine itself (the
-  // WASM): the dialect compiles, Lottie has no expressions and fits the limits.
-  const motion = motionProblems(root as unknown as MotionWalkNode)
-  if (motion.length > 0) {
-    throw bad(`surface has an invalid Motion: ${motion.slice(0, 5).join(`; `)}${motion.length > 5 ? `; and ${motion.length - 5} more` : ``}`)
-  }
-  return { root, data: surface.data ?? null }
-}
-
-type MotionWalkNode = { id?: string; component?: string; props?: Record<string, unknown>; children?: unknown; slots?: Record<string, unknown> }
-
-/** Every Motion node's problems, `<id>: <problem>`. */
-export function motionProblems(node: MotionWalkNode): string[] {
-  const out: string[] = []
-  const walk = (n: MotionWalkNode) => {
-    if (n.component === `Motion`) {
-      for (const problem of motionPropsProblems(n.props ?? {})) out.push(`${n.id ?? `Motion`}: ${problem}`)
-    }
-    if (Array.isArray(n.children)) for (const child of n.children) if (child && typeof child === `object`) walk(child as MotionWalkNode)
-    for (const slot of Object.values(n.slots ?? {})) if (slot && typeof slot === `object`) walk(slot as MotionWalkNode)
-  }
-  walk(node)
-  return out
-}
-
 /** `exponential_plan_propose`'s card (pure; BAD_REQUEST names the fix). */
 export function buildPlanCard(input: PlanProposeInput): Extract<MessageCard, { kind: `plan` }> {
   const plan = input.plan.trim()
@@ -446,6 +362,7 @@ export function picturesOnlySurface(
         ? [page(landed[0]!, 0)]
         : [{ id: `c`, component: `Carousel`, props: { counter: true }, children: landed.map(page) }]
   return {
+    version: A2UI_VERSION,
     root: {
       id: PICTURES_SURFACE_ROOT_ID,
       component: `Stack`,
@@ -475,7 +392,7 @@ export function buildSurfaceCard(input: {
   description?: string
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
-  if (!surface) throw bad(`surface is required: a genUI core tree {root, data?}`)
+  if (!surface) throw bad(`surface is required: a genUI core tree {version: "1.0", root, data?}`)
   const title = input.title?.trim() || null
   if (title && title.length > SURFACE_CARD_TITLE_MAX) {
     throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)

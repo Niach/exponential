@@ -3,12 +3,12 @@ import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
 
 // A surface card may carry screenshots and a result flag.
-const surface = { root: { id: `t`, component: `Text`, props: { text: `Green` } } }
+const surface = { version: `1.0`, root: { id: `t`, component: `Text`, props: { text: `Green` } } }
 
 describe(`buildSurfaceCard (results)`, () => {
   it(`a plain surface carries neither pictures nor a flag, and is no result`, () => {
     const card = buildSurfaceCard({ surface })
-    expect(card).toEqual({ kind: `surface`, surface: { root: surface.root, data: null }, title: null })
+    expect(card).toEqual({ kind: `surface`, surface: { version: `1.0`, root: surface.root, data: null }, title: null })
     expect(isPrPictureCard(card)).toBe(false)
   })
 
@@ -25,6 +25,15 @@ describe(`buildSurfaceCard (results)`, () => {
     expect(isPrPictureCard(buildSurfaceCard({ surface, result: true }))).toBe(true)
   })
 
+  // A2UI 1.0 (round 9 §5.1, §13): a node's checks sit at node level.
+  it(`takes a nested node's @checks, refuses the bare key`, () => {
+    const input = { id: `a`, component: `Input`, props: { label: `A`, name: `a`, value: { "@path": `/a` } } }
+    const checks = [{ condition: { "@call": `required`, args: { value: { "@path": `/a` } } }, message: `Needed` }]
+    const form = (field: Record<string, unknown>) => ({ version: `1.0`, root: { id: `f`, component: `Form`, props: { name: `f` }, children: [field] }, data: { a: `` } })
+    expect(buildSurfaceCard({ surface: form({ ...input, "@checks": checks }) }).surface.root).toEqual(form({ ...input, "@checks": checks }).root)
+    expect(() => buildSurfaceCard({ surface: form({ ...input, checks }) })).toThrow(/@checks/)
+  })
+
   it(`a label declared twice is refused`, () => {
     expect(() => buildSurfaceCard({ surface, pictures: [{ label: `a` }, { label: `a` }] })).toThrow(/declared twice/)
   })
@@ -32,7 +41,7 @@ describe(`buildSurfaceCard (results)`, () => {
 
 // EXP-1604: a Motion's animation is validated by the engine (WASM).
 describe(`buildSurfaceCard (Motion)`, () => {
-  const motion = (props: Record<string, unknown>) => ({ root: { id: `m`, component: `Motion`, props } })
+  const motion = (props: Record<string, unknown>) => ({ version: `1.0`, root: { id: `m`, component: `Motion`, props } })
   const spinner = {
     size: [48, 48],
     duration: 1000,

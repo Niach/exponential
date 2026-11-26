@@ -268,7 +268,7 @@ export const rotateWebhookSecretPrompt = (hook: string) =>
     hook,
   })
 
-/** VAPP-91: a host asking before a surface acts as the person (`harness.mcp`
+/** VAPP-91: a host asking before a surface acts as the person (`harness_mcp`
  *  names its MCP tool, any other `ask` function its own name). Deny takes
  *  focus and Enter; Allow is the explicit `default` answer. VAPP-107:
  *  `destructive` picks the `exponential-ui-consent-destructive` entry

@@ -164,6 +164,7 @@ function tools(u: McpUser, request: Request, access: McpAccess, sessionId: strin
 const CARD = {
   title: `Status`,
   surface: {
+    version: `1.0`,
     root: {
       id: `s`,
       component: `Stack`,

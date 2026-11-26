@@ -85,7 +85,7 @@ async function world() {
   /** The member writes, and the device delivers it. */
   const write = (body: string) =>
     db.transaction((tx) => insertMessage(tx, conversation.id, { authorKind: `user`, authorId: owner, body, consumedAt: new Date() }))
-  const surface = (text: string) => ({ kind: `surface` as const, surface: { root: { id: `t`, component: `Text`, props: { text } } } })
+  const surface = (text: string) => ({ kind: `surface` as const, surface: { version: `1.0`, root: { id: `t`, component: `Text`, props: { text } } } })
   const show = (text: string) => postShowCard({ userId: owner, sessionId: conversation.id, card: surface(text), replace: false })
   const rows = () => db.select().from(messages).where(inSession(conversation.id))
   return { owner, teamId, deviceId, assistant, conversation, host, tick, write, show, rows }

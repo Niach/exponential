@@ -5,7 +5,7 @@ import ExponentialUICore
 /// SCREENS, the navigation manifest (`@exponential_app/eui`
 /// `src/host/screens.ts`, eui-core `host::screens`, `fixtures/host-router.json`
 /// `screens` + `navigate`). The HOST draws the navigation from it; the
-/// `app.navigate {screen, params?}` host function opens one, its params
+/// `app_navigate {screen, params?}` host function opens one, its params
 /// landing under `/params/*` in the template data.
 public enum Screens {
     /// The host function (and action call) that opens a screen; always
@@ -88,7 +88,7 @@ public enum Screens {
         return Resolved(screen: screen, title: v["title"]?.string ?? "", icon: v["icon"]?.string, params: params)
     }
 
-    /// An `app.navigate` call's args → its target, or why it is refused.
+    /// An `app_navigate` call's args → its target, or why it is refused.
     public static func target(_ pkg: JSONValue, args: Props) -> Result<NavigateTarget.Target, NavigateTarget.Refusal> {
         let out = JSONValue.parse((try? navigateTargetJson(packageJson: pkg.json, argsJson: JSONValue.object(args).json)) ?? #"{"error":"navigate takes {screen, params?}"}"#)
         if let error = out["error"]?.string { return .failure(NavigateTarget.Refusal(message: error)) }

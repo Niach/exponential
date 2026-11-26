@@ -2,8 +2,8 @@ import { and, desc, eq, isNull, or } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import {
   ExponentialHost,
+  PACKAGE_FORMAT_VERSION,
   reduceSurface,
-  bridgePackage,
   describeSurface,
   resolveScreen,
   screenData,
@@ -196,7 +196,8 @@ export async function resolveAppScreen(input: ResolveAppScreenInput, executor: E
 
   const stored = input.version === `published` ? app.package : (app.draftPackage ?? app.package)
   if (!stored) throw new TRPCError({ code: `BAD_REQUEST`, message: input.version === `published` ? `The app is not published yet` : `The app has no version yet` })
-  const pkg = bridgePackage(stored as unknown as AppPackage)
+  const pkg = stored as unknown as AppPackage
+  if (pkg.formatVersion !== PACKAGE_FORMAT_VERSION) throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package is format version ${String(pkg.formatVersion)}; ${PACKAGE_FORMAT_VERSION} is required` })
   const version = input.version === `published` ? app.publishedVersion : app.headVersion
   const screen = resolveScreen(pkg as { screens?: unknown }, input.screen ?? null, input.params ?? null)
   const templateIds = Object.keys((pkg as { templates?: Record<string, unknown> }).templates ?? {})

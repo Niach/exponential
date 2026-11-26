@@ -1,8 +1,8 @@
 // VAPP-289 (round 9 contract §14): `upgrade09`, the PURE A2UI v0.9 → 1.0
-// converter. It bridges 0.9 input on every core entry while `ACCEPT_V09`
-// holds and then serves only the stored-data migration
-// (`apps/web/scripts/a2ui10-migrate.ts`). The Rust core mirrors it
-// (`eui-core/src/upgrade09.rs`); fixtures/upgrade09.json locks both.
+// converter. Every entry refuses 0.9 since the flag day; this serves ONLY the
+// stored-data migration beside it (./index.ts). Its Rust mirror serves only a
+// Local desktop's store-open pass (`crates/elocal/src/upgrade09.rs`);
+// ./upgrade09.json locks both.
 //
 // Rules (§14.3): the envelope, the dynamic forms (`{path}` → `{"@path"}`,
 // `{call, args, returnType}` → `{"@call", args}`, `@` literal keys escaped),
@@ -11,10 +11,7 @@
 // order follows the input's: a renamed key keeps its place, an added key
 // goes to the end of its object (`version` is the exception: first).
 
-import { coreCatalog } from "./catalog"
-import { isIdentifier, mangle } from "./ids"
-import { verifyPackageFile } from "./host/signature"
-import type { PackageFileVerification } from "./host/signature"
+import { coreCatalog, isIdentifier, mangle, verifyPackageFile, type PackageFileVerification } from "@exponential_app/eui"
 
 type Obj = Record<string, unknown>
 

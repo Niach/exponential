@@ -93,7 +93,7 @@ final class Round2PainterTests: XCTestCase {
     func testScrollToIndexIsAHostCommand() throws {
         let m = try makeModel(fixed: true)
         m.setData(path: "/items", value: .array((0..<200).map { .object(["id": .string("i\($0)"), "title": .string("Item \($0)")]) }))
-        try m.setNested(json: #"{"id":"list","component":"List","props":{"style":{"height":300}},"template":{"path":"/items","key":"id","component":"row"},"children":[{"id":"row","component":"Text","props":{"text":{"path":"title"}}}]}"#)
+        try m.setNested(json: #"{"id":"list","component":"List","props":{"style":{"height":300}},"template":{"path":"/items","key":"id","component":"row"},"children":[{"id":"row","component":"Text","props":{"text":{"@path":"title"}}}]}"#)
         guard let list = m.lists["list"] else { return XCTFail("no list info") }
         XCTAssertTrue(list.windowed)
         XCTAssertFalse(list.horizontal)

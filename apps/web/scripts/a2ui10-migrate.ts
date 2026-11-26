@@ -1,7 +1,8 @@
 /**
  * VAPP-289 (round 9 contract §14.1): the A2UI 1.0 stored-data migration, by
- * hand. The logic lives in `lib/apps/a2ui10-migrate.ts`, which the flag-day PR
- * also runs at boot. Idempotent; safe beside a live server and after a crash.
+ * hand. The logic lives in `lib/apps/a2ui10-migrate/`. On the cloud only an
+ * operator runs it, here; a SELF-HOSTED instance also runs it once at its
+ * first boot. Idempotent; safe beside a live server and after a crash.
  *
  * Usage (from apps/web):
  *   bun scripts/a2ui10-migrate.ts                          # dry run: counts, writes nothing
@@ -13,13 +14,15 @@
  * `EXP_APP_TEMPLATES_SEED` holds its key: an unsigned template is refused.
  *   EXP_APP_TEMPLATES_SEED=<seed> bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json
  *
- * Exit 1: `--apply` left a failed or conflicted row or file. A dry run exits 0;
- * read its report.
+ * Exit 1: `--apply` left a failed or conflicted row or file (an unloadable row,
+ * one no client reads before or after, is listed and is not a failure). A dry
+ * run writes nothing (a read-only session) and exits 0; read its report.
  */
+import "@dotenvx/dotenvx/config"
 import { readFileSync, writeFileSync } from "node:fs"
 import { base64UrlDecode } from "@exponential_app/eui"
-import { db, pool } from "@/db/connection"
 import { formatMigrationReport, runA2ui10Migration, upgradePackageFile } from "@/lib/apps/a2ui10-migrate"
+import { connectMigration } from "@/lib/apps/a2ui10-migrate/connect"
 
 const SIGNER_NAME = `Exponential`
 
@@ -57,19 +60,19 @@ async function main(): Promise<number> {
   const batch = valueOf(args, `--batch-size`)
   const batchSize = batch === undefined ? undefined : Number(batch)
   if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) throw new Error(`--batch-size is a positive integer`)
-  const report = await runA2ui10Migration(db, { apply, batchSize })
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error(`DATABASE_URL is not set`)
+  // Its own connection, read-only for a dry run; no server module is loaded.
+  const connection = connectMigration(url, { readOnly: !apply })
+  const report = await runA2ui10Migration(connection.db as never, { apply, batchSize }).finally(() => connection.close())
   console.log(formatMigrationReport(report))
   if (reportPath) writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
   return apply && !report.ok ? 1 : 0
 }
 
 main()
-  .then(async (code) => {
-    await pool.end()
-    process.exit(code)
-  })
-  .catch(async (error) => {
+  .then((code) => process.exit(code))
+  .catch((error) => {
     console.error(error)
-    await pool.end().catch(() => {})
     process.exit(1)
   })

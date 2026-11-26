@@ -240,7 +240,7 @@ class AppEditorViewModel @Inject constructor(
     val initialTab: Apps.EditorTabPick = Apps.editorTab(savedStateHandle.get<String>(Apps.EditorTabs.SEARCH), phone = true)
 
     /** VAPP-218 (apps.json `screens`): the requested screen + params (an
-     *  `appScreen` link, a tab tap, `app.navigate`); null screen = the
+     *  `appScreen` link, a tab tap, `app_navigate`); null screen = the
      *  package's first. `Screens.resolve` picks what shows; kept in memory. */
     data class ScreenRequest(val screen: String?, val params: Map<String, String>)
 
@@ -286,7 +286,7 @@ class AppEditorViewModel @Inject constructor(
     /** VAPP-120: the app's synced `granted_tools` (the Settings sheet's switches). */
     val grantedTools: StateFlow<List<String>> =
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
-            .map { row -> AppActions.grantedList(row?.grantedTools).map(AppActions::flatAction) }
+            .map { row -> AppActions.grantedList(row?.grantedTools) }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

@@ -77,7 +77,7 @@ class LargeTreeHeapGuardTest {
     private fun ownCards(n: Int): List<MessageEntity> = (0 until n).map { i ->
         val session = "child-${i % 300}"
         val card = if (i % 10 == 0) {
-            """{"kind":"surface","result":true,"title":"Result $i","surface":{"root":{"id":"s","component":"Stack"}}}"""
+            """{"kind":"surface","result":true,"title":"Result $i","surface":{"version":"1.0","root":{"id":"s","component":"Stack"}}}"""
         } else {
             """{"kind":"plan","sealed":"$plan"}"""
         }

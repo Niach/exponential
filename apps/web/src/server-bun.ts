@@ -47,7 +47,7 @@ import { trapUnhandledErrors } from "#nitro/runtime/error/hooks"
 import { resolveWebsocketHooks } from "#nitro/runtime/app"
 // @ts-expect-error — Nitro runtime module resolved at build time.
 import { setupCloseHooks } from "#nitro/runtime/shutdown"
-import { bootstrapCloud } from "@/lib/bootstrap-cloud"
+import { bootstrapBeforeListen } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
@@ -76,13 +76,14 @@ import {
   recordRequest,
 } from "@/lib/metrics/registry"
 
-// Fire-and-forget: apply the custom trigger SQL and promote initial admins.
-// Idempotent; bootstrapCloud() retries internally with backoff until the pass
-// applies cleanly (the promise never rejects), so a boot-time DB hiccup can't
-// leave the instance running trigger-less (REV-18). Calling from
-// server-bun.ts keeps the entire bootstrap module (and its drizzle/pg deps)
-// out of the client bundle.
-void bootstrapCloud()
+// Apply the custom trigger SQL, run the one-shot data migrations and promote
+// initial admins. Idempotent; bootstrapCloud() retries internally with backoff
+// until the pass applies cleanly (the promise never rejects), so a boot-time DB
+// hiccup can't leave the instance running trigger-less (REV-18). serve() below
+// awaits a self-hosted instance's first pass: it listens only on migrated data
+// (round 9 §14.1). Calling from server-bun.ts keeps the entire bootstrap module
+// (and its drizzle/pg deps) out of the client bundle.
+const bootstrapped = bootstrapBeforeListen()
 
 // #ERR-1: schema drops run as deferred contract steps (db/contract-steps.ts),
 // recorded at boot and applied once the previous container is long gone.
@@ -348,6 +349,7 @@ if (hasWebSocket && ws) {
   }
 }
 
+await bootstrapped
 
 const server = serve({
   port,

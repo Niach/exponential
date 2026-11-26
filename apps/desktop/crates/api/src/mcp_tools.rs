@@ -54,7 +54,7 @@ fn mcp_error(error: emcp::ClientError) -> ApiError {
 
 /// One `tools/call` on the instance's own `/api/mcp` as the account: the MCP
 /// call result as the server sent it (`content`, `structuredContent`,
-/// `isError`, `_meta`). The IDE's `harness.mcp` reads it whole.
+/// `isError`, `_meta`). The IDE's `harness_mcp` reads it whole.
 pub fn call_tool_result(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
     call_tool_result_via(trpc, name, arguments, None)
 }

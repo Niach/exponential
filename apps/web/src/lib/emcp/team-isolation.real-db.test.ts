@@ -466,7 +466,7 @@ const CASES: Record<string, Case> = {
   [`session_self.quiet`]: r(`session_self.quiet`, () => ({ op: `quiet` })),
   [`session_self.report_bug`]: r(`session_self.report_bug`, () => ({ op: `report_bug`, title: `x`, description: `x` })),
   // show (the verb): the caller's own card.
-  [`show`]: r(`show`, () => ({ title: `Hello`, result: false, surface: { root: { id: `t`, component: `Text`, props: { text: `hi` } } } })),
+  [`show`]: r(`show`, () => ({ title: `Hello`, result: false, surface: { version: `1.0`, root: { id: `t`, component: `Text`, props: { text: `hi` } } } })),
   // pr
   [`pr.open`]: wr(`pr.open`, (w) => ({ op: `open`, title: `leak`, repositoryId: w.b.repositoryId, issueIds: [w.b.identifier] })),
   [`pr.merge`]: wr(`pr.merge`, (w) => ({ op: `merge`, pullRequestId: w.b.pullRequestId })),

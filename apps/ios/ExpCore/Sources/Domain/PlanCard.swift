@@ -395,6 +395,11 @@ public struct CardSurface: Equatable, Sendable {
     /// The NestedNode the renderer's `setNested` takes (the data model is
     /// written beside it, key by key).
     public var rootJSON: String { root.compactString }
+
+    /// plan-card.json `surfaceReadableCases`: only A2UI `"1.0"` paints; any
+    /// other card shows THE inline marker (`ChatExpress.Copy.blockFailed`) in
+    /// its surface's place.
+    public var readable: Bool { version == "1.0" }
 }
 
 /// A JSON value carried through the Sendable card model (the surface, its

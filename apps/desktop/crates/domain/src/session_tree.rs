@@ -1335,11 +1335,20 @@ pub struct PlanQuestion {
 /// NestedNode, `data` = its initial data model).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CardSurface {
-    /// Round 9 §13: `"1.0"`; `None` = the stored 0.9 form.
+    /// Round 9 §13: `"1.0"`; anything else is refused ([`CardSurface::readable`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     pub root: Value,
     pub data: Option<Value>,
+}
+
+impl CardSurface {
+    /// plan-card.json `surfaceReadableCases`: only A2UI `"1.0"` paints; any
+    /// other card shows THE inline marker (chat-express.json
+    /// `copy.blockFailed`) in the surface's place.
+    pub fn readable(&self) -> bool {
+        self.version.as_deref() == Some("1.0")
+    }
 }
 
 /// A card's surface (tolerant read): an object with a `root` object, else

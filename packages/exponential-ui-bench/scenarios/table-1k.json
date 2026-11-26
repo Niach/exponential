@@ -84,6 +84,7 @@
       "by": "viewport"
     },
     "sort": {
+      "version": "1.0",
       "updateComponents": {
         "surfaceId": "bench",
         "components": [

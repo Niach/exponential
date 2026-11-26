@@ -188,6 +188,14 @@ final class PlanCardTests: XCTestCase {
         }
     }
 
+    func testSurfaceReadableMatchesTheFixture() throws {
+        for testCase in try cases("surfaceReadableCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let surface = try XCTUnwrap(CardSurface.parse(testCase["surface"]), name)
+            XCTAssertEqual(surface.readable, try XCTUnwrap(testCase["expected"] as? Bool), name)
+        }
+    }
+
     /// Web `togglePick` (`plan-card.test.tsx`): a single choice picks /
     /// unpicks, a multi toggles and keeps OPTION order whatever the tap order.
     func testTogglePickKeepsOptionOrder() {

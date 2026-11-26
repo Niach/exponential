@@ -31,7 +31,7 @@ twin is `packages/eengine/src` (npm `@exponential_app/engine`).
     outbox laid over the store's rows (None = not a records source).
   - `call(name, argsJson, newIds)` → `CallResult` = `value {json}` |
     `ask {verdictJson, sheet}` | `refused {code, message}`, for
-    `records.upsert` / `records.delete` / `records.batch`, `app.navigate`
+    `records_upsert` / `records_delete` / `records_batch`, `app_navigate`
     and capabilities (`photos.pick`, through the broker).
   - `answerConsent(name, argsJson, verdictJson, answer)`: the person's answer
     to an `ask` (`allow | once | deny | dismiss`).

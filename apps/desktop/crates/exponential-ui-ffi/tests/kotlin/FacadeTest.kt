@@ -381,14 +381,9 @@ fun main(args: Array<String>) {
     check(hostRouter.surfaceIds() == listOf("d") && hostRouter.packageIdOf("d") == "acme.devices") { "router state" }
     equal(errorMessageJson("INVALID_FUNCTION_CALL", "s", "m", null), mapOf("version" to "1.0", "error" to mapOf("code" to "INVALID_FUNCTION_CALL", "surfaceId" to "s", "message" to "m")), "errorMessage")
     equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "1.0", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
-    // Round 9 (§15): the upgrade09 smoke cases, the id mint.
+    // Round 9 (§15): the version, the id mint.
     check(a2uiVersion() == "1.0") { "a2uiVersion" }
     check(hostRouter.mintSurfaceId("d") == "d#1") { "mintSurfaceId" }
-    val upgradeCases = list(obj(load("upgrade09.json"))["cases"]).map(::obj)
-    val upgradeClient = upgradeCases.first { it["kind"] == "client" }
-    equal(upgrade09Json(Json.write(mapOf("kind" to "client", "input" to upgradeClient["input"]))), upgradeClient["expected"], "upgrade09 client")
-    val upgradeCard = upgradeCases.first { it["kind"] == "card" }
-    equal(upgradeCard09(Json.write(upgradeCard["input"])), upgradeCard["expected"], "upgrade09 card")
     check(templateMessagesJson(Json.write(hostPackages["acme.devices"]), "nope", "x", null) == null) { "missing template" }
     val fnSurface = Surface("f", coreCatalogId(), null, "light")
     fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("@call" to "harness_toast", "args" to mapOf("message" to mapOf("@path" to "/m"))))))))))

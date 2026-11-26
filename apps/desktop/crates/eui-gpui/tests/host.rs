@@ -697,7 +697,7 @@ fn an_action_step_runs_bind_and_open_url(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
-    // VAPP-218 (U1): `app.navigate` is always allowed, checked against the
+    // VAPP-218 (U1): `app_navigate` is always allowed, checked against the
     // surface's package screens, then handed to `HostOptions::navigate`;
     // a refusal is FUNCTION_DENIED (the TS host's `navigate`).
     init(cx);

@@ -117,7 +117,7 @@ describe(`#VAPP-292: exponential_show for a client outside any session (a Claude
     registerExponentialTools(fakeServer as never, USER, new Request(`https://x.test/api/mcp`), FULL_ACCESS, null, { ...ALL_MCP_TOOL_GATES, inSession: false })
     return tools.get(`exponential_show`)!
   }
-  const surface = { root: { id: `s`, component: `Stack`, children: [{ id: `r`, component: `Row`, props: { title: `Tests` } }, { id: `b`, component: `Button`, props: { label: `Ship` }, on: { press: { event: { name: `reply`, context: { text: `Ship` } } } } }] } }
+  const surface = { version: `1.0`, root: { id: `s`, component: `Stack`, children: [{ id: `r`, component: `Row`, props: { title: `Tests` } }, { id: `b`, component: `Button`, props: { label: `Ship` }, on: { press: { event: { name: `reply`, context: { text: `Ship` } } } } }] } }
 
   it(`binds the genUI view and answers the card to draw inline`, async () => {
     const show = outside()
@@ -139,7 +139,7 @@ describe(`#VAPP-292: exponential_show for a client outside any session (a Claude
   })
 
   it(`still refuses a Card root`, async () => {
-    const answer = await outside().handler({ surface: { root: { id: `c`, component: `Card`, children: [{ id: `r`, component: `Row`, props: { title: `x` } }] } } })
+    const answer = await outside().handler({ surface: { version: `1.0`, root: { id: `c`, component: `Card`, children: [{ id: `r`, component: `Row`, props: { title: `x` } }] } } })
     expect(answer.isError).toBe(true)
   })
 })
@@ -179,7 +179,7 @@ describe(`exponential_show with pictures only (F38)`, () => {
     expect(both).toContain(`"Shots"`)
     expect(card.result).toBe(false)
     // An agent's own surface is never rewritten.
-    const own = buildSurfaceCard({ surface: { root: { id: `s`, component: `Stack`, children: [{ id: `b`, component: `Badge`, props: { text: `Green` } }] } }, pictures })
+    const own = buildSurfaceCard({ surface: { version: `1.0`, root: { id: `s`, component: `Stack`, children: [{ id: `b`, component: `Badge`, props: { text: `Green` } }] } }, pictures })
     expect(withPicturesSurface(own)).toBe(own)
   })
 })

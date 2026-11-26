@@ -78,6 +78,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -163,6 +164,7 @@
               "kind": "surface",
               "story": true,
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -179,6 +181,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -298,6 +301,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -386,6 +390,7 @@
               "kind": "surface",
               "result": true,
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -404,6 +409,7 @@
               "kind": "surface",
               "result": false,
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -468,6 +474,7 @@
               "kind": "surface",
               "result": true,
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "c",
                   "component": "Card"
@@ -532,6 +539,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "s",
                   "component": "Stack",
@@ -575,6 +583,7 @@
             "card": {
               "kind": "surface",
               "surface": {
+                "version": "1.0",
                 "root": {
                   "id": "s",
                   "component": "Stack",
@@ -659,6 +668,7 @@
       "card": {
         "kind": "surface",
         "surface": {
+          "version": "1.0",
           "root": {
             "id": "c",
             "component": "Card"

@@ -22,7 +22,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
-import at.exponential.ui.ffi.upgradeCard09
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.ImageTarget
 import at.exponential.ui.primitives.ImageSource
@@ -40,12 +39,14 @@ import at.exponential.ui.model.SurfaceOptions
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.domain.CardSurface
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.domain.expandTeamLink
 import com.exponential.app.ui.markdown.openCardHref
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.rememberChatIssueTextLinks
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.EntryPoint
@@ -169,16 +170,6 @@ private fun cardHost(
 }
 
 /**
- * Round 9 §14: what a card paints: a stored card without a version is the 0.9
- * form, shown through the upgrade for good (a sealed one never migrates).
- */
-private fun paintedRoot(surface: CardSurface): String {
-    if (surface.version != null) return surface.root.toString()
-    val card = Json.parseToJsonElement(upgradeCard09("""{"root":${surface.root}}""")) as JsonObject
-    return card.getValue("root").toString()
-}
-
-/**
  * The [SurfaceModel] of a card's [surface] (the core catalog, the card host);
  * null when the core refuses it. [onAction] (session 58cb32df) receives every
  * action event the surface raises.
@@ -196,7 +187,7 @@ internal fun rememberCardSurfaceModel(
                 options = SurfaceOptions(),
                 host = host(),
             ) { error("set by ExponentialSurface") }.also { m ->
-                m.setNested(paintedRoot(surface))
+                m.setNested(surface.root.toString())
                 surface.data?.forEach { (key, value) ->
                     m.setData("/" + key.replace("~", "~0").replace("/", "~1"), JsonValue.parse(value.toString()))
                 }
@@ -240,7 +231,8 @@ internal fun rememberCardHostFactory(
 /**
  * The surface in its own frame (full card width, `plan-card-surface`) under
  * the [PlanCard.Copy.SURFACE] label. A surface the core refuses paints the
- * label over an empty frame.
+ * label over an empty frame; one that is not A2UI 1.0 shows THE inline
+ * marker instead (plan-card.json `surfaceReadableCases`).
  * [inert] = an answered card: taps never reach the surface.
  */
 @Composable
@@ -250,6 +242,14 @@ fun CardSurfaceView(
     inert: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    if (!surface.readable) {
+        FeedMarkerRow(
+            ChatExpress.Copy.BLOCK_FAILED,
+            modifier = modifier,
+            hairline = DesignTokens.Palette.Border.let { it.copy(alpha = it.alpha * 0.6f) },
+        )
+        return
+    }
     val model = rememberCardSurfaceModel(surface)
     handle.model = model
     // plan-card.json `card` (web `PlanCardSurface`): the "Preview" label

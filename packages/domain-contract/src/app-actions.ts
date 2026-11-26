@@ -19,27 +19,9 @@ const ALIASES = fixture.aliases as Record<string, string>
  *  working; never listed in `APP_ACTIONS` or a declared list. */
 export const APP_ACTION_ALIASES: Readonly<Record<string, string>> = ALIASES
 
-/** Round 9 §14: a stored name from before the flat names (a grant, a v5
- *  package's `run.action`): `exponential.issues.update` is
- *  `exponential_issues_update` until the flag-day migration rewrites it. */
-export function flatAction(name: string): string {
-  return name.startsWith(`exponential.`) ? name.replaceAll(`.`, `_`) : name
-}
-
-/** Round 9 §14: the name `apps.granted_tools` holds until the flag-day
- *  migration, the one a released client reads: `exponential_issues_update`
- *  is `exponential.issues.update`. Anything but an offered action comes back
- *  as it is. */
-export function storedAction(name: string): string {
-  const target = Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name]! : null
-  if (!target) return name
-  return target.op ? `${target.tool.replace(`_`, `.`)}.${target.op}` : target.tool.replaceAll(`_`, `.`)
-}
-
 /** The name an action is judged by: an alias's new name, else the name. */
 export function canonicalAction(name: string): string {
-  const flat = flatAction(name)
-  return Object.prototype.hasOwnProperty.call(ALIASES, flat) ? ALIASES[flat]! : flat
+  return Object.prototype.hasOwnProperty.call(ALIASES, name) ? ALIASES[name]! : name
 }
 
 export interface ActionTarget {
@@ -66,7 +48,7 @@ export function functionPatternMatches(pattern: string, name: string): boolean {
  *  the aliases too: an alias declares its NEW name), in the fixture's order;
  *  anything that is not an offered action is dropped. */
 export function declaredActions(functions: readonly string[]): string[] {
-  const named = (name: string) => functions.some((pattern) => functionPatternMatches(flatAction(pattern), name))
+  const named = (name: string) => functions.some((pattern) => functionPatternMatches(pattern, name))
   const viaAlias = new Set(Object.keys(ALIASES).filter(named).map((old) => ALIASES[old]!))
   return APP_ACTIONS.filter((name) => named(name) || viaAlias.has(name))
 }

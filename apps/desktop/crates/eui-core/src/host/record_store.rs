@@ -1,7 +1,7 @@
 //! VAPP-161: the format's NEUTRAL records (docs/package-format.md
 //! "Records"). A surface reads a kind through the binding
 //! `records:<kind>?query` and writes through the host functions
-//! `records.upsert` / `records.delete`; the HOST provides the store. The
+//! `records_upsert` / `records_delete`; the HOST provides the store. The
 //! query and its value are [`super::query`] (VAPP-189: one evaluator over
 //! the rows of any store, `fixtures/records-query.json`).
 
@@ -17,7 +17,7 @@ pub use super::query::{
 };
 
 /// The write functions (no consent card: the app's own rows); VAPP-194:
-/// `records.batch {writes}` = a package action's writes as ONE unit.
+/// `records_batch {writes}` = a package action's writes as ONE unit.
 pub const RECORDS_FUNCTIONS: &[&str] = &["records_upsert", "records_delete", super::actions::RECORDS_BATCH_FUNCTION];
 
 /// VAPP-212: a change to a store's rows, or an overlay on one query (see

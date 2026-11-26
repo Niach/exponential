@@ -50,10 +50,10 @@ class RunnerControllerTest {
         h.controller.setFormFactor(RunnerFormFactor.WIDE)
         assertEquals(listOf("install", "open albums {}", "install", "open albums {}"), h.painter.ops)
         assertEquals(JsonValue.parse(runnerPackage(ALBUM, RunnerFormFactor.WIDE)), h.painter.installed)
-        // runner.navigate = app.navigate through the Engine.
+        // runner.navigate = app_navigate through the Engine.
         h.controller.onEvent("runner.navigate", obj("screen" to "pages"))
         withTimeout(5000) { while (h.painter.ops.last() != "open pages {}") yield() }
-        // genUI's app.navigate {screen, params}: the params reach the screen.
+        // genUI's app_navigate {screen, params}: the params reach the screen.
         h.controller.onEvent("runner.navigate", obj("screen" to "pages", "params" to mapOf("album" to "a1")))
         withTimeout(5000) { while (h.painter.ops.last() != "open pages {album=a1}") yield() }
         // The device uuid is created once, under runner.json's key.

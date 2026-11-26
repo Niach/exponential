@@ -3,9 +3,9 @@ import { agentGroupChatsOn } from "@/lib/agents/group-chat-switch"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
-import { storedAction } from "@exp/domain-contract/app-actions"
 import { GRANTABLE_ACTIONS } from "@/lib/app-grants"
 import { apps } from "@/db/schema"
+import { migrateA2ui10Once } from "@/lib/apps/a2ui10-migrate"
 import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
@@ -81,26 +81,31 @@ export function isCloudInstance(): boolean {
  *  (lib/app-grants.ts), on every app at once. Idempotent; touches only the
  *  rows that carry one, order of the kept names preserved. */
 export async function stripUngrantableGrants(client: Pick<typeof db, `update`> = db): Promise<void> {
-  // Round 9 §14: the actions are flat, `apps.granted_tools` is dotted until
-  // the flag-day migration: either spelling of a grantable action stays.
-  const keep = sql`${sql.param([...GRANTABLE_ACTIONS, ...GRANTABLE_ACTIONS.map(storedAction)])}::text[]`
+  const keep = sql`${sql.param([...GRANTABLE_ACTIONS])}::text[]`
+  // VAPP-289: a dotted name waits for the A2UI 1.0 migration, which an operator
+  // of the cloud runs after this boot (it grants nothing meanwhile).
+  const kept = (name: string) => sql.raw(`(${name} LIKE 'exponential.%')`)
   await client
     .update(apps)
     .set({
-      grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep})), '[]'::jsonb)`,
+      grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep}) OR ${kept(`t.name`)}), '[]'::jsonb)`,
       updatedAt: new Date(),
     })
     .where(
-      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${apps.grantedTools}) AS g(name) WHERE g.name <> ALL(${keep}))`
+      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${apps.grantedTools}) AS g(name) WHERE g.name <> ALL(${keep}) AND NOT ${kept(`g.name`)})`
     )
 }
 
 let bootstrapPromise: Promise<void> | null = null
+let firstAttempt: Promise<void> | null = null
 
 // One attempt of the boot-time work, throwing on failure. Exported for tests;
 // bootstrapCloud() below is the only production caller.
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
+  // VAPP-289 (round 9 §14.1): a self-hosted instance migrates itself, once. On
+  // the cloud an operator runs scripts/a2ui10-migrate.ts, nothing at boot.
+  if (!isCloudInstance()) await migrateA2ui10Once(db)
   await promoteInitialAdmins()
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.
@@ -131,12 +136,16 @@ const RETRY_MAX_DELAY_MS = 5 * 60 * 1000
 // level every few minutes instead of degrading silently.
 export function bootstrapCloud(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise
+  let attempted = () => {}
+  firstAttempt = new Promise((resolve) => (attempted = resolve))
   bootstrapPromise = (async () => {
     for (let attempt = 1; ; attempt++) {
       try {
         await runBootstrapPass()
+        attempted()
         return
       } catch (err) {
+        attempted()
         const delayMs = Math.min(
           RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
           RETRY_MAX_DELAY_MS
@@ -150,6 +159,14 @@ export function bootstrapCloud(): Promise<void> {
     }
   })()
   return bootstrapPromise
+}
+
+/** VAPP-289: what a self-hosted server waits for before it listens: the first
+ *  pass, so it serves migrated data. A failed pass does not hold the server
+ *  back (it keeps retrying). The cloud never waits. */
+export async function bootstrapBeforeListen(): Promise<void> {
+  void bootstrapCloud()
+  if (!isCloudInstance()) await firstAttempt
 }
 
 // Promote a single user if their email matches the admin list. Used by Better

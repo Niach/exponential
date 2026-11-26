@@ -2122,6 +2122,13 @@
       "when": 1795635632764,
       "tag": "0302_swept_images",
       "breakpoints": true
+    },
+    {
+      "idx": 303,
+      "version": "7",
+      "when": 1795639860743,
+      "tag": "0303_data_migrations",
+      "breakpoints": true
     }
   ]
 }

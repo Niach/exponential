@@ -51,8 +51,7 @@ async function user(): Promise<string> {
 }
 
 const PACKAGE = {
-  // Round 9 §14: a stored format 5 package reaches a guest through the bridge.
-  formatVersion: 5,
+  formatVersion: 6,
   records: {
     signup: {
       title: `Signup`,
@@ -93,7 +92,7 @@ const PACKAGE = {
     board: {
       components: [
         { id: `root`, component: `Stack`, children: { componentId: `row`, path: `/list/rows` } },
-        { id: `row`, component: `Text`, text: { path: `note` } },
+        { id: `row`, component: `Text`, text: { "@path": `note` } },
       ],
       bindings: [{ path: `/list`, source: `records:signup?query=recent` }],
     },

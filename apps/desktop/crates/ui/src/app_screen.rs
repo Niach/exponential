@@ -45,7 +45,7 @@
 //! sidebar-rows compact rows in a `sidebarWidth` column + a hairline (the
 //! Desktop frame), or the phone tab bar under the surface (the Phone
 //! frame); the shown screen = `resolve_screen` of the request (a row/tab
-//! tap = that screen with its own params, `app.navigate` = screen + params,
+//! tap = that screen with its own params, `app_navigate` = screen + params,
 //! a tapped `appScreen` link = [`open_app_screen`]); the template picker is
 //! hidden then. The request stays in memory (no route).
 //!
@@ -510,7 +510,7 @@ impl AppScreenView {
     }
 
     /// VAPP-218: open `screen` with `params` (a row/tab tap = no params, an
-    /// `app.navigate`, a link); a new screen = a fresh host.
+    /// `app_navigate`, a link); a new screen = a fresh host.
     fn request_screen(&mut self, screen: String, params: serde_json::Map<String, Value>, cx: &mut gpui::Context<Self>) {
         self.screen = Some(screen);
         self.screen_params = params;
@@ -819,7 +819,7 @@ impl AppScreenView {
         let theme = pkg.get("theme").and_then(Value::as_str).unwrap_or(THEME_ID).to_string();
         let migrate_from = self.migrate_from(cx);
         // VAPP-122: the editor's app keeps its records (`records:<kind>`,
-        // `records.*`).
+        // `records_*`).
         let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
             app_id: app.id.clone(),
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),

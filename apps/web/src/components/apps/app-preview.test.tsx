@@ -41,8 +41,9 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
 }))
 
 import { FAB_FOOT_CLASS, SidebarProvider } from "@exp/ui"
-import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION, upgradePackageBody09 } from "@exponential_app/eui"
-import fixture from "@/lib/apps/a2ui10-migrate.fixture.json"
+import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION } from "@exponential_app/eui"
+import fixture from "@/lib/apps/a2ui10-migrate/fixture.json"
+import { upgradePackageBody09 } from "@/lib/apps/a2ui10-migrate/upgrade09"
 import { AppPreview } from "./app-preview"
 import { AppSurfaceBoundary } from "./app-surface-boundary"
 import { Route as GuestRoute } from "@/routes/s/$token"

@@ -494,8 +494,8 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         };
         document = document.child(column(element));
     }
-    if facts.surface.is_some() {
-        document = document.child(column(crate::plan_card::surface_block(message_id, cx)));
+    if let Some(surface) = facts.surface {
+        document = document.child(column(crate::plan_card::surface_block(message_id, surface, cx)));
     }
 
     // ── #FEED-191: the questions = THE RAIL on the right: full height beside

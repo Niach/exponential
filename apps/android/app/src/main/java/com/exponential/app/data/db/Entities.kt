@@ -1001,7 +1001,7 @@ data class AppRecordEntity(
 )
 
 // VAPP-235 (O1, app-records.json `outbox`): the OFFLINE OUTBOX, one row per
-// app host record write (`records.upsert` / `delete` / `batch`), LOCAL ONLY
+// app host record write (`records_upsert` / `delete` / `batch`), LOCAL ONLY
 // (no shape): [writeId] = the client uuid the replay carries (the server's
 // dedupe key), [seq] = enqueue order (FIFO), [writes] = the entry's writes as
 // JSON, [state] = `pending` | `acked` ([ackedAt] = when the server took it;

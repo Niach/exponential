@@ -3,7 +3,6 @@
 // runner.json's surfaces (the shell, the failures, the sheets, the toast).
 
 import { describe, expect, test } from "bun:test"
-import { upgradePackageBody09 } from "@exponential_app/eui"
 import { MemoryBlobStore, MemoryRecordStore, MemoryVault, runnerFailure, runnerToast, type NativeCapability } from "@exp/eengine"
 import runnerFixture from "@exp/eengine/fixtures/runner.json" with { type: "json" }
 
@@ -65,7 +64,7 @@ describe(`the bundle`, () => {
   })
 
   test(`round 9: a format 6 package runs, as its format 5 form does`, async () => {
-    const { runner } = setup({ "package.app.json": JSON.stringify(upgradePackageBody09(album)) })
+    const { runner } = setup({ "package.app.json": JSON.stringify(album) })
     await runner.start()
     expect(runner.failure).toBeNull()
     expect(ids(runner, `app`)).toContain(`runner_nav`)

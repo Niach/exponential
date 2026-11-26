@@ -1,6 +1,6 @@
 {
   "package": {
-    "formatVersion": 5,
+    "formatVersion": 6,
     "id": "at.exponential.photobook",
     "name": "Photobook",
     "version": "1.0.0",
@@ -14,12 +14,12 @@
       "records:page"
     ],
     "functions": [
-      "records.*",
-      "app.navigate",
-      "photos.pick",
-      "print.pdf",
-      "files.save",
-      "share.send"
+      "records_*",
+      "app_navigate",
+      "photos_pick",
+      "print_pdf",
+      "files_save",
+      "share_send"
     ],
     "records": {
       "album": {
@@ -110,7 +110,7 @@
             "message": "Name the album first"
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "album",
               "data": {
                 "title": "trim(orElse(params.title, ''))"
@@ -145,7 +145,7 @@
         },
         "steps": [
           {
-            "call": "photos.pick",
+            "call": "photos_pick",
             "args": {
               "limit": 4
             },
@@ -156,7 +156,7 @@
             "message": "No photos picked"
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "page",
               "data": {
                 "album": "params.album",
@@ -166,7 +166,7 @@
             }
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "album",
               "id": "params.album",
               "data": {
@@ -207,7 +207,7 @@
             "message": "A page holds 4 photos"
           },
           {
-            "call": "photos.pick",
+            "call": "photos_pick",
             "args": {
               "limit": "4 - size(params.photos)"
             },
@@ -218,7 +218,7 @@
             "message": "No photos picked"
           },
           {
-            "records.upsert": {
+            "records_upsert": {
               "kind": "page",
               "id": "params.page",
               "data": {
@@ -249,7 +249,7 @@
             "message": "Add a page first"
           },
           {
-            "call": "print.pdf",
+            "call": "print_pdf",
             "args": {
               "title": "params.title",
               "blocks": "[{'heading': params.title}] + (has(params.cover) ? [{'image': params.cover}] : []) + sortBy(orElse(data.pages.rows, []).filter(p, size(p.photos) > 0).map(p, {'k': p.createdAt + p.id + '0', 'b': {'image': p.photos[0]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 1).map(p, {'k': p.createdAt + p.id + '1', 'b': {'image': p.photos[1]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 2).map(p, {'k': p.createdAt + p.id + '2', 'b': {'image': p.photos[2]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 3).map(p, {'k': p.createdAt + p.id + '3', 'b': {'image': p.photos[3]}}) + orElse(data.pages.rows, []).filter(p, has(p.caption)).map(p, {'k': p.createdAt + p.id + '4', 'b': {'text': p.caption}}) + orElse(data.pages.rows, []).map(p, {'k': p.createdAt + p.id + '/', 'b': {'pageBreak': true}}), 'k').map(x, x.b)"
@@ -322,7 +322,7 @@
             "label": "New album",
             "placeholder": "Summer 2026",
             "value": {
-              "path": "/draft"
+              "@path": "/draft"
             }
           },
           {
@@ -333,10 +333,10 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.newAlbum",
+                  "@call": "actions_newAlbum",
                   "args": {
                     "title": {
-                      "path": "/draft"
+                      "@path": "/draft"
                     }
                   }
                 }
@@ -361,12 +361,12 @@
             "height": 40,
             "fallback": "ui-photos",
             "src": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "has(a.cover) ? 'app-file:' + a.cover : ''",
                 "vars": {
                   "a": {
-                    "path": ""
+                    "@path": ""
                   }
                 },
                 "default": ""
@@ -377,7 +377,7 @@
             "id": "row",
             "component": "Row",
             "title": {
-              "path": "title"
+              "@path": "title"
             },
             "chevron": "right",
             "pressable": true,
@@ -387,12 +387,12 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "app.navigate",
+                  "@call": "app_navigate",
                   "args": {
                     "screen": "album",
                     "params": {
                       "album": {
-                        "path": "id"
+                        "@path": "id"
                       }
                     }
                   }
@@ -407,15 +407,22 @@
             "icon": "ui-photos",
             "title": "No albums yet",
             "visible": {
-              "call": "expr",
+              "@call": "cond",
               "args": {
-                "expr": "n == 0",
-                "vars": {
-                  "n": {
-                    "path": "/albums/count"
+                "if": {
+                  "@call": "expr",
+                  "args": {
+                    "expr": "n == 0",
+                    "vars": {
+                      "n": {
+                        "@path": "/albums/count"
+                      }
+                    },
+                    "default": false
                   }
                 },
-                "default": false
+                "then": true,
+                "else": false
               }
             }
           }
@@ -450,15 +457,15 @@
             "component": "Page",
             "back": true,
             "title": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].title, 'Album')",
                 "vars": {
                   "albums": {
-                    "path": "/albums/rows"
+                    "@path": "/albums/rows"
                   },
                   "id": {
-                    "path": "/params/album"
+                    "@path": "/params/album"
                   }
                 },
                 "default": "Album"
@@ -470,7 +477,7 @@
             "on": {
               "back": {
                 "functionCall": {
-                  "call": "app.navigate",
+                  "@call": "app_navigate",
                   "args": {
                     "screen": "albums"
                   }
@@ -493,33 +500,33 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.exportPdf",
+                  "@call": "actions_exportPdf",
                   "args": {
                     "title": {
-                      "call": "expr",
+                      "@call": "expr",
                       "args": {
                         "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].title, 'Album')",
                         "vars": {
                           "albums": {
-                            "path": "/albums/rows"
+                            "@path": "/albums/rows"
                           },
                           "id": {
-                            "path": "/params/album"
+                            "@path": "/params/album"
                           }
                         },
                         "default": "Album"
                       }
                     },
                     "cover": {
-                      "call": "expr",
+                      "@call": "expr",
                       "args": {
                         "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].cover, '')",
                         "vars": {
                           "albums": {
-                            "path": "/albums/rows"
+                            "@path": "/albums/rows"
                           },
                           "id": {
-                            "path": "/params/album"
+                            "@path": "/params/album"
                           }
                         },
                         "default": ""
@@ -548,7 +555,7 @@
             "label": "Caption",
             "placeholder": "At the lake",
             "value": {
-              "path": "/caption"
+              "@path": "/caption"
             }
           },
           {
@@ -559,24 +566,24 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.addPage",
+                  "@call": "actions_addPage",
                   "args": {
                     "album": {
-                      "path": "/params/album"
+                      "@path": "/params/album"
                     },
                     "caption": {
-                      "path": "/caption"
+                      "@path": "/caption"
                     },
                     "cover": {
-                      "call": "expr",
+                      "@call": "expr",
                       "args": {
                         "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].cover, '')",
                         "vars": {
                           "albums": {
-                            "path": "/albums/rows"
+                            "@path": "/albums/rows"
                           },
                           "id": {
-                            "path": "/params/album"
+                            "@path": "/params/album"
                           }
                         },
                         "default": ""
@@ -599,15 +606,22 @@
               "share"
             ],
             "visible": {
-              "call": "expr",
+              "@call": "cond",
               "args": {
-                "expr": "pdf != null",
-                "vars": {
-                  "pdf": {
-                    "path": "/pdf"
+                "if": {
+                  "@call": "expr",
+                  "args": {
+                    "expr": "pdf != null",
+                    "vars": {
+                      "pdf": {
+                        "@path": "/pdf"
+                      }
+                    },
+                    "default": false
                   }
                 },
-                "default": false
+                "then": true,
+                "else": false
               }
             }
           },
@@ -615,7 +629,7 @@
             "id": "pdfName",
             "component": "Text",
             "text": {
-              "path": "/pdf/name"
+              "@path": "/pdf/name"
             }
           },
           {
@@ -627,13 +641,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "files.save",
+                  "@call": "files_save",
                   "args": {
                     "fileId": {
-                      "path": "/pdf/fileId"
+                      "@path": "/pdf/fileId"
                     },
                     "name": {
-                      "path": "/pdf/name"
+                      "@path": "/pdf/name"
                     }
                   }
                 }
@@ -649,13 +663,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "share.send",
+                  "@call": "share_send",
                   "args": {
                     "fileId": {
-                      "path": "/pdf/fileId"
+                      "@path": "/pdf/fileId"
                     },
                     "name": {
-                      "path": "/pdf/name"
+                      "@path": "/pdf/name"
                     },
                     "mimeType": "application/pdf"
                   }
@@ -700,12 +714,12 @@
             "aspectRatio": 1,
             "fallback": "ui-photos",
             "src": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "'app-file:' + f",
                 "vars": {
                   "f": {
-                    "path": ""
+                    "@path": ""
                   }
                 },
                 "default": ""
@@ -716,12 +730,12 @@
             "id": "pageCaption",
             "component": "Text",
             "text": {
-              "call": "expr",
+              "@call": "expr",
               "args": {
                 "expr": "orElse(c, '')",
                 "vars": {
                   "c": {
-                    "path": "caption"
+                    "@path": "caption"
                   }
                 },
                 "default": ""
@@ -738,13 +752,13 @@
             "on": {
               "press": {
                 "functionCall": {
-                  "call": "actions.addPhotos",
+                  "@call": "actions_addPhotos",
                   "args": {
                     "page": {
-                      "path": "id"
+                      "@path": "id"
                     },
                     "photos": {
-                      "path": "photos"
+                      "@path": "photos"
                     }
                   }
                 }
@@ -758,15 +772,22 @@
             "icon": "ui-photos",
             "title": "No pages yet",
             "visible": {
-              "call": "expr",
+              "@call": "cond",
               "args": {
-                "expr": "n == 0",
-                "vars": {
-                  "n": {
-                    "path": "/pages/count"
+                "if": {
+                  "@call": "expr",
+                  "args": {
+                    "expr": "n == 0",
+                    "vars": {
+                      "n": {
+                        "@path": "/pages/count"
+                      }
+                    },
+                    "default": false
                   }
                 },
-                "default": false
+                "then": true,
+                "else": false
               }
             }
           }
@@ -966,6 +987,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "cD08-TzS3oSTSChdNYEs40ynHuc0ya7cLWenOO3LO958tjJacyONcYmab9-VcBo-rNrV-7-E7NCkZCQo9GpsAQ"
+    "value": "inHvV5rKBAG4dF-_zfld4Rl-YyggvuH62Vav_pFKOuOJSUo0iPf5F9FV4g0jwk4G6LuqJsX-c9rX4PuKp8iTBQ"
   }
 }

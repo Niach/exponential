@@ -1,13 +1,14 @@
-//! Round 9 §14: `upgrade09`, the PURE A2UI 0.9 → 1.0 converter. Mirrors
-//! `packages/exponential-ui/src/upgrade09.ts` (same structure, same
-//! decisions); both replay `fixtures/upgrade09.json`.
+//! Round 9 §14: the PURE A2UI 0.9 → 1.0 converter, here for ONE caller: the
+//! one-shot pass over a Local desktop's store ([`crate::a2ui10`]), which no
+//! server script reaches. No other crate may use it. Mirrors
+//! `apps/web/src/lib/apps/a2ui10-migrate/upgrade09.ts` (same structure, same
+//! decisions); both replay its `upgrade09.json`.
 //!
 //! - [`upgrade_message09`]: an agent → renderer (or host-internal) message,
 //!   threading the per-surface id maps ([`Upgrade09State`]) across a stream;
 //! - [`upgrade_client_message09`]: a renderer → agent `action` / `error`;
 //! - [`upgrade_card09`]: a nested `exponential_show` card `{root, data}`;
 //! - [`upgrade_package09`]: a formatVersion 5 package → 6;
-//! - [`upgrade09_json`]: the one JSON entry the FFI exposes (`upgrade09Json`).
 //!
 //! Output key order follows the input's: a renamed key keeps its place, an
 //! added key goes to the end of its object (`version` is the exception: it
@@ -18,9 +19,13 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde_json::{json, Map, Value};
 
-use crate::ident::{is_identifier, mangle};
+use eui_core::ident::{is_identifier, mangle};
 
 type Obj = Map<String, Value>;
+
+fn deep<R>(f: impl FnOnce() -> R) -> R {
+    f()
+}
 
 /// The 1.0 basic catalog id (§9.1).
 pub const BASIC_CATALOG_ID_10: &str = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json";
@@ -145,7 +150,7 @@ fn returns_of(name: &str) -> Option<String> {
     if VALIDATORS.contains(&name) {
         return Some("validationResult".into());
     }
-    let fns = &crate::catalog::CORE.functions;
+    let fns = &eui_core::catalog::CORE.functions;
     fns.core.get(name).or_else(|| fns.basic.get(name)).and_then(|d| d.get("returns")).and_then(Value::as_str).map(str::to_string)
 }
 
@@ -201,7 +206,7 @@ impl Ctx {
 
 /// §14.3 `dyn`.
 fn dyn_(v: &Value, ctx: &Ctx) -> Value {
-    crate::deep(|| match v {
+    deep(|| match v {
         Value::Array(items) => Value::Array(items.iter().map(|i| dyn_(i, ctx)).collect()),
         Value::Object(o) => {
             if o.len() == 1 && o.get("path").is_some_and(Value::is_string) {
@@ -294,9 +299,9 @@ fn upgrade_accessibility(a11y: &Value, ctx: &Ctx) -> Value {
 // ---------------------------------------------------------------------------
 // Catalog lookups (core component prop schemas)
 
-fn core_prop_schema(component: Option<&Value>, prop: &str) -> Option<&'static crate::types::PropSchema> {
+fn core_prop_schema(component: Option<&Value>, prop: &str) -> Option<&'static eui_core::types::PropSchema> {
     let name = component?.as_str()?;
-    crate::catalog::CORE.components.get(name)?.props.get(prop)
+    eui_core::catalog::CORE.components.get(name)?.props.get(prop)
 }
 
 /// The core props that hold a component id (§5.3).
@@ -500,17 +505,17 @@ fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool
         return rekey.reference(value);
     }
     // A binding or call AT a data prop converts; a literal's inside stays data.
-    if crate::data::is_data_schema(core_prop_schema(component, key)) {
+    if eui_core::data::is_data_schema(core_prop_schema(component, key)) {
         return if is_directive09(value) { dyn_(value, ctx) } else { value.clone() };
     }
     dyn_(value, ctx)
 }
 
-const WIRE_CHECKS: &str = crate::reducer::WIRE_CHECKS;
+const WIRE_CHECKS: &str = eui_core::reducer::WIRE_CHECKS;
 
 /// Round 9 §5.1: the envelope mixins ride under `@` in 1.0.
 fn wire_key(key: &str) -> String {
-    if crate::types::MIXIN_NAMES.contains(&key) { format!("@{key}") } else { key.to_string() }
+    if eui_core::types::MIXIN_NAMES.contains(&key) { format!("@{key}") } else { key.to_string() }
 }
 
 fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut Rekey, ctx: &Ctx) -> Value {
@@ -727,14 +732,14 @@ pub fn upgrade_client_message09(message: &Value) -> Value {
 // Cards (nested {root, data})
 
 fn collect_card_ids(node: &Value, out: &mut Vec<String>) {
-    crate::deep(|| {
+    deep(|| {
         let Some(n) = node.as_object() else { return };
         if let Some(id) = n.get("id").and_then(Value::as_str) {
             out.push(id.to_string());
         }
         if let Some(slots) = n.get("slots").and_then(Value::as_object) {
             let mut names: Vec<&String> = slots.keys().collect();
-            names.sort_by(|a, b| crate::host::utf16_cmp(a, b));
+            names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
             for name in names {
                 collect_card_ids(&slots[name.as_str()], out);
             }
@@ -748,7 +753,7 @@ fn collect_card_ids(node: &Value, out: &mut Vec<String>) {
 }
 
 fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
-    crate::deep(|| {
+    deep(|| {
         let Some(n) = node.as_object() else { return node.clone() };
         let component = n.get("component");
         let mut out = Obj::new();
@@ -904,7 +909,7 @@ fn rekey_tools(ids: &[String]) -> ToolMap {
 }
 
 fn rename_expect(value: &Value, ctx: &Ctx) -> Value {
-    crate::deep(|| match value {
+    deep(|| match value {
         Value::String(s) if is_function_name09(s) => Value::String(rename_with(s, &ctx.tools)),
         Value::Array(items) => Value::Array(items.iter().map(|v| rename_expect(v, ctx)).collect()),
         Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), rename_expect(v, ctx))).collect()),
@@ -1082,58 +1087,6 @@ pub fn upgrade_package09(file: &Value, verify: impl FnOnce(&Value) -> PackageVer
         "invalid" => PackageUpgrade { package: None, status: verdict.status, author: None },
         "valid" => PackageUpgrade { package: Some(upgrade_package_body09(file)), status: verdict.status, author: verdict.author },
         _ => PackageUpgrade { package: Some(upgrade_package_body09(file)), status: "unsigned".into(), author: None },
-    }
-}
-
-/// The verification a core without Ed25519 can do on its own: no
-/// `signature` = `unsigned`, else `invalid` (a host verifies and passes its
-/// answer to [`upgrade09_json`] as `verification`).
-pub fn structural_verification(file: &Value) -> PackageVerification {
-    let status = if file.get("signature").is_none() { "unsigned" } else { "invalid" };
-    PackageVerification { status: status.into(), author: None }
-}
-
-/// The FFI's one entry (`upgrade09Json`):
-/// - `{kind: "message", input, state?}` → `{messages, state}`;
-/// - `{kind: "stream", inputs, state?}` → `{messages, state}` (every output in order);
-/// - `{kind: "client", input}` → the 1.0 message;
-/// - `{kind: "card", input}` → the 1.0 card;
-/// - `{kind: "package", input, verification?: {status, author?}}` →
-///   `{package, status, author?}` (`package` null when invalid; without
-///   `verification`: [`structural_verification`]).
-pub fn upgrade09_json(request: &Value) -> Value {
-    let input = request.get("input").cloned().unwrap_or(Value::Null);
-    let state: Upgrade09State = request.get("state").and_then(|s| serde_json::from_value(s.clone()).ok()).unwrap_or_default();
-    match request.get("kind").and_then(Value::as_str) {
-        Some("message") => {
-            let (messages, state) = upgrade_message09(&input, &state);
-            json!({"messages": messages, "state": state})
-        }
-        Some("stream") => {
-            let mut state = state;
-            let mut messages = Vec::new();
-            for m in request.get("inputs").and_then(Value::as_array).into_iter().flatten() {
-                messages.extend(upgrade_message09_in(m, &mut state));
-            }
-            json!({"messages": messages, "state": state})
-        }
-        Some("client") => upgrade_client_message09(&input),
-        Some("card") => upgrade_card09(&input),
-        Some("package") => {
-            let given = request.get("verification").and_then(Value::as_object).map(|v| PackageVerification {
-                status: v.get("status").and_then(Value::as_str).unwrap_or("invalid").to_string(),
-                author: v.get("author").cloned(),
-            });
-            let u = upgrade_package09(&input, |f| given.unwrap_or_else(|| structural_verification(f)));
-            let mut out = Obj::new();
-            out.insert("package".into(), u.package.unwrap_or(Value::Null));
-            out.insert("status".into(), Value::String(u.status));
-            if let Some(a) = u.author {
-                out.insert("author".into(), a);
-            }
-            Value::Object(out)
-        }
-        _ => json!({"error": "kind is message, stream, client, card or package"}),
     }
 }
 
@@ -1495,22 +1448,6 @@ mod tests {
         assert_eq!(u.status, "valid");
         assert_eq!(u.author, Some(json!({"name": "A", "key": "ed25519:k"})));
         assert_eq!(u.package.unwrap(), json!({"formatVersion": 6, "id": "a", "templates": {}, "author": {"name": "A", "key": "ed25519:k"}}));
-        let mut claim = file.clone();
-        claim.as_object_mut().unwrap().remove("signature");
-        let out = upgrade09_json(&json!({"kind": "package", "input": claim}));
-        assert_eq!(out["status"], "unsigned");
-        assert!(out.get("author").is_none());
-        assert_eq!(out["package"]["author"]["name"], "A");
-        let out = upgrade09_json(&json!({"kind": "package", "input": file}));
-        assert_eq!(out, json!({"package": null, "status": "invalid"}));
     }
 
-    #[test]
-    fn json_entry_stream() {
-        let out = upgrade09_json(&json!({"kind": "stream", "inputs": [
-            {"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}},
-            {"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [{"id": "f", "component": "TextField", "label": "x"}]}}]}));
-        assert_eq!(out["messages"][1]["updateComponents"]["components"][0]["value"], "");
-        assert_eq!(out["state"], json!({"surfaces": {"s": {"f": "f"}}, "catalogs": {"s": BASIC_CATALOG_ID_10}}));
-    }
 }

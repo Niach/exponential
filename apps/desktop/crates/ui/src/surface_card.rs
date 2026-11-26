@@ -384,7 +384,7 @@ pub(crate) fn enter_frame(elapsed: Duration, reduced: bool) -> Option<EnterLook>
 /// the root has no children.
 pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Option<eui_gpui::view::NodeEntrance> {
     let enter = &CHATS.surface_card.enter;
-    let ids: Vec<String> = crate::plan_card::painted_surface(surface)
+    let ids: Vec<String> = surface
         .root
         .get("children")?
         .as_array()?
@@ -421,6 +421,9 @@ pub(crate) fn surface_row(
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
+    if !surface.readable() {
+        return unread_card(id, title, cx);
+    }
     ensure_view(id, session_id, surface, window, cx);
     let reduced = theme::motion::reduce_motion();
     let cards = cx.default_global::<SurfaceCards>();
@@ -443,6 +446,40 @@ pub(crate) fn surface_row(
     surface_frame(id, title, view.map(|view| view.into_any_element()), look, cx)
 }
 
+/// THE inline marker in the place of a card surface that is not A2UI 1.0
+/// (plan-card.json `surfaceReadableCases`: a sealed card the server could not
+/// rewrite).
+pub(crate) fn unread_marker(id: &str, cx: &App) -> AnyElement {
+    let label = &domain::chat_express::CHAT_EXPRESS.copy.block_failed;
+    transcript_marker(SharedString::from(format!("surface-unread-{id}")), label, None, cx)
+}
+
+/// A surface card that cannot paint: its title caption over [`unread_marker`].
+fn unread_card(id: &str, title: Option<&str>, cx: &App) -> AnyElement {
+    v_flex()
+        .id(SharedString::from(format!("{}-{id}", CHATS.test_ids.surface_card)))
+        .w_full()
+        .min_w_0()
+        .gap(px(domain::plan_card::card().surface_label_gap))
+        .children(title_caption(title, cx))
+        .child(unread_marker(id, cx))
+        .into_any_element()
+}
+
+/// The title = the plan card's surface caption (plan-card.json `card`: 2xs
+/// medium muted, `surfaceLabelGap` ABOVE the frame) ×4; none when untitled.
+fn title_caption(title: Option<&str>, cx: &App) -> Option<gpui::Div> {
+    let title = title.map(str::trim).filter(|title| !title.is_empty())?;
+    Some(
+        div()
+            .text_2xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(cx.theme().muted_foreground)
+            .truncate()
+            .child(SharedString::from(title.to_string())),
+    )
+}
+
 /// The card's frame around `body` (`None` = the skeleton-height box until
 /// the view exists); `look` = the ENTER state ([`enter_frame`]).
 pub(crate) fn surface_frame(
@@ -462,9 +499,6 @@ pub(crate) fn surface_frame(
     } else {
         stroke
     };
-    // The title = the plan card's surface caption (plan-card.json `card`:
-    // 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4.
-    let caption = title.map(str::trim).filter(|title| !title.is_empty()).map(str::to_string);
     v_flex()
         .id(SharedString::from(format!("{}-{id}", CHATS.test_ids.surface_card)))
         .relative()
@@ -474,16 +508,7 @@ pub(crate) fn surface_frame(
         .opacity(opacity)
         .min_w_0()
         .gap(px(card.surface_label_gap))
-        .when_some(caption, |card, caption| {
-            card.child(
-                div()
-                    .text_2xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .truncate()
-                    .child(SharedString::from(caption)),
-            )
-        })
+        .children(title_caption(title, cx))
         .child(
             div()
                 .w_full()
@@ -642,18 +667,5 @@ mod tests {
         assert_eq!(entrance.from_translate_y, enter.children.from_translate_y);
         let leaf = CardSurface { version: None, root: serde_json::json!({"id": "root"}), data: None };
         assert!(children_entrance(Instant::now(), &leaf).is_none());
-    }
-
-    /// Round 9 §14: a stored card without a version paints through the
-    /// upgrade (bindings, ids), a 1.0 card as it is.
-    #[test]
-    fn a_stored_0_9_card_paints_upgraded() {
-        let root = serde_json::json!({"id": "root", "component": "Stack", "children": [{"id": "a-b", "component": "Text", "props": {"text": {"path": "/t"}}}]});
-        let stored = CardSurface { version: None, root, data: None };
-        let painted = crate::plan_card::painted_surface(&stored);
-        assert_eq!(painted.root["children"][0], serde_json::json!({"id": "a_b", "component": "Text", "props": {"text": {"@path": "/t"}}}));
-        assert_eq!(children_entrance(Instant::now(), &stored).unwrap().ids, vec!["a_b".to_string()]);
-        let current = CardSurface { version: Some(eui_core::catalog::A2UI_VERSION.into()), root: serde_json::json!({"id": "a-b"}), data: None };
-        assert_eq!(crate::plan_card::painted_surface(&current), current);
     }
 }

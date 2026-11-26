@@ -35,7 +35,7 @@ Four messages: `createSurface`, `updateComponents` (components added or replaced
 
 ## Data and actions
 
-Every surface has one JSON data model. A bindable prop takes `{"path": "/summary"}` and follows the model; inputs bind both ways. A `List` repeats a template per item, with relative paths reading the current item. Interactive components fire events: an event action goes back to the agent with its context resolved against the data model, and a function call runs on the client (built-ins on every renderer, plus the host's own, namespaced and behind a policy gate).
+Every surface has one JSON data model. A bindable prop takes `{"@path": "/summary"}` and follows the model, or `{"@call": "fn", "args": {}}` for a computed value; inputs bind both ways. A `List` repeats a template per item, with relative paths reading the current item. Interactive components fire events: an event action goes back to the agent with its context resolved against the data model, and a function call runs on the client (built-ins on every renderer, plus the host's own, prefixed and behind a policy gate).
 
 ## The catalog
 

@@ -331,12 +331,12 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       // Round 9 §15: the A2UI 1.0 wire.
       const w = fixture(`a2ui10-messages.json`)
       for (const c of w.ids) record(`a2ui10`, `id ${c.id}`, () => isIdentifier(c.id) === c.expected.identifier && mangle(c.id) === c.expected.mangle)
-      for (const flow of w.flows as { name: string; extensionIds?: string[]; inlineCatalogs?: string[]; packages?: string[]; steps: { message: unknown; trusted?: boolean; acceptV09?: boolean; expected: unknown }[] }[])
+      for (const flow of w.flows as { name: string; extensionIds?: string[]; inlineCatalogs?: string[]; packages?: string[]; steps: { message: unknown; trusted?: boolean; expected: unknown }[] }[])
         record(`a2ui10`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
           for (const id of flow.inlineCatalogs ?? []) router.registerInlineCatalog(id)
           for (const id of flow.packages ?? []) router.installPackage(w.packages[id])
-          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: s.trusted, ...(s.acceptV09 === false ? { acceptV09: false } : {}) })) !== canon(s.expected)) return `step ${i}`
+          for (const [i, s] of flow.steps.entries()) if (canon(router.route(s.message, { trusted: s.trusted })) !== canon(s.expected)) return `step ${i}`
           return true
         })
       for (const c of w.mint as { name: string; steps: { create?: string; delete?: string; mint?: string; expected: unknown }[] }[])
@@ -353,7 +353,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of w.rendererCalls) record(`a2ui10`, `rendererCall: ${c.name}`, () => canon(answerRendererCall(c.op, c.data ?? {}, c.available)) === canon(c.expected))
       for (const c of w.cards)
         record(`a2ui10`, `card: ${c.name}`, () => {
-          const out = cardV10(c.input, c.acceptV09 ?? true)
+          const out = cardV10(c.input)
           return `error` in out ? out.error === c.expected.error : canon(out.card) === canon(c.expected.card)
         })
       const t = fixture(`host-transport.json`)

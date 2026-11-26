@@ -30,7 +30,7 @@ use gpui_component::ActiveTheme as _;
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, flat_action, APP_ACTIONS_COPY};
+use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
@@ -96,10 +96,9 @@ pub(crate) fn declared_tools(package: Option<&serde_json::Value>) -> Vec<String>
 }
 
 /// VAPP-120: the whole grant list after one switch (the web's `toggleTool`):
-/// on = appended once, off = removed. Round 9 §14: a grant stored dotted
-/// goes back under its flat name.
+/// on = appended once, off = removed.
 pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<String> {
-    let mut next: Vec<String> = granted.iter().map(|g| flat_action(g)).filter(|g| g != name).collect();
+    let mut next: Vec<String> = granted.iter().filter(|g| *g != name).cloned().collect();
     if on {
         next.push(name.to_string());
     }
@@ -816,7 +815,7 @@ impl AppDetailPane {
                     "name": name,
                     "switch": grantable,
                     "always": !grantable,
-                    "checked": row.granted_tools.iter().any(|g| flat_action(g) == name),
+                    "checked": row.granted_tools.iter().any(|g| *g == name),
                     "disabled": !grant || self.tool_busy.as_deref() == Some(name.as_str()),
                 })
             })
@@ -1216,17 +1215,14 @@ mod tests {
         );
         assert_eq!(toggled_grants(&granted, "exponential_comments_create", true), granted);
         assert!(toggled_grants(&granted, "exponential_comments_create", false).is_empty());
-        let dotted = vec!["exponential.comments.create".to_string()];
-        assert_eq!(toggled_grants(&dotted, "exponential_issues_update", true), vec!["exponential_comments_create".to_string(), "exponential_issues_update".to_string()]);
-        assert!(toggled_grants(&dotted, "exponential_comments_create", false).is_empty());
     }
 
     #[test]
     fn the_app_row_reads_its_grants_tolerantly() {
         let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": ["exponential_issues_update"]})).unwrap();
         assert_eq!(row.granted_tools, vec!["exponential_issues_update".to_string()]);
-        let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential.issues.get\"]"})).unwrap();
-        assert_eq!(text.granted_tools, vec!["exponential.issues.get".to_string()]);
+        let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential_issues_get\"]"})).unwrap();
+        assert_eq!(text.granted_tools, vec!["exponential_issues_get".to_string()]);
         for garbage in [json!(null), json!(7), json!({"x": 1})] {
             let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": garbage})).unwrap();
             assert!(row.granted_tools.is_empty());

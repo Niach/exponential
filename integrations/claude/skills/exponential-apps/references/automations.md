@@ -12,7 +12,7 @@
   { "kind": "schedule", "cron": "0 8 * * MON", "tz": "Europe/Vienna",
     "run": { "records": { "op": "upsert", "kind": "rotation", "data": { "startedAt": "${firedAt}" } } } },
   { "kind": "record", "record": "request", "op": "create",
-    "run": { "action": "exponential.comments.create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
+    "run": { "action": "exponential_comments_create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
   { "kind": "event", "name": "pr.merged", "prompt": "Log the merge of ${event.title} if it touches billing." }
 ]
 ```
@@ -26,7 +26,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
   - `webhook {name}` (an app's agent only, §7.2): a signed `POST` to the app's hook URL; the body is `${event.body.<path>}`.
 - **What it does:**
   - By default it **wakes the agent**: a `trigger_fired` card into its owner's conversation (the app's root), `prompt` (optional, any agent) as the card's text with its templates filled, record and webhook data in a fenced block marked as data.
-  - With **`run`** (an app's agent only) it runs ONE binding on the server instead, no session: an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator (no destructive runs, an action must be granted by an owner, an upstream must be declared, never `exponential.apps.*`). `agent` hands off to ANOTHER team agent (§7.3).
+  - With **`run`** (an app's agent only) it runs ONE binding on the server instead, no session: an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator (no destructive runs, an action must be granted by an owner, an upstream must be declared, never `exponential_apps_*`). `agent` hands off to ANOTHER team agent (§7.3).
   - Templates in `prompt` and `run`: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event and webhook triggers: the payload + `name`), `${firedAt}`.
 - **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). A run whose binding the published version cannot run never fires. Every firing of an app's trigger (a run, a wake), and every refusal, is one `mcp_calls` row with `client_id = automation:t_<trigger id>`, `tool` = `records.<op>:<kind>`, the action, `<server>/<tool>` or `agent:<slug>` for a wake (Settings › MCP › Activity, the Events tab's recent runs).
 - **Run-as** (C23, #EXP-1829): a run acts as **the agent's owner** (the app's creator), like every trigger. The owner must still be a member with write access to the app. Upstream runs use the owner's credential; writes read "via <app>" (§9.3). Otherwise the trigger pauses (`sponsorGone`, `sponsorReadOnly`), the team's owners get one notification per pause, and it resumes by itself once the owner can run it again. There is no bot identity (decided 2026-11-01).
@@ -59,7 +59,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 ```
 
 - **The form:** `{agent, prompt, device?}`. `agent` = the agent's slug (its name lower-cased, everything outside `a-z0-9` one `-`: "Triage Bot" = `triage-bot`; the team's oldest agent with that slug, never a personal Assistant). `prompt` = at most 4000 characters, frozen per version. `device` absent or `"default"` (the agent's own device). It always writes.
-- **Where it runs:** an automation (A1, as its **sponsor**), an `exposes` tool (as the **calling member**) and the `handoff` action `exponential.apps.handoff {slug, tool, input, record?}` (a press runs one of the package's published `agent` exposes as the viewer, behind the consent card unless an owner granted it; display row `apps_handoff`).
+- **Where it runs:** an automation (A1, as its **sponsor**), an `exposes` tool (as the **calling member**) and the `handoff` action `exponential_apps_handoff {slug, tool, input, record?}` (a press runs one of the package's published `agent` exposes as the viewer, behind the consent card unless an owner granted it; display row `apps_handoff`).
 - **The session:** `sessions.send {agentId}`, the one entrypoint: the run-as member's own conversation with that agent (created on first use on the agent's device, then resumed), reading "via <app>" (M3 `via_app_id`). The agent's output lands in that conversation; it calls back into the app only through the app's `exposes`, if its MCP grant includes the app.
 - **The brief (data is never instructions, §12.1):** the prompt with each `${…}` filled as inline data (backticks, quotes stripped of backticks and newlines, at most 200 characters each), then `From the app <name> (<automation|tool|handoff> <name>).`, for a record trigger `Record: <kind> <id> of the app <slug>.` (the ref back to the record), and the whole input as a fenced JSON block marked as data (at most 8000 characters).
 - **Caps:** at most 10 hand-offs per app per rolling minute (over it: `rateLimited`, audited), beside the automations' 30 runs. **Loop guard:** a record write or an event caused from inside an agent's session tree (the MCP gate tags each call with the caller's own session) never fires an automation that hands off to that same agent; every other automation still runs.

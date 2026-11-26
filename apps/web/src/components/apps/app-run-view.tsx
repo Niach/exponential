@@ -16,7 +16,7 @@ import { trpc } from "@/lib/trpc-client"
 // FULL SCREEN: the PUBLISHED package through THE SAME preview pieces and app
 // host as the editor (records as the viewer, the published grants, the access
 // level's read-only paint, the HostBanner, the consent card), with the
-// `screens` shell; no toolbar. A screen tap or `app.navigate` REPLACES the
+// `screens` shell; no toolbar. A screen tap or `app_navigate` REPLACES the
 // route with `screenPath`. Phones: the detail header with the `…` menu
 // (`run.menu`: Edit app, Export, Delete app); web ≥ md: no header (the
 // sidebar's app row is the active one).

@@ -173,7 +173,7 @@ mod tests {
     fn result_cards_cover_rows_outside_the_window() {
         let temp = TempStore::new();
         let store = &temp.1;
-        let card = json!({"kind": "surface", "title": "Report", "surface": {"root": {"id": "root", "component": "Text"}}});
+        let card = json!({"kind": "surface", "title": "Report", "surface": {"version": "1.0", "root": {"id": "root", "component": "Text"}}});
         let mut rows: Vec<Value> = (0..400)
             .map(|n| json!({"id": format!("m{n:03}"), "session_id": "r1", "root_id": "r1", "author_kind": "agent", "body": "x", "created_at": at(n)}))
             .collect();

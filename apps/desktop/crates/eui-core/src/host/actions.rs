@@ -7,7 +7,7 @@
 //! - ACTIONS (`actions: {<name>: {params?, steps}}`) are the only place a
 //!   package writes. [`run_action`] runs one against ONE snapshot and
 //!   returns the PLAN (`{writes, sets, calls}`) or the one error that
-//!   discards it; the host commits the writes as ONE unit (`records.batch`,
+//!   discards it; the host commits the writes as ONE unit (`records_batch`,
 //!   [`apply_record_batch`] over in-memory rows), applies the sets, runs the
 //!   calls. `fixtures/actions.json` locks it (TS, Rust, Swift, Kotlin).
 //! - VAPP-271: a `call` step may name its answer (`result: <name>`). It

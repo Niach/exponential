@@ -106,7 +106,7 @@ const OFFSETS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS electric_offsets (
 )"#;
 
 /// VAPP-235 (app-records.json `outbox`): the app record OUTBOX, local only
-/// (no shape): one row per queued host call (`records.upsert` / `delete` /
+/// (no shape): one row per queued host call (`records_upsert` / `delete` /
 /// `batch`), oldest first by `seq`, kept per account (this file) across a
 /// restart. `writes` = the entry's writes as JSON.
 const OUTBOX_DDL: &str = r#"CREATE TABLE IF NOT EXISTS app_record_outbox (

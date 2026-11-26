@@ -1909,8 +1909,8 @@ public interface AppInstanceInterface {
     fun `appId`(): kotlin.String
     
     /**
-     * A host function call from the app's UI: `records.upsert` /
-     * `records.delete` / `records.batch`, `app.navigate`, or a capability
+     * A host function call from the app's UI: `records_upsert` /
+     * `records_delete` / `records_batch`, `app_navigate`, or a capability
      * (`<capability>.<tool>`, through the broker). `newIds` = the client
      * ids of the creates, in order.
      */
@@ -2130,8 +2130,8 @@ open class AppInstance: Disposable, AutoCloseable, AppInstanceInterface
 
     
     /**
-     * A host function call from the app's UI: `records.upsert` /
-     * `records.delete` / `records.batch`, `app.navigate`, or a capability
+     * A host function call from the app's UI: `records_upsert` /
+     * `records_delete` / `records_batch`, `app_navigate`, or a capability
      * (`<capability>.<tool>`, through the broker). `newIds` = the client
      * ids of the creates, in order.
      */

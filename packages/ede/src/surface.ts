@@ -250,8 +250,7 @@ export function documentIssues(document: unknown): Issue[] {
     }
     if (isRecord(node.on)) {
       for (const handler of Object.values(node.on)) {
-        // A2UI 1.0 names the function `@call` (#VAPP-289); `call` is the 0.9 bridge.
-        const call = isRecord(handler) && isRecord(handler.functionCall) ? (handler.functionCall[`@call`] ?? handler.functionCall.call) : undefined
+        const call = isRecord(handler) && isRecord(handler.functionCall) ? handler.functionCall[`@call`] : undefined
         if (typeof call === `string` && !functions.includes(call)) {
           issues.push({ path: `#${id}`, message: `function ${call} is not in surface.functions` })
         }

@@ -10,6 +10,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { authedProcedure } from "@/lib/trpc"
+import { stagedV09 } from "@/lib/apps/a2ui10-migrate"
 import { attachments, importIdMap, importRows, teamImports, teamMembers, teams } from "@/db/schema"
 import { teamColumns } from "@/lib/team-columns"
 import { uniqueSlug } from "@/lib/trpc/teams"
@@ -195,6 +196,9 @@ export const teamImportProcedures = {
       .where(eq(importRows.importId, imp.id))
       .orderBy(asc(importRows.seq), asc(importRows.ordinal))
     const rows: StagedRow[] = staged.map((r) => ({ tableName: r.tableName, localId: r.localId, row: (r.row ?? {}) as Record<string, unknown> }))
+    // Round 9 §14.1: nothing at A2UI 0.9 is ever written.
+    const old = stagedV09(rows)
+    if (old) throw new TRPCError({ code: `BAD_REQUEST`, message: `This desktop holds ${old}. Update Exponential on it, open the desktop once, then share it again.` })
     // The plan's limits, before the transaction (a second pool connection
     // inside one deadlocks the pool): storage counts what already landed,
     // records what is about to be inserted.

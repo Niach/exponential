@@ -8,13 +8,13 @@ describe(`grantableTools`, () => {
   it(`keeps grantable names in order and drops owner-only, destructive and unknown ones`, () => {
     expect(
       grantableTools([
-        `exponential.issues.get`,
-        `exponential.teams.update`,
-        `exponential.issues.delete`,
-        `exponential.nope.op`,
-        `exponential.sessions.send`,
+        `exponential_issues_get`,
+        `exponential_teams_update`,
+        `exponential_issues_delete`,
+        `exponential_nope_op`,
+        `exponential_sessions_send`,
       ])
-    ).toEqual([`exponential.issues.get`, `exponential.sessions.send`])
+    ).toEqual([`exponential_issues_get`, `exponential_sessions_send`])
   })
 
   it(`reads a missing list as none`, () => {
@@ -25,6 +25,6 @@ describe(`grantableTools`, () => {
   it(`GRANTABLE_ACTIONS is exactly the grantable catalog`, () => {
     expect(GRANTABLE_ACTIONS.length).toBeGreaterThan(0)
     expect(GRANTABLE_ACTIONS.every((name) => actionGrantable(name))).toBe(true)
-    expect(GRANTABLE_ACTIONS).not.toContain(`exponential.teams.update`)
+    expect(GRANTABLE_ACTIONS).not.toContain(`exponential_teams_update`)
   })
 })

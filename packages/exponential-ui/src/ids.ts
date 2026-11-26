@@ -1,7 +1,7 @@
 // VAPP-289 (round 9 contract §4, §14.3): identifiers. `isIdentifier` is
 // UAX #31 over the GENERATED Unicode 17.0.0 tables (generated/xid.ts), the
 // same tables every core reads; `mangle` turns any string into one (the id
-// re-key of upgrade09 and the flat tool / upstream function names, §6.3).
+// re-key of the stored-data migration and the flat tool / upstream function names, §6.3).
 
 import { isIdentifier, isXidContinue, isXidStart } from "../generated/xid"
 

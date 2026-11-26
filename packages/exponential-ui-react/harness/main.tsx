@@ -619,7 +619,7 @@ function BenchSuiteSurface({ scenario, initialData }: { scenario: BenchScenario;
   // the updateComponents it would be streamed in; the layout effect's
   // setState re-renders synchronously before the first paint.
   useLayoutEffect(() => {
-    if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
+    if (`components` in scenario.surface) surface.apply({ version: `1.0`, updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }), ...(scenario.steps.markdownOptions ? { markdownOptions: scenario.steps.markdownOptions as HostPlugin[`markdownOptions`] } : {}) }), [])

@@ -596,7 +596,10 @@ struct PlanCardSurfaceView: View {
     var body: some View {
         // The `copy.surface` label ABOVE its frame (web `PlanCardSurface`).
         let shape = RoundedRectangle(cornerRadius: PlanCard.Card.surfaceRadius)
-        if bare {
+        if !surface.readable {
+            // plan-card.json `surfaceReadableCases`: not A2UI 1.0.
+            TranscriptMarkerRow(label: ChatExpress.Copy.blockFailed)
+        } else if bare {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
@@ -638,14 +641,6 @@ struct PlanCardSurfaceView: View {
 }
 
 #if canImport(ExponentialUI)
-/// Round 9 §14: what a card paints: a stored card without a version is the 0.9
-/// form, shown through the upgrade for good (a sealed one never migrates).
-private func paintedRootJSON(_ surface: CardSurface) throws -> String {
-    guard surface.version == nil else { return surface.rootJSON }
-    let card = try upgradeCard09(cardJson: "{\"root\":\(surface.rootJSON)}")
-    return CardSurface.parse(try JSONSerialization.jsonObject(with: Data(card.utf8)))?.rootJSON ?? surface.rootJSON
-}
-
 /// The live renderer: one `SurfaceModel` per card, fed the NestedNode root and
 /// the initial data model once (`surface.data`, then the stamped `data`).
 private struct PlanCardLiveSurface: View {
@@ -731,7 +726,7 @@ private struct PlanCardLiveSurface: View {
                 options: SurfaceOptions(theme: ThemeHandle.builtin("exponential"), mode: .dark),
                 host: host
             )
-            try next.setNested(json: paintedRootJSON(surface))
+            try next.setNested(json: surface.rootJSON)
             // The agent's initial values, then the person's stamped ones over
             // them (web: `{ ...surface.data, ...data }`).
             let initial = surface.data?.objectValue ?? [:]

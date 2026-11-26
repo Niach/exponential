@@ -2174,17 +2174,14 @@ public protocol HostRouterProtocol: AnyObject, Sendable {
      */
     func registerInlineCatalog(id: String) 
     
-    func routeJson(messageJson: String, trusted: Bool)  -> String
-    
     /**
      * One agent message (JSON) → the ops to perform, in order, as a JSON
      * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
      * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
      * §1.1: a transport routes with `trusted = false`; only host code passes
      * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
      */
-    func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool)  -> String
+    func routeJson(messageJson: String, trusted: Bool)  -> String
     
     func supportedCatalogIds()  -> [String]
     
@@ -2336,6 +2333,13 @@ open func registerInlineCatalog(id: String)  {try! rustCall() {
 }
 }
     
+    /**
+     * One agent message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
+     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
+     * §1.1: a transport routes with `trusted = false`; only host code passes
+     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
+     */
 open func routeJson(messageJson: String, trusted: Bool) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
@@ -2343,26 +2347,6 @@ open func routeJson(messageJson: String, trusted: Bool) -> String  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(messageJson),
         FfiConverterBool.lower(trusted),uniffiCallStatus
-    )
-})
-}
-    
-    /**
-     * One agent message (JSON) → the ops to perform, in order, as a JSON
-     * array (`[{op: create|components|data|bind|delete|send|call|respond, …}]`).
-     * Never fails: unparseable text is an INVALID_MESSAGE `send` op. Round 9
-     * §1.1: a transport routes with `trusted = false`; only host code passes
-     * `true` (the host-internal `applyTemplate` / `bindDataModel`).
-     * [`Self::route_json`] with the 0.9 bridge on or off (§1.1 check 3).
-     */
-open func routeWithBridgeJson(messageJson: String, trusted: Bool, acceptV09: Bool) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(messageJson),
-        FfiConverterBool.lower(trusted),
-        FfiConverterBool.lower(acceptV09),uniffiCallStatus
     )
 })
 }
@@ -9311,16 +9295,6 @@ public func a2uiVersion() -> String  {
 })
 }
 /**
- * `ACCEPT_V09` (§14.1): every core entry upgrades 0.9 input while true.
- */
-public func acceptV09() -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffiCallStatus
-    )
-})
-}
-/**
  * A renderer `action` message (A2UI 1.0) JSON. `payload_json` travels as
  * `metadata.extensions.at_exponential_payload`, merged over `context` (§1.3).
  */
@@ -9386,7 +9360,7 @@ public func answerRendererCallJson(opJson: String, dataJson: String, availableCa
 })
 }
 /**
- * VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+ * VAPP-194: apply a `records_batch` (`eui_core::host::apply_record_batch`)
  * to `rows_json` (record rows) all or nothing, checked against
  * `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
  * `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
@@ -9518,12 +9492,11 @@ public func callAgentFunctionMessageJson(surfaceId: String, functionCallId: Stri
  * Round 9 §13: `{error}`, or `{card, problems, issues, root}` (the card at
  * 1.0, `cardProblems`, its reduce over the core catalog).
  */
-public func cardV10Json(cardJson: String, acceptV09: Bool)throws  -> String  {
+public func cardV10Json(cardJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_card_v10_json(
-        FfiConverterString.lower(cardJson),
-        FfiConverterBool.lower(acceptV09),uniffiCallStatus
+        FfiConverterString.lower(cardJson),uniffiCallStatus
     )
 })
 }
@@ -10083,7 +10056,7 @@ public func migrationRefusalJson(beforeJson: String, afterJson: String)throws  -
 })
 }
 /**
- * VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+ * VAPP-218 (U1): an `app_navigate` call's args → `{screen, params}` or
  * `{error}` (`fixtures/host-router.json` `navigate`).
  */
 public func navigateTargetJson(packageJson: String, argsJson: String)throws  -> String  {
@@ -10691,30 +10664,6 @@ public func transitionsFromJson(kindJson: String, recordJson: String?, viewerJso
 })
 }
 /**
- * Round 9 §14.2 `upgrade09`, one JSON entry; the request and answer are
- * documented on `eui_core::upgrade09::upgrade09_json`.
- */
-public func upgrade09Json(requestJson: String)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
-        uniffiCallStatus in
-    uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
-        FfiConverterString.lower(requestJson),uniffiCallStatus
-    )
-})
-}
-/**
- * A stored 0.9 `exponential_show` card (nested `{root, data}`) → 1.0
- * (§18: to DISPLAY a card that has no `version: "1.0"`).
- */
-public func upgradeCard09(cardJson: String)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
-        uniffiCallStatus in
-    uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
-        FfiConverterString.lower(cardJson),uniffiCallStatus
-    )
-})
-}
-/**
  * A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
  * three built-in catalogs).
  */
@@ -10904,9 +10853,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_a2ui_version() != 53224) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_accept_v09() != 35319) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 8082) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10919,7 +10865,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_answer_renderer_call_json() != 41288) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 62617) {
+    if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 26366) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30923) {
@@ -10946,7 +10892,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json() != 31746) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 44997) {
+    if (uniffi_exponential_ui_ffi_checksum_func_card_v10_json() != 14210) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 10264) {
@@ -11078,7 +11024,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json() != 35145) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_navigate_target_json() != 52036) {
+    if (uniffi_exponential_ui_ffi_checksum_func_navigate_target_json() != 46030) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 48026) {
@@ -11202,12 +11148,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_transitions_from_json() != 58360) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_ui_ffi_checksum_func_upgrade09_json() != 50067) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_ui_ffi_checksum_func_upgrade_card09() != 62477) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 18070) {
@@ -11351,10 +11291,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog() != 19816) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 5313) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json() != 57545) {
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json() != 35746) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 26004) {

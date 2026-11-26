@@ -232,7 +232,6 @@ pub fn host_contract() -> Value {
         },
         "paint": {"hook": PAINT_ERROR_HOOK, "errorCode": RENDER_FAILED},
         "surface": {"settings": SURFACE_SETTINGS, "formatter": SURFACE_FORMATTER, "commands": SURFACE_COMMANDS},
-        "transition": {"acceptV09": crate::catalog::ACCEPT_V09},
     })
 }
 

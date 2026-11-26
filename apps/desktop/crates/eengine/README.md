@@ -11,7 +11,7 @@ The **Engine** (#VAPP-259, `docs/spec/apps.md` §13.1): one runtime for Apps in 
 - `tools`: capabilities v1 (#VAPP-265). The catalog's tools with their app-facing and native schemas, the schema-subset validator, and the bridge every capability call takes: validate, map to the native arguments (app files through the `BlobStore`), call, check the native's result, store the files it carries.
 - `pdf`: `print.pdf`, which the Engine answers itself. One A4 layout (headings, text, JPEG and PNG images, page breaks) in the standard Helvetica fonts, byte-identical with the TS twin.
 - `hub` (feature): mounts each capability under its catalog name on an in-process MCP Proxy hub, gated by the same broker. `agent_grant` is a run's grant.
-- `instance`: `AppInstance` loads, verifies and validates a package, then drives its lifecycle, sources, `records.*`, `app.navigate` and capability calls.
+- `instance`: `AppInstance` loads, verifies and validates a package, then drives its lifecycle, sources, `records_*`, `app_navigate` and capability calls.
 - `stores`: `MemoryRecordStore`, `LocalIdentity` (a device uuid, no account), `FsBlobStore` and `MemoryVault`.
 
 Features: `sqlite` (`SqliteRecordStore`, the app-records table `elocal` owns, #EDE-55) and `hub` (capabilities as MCP tools on an in-process MCP Proxy hub, #VAPP-262).

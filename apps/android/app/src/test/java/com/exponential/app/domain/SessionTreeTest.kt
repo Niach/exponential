@@ -376,6 +376,7 @@ class SessionTreeTest {
 
     private fun encode(surface: CardSurface?): JsonElement = surface?.let {
         buildJsonObject {
+            it.version?.let { version -> put("version", version) }
             put("root", it.root)
             put("data", it.data ?: JsonNull)
         }

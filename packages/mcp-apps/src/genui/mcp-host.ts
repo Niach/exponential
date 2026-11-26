@@ -15,7 +15,7 @@
 //   - harness_mcp + the typed actions → the named tool, behind the SAME
 //     consent rule as web (a granted, non-destructive action runs; anything
 //     else asks: `consent`);
-//   - app.navigate → the view's screen shell; a link → `ui/open-link`.
+//   - app_navigate → the view's screen shell; a link → `ui/open-link`.
 // Every write re-reads the bindings (the web host repaints off sync).
 
 import { ExponentialHost, type AppPackage, type FunctionCallInfo, type HostFunction, type HostOptions, type MediaRequest, type ParsedSource, type SourceEmit } from "@exponential_app/eui"
@@ -302,7 +302,7 @@ export function createMcpAppHost(options: McpAppHostOptions): McpAppHost {
     await write({ op: `records_delete`, id: String(id ?? ``) })
   }
   // A package action's writes, one call each (MCP has no batch op: the web
-  // host's one transaction is the server's records.batch).
+  // host's one transaction is the server's records_batch).
   const recordsBatch: HostFunction = async ({ writes }) => {
     const ids: unknown[] = []
     for (const w of (Array.isArray(writes) ? writes : []) as Array<Record<string, unknown>>) {

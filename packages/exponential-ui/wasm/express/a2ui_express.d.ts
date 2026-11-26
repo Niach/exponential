@@ -25,8 +25,8 @@ export interface ExpressError extends Error {
 export interface CompileOptions {
     /** The surface a block without `surface(...)` targets (default `default_surface`). */
     surfaceId?: string;
-    /** The protocol version, `"1.0"` or `"0.9"` (default: the catalogs'). */
-    version?: string;
+    /** The protocol version, only `"1.0"` (the default). */
+    version?: "1.0";
 }
 export interface ResponseOptions {
     /** The surface a block without `surface(...)` targets (default `default_surface`). */
@@ -37,8 +37,8 @@ export interface ResponseOptions {
     progressiveKeys?: string[];
     /** After a rejected block: `"end"` throws (default), `"continue"` yields an error part and reads on. */
     afterRejectedBlock?: "end" | "continue";
-    /** The protocol version, `"1.0"` or `"0.9"` (default: the catalogs'). */
-    version?: string;
+    /** The protocol version, only `"1.0"` (the default). */
+    version?: "1.0";
 }
 
 /** Compiles one Express block (`<a2ui>` tags optional) to A2UI messages. */
@@ -53,8 +53,8 @@ export function wrap(parts: RawPart[]): string;
 export function hasFormatContent(text: string, complete?: boolean): boolean;
 
 export interface CatalogsOptions {
-    /** The protocol version, `"1.0"` or `"0.9"` (default: the catalogs'). */
-    version?: string;
+    /** The protocol version, only `"1.0"` (the default). */
+    version?: "1.0";
     /**
      * The surface id streams and responses mostly use (default `default_surface`):
      * its parser is set up with the catalogs. Another surface id's is set up on
@@ -71,7 +71,7 @@ export interface CatalogsOptions {
  */
 export class Catalogs {
     constructor(catalogs: CatalogDocuments, options?: CatalogsOptions);
-    /** The protocol version messages are compiled for (`"1.0"`, `"v0.9"`). */
+    /** The protocol version messages are compiled for (`"1.0"`). */
     readonly version: string;
     /** The catalog ids, in order. */
     readonly ids: string[];

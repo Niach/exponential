@@ -3,7 +3,7 @@
 //! `fixtures/host-router.json` (`validation`, `screens`, `navigate`) locks
 //! the same behaviour on every platform. `screens: [{template, title,
 //! icon?, params?, nav?, exposed?}]` lists the templates a person can open
-//! (keyed by the template); the host draws the navigation; `app.navigate
+//! (keyed by the template); the host draws the navigation; `app_navigate
 //! {screen, params?}` opens one, its params landing under `/params/*`.
 //! #EXP-1674: `nav: false` = a detail screen, left out of the navigation;
 //! `exposed` = the public contract other apps link to.
@@ -249,8 +249,8 @@ fn cel_string_literal(v: &Value) -> Option<String> {
 }
 
 /// Every literal navigate target names a screen: a press's
-/// `functionCall {call: app.navigate, args: {screen}}` (a JSON string) and
-/// an action's `{call: app.navigate, args: {screen: <CEL string literal>}}`.
+/// `functionCall {call: app_navigate, args: {screen}}` (a JSON string) and
+/// an action's `{call: app_navigate, args: {screen: <CEL string literal>}}`.
 fn navigate_issues(pkg: &Map<String, Value>, screens: &[String]) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
     let check = |screen: Option<String>, at: String, issues: &mut Vec<PackageIssue>| {

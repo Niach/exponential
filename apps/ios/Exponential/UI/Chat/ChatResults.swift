@@ -82,10 +82,14 @@ private struct ResultSurface: View {
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
-        SurfaceCardFrame(title: nil, animate: false) {
-            PlanCardSurfaceView(
-                surface: surface, handle: handle, editable: onAction != nil, onAction: onAction, bare: true
-            )
+        if surface.readable {
+            SurfaceCardFrame(title: nil, animate: false) {
+                PlanCardSurfaceView(
+                    surface: surface, handle: handle, editable: onAction != nil, onAction: onAction, bare: true
+                )
+            }
+        } else {
+            TranscriptMarkerRow(label: ChatExpress.Copy.blockFailed)
         }
     }
 }

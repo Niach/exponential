@@ -29,7 +29,7 @@ vi.mock(`@/lib/team-user-ref`, () => ({
 }))
 
 const pkg = {
-  formatVersion: 5,
+  formatVersion: 6,
   id: `acme.hours`,
   name: `Hours`,
   version: `1.0.0`,
@@ -45,9 +45,9 @@ const pkg = {
       bindings: [{ path: `/entries`, source: `records:entry` }],
       components: [
         { id: `root`, component: `Stack`, children: [`total`, `list`] },
-        { id: `total`, component: `Heading`, text: { call: `expr`, args: { expr: `string(entries.count) + ' entries'`, vars: { entries: { path: `/entries` } }, default: `?` } } },
+        { id: `total`, component: `Heading`, text: { "@call": `expr`, args: { expr: `string(entries.count) + ' entries'`, vars: { entries: { "@path": `/entries` } }, default: `?` } } },
         { id: `list`, component: `List`, children: { componentId: `row`, path: `/entries/rows` } },
-        { id: `row`, component: `Row`, title: { path: `label` } },
+        { id: `row`, component: `Row`, title: { "@path": `label` } },
       ],
     },
     other: { components: [{ id: `root`, component: `Text`, text: `Other` }] },

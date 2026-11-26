@@ -25,12 +25,12 @@ impl Capability for Photos {
 
 fn package() -> Value {
     json!({
-        "formatVersion": 5,
+        "formatVersion": 6,
         "id": "acme.album",
         "name": "Album",
         "version": "1.0.0",
         "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-        "functions": ["records.*", "app_navigate", "photos_pick"],
+        "functions": ["records_*", "app_navigate", "photos_pick"],
         "sources": ["records:*"],
         "records": {"note": {"title": "Note", "schema": {"type": "object", "properties": {"text": {"type": "string"}}}}},
         "capabilities": [{"id": "photos.read", "why": "Pick the photos for an album."}],
@@ -95,7 +95,7 @@ fn a_launch_installs_the_shell_and_opens_the_first_screen() {
 fn a_package_without_screens_opens_its_first_template() {
     let mut pkg = package();
     pkg.as_object_mut().unwrap().remove("screens");
-    pkg["functions"] = json!(["records.*"]);
+    pkg["functions"] = json!(["records_*"]);
     pkg.as_object_mut().unwrap().remove("capabilities");
     let mut r = runner(&pkg);
     let paints = r.launch(Vec::new());

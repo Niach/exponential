@@ -23,7 +23,7 @@ import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 
 function Chat({ messages }) {
   const surface = useSurface({ surfaceId: "main" })
-  useEffect(() => messages.forEach(surface.apply), [messages])   // A2UI v0.9 server messages
+  useEffect(() => messages.forEach(surface.apply), [messages])   // A2UI 1.0 agent messages
   return (
     <ExponentialSurface
       surface={surface}
@@ -173,10 +173,10 @@ interface HostPlugin {
   outstanding edit dropped), so a form clears itself after Save; host data
   writes (`updateDataModel`, a bind, an echo) never bump it
   (`fixtures/interactions-round1.json` `fieldWrites`). A bound `value`
-  (`{path}`) is also written through to the surface's data model. `browser/typing.test.ts`: 40 keys at 150 ms RTT,
+  (`{"@path"}`) is also written through to the surface's data model. `browser/typing.test.ts`: 40 keys at 150 ms RTT,
   none dropped, three runs.
-- **Bindings**: `{path}` is a JSON pointer into `surface.data` (relative
-  inside a template item); `{call, args}` runs a client function (the bind
+- **Bindings**: `{"@path": p}` is a JSON pointer into `surface.data` (relative
+  inside a template item); `{"@call": name, args}` runs a client function (the bind
   table `bindFunctionNames`; truthiness = the catalog's, `0` is true; the
   format functions run through the surface Formatter);
   `$string.<id>` resolves through the surface's string table. A falsy

@@ -10,7 +10,7 @@ const FORBIDDEN: &[&str] = &[
 ];
 
 /// The path dependencies elocal may take.
-const PATH_ALLOWED: &[&str] = &["api", "sync", "domain", "ecore", "eagent", "eagent-hub-core", "emcp"];
+const PATH_ALLOWED: &[&str] = &["api", "sync", "domain", "ecore", "eagent", "eagent-hub-core", "emcp", "eui-core"];
 
 #[test]
 fn depends_on_no_app_crate_no_ui_toolkit_and_not_the_engine() {

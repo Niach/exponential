@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `express`: a2ui-express 0.3.0 from crates.io (A2UI 1.0 only) instead of a git rev.
+- **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `HostRouter::route`, `Surface::apply`, cards and `validate_package` refuse 0.9 and format 5. Removed: `ACCEPT_V09`, the `upgrade09` module, `PACKAGE_FORMAT_VERSION_09`, `RouteOptions::accept_v09`.
 - `data_viz` (genUI round 4, group D): `ring_arcs` (Ring `sweep` + `rings`), `waveform_bars` + `seek_fraction` (AudioPlayer `peaks`), replayed from `data-viz.json`; Meter's `range` band rides macros.json.
 - `exitAnimation`, `animationStagger`, `animationDelay` (genUI round 4 motion): the reconcile keeps a leaving node with an exit as a ghost (its last subtree in its slot, `PlacedNode::exiting` on the root, out of events and `pressable`) until `Surface::finish_exit(id)`; entering children get `i × animationStagger` (+ `animationDelay`) as `AnimationTiming::delay_ms`, which `frame_with_timing` holds on the first keyframe; `Visual::exit`, `enter_delay`, `exit_timing`, `total_ms`. Replays `animations.json` `exits`, `delay`, `presence`.
 - `Board` and `MapPlaceholder` (genUI round 4): the macros + neutral recipes. `list_reorder::board_drop_slot` / `board_move_context` (fixtures/board-drop.json); `Surface::list_drag` spans reorderable Lists sharing a `board` prop: the drop is picked across their columns, the target List fires `move`, and `list_drag_paint` names the List under the pointer with the lifted copy following x and y (`ListDragState.offset_x`, `board`, `over`).
