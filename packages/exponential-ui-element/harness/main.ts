@@ -23,7 +23,7 @@ import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_
 // controls view paints each control from its example, so attach them here.
 import { describeCatalog } from "@exponential_app/eui/prompt"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential_app/eui"
-import { BASE_CSS } from "@exponential_app/eui/web"
+import { BASE_CSS, readPresence, setPointer, type PresenceScenario, type PresencePainted } from "@exponential_app/eui/web"
 import benchFixture from "@exponential_app/eui/fixtures/bench-list.json" with { type: "json" }
 import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json" with { type: "json" }
 import geometry from "@exponential_app/eui/fixtures/layout-geometry.json" with { type: "json" }
@@ -70,6 +70,8 @@ declare global {
     __xuiHandle?: () => SurfaceHandle | null
     __xuiMount?: (tree: NestedNode, options?: MountOptions) => Promise<void>
     __xuiVList?: (c: VListCase) => Promise<VListProbe>
+    /** Round 4 motion: one animations.json `presence` scenario, painted after every step. */
+    __xuiPresence?: (c: PresenceScenario) => Promise<PresencePainted[][]>
     __xuiBenchSuite?: BenchSuiteApi
   }
 }
@@ -399,6 +401,8 @@ function remount(): HTMLElement {
   host.appendChild(el)
   return el
 }
+/** Round 4 motion: neutral with 600 ms exits (`__xuiPresence`: timers far apart). */
+const SLOW_EXITS = { $schema: THEME_SCHEMA_ID, id: `slow-exits`, name: `Slow exits`, extends: `neutral`, tokens: { motion: { standard: 600 } } } as never
 function Mount(): Node {
   window.__xuiMount = async (tree, options = {}) => {
     const { root, templates } = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
@@ -411,6 +415,31 @@ function Mount(): Node {
     box.appendChild(el)
     disposeMounted = () => el.remove()
     await frames(3)
+  }
+  window.__xuiPresence = async (c) => {
+    const box = remount()
+    const first = reduceSurface(c.components, { catalogId: CORE_CATALOG_ID })
+    const el = surfaceEl({ surfaceId: `m`, root: first.root, templates: first.templates, data: c.data, theme: SLOW_EXITS, mode: `light`, width: c.viewport?.width ?? 400, plugin: { icons: harnessIcons } })
+    box.appendChild(el)
+    disposeMounted = () => el.remove()
+    await frames(3)
+    let data = c.data
+    const out: PresencePainted[][] = []
+    for (const step of c.steps) {
+      if (step.components) {
+        const r = reduceSurface(step.components, { catalogId: CORE_CATALOG_ID })
+        el.templates = r.templates
+        el.root = r.root
+      }
+      if (step.data) el.data = data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
+      // Exits last 600 ms here (a slow theme): steps 250 ms apart start (and end) them well apart.
+      if (step.data || step.components) await new Promise((r) => setTimeout(r, 250))
+      // The painter ends an exit itself (its timer): wait it out.
+      for (let k = 0; step.finishExit && k < 240 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
+      await frames(2)
+      out.push(readPresence(el, c.container, c.first))
+    }
+    return out
   }
   window.__xuiVList = async (c) => {
     const box = remount()

@@ -45,6 +45,9 @@ class NodeInfo(n: FfiNode) {
     /** A freed slot (indices stay stable) paints nothing, like a hidden node. */
     val removed: Boolean = n.removed
     val hidden: Boolean = n.hidden || n.removed
+
+    /** Round 4 motion: a leaving ghost root playing its exit (its subtree takes no input, out of the semantics tree). */
+    val exiting: Boolean = n.exiting
     val triggerFor: String? = n.triggerFor
 
     /** The node restyles under a mouse (a `:hover` style block or a hover recipe rule, the core decides; VAPP-100). */
@@ -131,7 +134,7 @@ class NodeInfo(n: FfiNode) {
 
     /** Everything a view reads (the delta check, [SurfaceModel.verifyDelta]). */
     internal val signature: List<Any?>
-        get() = listOf(index, id, component, part, owner, ownerComponent, catalogId, extensionKind, parent, layer, isLeaf, props, lines, pressable, removed, hidden, triggerFor, hoverStyled, accessibility, partStates, macroName, live, form, children)
+        get() = listOf(index, id, component, part, owner, ownerComponent, catalogId, extensionKind, parent, layer, isLeaf, props, lines, pressable, removed, hidden, exiting, triggerFor, hoverStyled, accessibility, partStates, macroName, live, form, children)
 
     override fun toString(): String = "NodeInfo($index, $id, $component${part?.let { ".$it" } ?: ""})"
 }

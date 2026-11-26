@@ -432,6 +432,12 @@ pub struct SurfaceView {
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
     anim_start: RefCell<HashMap<SharedString, Instant>>,
+    /// Round 4 motion: when each leaving ghost began its exit (by id), and
+    /// the exits painted to their end (`Surface::finish_exit` next pass).
+    exit_start: RefCell<HashMap<SharedString, Instant>>,
+    exits_done: RefCell<Vec<String>>,
+    /// Nodes whose delayed enter has its start timer pending.
+    delay_armed: RefCell<HashSet<SharedString>>,
     /// Each Image's last decoded picture (by painted id): a new `src` keeps
     /// it on screen until its own decode lands, as a browser's `<img>` does
     /// (#EDE-65: live thumbnails blanked at every refresh); a `data:`
@@ -691,6 +697,9 @@ impl SurfaceView {
             wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
+            exit_start: RefCell::new(HashMap::new()),
+            exits_done: RefCell::new(Vec::new()),
+            delay_armed: RefCell::new(HashSet::new()),
             held_images: RefCell::new(crate::media::HeldImages::default()),
             shimmer_armed_until: Cell::new(None),
             loop_armed_until: Cell::new(None),
@@ -1426,6 +1435,7 @@ impl SurfaceView {
             self.anim_start
                 .borrow_mut()
                 .retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && !n.hidden));
+            self.exit_start.borrow_mut().retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && n.exiting));
             self.held_images.borrow_mut().retain(|id| cache.by_id.get(id).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
         }
         crate::media::release_let_go(window, cx);
@@ -1717,6 +1727,15 @@ impl SurfaceView {
     /// The layout gpui asks for: a pass at `width` (the available width),
     /// answering the surface's size.
     pub(crate) fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
+        // Round 4 motion: exits painted to their end leave; layout closes
+        // their gaps in this pass.
+        let done = std::mem::take(&mut *self.exits_done.borrow_mut());
+        for id in done {
+            if self.surface.finish_exit(&id) {
+                self.changed = true;
+                self.measured_at = None;
+            }
+        }
         match width.filter(|w| *w > 0.0 && w.is_finite()) {
             Some(w) => {
                 if !self.width_fixed && (w - self.width).abs() > 0.25 {

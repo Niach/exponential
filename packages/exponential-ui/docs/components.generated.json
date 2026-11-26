@@ -4334,7 +4334,7 @@
       "group": "feedback",
       "lite": false,
       "specimenId": "exponential-ui-voice-wave",
-      "description": "Live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional child.",
       "children": "one",
       "slots": [],
       "events": [],
@@ -8386,7 +8386,7 @@
       "group": "media",
       "lite": true,
       "specimenId": "exponential-ui-canvas",
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8637,7 +8637,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-calendar",
-      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8719,7 +8719,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-timeline",
-      "description": "Records over time: coloured bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "children": "none",
       "slots": [],
       "events": [

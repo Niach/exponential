@@ -772,6 +772,11 @@ class SurfaceModel(
         }
     }
 
+    /** Round 4 motion: the exit of ghost [id] ran to its end: it leaves and layout closes its gap. */
+    fun finishExit(id: String) {
+        if (runCatching { surface.finishExit(id) }.getOrDefault(false)) invalidate(true)
+    }
+
     /** Write at a JSON pointer (null removes). */
     fun setData(path: String, value: JsonValue?) {
         val json = value?.json

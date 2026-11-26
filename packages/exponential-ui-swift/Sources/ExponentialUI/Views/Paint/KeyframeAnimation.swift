@@ -12,6 +12,9 @@ public struct KeyframeAnimation: Equatable, Sendable {
     public let durationMs: Double
     /// nil = infinite.
     public let iterations: Double?
+    /// Round 4 motion: the stagger offset + `animationDelay` (ms): the first
+    /// keyframe holds meanwhile (the core's frame does it).
+    public let delayMs: Double
 
     init?(json: String) {
         guard let o = JSONValue.parse(json).object, let name = o["name"]?.string, let timing = o["timing"] else { return nil }
@@ -19,10 +22,11 @@ public struct KeyframeAnimation: Equatable, Sendable {
         timingJson = timing.json
         if case let .number(d)? = timing["durationMs"] { durationMs = d } else { durationMs = 0 }
         if case let .number(n)? = timing["iterations"] { iterations = n } else { iterations = nil }
+        if case let .number(d)? = timing["delayMs"] { delayMs = d } else { delayMs = 0 }
     }
 
-    /// The whole run (nil = forever).
-    var totalMs: Double? { iterations.map { $0 * durationMs } }
+    /// The whole run (nil = forever), the delay included.
+    var totalMs: Double? { iterations.map { delayMs + $0 * durationMs } }
 
     /// The frame `elapsedMs` after the node entered the tree (reduced motion = the rest frame).
     func frame(at elapsedMs: Double, reducedMotion: Bool) -> AnimationFrame {
@@ -101,6 +105,43 @@ struct KeyframeAnimationModifier: ViewModifier {
             .scaleEffect(f.scale, anchor: .center)
             .rotationEffect(.degrees(f.rotate), anchor: .center)
             .offset(x: f.translateX, y: f.translateY)
+    }
+}
+
+/// Round 4 motion: a leaving ghost plays its exit from the core's frames
+/// (from the moment it began leaving), takes no input and leaves the
+/// accessibility tree; once the exit ran the model finishes it (the ghost
+/// leaves, layout closes its gap).
+struct ExitAnimationModifier: ViewModifier {
+    let id: String
+    let exit: KeyframeAnimation?
+    let exiting: Bool
+    let model: SurfaceModel
+    @State private var start = Date()
+
+    func body(content: Content) -> some View {
+        if exiting, let exit {
+            TimelineView(.animation(paused: false)) { context in
+                let elapsed = min(context.date.timeIntervalSince(start) * 1000, exit.totalMs ?? 0)
+                let f = exit.frame(at: elapsed, reducedMotion: false)
+                content
+                    .opacity(min(1, max(0, f.opacity)))
+                    .scaleEffect(f.scale, anchor: .center)
+                    .rotationEffect(.degrees(f.rotate), anchor: .center)
+                    .offset(x: f.translateX, y: f.translateY)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear { start = Date() }
+            .task(id: id) {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, exit.totalMs ?? 0) * 1_000_000))
+                model.finishExit(id)
+            }
+        } else if exiting {
+            content.allowsHitTesting(false).accessibilityHidden(true)
+        } else {
+            content
+        }
     }
 }
 

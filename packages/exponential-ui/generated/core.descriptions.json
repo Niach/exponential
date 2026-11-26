@@ -1539,7 +1539,7 @@
           "description": "Accessibility label."
         }
       },
-      "description": "Live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional child.",
       "example": {
         "activity": "listening",
         "level": 0.6,
@@ -3068,7 +3068,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "example": {
         "size": [
           160,
@@ -3238,7 +3238,7 @@
           "description": "Frame styles."
         }
       },
-      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "example": {
         "view": "month"
       }
@@ -3261,7 +3261,7 @@
           "description": "Frame styles."
         }
       },
-      "description": "Records over time: coloured bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "example": {
         "rowTitle": "Workstream"
       }

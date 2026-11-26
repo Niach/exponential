@@ -211,6 +211,75 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_box_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_box_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "motion · stagger + exit",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_box_motion",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm",
+                  "animationStagger": 60
+                },
+                "children": [
+                  {
+                    "id": "c4_box_motion_a",
+                    "component": "Row",
+                    "props": {
+                      "title": "Design review",
+                      "subtitle": "Today, 14:00",
+                      "icon": "calendar"
+                    },
+                    "style": {
+                      "animation": "slide-in-up"
+                    }
+                  },
+                  {
+                    "id": "c4_box_motion_b",
+                    "component": "Row",
+                    "props": {
+                      "title": "Ship the release",
+                      "subtitle": "Tomorrow",
+                      "icon": "rocket"
+                    },
+                    "style": {
+                      "animation": "slide-in-up"
+                    }
+                  },
+                  {
+                    "id": "c4_box_motion_c",
+                    "component": "Row",
+                    "props": {
+                      "title": "Retro notes",
+                      "subtitle": "Friday",
+                      "icon": "file-text"
+                    },
+                    "style": {
+                      "animation": "slide-in-up",
+                      "animationDelay": 40,
+                      "exitAnimation": "fade-out"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

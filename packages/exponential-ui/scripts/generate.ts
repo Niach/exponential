@@ -61,7 +61,7 @@ import { renderHost } from "./generate-host"
 import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
-import { ANIMATION_NAMES } from "../src/animation"
+import { ANIMATION_NAMES, EXIT_ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
 import { LIMITS } from "../src/limits"
@@ -445,6 +445,8 @@ const rows = {
   basicIconTargets: basicIcons.map(([, t]) => t),
   // Round 2 (docs/round-2-contract.md).
   animationNames: [...ANIMATION_NAMES],
+  // Round 4 motion: the `exitAnimation` sets.
+  exitAnimationNames: [...EXIT_ANIMATION_NAMES],
   formatFunctionNames: [...FORMAT_FUNCTION_NAMES],
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
@@ -1816,6 +1818,21 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         style: { height: 120, padding: `$spacing.lg`, borderRadius: `$radius.lg`, alignItems: `center`, justifyContent: `center`, backgroundGradient: { kind: `radial`, centre: { x: 0.3, y: 0.35 }, stops: [{ color: `$color.primary`, offset: 0 }, { color: `$color.background`, offset: 1 }] } },
         children: [{ id: `glow_text`, component: `Text`, props: { text: `Radial, farthest corner` } }],
       },
+    },
+    // Round 4 motion: children entering together slide in 60 ms apart; the
+    // last row fades out when it leaves (`exitAnimation`).
+    {
+      label: `motion · stagger + exit`,
+      node: {
+        id: `box_motion`,
+        component: `Box`,
+        style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, animationStagger: 60 },
+        children: [
+          { id: `box_motion_a`, component: `Row`, props: { title: `Design review`, subtitle: `Today, 14:00`, icon: `calendar` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_b`, component: `Row`, props: { title: `Ship the release`, subtitle: `Tomorrow`, icon: `rocket` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_c`, component: `Row`, props: { title: `Retro notes`, subtitle: `Friday`, icon: `file-text` }, style: { animation: `slide-in-up`, animationDelay: 40, exitAnimation: `fade-out` } },
+        ],
+      } as NestedNode,
     },
   ],
   // A press-only Link (no href, `on.press`): underlined on every renderer, as one with an allowed href.

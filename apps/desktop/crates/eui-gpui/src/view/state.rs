@@ -142,6 +142,7 @@ impl NodeCache {
                 form: None,
                 live: None,
                 removed: true,
+                exiting: false,
             });
         }
         self.ids.resize(len, SharedString::default());
@@ -356,7 +357,8 @@ pub fn authored_role(n: &PlacedNode) -> Option<Option<Role>> {
 /// Round 9 §5.1: `accessibility.hidden`, a DynamicBoolean (§6.7 coercion). It
 /// hides the node's whole subtree, as `aria-hidden` does.
 pub fn a11y_hidden(n: &PlacedNode) -> bool {
-    eui_core::expr::coerce_boolean(n.accessibility.as_ref().and_then(|a| a.get("hidden")))
+    // Round 4 motion: a leaving ghost is out of the tree too.
+    n.exiting || eui_core::expr::coerce_boolean(n.accessibility.as_ref().and_then(|a| a.get("hidden")))
 }
 
 /// The role a live region without a role of its own takes (a Toast's rule).

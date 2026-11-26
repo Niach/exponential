@@ -4205,7 +4205,7 @@
       "group": "feedback",
       "lite": false,
       "children": "one",
-      "description": "Live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional child.",
       "props": {
         "activity": {
           "type": "enum",
@@ -6819,7 +6819,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "props": {
         "size": {
           "type": "array",
@@ -7026,7 +7026,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "events": [
         "select",
         "open"
@@ -7071,7 +7071,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records over time: coloured bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "events": [
         "open"
       ],

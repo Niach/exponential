@@ -491,6 +491,41 @@ enum Round2Suites {
         return JSONValue.parse(v)["timing"]
     }
 
+    /// A themed surface of flat components (+ data), laid out at the viewport.
+    static func motionSurface(_ theme: String, _ components: JSONValue, reduced: Bool, data: JSONValue?, width: Float = 400, height: Float = 400) throws -> Surface {
+        let surface = try Surface.withTheme(surfaceId: "motion", catalogId: coreCatalogId(), theme: try Theme.builtin(id: theme), mode: "light")
+        surface.setPointer(hover: false, reducedMotion: reduced)
+        _ = try surface.setComponents(componentsJson: components.json)
+        for (k, v) in data?.object ?? [:] { try surface.setData(path: "/\(k)", valueJson: v.json) }
+        _ = surface.setViewport(width: width, height: height, maxHeight: nil)
+        _ = try surface.layoutFixed(sizesJson: nil, wrap: true)
+        return surface
+    }
+
+    /// One `presence` scenario: the container's painted children (ids,
+    /// ghosts, enter delays) after every step.
+    static func presenceCase(_ c: JSONValue) throws -> String? {
+        let vp = c["viewport"]
+        let surface = try motionSurface("neutral", c["components"]!, reduced: c["reducedMotion"]?.bool ?? false, data: c["data"], width: Float(num(vp?["width"]) ?? 400), height: Float(num(vp?["height"]) ?? 400))
+        let first = num(c["first"]).map { Int($0) }
+        for (i, step) in list(c, "steps").enumerated() {
+            if let d = step["data"] { try surface.setData(path: s(d, "path"), valueJson: d["value"]!.json) }
+            if let comps = step["components"] { _ = try surface.setComponents(componentsJson: comps.json) }
+            if let id = step["finishExit"]?.string, !surface.finishExit(id: id) { return "step \(i): no exit \(id) to finish" }
+            _ = try surface.layoutFixed(sizesJson: nil, wrap: true)
+            let nodes = surface.nodes()
+            guard let container = surface.indexOf(id: s(c, "container")) else { return "no container" }
+            var got: [JSONValue] = nodes[Int(container)].children.map { k in
+                let n = nodes[Int(k)]
+                let delay = n.exiting ? 0 : surface.visual(index: k)?.animationJson.flatMap { num(JSONValue.parse($0)["timing"]?["delayMs"]) } ?? 0
+                return .object(["id": .string(n.id), "exiting": .bool(n.exiting), "delayMs": .number(delay)])
+            }
+            if let first { got = Array(got.prefix(first)) }
+            if let d = same(JSONValue.array(got).json, step["expect"]!) { return "step \(i): \(d)" }
+        }
+        return nil
+    }
+
     static func frameNear(_ got: JSONValue, _ want: JSONValue) -> String? {
         for (k, v) in want.object ?? [:] {
             let g = got[k]
@@ -570,6 +605,44 @@ enum Round2Suites {
                 let want = num(c["expected"]) ?? .nan
                 return abs(got - want) <= 1e-3 ? nil : "\(got) vs \(want)"
             })
+        }
+        // Round 4 motion: the exit sets (the visual's `exitJson`),
+        // animationDelay (the visual's timing gains delayMs) and the
+        // presence scenarios replayed on a surface (ghosts, stagger).
+        for (id, entries) in (f["exits"]?.object ?? [:]).sorted(by: { $0.key < $1.key }) {
+            for (name, e) in (entries.object ?? [:]).sorted(by: { $0.key < $1.key }) {
+                out.append(run("exit \(id)/\(name)") {
+                    let surface = try motionSurface(id, .array([.object(["id": .string("root"), "component": .string("Box"), "style": .object(["exitAnimation": .string(name), "width": .number(10), "height": .number(10)])])]), reduced: false, data: nil)
+                    guard let root = surface.indexOf(id: "root"), let exit = surface.visual(index: root)?.exitJson, let t = JSONValue.parse(exit)["timing"] else { return "no exit on the visual" }
+                    if let d = same(t.json, e["timing"]!) { return "timing \(d)" }
+                    for fr in list(e, "frames") {
+                        let at = num(fr["t"]) ?? 0
+                        guard let frame = try animationFrameJson(name: name, timingJson: t.json, elapsedMs: at, reducedMotion: false) else { return "no frame @\(at)" }
+                        if let d = frameNear(JSONValue.parse(frame), fr["frame"]!) { return "@\(at) \(d)" }
+                    }
+                    return same(JSONValue.string(try keyframesCss(name)).json, f["css"]![name]!).map { "css \($0)" }
+                })
+            }
+        }
+        for c in list(f, "delay") {
+            out.append(run("delay \(s(c, "name"))") {
+                var style = c["style"]?.object ?? [:]
+                style["width"] = .number(10)
+                style["height"] = .number(10)
+                let surface = try motionSurface(s(c, "theme"), .array([.object(["id": .string("root"), "component": .string("Box"), "style": .object(style)])]), reduced: false, data: nil)
+                guard let root = surface.indexOf(id: "root"), let anim = surface.visual(index: root)?.animationJson, let t = JSONValue.parse(anim)["timing"] else { return "no animation on the visual" }
+                if let d = same(t.json, c["timing"]!) { return "timing \(d)" }
+                let name = JSONValue.parse(anim)["name"]?.string ?? ""
+                for fr in list(c, "frames") {
+                    let at = num(fr["t"]) ?? 0
+                    guard let frame = try animationFrameJson(name: name, timingJson: t.json, elapsedMs: at, reducedMotion: false) else { return "no frame @\(at)" }
+                    if let d = frameNear(JSONValue.parse(frame), fr["frame"]!) { return "@\(at) \(d)" }
+                }
+                return nil
+            })
+        }
+        for c in list(f, "presence") {
+            out.append(run("presence \(s(c, "name"))") { try presenceCase(c) })
         }
         let o = f["override"]!
         out.append(run("override") {
