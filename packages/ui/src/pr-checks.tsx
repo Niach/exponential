@@ -16,6 +16,7 @@ import { cn } from "./cn"
 import { Spinner } from "./feedback"
 import { conceptIcon } from "./icons.generated"
 import { MenuPanel, type MenuEntry, type MenuSubmenuEntry } from "./menu"
+import { HeaderFoldLabel } from "./header-collapse"
 import { Pill } from "./pill"
 
 // #EXP-1611 (fixtures/pr-checks.json CHECKS LIST): the PR's CI on the chat
@@ -110,11 +111,15 @@ export function prChecksMenuEntry(
 export function PrStatusPill({
   view,
   busy = false,
+  folded = false,
   className,
   ...props
 }: Omit<React.ComponentProps<`button`>, `children`> & {
   view: StatusPillView
   busy?: boolean
+  /** #EXP-2183 (header-actions.json COLLAPSE): the glyph alone, the label
+   *  out of sight (the aria-label still reads it). */
+  folded?: boolean
 }) {
   const tone = view.tone === `red` ? PR_CHECK_TONE_CLASS.red : undefined
   const Glyph = view.glyph === `spinner` ? null : PILL_GLYPHS[view.glyph]
@@ -131,11 +136,14 @@ export function PrStatusPill({
       primary={view.primary}
       data-glyph={view.glyph}
       data-tone={view.tone}
+      data-header-fold="primary"
+      data-folded={folded || undefined}
+      aria-label={view.label}
       className={cn(`shrink-0`, className)}
       {...props}
     >
       {glyph}
-      {view.label}
+      <HeaderFoldLabel folded={folded}>{view.label}</HeaderFoldLabel>
     </Pill>
   )
 }
