@@ -215,6 +215,7 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
+import { elicitationFeedCard } from "@exp/domain-contract/elicitation-card"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { loadEarlierMessages, useSessionCard, useSessionMessagePage } from "@/hooks/use-session-tree"
 import { unqueueMessage, useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
@@ -525,6 +526,12 @@ export function AgentSessionView({
   const [findWiden, setFindWiden] = useState<{ sessionId: string; id: string } | null>(null)
   const widenFrom = findWiden?.sessionId === session.id ? findWiden.id : null
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
+  // #NEW-146: the posted elicitation cards, drawn for their live frames.
+  // Keyed by the cards themselves: another message never re-renders the rows.
+  const elicitationMessages = useMemo(() => elicitationCardMessages(sessionMessages), [sessionMessages])
+  const elicitationKey = elicitationCardsKey(elicitationMessages)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const elicitationCards = useMemo(() => elicitationCardRows(session, elicitationMessages), [session.id, elicitationKey])
   const canAnswerCards = !sessionEnded
   // S-3 (dock.json): a waiting plan or question (the relay's
   // own ask or a tool-posted card) is never a Dock source; it stays inline,
@@ -990,6 +997,24 @@ export function AgentSessionView({
 
   /** One transcript row; `list` is the sequence it sits in (its gap reads
    *  the row before it). */
+  // #NEW-146: a third-party MCP server's elicitation draws THE posted card
+  // (its form or URL review, answered via `sessions.answer`), never the
+  // frame's bare options (`elicitationFeedCard`).
+  const elicitationCard = (item: QuestionItem): ReactNode | null => {
+    const id = elicitationFeedCard(elicitationCards.messages, item.questionId, item.resolved === true)
+    const row = id === null ? undefined : elicitationCards.rows.get(id)
+    if (!row) return null
+    return (
+      <ChatConversation
+        rows={[row]}
+        renderText={renderChatText}
+        attachmentSrc={attachmentUrl}
+        onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+        onDismiss={canAnswerCards ? (rowId) => void answerCard(rowId, { dismissed: true }) : undefined}
+        pending={cardsPending}
+      />
+    )
+  }
   const renderTranscriptRow = (
     row: (typeof rows)[number],
     index: number,
@@ -1074,6 +1099,9 @@ export function AgentSessionView({
       )
     }
     if (row.kind === `ask`) {
+      const items = row.items as QuestionItem[]
+      const elicitation = items.length === 1 ? elicitationCard(items[0]) : null
+      if (elicitation) return wrap(elicitation)
       return wrap(
         <AskStepperCard
           items={row.items as QuestionItem[]}
@@ -1226,7 +1254,9 @@ export function AgentSessionView({
             onOpen={() => setAgentTab(item.subagentId)}
           />
         )
-      case `question`:
+      case `question`: {
+        const elicitation = elicitationCard(item)
+        if (elicitation) return wrap(elicitation)
         return wrap(
           <QuestionCard
             item={item}
@@ -1238,6 +1268,7 @@ export function AgentSessionView({
             onSend={sendMessage}
           />
         )
+      }
     }
     return null
   }
@@ -1253,7 +1284,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
-    viewerAvatar, turnLive, surfaceAction,
+    viewerAvatar, turnLive, surfaceAction, elicitationCards, cardsPending, canAnswerCards,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -2085,6 +2116,47 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
 }
 
 type MessageRowLike = Parameters<typeof toTreeMessage>[0]
+
+type TreeMessageLike = ReturnType<typeof toTreeMessage>
+
+/** #NEW-146: this session's ENGINE-posted elicitation cards (excluded from
+ *  `sessionCards`: their live frame draws them), OPENED (a sealed card's
+ *  sidecar reads only after `toTreeMessage`). */
+function elicitationCardMessages(messages: readonly MessageRowLike[]): TreeMessageLike[] {
+  const cards: TreeMessageLike[] = []
+  for (const row of messages) {
+    if (!row.card) continue
+    const message = toTreeMessage(row)
+    const card = message.card as { kind?: unknown; elicitation?: unknown } | null
+    if (card?.kind === `question` && card.elicitation != null) cards.push(message)
+  }
+  return cards
+}
+
+/** What the drawn elicitation cards depend on (their ids, answers, cards). */
+function elicitationCardsKey(cards: readonly TreeMessageLike[]): string {
+  return cards.map((message) => `${message.id}|${String(message.answeredAt)}|${JSON.stringify(message.card)}`).join(`\n`)
+}
+
+/** The cards as THE chat rows by message id, beside the messages
+ *  `elicitationFeedCard` matches a frame against. */
+function elicitationCardRows(
+  session: SessionRow,
+  cards: TreeMessageLike[]
+): { messages: TreeMessageLike[]; rows: ReadonlyMap<string, SessionChatRow> } {
+  if (cards.length === 0) return NO_ELICITATION_CARDS
+  const rows = buildSessionChat({
+    root: toTreeSession(session),
+    sessions: [],
+    sessionIssues: [],
+    issues: [],
+    messages: cards,
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `question`)
+  return { messages: cards, rows: new Map(rows.map((row) => [row.id, row])) }
+}
+const NO_ELICITATION_CARDS = { messages: [] as TreeMessageLike[], rows: new Map<string, SessionChatRow>() }
 
 /** Chat 58cb32df: this session's `surface` cards as THE chat rows. */
 function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
