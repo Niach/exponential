@@ -119,6 +119,7 @@ import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/git
 import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
+import { Route as McpElicitIdRouteImport } from './routes/mcp/elicit/$id'
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as TTeamSlugAgentRouteImport } from './routes/t/$teamSlug/agent'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
@@ -757,6 +758,11 @@ const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
   path: '/api/widget/submit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const McpElicitIdRoute = McpElicitIdRouteImport.update({
+  id: '/mcp/elicit/$id',
+  path: '/mcp/elicit/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TTeamSlugIndexRoute = TTeamSlugIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -1270,6 +1276,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1449,6 +1456,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1635,6 +1643,7 @@ export interface FileRoutesById {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1820,6 +1829,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -1999,6 +2009,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -2184,6 +2195,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -2347,6 +2359,7 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  McpElicitIdRoute: typeof McpElicitIdRoute
   ApiMonitoringIndexRoute: typeof ApiMonitoringIndexRoute
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   ApiAgentsAgentIdVoiceClipRoute: typeof ApiAgentsAgentIdVoiceClipRoute
@@ -3133,6 +3146,13 @@ declare module '@tanstack/react-router' {
       path: '/api/widget/submit'
       fullPath: '/api/widget/submit'
       preLoaderRoute: typeof ApiWidgetSubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp/elicit/$id': {
+      id: '/mcp/elicit/$id'
+      path: '/mcp/elicit/$id'
+      fullPath: '/mcp/elicit/$id'
+      preLoaderRoute: typeof McpElicitIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/t/$teamSlug/': {
@@ -3982,6 +4002,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  McpElicitIdRoute: McpElicitIdRoute,
   ApiMonitoringIndexRoute: ApiMonitoringIndexRoute,
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute:
     Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute,

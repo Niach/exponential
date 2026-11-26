@@ -227,11 +227,11 @@ describe(`MRTR (mrtr.ts)`, () => {
     expect((await call(`u1`, { ...first, inputResponses: answers, requestState: `spike-state-1` })).error?.message).toBe(fixture.errors.invalidRequestState)
   })
 
-  it(`an expired state is refused`, () => {
+  it(`an expired state is refused`, async () => {
     const ctx = withEmcpContext({ mcpReq: { method: `tools/call` } }, { client: clientContextOf(null), principal: { userId: `u1`, grant: `member` }, call: { tool: `confirm`, args: { id: `EXP-9` } } })
     const wire = mintState(ctx, { id: `EXP-9` }, Date.now() - (fixture.mrtr.ttlSeconds + 1) * 1000)
     expect(openState(wire)?.tool).toBe(`confirm`)
-    expect(() => verifyRequestState(wire, { userId: `u1`, grant: `member` }, { method: `tools/call`, tool: `confirm`, args: { id: `EXP-9` } })).toThrow(fixture.errors.invalidRequestState)
+    await expect(verifyRequestState(wire, { userId: `u1`, grant: `member` }, { method: `tools/call`, tool: `confirm`, args: { id: `EXP-9` } })).rejects.toThrow(fixture.errors.invalidRequestState)
     // A raw string reaching a handler means no verifier ran: never trusted.
     const raw = withEmcpContext({ mcpReq: { requestState: () => wire } }, { client: clientContextOf(null), principal: { userId: `u1`, grant: `member` } })
     expect(() => redeemInput(raw)).toThrow(fixture.errors.invalidRequestState)

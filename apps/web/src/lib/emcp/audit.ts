@@ -40,6 +40,43 @@ export function toolCallsOf(body: unknown): ToolCallRequest[] {
   return calls
 }
 
+/** #NEW-147: one JSON-RPC REQUEST the client sent (any method; a
+ * notification has no id and is not audited). `tool` = what it names: the
+ * tool or prompt (`params.name`), the uri, else the method (never a taskId). */
+export interface McpRequestEntry {
+  id: string | number | null
+  method: string
+  tool: string
+  args: unknown
+}
+
+/** Every request of a JSON-RPC body (one message or a batch), in order. */
+export function requestsOf(body: unknown): McpRequestEntry[] {
+  const out: McpRequestEntry[] = []
+  for (const message of Array.isArray(body) ? body : [body]) {
+    if (!message || typeof message !== `object`) continue
+    const m = message as { method?: unknown; id?: unknown; params?: unknown }
+    if (typeof m.method !== `string` || !m.method) continue
+    if (typeof m.id !== `string` && typeof m.id !== `number`) continue
+    const params = (m.params && typeof m.params === `object` ? m.params : {}) as Record<string, unknown>
+    const named = [params.name, params.uri].find((value) => typeof value === `string` && value !== ``) as string | undefined
+    if (m.method === `tools/call` && !named) continue
+    out.push({
+      id: m.id,
+      method: m.method.slice(0, 64),
+      tool: (named ?? m.method).slice(0, 128),
+      args: m.method === `tools/call` || m.method === `prompts/get` ? params.arguments : undefined,
+    })
+  }
+  return out
+}
+
+/** A non-tool request's outcome: an error answer, else ok. */
+function classifyRequestResponse(response: unknown): { outcome: CallOutcome; error: string | null } {
+  if (!response || typeof response !== `object`) return { outcome: { error: true }, error: BUILTIN_CALL_ERRORS.noAnswer }
+  return (response as { error?: unknown }).error ? { outcome: { error: true }, error: BUILTIN_CALL_ERRORS.rpcError } : { outcome: {}, error: null }
+}
+
 /** The responses of a JSON-RPC answer, by id. */
 export function responsesById(body: unknown): Map<string | number, unknown> {
   const out = new Map<string | number, unknown>()
@@ -116,6 +153,8 @@ export interface McpCallRow {
   clientId: string | null
   appId: string | null
   tool: string
+  /** #NEW-147: the JSON-RPC method (`tools/call`, `skills/list`, `tasks/get`…). */
+  method: string
   status: CallStatus
   error: string | null
   latencyMs: number
@@ -133,7 +172,8 @@ export interface AuditOptions {
   classify?: (response: unknown) => { outcome: CallOutcome; error: string | null }
 }
 
-/** The audit rows of one request: one per `tools/call`, in request order. */
+/** The audit rows of one request: #NEW-147 one per JSON-RPC request (every
+ * method; a `tools/call` classified by its tool answer), in request order. */
 export function auditRows(
   caller: AuditCaller,
   requestBody: unknown,
@@ -143,20 +183,22 @@ export function auditRows(
 ): McpCallRow[] {
   const responses = responsesById(responseBody)
   const classify = options.classify ?? classifyToolResponse
-  return toolCallsOf(requestBody).map((call) => {
-    const { outcome, error } = classify(call.id === null ? null : responses.get(call.id))
+  return requestsOf(requestBody).map((call) => {
+    const tool = call.method === `tools/call`
+    const { outcome, error } = (tool ? classify : classifyRequestResponse)(call.id === null ? null : responses.get(call.id))
     return {
       teamId: caller.teamId,
       userId: caller.userId,
       clientId: caller.clientId,
-      appId: options.appIdOf?.(call.tool) ?? caller.appId,
+      appId: (tool ? options.appIdOf?.(call.tool) : null) ?? caller.appId,
       tool: call.tool,
+      method: call.method,
       status: callStatus(outcome),
       error,
       latencyMs: Math.max(0, Math.floor(latencyMs)),
       argsHash: argsHash(call.args),
       sessionId: caller.sessionId ?? null,
-      target: destructiveTarget(call.tool, call.args),
+      target: tool ? destructiveTarget(call.tool, call.args) : null,
     }
   })
 }

@@ -8,7 +8,8 @@
 // `inputResponses` + the state. The server's `requestState.verify` hook
 // (`requestStateVerifier`, set by server.ts for the ONE call a per-request
 // server serves) opens it, checks the binding and spends it ONCE before any
-// handler runs; a refusal answers JSON-RPC -32602 with the SDK's frozen
+// handler runs (#NEW-147: the spent id is a row of `mcp_request_states`, so
+// a restart cannot replay it); a refusal answers JSON-RPC -32602 with the SDK's frozen
 // wording (the reason goes to the server's onerror only). The handler then
 // reads its `data` and the answers with `redeemInput(ctx)`.
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, randomUUID } from "node:crypto"
@@ -90,13 +91,27 @@ export function openState(wire: unknown): StateClaims | null {
 /** Where redeemed ids live until they expire (single use). */
 export interface RedeemStore {
   /** true the first time `jti` is claimed, false after. */
-  claim(jti: string, expMs: number, now: number): boolean
+  claim(jti: string, expMs: number, now: number): boolean | Promise<boolean>
 }
 
-/** One process's memory: a redeemed state is spent until its expiry. Every
- *  round of a flow lands on the one web process; a restart forgets the
- *  spent ids of states that are still within their TTL (at most
- *  `MRTR.ttlSeconds`). */
+/** #NEW-147: THE store: one `mcp_request_states` row per spent id (a unique
+ *  insert: the first claim wins across processes and restarts), swept by
+ *  the watchdog once the state itself has expired. */
+export function dbRedeemStore(): RedeemStore {
+  return {
+    async claim(jti, expMs) {
+      const [{ db }, { mcpRequestStates }] = await Promise.all([import(`@/db/connection`), import(`@/db/schema`)])
+      const rows = await db
+        .insert(mcpRequestStates)
+        .values({ jti: jti.slice(0, 64), expiresAt: new Date(expMs) })
+        .onConflictDoNothing()
+        .returning({ jti: mcpRequestStates.jti })
+      return rows.length === 1
+    },
+  }
+}
+
+/** One process's memory (tests): a redeemed state is spent until its expiry. */
 export function memoryRedeemStore(): RedeemStore {
   const spent = new Map<string, number>()
   return {
@@ -109,7 +124,7 @@ export function memoryRedeemStore(): RedeemStore {
   }
 }
 
-let redeemStore: RedeemStore = memoryRedeemStore()
+let redeemStore: RedeemStore = dbRedeemStore()
 
 /** Tests swap the store. */
 export function setRedeemStore(store: RedeemStore): void {
@@ -151,19 +166,19 @@ export function mintState(ctx: EmcpToolContext, data?: unknown, now = Date.now()
 
 /** Open, check and spend `wire` for this caller's call: the claims, or a
  *  RequestStateError naming why not. */
-export function verifyRequestState(wire: unknown, principal: Principal, call: McpCall | null | undefined, now = Date.now()): StateClaims {
+export async function verifyRequestState(wire: unknown, principal: Principal, call: McpCall | null | undefined, now = Date.now()): Promise<StateClaims> {
   const claims = openState(wire)
   if (!claims) throw new RequestStateError(`sealed`)
   if (!call) throw new RequestStateError(`missing`)
   const verdict = redeemVerdict(claims, bindingOf(principal, call), now, false)
   if (verdict !== `ok`) throw new RequestStateError(verdict)
-  if (!redeemStore.claim(claims.jti, claims.exp, now)) throw new RequestStateError(`replayed`)
+  if (!(await redeemStore.claim(claims.jti, claims.exp, now))) throw new RequestStateError(`replayed`)
   return claims
 }
 
 /** The server's `requestState.verify` hook for the one call it serves
  *  (what it resolves is what `ctx.mcpReq.requestState()` returns). */
-export function requestStateVerifier(context: Pick<EmcpContext, `principal` | `call`>): (state: string) => StateClaims {
+export function requestStateVerifier(context: Pick<EmcpContext, `principal` | `call`>): (state: string) => Promise<StateClaims> {
   return (state) => verifyRequestState(state, context.principal, context.call)
 }
 

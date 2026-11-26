@@ -6,6 +6,8 @@ import { registerIssueResource } from "./mentions"
 import { MCP_EXTENSION_CAPABILITIES } from "./extensions"
 import { NO_CLIENT, type EmcpContext } from "./request-context"
 import { requestStateVerifier } from "./mrtr"
+import { registerSkills } from "./skills-mcp"
+import { registerTasks } from "./tasks"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { mcpServerInstructions } from "./instructions"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
@@ -69,6 +71,10 @@ export function createExponentialMcpServer(
       server,
       process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin
     )
+    // #NEW-147: skills over MCP (skills.json) and tasks (tasks.json) for
+    // external hosts only; extensions.ts declares both.
+    registerSkills(server, user.id, access)
+    registerTasks(server, context)
   }
   return server
 }
