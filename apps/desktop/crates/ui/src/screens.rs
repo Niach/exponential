@@ -1661,6 +1661,12 @@ impl ScreensPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // #EDE-237: in eDE mode the tab IS the window: a missing issue's
+        // page shows its own not-found state (and keeps its window, so a
+        // restore that lands before its account's rows does not lose it).
+        if crate::ede_component::is_component() {
+            return;
+        }
         let missing: Vec<usize> = {
             let issues = Store::global(cx).collections().issues.read(cx);
             if !issues.is_ready() {
