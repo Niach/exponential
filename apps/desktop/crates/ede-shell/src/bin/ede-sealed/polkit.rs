@@ -646,12 +646,25 @@ mod tests {
         })
     }
 
+    /// An executable script at `path`, written by a child process: a write
+    /// descriptor of this process could leak into a sibling test's fork and
+    /// make the exec fail `ETXTBSY` (the gate's flake on a busy runner).
+    fn script(path: &Path, text: &str) {
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("cat > \"$0\" && chmod 755 \"$0\"")
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), text.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+
     /// The setuid helper's protocol: the user as its argument, the cookie on stdin.
     fn fake_setuid_helper(dir: &Path) -> std::path::PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("polkit-agent-helper-1");
-        std::fs::write(&path, "#!/bin/sh\nread cookie\necho 'PAM_PROMPT_ECHO_OFF Password: '\nread pw\nif [ \"$1\" = alice ] && [ \"$cookie\" = cookie-1 ] && [ \"$pw\" = right ]; then echo SUCCESS; else echo FAILURE; fi\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script(&path, "#!/bin/sh\nread cookie\necho 'PAM_PROMPT_ECHO_OFF Password: '\nread pw\nif [ \"$1\" = alice ] && [ \"$cookie\" = cookie-1 ] && [ \"$pw\" = right ]; then echo SUCCESS; else echo FAILURE; fi\n");
         path
     }
 
@@ -663,8 +676,7 @@ mod tests {
         let socket = dir.path().join("agent-helper.socket");
         // A setuid helper that is not setuid (polkit 127) says no to everything.
         let refusing = dir.path().join("refusing");
-        std::fs::write(&refusing, "#!/bin/sh\nread cookie\necho FAILURE\n").unwrap();
-        std::fs::set_permissions(&refusing, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        script(&refusing, "#!/bin/sh\nread cookie\necho FAILURE\n");
         let helper = fake_socket_helper(&socket);
         assert_eq!(run_helper_with(&socket, &refusing, "alice", "cookie-1", "right"), Ok(()));
         assert_eq!(helper.join().unwrap(), ["alice", "cookie-1", "right"]);
