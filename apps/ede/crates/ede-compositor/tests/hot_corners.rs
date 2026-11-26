@@ -118,8 +118,11 @@ fn a_corner_click_shows_the_desktop_and_brings_it_back() {
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
 
     // Raised by the person in between: the desktop no longer shows, the
-    // toggle hides everything again (Muffin).
-    h.with(|ede| ede.toggle_desktop());
+    // toggle hides everything again (Muffin). The corner bar's way in:
+    // ede-protocol's toggle_desktop.
+    ipc.toggle_desktop().unwrap();
+    assert!(ipc.windows().unwrap().iter().all(|w| w.minimized));
+    ipc.toggle_desktop().unwrap();
     let id_a = ipc.windows().unwrap().into_iter().find(|w| w.title.as_deref() == Some("a")).unwrap().id;
     ipc.focus(id_a).unwrap();
     h.with(|ede| ede.toggle_desktop());
