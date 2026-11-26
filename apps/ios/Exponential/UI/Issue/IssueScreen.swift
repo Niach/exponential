@@ -134,25 +134,28 @@ struct IssueScreen: View {
             // EXP-1150: the header band draws the bar's material, with its
             // own edge — the nav bar's background and divider stand down.
             .toolbarBackground(.hidden, for: .navigationBar)
-            // header-actions.json: the `…` in the toolbar's own circle.
+            // header-actions.json: the `…` = THE round header button.
             .toolbar {
                 if issue != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        GlassMenuBarButton(
-                            icon: AppIcons.uiMore,
-                            accessibilityLabel: "More",
-                            anchor: $menuAnchor,
-                            isPresented: $menuOpen
-                        )
+                    HeaderToolbarItem {
+                        PageHeaderButton(icon: AppIcons.uiMore, label: "More") {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { menuOpen.toggle() }
+                        }
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                            menuAnchor = frame
+                        }
                     }
                 }
-                ToolbarItem(placement: .principal) {
-                    WorkTitle(
-                        text: issue?.identifier ?? "",
-                        issueTitle: issue?.title,
-                        collapsed: titleScrolledAway
-                    )
-                }
+            }
+            // #EXP-2168: the title LEFT, after THE round back.
+            .detailHeaderTitle("\(issue?.identifier ?? "")|\(issue?.title ?? "")|\(titleScrolledAway)") {
+                WorkTitle(
+                    text: issue?.identifier ?? "",
+                    issueTitle: issue?.title,
+                    collapsed: titleScrolledAway
+                )
             }
     }
 

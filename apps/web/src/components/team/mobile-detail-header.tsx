@@ -2,9 +2,8 @@
 // so the marketing site's phone demos draw the same one; this path stays for
 // the web app's imports.
 export {
-  HEADER_BUTTON_CLASS,
-  HEADER_ACTION_CLASS,
   HeaderAction,
+  HeaderBack,
   MOBILE_DETAIL_HEADER_CLASS,
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,

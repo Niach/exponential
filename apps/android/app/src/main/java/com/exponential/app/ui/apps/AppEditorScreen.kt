@@ -137,7 +137,6 @@ import com.exponential.app.ui.chat.ChatUiCopy
 import com.exponential.app.ui.chat.ChatViewModel
 import com.exponential.app.ui.chat.clockTime
 import com.exponential.app.ui.chat.ChatHeader
-import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.Chats

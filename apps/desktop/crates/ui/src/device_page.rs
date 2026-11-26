@@ -785,8 +785,8 @@ impl Render for DeviceSettingsPage {
             .w_full()
             .min_w_0()
             .gap_4()
-            .child(back)
-            .child(page_title(device_title(&self.device_id, cx), cx))
+            // #EXP-2168: THE round back left of the title.
+            .child(h_flex().min_w_0().gap_3().items_center().child(back).child(page_title(device_title(&self.device_id, cx), cx)))
             .child(body);
         crate::scroll_pane::page_scaffold(
             "device-settings-page-scroll",

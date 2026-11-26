@@ -81,10 +81,9 @@ struct TeamsView: View {
             }
         }
         .pageHeader(Chats.Copy.Headers.teams) {
-            Button { menuOpen = true } label: { PageHeaderGlyph(icon: AppIcons.uiAdd) }
-                .buttonStyle(.plain)
-                .accessibilityLabel(SidebarTree.Copy.newTeam)
-                .accessibilityIdentifier("teams-add")
+            PageHeaderButton(icon: AppIcons.uiAdd, label: SidebarTree.Copy.newTeam, identifier: "teams-add") {
+                menuOpen = true
+            }
         }
         .sheet(isPresented: $menuOpen, onDismiss: {
             if setupPending {

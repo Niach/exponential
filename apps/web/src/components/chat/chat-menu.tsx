@@ -14,7 +14,7 @@ import {
 } from "@exp/domain-contract/session-screen"
 import { HEADER_MENU_DROPS } from "@exp/domain-contract/header-actions"
 import {
-  Button,
+  HeaderAction,
   chatMenuRows,
   sessionScreenMenuRows,
   tidyMenuEntries,
@@ -257,16 +257,9 @@ export function SessionScreenMenuButton({
       data-testid={`${SESSION_SCREEN_TEST_IDS.menu}-content`}
       entries={entries}
       trigger={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="More"
-          data-testid={SESSION_SCREEN_TEST_IDS.menu}
-          className={className}
-        >
+        <HeaderAction aria-label="More" data-testid={SESSION_SCREEN_TEST_IDS.menu} className={className}>
           <MoreIcon />
-        </Button>
+        </HeaderAction>
       }
     />
   )
