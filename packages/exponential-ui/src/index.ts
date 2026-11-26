@@ -109,6 +109,8 @@ export { FORCED_STATE_NAMES, forcedStatesOf, normalizeForcedStates, type ForcedS
 export { listDropSlot, listMoveContext, LIST_DROP_EDGE, type ListDrop, type ListDropPosition, type ListMoveContext, type ListReorderRow } from "./list-reorder"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
 export { MIDDLE_MIN_KEPT, middleTruncateWidth } from "./text-truncate"
+export { DROP_CAP, RUN_MARKS, RUN_WEIGHTS, dropCapLines, dropCapSize, dropCapSplit, runsText, textRuns, textSpans } from "./text-runs"
+export type { RunMark, RunWeight, TextRun } from "./text-runs"
 export { HIGHLIGHT_BARRIER, highlightCount, highlightLocalCurrent, highlightRanges, highlightSpec } from "./highlight"
 export type { HighlightRange, HighlightSpec } from "./highlight"
 export { TABLE_WORD_CAP, fitTableColumns, type TableFitColumn } from "./table-fit"

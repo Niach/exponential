@@ -4,8 +4,8 @@
 
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { displayString } from "@exponential_app/eui"
-import { liveOf, paintHighlights, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
+import { displayString, resolveNodeStyle, runsText, textSpans } from "@exponential_app/eui"
+import { linkHref, liveOf, paintHighlights, propAttribute, solidCss, textLinkSegments, textRunsPaint, watchMiddleTruncate } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -18,11 +18,20 @@ const TEXT_LINK_STYLE = { color: `inherit`, "text-decoration": `underline` } as 
 
 export function TextNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
-  const segments = () => (props.props.hostLinks === true ? textLinkSegments(ctx.host, displayString(props.props.text)) : null)
-  // #EXP-1778 (React's): `truncate` keeps one line; `middle` shows start…end.
-  const truncate = () => (props.props.truncate === `middle` ? `middle` : props.props.truncate === `end` ? `end` : undefined)
+  // Round 4 (React's, fixtures/text-runs.json): `runs` replace `text`; `dropCap`.
+  const spans = () => textSpans(props.props)
+  const rich = () => {
+    const style = ctx.theme ? (resolveNodeStyle(ctx.theme, props.node, ctx.mode) as Record<string, unknown>) : {}
+    const fontSize = typeof style.fontSize === `number` ? style.fontSize : 14
+    const lineHeight = typeof style.lineHeight === `number` ? style.lineHeight : 20
+    return textRunsPaint({ theme: ctx.theme, scope: ctx.compiled.scope, props: props.props, fontSize, lineHeight, href: (raw) => linkHref(ctx.host, raw) })
+  }
+  const segments = () => (props.props.hostLinks === true && !spans().rich ? textLinkSegments(ctx.host, displayString(props.props.text)) : null)
+  // #EXP-1778 (React's): `truncate` keeps one line; `middle` shows start…end
+  // (with runs: `end`).
+  const truncate = () => (props.props.truncate === `middle` ? (spans().rich ? `end` : `middle`) : props.props.truncate === `end` ? `end` : undefined)
   const lines = () => (truncate() ? 1 : num(props.props.lines, 0))
-  const full = () => displayString(props.props.text)
+  const full = () => (spans().rich ? runsText(spans().runs) : displayString(props.props.text))
   const [el, setEl] = createSignal<HTMLSpanElement>()
   const [middle, setMiddle] = createSignal<string | null>(null)
   createEffect(() => {
@@ -49,8 +58,56 @@ export function TextNative(props: NativeProps): JSX.Element {
       data-lines={lines() > 0 ? lines() : undefined}
       data-clamp={lines() > 1 ? `` : undefined}
       data-xui-shimmer={props.props.shimmer === true ? `` : undefined}
+      data-xui-dropcap={rich()?.cap ? `` : undefined}
       style={mergeStyle(props.rootProps, lines() > 1 ? { WebkitLineClamp: lines() } : undefined)}
     >
+      <Show when={rich()} fallback={<Plain />}>
+        {(paint) => (
+          <>
+            <Show when={paint().cap}>
+              {(cap) => (
+                <span data-xui-cap="" aria-hidden={true} style={solidCss(cap().css)}>
+                  {cap().text}
+                </span>
+              )}
+            </Show>
+            <For each={paint().runs}>
+              {(run) => {
+                const inner = () =>
+                  run.code ? (
+                    <code class={run.code.class} {...run.code.attrs} style={run.href ? undefined : solidCss(run.css)}>
+                      {run.text}
+                    </code>
+                  ) : (
+                    run.text
+                  )
+                if (run.href)
+                  return (
+                    <a
+                      href={run.href}
+                      data-xui-text-link=""
+                      style={{ ...TEXT_LINK_STYLE, ...solidCss(run.css) }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        ctx.openUrl(run.href!)
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      {inner()}
+                    </a>
+                  )
+                if (run.code) return inner()
+                return run.css.length ? <span style={solidCss(run.css)}>{run.text}</span> : run.text
+              }}
+            </For>
+          </>
+        )}
+      </Show>
+    </span>
+  )
+  function Plain(): JSX.Element {
+    return (
       <Show when={segments()} fallback={middle() ?? full()}>
         {(shown) => (
           <For each={shown()}>
@@ -76,8 +133,8 @@ export function TextNative(props: NativeProps): JSX.Element {
           </For>
         )}
       </Show>
-    </span>
-  )
+    )
+  }
 }
 
 /** #EDE-95 (React's `useHighlight`): paints `highlight` (the raw prop) over
