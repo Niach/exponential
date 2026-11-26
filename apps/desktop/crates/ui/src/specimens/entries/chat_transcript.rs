@@ -429,10 +429,10 @@ fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
-    // #EXP-1873: the check-ins lead the specimen (web's order), in frame.
-    // #EXP-1943: the call cards and the call view lead it.
-    let mut rows: Vec<AnyElement> = call_rows(&images, window, cx);
-    rows.extend(check_in_rows(&images, window, cx));
+    // #EXP-1873 + #FEED-317: the schedule ticks lead the specimen (web's
+    // order), in frame; #EXP-1943: the call cards and the call view next.
+    let mut rows: Vec<AnyElement> = check_in_rows(&images, window, cx);
+    rows.extend(call_rows(&images, window, cx));
     for (row, time) in rows_list() {
         rows.push(paint(&row, time, &images, window, cx));
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
