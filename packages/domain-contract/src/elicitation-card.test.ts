@@ -38,31 +38,7 @@ describe(`elicitation card (fixtures/elicitation-card.json)`, () => {
     const names = JSON.stringify(icons)
     for (const icon of Object.values(fixture.icons)) expect(names).toContain(`"${icon}"`)
   })
-  describe(`elicitationFeedCard: a live frame draws the posted card`, () => {
-    const card = (questionId: string, elicitation = true) => ({
-      kind: `question`,
-      questionId,
-      options: [`Submit`, `Decline`, `Cancel`],
-      ...(elicitation ? { elicitation: { server: `acme`, mode: `form`, required: [], url: null } } : {}),
-    })
-    const messages = [
-      { id: `m-plain`, answeredAt: null, card: card(`ask-1#0`, false) },
-      { id: `m-form`, answeredAt: null, card: card(`mcp-1#submit`) },
-      { id: `m-done`, answeredAt: `2026-11-26T17:00:00.000Z`, card: card(`mcp-2#submit`) },
-      { id: `m-text`, answeredAt: null, card: null },
-    ]
-    test(`a waiting frame of an elicitation card = that card`, () => {
-      expect(elicitationFeedCard(messages, `mcp-1#submit`, false)).toBe(`m-form`)
-    })
-    test(`an answered card stays the card once its frame resolved`, () => {
-      expect(elicitationFeedCard(messages, `mcp-2#submit`, true)).toBe(`m-done`)
-    })
-    test(`a withdrawn frame (resolved, card never answered) stays the frame`, () => {
-      expect(elicitationFeedCard(messages, `mcp-1#submit`, true)).toBeNull()
-    })
-    test(`an engine question without the sidecar, or no card, stays the frame`, () => {
-      expect(elicitationFeedCard(messages, `ask-1#0`, false)).toBeNull()
-      expect(elicitationFeedCard(messages, `mcp-9#submit`, false)).toBeNull()
-    })
+  test.each(fixture.feedCardCases)(`live feed card: $name`, (c) => {
+    expect(elicitationFeedCard(c.messages, c.questionId, c.resolved)).toBe(c.expected)
   })
 })

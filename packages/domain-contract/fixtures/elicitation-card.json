@@ -1,5 +1,5 @@
 {
-  "$comment": "#NEW-146 (part of #NEW-143, phase 5): A THIRD-PARTY MCP SERVER'S ELICITATION REACHES THE PERSON ×4 (MCP 2026-07-28 client/elicitation). WHERE IT COMES FROM: an MCP server the agent uses asks the person something (`elicitation/create`). Codex's app-server raises it as `mcpServer/elicitation/request` (flat: the MCP request beside `serverName`, the name Exponential configured the server under) and the codex adapter maps it to THE ACP elicitation (`codex_wire::mcp_elicitation_request`), the server's name in the request's `_meta` under `serverMetaKey`, the server's property order under `orderMetaKey`; codex's private `openai/form` modes and an unreadable schema are DECLINED, never guessed at. The answer goes back as MCP's own `{action: accept|decline|cancel, content?}`. An ACP elicitation WITH `serverMetaKey` (or in url mode) is THE ELICITATION CARD below; one without it stays THE question stepper (ask-dock.json, claude's AskUserQuestion and codex's requestUserInput). THE CARD (`elicitationCard(request)`, `cardCases`, the device's: the engine builds it and posts it like every engine ask, so it is SEALED through coding mcp_gateway.rs like every other card, is a Needs you item (needs-you.json) and PUSHES (question-push.json)) = the existing `question` card with `custom: false`, `multi: false`, `question` = the server's message, a genUI `surface` built from the request and the sidecar `elicitation` {server, mode, required, url}. FORM MODE: `options` = [`copy.submit`, `copy.decline`, `copy.cancel`]; the surface = ONE vertical Stack (gap md) of ONE field per property, in the server's order (`orderMetaKey`, else by name: `elicitationFieldOrder`), each bound to `/<formKey>/<name>`: FIELD MAP: boolean = Switch (`checked`, the description as its description); a string with `enum` (labels = `enumNames` when given) or `oneOf` (labels = titles) = Select; an array (multi-select: `items.enum` or `items.anyOf`) = Select `multiple`; number = NumberField (`min`/`max`), integer = NumberField with `step` 1, `precision` 0; a string with format `date` = DatePicker; `email` = Input type email; `uri` = Input type url; any other string (`date-time` included) = Input type text. The label = the property's title, else its name; a description that is not a Switch's or a Select's rides as the placeholder. DEFAULTS ARE PREFILLED (the data model starts at each default of the right type; else `\"\"`, null for a number, false for a boolean, [] for a list). URL MODE: `options` = [`copy.done`, `copy.decline`]; the surface = the URL review (`elicitationUrl`, `urlCases`): the REGISTRABLE DOMAIN as a Heading h4 (bold; eTLD+1 with `multiPartSuffixes`, an IP or a two-label host = the host), the FULL URL as a code Text (never a link: nothing in the card is clickable but its buttons), one warning Alert per warning: `punycode` (a label starts `xn--`), `ip` (an IPv4 or IPv6 host), `insecure` (not https). A url that is not an absolute http(s) URL = `null`: the device declines it. RENDER ×4 (only existing components: the question card's AskCard chrome, its surface frame, THE Button): the header's label = the server's name (`elicitation.server`) beside `icons.server`, ALWAYS (the card names who asks); the message; the surface WITHOUT the plan card's `Preview` caption; then ONE end-aligned button row (FormActions' order): form = `copy.cancel` (ghost), `copy.decline` (outline), `copy.submit` (the small primary, disabled while `elicitationMissing(elicitation, surfaceData)` names a field, `copy.missing` under the row); url = `copy.decline` (outline), `copy.done` (outline), `copy.openLink` (the small primary). The waiting card's × (waiting-cards.json DISMISS) stays and means cancel. OPEN LINK (url mode) opens `elicitation.url` and answers NOTHING (the person comes back and presses `copy.done`): NO PREFETCH (nothing loads it before the press), never an in-app WebView: web = a new tab with `noopener,noreferrer`; desktop = the system browser; iOS = SFSafariViewController (ASWebAuthenticationSession for an OAuth URL); Android = Custom Tabs. AN ANSWER = THE answer path (`sessions.answer({messageId, answers: [label], surfaceData})`, re-sealed on the device for a sealed card); the device maps it back (`elicitationAction`, `actionCases`): `copy.submit` / `copy.done` = accept, `copy.decline` = decline, `copy.cancel`, a dismiss or anything else = cancel; NEVER AN AUTO-ACCEPT. An accepted form carries `elicitationContent(schema, surfaceData)` (`contentCases`): each value coerced to its property's type, an empty optional left out, `null` (= the card stays waiting; the renderers never send it) when a required value is missing or a value is of the wrong type or outside its choices. ANSWERED = closed like every question card: the surface inert at its answered data, the buttons gone, THE answered line names the pick. `copy.specimen` = the specimen's four captions ×4 (the waiting form, the clean url, the warned url, an answered form). Mirrors: TS src/elicitation-card.ts (the reference); the engine (eagent `engine/elicitation_card.rs`) replays `cardCases`, `contentCases`, `actionCases`, `urlCases`; the renderers (desktop `domain::elicitation_card`, iOS ExpCore `ElicitationCard.swift`, Android `domain/ElicitationCard.kt`) replay `missingCases` and `actionCases`. Whole values compared.",
+  "$comment": "#NEW-146 (part of #NEW-143, phase 5): A THIRD-PARTY MCP SERVER'S ELICITATION REACHES THE PERSON ×4 (MCP 2026-07-28 client/elicitation). WHERE IT COMES FROM: an MCP server the agent uses asks the person something (`elicitation/create`). Codex's app-server raises it as `mcpServer/elicitation/request` (flat: the MCP request beside `serverName`, the name Exponential configured the server under) and the codex adapter maps it to THE ACP elicitation (`codex_wire::mcp_elicitation_request`), the server's name in the request's `_meta` under `serverMetaKey`, the server's property order under `orderMetaKey`; codex's private `openai/form` modes and an unreadable schema are DECLINED, never guessed at. The answer goes back as MCP's own `{action: accept|decline|cancel, content?}`. An ACP elicitation WITH `serverMetaKey` (or in url mode) is THE ELICITATION CARD below; one without it stays THE question stepper (ask-dock.json, claude's AskUserQuestion and codex's requestUserInput). THE CARD (`elicitationCard(request)`, `cardCases`, the device's: the engine builds it and posts it like every engine ask, so it is SEALED through coding mcp_gateway.rs like every other card, is a Needs you item (needs-you.json) and PUSHES (question-push.json)) = the existing `question` card with `custom: false`, `multi: false`, `question` = the server's message, a genUI `surface` built from the request and the sidecar `elicitation` {server, mode, required, url}. FORM MODE: `options` = [`copy.submit`, `copy.decline`, `copy.cancel`]; the surface = ONE vertical Stack (gap md) of ONE field per property, in the server's order (`orderMetaKey`, else by name: `elicitationFieldOrder`), each bound to `/<formKey>/<name>`: FIELD MAP: boolean = Switch (`checked`, the description as its description); a string with `enum` (labels = `enumNames` when given) or `oneOf` (labels = titles) = Select; an array (multi-select: `items.enum` or `items.anyOf`) = Select `multiple`; number = NumberField (`min`/`max`), integer = NumberField with `step` 1, `precision` 0; a string with format `date` = DatePicker; `email` = Input type email; `uri` = Input type url; any other string (`date-time` included) = Input type text. The label = the property's title, else its name; a description that is not a Switch's or a Select's rides as the placeholder. DEFAULTS ARE PREFILLED (the data model starts at each default of the right type; else `\"\"`, null for a number, false for a boolean, [] for a list). URL MODE: `options` = [`copy.done`, `copy.decline`]; the surface = the URL review (`elicitationUrl`, `urlCases`): the REGISTRABLE DOMAIN as a Heading h4 (bold; eTLD+1 with `multiPartSuffixes`, an IP or a two-label host = the host), the FULL URL as a code Text (never a link: nothing in the card is clickable but its buttons), one warning Alert per warning: `punycode` (a label starts `xn--`), `ip` (an IPv4 or IPv6 host), `insecure` (not https). A url that is not an absolute http(s) URL = `null`: the device declines it. RENDER ×4 (only existing components: the question card's AskCard chrome, its surface frame, THE Button): the header's label = the server's name (`elicitation.server`) beside `icons.server`, ALWAYS (the card names who asks); the message; the surface WITHOUT the plan card's `Preview` caption; then ONE end-aligned button row (FormActions' order): form = `copy.cancel` (ghost), `copy.decline` (outline), `copy.submit` (the small primary, disabled while `elicitationMissing(elicitation, surfaceData)` names a field, `copy.missing` under the row); url = `copy.decline` (outline), `copy.done` (outline), `copy.openLink` (the small primary). The waiting card's × (waiting-cards.json DISMISS) stays and means cancel. OPEN LINK (url mode) opens `elicitation.url` and answers NOTHING (the person comes back and presses `copy.done`): NO PREFETCH (nothing loads it before the press), never an in-app WebView: web = a new tab with `noopener,noreferrer`; desktop = the system browser; iOS = SFSafariViewController (ASWebAuthenticationSession for an OAuth URL); Android = Custom Tabs. AN ANSWER = THE answer path (`sessions.answer({messageId, answers: [label], surfaceData})`, re-sealed on the device for a sealed card); the device maps it back (`elicitationAction`, `actionCases`): `copy.submit` / `copy.done` = accept, `copy.decline` = decline, `copy.cancel`, a dismiss or anything else = cancel; NEVER AN AUTO-ACCEPT. An accepted form carries `elicitationContent(schema, surfaceData)` (`contentCases`): each value coerced to its property's type, an empty optional left out, `null` (= the card stays waiting; the renderers never send it) when a required value is missing or a value is of the wrong type or outside its choices. LIVE (`elicitationFeedCard(messages, questionId, resolved)`, `feedCardCases`): while the session runs, an engine ask reaches a live session view TWICE: as the relay's question frame (question, options, header: no surface, no sidecar) and as the posted `messages.card` (`sessionCards` leaves an engine card to its frame, ask-dock.json). The frame alone would draw a bare Submit / Decline / Cancel whose Submit carries no form data, so EVERY live view (web, desktop's running session view, iOS, Android; the session on this device or another) draws THE POSTED CARD for a frame of the same `questionId` (a lone question frame or a one-step ask), answered via `sessions.answer` like the idle card: the id of the first message whose card is a `question` with that `questionId` AND an `elicitation` sidecar; `null` (the frame stays) when no such card is synced yet, or when the frame already resolved while the card never got an answer (withdrawn: the frame names it Dismissed). ANSWERED = closed like every question card: the surface inert at its answered data, the buttons gone, THE answered line names the pick. `copy.specimen` = the specimen's four captions ×4 (the waiting form, the clean url, the warned url, an answered form). Mirrors: TS src/elicitation-card.ts (the reference); the engine (eagent `engine/elicitation_card.rs`) replays `cardCases`, `contentCases`, `actionCases`, `urlCases`; the renderers (desktop `domain::elicitation_card`, iOS ExpCore `ElicitationCard.swift`, Android `domain/ElicitationCard.kt`) replay `missingCases`, `actionCases` and `feedCardCases`. Whole values compared.",
   "serverMetaKey": "exponential.at/mcpServer",
   "orderMetaKey": "exponential.at/fieldOrder",
   "formKey": "form",
@@ -924,6 +924,440 @@
       },
       "surfaceData": null,
       "expected": {}
+    }
+  ],
+  "feedCardCases": [
+    {
+      "name": "a waiting frame of an elicitation card = that card",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-1#submit",
+      "resolved": false,
+      "expected": "m-form"
+    },
+    {
+      "name": "an answered card stays the card once its frame resolved",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-2#submit",
+      "resolved": true,
+      "expected": "m-done"
+    },
+    {
+      "name": "an answered card while its frame still waits = that card",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-2#submit",
+      "resolved": false,
+      "expected": "m-done"
+    },
+    {
+      "name": "a withdrawn frame (resolved, card never answered) stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-1#submit",
+      "resolved": true,
+      "expected": null
+    },
+    {
+      "name": "an engine question without the sidecar stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "ask-1#0",
+      "resolved": false,
+      "expected": null
+    },
+    {
+      "name": "a frame whose card is not synced yet stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-9#submit",
+      "resolved": false,
+      "expected": null
     }
   ]
 }
