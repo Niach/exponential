@@ -70,6 +70,8 @@ export function useHeaderCollapse(): { ref: (node: HTMLElement | null) => void; 
       )
     }
     measure()
+    // jsdom (and very old engines) have no ResizeObserver: measure once.
+    if (typeof ResizeObserver === `undefined`) return
     const resize = new ResizeObserver(measure)
     resize.observe(band)
     for (const el of band.querySelectorAll(`[data-header-fold], [data-header-title]`)) resize.observe(el)
