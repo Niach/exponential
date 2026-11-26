@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-quiet-schedule-ticks`,
+    date: `2026-11-26`,
+    title: `Quiet schedule ticks fold into one line`,
+    summary: `A run of schedule ticks the agent answered quietly is one Schedule line with the count and time range, opening to each tick.`,
+    body: `- **One line per run**: consecutive schedule ticks the agent ended quietly draw as one line, such as Schedule ×5 · 11:15–12:15, instead of a Schedule line and an Ended turn quietly line each. Open it to see every tick.
+- **Answers stay**: a tick the agent answered still shows Schedule above its message.`,
+  },
+  {
     id: `2026-11-26-assistant-on-team-device`,
     date: `2026-11-26`,
     title: `Your Assistant on a team's machine`,
