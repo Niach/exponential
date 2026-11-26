@@ -24,6 +24,7 @@ import { absolutePath, ariaAttributes, getPointer, hasDynamic, isBubbleTail, res
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
+import { useBackgroundImage } from "./media"
 import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential_app/eui/web"
 
 export interface NativeProps extends ExtensionComponentProps {
@@ -243,7 +244,16 @@ const BoundNode = memo(function BoundNode({ node, scope, live }: { node: UiNode;
     }
     return out as CSSProperties
   }, [node.style, rctx, ctx.theme.fonts])
-  const rootProps = useRootProps(node, props, domId, recipeProps, dynamicStyle)
+  // genUI round 4: a `backgroundImage` loads like an Image (`--xui-bgi`).
+  const pictureSrc = useMemo(() => {
+    const b = node.style?.backgroundImage
+    if (b === undefined) return null
+    const v = resolveValue(b, rctx) as { src?: unknown } | null
+    return typeof v?.src === `string` ? v.src : ``
+  }, [node.style, rctx])
+  const picture = useBackgroundImage(ctx.host, ctx.theme, pictureSrc)
+  const boxVars = useMemo(() => (picture ? ({ ...dynamicStyle, ...picture } as CSSProperties) : dynamicStyle), [picture, dynamicStyle])
+  const rootProps = useRootProps(node, props, domId, recipeProps, boxVars)
   const emit = useEmitter(node, scope, domId)
   const Override = extensionComponent(ctx.extensions, node.component)
   const Native = NATIVES[node.component]

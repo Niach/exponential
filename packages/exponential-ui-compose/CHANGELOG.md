@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - **Breaking:** the A2UI 1.0 flag day (#VAPP-289): the core refuses 0.9 messages and format 5 packages; host function names are flat (`app_toast`, `harness_*`).
+- Box backgrounds (genUI round 4): `backgroundImage` (the policed image loader, `pictureRect` placement, the scrim, clipped to the corners) and the radial `backgroundGradient` (`Brush.radialGradient` to the farthest corner); `BoxBackgroundsTest` replays `box-backgrounds.json`.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`.
 - The host answers `callRendererFunction` (#VAPP-289, round 9 §6.9): a call that passed the router runs in the core at the agent position and its `rendererFunctionResponse` goes out.
 - Embed forwards an inner event's `userMessage` (#EXP-2104): `embedPayload(name, context, userMessage)`; the host's `action` context holds `userMessage` beside `name` and `context` when the inner event has one (`EmbedTest` replays `embed.json` `inner-user-message`).

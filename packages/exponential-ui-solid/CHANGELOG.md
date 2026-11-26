@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `createSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
+- Box backgrounds (genUI round 4): `createBackgroundImage`, React's `useBackgroundImage` (`--xui-bgi` on the node).
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`; `formatString` reads `${fn(name: value)}` calls; a call that names its catalog runs only what that catalog declares.
 - A hosted Popover / Menu follows its anchor (#EXP-2047), React's (`watchAnchor`'s `onMoved` → `popupHost.mount` again); `overlay-anchor.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843), React's (`treeGuideDepth`); `list-reorder.test.tsx`.
