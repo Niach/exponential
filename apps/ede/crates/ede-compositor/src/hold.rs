@@ -110,6 +110,10 @@ impl Ede {
             ButtonState::Released if !was_down && self.person_input_held() => return,
             ButtonState::Released => self.desk.hold.buttons.retain(|b| *b != button),
         }
+        // #EDE-246: a hot corner's click stops there, as Cinnamon's corner actor does.
+        if self.hot_corners_button(button, state == ButtonState::Pressed) {
+            return;
+        }
         self.pointer_button(button, state, time);
     }
 
@@ -119,6 +123,8 @@ impl Ede {
             return false;
         }
         self.pointer_motion_to(pos, time);
+        let at = self.desk.seat.get_pointer().unwrap().current_location();
+        self.hot_corners_motion(at);
         true
     }
 }

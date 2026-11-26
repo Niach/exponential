@@ -149,6 +149,10 @@ pub enum Request {
     /// brings it back.
     MinimizeWindow { window: WindowId },
     RestoreWindow { window: WindowId },
+    /// Show the desktop (#EDE-245, Muffin's `toggle_desktop`): every window
+    /// of the active workspace to the taskbar, the next one brings them
+    /// back. The panel's corner bar; Super+D in the compositor.
+    ToggleDesktop,
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
     /// black. `since` = the `serial` of the last capture: when nothing was
@@ -648,7 +652,7 @@ impl Request {
             Request::OpenWayland => None,
             // #EDE-172 (P13): what the connection holds, the arm checks.
             Request::OpenServices { .. } => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } | Request::PickRegion { .. } => Some(Capability::Capture),
             Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
@@ -673,7 +677,7 @@ impl Request {
     pub fn anonymous(&self) -> bool {
         match self {
             Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
-            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } => false,
+            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop => false,
             Request::Capture { .. } | Request::PickRegion { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
             Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
@@ -694,7 +698,7 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
             Request::Input { bindings, .. } => !bindings,
-            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             // The person's own hand on their own screen: never a space's.
             Request::PickRegion { .. } => false,
@@ -1535,6 +1539,10 @@ impl Client {
         self.call(Request::RestoreWindow { window }).map(|_| ())
     }
 
+    pub fn toggle_desktop(&mut self) -> Result<(), Error> {
+        self.call(Request::ToggleDesktop).map(|_| ())
+    }
+
     pub fn lock(&mut self) -> Result<(), Error> {
         self.call(Request::Lock).map(|_| ())
     }
@@ -2152,6 +2160,7 @@ mod tests {
             (Request::MoveWindow { window: w(), x: 0, y: 0 }, false),
             (Request::MinimizeWindow { window: w() }, false),
             (Request::RestoreWindow { window: w() }, false),
+            (Request::ToggleDesktop, false),
             (Request::Capture { target: CaptureTarget::Output { name: "space-1".into() }, since: None }, true),
             (Request::Capture { target: CaptureTarget::Space { space: space() }, since: Some(3) }, true),
             (Request::Capture { target: CaptureTarget::Window { window: w() }, since: None }, false),
@@ -2196,7 +2205,7 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 43, "one row per variant at least");
+        assert_eq!(seen.len(), 44, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2221,6 +2230,7 @@ mod tests {
             Request::MoveWindow { .. } => "move_window",
             Request::MinimizeWindow { .. } => "minimize_window",
             Request::RestoreWindow { .. } => "restore_window",
+            Request::ToggleDesktop => "toggle_desktop",
             Request::Capture { .. } => "capture",
             Request::PickRegion { .. } => "pick_region",
             Request::Input { .. } => "input",
@@ -2498,6 +2508,7 @@ mod tests {
             Request::MoveWindow { window: w(), x: 0, y: 0 },
             Request::MinimizeWindow { window: w() },
             Request::RestoreWindow { window: w() },
+            Request::ToggleDesktop,
             Request::Capture { target: CaptureTarget::Output { name: "o".into() }, since: None },
             Request::PickRegion { mode: PickMode::Point },
             Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false },
@@ -2542,7 +2553,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 43, "every op has a row");
+        assert_eq!(seen.len(), 44, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

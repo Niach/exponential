@@ -39,6 +39,33 @@ pub struct Config {
     pub session: Session,
     /// `[control]`: who may present the root token (#EDE-172, design v3).
     pub control: Control,
+    /// `[hot_corners]` (#EDE-246): Cinnamon's, all off by default.
+    pub hot_corners: HotCorners,
+}
+
+/// `[hot_corners]`: `layout` is Cinnamon's `hotcorner-layout`, the corners
+/// top-left, top-right, bottom-left, bottom-right as `action:enabled:delay`
+/// (`expo`, `scale`, `desktop` or a command); `fullscreen` is
+/// `hotcorner-fullscreen`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HotCorners {
+    pub layout: Vec<String>,
+    pub fullscreen: bool,
+}
+
+impl Default for HotCorners {
+    fn default() -> Self {
+        Self { layout: ["expo:false:0", "scale:false:0", "scale:false:0", "desktop:false:0"].map(String::from).to_vec(), fullscreen: false }
+    }
+}
+
+impl HotCorners {
+    /// Corner `i`; a layout without exactly four entries has none, as
+    /// Cinnamon refuses it.
+    pub fn corner(&self, i: usize) -> Option<crate::hot_corners::Corner> {
+        (self.layout.len() == 4).then(|| self.layout.get(i).and_then(|c| crate::hot_corners::Corner::parse(c))).flatten()
+    }
 }
 
 /// `[session]` (#EDE-172). Read at the compositor's start only.
@@ -260,6 +287,7 @@ impl Default for Config {
             theme: toml::Table::new(),
             session: Session::default(),
             control: Control::default(),
+            hot_corners: HotCorners::default(),
         }
     }
 }
