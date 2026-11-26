@@ -6,8 +6,11 @@
 use std::path::Path;
 
 /// Makes `git-remote-exp` findable for git: a link to this executable next
-/// to it (the CLI's bin dir is on PATH), else in `<data_dir>/bin`, which is
-/// then prepended to this process's PATH (sessions it starts inherit it).
+/// to it, else in `<data_dir>/bin`; the link's dir is then put on this
+/// process's PATH when it is not there yet (git, the CI runner's checkouts
+/// and the sessions it starts inherit it). #EXP-2188: a daemon started
+/// without its bin dir on PATH (mint-ci's) linked the helper beside itself
+/// and git never found it, so every CI checkout of an `exp://` repo failed.
 /// Never inside a macOS app bundle (a write there breaks its signature);
 /// not on Windows yet (a link there is a copy of the whole binary).
 pub fn install_git_helper(data_dir: &Path) {
@@ -17,23 +20,32 @@ pub fn install_git_helper(data_dir: &Path) {
     let Ok(exe) = std::env::current_exe() else { return };
     let in_bundle = exe.to_string_lossy().contains(".app/Contents/");
     let beside = exe.parent().map(Path::to_path_buf).filter(|_| !in_bundle);
-    if let Some(dir) = beside {
-        if git_remote_exp::install_link(&exe, &dir).is_ok() {
-            return;
-        }
-    }
-    let dir = data_dir.join("bin");
-    match git_remote_exp::install_link(&exe, &dir) {
-        Ok(_) => {
-            let path = std::env::var_os("PATH").unwrap_or_default();
-            let mut parts = vec![dir];
-            parts.extend(std::env::split_paths(&path));
-            if let Ok(joined) = std::env::join_paths(parts) {
-                std::env::set_var("PATH", joined);
+    let linked = beside
+        .filter(|dir| git_remote_exp::install_link(&exe, dir).is_ok())
+        .or_else(|| {
+            let dir = data_dir.join("bin");
+            match git_remote_exp::install_link(&exe, &dir) {
+                Ok(_) => Some(dir),
+                Err(err) => {
+                    log::debug!("git-remote-exp: could not link the helper: {err}");
+                    None
+                }
             }
-        }
-        Err(err) => log::debug!("git-remote-exp: could not link the helper: {err}"),
+        });
+    if let Some(path) = linked.and_then(|dir| path_with(&dir, std::env::var_os("PATH"))) {
+        std::env::set_var("PATH", path);
     }
+}
+
+/// `path` with `dir` in front, or `None` when `dir` is already on it.
+fn path_with(dir: &Path, path: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
+    let path = path.unwrap_or_default();
+    if std::env::split_paths(&path).any(|entry| entry == dir) {
+        return None;
+    }
+    let mut parts = vec![dir.to_path_buf()];
+    parts.extend(std::env::split_paths(&path).filter(|entry| !entry.as_os_str().is_empty()));
+    std::env::join_paths(parts).ok()
 }
 
 /// #EXP-2187: the data dir the helper signs in from: the app's, as the
@@ -71,5 +83,13 @@ mod tests {
         assert_eq!(helper_data_dir(Some("/real/exponential".into())), std::path::PathBuf::from("/real/exponential"));
         assert_eq!(helper_data_dir(Some("".into())), api::default_data_dir());
         assert_eq!(helper_data_dir(None), api::default_data_dir());
+    }
+
+    #[test]
+    fn the_helper_dir_goes_on_path_once() {
+        let dir = std::path::Path::new("/opt/exp/bin");
+        assert_eq!(path_with(dir, Some("/usr/bin:/bin".into())), Some("/opt/exp/bin:/usr/bin:/bin".into()));
+        assert_eq!(path_with(dir, Some("/usr/bin:/opt/exp/bin".into())), None);
+        assert_eq!(path_with(dir, None), Some("/opt/exp/bin".into()));
     }
 }
