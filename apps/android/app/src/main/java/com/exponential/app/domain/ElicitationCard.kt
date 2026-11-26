@@ -112,4 +112,30 @@ object ElicitationCard {
             else -> Action.Cancel
         }
     }
+
+    /** A card that is THE elicitation card: a `question` with an object
+     *  `elicitation` sidecar. */
+    fun isElicitationCard(card: JsonObject?): Boolean =
+        card != null &&
+            (card["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content == DomainContract.messageCardKindQuestion &&
+            card["elicitation"] is JsonObject
+
+    /** LIVE (`elicitationFeedCard`, `feedCardCases`): an engine ask reaches a
+     *  live session view twice, as the relay's question frame (no surface,
+     *  no sidecar) and as the posted card. A live view draws THE POSTED card
+     *  for a frame of the same [questionId]: the id of the first message
+     *  whose card is a `question` with that `questionId` and an
+     *  `elicitation` sidecar; null (the frame stays) when none is synced, or
+     *  the frame already [resolved] while the card never got an answer
+     *  (withdrawn: the frame names it Dismissed). */
+    fun feedCard(messages: List<SessionTree.Message>, questionId: String, resolved: Boolean): String? {
+        for (message in messages) {
+            val card = message.card ?: continue
+            if (!isElicitationCard(card)) continue
+            if ((card["questionId"] as? JsonPrimitive)?.takeIf { it.isString }?.content != questionId) continue
+            if (resolved && message.answeredAt == null) return null
+            return message.id
+        }
+        return null
+    }
 }

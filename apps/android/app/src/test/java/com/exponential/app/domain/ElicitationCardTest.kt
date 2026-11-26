@@ -11,8 +11,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** #NEW-146: `fixtures/elicitation-card.json` replayed: `missingCases` and
- *  `actionCases` (whole values), plus the copy and test ids it pins. */
+/** #NEW-146: `fixtures/elicitation-card.json` replayed: `missingCases`,
+ *  `actionCases`, `feedCardCases` (whole values), plus the copy and test ids it pins. */
 class ElicitationCardTest {
     private val fixture: JsonObject = Json.parseToJsonElement(fixtureJson()).jsonObject
 
@@ -43,6 +43,40 @@ class ElicitationCardTest {
                 case.getValue("name").jsonPrimitive.content,
                 case.getValue("expected").jsonPrimitive.content,
                 ElicitationCard.action(answers, answer, dismissed).wire,
+            )
+        }
+    }
+
+    /** LIVE: a frame draws THE posted card (`feedCardCases`). */
+    @Test
+    fun feedCardCases() {
+        val cases = fixture.getValue("feedCardCases").jsonArray
+        assert(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val messages = case.getValue("messages").jsonArray.map { raw ->
+                val m = raw.jsonObject
+                SessionTree.Message(
+                    id = m.getValue("id").jsonPrimitive.content,
+                    sessionId = "s1",
+                    authorKind = "agent",
+                    authorId = null,
+                    body = "",
+                    card = m["card"] as? JsonObject,
+                    answeredAt = (m["answeredAt"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+                    consumedAt = null,
+                    createdAt = "2026-11-26T16:00:00.000Z",
+                )
+            }
+            val expected = (case["expected"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                expected,
+                ElicitationCard.feedCard(
+                    messages,
+                    case.getValue("questionId").jsonPrimitive.content,
+                    case.getValue("resolved").jsonPrimitive.content == "true",
+                ),
             )
         }
     }

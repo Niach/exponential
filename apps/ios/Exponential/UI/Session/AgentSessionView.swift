@@ -236,6 +236,12 @@ struct AgentSessionView: View {
     @State private var noFeedInputsPage = 0
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
+    /// #NEW-146 (elicitation-card.json LIVE): this session's ENGINE-posted
+    /// elicitation cards (`sessionCards` leaves them to their frame), the
+    /// messages `ElicitationCard.feedCard` matches a frame against and
+    /// their chat rows by message id.
+    @State private var elicitationMessages: [TreeMessage] = []
+    @State private var elicitationRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
     /// over its tree): a row with an open item rides THE Dock for a viewer
     /// who may post, otherwise it draws inline.
@@ -1540,7 +1546,12 @@ struct AgentSessionView: View {
                 }
             }
         case let .ask(group):
-            askCard(group)
+            // #NEW-146: a one-step ask of an elicitation = THE posted card.
+            if let row = elicitationFeedRow(group) {
+                elicitationCard(row)
+            } else {
+                askCard(group)
+            }
         case let .single(item):
             switch item {
             case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
@@ -1662,7 +1673,12 @@ struct AgentSessionView: View {
                         .modifier(FindRowMark(id: id))
                 }
             case let .question(question):
-                questionCard(question)
+                // #NEW-146: an elicitation's frame = THE posted card.
+                if let row = elicitationFeedRow(question) {
+                    elicitationCard(row)
+                } else {
+                    questionCard(question)
+                }
             case let .subagent(_, _, agentType, status, detail, _, title, _):
                 // A `started` whose `completed` never came reads settled
                 // once the turn is over (the Reasoning line's rule).
@@ -2259,9 +2275,20 @@ struct AgentSessionView: View {
                         asks.append(row)
                     }
                 }
+                // #NEW-146: the engine's elicitation cards, drawn for their
+                // live frames (`elicitationFeedRow`).
+                let elicitations = tree.filter { message in
+                    message.card?.kind == "question" && message.card?.elicitation != nil
+                }
+                var elicitationById: [String: SessionChatRow] = [:]
+                for message in elicitations {
+                    if let row = SessionChatRow.askCard(message) { elicitationById[message.id] = row }
+                }
                 sessionCards = cards.filter { $0.kind != .surface || surfaces[$0.id] != nil }
                 toolAsks = asks
                 surfaceRows = surfaces
+                elicitationMessages = elicitations
+                elicitationRows = elicitationById
                 if !cardsLoaded { cardsLoaded = true }
             }
         } catch {}
@@ -2509,6 +2536,41 @@ struct AgentSessionView: View {
         case "banner:offline" where row.action != nil: deviceMoveControl(model, label: row.action ?? "")
         default: nil
         }
+    }
+
+    /// #NEW-146 (elicitation-card.json LIVE, `ElicitationCard.feedCard`): the
+    /// posted elicitation card for this question frame; nil = the frame
+    /// draws (no such card synced yet, or a withdrawn one).
+    private func elicitationFeedRow(_ question: AgentQuestion) -> SessionChatRow? {
+        guard !elicitationMessages.isEmpty,
+              let id = ElicitationCard.feedCard(
+                  elicitationMessages, questionId: question.wireId, resolved: question.resolved
+              )
+        else { return nil }
+        return elicitationRows[id]
+    }
+
+    /// A one-step ask's posted elicitation card (a longer ask = its stepper).
+    private func elicitationFeedRow(_ group: AgentAskGroup) -> SessionChatRow? {
+        guard group.questions.count == 1, let question = group.questions.first else { return nil }
+        return elicitationFeedRow(question)
+    }
+
+    /// #NEW-146: THE posted elicitation card in a frame's place, drawn and
+    /// answered exactly as `inlineToolCards` draws a tool card
+    /// (`sessions.answer`; the × = cancel).
+    @ViewBuilder
+    private func elicitationCard(_ row: SessionChatRow) -> some View {
+        ChatAskCard(
+            row: row,
+            canAnswer: (model?.mayPost ?? false) && !(model?.sessionEnded ?? true),
+            answeringId: toolAnsweringId,
+            markdownContext: markdownContext,
+            onSubmit: submitToolAnswer
+        )
+        .waitingHighlight(highlightId == row.id)
+        .id(row.id)
+        .accessibilityIdentifier("session-tool-card")
     }
 
     /// A lone question card: a plan approval or a single-question ask.

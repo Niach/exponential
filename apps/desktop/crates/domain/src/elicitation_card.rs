@@ -148,6 +148,36 @@ pub fn elicitation_action(card: &Value) -> Action {
     }
 }
 
+/// #NEW-146 (`feedCardCases`, TS `elicitationFeedCard`): the live feed's
+/// view of THE card. An engine ask reaches a live session view twice: as
+/// the relay's question frame (question, options, header: no surface, no
+/// sidecar) and as the posted `messages.card`. The frame alone draws a
+/// plain question whose Submit carries no form data, so a live view draws
+/// the POSTED card (its form or URL review, answered via
+/// `sessions.answer`) for a frame of the same `question_id`: the id of the
+/// first message whose card is a `question` with that `questionId` and an
+/// `elicitation` sidecar. `None` = the frame stays: no such card, or the
+/// frame already resolved while the card never got an answer (withdrawn:
+/// the frame names it Dismissed).
+pub fn elicitation_feed_card(messages: &[crate::rows::MessageRow], question_id: &str, resolved: bool) -> Option<String> {
+    for message in messages {
+        let Some(card) = message.card.as_ref().filter(|card| card.is_object()) else { continue };
+        if card.get("kind").and_then(Value::as_str) != Some("question") {
+            continue;
+        }
+        if card.get("questionId").and_then(Value::as_str) != Some(question_id)
+            || !card.get("elicitation").is_some_and(Value::is_object)
+        {
+            continue;
+        }
+        if resolved && message.answered_at.is_none() {
+            return None;
+        }
+        return Some(message.id.clone());
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +269,34 @@ mod tests {
         assert_eq!(elicitation_sidecar(Some(&json!({ "server": "x", "mode": "other" }))), None);
         assert_eq!(elicitation_sidecar(Some(&json!("form"))), None);
         assert_eq!(elicitation_sidecar(None), None);
+    }
+
+    /// `feedCardCases`: a live frame draws the posted card (whole values).
+    #[test]
+    fn elicitation_feed_card_replays_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["feedCardCases"].as_array().expect("feedCardCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let messages: Vec<crate::rows::MessageRow> = case["messages"]
+                .as_array()
+                .expect("messages")
+                .iter()
+                .map(|message| crate::rows::MessageRow {
+                    id: message["id"].as_str().expect("id").to_string(),
+                    answered_at: message["answeredAt"].as_str().map(str::to_string),
+                    card: Some(message["card"].clone()).filter(|card| !card.is_null()),
+                    ..Default::default()
+                })
+                .collect();
+            let question_id = case["questionId"].as_str().expect("questionId");
+            let resolved = case["resolved"].as_bool().expect("resolved");
+            assert_eq!(
+                json!(elicitation_feed_card(&messages, question_id, resolved)),
+                case["expected"],
+                "{}",
+                case["name"]
+            );
+        }
     }
 }
