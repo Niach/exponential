@@ -87,7 +87,7 @@ final class GettingStartedProgress {
             // SHARED servers, and an unknown viewer id must read as "no
             // machine of mine" rather than counting somebody else's.
             if let userId {
-                for device in try DeviceEntity.fetchAll(db) where device.userId == userId {
+                for device in DeviceEntity.listed(try DeviceEntity.fetchAll(db)) where device.userId == userId {
                     if device.kind == "desktop" { next.model.hasDesktopDevice = true }
                     if device.kind == "server" { next.model.hasServerDevice = true }
                 }

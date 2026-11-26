@@ -63,6 +63,10 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
     /// #EXP-1832: the folder row this row sits in: hidden while it is
     /// closed, shown flat while a search runs.
     public let parent: Value?
+    /// #EXP-2161: the muted heading this row's run of rows sits under (a
+    /// team's devices in Runs on). Rows without one come first, unheaded
+    /// (web `PickerItem.section`).
+    public let section: String?
 
     public init(
         value: Value,
@@ -77,8 +81,10 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         brand: String? = nil,
         depth: Int = 0,
         group: PickerGroup? = nil,
-        parent: Value? = nil
+        parent: Value? = nil,
+        section: String? = nil
     ) {
+        self.section = section
         self.depth = depth
         self.group = group
         self.parent = parent
@@ -145,12 +151,56 @@ public enum PickerFolders {
                 PickerItem(
                     value: item.value, label: item.label, icon: item.icon, color: item.color,
                     description: item.description, disabled: item.disabled, keywords: item.keywords,
-                    checked: item.checked, identifier: item.identifier, brand: item.brand
+                    checked: item.checked, identifier: item.identifier, brand: item.brand,
+                    section: item.section
                 )
             }
         }
         let open = Set(items.filter { $0.group?.open == true }.map(\.value))
         return items.filter { item in item.parent.map { open.contains($0) } ?? true }
+    }
+}
+
+/// #EXP-2161: a list's rows under their headings (web `ComboboxList`): the
+/// rows without a `section` first, unheaded, then one run per heading in
+/// first-seen order. Pure, for the tests.
+public enum PickerSections {
+    public struct Run<Value: Hashable & Sendable>: Identifiable {
+        public let title: String?
+        public let items: [PickerItem<Value>]
+        public var id: String { title.map { "section:\($0)" } ?? "plain" }
+    }
+
+    public static func runs<Value>(_ items: [PickerItem<Value>]) -> [Run<Value>] {
+        let plain = items.filter { $0.section == nil }
+        var titles: [String] = []
+        var bySection: [String: [PickerItem<Value>]] = [:]
+        for item in items {
+            guard let section = item.section else { continue }
+            if bySection[section] == nil { titles.append(section) }
+            bySection[section, default: []].append(item)
+        }
+        let headed = titles.map { Run(title: $0, items: bySection[$0] ?? []) }
+        return (plain.isEmpty ? [] : [Run(title: nil, items: plain)]) + headed
+    }
+}
+
+/// #EXP-2161: a picker section's heading: web's `[cmdk-group-heading]`
+/// (`px-(--menu-item-padding-x) py-1.5 text-xs font-medium
+/// text-muted-foreground`).
+struct PickerSectionHeading: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, GlassPickerTokens.rowHPadding)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -914,7 +964,9 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                     EmptyState(title: emptyText, size: .list)
                 }
             } else {
-                ForEach(visible) { item in
+                ForEach(PickerSections.runs(visible)) { run in
+                    if let title = run.title { PickerSectionHeading(title: title) }
+                    ForEach(run.items) { item in
                     GlassPickerSheetRow(
                         item: item,
                         checked: item.checkedState(in: value),
@@ -931,6 +983,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                         }
                         onChange(PickerSelection.picking(item.value, in: value, mode: mode))
                         if PickerSelection.closesOnPick(mode) { close() }
+                    }
                     }
                 }
             }
