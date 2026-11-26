@@ -892,6 +892,12 @@ impl SealService for KeyHolder {
     /// that the root exists.
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         sealing::adopt_into(&self.inner.keyring, root_id, seal);
+        // #EXP-1950: it made the key; #EXP-2161: recorded now, not later as a
+        // key "held before the store knew it" (whose root never counts as the
+        // member's Assistant conversation, `rootMarkCases`).
+        if let Some(trust) = self.trust() {
+            trust.record(root_id, seal.epoch, KeyRecord::Verified);
+        }
         if self.inner.signer.is_some() {
             let targets = seal.wraps.iter().map(|wrap| wrap.install_id.clone()).collect();
             lock(&self.inner.resign).fresh.push((root_id.to_string(), seal.epoch, targets));

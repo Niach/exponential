@@ -750,7 +750,7 @@ impl TalkHost for ExponentialHost {
         let Some(store) = Store::try_global(cx) else { return Vec::new() };
         let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
         let devices = store.collections().devices.read(cx);
-        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().filter(|row| !row.is_space()).collect();
         own_desktops(&rows, &me, chrono::Utc::now().timestamp_millis())
     }
 
@@ -758,7 +758,7 @@ impl TalkHost for ExponentialHost {
         let Some(store) = Store::try_global(cx) else { return Vec::new() };
         let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else { return Vec::new() };
         let devices = store.collections().devices.read(cx);
-        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().collect();
+        let rows: Vec<&domain::rows::DeviceRow> = devices.iter().filter(|row| !row.is_space()).collect();
         own_servers(&rows, &me, chrono::Utc::now().timestamp_millis())
     }
 

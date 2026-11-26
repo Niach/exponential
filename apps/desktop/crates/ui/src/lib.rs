@@ -150,6 +150,8 @@ mod drafts;
 mod drafts_view;
 mod device_sync;
 mod machines;
+// #EXP-2161: members' Assistants on a shared device (member-space.json).
+mod member_spaces;
 mod media_tile;
 mod tall_image;
 mod teams_pick;

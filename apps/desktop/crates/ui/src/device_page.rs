@@ -28,7 +28,7 @@ use gpui::{
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon};
 
 use domain::rows::{DeviceRow, SessionRow};
 use domain::session_tree::SessionState;
@@ -249,6 +249,10 @@ pub(crate) struct DevicePageView {
     scroll: ScrollHandle,
     /// Built the first time this machine's page shows.
     panes: Option<ThisDevicePanes>,
+    /// #EXP-2161: a team owner's members list on a device they do not own,
+    /// and a `devices.dropAssistantTeam` in flight.
+    members: Option<Entity<crate::member_spaces::MemberSpacesList>>,
+    owner_busy: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -267,7 +271,7 @@ impl DevicePageView {
             }
         })
         .detach();
-        Self { device_id: String::new(), scroll: ScrollHandle::new(), panes: None, _subscriptions: subscriptions }
+        Self { device_id: String::new(), scroll: ScrollHandle::new(), panes: None, members: None, owner_busy: false, _subscriptions: subscriptions }
     }
 
     /// Point the page at `device_id` (empty = this device); the same id is a
@@ -279,6 +283,75 @@ impl DevicePageView {
         self.device_id = device_id;
         self.scroll.set_offset(gpui::point(px(0.), px(0.)));
         cx.notify();
+    }
+
+    /// #EXP-2161 (member-space.json UI ×4, web `TeamOwnerSpaces`): on a
+    /// device the viewer does not own, per team they OWN that opted it in,
+    /// the team's heading over the `copy.optIn` switch (off only), then the
+    /// members running through it. `None` = no such team.
+    fn render_team_owner_spaces(&mut self, row: &DeviceRow, window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<Div> {
+        let teams: Vec<(String, String)> = crate::settings::agent_detail::member_teams(cx)
+            .into_iter()
+            .filter(|(team_id, _)| row.is_assistant_team(team_id) && crate::settings::is_owner(cx, team_id))
+            .collect();
+        if teams.is_empty() {
+            return None;
+        }
+        let members = match self.members.clone() {
+            Some(members) => members,
+            None => {
+                let members = cx.new(|cx| crate::member_spaces::MemberSpacesList::new(window, cx));
+                self.members = Some(members.clone());
+                members
+            }
+        };
+        let version = teams.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(",");
+        let row_id = row.id.clone();
+        members.update(cx, |members, cx| members.set_device(Some(row_id.clone()), version, cx));
+        let view = cx.entity().downgrade();
+        let mut section = v_flex().id("device-team-owner-spaces").w_full().min_w_0().gap_2();
+        for (team_id, name) in teams {
+            let (view, row_id, team) = (view.clone(), row_id.clone(), team_id.clone());
+            let switch = crate::controls::web_switch(SharedString::from(format!("device-assistants-{team_id}")))
+                .checked(true)
+                .disabled(self.owner_busy)
+                .on_click(move |_, _, cx| {
+                    let (view, row_id, team) = (view.clone(), row_id.clone(), team.clone());
+                    let _ = view.update(cx, |this, cx| {
+                        if this.owner_busy {
+                            return;
+                        }
+                        this.owner_busy = true;
+                        cx.notify();
+                        let done = cx.entity().downgrade();
+                        crate::member_spaces::drop_assistant_team(
+                            row_id,
+                            team,
+                            move |cx| {
+                                let _ = done.update(cx, |this, cx| {
+                                    this.owner_busy = false;
+                                    cx.notify();
+                                });
+                            },
+                            cx,
+                        );
+                    });
+                })
+                .into_any_element();
+            section = section.child(
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .child(crate::surface::glass_section_header(name, None, cx))
+                    .child(crate::surface::glass_group_rows(vec![crate::surface::glass_toggle_row(
+                        domain::member_space::MEMBER_SPACE.copy.opt_in.clone(),
+                        None,
+                        switch,
+                        cx,
+                    )])),
+            );
+        }
+        Some(div().w_full().min_w_0().child(section).child(members))
     }
 
     fn ensure_panes(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -614,9 +687,14 @@ impl Render for DevicePageView {
 
         let mut column = v_flex().gap_6().child(self.render_header(row.as_ref(), online, mine, cx));
         if let Some(row) = row.as_ref() {
-            column = column
-                .child(self.render_accounts(row, online, mine, this_device, cx))
-                .child(self.render_running(row, cx));
+            column = column.child(self.render_accounts(row, online, mine, this_device, cx));
+            // #EXP-2161: a team owner's off switch on a device they do not own.
+            if !mine {
+                if let Some(spaces) = self.render_team_owner_spaces(row, window, cx) {
+                    column = column.child(spaces);
+                }
+            }
+            column = column.child(self.render_running(row, cx));
         }
         if this_device {
             self.ensure_panes(window, cx);

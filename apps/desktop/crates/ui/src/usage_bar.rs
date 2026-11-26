@@ -885,7 +885,8 @@ pub(crate) fn device_profile_rows(cx: &App) -> Vec<AgentProfileUsageRow> {
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
     let devices = store.collections().devices.read(cx);
-    let rows: Vec<domain::rows::DeviceRow> = devices.iter().cloned().collect();
+    // #EXP-2161: a member space reports its host's logins: never a row of its own.
+    let rows: Vec<domain::rows::DeviceRow> = devices.iter().filter(|row| !row.is_space()).cloned().collect();
     agent_profile_usage_rows(&rows, &me.user_id, |last_seen| {
         crate::device_settings::row_is_online(last_seen, now_ms)
     })
