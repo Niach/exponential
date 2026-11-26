@@ -4369,7 +4369,7 @@ Apache-2.0
 
 Applies to the following component:
 
-  a2ui-express 0.1.0
+  a2ui-express 0.3.0
     Copyright 2026 The a2ui-express-compiler-rust Authors
 
 ..............................................................................
@@ -12782,7 +12782,7 @@ NOTICE
 
 Applies to the following component:
 
-  a2ui-express 0.1.0
+  a2ui-express 0.3.0
     Copyright 2026 The a2ui-express-compiler-rust Authors
 
 ..............................................................................

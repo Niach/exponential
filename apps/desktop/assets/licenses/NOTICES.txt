@@ -5704,7 +5704,7 @@ Apache-2.0
 
 Applies to the following 2 components:
 
-  a2ui-express 0.1.0
+  a2ui-express 0.3.0
     Copyright 2026 The a2ui-express-compiler-rust Authors
   clang-sys 1.8.1  [x86_64-unknown-linux-gnu; build-time only, not linked]
 
@@ -24080,7 +24080,7 @@ NOTICE
 
 Applies to the following component:
 
-  a2ui-express 0.1.0
+  a2ui-express 0.3.0
     Copyright 2026 The a2ui-express-compiler-rust Authors
 
 ..............................................................................

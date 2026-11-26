@@ -72,7 +72,7 @@ unicode-normalization = "0.1"
 # from crates.io, A2UI 1.0 only; the trailing `rev` is the commit the version
 # was released from, which scripts/build-express-wasm.sh builds the web's wasm
 # from. Its runtime deps are all already in the tree.
-a2ui-express = { version = "=0.3.0", optional = true } # rev = "e97537e05088236ef987771a127011b24280e872"
+a2ui-express = { version = "=0.3.0", optional = true } # rev = "006eff1827b199972e84310cc6e8a3f29b84e770"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 libc = "0.2"
