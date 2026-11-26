@@ -38,9 +38,14 @@ export interface GenuiAppRead {
   viewer?: { id: string; access: `read` | `write` }
 }
 
+/** #NEW-149 (elicitation.json D6): the server's mark on a result whose host
+ *  declared form elicitation: it confirms every delete and stop itself
+ *  (an MRTR ask the host shows), so the view skips its own confirm for those. */
+export const HOST_CONFIRMS_META = `exponential/hostConfirms`
+
 export type GenuiScreen =
   | { kind: `card`; card: InlineCard }
-  | { kind: `app`; app: GenuiAppRead }
+  | { kind: `app`; app: GenuiAppRead; hostConfirms?: boolean }
   | { kind: `apps`; apps: GenuiAppRow[] }
   /** Any other apps op (records, catalog…): nothing to draw. */
   | { kind: `none` }
@@ -56,6 +61,7 @@ interface ToolResultLike {
   content?: Array<{ type: string; text?: string }>
   structuredContent?: unknown
   isError?: boolean
+  _meta?: Record<string, unknown>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
@@ -82,7 +88,7 @@ export function decodeGenuiResult(result: ToolResultLike): GenuiScreen {
     return { kind: `card`, card: data.card as unknown as InlineCard }
   }
   if (isObject(data) && typeof data.slug === `string` && typeof data.id === `string` && `package` in data) {
-    return { kind: `app`, app: data as unknown as GenuiAppRead }
+    return { kind: `app`, app: data as unknown as GenuiAppRead, ...(result._meta?.[HOST_CONFIRMS_META] === true ? { hostConfirms: true } : {}) }
   }
   if (Array.isArray(data) && data.every((row) => isObject(row) && typeof row.slug === `string` && typeof row.name === `string` && typeof row.id === `string`)) {
     return { kind: `apps`, apps: data as GenuiAppRow[] }

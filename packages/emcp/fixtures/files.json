@@ -1,5 +1,5 @@
 {
-  "$comment": "#NEW-145 / #NEW-143 D5 (Danny 2026-11-26): FILE UPLOADS over Exponential's MCP server, the DRAFT `io.modelcontextprotocol/files` extension (github.com/modelcontextprotocol/experimental-ext-file-uploads specification/draft/file-uploads.md), BUILT BEHIND the `flag` (`MCP_FILES_EXTENSION` = `1` or `true`, `flagCases`; off = nothing of this is declared or accepted, tools keep today's base64 / signed-URL upload) and shipped when Claude rolls the extension out. DECLARED (flag on): `capability` in `server/discover` (`upload: {}`, `maxInlineBytes` = 1 MiB); a tool's file argument (`fileInputs`: tool -> the op and argument carrying it) carries `x-mcp-file` {accept, maxSize} in its input schema (maxSize = lib/storage maxFileUploadBytes; the image limit stays the handler's). A client that has not declared `upload` gets -32021 with data.requiredCapabilities when it sends a FileInput without `data` (it cannot upload). FIRST CALL (`planFiles`, `planCases`): each FileInput {id (1..`idMax` chars, unique in the call), name?, mimeType, size (integer >= 0), digest? {algorithm `digestAlgorithm`, value = base64url sha-256 without padding}, data? (RFC 4648 base64)} is checked in order: shape (`invalid`: wrong types, `data: null`, data on a size-0 file), duplicate id (`duplicateId`), size over maxSize (`oversize`, before any upload), then inline data: not base64 (`undecodable`), decoded length != size (`sizeMismatch`), digest differs (`digestMismatch`), the call's inline total over `maxInlineBytes` (`inlineTooLarge`). Any of these = an isError tool result (`errors.<reason>`, `{id}` = the file id) and the tool NOT run. All inline (or size 0) = the tool runs with the bytes. Any file without data and size > 0 = `upload_required` (`uploadRequiredCases`): one target per such file, `url` = `${APP_URL}` + `staging.path` + a staging id (32 random bytes base64url, unguessable: the URL is the capability; no Authorization or Cookie header, `credentials` omit), `method` PUT, `headers` Content-Type = the file's mimeType, `expiresAt` = now + `staging.ttlMs` (RFC 3339), plus a `requestState` (elicitation.json `requestState`, kind `upload`, keys = `<fileId>:<stagingId>`, bound to the principal, the tool and the exact arguments). The staging object accepts at most `size` bytes. RETRY (`retryVerdict`, `retryCases`): the client sends the SAME tool and arguments with the exact requestState; the state's checks come first (malformed, tampered, expired, foreign principal, CHANGED ARGUMENTS or tool, replayed, an elicit-kind state) = -32602, nothing runs; then every staged file must have ARRIVED with exactly its size (else `missingBytes`, isError) and its digest when one was given (`digestMismatch`). There is NEVER a second `upload_required` in one logical call (the client would fail it): bytes still missing = `missingBytes`, and the caller starts a new call. Verified = the state is consumed (single use: running twice is unsafe), the staged objects finalize into attachments, the tool runs. Staged objects nobody finalized are deleted after `staging.ttlMs`. In the cases a string written {repeat, times} = that string repeated, {concat: [...]} = the parts joined.",
+  "$comment": "#NEW-145 / #NEW-143 D5 (Danny 2026-11-26): FILE UPLOADS over Exponential's MCP server, the DRAFT `io.modelcontextprotocol/files` extension (github.com/modelcontextprotocol/experimental-ext-file-uploads specification/draft/file-uploads.md), BUILT BEHIND the `flag` (`MCP_FILES_EXTENSION` = `1` or `true`, `flagCases`; off = nothing of this is declared or accepted, tools keep today's base64 / signed-URL upload) and shipped when Claude rolls the extension out. DECLARED (flag on): `capability` in `server/discover` (`upload: {}`, `maxInlineBytes` = 1 MiB); a tool's file argument (`fileInputs`: tool -> the op and argument carrying it) carries `x-mcp-file` {accept, maxSize} in its input schema (maxSize = lib/storage maxFileUploadBytes; the image limit stays the handler's). A client that has not declared `upload` gets -32021 with data.requiredCapabilities when it sends a FileInput without `data` (it cannot upload). FIRST CALL (`planFiles`, `planCases`): each FileInput {id (1..`idMax` chars, unique in the call), name?, mimeType, size (integer >= 0), digest? {algorithm `digestAlgorithm`, value = base64url sha-256 without padding}, data? (RFC 4648 base64)} is checked in order: shape (`invalid`: wrong types, `data: null`, data on a size-0 file), duplicate id (`duplicateId`), size over maxSize (`oversize`, before any upload), then inline data: not base64 (`undecodable`), decoded length != size (`sizeMismatch`), digest differs (`digestMismatch`), the call's inline total over `maxInlineBytes` (`inlineTooLarge`). Any of these = an isError tool result (`errors.<reason>`, `{id}` = the file id) and the tool NOT run. All inline (or size 0) = the tool runs with the bytes. Any file without data and size > 0 = `upload_required` (`uploadRequiredCases`): one target per such file, `url` = `${APP_URL}` + `staging.path` + a staging id (32 random bytes base64url, unguessable: the URL is the capability; no Authorization or Cookie header, `credentials` omit), `method` PUT, `headers` Content-Type = the file's mimeType, `expiresAt` = now + `staging.ttlMs` (RFC 3339), plus a `requestState` (elicitation.json `requestState`, kind `upload`, keys = `<fileId>:<stagingId>`, bound to the principal, the tool and the exact arguments). The staging object accepts at most `size` bytes. RETRY (`retryVerdict`, `retryCases`): the client sends the SAME tool and arguments with the exact requestState; the state's checks come first (malformed, tampered, expired, foreign principal, CHANGED ARGUMENTS or tool, replayed, an elicit-kind state) = -32602, nothing runs; then every staged file must have ARRIVED with exactly its size (else `missingBytes`, isError) and its digest when one was given (`digestMismatch`). There is NEVER a second `upload_required` in one logical call (the client would fail it): bytes still missing = `missingBytes`, and the caller starts a new call. Verified = the state is consumed (single use: running twice is unsafe), the staged objects finalize into attachments, the tool runs. Staged objects nobody finalized are deleted after `staging.ttlMs`. In the cases a string written {repeat, times} = that string repeated, {concat: [...]} = the parts joined. SCHEMA (`fileSchema`, `schemaCases`, #NEW-149): the file argument's JSON schema is the spec's FileInput object {id (string, 1..`idMax`), name?, mimeType, size (integer >= 0), digest? {algorithm const `digestAlgorithm`, value}, data? (string)} with `required` [id, mimeType, size] and `x-mcp-file` {accept, maxSize} beside its `type`; flag off = no such property. CLIENT DECLARATION (`declaredCases`): `upload` / `download` are read PER REQUEST from the client's `extensions[extension]` (objects; anything else = not declared). DOWNLOADS (`download`, `downloadCases`, #NEW-149): an attachment READ (`exponential_attachments {op: get}`) whose request declared `download` (flag on) adds ONE DownloadTarget to the result's `_meta[extension].downloads` {name = the filename, mimeType = the content type (`application/octet-stream` when empty), size = sizeBytes, url = the short-lived signed downloadUrl (the URL is the capability), credentials `omit`, expiresAt = the URL's expiry}; never in content or structuredContent; not declared (or flag off) = no `_meta` key, today's result.",
   "extension": "io.modelcontextprotocol/files",
   "flag": {
     "env": "MCP_FILES_EXTENSION",
@@ -693,6 +693,194 @@
         }
       ],
       "declaredUpload": true,
+      "expected": null
+    }
+  ],
+  "download": {
+    "credentials": "omit",
+    "unknownMimeType": "application/octet-stream"
+  },
+  "schemaCases": [
+    {
+      "tool": "exponential_attachments_write",
+      "op": "upload",
+      "expected": {
+        "type": "object",
+        "x-mcp-file": {
+          "accept": [
+            "*/*"
+          ],
+          "maxSize": 52428800
+        },
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "digest": {
+            "type": "object",
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "const": "sha-256"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "algorithm",
+              "value"
+            ]
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mimeType",
+          "size"
+        ]
+      }
+    },
+    {
+      "tool": "exponential_attachments_write",
+      "op": "delete",
+      "expected": null
+    }
+  ],
+  "declaredCases": [
+    {
+      "name": "nothing declared",
+      "extensions": {},
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    },
+    {
+      "name": "upload and download",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "upload": {},
+          "download": {}
+        }
+      },
+      "expected": {
+        "upload": true,
+        "download": true
+      }
+    },
+    {
+      "name": "download only",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "download": {}
+        }
+      },
+      "expected": {
+        "upload": false,
+        "download": true
+      }
+    },
+    {
+      "name": "not objects",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "upload": true,
+          "download": null
+        }
+      },
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    },
+    {
+      "name": "the extension is not an object",
+      "extensions": {
+        "io.modelcontextprotocol/files": true
+      },
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    }
+  ],
+  "downloadCases": [
+    {
+      "name": "declared: one target",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": true,
+      "expected": {
+        "io.modelcontextprotocol/files": {
+          "downloads": [
+            {
+              "name": "Q3 report.pdf",
+              "mimeType": "application/pdf",
+              "size": 41204133,
+              "url": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+              "credentials": "omit",
+              "expiresAt": "2026-11-26T12:15:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an empty type is octet-stream",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": true,
+      "expected": {
+        "io.modelcontextprotocol/files": {
+          "downloads": [
+            {
+              "name": "Q3 report.pdf",
+              "mimeType": "application/octet-stream",
+              "size": 41204133,
+              "url": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+              "credentials": "omit",
+              "expiresAt": "2026-11-26T12:15:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "not declared: no _meta",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": false,
       "expected": null
     }
   ]

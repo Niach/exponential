@@ -2492,6 +2492,22 @@ export const mcpRequestStates = pgTable(
   (table) => [index(`idx_mcp_request_states_expires`).on(table.expiresAt)]
 )
 
+// #NEW-149 (packages/emcp fixtures/files.json, D5): an MCP file staged
+// out of band (`upload_required`): the attachment its signed PUT creates
+// is not the caller's until the tool's retry finalizes it, which deletes
+// this row; the watchdog deletes what nobody finalized (the attachment
+// row and its object) after `staging.ttlMs`. No FK: the attachment row
+// does not exist until the bytes land.
+export const mcpFileStagings = pgTable(
+  `mcp_file_stagings`,
+  {
+    attachmentId: uuid(`attachment_id`).primaryKey(),
+    userId: text(`user_id`).notNull(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+  },
+  (table) => [index(`idx_mcp_file_stagings_expires`).on(table.expiresAt)]
+)
+
 // #NEW-147 (packages/emcp fixtures/elicitation.json URL MODE): the row an
 // URL elicitation `${APP_URL}/mcp/elicit/<id>` names: why (`purpose`), for
 // whom (`user_id` = the state principal's member) and where the page sends

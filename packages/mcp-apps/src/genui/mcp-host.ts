@@ -23,6 +23,7 @@ import { RECORDS_SCHEME, kindComputed, kindRefs, parseRecordsQuery, recordsValue
 import { kindTransitions } from "@exponential_app/eui/host"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionGrantable, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { confirmFor } from "@exp/emcp/elicitation"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
 import { appExtensionCatalog } from "@exp/ui"
@@ -159,6 +160,17 @@ const SOURCE_READS: Record<Exclude<SourceTable, `members`>, [string, Record<stri
   sessions: [`exponential_sessions`, { limit: LIST_LIMIT }],
 }
 
+/** #NEW-149: does the SERVER confirm this function's call through the host's
+ *  elicitation (elicitation.json: every destructive op with one id, a stop)?
+ *  An action names its tool + op; `harness_mcp` its tool and arguments. */
+export function hostConfirmsCall(name: string, args: Record<string, unknown>): boolean {
+  const target = parseActionName(name)
+  if (target) return confirmFor(target.tool, target.op ? { ...args, op: target.op } : args) !== null
+  if (name !== `harness_mcp`) return false
+  const inner = args.arguments
+  return typeof args.tool === `string` && confirmFor(args.tool, inner && typeof inner === `object` ? inner : {}) !== null
+}
+
 /** One pending consent (the web host's card, answered Allow / Deny). */
 export function createConsentGate() {
   let pending: { call: FunctionCallInfo; resolve: (ok: boolean) => void } | null = null
@@ -193,6 +205,10 @@ export interface McpAppHostOptions {
   /** The Exponential instance (attachments, in-app links). */
   origin: string
   consent: ConsentGate
+  /** #NEW-149: the host declared form elicitation (the result's
+   *  `exponential/hostConfirms`): the server asks the host to confirm a
+   *  delete or stop, so this view does not ask a second time. */
+  hostConfirms?: boolean
   navigateScreen?: HostOptions[`navigate`]
   openLink: (url: string) => void
   notify: (text: string, tone?: `error`) => void
@@ -357,7 +373,8 @@ export function createMcpAppHost(options: McpAppHostOptions): McpAppHost {
       },
       policy: {
         functions: { ask: [`harness_mcp`, `exponential_*`] },
-        onFunctionCall: (info) => (parseActionName(info.name) && grantAllows(granted, info.name, info.args) ? true : options.consent.ask(info)),
+        onFunctionCall: (info) =>
+          (parseActionName(info.name) && grantAllows(granted, info.name, info.args)) || (options.hostConfirms && hostConfirmsCall(info.name, info.args)) ? true : options.consent.ask(info),
         media: { baseUrl: options.origin },
         urls: { baseUrl: options.origin, ...(teamPath ? { linkBase: teamPath } : {}) },
         openUrl: (url) => options.openLink(new URL(url, options.origin).href),

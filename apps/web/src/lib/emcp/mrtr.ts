@@ -156,11 +156,13 @@ export function bindingOf(principal: Principal, call: McpCall): StateBinding {
   }
 }
 
-/** Mint a sealed state for this handler's call carrying `data`. */
-export function mintState(ctx: EmcpToolContext, data?: unknown, now = Date.now()): string {
+/** Mint a sealed state for this handler's call carrying `data` (#NEW-149:
+ *  `ttlMs` = a longer window, the files staging's, so the retry after a
+ *  slow upload still verifies). */
+export function mintState(ctx: EmcpToolContext, data?: unknown, now = Date.now(), ttlMs = MRTR.ttlSeconds * 1000): string {
   if (!ctx.call) throw new Error(`MRTR needs the wire call on the context`)
   const call = { ...ctx.call, method: ctx.call.method ?? ctx.mcpReq?.method ?? `tools/call` }
-  const claims: StateClaims = { ...bindingOf(ctx.principal, call), exp: now + MRTR.ttlSeconds * 1000, jti: randomUUID(), ...(data === undefined ? {} : { data }) }
+  const claims: StateClaims = { ...bindingOf(ctx.principal, call), exp: now + ttlMs, jti: randomUUID(), ...(data === undefined ? {} : { data }) }
   return sealState(claims)
 }
 
@@ -232,6 +234,19 @@ export function escapeAsRpcError(ctx: Pick<EmcpToolContext, `mcpReq`>, error: Pr
   return { content: [{ type: `text`, text: error.message }], isError: true }
 }
 
+// #NEW-149: a result of another `resultType` than the SDK's tools/call
+// vocabulary validates (files.json `upload_required`: no `content`) rides
+// the same slot and replaces the placeholder after validation.
+const rawResults = new WeakMap<object, Record<string, unknown>>()
+
+/** Answer this tool call with `result` as is (outside an SDK request: returned). */
+export function escapeAsRawResult(ctx: Pick<EmcpToolContext, `mcpReq`>, result: Record<string, unknown>): unknown {
+  const key = (ctx.mcpReq as { signal?: object } | undefined)?.signal
+  if (!key) return result
+  rawResults.set(key, result)
+  return { content: [] }
+}
+
 /** Wraps `server`'s tools/call (registered by its first tool) to throw an escaped error. */
 export function installRpcErrorEscape(server: McpServer): void {
   const handlers = (server.server as unknown as { _requestHandlers: Map<string, (request: unknown, ctx: { mcpReq?: { signal?: object } }) => Promise<unknown>> })._requestHandlers
@@ -242,6 +257,8 @@ export function installRpcErrorEscape(server: McpServer): void {
     const key = ctx?.mcpReq?.signal
     const escaped = key ? rpcEscapes.get(key) : undefined
     if (escaped) throw escaped
+    const raw = key ? rawResults.get(key) : undefined
+    if (raw) return raw
     return result
   })
 }
