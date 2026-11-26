@@ -20,7 +20,7 @@ import { insertMessage, inSession, inSessions } from "@/lib/sessions/messages"
 import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 import { dropEventWatchesOf, forgetWatched, watchesSession, watchSessions } from "@/lib/sessions/watches"
-import { endSessionTasks, touchSessionTasks } from "@/lib/sessions/task-watchers"
+import { endSessionTasks, touchSessionTasks, type TaskFailure } from "@/lib/sessions/task-watchers"
 
 // NEW-1: THE server bus. Every transition of a session S is posted into
 // S's PARENT conversation and into every live session whose `wake_on`
@@ -683,7 +683,10 @@ export async function busReport(
   /** EXP-1458: the device-built report card sealed to the child's tree
    *  (`{kind: report, sessionId, status, final, summary}`) and its copies
    *  sealed to the other listening trees (`copies[].card`). */
-  sealedReport?: { card: MessageCard; copies?: readonly ListenerCopy[] } | null
+  sealedReport?: { card: MessageCard; copies?: readonly ListenerCopy[] } | null,
+  /** #NEW-147 (emcp tasks.json `failures`): why it ended without its own
+   *  report (a person ended or deleted it): its MCP tasks turn `failed`. */
+  failure?: TaskFailure | null
 ): Promise<string[]> {
   if (sealedReport) {
     // Never read: the card is copied whole, the body stays empty.
@@ -701,7 +704,7 @@ export async function busReport(
       lead: true,
     })
     // #NEW-147: a sealed report is never read: the task completes without it.
-    await endSessionTasks(tx, child.id, { summary: `` })
+    await endSessionTasks(tx, child.id, { summary: ``, reason: failure ?? null })
     await forgetWatched(tx, [child.id])
     await dropEventWatchesOf(tx, [child.id])
     return ids
@@ -720,7 +723,7 @@ export async function busReport(
   })
   // #NEW-147: the END REPORT completes the tasks watching the child (a
   // device's stall report = `failed`, tasks.json `failures.stalled`).
-  await endSessionTasks(tx, child.id, { summary: text, reason: text === REPORT_REASONS.stalled ? `stalled` : null })
+  await endSessionTasks(tx, child.id, { summary: text, reason: failure ?? (text === REPORT_REASONS.stalled ? `stalled` : null) })
   await forgetWatched(tx, [child.id])
   await dropEventWatchesOf(tx, [child.id])
   return ids
