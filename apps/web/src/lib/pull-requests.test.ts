@@ -365,7 +365,7 @@ describe(`openPullRequest`, () => {
             kind: `ecode`,
             inferBase: async () => ({ base: `main` }),
             findOpenByHead: async () => null,
-            openPullRequest: async (at, opts) => {
+            openPullRequest: async (at: { token: string }, opts: { base: string }) => {
               opened.push({ token: at.token, base: opts.base })
               return { url: `https://exp.example/t/acme/repos/dog/pulls/1`, number: 1, base: opts.base } as never
             },
