@@ -15,10 +15,10 @@ fn every_domain_lists_its_tools_with_their_capability() {
         "media_get", "media_play_pause", "media_next", "media_previous", "media_stop", "media_seek",
         "bluetooth_get", "bluetooth_power", "bluetooth_connect", "bluetooth_disconnect", "bluetooth_discover",
         "power_get", "power_set_profile", "power_suspend", "power_hibernate", "power_reboot", "power_poweroff",
-        "disks_get", "disks_mount", "disks_unmount",
+        "disks_get", "disks_mount", "disks_unmount", "disks_eject",
         "updates_get", "updates_refresh", "updates_upgrade",
         "firmware_get", "firmware_refresh",
-        "printers_get",
+        "printers_get", "printers_cancel", "printers_cancel_all",
         "about_get", "about_check",
     ];
     assert_eq!(names, expected);

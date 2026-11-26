@@ -22,7 +22,7 @@ pub fn rows(objects: &Managed) -> (Vec<Value>, Vec<Value>) {
     let mut volumes = Vec::new();
     for (path, ifaces) in by_path(objects) {
         if let Some(d) = ifaces.get("org.freedesktop.UDisks2.Drive") {
-            drives.push(json!({"path": path.as_str(), "vendor": str_of(d, "Vendor"), "model": str_of(d, "Model"), "removable": bool_of(d, "Removable"), "size": u64_of(d, "Size")}));
+            drives.push(json!({"path": path.as_str(), "vendor": str_of(d, "Vendor"), "model": str_of(d, "Model"), "removable": bool_of(d, "Removable"), "ejectable": bool_of(d, "Ejectable"), "size": u64_of(d, "Size")}));
         }
         if let Some(b) = ifaces.get("org.freedesktop.UDisks2.Block") {
             let device = bytes_string(b, "Device");
@@ -42,6 +42,26 @@ pub fn rows(objects: &Managed) -> (Vec<Value>, Vec<Value>) {
     (drives, volumes)
 }
 
+fn no_options() -> std::collections::HashMap<&'static str, zbus::zvariant::Value<'static>> {
+    std::collections::HashMap::new()
+}
+
+/// #EDE-245: Cinnamon's removable-drives applet: the mounted filesystems of
+/// removable or ejectable drives (USB sticks, SD cards, discs), named by
+/// label, else the mount point's last segment.
+pub fn removable(drives: &[Value], volumes: &[Value]) -> Vec<Value> {
+    volumes
+        .iter()
+        .filter(|v| v["mounted"] == true)
+        .filter(|v| drives.iter().any(|d| d["path"] == v["drive"] && (d["removable"] == true || d["ejectable"] == true)))
+        .map(|v| {
+            let at = v["mountPoints"][0].as_str().unwrap_or_default();
+            let label = v["label"].as_str().filter(|l| !l.is_empty()).map(String::from).unwrap_or_else(|| at.rsplit('/').next().unwrap_or(at).to_string());
+            json!({"volume": v["path"], "name": label, "mountPoint": at, "uri": format!("file://{at}")})
+        })
+        .collect()
+}
+
 impl Service for Disks {
     fn name(&self) -> &'static str {
         "disks"
@@ -54,13 +74,15 @@ impl Service for Disks {
         let Ok(conn) = polled_system_bus() else { return unavailable("no system bus") };
         let Ok(objects) = managed_objects(&conn, UDISKS, "/org/freedesktop/UDisks2") else { return unavailable("udisks2 is not running") };
         let (drives, volumes) = rows(&objects);
-        json!({"available": true, "drives": drives, "volumes": volumes})
+        let removable = removable(&drives, &volumes);
+        json!({"available": true, "drives": drives, "volumes": volumes, "removable": removable})
     }
 
     fn actions(&self) -> Vec<ActionSpec> {
         vec![
             ActionSpec::new("mount", "Mount a filesystem (its object path from the snapshot).", json!({"volume": {"type": "string"}}), &["volume"], Some(Capability::System)),
             ActionSpec::new("unmount", "Unmount a filesystem.", json!({"volume": {"type": "string"}}), &["volume"], Some(Capability::System)),
+            ActionSpec::new("eject", "Unmount a removable filesystem and eject (else power off) its drive, as Cinnamon's removable-drives applet does.", json!({"volume": {"type": "string"}}), &["volume"], Some(Capability::System)),
         ]
     }
 
@@ -76,6 +98,20 @@ impl Service for Disks {
             "unmount" => {
                 call_asking::<_, ()>(&conn, UDISKS, volume, "org.freedesktop.UDisks2.Filesystem", "Unmount", &(options,))?;
                 Ok(json!({"unmounted": volume}))
+            }
+            "eject" => {
+                let drive = managed_objects(&conn, UDISKS, "/org/freedesktop/UDisks2")?
+                    .iter()
+                    .find(|(p, _)| p.as_str() == volume)
+                    .and_then(|(_, ifaces)| ifaces.get("org.freedesktop.UDisks2.Block")?.get("Drive").cloned())
+                    .and_then(|v| zbus::zvariant::OwnedObjectPath::try_from(v).ok())
+                    .ok_or("no drive for that volume")?;
+                call_asking::<_, ()>(&conn, UDISKS, volume, "org.freedesktop.UDisks2.Filesystem", "Unmount", &(no_options(),))?;
+                let ejected = call_asking::<_, ()>(&conn, UDISKS, drive.as_str(), "org.freedesktop.UDisks2.Drive", "Eject", &(no_options(),));
+                if ejected.is_err() {
+                    call_asking::<_, ()>(&conn, UDISKS, drive.as_str(), "org.freedesktop.UDisks2.Drive", "PowerOff", &(no_options(),))?;
+                }
+                Ok(json!({"ejected": volume}))
             }
             other => Err(format!("no action {other}")),
         }
@@ -107,5 +143,16 @@ mod tests {
         assert_eq!((drives.len(), volumes.len()), (8, 8));
         assert_eq!(json!(rows(&forward)), json!(rows(&backward)));
         assert_eq!(volumes[0]["label"], "Vol 1");
+    }
+
+    /// #EDE-245: only mounted filesystems of removable or ejectable drives.
+    #[test]
+    fn removable_lists_the_mounted_filesystems_of_removable_drives() {
+        let drives = vec![json!({"path": "/d/usb", "removable": true, "ejectable": false}), json!({"path": "/d/nvme", "removable": false, "ejectable": false}), json!({"path": "/d/dvd", "removable": false, "ejectable": true})];
+        let vol = |path: &str, drive: &str, label: &str, at: Option<&str>| json!({"path": path, "drive": drive, "label": label, "mounted": at.is_some(), "mountPoints": at.into_iter().collect::<Vec<_>>()});
+        let volumes = vec![vol("/b/sda1", "/d/usb", "STICK", Some("/media/me/STICK")), vol("/b/sda2", "/d/usb", "", Some("/media/me/1234-ABCD")), vol("/b/sdb1", "/d/usb", "OFF", None), vol("/b/nvme", "/d/nvme", "root", Some("/")), vol("/b/sr0", "/d/dvd", "Film", Some("/media/me/Film"))];
+        let names: Vec<&str> = Vec::leak(removable(&drives, &volumes)).iter().map(|r| r["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["STICK", "1234-ABCD", "Film"]);
+        assert_eq!(removable(&drives, &volumes)[0]["uri"], "file:///media/me/STICK");
     }
 }
