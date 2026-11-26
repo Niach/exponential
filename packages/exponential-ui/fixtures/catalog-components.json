@@ -17134,6 +17134,464 @@
           "status": "failed"
         }
       }
+    },
+    {
+      "name": "AvatarBadge/example",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=sm",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=default",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=lg",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "NavBar/example",
+      "node": {
+        "id": "nav_bar",
+        "component": "NavBar",
+        "props": {
+          "title": "Acme",
+          "value": "pricing",
+          "items": [
+            {
+              "label": "Product",
+              "value": "product"
+            },
+            {
+              "label": "Pricing",
+              "value": "pricing"
+            },
+            {
+              "label": "Docs",
+              "value": "docs"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Footer/example",
+      "node": {
+        "id": "footer",
+        "component": "Footer",
+        "props": {
+          "caption": "© 2026 Acme Inc.",
+          "items": [
+            {
+              "label": "Privacy",
+              "value": "privacy"
+            },
+            {
+              "label": "Terms",
+              "value": "terms"
+            },
+            {
+              "label": "Contact",
+              "value": "contact"
+            }
+          ]
+        },
+        "children": [
+          {
+            "id": "footer_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hero/example",
+      "node": {
+        "id": "hero",
+        "component": "Hero",
+        "props": {
+          "eyebrow": "New",
+          "title": "Ship faster together",
+          "subtitle": "Plan, build and review in one place."
+        },
+        "children": [
+          {
+            "id": "hero_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hero/align=start",
+      "node": {
+        "id": "hero",
+        "component": "Hero",
+        "props": {
+          "eyebrow": "New",
+          "title": "Ship faster together",
+          "subtitle": "Plan, build and review in one place.",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "hero_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hero/align=center",
+      "node": {
+        "id": "hero",
+        "component": "Hero",
+        "props": {
+          "eyebrow": "New",
+          "title": "Ship faster together",
+          "subtitle": "Plan, build and review in one place.",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "hero_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hero/align=end",
+      "node": {
+        "id": "hero",
+        "component": "Hero",
+        "props": {
+          "eyebrow": "New",
+          "title": "Ship faster together",
+          "subtitle": "Plan, build and review in one place.",
+          "align": "end"
+        },
+        "children": [
+          {
+            "id": "hero_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MediaCard/example",
+      "node": {
+        "id": "media_card",
+        "component": "MediaCard",
+        "props": {
+          "src": "https://example.com/cabin.jpg",
+          "alt": "Cabin by a lake",
+          "title": "Lakeside cabin",
+          "subtitle": "Sleeps 4 · Wi-Fi",
+          "meta": "€120 / night"
+        },
+        "children": [
+          {
+            "id": "media_card_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MediaCard/pressable=true",
+      "node": {
+        "id": "media_card",
+        "component": "MediaCard",
+        "props": {
+          "src": "https://example.com/cabin.jpg",
+          "alt": "Cabin by a lake",
+          "title": "Lakeside cabin",
+          "subtitle": "Sleeps 4 · Wi-Fi",
+          "meta": "€120 / night",
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "media_card_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MediaCard/pressable=false",
+      "node": {
+        "id": "media_card",
+        "component": "MediaCard",
+        "props": {
+          "src": "https://example.com/cabin.jpg",
+          "alt": "Cabin by a lake",
+          "title": "Lakeside cabin",
+          "subtitle": "Sleeps 4 · Wi-Fi",
+          "meta": "€120 / night",
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "media_card_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DayStrip/example",
+      "node": {
+        "id": "day_strip",
+        "component": "DayStrip",
+        "props": {
+          "value": "2026-11-25",
+          "days": [
+            {
+              "date": "2026-11-23"
+            },
+            {
+              "date": "2026-11-24",
+              "tone": "primary"
+            },
+            {
+              "date": "2026-11-25"
+            },
+            {
+              "date": "2026-11-26"
+            },
+            {
+              "date": "2026-11-27",
+              "tone": "warning"
+            },
+            {
+              "date": "2026-11-28"
+            },
+            {
+              "date": "2026-11-29"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "AvatarGroup/example",
+      "node": {
+        "id": "avatar_group",
+        "component": "AvatarGroup",
+        "props": {
+          "max": 3,
+          "people": [
+            {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            },
+            {
+              "name": "Alan Turing",
+              "seed": "demo-alan"
+            },
+            {
+              "name": "Grace Hopper",
+              "seed": "demo-grace"
+            },
+            {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            {
+              "name": "Mia Berger",
+              "seed": "user-mia"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "AvatarGroup/size=sm",
+      "node": {
+        "id": "avatar_group",
+        "component": "AvatarGroup",
+        "props": {
+          "max": 3,
+          "people": [
+            {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            },
+            {
+              "name": "Alan Turing",
+              "seed": "demo-alan"
+            },
+            {
+              "name": "Grace Hopper",
+              "seed": "demo-grace"
+            },
+            {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            {
+              "name": "Mia Berger",
+              "seed": "user-mia"
+            }
+          ],
+          "size": "sm"
+        }
+      }
+    },
+    {
+      "name": "AvatarGroup/size=default",
+      "node": {
+        "id": "avatar_group",
+        "component": "AvatarGroup",
+        "props": {
+          "max": 3,
+          "people": [
+            {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            },
+            {
+              "name": "Alan Turing",
+              "seed": "demo-alan"
+            },
+            {
+              "name": "Grace Hopper",
+              "seed": "demo-grace"
+            },
+            {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            {
+              "name": "Mia Berger",
+              "seed": "user-mia"
+            }
+          ],
+          "size": "default"
+        }
+      }
+    },
+    {
+      "name": "AvatarGroup/size=lg",
+      "node": {
+        "id": "avatar_group",
+        "component": "AvatarGroup",
+        "props": {
+          "max": 3,
+          "people": [
+            {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            },
+            {
+              "name": "Alan Turing",
+              "seed": "demo-alan"
+            },
+            {
+              "name": "Grace Hopper",
+              "seed": "demo-grace"
+            },
+            {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            {
+              "name": "Mia Berger",
+              "seed": "user-mia"
+            }
+          ],
+          "size": "lg"
+        }
+      }
     }
   ]
 }

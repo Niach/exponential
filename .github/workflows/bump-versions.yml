@@ -65,6 +65,7 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     env:
       HAS_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN != '' }}
     steps:

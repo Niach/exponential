@@ -1,5 +1,13 @@
 package com.exponential.app.ui.components
 
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.domain.NavBadges
+import com.exponential.app.data.db.TeamEntity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -221,6 +229,47 @@ fun TeamAvatar(
                     .size(size)
                     .clip(RoundedCornerShape(size * TeamImage.RADIUS_FRACTION)),
             )
+        }
+    }
+}
+
+/**
+ * nav-badges.json THE TEAM MARK ON A ROW: a row's [lead] (avatar, disc, glyph
+ * of the side [size]) wearing the team mark on its bottom right, on a tile of
+ * the [ground] the row sits on. Null [team] = the plain lead; the selection
+ * check ([selected]) takes the corner and the mark hides.
+ */
+@Composable
+fun TeamMarkedLead(
+    team: TeamEntity?,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    ground: Color = DesignTokens.Palette.Background,
+    lead: @Composable BoxScope.() -> Unit,
+) {
+    Box(modifier) {
+        lead()
+        if (team != null && !selected) {
+            val geometry = NavBadges.teamMarkOf(size.value)
+            val mark = geometry.mark.dp
+            val ring = geometry.ring.dp
+            val hang = geometry.offset.dp + ring
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = hang, y = hang)
+                    .background(ground, RoundedCornerShape(mark * TeamImage.RADIUS_FRACTION + ring))
+                    .padding(ring)
+                    .testTag("team-mark")
+                    .semantics { contentDescription = team.name },
+            ) {
+                CompositionLocalProvider(
+                    LocalContentColor provides MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                ) {
+                    TeamAvatar(team.iconUrl, size = mark)
+                }
+            }
         }
     }
 }

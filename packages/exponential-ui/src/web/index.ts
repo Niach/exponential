@@ -11,6 +11,8 @@
 
 export { compileTheme, compiledTheme, globalsCss, themeScope, partClass, propAttribute, tokenVar, tokenVarName, propColor, cssValue, declarations, animationDeclarations, shimmerRule, rule, ruleSelectors, isMacroComponent, STATE_SELECTORS, LAYERS } from "./theme-css"
 export type { CompiledTheme } from "./theme-css"
+export { BACKGROUND_IMAGE_VAR, backgroundPicture, backgroundPlaceholder } from "./theme-css"
+export { backgroundImageSrc, backgroundImageVar, backgroundPlaceholderFill, decodePicture } from "./background"
 export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, queryToken, nodeClass, surfaceClass, walkNodes, cssEscape, resolvedMediaKey, styleDirection } from "./box-css"
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
 export { tailRules, tailGeometry, isBubbleTail, TAIL } from "./bubble-tail"

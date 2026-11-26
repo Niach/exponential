@@ -77,6 +77,10 @@ public struct InstallTrustSnapshot: Equatable, Sendable {
 
     public static let none = InstallTrustSnapshot(state: .unknown, rows: [], code: nil)
 
+    /// The rows Needs you lists: none while this install itself waits
+    /// (nav-badges.json `installs`).
+    public var waitingRows: Int { waiting ? 0 : rows.count }
+
     /// Waiting for approval: the waiting EmptyState instead of the rows.
     public var waiting: Bool { state == .waiting && code != nil }
 }

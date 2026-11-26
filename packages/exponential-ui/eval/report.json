@@ -470,7 +470,14 @@
       "Timeline",
       "RecordForm",
       "RecordTable",
-      "MessageStatus"
+      "MessageStatus",
+      "AvatarBadge",
+      "NavBar",
+      "Footer",
+      "Hero",
+      "MediaCard",
+      "DayStrip",
+      "AvatarGroup"
     ]
   },
   "rows": [

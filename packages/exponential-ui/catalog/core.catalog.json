@@ -979,6 +979,24 @@
           "description": "Text whose matches number before this node's."
         }
       }
+    },
+    "person": {
+      "description": "One person of an AvatarGroup.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Name (initials, a11y)."
+        },
+        "src": {
+          "type": "url",
+          "description": "Picture URL."
+        },
+        "seed": {
+          "type": "string",
+          "description": "Stable hue seed."
+        }
+      }
     }
   },
   "functions": {
@@ -1520,7 +1538,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style; macros expand into it.",
       "props": {
         "style": {
           "type": "style",
@@ -1671,7 +1689,7 @@
       "group": "layout",
       "lite": true,
       "children": "one",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "props": {
         "title": {
           "type": "string",
@@ -1749,7 +1767,7 @@
         "maxDepth": {
           "type": "number",
           "default": 1,
-          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
+          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
         },
         "style": {
           "type": "style",
@@ -1905,7 +1923,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+          "description": "Phones: the detail replaces the list; bind it."
         },
         "width": {
           "type": "number",
@@ -2075,7 +2093,12 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "Refetch is running: a small spinner before the count. The first load is a Skeleton instead."
+          "description": "Refetch spinner (first load: Skeleton)."
+        },
+        "actionLabel": {
+          "type": "string",
+          "bindable": true,
+          "description": "Header-end link firing `action`."
         },
         "style": {
           "type": "style",
@@ -2083,7 +2106,8 @@
         }
       },
       "events": [
-        "change"
+        "change",
+        "action"
       ],
       "example": {
         "title": "In progress",
@@ -2140,7 +2164,7 @@
         },
         "lines": {
           "type": "number",
-          "description": "Truncates to this many lines with an ellipsis."
+          "description": "Max lines (ellipsis)."
         },
         "truncate": {
           "type": "enum",
@@ -2148,7 +2172,7 @@
             "end",
             "middle"
           ],
-          "description": "One line; `middle` keeps the start and end (start…end)."
+          "description": "One line; `middle` = start…end."
         },
         "tone": {
           "type": "enum",
@@ -2227,7 +2251,7 @@
             "inline"
           ],
           "default": "document",
-          "description": "`inline` = a text run (no outer gap, `variant` paragraphs); `document` = full prose."
+          "description": "`inline` = a text run; `document` = full prose."
         },
         "variant": {
           "type": "enum",
@@ -2309,7 +2333,7 @@
         "follow": {
           "type": "boolean",
           "default": false,
-          "description": "Sticks to the bottom while the code grows (a live log)."
+          "description": "Sticks to the bottom as it grows (a live log)."
         },
         "variant": {
           "type": "enum",
@@ -2434,7 +2458,7 @@
         },
         "aspectRatio": {
           "type": "number",
-          "description": "Width over height (16:9 when unset and no height); the box never waits for the picture."
+          "description": "Width / height (16:9 when unset and no height)."
         },
         "fallback": {
           "type": "icon",
@@ -3390,7 +3414,7 @@
           "enum": "side",
           "default": "bottom",
           "responsive": true,
-          "description": "Edge it slides from; `{base: \"bottom\", md: \"right\"}` turns the phone sheet into a side panel on wide surfaces."
+          "description": "Edge; responsive (`{base: \"bottom\", md: \"right\"}`)."
         },
         "dismissible": {
           "type": "boolean",
@@ -3556,7 +3580,7 @@
         },
         "anchor": {
           "type": "componentId",
-          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
+          "description": "Open-at node it toggles; a text field = typeahead (keeps focus)."
         },
         "openOn": {
           "type": "enum",
@@ -3606,7 +3630,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
       "props": {
         "label": {
           "type": "string",
@@ -3860,7 +3884,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Empty screen or list: `page` = icon disc, title, sentence, action; `list` = one muted line.",
+      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
       "props": {
         "icon": {
           "type": "icon",
@@ -3887,7 +3911,7 @@
             "list"
           ],
           "default": "page",
-          "description": "page = a whole screen's empty state with disc, sentence and action; list = one muted line under a bare glyph, no description, no action."
+          "description": "page = a whole screen; list = one muted line."
         }
       },
       "events": [
@@ -4435,7 +4459,7 @@
         "height": {
           "type": "number",
           "default": 200,
-          "description": "Whole chart's height in px (title, legend, axes inside); the width is the box's."
+          "description": "Height in px, title, legend and axes inside."
         },
         "xLabel": {
           "type": "string",
@@ -4602,7 +4626,7 @@
       "group": "action",
       "lite": true,
       "children": "one",
-      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
+      "description": "Press target: label + optional icon, or one custom child.",
       "props": {
         "label": {
           "type": "string",
@@ -4622,13 +4646,13 @@
           "type": "enum",
           "enum": "buttonVariant",
           "default": "default",
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
+          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
         },
         "size": {
           "type": "enum",
           "enum": "size",
           "default": "default",
-          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+          "description": "`icon` = square icon-only, `icon-xs` = small round."
         },
         "tone": {
           "type": "enum",
@@ -4648,7 +4672,7 @@
             "type": "object",
             "shape": "check"
           },
-          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+          "description": "Rules; a failing `error` disables it."
         },
         "loading": {
           "type": "boolean",
@@ -4917,7 +4941,7 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = a Group row (label, value); `bare` = chromeless, label hidden; `code` = mono `bare`; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
         },
         "size": {
           "type": "enum",
@@ -5519,7 +5543,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
         },
         "triggerIcon": {
           "type": "boolean",
@@ -5537,7 +5561,7 @@
         },
         "popupMinWidth": {
           "type": "number",
-          "description": "Px: fits its options, at least this (instead of `popupWidth`)."
+          "description": "Px floor; fits its options."
         },
         "loading": {
           "type": "boolean",
@@ -5730,7 +5754,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys then fire `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -6187,7 +6211,7 @@
             "flat"
           ],
           "default": "stacked",
-          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+          "description": "stacked = field over controls; flat = one row."
         },
         "menuKeys": {
           "type": "boolean",
@@ -6216,7 +6240,7 @@
         "leading",
         "trailing"
       ],
-      "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
+      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
       "props": {
         "title": {
           "type": "string",
@@ -6281,7 +6305,7 @@
         "pressable": {
           "type": "boolean",
           "default": false,
-          "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
+          "description": "Fires `press`."
         },
         "href": {
           "type": "url",
@@ -6413,7 +6437,7 @@
           "enum": "messageTail",
           "default": "none",
           "bindable": true,
-          "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end."
+          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
         },
         "time": {
           "type": "string",
@@ -6529,7 +6553,7 @@
           "items": {
             "type": "object"
           },
-          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset}, repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate."
         },
         "size": {
           "type": "array",
@@ -6723,7 +6747,7 @@
           },
           "required": true,
           "bindable": true,
-          "description": "Motion's shapes (no keys) + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
+          "description": "Motion's shapes (no keys) + upright text {text, position, size, weight, align, baseline, font sans|mono, color}."
         },
         "fit": {
           "type": "enum",
@@ -6873,7 +6897,7 @@
       "group": "layout",
       "lite": false,
       "children": "none",
-      "description": "Sandboxed nested surface (own data and ids); its `event` actions fire `action` {name, context}; bad = an error box.",
+      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
       "props": {
         "surface": {
           "type": "object",
@@ -7142,7 +7166,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -7435,6 +7459,325 @@
       },
       "example": {
         "status": "read"
+      }
+    },
+    "AvatarBadge": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "one",
+      "slots": [
+        "badge"
+      ],
+      "description": "`badge` on its child's bottom-right corner.",
+      "props": {
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default",
+          "description": "Badge size."
+        }
+      },
+      "example": {
+        "size": "default"
+      }
+    },
+    "NavBar": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": false,
+      "children": "none",
+      "slots": [
+        "trailing"
+      ],
+      "description": "Site top bar: brand, links (one current) firing `select`, trailing slot.",
+      "props": {
+        "title": {
+          "type": "string",
+          "bindable": true,
+          "description": "Brand name."
+        },
+        "logo": {
+          "type": "url",
+          "description": "Brand mark."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true,
+          "description": "Links."
+        },
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "Current link's value."
+        }
+      },
+      "events": [
+        "select"
+      ],
+      "example": {
+        "title": "Acme",
+        "value": "pricing",
+        "items": [
+          {
+            "label": "Product",
+            "value": "product"
+          },
+          {
+            "label": "Pricing",
+            "value": "pricing"
+          },
+          {
+            "label": "Docs",
+            "value": "docs"
+          }
+        ]
+      }
+    },
+    "Footer": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "children": "many",
+      "description": "Page foot: children (columns), links firing `select`, fine print.",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "description": "Links."
+        },
+        "caption": {
+          "type": "string",
+          "bindable": true,
+          "description": "Fine print."
+        }
+      },
+      "events": [
+        "select"
+      ],
+      "example": {
+        "caption": "© 2026 Acme Inc.",
+        "items": [
+          {
+            "label": "Privacy",
+            "value": "privacy"
+          },
+          {
+            "label": "Terms",
+            "value": "terms"
+          },
+          {
+            "label": "Contact",
+            "value": "contact"
+          }
+        ]
+      }
+    },
+    "Hero": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "children": "many",
+      "description": "Page-top band: eyebrow, big title, lead, children (buttons) in a row.",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "Headline."
+        },
+        "eyebrow": {
+          "type": "string",
+          "bindable": true,
+          "description": "Line above."
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true,
+          "description": "Lead sentence."
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "default": "center",
+          "description": "Text alignment."
+        }
+      },
+      "example": {
+        "eyebrow": "New",
+        "title": "Ship faster together",
+        "subtitle": "Plan, build and review in one place."
+      }
+    },
+    "MediaCard": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "many",
+      "description": "Card: picture on top, title, subtitle, meta, children.",
+      "props": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "bindable": true,
+          "description": "Picture URL."
+        },
+        "alt": {
+          "type": "string",
+          "bindable": true,
+          "description": "Picture description."
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "Title."
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true,
+          "description": "Second line."
+        },
+        "meta": {
+          "type": "string",
+          "bindable": true,
+          "description": "Muted line (price)."
+        },
+        "aspectRatio": {
+          "type": "number",
+          "default": 1.6,
+          "description": "Picture width / height."
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Press target firing `press`."
+        }
+      },
+      "events": [
+        "press"
+      ],
+      "example": {
+        "src": "https://example.com/cabin.jpg",
+        "alt": "Cabin by a lake",
+        "title": "Lakeside cabin",
+        "subtitle": "Sleeps 4 · Wi-Fi",
+        "meta": "€120 / night"
+      }
+    },
+    "DayStrip": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "props": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "dateMark"
+          },
+          "required": true,
+          "description": "`tone` = event dot."
+        },
+        "value": {
+          "type": "date",
+          "bindable": true,
+          "description": "Selected day; bind it."
+        }
+      },
+      "events": [
+        "change"
+      ],
+      "example": {
+        "value": "2026-11-25",
+        "days": [
+          {
+            "date": "2026-11-23"
+          },
+          {
+            "date": "2026-11-24",
+            "tone": "primary"
+          },
+          {
+            "date": "2026-11-25"
+          },
+          {
+            "date": "2026-11-26"
+          },
+          {
+            "date": "2026-11-27",
+            "tone": "warning"
+          },
+          {
+            "date": "2026-11-28"
+          },
+          {
+            "date": "2026-11-29"
+          }
+        ]
+      }
+    },
+    "AvatarGroup": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "description": "Overlapping avatars: the first `max`, then `+N`.",
+      "props": {
+        "people": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "person"
+          },
+          "required": true,
+          "description": "In order."
+        },
+        "max": {
+          "type": "number",
+          "default": 4,
+          "description": "Shown before `+N`."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default",
+          "description": "Avatar size."
+        }
+      },
+      "example": {
+        "max": 3,
+        "people": [
+          {
+            "name": "Ada Lovelace",
+            "seed": "demo-ada"
+          },
+          {
+            "name": "Alan Turing",
+            "seed": "demo-alan"
+          },
+          {
+            "name": "Grace Hopper",
+            "seed": "demo-grace"
+          },
+          {
+            "name": "Bob",
+            "seed": "demo-bob"
+          },
+          {
+            "name": "Mia Berger",
+            "seed": "user-mia"
+          }
+        ]
       }
     }
   }

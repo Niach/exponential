@@ -270,14 +270,24 @@ function styleSchema(): Json {
   }
   const number = { oneOf: [{ type: `number` }, { type: `string`, pattern: TOKEN_PATTERN }] }
   const color = { type: `string`, pattern: `^\\$color\\.[a-zA-Z0-9]+$` }
+  const stops = { type: `array`, minItems: 2, items: { type: `object`, properties: { color, offset: { type: `number`, minimum: 0, maximum: 1 } }, required: [`color`, `offset`], additionalProperties: false } }
+  const unit = { type: `number`, minimum: 0, maximum: 1 }
+  // genUI round 4: `kind: radial` + `centre`; a linear gradient needs its angle.
   const gradient = {
     type: `object`,
-    properties: { angle: { type: `number` }, stops: { type: `array`, minItems: 2, items: { type: `object`, properties: { color, offset: { type: `number`, minimum: 0, maximum: 1 } }, required: [`color`, `offset`], additionalProperties: false } } },
-    required: [`angle`, `stops`],
+    properties: { kind: { enum: [`linear`, `radial`] }, angle: { type: `number` }, centre: { type: `object`, properties: { x: unit, y: unit }, required: [`x`, `y`], additionalProperties: false }, stops },
+    required: [`stops`],
+    anyOf: [{ required: [`angle`], not: { required: [`centre`] }, properties: { kind: { const: `linear` } } }, { required: [`kind`], properties: { kind: { const: `radial` } } }],
+    additionalProperties: false,
+  }
+  const backgroundImage = {
+    type: `object`,
+    properties: { src: { type: `string`, minLength: 1 }, fit: { enum: [`cover`, `contain`] }, focalX: unit, focalY: unit, scrim: { type: `object`, properties: { color, opacity: unit }, required: [`color`, `opacity`], additionalProperties: false } },
+    required: [`src`],
     additionalProperties: false,
   }
   const keys: Json = {}
-  const groups = { ...styleJson.layout, ...styleJson.visual } as Record<string, { type?: string; enum?: unknown[]; group?: string }>
+  const groups = { ...styleJson.layout, ...styleJson.visual } as Record<string, { type?: string; enum?: unknown[]; group?: string; baseOnly?: boolean }>
   for (const [key, spec] of Object.entries(groups)) {
     if (spec.enum) keys[key] = { enum: spec.enum }
     else if (spec.type === `length`) keys[key] = length
@@ -287,10 +297,12 @@ function styleSchema(): Json {
     else if (spec.type === `ratio`) keys[key] = { oneOf: [{ type: `number` }, { type: `string`, pattern: `^\\d+(\\.\\d+)?/\\d+(\\.\\d+)?$` }] }
     else if (spec.type === `areas`) keys[key] = { type: `array`, items: { type: `string` } }
     else if (spec.type === `gradient`) keys[key] = gradient
+    else if (spec.type === `backgroundImage`) keys[key] = backgroundImage
     else if (spec.type === `transform`) keys[key] = { type: `string`, pattern: styleJson.conditions.transform }
     else keys[key] = { type: `string` }
   }
-  const base: Json = { type: `object`, properties: keys, additionalProperties: false }
+  // A condition block takes every key but the base-only ones (backgroundImage).
+  const base: Json = { type: `object`, properties: Object.fromEntries(Object.entries(keys).filter(([key]) => !groups[key]?.baseOnly)), additionalProperties: false }
   return {
     type: `object`,
     description: `The Box style whitelist (VAPP-4, round 1): layout + visual keys, numbers in px, token references $<group>.<name>; conditions nest one level: @media (min-/max-width|height, orientation, hover, prefers-reduced-motion; px or $breakpoint.<name>) in source order, then the states ${styleJson.conditions.states.join(`, `)}.`,

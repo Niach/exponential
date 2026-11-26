@@ -172,6 +172,8 @@ jobs:
           # a German and an English sentence about one bug land close together.
           docker run --rm --network none exponential-web:smoke bun apps/web/embedder/bench.mjs | tee /tmp/embed-bench.json
           bun -e 'const b = JSON.parse(require("fs").readFileSync("/tmp/embed-bench.json", "utf8")); if (!(b.cosine["en_bug~de_bug"] > b.cosine["en_bug~en_other"] + 0.05)) { console.error("the embedder does not separate related from unrelated text"); process.exit(1) }'
+          # #EXP-2158: the image's Bun lets unread body streams go.
+          docker run --rm -v "$PWD/apps/web/scripts/stream-leak-check.mjs:/check.mjs:ro" exponential-web:smoke bun /check.mjs
           # #EXP-2133: the same image as the host's one embedder, inside its
           # production limit (1 GB, no swap), answering the web container's way.
           secret=$(openssl rand -hex 32)

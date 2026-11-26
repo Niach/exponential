@@ -205,6 +205,7 @@ fun AgentScreen(
     // Assistant first.
     val agents by dataViewModel.agents.collectAsStateWithLifecycle()
     val me by viewModel.me.collectAsStateWithLifecycle()
+    val memberTeams by viewModel.memberTeams.collectAsStateWithLifecycle()
     val chatRepoId by viewModel.chatRepoId.collectAsStateWithLifecycle()
     // S-3 (composer-home.json `agentRow`): the last tap; a page mount starts
     // on the default (the Assistant, else Temporary session) again — unless
@@ -620,6 +621,7 @@ fun AgentScreen(
                     item(key = "__agent_row__") {
                         ComposerAgentRowView(
                             state = agentRow,
+                            teams = memberTeams,
                             // EXP-1450 (`pickCases`): a tap keeps the issue
                             // chips; only a prompt goes for an agent.
                             onPick = { id ->

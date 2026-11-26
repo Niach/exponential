@@ -185,12 +185,14 @@ export interface MacroTemplate {
  *  `$if` holds (evaluated in the macro's own context, literal only), every
  *  `component` node in the author's `slot` subtree (a nested node of the same
  *  macro ends the walk) takes `props` (evaluated like any template value, so a
- *  bound macro prop passes the binding itself), never over a prop its author set. */
+ *  bound macro prop passes the binding itself), never over a prop its author set;
+ *  `style` likewise, under the node's own style. */
 export interface MacroPass {
   slot: string
   component: string
   $if?: unknown
   props: Record<string, unknown>
+  style?: Record<string, unknown>
 }
 
 /** #VAPP-284: a `$on` entry with its own context. */
@@ -206,7 +208,8 @@ export interface MacroDef {
   /** #VAPP-284: other roots, tried in order: the first whose `$if` holds
    *  (decided at expansion: a bound condition never picks one) replaces
    *  `root`, and its root part keeps the author's id whatever it is named.
-   *  The conditions also see `{childCount}` (the author's children). */
+   *  The conditions also see `{childCount}` and `{slotCount}` (the author's
+   *  children and slots). */
   alternatives?: readonly { $if: unknown; root: MacroTemplate }[]
   /** #EXP-1760: parts of the ROOT native the macro styles too (an
    *  IconPicker's Popover `content`): `<Macro>/<part>` layers over

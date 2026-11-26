@@ -900,17 +900,45 @@ object Chats {
 
     private fun unreadCount(rootId: String, messages: List<SessionTree.Message>, reads: List<SessionTree.SessionRead>): Int {
         val read = ms(reads.firstOrNull { it.sessionId == rootId }?.readAt) ?: -1L
-        return messages.count {
-            it.sessionId == rootId &&
-                it.authorKind == DomainContract.messageAuthorKindAgent &&
-                it.card?.kind() != DomainContract.messageCardKindEvent &&
-                (ms(it.createdAt) ?: 0L) > read
+        return messages.count { it.sessionId == rootId && countsUnread(it) && (ms(it.createdAt) ?: 0L) > read }
+    }
+
+    /** What `unreadCount` counts: an agent's message, an event card excluded. */
+    fun countsUnread(message: SessionTree.Message): Boolean =
+        message.authorKind == DomainContract.messageAuthorKindAgent &&
+            message.card?.kind() != DomainContract.messageCardKindEvent
+
+    /** `rowBadge` of every conversation that shows one, by root session id (the
+     *  agent rows, the Assistant's disc, the placed session rows): archived and
+     *  outside Recent alike. A chat also needs the viewer while a child asks,
+     *  like its list row. */
+    fun rowBadges(
+        sessions: List<SessionTree.Session>,
+        messages: List<SessionTree.Message>,
+        reads: List<SessionTree.SessionRead>,
+    ): Map<String, NavBadges.Badge> {
+        val roots = sessions.filter { it.parentId == null }.associateBy { it.id }
+        val asking = HashSet<String>()
+        for (session in sessions) {
+            if (!SessionTree.sessionAsks(session)) continue
+            val root = roots[session.rootId] ?: continue
+            // An agent's and an app's row reads its conversation alone.
+            val own = !root.agentId.isNullOrEmpty() || !root.appId.isNullOrEmpty()
+            if (!own || session.id == root.id) asking += root.id
         }
+        val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: -1L) }
+        val unread = HashMap<String, Int>()
+        for (message in messages) {
+            val id = message.sessionId
+            if (id !in roots || !countsUnread(message) || (ms(message.createdAt) ?: 0L) <= (readAt[id] ?: -1L)) continue
+            unread[id] = (unread[id] ?: 0) + 1
+        }
+        return (asking + unread.keys).associateWith { NavBadges.rowBadge(unread[it] ?: 0, it in asking) }
     }
 
     /**
      * The phone Chats list (`listCases`): the ROOT rows of
-     * [SessionTree.partitionChats] (active team) flattened and sorted by
+     * [SessionTree.partitionChats] flattened and sorted by
      * activity desc (ties by id), each with its lead, preview, time and unread
      * count.
      */
@@ -1172,7 +1200,7 @@ object Chats {
     /** #EXP-1733: the Chats list's APPS section (`appRowCases`): one row per
      *  live team app in [Apps.sortApps] order, its preview / time / unread from
      *  the viewer's session with the app (the root with `appId` and
-     *  `userId == me`); needs you / busy = that root's `needsInput` / `busy`.
+     *  `userId == me`); needs you / busy = that root's `sessionAsks` / `busy`.
      *  Never selectable; none on the Archived page. */
     fun appChatRows(
         apps: List<AppChatInput>,
@@ -1194,7 +1222,7 @@ object Chats {
                 null
             }
             val id = session?.id
-            val needsYou = session?.needsInput ?: false
+            val needsYou = session != null && SessionTree.sessionAsks(session)
             val busy = session?.busy ?: false
             var newest: String? = null
             if (id != null) {

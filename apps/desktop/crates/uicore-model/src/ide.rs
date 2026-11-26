@@ -3,17 +3,11 @@
 //! `$comment` is the spec, `packages/uicore/src/ide.ts` the TypeScript
 //! reference). The document binds the result under `/shell/ide`.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 const SOURCE: &str = include_str!("../../../../../packages/uicore/fixtures/ide-sidebar.json");
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum IdeDot {
-    Amber,
-    Green,
-    Primary,
-}
 
 /// #FEED-232 (`nav-badges.json`): a nav row's count badge tone; no dots.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +25,9 @@ pub struct IdeCount {
     pub tone: IdeTone,
 }
 
+// The badge rules below are `domain::nav_badges`' (this crate sits below
+// `domain`); tests/ide.rs replays nav-badges.json over them.
+
 /// The badge's label: `None` at zero, `99+` past 99 (`labelCases`).
 pub fn count_label(count: usize) -> Option<String> {
     match count {
@@ -38,6 +35,42 @@ pub fn count_label(count: usize) -> Option<String> {
         1..=99 => Some(count.to_string()),
         _ => Some("99+".into()),
     }
+}
+
+/// An agent row's, a placed session's or the Assistant's badge (`rowCases`):
+/// its unread, at least 1 while it needs you, attention when it does.
+pub fn row_badge(unread: usize, needs_you: bool) -> IdeCount {
+    if needs_you {
+        IdeCount { count: unread.max(1), tone: IdeTone::Attention }
+    } else {
+        IdeCount { count: unread, tone: IdeTone::Muted }
+    }
+}
+
+/// A folded folder's badge over the rows it hides (`sumCases`).
+pub fn sum_badges(rows: impl IntoIterator<Item = IdeCount>) -> IdeCount {
+    let mut out = IdeCount::default();
+    for row in rows.into_iter().filter(|row| row.count > 0) {
+        out.count += row.count;
+        if row.tone == IdeTone::Attention {
+            out.tone = IdeTone::Attention;
+        }
+    }
+    out
+}
+
+/// A team row's badge (`teamCases`): its share of Needs you, and while folded
+/// its hidden rows' muted counts.
+pub fn team_badge(needs_you: usize, open: bool, rows: impl IntoIterator<Item = IdeCount>) -> IdeCount {
+    let share = IdeCount { count: needs_you, tone: IdeTone::Attention };
+    sum_badges(std::iter::once(share).chain(rows.into_iter().filter(|row| !open && row.tone == IdeTone::Muted)))
+}
+
+/// What a row binds: the label and the tone, both `None` without a count.
+fn bound(badge: IdeCount) -> (Option<String>, Option<IdeTone>) {
+    let count = count_label(badge.count);
+    let tone = count.is_some().then_some(badge.tone);
+    (count, tone)
 }
 
 /// #EXP-2027 (domain-contract sidebar-tree.json): one item of a team's mixed
@@ -54,10 +87,10 @@ pub struct IdeItemInput {
     /// An app's slug (its row lights on it too).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
-    /// An agent: needs you.
+    /// An agent or a placed session: needs you.
     #[serde(default)]
     pub needs_you: bool,
-    /// An agent: its conversation's unread agent messages.
+    /// An agent or a placed session: its unread agent messages.
     #[serde(default)]
     pub unread: usize,
     /// A session: every session of its tree (its row lights on any).
@@ -79,7 +112,7 @@ pub struct IdeTeamInput {
     /// Owners get New › Board | Agent | App and the board gears.
     #[serde(default)]
     pub owner: bool,
-    /// The team's needs-you count (nav-badges.json, attention).
+    /// The team's share of Needs you (nav-badges.json `needsYouCounts`).
     #[serde(default)]
     pub needs_you: usize,
     pub items: Vec<IdeItemInput>,
@@ -113,7 +146,6 @@ pub struct IdeActiveInput {
     pub title: String,
     pub icon: String,
     pub session_ids: Vec<String>,
-    pub unread: bool,
     /// #EXP-2027: Active spans every team: each row wears its team's mark.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_mark: Option<String>,
@@ -329,7 +361,7 @@ fn sidebar_tree(items: &[&str], entries: &[IdeLayoutEntry], editing: Option<&str
 /// `sidebarRows` + `sidebarTeamRows` over one team's item rows: a folder
 /// row heads its items one level deeper; a folded folder's items are left
 /// out (its `meta` = their count). Every row sits one level under the team.
-pub fn folder_rows(rows: Vec<IdeRow>, entries: &[IdeLayoutEntry], closed: &[String], editing: Option<&str>) -> Vec<IdeRow> {
+pub fn folder_rows(rows: Vec<IdeRow>, counts: &HashMap<String, IdeCount>, entries: &[IdeLayoutEntry], closed: &[String], editing: Option<&str>) -> Vec<IdeRow> {
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
     let tree = sidebar_tree(&ids, entries, editing);
     let take = |id: &str, depth: u8| rows.iter().find(|r| r.id == id).cloned().map(|r| IdeRow { depth, ..r });
@@ -339,6 +371,8 @@ pub fn folder_rows(rows: Vec<IdeRow>, entries: &[IdeLayoutEntry], closed: &[Stri
             Node::Item(id) => out.extend(take(&id, 1)),
             Node::Folder { id, name, children } => {
                 let open = !closed.contains(&id);
+                let hidden = children.iter().filter(|_| !open).filter_map(|child| counts.get(child).copied());
+                let (count, tone) = bound(sum_badges(hidden));
                 out.push(IdeRow {
                     kind: "folder".into(),
                     item: None,
@@ -348,8 +382,8 @@ pub fn folder_rows(rows: Vec<IdeRow>, entries: &[IdeLayoutEntry], closed: &[Stri
                     title: name,
                     icon: FOLDER_ICON.into(),
                     selected: false,
-                    count: None,
-                    tone: None,
+                    count,
+                    tone,
                     gear: false,
                     meta: (!open).then(|| children.len().to_string()),
                     fold_icon: fold_icon(open),
@@ -382,9 +416,11 @@ pub struct IdeDeviceRow {
     pub selected: bool,
     /// Offline: drawn muted.
     pub muted: bool,
-    /// The trailing glyph: a teammate's server wears its team's mark, an
-    /// online device of the viewer's the green dot, else none.
+    /// The trailing glyph: the viewer's own online device's green dot.
     pub mark: Option<String>,
+    /// A teammate's server: its team's mark, on the device glyph
+    /// (nav-badges.json THE TEAM MARK ON A ROW).
+    pub team_mark: Option<String>,
     pub fold_icon: Option<String>,
 }
 
@@ -395,7 +431,6 @@ pub struct IdeActiveRow {
     pub title: String,
     pub icon: String,
     pub selected: bool,
-    pub unread: bool,
     pub team_mark: Option<String>,
 }
 
@@ -437,30 +472,8 @@ fn copy(id: &str) -> String {
 }
 
 fn nav(id: &str, icon: &str, selected: bool, count: usize, tone: IdeTone) -> IdeNavRow {
-    let count = count_label(count);
-    let tone = count.is_some().then_some(tone);
+    let (count, tone) = bound(IdeCount { count, tone });
     IdeNavRow { id: id.into(), title: copy(id), icon: icon.into(), selected, count, tone }
-}
-
-/// An agent row's badge (`rowBadge`): its unread, at least 1 while it needs
-/// you, attention when it does. Busy is no badge.
-pub fn agent_count(unread: usize, needs_you: bool) -> IdeCount {
-    if needs_you {
-        IdeCount { count: unread.max(1), tone: IdeTone::Attention }
-    } else {
-        IdeCount { count: unread, tone: IdeTone::Muted }
-    }
-}
-
-/// An agent's dot: needs you before busy.
-pub fn agent_dot(needs_you: bool, busy: bool) -> Option<IdeDot> {
-    if needs_you {
-        Some(IdeDot::Amber)
-    } else if busy {
-        Some(IdeDot::Green)
-    } else {
-        None
-    }
 }
 
 /// THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`:
@@ -483,9 +496,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     let on = |kind: &str, id: &str| screen.strip_prefix(kind).and_then(|s| s.strip_prefix(':')) == Some(id);
     let mut rows = Vec::new();
     if let Some(assistant) = &input.assistant {
-        let badge = agent_count(assistant.unread, assistant.needs_you);
-        let count = count_label(badge.count);
-        let tone = count.is_some().then_some(badge.tone);
+        let (count, tone) = bound(row_badge(assistant.unread, assistant.needs_you));
         rows.push(IdeNavRow { id: "assistant".into(), title: assistant.name.clone(), icon: "brand-exponential".into(), selected: on("agent", &assistant.id), count, tone });
     }
     rows.push(nav("home", "nav-home", screen == "home", 0, IdeTone::Muted));
@@ -507,6 +518,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
         selected: false,
         muted: false,
         mark: None,
+        team_mark: None,
         fold_icon: fold_icon(input.devices_open),
     }];
     if input.devices_open {
@@ -520,7 +532,8 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
             icon: d.icon.clone(),
             selected: on("device", &d.id) || on("device-settings", &d.id),
             muted: !d.online,
-            mark: d.team_mark.clone().or_else(|| d.online.then(|| "ide:dot:green".into())),
+            mark: (d.online && d.team_mark.is_none()).then(|| "ide:dot:green".into()),
+            team_mark: d.team_mark.clone(),
             fold_icon: None,
         }));
     }
@@ -528,18 +541,17 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
         .teams
         .iter()
         .map(|team| {
+            let counts: HashMap<String, IdeCount> = team
+                .items
+                .iter()
+                .filter(|item| matches!(item.kind.as_str(), "agent" | "session"))
+                .map(|item| (item.id.clone(), row_badge(item.unread, item.needs_you)))
+                .collect();
             let items = team
                 .items
                 .iter()
                 .map(|item| {
-                    let (count, tone) = if item.kind == "agent" {
-                        let badge = agent_count(item.unread, item.needs_you);
-                        let count = count_label(badge.count);
-                        let tone = count.is_some().then_some(badge.tone);
-                        (count, tone)
-                    } else {
-                        (None, None)
-                    };
+                    let (count, tone) = bound(counts.get(&item.id).copied().unwrap_or_default());
                     let selected = match item.kind.as_str() {
                         "app" => on("app", &item.id) || item.slug.as_deref().is_some_and(|slug| on("app", slug)),
                         "session" => on("chat", &item.id) || on("session", &item.id) || item.session_ids.iter().any(|id| on("session", id)),
@@ -553,9 +565,8 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
                     IdeRow::item(&item.kind, &item.id, &item.name, &item.icon, selected, count, tone, gear)
                 })
                 .collect();
-            let nodes = folder_rows(items, &team.layout, &input.closed, editing);
-            let count = count_label(team.needs_you);
-            let tone = count.is_some().then_some(IdeTone::Attention);
+            let nodes = folder_rows(items, &counts, &team.layout, &input.closed, editing);
+            let (count, tone) = bound(team_badge(team.needs_you, team.open, counts.values().copied()));
             let head = IdeRow {
                 kind: "team".into(),
                 item: None,
@@ -588,7 +599,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
         active: input
             .active
             .iter()
-            .map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("chat", &a.id) || a.session_ids.iter().any(|id| on("session", id)), unread: a.unread, team_mark: a.team_mark.clone() })
+            .map(|a| IdeActiveRow { id: a.id.clone(), title: a.title.clone(), icon: a.icon.clone(), selected: on("chat", &a.id) || a.session_ids.iter().any(|id| on("session", id)), team_mark: a.team_mark.clone() })
             .collect(),
         prs: input
             .repos

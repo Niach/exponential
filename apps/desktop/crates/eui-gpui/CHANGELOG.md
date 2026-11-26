@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select option `section` (#EXP-2161): the core's `sectionHeading` part, painted as any Text leaf.
+- Box backgrounds (genUI round 4): `backgroundImage` paints through the Image loader at `picture_rect`, clipped to the corners, the scrim over it (`paint::background::picture`); a radial `backgroundGradient` is rasterised with tiny-skia into a cached picture (`paint::background::radial`; gpui has no radial brush).
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`.
 - The host answers `callRendererFunction` (#VAPP-289, round 9 §6.9): a call that passed the router runs in the core at the agent position and its `rendererFunctionResponse` goes out.
 - Embed forwards an inner event's `userMessage` (#EXP-2104): the host's `action` context holds `userMessage` beside `name` and `context` when the inner event has one (`tests/embed.rs` replays `embed.json` `inner-user-message`).

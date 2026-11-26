@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style; macros expand into it.",
       "example": {
         "style": {
           "display": "flex",
@@ -97,7 +97,7 @@
           "description": "Extra Box styles merged over the window's own."
         }
       },
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "example": {
         "title": "exponential.at"
       }
@@ -134,7 +134,7 @@
           "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
         },
         "maxDepth": {
-          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
+          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
         },
         "style": {
           "description": "Extra Box styles for the list frame."
@@ -220,7 +220,7 @@
     "SplitView": {
       "props": {
         "open": {
-          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+          "description": "Phones: the detail replaces the list; bind it."
         },
         "width": {
           "description": "List column width in px."
@@ -309,7 +309,10 @@
           "description": "Rows are a tree: `Row.depth` indents, draws guides."
         },
         "loading": {
-          "description": "Refetch is running: a small spinner before the count. The first load is a Skeleton instead."
+          "description": "Refetch spinner (first load: Skeleton)."
+        },
+        "actionLabel": {
+          "description": "Header-end link firing `action`."
         },
         "style": {
           "description": "Extra Box styles for the frame."
@@ -347,10 +350,10 @@
           "description": "Horizontal, in its box."
         },
         "lines": {
-          "description": "Truncates to this many lines with an ellipsis."
+          "description": "Max lines (ellipsis)."
         },
         "truncate": {
-          "description": "One line; `middle` keeps the start and end (start…end)."
+          "description": "One line; `middle` = start…end."
         },
         "tone": {
           "description": "Colour tone instead of the default foreground."
@@ -395,7 +398,7 @@
           "description": "GFM source."
         },
         "profile": {
-          "description": "`inline` = a text run (no outer gap, `variant` paragraphs); `document` = full prose."
+          "description": "`inline` = a text run; `document` = full prose."
         },
         "variant": {
           "description": "Inline profile's paragraph type."
@@ -442,7 +445,7 @@
           "description": "Lines before it scrolls."
         },
         "follow": {
-          "description": "Sticks to the bottom while the code grows (a live log)."
+          "description": "Sticks to the bottom as it grows (a live log)."
         },
         "variant": {
           "description": "destructive = failed output."
@@ -519,7 +522,7 @@
           "description": "Fixed height in px."
         },
         "aspectRatio": {
-          "description": "Width over height (16:9 when unset and no height); the box never waits for the picture."
+          "description": "Width / height (16:9 when unset and no height)."
         },
         "fallback": {
           "description": "Icon if missing or failed."
@@ -1096,7 +1099,7 @@
           "description": "Whether it shows; bind it to a boolean path."
         },
         "side": {
-          "description": "Edge it slides from; `{base: \"bottom\", md: \"right\"}` turns the phone sheet into a side panel on wide surfaces."
+          "description": "Edge; responsive (`{base: \"bottom\", md: \"right\"}`)."
         },
         "dismissible": {
           "description": "Closes on the backdrop or Escape."
@@ -1186,7 +1189,7 @@
           "description": "Along the side."
         },
         "anchor": {
-          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
+          "description": "Open-at node it toggles; a text field = typeahead (keeps focus)."
         },
         "openOn": {
           "description": "`hover` is press on touch."
@@ -1238,7 +1241,7 @@
           "description": "Child's press, or right-click/long-press."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
       "example": {
         "label": "More",
         "items": [
@@ -1377,10 +1380,10 @@
           "description": "Button firing `press` (`page` only)."
         },
         "size": {
-          "description": "page = a whole screen's empty state with disc, sentence and action; list = one muted line under a bare glyph, no description, no action."
+          "description": "page = a whole screen; list = one muted line."
         }
       },
-      "description": "Empty screen or list: `page` = icon disc, title, sentence, action; `list` = one muted line.",
+      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
       "example": {
         "icon": "nav-inbox",
         "title": "No notifications",
@@ -1703,7 +1706,7 @@
           "description": "Title above the chart."
         },
         "height": {
-          "description": "Whole chart's height in px (title, legend, axes inside); the width is the box's."
+          "description": "Height in px, title, legend and axes inside."
         },
         "xLabel": {
           "description": "Under the x axis."
@@ -1823,10 +1826,10 @@
           "description": "URL a press opens; `press` still fires."
         },
         "variant": {
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
+          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
         },
         "size": {
-          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+          "description": "`icon` = square icon-only, `icon-xs` = small round."
         },
         "tone": {
           "description": "`muted` = muted glyph and label."
@@ -1835,7 +1838,7 @@
           "description": "Shows it inert."
         },
         "checks": {
-          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+          "description": "Rules; a failing `error` disables it."
         },
         "loading": {
           "description": "Pending: refuses presses, then shows a spinner."
@@ -1853,7 +1856,7 @@
           "description": "Label while held."
         }
       },
-      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
+      "description": "Press target: label + optional icon, or one custom child.",
       "example": {
         "label": "Submit",
         "variant": "default"
@@ -1987,7 +1990,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = a Group row (label, value); `bare` = chromeless, label hidden; `code` = mono `bare`; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
         },
         "size": {
           "description": "sm = compact."
@@ -2331,7 +2334,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
@@ -2343,7 +2346,7 @@
           "description": "Px (`row`: 260)."
         },
         "popupMinWidth": {
-          "description": "Px: fits its options, at least this (instead of `popupWidth`)."
+          "description": "Px floor; fits its options."
         },
         "loading": {
           "description": "Options still loading: skeleton rows in the popup."
@@ -2476,7 +2479,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys then fire `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2723,7 +2726,7 @@
           "description": "Turns submit into a stop while a reply streams."
         },
         "layout": {
-          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+          "description": "stacked = field over controls; flat = one row."
         },
         "menuKeys": {
           "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
@@ -2770,7 +2773,7 @@
           "description": "`card` = padded, own fill and border."
         },
         "pressable": {
-          "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
+          "description": "Fires `press`."
         },
         "href": {
           "description": "URL a press opens; implies `pressable`."
@@ -2785,7 +2788,7 @@
           "description": "Marks a search term in title and subtitle."
         }
       },
-      "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
+      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
       "example": {
         "title": "r/selfhosted",
         "meta": "312 posts",
@@ -2847,7 +2850,7 @@
           "description": "out = the viewer's."
         },
         "tail": {
-          "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end."
+          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
         },
         "time": {
           "description": "Under the text."
@@ -2916,7 +2919,7 @@
     "Motion": {
       "props": {
         "layers": {
-          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset}, repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate."
         },
         "size": {
           "description": "Composition [width, height] px (with layers)."
@@ -3044,7 +3047,7 @@
           "description": "Drawing units [w, h], origin top-left."
         },
         "shapes": {
-          "description": "Motion's shapes (no keys) + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
+          "description": "Motion's shapes (no keys) + upright text {text, position, size, weight, align, baseline, font sans|mono, color}."
         },
         "fit": {
           "description": "How it fills the box."
@@ -3184,7 +3187,7 @@
           "description": "{root: a nested component, data?: object}."
         }
       },
-      "description": "Sandboxed nested surface (own data and ids); its `event` actions fire `action` {name, context}; bad = an error box.",
+      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
       "example": {
         "surface": {
           "root": {
@@ -3445,7 +3448,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3568,6 +3571,213 @@
       "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
       "example": {
         "status": "read"
+      }
+    },
+    "AvatarBadge": {
+      "props": {
+        "size": {
+          "description": "Badge size."
+        }
+      },
+      "description": "`badge` on its child's bottom-right corner.",
+      "example": {
+        "size": "default"
+      }
+    },
+    "NavBar": {
+      "props": {
+        "title": {
+          "description": "Brand name."
+        },
+        "logo": {
+          "description": "Brand mark."
+        },
+        "items": {
+          "description": "Links."
+        },
+        "value": {
+          "description": "Current link's value."
+        }
+      },
+      "description": "Site top bar: brand, links (one current) firing `select`, trailing slot.",
+      "example": {
+        "title": "Acme",
+        "value": "pricing",
+        "items": [
+          {
+            "label": "Product",
+            "value": "product"
+          },
+          {
+            "label": "Pricing",
+            "value": "pricing"
+          },
+          {
+            "label": "Docs",
+            "value": "docs"
+          }
+        ]
+      }
+    },
+    "Footer": {
+      "props": {
+        "items": {
+          "description": "Links."
+        },
+        "caption": {
+          "description": "Fine print."
+        }
+      },
+      "description": "Page foot: children (columns), links firing `select`, fine print.",
+      "example": {
+        "caption": "© 2026 Acme Inc.",
+        "items": [
+          {
+            "label": "Privacy",
+            "value": "privacy"
+          },
+          {
+            "label": "Terms",
+            "value": "terms"
+          },
+          {
+            "label": "Contact",
+            "value": "contact"
+          }
+        ]
+      }
+    },
+    "Hero": {
+      "props": {
+        "title": {
+          "description": "Headline."
+        },
+        "eyebrow": {
+          "description": "Line above."
+        },
+        "subtitle": {
+          "description": "Lead sentence."
+        },
+        "align": {
+          "description": "Text alignment."
+        }
+      },
+      "description": "Page-top band: eyebrow, big title, lead, children (buttons) in a row.",
+      "example": {
+        "eyebrow": "New",
+        "title": "Ship faster together",
+        "subtitle": "Plan, build and review in one place."
+      }
+    },
+    "MediaCard": {
+      "props": {
+        "src": {
+          "description": "Picture URL."
+        },
+        "alt": {
+          "description": "Picture description."
+        },
+        "title": {
+          "description": "Title."
+        },
+        "subtitle": {
+          "description": "Second line."
+        },
+        "meta": {
+          "description": "Muted line (price)."
+        },
+        "aspectRatio": {
+          "description": "Picture width / height."
+        },
+        "pressable": {
+          "description": "Press target firing `press`."
+        }
+      },
+      "description": "Card: picture on top, title, subtitle, meta, children.",
+      "example": {
+        "src": "https://example.com/cabin.jpg",
+        "alt": "Cabin by a lake",
+        "title": "Lakeside cabin",
+        "subtitle": "Sleeps 4 · Wi-Fi",
+        "meta": "€120 / night"
+      }
+    },
+    "DayStrip": {
+      "props": {
+        "days": {
+          "description": "`tone` = event dot."
+        },
+        "value": {
+          "description": "Selected day; bind it."
+        }
+      },
+      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "example": {
+        "value": "2026-11-25",
+        "days": [
+          {
+            "date": "2026-11-23"
+          },
+          {
+            "date": "2026-11-24",
+            "tone": "primary"
+          },
+          {
+            "date": "2026-11-25"
+          },
+          {
+            "date": "2026-11-26"
+          },
+          {
+            "date": "2026-11-27",
+            "tone": "warning"
+          },
+          {
+            "date": "2026-11-28"
+          },
+          {
+            "date": "2026-11-29"
+          }
+        ]
+      }
+    },
+    "AvatarGroup": {
+      "props": {
+        "people": {
+          "description": "In order."
+        },
+        "max": {
+          "description": "Shown before `+N`."
+        },
+        "size": {
+          "description": "Avatar size."
+        }
+      },
+      "description": "Overlapping avatars: the first `max`, then `+N`.",
+      "example": {
+        "max": 3,
+        "people": [
+          {
+            "name": "Ada Lovelace",
+            "seed": "demo-ada"
+          },
+          {
+            "name": "Alan Turing",
+            "seed": "demo-alan"
+          },
+          {
+            "name": "Grace Hopper",
+            "seed": "demo-grace"
+          },
+          {
+            "name": "Bob",
+            "seed": "demo-bob"
+          },
+          {
+            "name": "Mia Berger",
+            "seed": "user-mia"
+          }
+        ]
       }
     }
   },
@@ -3958,6 +4168,20 @@
         }
       },
       "description": "Search marks."
+    },
+    "person": {
+      "properties": {
+        "name": {
+          "description": "Name (initials, a11y)."
+        },
+        "src": {
+          "description": "Picture URL."
+        },
+        "seed": {
+          "description": "Stable hue seed."
+        }
+      },
+      "description": "One person of an AvatarGroup."
     }
   },
   "functions": {
