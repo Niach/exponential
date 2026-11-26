@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-ede-rerusted-look`,
+    date: `2026-11-26`,
+    title: `Exponential Desktop wears its own colours`,
+    summary: `Exponential Desktop paints every shell surface in a warm dark palette with roomier spacing, from a theme you can edit.`,
+    body: `- **New look**: the taskbar, start menu, applets, notifications and Settings use a warm dark palette with a rust accent, and controls and rows have more room.
+- **Your theme**: the desktop paints the theme.json in its ui folder; an edit redraws everything at once, a broken one keeps the last good theme, and Version history undoes it.`,
+  },
+  {
     id: `2026-11-26-confirm-its-you`,
     date: `2026-11-26`,
     title: `Confirm it's you instead of signing in again`,

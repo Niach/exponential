@@ -35,6 +35,9 @@ sync = { path = "../sync", default-features = false }
 enet-core = { path = "../enet-core", default-features = false }
 flume.workspace = true
 ede-ui = { path = "../../../ede/crates/ede-ui", default-features = false }
+# #EDE-235: eDE's factory theme, compiled into the sealed surfaces; the
+# factory documents, to check their headers against the shell's functions.
+uicore-docs = { path = "../uicore-docs" }
 # The services data source (#EDE-13): /services/<domain> in every document.
 ede-services = { path = "../../../ede/crates/ede-services" }
 gpui.workspace = true
@@ -81,8 +84,6 @@ tempfile = "3"
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api", "p2p"] }
 # The sealed-content fixture's hex keys.
 data-encoding = "2"
-# The factory documents, to check their headers against the functions this shell matches.
-uicore-docs = { path = "../uicore-docs" }
 # #EDE-141: the Engine's boot and shutdown in a headless gpui app (the leak's counter test).
 gpui = { workspace = true, features = ["test-support"] }
 

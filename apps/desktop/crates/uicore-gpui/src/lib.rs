@@ -437,6 +437,22 @@ impl Surfaces {
         self.open.contains_key(name)
     }
 
+    /// #EDE-235: the theme every surface paints in from now on: the open
+    /// ones redraw in it (their hosted popups share their view), the next
+    /// ones open in it.
+    pub fn set_theme(&mut self, theme: std::sync::Arc<ResolvedTheme>, cx: &mut App) {
+        self.theme = theme.clone();
+        for region in self.open.values() {
+            let theme = theme.clone();
+            let _ = region.handle.update(cx, |_, _, cx| region.view.update(cx, |v, cx| v.set_theme(Some(theme), cx)));
+        }
+    }
+
+    /// The theme the surfaces paint in.
+    pub fn theme(&self) -> &std::sync::Arc<ResolvedTheme> {
+        &self.theme
+    }
+
     pub fn region(&self, name: &str) -> Option<&Region> {
         self.open.get(name)
     }

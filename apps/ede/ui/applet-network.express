@@ -4,7 +4,8 @@
 # networks in reach (a press joins one: connect), and the Network settings link. Every action is
 # ede_service on the network domain. #EDE-168: the popup hugs its rows (no empty height under a short
 # list) and stands on its button, never taller than the output has room for above the taskbar.
-surface("applet-network", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_network", placement: "top-end", size: {width: 380, height: 350}}, functions: ["ede_service", "ede_open_document"]}})
+# #EDE-235: room for the eDE spacing scale (the header's height is only its cap).
+surface("applet-network", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_network", placement: "top-end", size: {width: 380, height: 520}}, functions: ["ede_service", "ede_open_document"]}})
 $/services/network/accessPoints = []
 $/services/network/available = false
 $/services/network/reason = ""
@@ -23,7 +24,7 @@ vpn_switches = Stack(direction="horizontal", gap="none", align="center", childre
 vpn_up = Switch(label="Connected", name="vpn", checked=$active, size="compact", on={change: ede_service(action="vpn_disconnect", args={id: $id}, domain="network")}, visible=cond(if=$active, then=true, else=false))
 vpn_down = Switch(label="Connect", name="vpn", checked=$active, size="compact", on={change: ede_service(action="vpn_connect", args={id: $id}, domain="network")}, visible=not(value=cond(if=$active, then=true, else=false)))
 aps_title = Text(text="Wi-Fi networks", variant="label", visible=cond(if=$/services/network/wifiEnabled, then=true, else=false))
-aps_scroll = ScrollArea(maxHeight=180, children=[aps, ap, no_aps], visible=cond(if=$/services/network/wifiEnabled, then=true, else=false))
+aps_scroll = ScrollArea(maxHeight=240, children=[aps, ap, no_aps], visible=cond(if=$/services/network/wifiEnabled, then=true, else=false))
 aps = List(gap="none", divided=true, children=_template($/services/network/accessPoints, ap, key="ssid"))
 ap = Row(title=$ssid, meta=concat(values=[$strength, "%"]), icon="ede-wifi", selected=$active, density="compact", pressable=true, slots={trailing: "ap_secured"}, on={press: ede_service(action="connect", args={ssid: $ssid}, domain="network")})
 ap_secured = Icon(name="ede-lock", size="sm", tone="neutral", label="Secured", visible=cond(if=$secured, then=true, else=false))
