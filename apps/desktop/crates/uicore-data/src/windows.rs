@@ -73,7 +73,7 @@ mod tests {
     use uicore_model::reduce;
 
     fn info(id: &str, app: &str, title: &str, focused: bool, workspace: usize) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, space: None }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, maximized: false, space: None }
     }
 
     fn apply(model: &ShellState, events: &[ShellEvent]) -> ShellState {

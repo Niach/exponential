@@ -799,11 +799,16 @@ impl Ede {
         if st.tile.is_none() {
             st.restore = Some(geo);
         }
+        let was_maximized = st.tile == Some(Tile::Maximized);
         st.tile = Some(tile);
         set_window_state(window, st);
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.remap(window, rect.loc);
+        // #EDE-254: the taskbar's menu says Maximize or Unmaximize.
+        if was_maximized != (tile == Tile::Maximized) {
+            self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
+        }
         true
     }
 
@@ -831,9 +836,7 @@ impl Ede {
     /// location (a drag pulling it off a tile).
     pub fn untile(&mut self, window: &Window, at: Option<Point<i32, Logical>>) {
         let mut st = window_state(window);
-        if st.tile.take().is_none() {
-            return;
-        }
+        let Some(was) = st.tile.take() else { return };
         let restore = st.restore.take();
         set_window_state(window, st);
         let loc = at.or(restore.map(|r| r.loc));
@@ -841,6 +844,9 @@ impl Ede {
         self.configure_window(window, rect, None, false);
         if let Some(loc) = loc {
             self.remap(window, loc);
+        }
+        if was == Tile::Maximized {
+            self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
         }
     }
 

@@ -148,6 +148,10 @@ pub enum Request {
     /// brings it back.
     MinimizeWindow { window: WindowId },
     RestoreWindow { window: WindowId },
+    /// #EDE-254: maximizes (`true`) or unmaximizes (`false`) a window, the
+    /// taskbar menu's Maximize / Unmaximize; [`WindowInfo::maximized`] says
+    /// which it is.
+    MaximizeWindow { window: WindowId, maximized: bool },
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
     /// black. `since` = the `serial` of the last capture: when nothing was
@@ -637,7 +641,7 @@ impl Request {
             Request::OpenWayland => None,
             // #EDE-172 (P13): what the connection holds, the arm checks.
             Request::OpenServices { .. } => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::MaximizeWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
@@ -662,7 +666,7 @@ impl Request {
     pub fn anonymous(&self) -> bool {
         match self {
             Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
-            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } => false,
+            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::MaximizeWindow { .. } => false,
             Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
             Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
@@ -683,7 +687,7 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
             Request::Input { bindings, .. } => !bindings,
-            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::MaximizeWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
             Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => false,
@@ -844,6 +848,10 @@ pub struct WindowInfo {
     /// geometry kept for the restore.
     #[serde(default)]
     pub minimized: bool,
+    /// #EDE-254: maximized (the taskbar menu's Unmaximize). Absent on the
+    /// wire when false: a reply reads as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub maximized: bool,
     /// The agent space it lives in; `None` = the person's desk (#EDE-91).
     /// Absent on the wire when `None`: a reply reads as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1480,6 +1488,16 @@ impl Client {
         self.call(Request::RestoreWindow { window }).map(|_| ())
     }
 
+    /// Moves `window`'s top-left corner to `x`, `y` (a tiled one leaves its tile).
+    pub fn move_window(&mut self, window: WindowId, x: i32, y: i32) -> Result<(), Error> {
+        self.call(Request::MoveWindow { window, x, y }).map(|_| ())
+    }
+
+    /// #EDE-254: maximize or unmaximize `window`.
+    pub fn maximize(&mut self, window: WindowId, maximized: bool) -> Result<(), Error> {
+        self.call(Request::MaximizeWindow { window, maximized }).map(|_| ())
+    }
+
     pub fn lock(&mut self) -> Result<(), Error> {
         self.call(Request::Lock).map(|_| ())
     }
@@ -1757,7 +1775,7 @@ mod tests {
     }
 
     fn window(space: Option<&str>) -> WindowInfo {
-        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
+        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
     }
 
     fn output(space: Option<&str>) -> OutputInfo {
@@ -2050,6 +2068,7 @@ mod tests {
             (Request::MoveWindow { window: w(), x: 0, y: 0 }, false),
             (Request::MinimizeWindow { window: w() }, false),
             (Request::RestoreWindow { window: w() }, false),
+            (Request::MaximizeWindow { window: w(), maximized: true }, false),
             (Request::Capture { target: CaptureTarget::Output { name: "space-1".into() }, since: None }, true),
             (Request::Capture { target: CaptureTarget::Space { space: space() }, since: Some(3) }, true),
             (Request::Capture { target: CaptureTarget::Window { window: w() }, since: None }, false),
@@ -2093,7 +2112,7 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 42, "one row per variant at least");
+        assert_eq!(seen.len(), 43, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2118,6 +2137,7 @@ mod tests {
             Request::MoveWindow { .. } => "move_window",
             Request::MinimizeWindow { .. } => "minimize_window",
             Request::RestoreWindow { .. } => "restore_window",
+            Request::MaximizeWindow { .. } => "maximize_window",
             Request::Capture { .. } => "capture",
             Request::Input { .. } => "input",
             Request::PointerPosition => "pointer_position",
@@ -2394,6 +2414,7 @@ mod tests {
             Request::MoveWindow { window: w(), x: 0, y: 0 },
             Request::MinimizeWindow { window: w() },
             Request::RestoreWindow { window: w() },
+            Request::MaximizeWindow { window: w(), maximized: true },
             Request::Capture { target: CaptureTarget::Output { name: "o".into() }, since: None },
             Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false },
             Request::PointerPosition,
@@ -2437,7 +2458,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 42, "every op has a row");
+        assert_eq!(seen.len(), 43, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.
