@@ -5766,12 +5766,12 @@ mod chat_as_drawn {
 
 #[cfg(test)]
 mod previews {
-    use super::{popups_to_dismiss, previews_after};
+    use super::{popups_to_dismiss, previews_after, previews_under_a_menu};
 
     /// #EDE-237: a menu of the taskbar opening closes the hover previews.
     #[test]
     fn a_menu_closes_the_hover_previews() {
-        let layer = |kind: &str, owner: &str| -> Layer { serde_json::from_value(json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };
+        let layer = |kind: &str, owner: &str| -> eui_core::surface::Layer { serde_json::from_value(serde_json::json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };
         let previews = layer("Popover", "previews.nemo");
         assert!(previews_under_a_menu(&[previews.clone()]).is_empty(), "previews alone stay");
         assert_eq!(previews_under_a_menu(&[previews, layer("Menu", "group.nemo"), layer("Popover", "agent_spaces")]), vec!["previews.nemo".to_string()]);
