@@ -1105,23 +1105,6 @@ const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => 
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
-  // Round 4 motion: children entering together slide in 60 ms apart; the
-  // last row fades out when it leaves (`exitAnimation`).
-  Box: [
-    {
-      label: `motion · stagger + exit`,
-      node: {
-        id: `box_motion`,
-        component: `Box`,
-        style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, animationStagger: 60 },
-        children: [
-          { id: `box_motion_a`, component: `Row`, props: { title: `Design review`, subtitle: `Today, 14:00`, icon: `calendar` }, style: { animation: `slide-in-up` } },
-          { id: `box_motion_b`, component: `Row`, props: { title: `Ship the release`, subtitle: `Tomorrow`, icon: `rocket` }, style: { animation: `slide-in-up` } },
-          { id: `box_motion_c`, component: `Row`, props: { title: `Retro notes`, subtitle: `Friday`, icon: `file-text` }, style: { animation: `slide-in-up`, animationDelay: 40, exitAnimation: `fade-out` } },
-        ],
-      } as NestedNode,
-    },
-  ],
   // #FEED-232: past the cap (`99+`) on the muted tone.
   CountBadge: [{ label: `count 120 · muted`, node: { id: `count_badge_capped`, component: `CountBadge`, props: { count: 120, tone: `muted` } } }],
   // #EXP-1813: the placeholder shows only while no chip is in (Compose kept it beside the chips).
@@ -1835,6 +1818,21 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         style: { height: 120, padding: `$spacing.lg`, borderRadius: `$radius.lg`, alignItems: `center`, justifyContent: `center`, backgroundGradient: { kind: `radial`, centre: { x: 0.3, y: 0.35 }, stops: [{ color: `$color.primary`, offset: 0 }, { color: `$color.background`, offset: 1 }] } },
         children: [{ id: `glow_text`, component: `Text`, props: { text: `Radial, farthest corner` } }],
       },
+    },
+    // Round 4 motion: children entering together slide in 60 ms apart; the
+    // last row fades out when it leaves (`exitAnimation`).
+    {
+      label: `motion · stagger + exit`,
+      node: {
+        id: `box_motion`,
+        component: `Box`,
+        style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, animationStagger: 60 },
+        children: [
+          { id: `box_motion_a`, component: `Row`, props: { title: `Design review`, subtitle: `Today, 14:00`, icon: `calendar` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_b`, component: `Row`, props: { title: `Ship the release`, subtitle: `Tomorrow`, icon: `rocket` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_c`, component: `Row`, props: { title: `Retro notes`, subtitle: `Friday`, icon: `file-text` }, style: { animation: `slide-in-up`, animationDelay: 40, exitAnimation: `fade-out` } },
+        ],
+      } as NestedNode,
     },
   ],
   // A press-only Link (no href, `on.press`): underlined on every renderer, as one with an allowed href.
