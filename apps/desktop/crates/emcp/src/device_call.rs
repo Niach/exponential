@@ -69,7 +69,7 @@ pub const DEVICE_CLIENT_NAME: &str = "exponential-device";
 
 fn failed(error: &ClientError) -> DeviceAnswer {
     match error {
-        ClientError::Http(401) | ClientError::Http(403) => DeviceAnswer::err("refused", error.to_string()),
+        ClientError::Unauthorized | ClientError::Http(403) => DeviceAnswer::err("refused", error.to_string()),
         _ => DeviceAnswer::err("failed", error.to_string()),
     }
 }

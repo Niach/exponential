@@ -419,6 +419,9 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let description: String?
     /// #EXP-1561 plan | question: a person dismissed it (`dismissed: true`).
     public let dismissed: Bool
+    /// #NEW-146 question: a third-party MCP server's elicitation
+    /// (elicitation-card.json); nil unless well formed.
+    public let elicitation: ElicitationCard.Sidecar?
     /// #EXP-1710 event `pr_merge`: merged | conflict | failing | held (nil =
     /// an older card: the fallback line).
     public let mergeOutcome: String?
@@ -465,6 +468,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         pictures: [PlanCardPicture] = [],
         description: String? = nil,
         dismissed: Bool = false,
+        elicitation: ElicitationCard.Sidecar? = nil,
         mergeOutcome: String? = nil,
         actionSurfaceId: String? = nil,
         actionBlock: String? = nil,
@@ -475,6 +479,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.actionBlock = actionBlock
         self.actionContext = actionContext
         self.dismissed = dismissed
+        self.elicitation = elicitation
         self.mergeOutcome = mergeOutcome
         self.story = story
         self.result = result
@@ -624,6 +629,7 @@ public struct TreeMessageCard: Equatable, Sendable {
             description: text("description"),
             // `card.dismissed === true` in the reference.
             dismissed: CardJSON.isTrue(object["dismissed"]),
+            elicitation: ElicitationCard.Sidecar.parse(object["elicitation"]),
             mergeOutcome: text("mergeOutcome"),
             actionSurfaceId: text("kind") == "action" ? text("surfaceId") : nil,
             actionBlock: text("kind") == "action" ? text("block") : nil,
@@ -1055,7 +1061,8 @@ public enum SessionChatRow: Equatable, Sendable {
                 answers: card.labels,
                 surfaceData: card.surfaceData,
                 answered: message.answeredAt != nil,
-                dismissed: card.dismissed ? true : nil
+                dismissed: card.dismissed ? true : nil,
+                elicitation: card.elicitation
             ))
         case "plan":
             return .plan(ChatPlanRow(
@@ -1116,6 +1123,9 @@ public struct ChatQuestionRow: Equatable, Sendable, Identifiable {
     public let answered: Bool
     /// #EXP-1561 (waiting-cards.json): a person dismissed it; nil unless true.
     public let dismissed: Bool?
+    /// #NEW-146 (elicitation-card.json): a third-party MCP server's
+    /// elicitation; present only on such a card.
+    public let elicitation: ElicitationCard.Sidecar?
 
     public init(
         id: String,
@@ -1129,9 +1139,11 @@ public struct ChatQuestionRow: Equatable, Sendable, Identifiable {
         answers: [String]? = nil,
         surfaceData: CardJSON? = nil,
         answered: Bool,
-        dismissed: Bool? = nil
+        dismissed: Bool? = nil,
+        elicitation: ElicitationCard.Sidecar? = nil
     ) {
         self.dismissed = dismissed
+        self.elicitation = elicitation
         self.id = id
         self.sessionId = sessionId
         self.question = question

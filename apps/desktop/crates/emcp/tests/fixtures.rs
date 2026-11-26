@@ -532,6 +532,19 @@ fn every_case_list_is_replayed() {
         (fixture::audit(), &["canonicalCases", "hashCases", "statusCases", "retentionCases"]),
         (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases", "assistantScopeCases", "treeScopeCases", "actingCases"]),
         (fixture::upstream(), &["flowCases", "callableCases", "missingCases"]),
+        (
+            fixture::hub_client(),
+            &[
+                "toolNameCases",
+                "elicitResultCases",
+                "pollCases",
+                "traceCases",
+                "verifyCases",
+                "digestSetCases",
+                "dirNameCases",
+                "skillMdCases",
+            ],
+        ),
         (fixture::automations(), &["validateCases", "tooManyCase", "matchCases", "sponsorCases", "rateCases", "resolveCases", "auditCases"]),
         (
             &fixture::upstream()["binding"],
@@ -764,5 +777,171 @@ fn automations_rate_resolve_and_audit_cases() {
     for case in f["auditCases"].as_array().unwrap() {
         assert_eq!(automations::automation_client_id(s(&case["name"])), s(&case["clientId"]));
         assert_eq!(automations::automation_tool(&case["run"]), s(&case["tool"]));
+    }
+}
+
+// ---------------------------------------------------------------- hub client (#NEW-148)
+
+use emcp::contract::hub_client::{self, ElicitAction, Mismatch, SkillEntry, TaskStatus};
+
+#[test]
+fn hub_client_constants_match() {
+    let f = fixture::hub_client();
+    assert_eq!(f["entry"]["name"], hub_client::ENTRY_NAME);
+    assert_eq!(f["entry"]["tokenEnv"], hub_client::TOKEN_ENV);
+    assert_eq!(f["clientCapabilities"], hub_client::client_capabilities());
+    assert_eq!(f["mrtr"]["maxRounds"], hub_client::MAX_ROUNDS);
+    assert_eq!(f["mrtr"]["roots"], hub_client::roots());
+    assert_eq!(f["mrtr"]["askWaitMs"], hub_client::ASK_WAIT_MS);
+    let tasks = &f["tasks"];
+    assert_eq!(tasks["storeFile"], hub_client::TASK_STORE_FILE);
+    assert_eq!(tasks["callWaitMs"], hub_client::CALL_WAIT_MS);
+    assert_eq!(tasks["poll"]["default"], hub_client::POLL_DEFAULT_MS);
+    assert_eq!(tasks["poll"]["min"], hub_client::POLL_MIN_MS);
+    assert_eq!(tasks["poll"]["max"], hub_client::POLL_MAX_MS);
+    assert_eq!(strings(&tasks["recordKeys"]), hub_client::RECORD_KEYS.to_vec());
+    assert_eq!(tasks["traceIdPrefix"], hub_client::TRACE_ID_PREFIX);
+    for (status, trace) in tasks["traceStatus"].as_object().unwrap() {
+        let parsed = TaskStatus::parse(status).unwrap_or_else(|| panic!("status {status}"));
+        assert_eq!(parsed.as_str(), status);
+        assert_eq!(parsed.trace_status(), s(trace), "{status}");
+    }
+    let skills = &f["skills"];
+    assert_eq!(skills["cacheDir"], hub_client::SKILLS_CACHE_DIR);
+    assert_eq!(skills["nameMax"], hub_client::SKILL_NAME_MAX);
+    assert_eq!(skills["dirPrefix"], hub_client::SKILL_DIR_PREFIX);
+    assert_eq!(skills["cutAt"], hub_client::SKILL_CUT_AT);
+    assert_eq!(skills["hashHex"], hub_client::SKILL_HASH_HEX);
+    assert_eq!(fixture::skills()["limits"]["maxFiles"], hub_client::SKILL_MAX_FILES);
+    assert_eq!(fixture::skills()["limits"]["maxBytes"], hub_client::SKILL_MAX_BYTES);
+    // The record's keys are the struct's own.
+    let record = emcp::hub::TaskRecord {
+        session_id: "s".into(),
+        server_id: "i".into(),
+        server: "n".into(),
+        task_id: "t".into(),
+        tool: "x".into(),
+        created_at: "c".into(),
+        poll_interval_ms: 1,
+    };
+    let mut keys: Vec<String> = serde_json::to_value(record).unwrap().as_object().unwrap().keys().cloned().collect();
+    let mut want = strings(&tasks["recordKeys"]);
+    keys.sort();
+    want.sort();
+    assert_eq!(keys, want);
+}
+
+#[test]
+fn hub_client_copy_matches() {
+    let copy = &fixture::hub_client()["copy"];
+    let fill = |key: &str, pairs: &[(&str, &str)]| {
+        pairs.iter().fold(s(&copy[key]).to_string(), |text, (name, value)| text.replace(&format!("{{{name}}}"), value))
+    };
+    use hub_client::copy as c;
+    assert_eq!(c::too_many_rounds("linear", 10), fill("tooManyRounds", &[("server", "linear"), ("rounds", "10")]));
+    assert_eq!(c::sampling("linear"), fill("sampling", &[("server", "linear")]));
+    assert_eq!(c::cancelled("linear"), fill("cancelled", &[("server", "linear")]));
+    assert_eq!(
+        c::still_running("render", "t-1", "working"),
+        fill("stillRunning", &[("server", "render"), ("taskId", "t-1"), ("status", "working")])
+    );
+    assert_eq!(c::sign_in("linear"), fill("signIn", &[("server", "linear")]));
+    assert_eq!(c::no_answer("linear"), fill("noAnswer", &[("server", "linear")]));
+    assert_eq!(hub_client::elicit_result(None)["action"], copy["noSession"]);
+}
+
+#[test]
+fn hub_client_tool_name_cases() {
+    for case in fixture::hub_client()["toolNameCases"].as_array().unwrap() {
+        let (server, tool) = (s(&case["server"]), s(&case["tool"]));
+        assert_eq!(hub_client::claude_tool_name(server, tool), s(&case["claude"]["after"]));
+        let (entry, name) = hub_client::codex_tool_name(server, tool);
+        assert_eq!((entry.as_str(), name.as_str()), (s(&case["codex"]["after"]["server"]), s(&case["codex"]["after"]["tool"])));
+    }
+}
+
+#[test]
+fn hub_client_elicit_result_cases() {
+    for case in fixture::hub_client()["elicitResultCases"].as_array().unwrap() {
+        let action = match &case["action"] {
+            Value::Null => None,
+            Value::String(text) if text == "decline" => Some(ElicitAction::Decline),
+            Value::String(text) if text == "cancel" => Some(ElicitAction::Cancel),
+            Value::Object(object) => Some(ElicitAction::Accept(object["accept"].get("content").and_then(Value::as_object).cloned())),
+            other => panic!("action {other}"),
+        };
+        let got = hub_client::elicit_result(action.as_ref());
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+        // A host's answer passes through the normaliser unchanged.
+        assert_eq!(hub_client::normalize_elicit_result(&got), case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_client_poll_cases() {
+    for case in fixture::hub_client()["pollCases"].as_array().unwrap() {
+        assert_eq!(hub_client::clamp_poll(case["pollIntervalMs"].as_u64()), case["expected"].as_u64().unwrap(), "{case}");
+    }
+}
+
+#[test]
+fn hub_client_trace_cases() {
+    for case in fixture::hub_client()["traceCases"].as_array().unwrap() {
+        let got = hub_client::trace(
+            s(&case["server"]),
+            s(&case["taskId"]),
+            s(&case["tool"]),
+            case["statusMessage"].as_str(),
+            TaskStatus::parse(s(&case["status"])).unwrap(),
+        );
+        let want = &case["expected"];
+        assert_eq!((got.id.as_str(), got.title.as_str(), got.status.as_str()), (s(&want["id"]), s(&want["title"]), s(&want["status"])), "{case}");
+    }
+}
+
+fn skill_entry(value: &Value) -> SkillEntry {
+    serde_json::from_value(value.clone()).unwrap()
+}
+
+#[test]
+fn hub_client_verify_cases() {
+    for case in fixture::hub_client()["verifyCases"].as_array().unwrap() {
+        let got = hub_client::verify(&skill_entry(&case["entry"]), s(&case["bytes"]).as_bytes()).err().map(Mismatch::as_str);
+        assert_eq!(got, case["expected"].as_str(), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_client_digest_set_cases() {
+    for case in fixture::hub_client()["digestSetCases"].as_array().unwrap() {
+        let entries: Vec<SkillEntry> = case["resources"].as_array().unwrap().iter().map(skill_entry).collect();
+        let rows: Vec<(&str, &str, u64)> = entries.iter().map(|e| (e.uri.as_str(), e.digest.as_str(), e.size)).collect();
+        assert_eq!(hub_client::digest_set(&rows), s(&case["expected"]), "{}", case["name"]);
+        assert_eq!(hub_client::digest_set_of(&entries), s(&case["expected"]), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_client_dir_name_cases() {
+    for case in fixture::hub_client()["dirNameCases"].as_array().unwrap() {
+        assert_eq!(hub_client::dir_name(s(&case["server"]), s(&case["name"])), s(&case["expected"]), "{case}");
+    }
+}
+
+#[test]
+fn hub_client_skill_md_cases() {
+    for case in fixture::hub_client()["skillMdCases"].as_array().unwrap() {
+        let got = hub_client::skill_md(s(&case["dirName"]), s(&case["bytes"]).as_bytes());
+        assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn hub_client_relative_paths() {
+    for ok in ["SKILL.md", "references/x.md", "a/b/c.json"] {
+        assert!(hub_client::relative_path_ok(ok), "{ok}");
+    }
+    for bad in ["", "/etc/passwd", "../x", "a/../b", "a\\b", "a\0b", "a//b", "./x", "a/"] {
+        assert!(!hub_client::relative_path_ok(bad), "{bad:?}");
     }
 }

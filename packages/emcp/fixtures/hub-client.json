@@ -1,0 +1,370 @@
+{
+  "$comment": "#NEW-148 / #NEW-143 D1 (Danny 2026-11-26): THE DEVICE HUB AS THE MCP CLIENT OF TEAM SERVERS (host side; the server side is skills.json, elicitation.json, tasks.json; the hub's own rules are hub.json). ROUTING: a launch no longer writes team MCP servers into the agent CLI's config (claude's --mcp-config, codex's overrides). The launcher MOUNTS each resolved team server on the device's ONE hub (apps/desktop crates/emcp hub.rs) FOR THAT RUN ONLY (a run-scoped mount under the server's config key; another run's mount of the same name never sees it; it goes when the run's grant is revoked), grants the run `write` on every one of them and gives the CLI ONE entry, `entry.name`, loopback HTTP with the run's bearer token behind `entry.tokenEnv`. Credentials never reach the CLI's env or config any more; stdio team servers are spawned by the hub with their env. The device's own servers (exponential, computer, codemode, screen) stay their own entries. TOOL NAMES (`toolNameCases`, the migration note): a team tool is hub.json's `<server>__<tool>` on the `team` entry: claude `mcp__team__<server>__<tool>` (was `mcp__<server>__<tool>`), codex `team` server, tool `<server>__<tool>` (was server `<server>`, tool `<tool>`). Code mode reaches them through the `team` upstream the same way. CLIENT CAPABILITIES (`clientCapabilities`): every request the hub sends an upstream declares elicitation form + url and the tasks and skills extensions; never sampling or roots. MRTR (`mrtr`): a `tools/call` answered `input_required` is fulfilled by the hub and RETRIED with a new id, `inputResponses` and the `requestState` echoed, at most `mrtr.maxRounds` rounds (then the call answers an isError result `copy.tooManyRounds`). Each input request: `elicitation/create` = ONE ACP elicitation into the run's session (form: the requestedSchema as is; url: url + elicitationId), its `_meta` naming the server under elicitation-card.json's `serverMetaKey` (domain-contract), so it reaches THE elicitation card; the hub waits for it at most `mrtr.askWaitMs` (the CLI bounds every MCP call at 120 s, coding argv.rs CLAUDE_MCP_TOOL_TIMEOUT_MS, and the hub must answer first), then withdraws the card and the call answers isError `copy.noAnswer`; the person's action is the ElicitResult (`elicitResultCases`: accept + content, decline, cancel; no live session to ask = cancel). `roots/list` = `mrtr.roots`. `sampling/createMessage` is never declared: such a call answers isError `copy.sampling`. The CLI always gets ONE plain blocking result (claude does not declare tasks on tools/call, spike §10). TASKS (`tasks`): a call answered `resultType: task` is DRIVEN BY THE HUB: the task id is persisted on the device (`tasks.storeFile` under the data dir, one record per task: `recordKeys`) BEFORE the first poll; a poller calls `tasks/get` every `pollIntervalMs` the task asks for, clamped to [`tasks.poll.min`, `tasks.poll.max`] (`tasks.poll.default` when absent; `pollCases`); every change of status or statusMessage is ONE TraceItem in the session (id `mcp-task:<server>:<taskId>`, title = `<server>: <statusMessage>` or `<server>: <tool>` without one; status by `traceStatus`); `input_required` = its inputRequests answered like MRTR's and sent with `tasks/update {taskId, inputResponses}`; a terminal status ends the record: completed = its `result` is the call's result, failed = an isError result naming its error message, cancelled = isError `copy.cancelled`. The CLI's call waits at most `tasks.callWaitMs` (under the CLI's 120 s); past it the call answers `copy.stillRunning` (not an error) and the poller goes on, its TraceItem with it. STOP (the session's Stop, or the session ending; never a resume's relaunch, which keeps them) sends `tasks/cancel` for every live task of the run's session and ends their records. RESTART: when a run mounts a server again (a resume), its session's persisted tasks on that server are polled again from where they were. TOKENS (EXP-808, reopened by #NEW-148): an upstream answering HTTP 401 makes the hub ask the launcher for the server's credentials again (tRPC `mcpServers.resolveForLaunch`, which refreshes an expiring OAuth token), reconnect and retry the request ONCE; a second 401 or a failed resolve = isError `copy.signIn`. SKILLS (`skills`): at every launch, for every mounted team server that declares the skills extension, the hub lists `skills/list` with the member's credential; each skill's manifest is checked against the limits of skills.json, every file read with `resources/read` and VERIFIED (`verifyCases`: size first, then the `sha256:` digest; one mismatch drops the whole skill with a launch warning). The skill's DIGEST SET (`digestSetCases`, the cache key) = `sha256:` + hex SHA-256 of the canonical JSON (keys sorted, no whitespace, UTF-8) of its manifest rows {digest, size, uri} sorted by uri. NO APPROVAL (Danny 2026-11-26: no permission system for skills): every VERIFIED skill of a mounted team server is written into the session skill dir (team_skills.rs, beside the team skills) under `dirName` (`dirNameCases`: `mcp-<server>-<name>`, past 64 chars cut to 55, trailing `-` trimmed, `-` + the first 8 hex of the SHA-256 of the full name); its SKILL.md frontmatter is REWRITTEN to exactly {name: the dir name, description} (`skillMdCases`): `allowed-tools` and every other key are ignored; the other files are written verbatim. A verified copy is CACHED read-only (files 0444, dirs 0555) under `skills.cacheDir`/<server id>/<digest set hex>/ in the data dir, outside every discovery path (never under a session dir, `.claude` or `.codex`), and reused while the digest set matches.",
+  "entry": {
+    "name": "team",
+    "tokenEnv": "EXP_TEAM_MCP_TOKEN"
+  },
+  "toolNameCases": [
+    {
+      "server": "linear",
+      "tool": "create_issue",
+      "claude": {
+        "before": "mcp__linear__create_issue",
+        "after": "mcp__team__linear__create_issue"
+      },
+      "codex": {
+        "before": {
+          "server": "linear",
+          "tool": "create_issue"
+        },
+        "after": {
+          "server": "team",
+          "tool": "linear__create_issue"
+        }
+      }
+    },
+    {
+      "server": "github",
+      "tool": "search_code",
+      "claude": {
+        "before": "mcp__github__search_code",
+        "after": "mcp__team__github__search_code"
+      },
+      "codex": {
+        "before": {
+          "server": "github",
+          "tool": "search_code"
+        },
+        "after": {
+          "server": "team",
+          "tool": "github__search_code"
+        }
+      }
+    }
+  ],
+  "clientCapabilities": {
+    "elicitation": {
+      "form": {},
+      "url": {}
+    },
+    "extensions": {
+      "io.modelcontextprotocol/tasks": {},
+      "io.modelcontextprotocol/skills": {}
+    }
+  },
+  "mrtr": {
+    "maxRounds": 10,
+    "roots": {
+      "roots": []
+    },
+    "askWaitMs": 100000
+  },
+  "copy": {
+    "tooManyRounds": "{server} kept asking for input; the call was stopped after {rounds} rounds.",
+    "sampling": "{server} asked this device to run a model (sampling), which it does not offer.",
+    "cancelled": "{server} cancelled the task.",
+    "stillRunning": "{server} is still working on this (task {taskId}: {status}). It keeps running and shows in the session; its result does not come back to this call.",
+    "signIn": "{server}: the sign-in expired and could not be refreshed. Reconnect it in Settings › MCP servers.",
+    "noSession": "cancel",
+    "noAnswer": "{server} asked a question in the session that was not answered in time; once the person answered, call the tool again."
+  },
+  "elicitResultCases": [
+    {
+      "name": "accept with content",
+      "action": {
+        "accept": {
+          "content": {
+            "team": "ios",
+            "count": 3
+          }
+        }
+      },
+      "expected": {
+        "action": "accept",
+        "content": {
+          "team": "ios",
+          "count": 3
+        }
+      }
+    },
+    {
+      "name": "accept a url",
+      "action": {
+        "accept": {}
+      },
+      "expected": {
+        "action": "accept"
+      }
+    },
+    {
+      "name": "decline",
+      "action": "decline",
+      "expected": {
+        "action": "decline"
+      }
+    },
+    {
+      "name": "cancel",
+      "action": "cancel",
+      "expected": {
+        "action": "cancel"
+      }
+    },
+    {
+      "name": "no live session",
+      "action": null,
+      "expected": {
+        "action": "cancel"
+      }
+    }
+  ],
+  "tasks": {
+    "storeFile": "mcp-tasks.json",
+    "callWaitMs": 100000,
+    "poll": {
+      "default": 2000,
+      "min": 500,
+      "max": 60000
+    },
+    "recordKeys": [
+      "sessionId",
+      "serverId",
+      "server",
+      "taskId",
+      "tool",
+      "createdAt",
+      "pollIntervalMs"
+    ],
+    "traceIdPrefix": "mcp-task:",
+    "traceStatus": {
+      "working": "running",
+      "input_required": "pending",
+      "completed": "done",
+      "failed": "error",
+      "cancelled": "skipped"
+    }
+  },
+  "pollCases": [
+    {
+      "pollIntervalMs": null,
+      "expected": 2000
+    },
+    {
+      "pollIntervalMs": 100,
+      "expected": 500
+    },
+    {
+      "pollIntervalMs": 5000,
+      "expected": 5000
+    },
+    {
+      "pollIntervalMs": 120000,
+      "expected": 60000
+    }
+  ],
+  "traceCases": [
+    {
+      "server": "render",
+      "taskId": "t-1",
+      "tool": "export_video",
+      "statusMessage": "Encoding 40%",
+      "status": "working",
+      "expected": {
+        "id": "mcp-task:render:t-1",
+        "title": "render: Encoding 40%",
+        "status": "running"
+      }
+    },
+    {
+      "server": "render",
+      "taskId": "t-1",
+      "tool": "export_video",
+      "statusMessage": null,
+      "status": "input_required",
+      "expected": {
+        "id": "mcp-task:render:t-1",
+        "title": "render: export_video",
+        "status": "pending"
+      }
+    },
+    {
+      "server": "render",
+      "taskId": "t-1",
+      "tool": "export_video",
+      "statusMessage": "Done",
+      "status": "completed",
+      "expected": {
+        "id": "mcp-task:render:t-1",
+        "title": "render: Done",
+        "status": "done"
+      }
+    },
+    {
+      "server": "render",
+      "taskId": "t-1",
+      "tool": "export_video",
+      "statusMessage": "  ",
+      "status": "failed",
+      "expected": {
+        "id": "mcp-task:render:t-1",
+        "title": "render: export_video",
+        "status": "error"
+      }
+    },
+    {
+      "server": "render",
+      "taskId": "t-1",
+      "tool": "export_video",
+      "statusMessage": null,
+      "status": "cancelled",
+      "expected": {
+        "id": "mcp-task:render:t-1",
+        "title": "render: export_video",
+        "status": "skipped"
+      }
+    }
+  ],
+  "skills": {
+    "cacheDir": "mcp-skills-cache",
+    "namePattern": "^[a-z0-9-]+$",
+    "nameMax": 64,
+    "dirPrefix": "mcp-",
+    "cutAt": 55,
+    "hashHex": 8
+  },
+  "verifyCases": [
+    {
+      "name": "ok",
+      "entry": {
+        "uri": "skill://acme/code-review/SKILL.md",
+        "digest": "sha256:3437ca5dbbe5fd33ae9f1e76dcf7dc7f2bcb599c4e699a367496df26241f8d78",
+        "size": 95
+      },
+      "bytes": "---\nname: code-review\ndescription: Review a diff\nallowed-tools: Bash(rm:*)\n---\n\nRead the diff.\n",
+      "expected": null
+    },
+    {
+      "name": "size first",
+      "entry": {
+        "uri": "skill://acme/code-review/references/checklist.md",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 21
+      },
+      "bytes": "# Checklist\n- tests\n",
+      "expected": "size"
+    },
+    {
+      "name": "digest",
+      "entry": {
+        "uri": "skill://acme/code-review/references/checklist.md",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 20
+      },
+      "bytes": "# Checklist\n- tests\n",
+      "expected": "digest"
+    }
+  ],
+  "digestSetCases": [
+    {
+      "name": "two files",
+      "resources": [
+        {
+          "uri": "skill://acme/code-review/SKILL.md",
+          "digest": "sha256:3437ca5dbbe5fd33ae9f1e76dcf7dc7f2bcb599c4e699a367496df26241f8d78",
+          "size": 95
+        },
+        {
+          "uri": "skill://acme/code-review/references/checklist.md",
+          "digest": "sha256:e4233dca120e01e0993cfd3068df418ad9ebe37ff53c2078006a8d84a1d625bd",
+          "size": 20
+        }
+      ],
+      "expected": "sha256:e3877a4706fe5943eeb73fa225e83fcc51f3e058b4a62fabc35ba9fc63cd8887"
+    },
+    {
+      "name": "order does not matter",
+      "resources": [
+        {
+          "uri": "skill://acme/code-review/references/checklist.md",
+          "digest": "sha256:e4233dca120e01e0993cfd3068df418ad9ebe37ff53c2078006a8d84a1d625bd",
+          "size": 20
+        },
+        {
+          "uri": "skill://acme/code-review/SKILL.md",
+          "digest": "sha256:3437ca5dbbe5fd33ae9f1e76dcf7dc7f2bcb599c4e699a367496df26241f8d78",
+          "size": 95
+        }
+      ],
+      "expected": "sha256:e3877a4706fe5943eeb73fa225e83fcc51f3e058b4a62fabc35ba9fc63cd8887"
+    },
+    {
+      "name": "one file",
+      "resources": [
+        {
+          "uri": "skill://acme/code-review/SKILL.md",
+          "digest": "sha256:3437ca5dbbe5fd33ae9f1e76dcf7dc7f2bcb599c4e699a367496df26241f8d78",
+          "size": 95
+        }
+      ],
+      "expected": "sha256:c61374637449b4025f4fe06d6d60da358c59bfa4601d774c030e974f8ce9052c"
+    },
+    {
+      "name": "a changed file changes the set",
+      "resources": [
+        {
+          "uri": "skill://acme/code-review/SKILL.md",
+          "digest": "sha256:3437ca5dbbe5fd33ae9f1e76dcf7dc7f2bcb599c4e699a367496df26241f8d78",
+          "size": 95
+        },
+        {
+          "uri": "skill://acme/code-review/references/checklist.md",
+          "digest": "sha256:397f8666f19efa708cc1421d39c3acb2285b57f9f214e8931dd7bdc79004288c",
+          "size": 27
+        }
+      ],
+      "expected": "sha256:df64fcc99cdf1e542bb125bbe891a0234d83524df73d5579b678035e1abcc5ed"
+    },
+    {
+      "name": "empty",
+      "resources": [],
+      "expected": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "dirNameCases": [
+    {
+      "server": "linear",
+      "name": "triage",
+      "expected": "mcp-linear-triage"
+    },
+    {
+      "server": "acme",
+      "name": "code-review",
+      "expected": "mcp-acme-code-review"
+    },
+    {
+      "server": "a-very-long-server-name-x",
+      "name": "an-even-longer-skill-name-that-goes-on-and-on",
+      "expected": "mcp-a-very-long-server-name-x-an-even-longer-skill-name-3df5a758"
+    }
+  ],
+  "skillMdCases": [
+    {
+      "name": "allowed-tools ignored",
+      "dirName": "mcp-acme-code-review",
+      "bytes": "---\nname: code-review\ndescription: Review a diff\nallowed-tools: Bash(rm:*)\n---\n\nRead the diff.\n",
+      "expected": "---\nname: mcp-acme-code-review\ndescription: \"Review a diff\"\n---\n\nRead the diff.\n"
+    },
+    {
+      "name": "quoted description, extra keys dropped",
+      "dirName": "mcp-acme-notes",
+      "bytes": "---\nname: notes\ndescription: \"Take \\\"notes\\\"\"\nlicense: MIT\n---\nBody line\n\n",
+      "expected": "---\nname: mcp-acme-notes\ndescription: \"Take \\\"notes\\\"\"\n---\n\nBody line\n"
+    },
+    {
+      "name": "no frontmatter = not a skill",
+      "dirName": "mcp-acme-x",
+      "bytes": "just text\n",
+      "expected": null
+    }
+  ]
+}

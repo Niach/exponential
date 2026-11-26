@@ -1,0 +1,687 @@
+{
+  "$comment": "#NEW-145 / #NEW-143 D2-D3 (Danny 2026-11-26): SKILLS OVER MCP on Exponential's MCP server, the `io.modelcontextprotocol/skills` extension (github.com/modelcontextprotocol/ext-skills specification/beta/skills.mdx; modelcontextprotocol.io/extensions/skills/overview). The server declares `capability` in `server/discover` (resources + the extension with `directoryRead: true`) and implements `skills/list`, `skills/get`, `resources/read` of every served file and `resources/directory/read`. WHAT IS SERVED (`servedSkills`): (1) TEAM SKILLS: every own skill (packages/domain-contract fixtures/skills.json; `builtin` rows excluded) of every team the credential reaches, the teams `resolveTeamAccess` (lib/auth/access.ts) grants it read on (an agent's or a confined token's clamp included), at `skill://<team-slug>/<name>/SKILL.md`, sorted by slug then name (code point); (2) THE BUILT-INS `builtins` (D3: genUI and the Exponential workflow, from packages/exponential-ui/skills, not the apps or Motion skills) at `skill://exponential/<name>/SKILL.md` (`builtinRoot`), in `builtins` order, after the team skills. A team whose slug is `exponential` keeps its own skills under the same root; at a built-in's exact URI the built-in wins and the team skill is not served (`listCases` `shadowed`). A skill of a team the credential does not reach is answered exactly like one that does not exist (`errors.notServed`): no existence leak. BYTES: a built-in serves its shipped files verbatim (SKILL.md, then `files` sorted by path); a team skill serves ONE file, SKILL.md = `teamSkillMd(name, description, body)`: `---\\nname: <name>\\ndescription: <JSON string>\\n---\\n\\n<body trimmed>\\n`. FRONTMATTER in a listing = exactly {name, description}, never `allowed-tools` or any other key, whatever a body says (a body's own `---` block is body text). MANIFEST (`resources`) is COMPLETE: every served file of the skill, SKILL.md FIRST, each {uri, digest, size}: `digest` = `sha256:` + the lowercase hex SHA-256 of exactly the bytes `resources/read` returns (UTF-8), `size` = their byte length (`digestCases`; `specExamples.codeReview` replays the overview's example byte for byte; `specExamples.gitWorkflow` is the spec's listing entry, whose body is unpublished, kept for its shape). Never `\"dynamic\"`. CACHE HINTS on every result: `ttlMs` = 300000; `cacheScope` = `private` for a team skill (its get, its reads, and any listing carrying one) and `public` for a built-in (and a listing of built-ins only). `skills/list` is ONE page: a `cursor` is refused. `skills/get {uri}` takes a SKILL.md URI only. `resources/read` returns {uri, mimeType (`mimeTypes` by extension), text}. `resources/directory/read` (D: `directoryRead`) lists the DIRECT children of a skill directory (the skill root `skill://<root>/<name>` or a folder under it): SKILL.md first, then by name; a folder = `directoryMimeType`; a team skill's root lists its SKILL.md only. ERRORS (JSON-RPC `errorCode` -32602, `errors`, `errorCases`): a missing or non-string uri (`missingUri`), a URI that is malformed, unknown, of an unreached team, or not a file (`notServed`), a directory read of a file (`notDirectory`), a cursor (`badCursor`). A URI is `scheme` + root + `/` + name + optional `/path`; root and name match `segmentPattern`; no query, fragment, backslash, NUL, empty, `.` or `..` segment, trailing slash, or more than `uriMax` chars (`uriCases`). LIMITS (`limits`, the spec's): at most 512 files and 16 MiB per skill; the shipped built-ins are tested against them.",
+  "extension": "io.modelcontextprotocol/skills",
+  "capability": {
+    "resources": {},
+    "extensions": {
+      "io.modelcontextprotocol/skills": {
+        "directoryRead": true
+      }
+    }
+  },
+  "scheme": "skill://",
+  "builtinRoot": "exponential",
+  "builtins": [
+    "exponential-genui",
+    "exponential-workflow"
+  ],
+  "segmentPattern": "^[a-z0-9][a-z0-9-]*$",
+  "uriMax": 1024,
+  "ttlMs": 300000,
+  "cacheScope": {
+    "team": "private",
+    "builtin": "public"
+  },
+  "mimeTypes": {
+    ".md": "text/markdown",
+    ".json": "application/json",
+    "default": "text/plain"
+  },
+  "directoryMimeType": "inode/directory",
+  "limits": {
+    "maxFiles": 512,
+    "maxBytes": 16777216
+  },
+  "errorCode": -32602,
+  "errors": {
+    "missingUri": "skills: a uri is required.",
+    "notServed": "No skill is served at {uri}",
+    "notDirectory": "{uri} is not a directory resource",
+    "badCursor": "skills/list has one page: no cursor."
+  },
+  "specExamples": {
+    "codeReview": {
+      "skillMd": "---\nname: code-review\ndescription: Review code using the team's checklist.\n---\n\n# Code review\n\nRead `references/checklist.md`, then review the diff.\n",
+      "checklist": "# Review checklist\n\nCheck correctness, tests, and compatibility.\n",
+      "listing": {
+        "uri": "skill://code-review/SKILL.md",
+        "frontmatter": {
+          "name": "code-review",
+          "description": "Review code using the team's checklist."
+        },
+        "resources": [
+          {
+            "uri": "skill://code-review/SKILL.md",
+            "digest": "sha256:d2489d6c182e8df9c178563ff9f2eac7998a0c1bb1278c52a7fd5306e4259160",
+            "size": 149
+          },
+          {
+            "uri": "skill://code-review/references/checklist.md",
+            "digest": "sha256:dbab2de7bf7db9cc95cb6ce681c3690b26184db39f75b958a0287ca6d9e24e20",
+            "size": 65
+          }
+        ]
+      }
+    },
+    "gitWorkflow": {
+      "uri": "skill://git-workflow/SKILL.md",
+      "frontmatter": {
+        "name": "git-workflow",
+        "description": "Follow this team's Git conventions for branching and commits"
+      },
+      "resources": [
+        {
+          "uri": "skill://git-workflow/SKILL.md",
+          "digest": "sha256:b95a384300adeea2d902f7d19cd7c04b378ef58e09759107b9c7db4dcacbaa25",
+          "size": 190
+        }
+      ]
+    }
+  },
+  "digestCases": [
+    {
+      "name": "the overview's code-review SKILL.md",
+      "content": "---\nname: code-review\ndescription: Review code using the team's checklist.\n---\n\n# Code review\n\nRead `references/checklist.md`, then review the diff.\n",
+      "digest": "sha256:d2489d6c182e8df9c178563ff9f2eac7998a0c1bb1278c52a7fd5306e4259160",
+      "size": 149
+    },
+    {
+      "name": "its checklist",
+      "content": "# Review checklist\n\nCheck correctness, tests, and compatibility.\n",
+      "digest": "sha256:dbab2de7bf7db9cc95cb6ce681c3690b26184db39f75b958a0287ca6d9e24e20",
+      "size": 65
+    },
+    {
+      "name": "empty",
+      "content": "",
+      "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "name": "non-ASCII counts bytes",
+      "content": "Größe ✓\n",
+      "digest": "sha256:12835a044dd3546dc2abc73a87fb445f1d2dfbd1fe607f3a0df720ec2a67dcfe",
+      "size": 12
+    }
+  ],
+  "teamSkillMdCases": [
+    {
+      "name": "plain",
+      "skill": {
+        "name": "triage",
+        "description": "Triage new bugs.",
+        "body": "# Triage\n\nLabel, then prioritise.\n"
+      },
+      "expected": "---\nname: triage\ndescription: \"Triage new bugs.\"\n---\n\n# Triage\n\nLabel, then prioritise.\n"
+    },
+    {
+      "name": "quotes in the description are JSON-escaped",
+      "skill": {
+        "name": "api-style",
+        "description": "Our API style: \"nouns\", never verbs.",
+        "body": "Use nouns."
+      },
+      "expected": "---\nname: api-style\ndescription: \"Our API style: \\\"nouns\\\", never verbs.\"\n---\n\nUse nouns.\n"
+    },
+    {
+      "name": "a body's own frontmatter stays body (no allowed-tools in ours)",
+      "skill": {
+        "name": "sneaky",
+        "description": "d",
+        "body": "---\nallowed-tools: Bash\n---\nrm -rf"
+      },
+      "expected": "---\nname: sneaky\ndescription: \"d\"\n---\n\n---\nallowed-tools: Bash\n---\nrm -rf\n"
+    }
+  ],
+  "uriCases": [
+    {
+      "uri": "skill://web/triage/SKILL.md",
+      "expected": {
+        "root": "web",
+        "name": "triage",
+        "path": "SKILL.md"
+      }
+    },
+    {
+      "uri": "skill://exponential/exponential-genui/references/style.md",
+      "expected": {
+        "root": "exponential",
+        "name": "exponential-genui",
+        "path": "references/style.md"
+      }
+    },
+    {
+      "uri": "skill://exponential/exponential-genui",
+      "expected": {
+        "root": "exponential",
+        "name": "exponential-genui",
+        "path": ""
+      }
+    },
+    {
+      "uri": "skill://exponential",
+      "expected": null
+    },
+    {
+      "uri": "skill://web/triage/",
+      "expected": null
+    },
+    {
+      "uri": "skill://web/triage/../x/SKILL.md",
+      "expected": null
+    },
+    {
+      "uri": "skill://web//SKILL.md",
+      "expected": null
+    },
+    {
+      "uri": "skill://Web/triage/SKILL.md",
+      "expected": null
+    },
+    {
+      "uri": "skill://web/triage/SKILL.md?x=1",
+      "expected": null
+    },
+    {
+      "uri": "file:///etc/passwd",
+      "expected": null
+    },
+    {
+      "uri": 12,
+      "expected": null
+    }
+  ],
+  "given": {
+    "teams": [
+      {
+        "slug": "web",
+        "skills": [
+          {
+            "name": "triage",
+            "description": "Triage new bugs.",
+            "body": "# Triage\n\nLabel, then prioritise.\n",
+            "builtin": false
+          },
+          {
+            "name": "exponential-genui",
+            "description": "old",
+            "body": "stale",
+            "builtin": true
+          }
+        ]
+      },
+      {
+        "slug": "exponential",
+        "skills": [
+          {
+            "name": "api-style",
+            "description": "Our API style: \"nouns\", never verbs.",
+            "body": "Use nouns.",
+            "builtin": false
+          },
+          {
+            "name": "exponential-workflow",
+            "description": "A team's own skill holding a built-in name",
+            "body": "mine",
+            "builtin": false
+          }
+        ]
+      }
+    ],
+    "builtins": [
+      {
+        "name": "exponential-genui",
+        "description": "Write genUI.",
+        "skillMd": "---\nname: exponential-genui\ndescription: \"Write genUI.\"\n---\n\n# genUI\n",
+        "files": [
+          {
+            "path": "references/style.md",
+            "content": "# Style\n"
+          },
+          {
+            "path": "references/functions.md",
+            "content": "# Functions\n"
+          }
+        ]
+      },
+      {
+        "name": "exponential-workflow",
+        "description": "Work in Exponential.",
+        "skillMd": "---\nname: exponential-workflow\ndescription: \"Work in Exponential.\"\n---\n\n# Workflow\n",
+        "files": []
+      },
+      {
+        "name": "exponential-motion",
+        "description": "Not served over MCP.",
+        "skillMd": "---\nname: exponential-motion\ndescription: \"x\"\n---\n",
+        "files": []
+      }
+    ]
+  },
+  "listCases": [
+    {
+      "name": "teams by slug then name, then the built-ins; builtin rows and the shadowed skill skipped; private",
+      "teams": "given",
+      "expected": {
+        "resultType": "complete",
+        "skills": [
+          {
+            "uri": "skill://exponential/api-style/SKILL.md",
+            "frontmatter": {
+              "name": "api-style",
+              "description": "Our API style: \"nouns\", never verbs."
+            },
+            "resources": [
+              {
+                "uri": "skill://exponential/api-style/SKILL.md",
+                "digest": "sha256:aee6dc626cef29424adb8f7ff3420ad0d8c2b6c3c3f63396beceb31658b09aea",
+                "size": 90
+              }
+            ]
+          },
+          {
+            "uri": "skill://web/triage/SKILL.md",
+            "frontmatter": {
+              "name": "triage",
+              "description": "Triage new bugs."
+            },
+            "resources": [
+              {
+                "uri": "skill://web/triage/SKILL.md",
+                "digest": "sha256:708e5f61bab0ea8dbf4686943fd64b461b27348a3e18121c9b826ef4d391d8e0",
+                "size": 88
+              }
+            ]
+          },
+          {
+            "uri": "skill://exponential/exponential-genui/SKILL.md",
+            "frontmatter": {
+              "name": "exponential-genui",
+              "description": "Write genUI."
+            },
+            "resources": [
+              {
+                "uri": "skill://exponential/exponential-genui/SKILL.md",
+                "digest": "sha256:cedf13dca5c65f65f54008f2ab3780c2c2dd643138cfe9f5a20bb04ca7637a68",
+                "size": 69
+              },
+              {
+                "uri": "skill://exponential/exponential-genui/references/functions.md",
+                "digest": "sha256:d8eff335bf918513c63cfdc76396fc9b439720320f35f1ea529d82e37eb74c35",
+                "size": 12
+              },
+              {
+                "uri": "skill://exponential/exponential-genui/references/style.md",
+                "digest": "sha256:3717c3c8027c526d5bc5af9adf27c8ecde05ce3cb7de2ad9058fcd54ca3212db",
+                "size": 8
+              }
+            ]
+          },
+          {
+            "uri": "skill://exponential/exponential-workflow/SKILL.md",
+            "frontmatter": {
+              "name": "exponential-workflow",
+              "description": "Work in Exponential."
+            },
+            "resources": [
+              {
+                "uri": "skill://exponential/exponential-workflow/SKILL.md",
+                "digest": "sha256:c595dedf7c0ee9ddee203389b266f67f549967624255658c874c6798b911eec9",
+                "size": 83
+              }
+            ]
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "name": "no team skills: built-ins only, public",
+      "teams": [],
+      "expected": {
+        "resultType": "complete",
+        "skills": [
+          {
+            "uri": "skill://exponential/exponential-genui/SKILL.md",
+            "frontmatter": {
+              "name": "exponential-genui",
+              "description": "Write genUI."
+            },
+            "resources": [
+              {
+                "uri": "skill://exponential/exponential-genui/SKILL.md",
+                "digest": "sha256:cedf13dca5c65f65f54008f2ab3780c2c2dd643138cfe9f5a20bb04ca7637a68",
+                "size": 69
+              },
+              {
+                "uri": "skill://exponential/exponential-genui/references/functions.md",
+                "digest": "sha256:d8eff335bf918513c63cfdc76396fc9b439720320f35f1ea529d82e37eb74c35",
+                "size": 12
+              },
+              {
+                "uri": "skill://exponential/exponential-genui/references/style.md",
+                "digest": "sha256:3717c3c8027c526d5bc5af9adf27c8ecde05ce3cb7de2ad9058fcd54ca3212db",
+                "size": 8
+              }
+            ]
+          },
+          {
+            "uri": "skill://exponential/exponential-workflow/SKILL.md",
+            "frontmatter": {
+              "name": "exponential-workflow",
+              "description": "Work in Exponential."
+            },
+            "resources": [
+              {
+                "uri": "skill://exponential/exponential-workflow/SKILL.md",
+                "digest": "sha256:c595dedf7c0ee9ddee203389b266f67f549967624255658c874c6798b911eec9",
+                "size": 83
+              }
+            ]
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "a cursor is refused",
+      "teams": "given",
+      "params": {
+        "cursor": "abc"
+      },
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "skills/list has one page: no cursor."
+        }
+      }
+    }
+  ],
+  "getCases": [
+    {
+      "name": "a team skill: private",
+      "uri": "skill://web/triage/SKILL.md",
+      "expected": {
+        "resultType": "complete",
+        "skill": {
+          "uri": "skill://web/triage/SKILL.md",
+          "frontmatter": {
+            "name": "triage",
+            "description": "Triage new bugs."
+          },
+          "resources": [
+            {
+              "uri": "skill://web/triage/SKILL.md",
+              "digest": "sha256:708e5f61bab0ea8dbf4686943fd64b461b27348a3e18121c9b826ef4d391d8e0",
+              "size": 88
+            }
+          ]
+        },
+        "ttlMs": 300000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "name": "a built-in: public",
+      "uri": "skill://exponential/exponential-workflow/SKILL.md",
+      "expected": {
+        "resultType": "complete",
+        "skill": {
+          "uri": "skill://exponential/exponential-workflow/SKILL.md",
+          "frontmatter": {
+            "name": "exponential-workflow",
+            "description": "Work in Exponential."
+          },
+          "resources": [
+            {
+              "uri": "skill://exponential/exponential-workflow/SKILL.md",
+              "digest": "sha256:c595dedf7c0ee9ddee203389b266f67f549967624255658c874c6798b911eec9",
+              "size": 83
+            }
+          ]
+        },
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "an unreached team reads as unknown",
+      "uri": "skill://mobile/triage/SKILL.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://mobile/triage/SKILL.md"
+        }
+      }
+    },
+    {
+      "name": "the shadowed team skill is the built-in",
+      "uri": "skill://exponential/exponential-workflow/SKILL.md",
+      "expected": {
+        "resultType": "complete",
+        "skill": {
+          "uri": "skill://exponential/exponential-workflow/SKILL.md",
+          "frontmatter": {
+            "name": "exponential-workflow",
+            "description": "Work in Exponential."
+          },
+          "resources": [
+            {
+              "uri": "skill://exponential/exponential-workflow/SKILL.md",
+              "digest": "sha256:c595dedf7c0ee9ddee203389b266f67f549967624255658c874c6798b911eec9",
+              "size": 83
+            }
+          ]
+        },
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "Motion is not served over MCP",
+      "uri": "skill://exponential/exponential-motion/SKILL.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://exponential/exponential-motion/SKILL.md"
+        }
+      }
+    },
+    {
+      "name": "a builtin row under a team is not a team skill",
+      "uri": "skill://web/exponential-genui/SKILL.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://web/exponential-genui/SKILL.md"
+        }
+      }
+    },
+    {
+      "name": "a file is not a skill",
+      "uri": "skill://exponential/exponential-genui/references/style.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://exponential/exponential-genui/references/style.md"
+        }
+      }
+    },
+    {
+      "name": "missing uri",
+      "uri": null,
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "skills: a uri is required."
+        }
+      }
+    },
+    {
+      "name": "malformed",
+      "uri": "skill://web/../SKILL.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://web/../SKILL.md"
+        }
+      }
+    }
+  ],
+  "readCases": [
+    {
+      "name": "a team SKILL.md",
+      "uri": "skill://web/triage/SKILL.md",
+      "expected": {
+        "resultType": "complete",
+        "contents": [
+          {
+            "uri": "skill://web/triage/SKILL.md",
+            "mimeType": "text/markdown",
+            "text": "---\nname: triage\ndescription: \"Triage new bugs.\"\n---\n\n# Triage\n\nLabel, then prioritise.\n"
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "name": "a built-in reference",
+      "uri": "skill://exponential/exponential-genui/references/style.md",
+      "expected": {
+        "resultType": "complete",
+        "contents": [
+          {
+            "uri": "skill://exponential/exponential-genui/references/style.md",
+            "mimeType": "text/markdown",
+            "text": "# Style\n"
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "an unlisted file",
+      "uri": "skill://exponential/exponential-genui/references/nope.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://exponential/exponential-genui/references/nope.md"
+        }
+      }
+    },
+    {
+      "name": "a directory is not a file",
+      "uri": "skill://exponential/exponential-genui/references",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://exponential/exponential-genui/references"
+        }
+      }
+    },
+    {
+      "name": "a team skill has no other files",
+      "uri": "skill://web/triage/references/x.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://web/triage/references/x.md"
+        }
+      }
+    }
+  ],
+  "directoryCases": [
+    {
+      "name": "a built-in's root",
+      "uri": "skill://exponential/exponential-genui",
+      "expected": {
+        "resultType": "complete",
+        "resources": [
+          {
+            "uri": "skill://exponential/exponential-genui/SKILL.md",
+            "name": "SKILL.md",
+            "mimeType": "text/markdown"
+          },
+          {
+            "uri": "skill://exponential/exponential-genui/references",
+            "name": "references",
+            "mimeType": "inode/directory"
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "a folder",
+      "uri": "skill://exponential/exponential-genui/references",
+      "expected": {
+        "resultType": "complete",
+        "resources": [
+          {
+            "uri": "skill://exponential/exponential-genui/references/functions.md",
+            "name": "functions.md",
+            "mimeType": "text/markdown"
+          },
+          {
+            "uri": "skill://exponential/exponential-genui/references/style.md",
+            "name": "style.md",
+            "mimeType": "text/markdown"
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "name": "a team skill's root: SKILL.md only",
+      "uri": "skill://web/triage",
+      "expected": {
+        "resultType": "complete",
+        "resources": [
+          {
+            "uri": "skill://web/triage/SKILL.md",
+            "name": "SKILL.md",
+            "mimeType": "text/markdown"
+          }
+        ],
+        "ttlMs": 300000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "name": "a file",
+      "uri": "skill://exponential/exponential-genui/SKILL.md",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "skill://exponential/exponential-genui/SKILL.md is not a directory resource"
+        }
+      }
+    },
+    {
+      "name": "an unknown folder",
+      "uri": "skill://exponential/exponential-genui/examples",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://exponential/exponential-genui/examples"
+        }
+      }
+    },
+    {
+      "name": "an unreached team",
+      "uri": "skill://mobile/triage",
+      "expected": {
+        "error": {
+          "code": -32602,
+          "message": "No skill is served at skill://mobile/triage"
+        }
+      }
+    }
+  ]
+}
