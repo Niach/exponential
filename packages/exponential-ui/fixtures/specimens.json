@@ -8973,7 +8973,6 @@
                     "component": "Ring",
                     "props": {
                       "size": "lg",
-                      "label": "Activity",
                       "rings": [
                         {
                           "value": 0.8,

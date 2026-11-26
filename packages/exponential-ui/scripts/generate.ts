@@ -1578,7 +1578,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `sweep · 270 (gauge), rings`,
     node: { id: `rings`, component: `Stack`, props: { direction: `horizontal`, gap: `md`, align: `center` }, children: [
       { id: `gauge`, component: `Ring`, props: { value: 0.64, sweep: 270, size: `lg`, tone: `success`, label: `64` } },
-      { id: `activity`, component: `Ring`, props: { size: `lg`, label: `Activity`, rings: [{ value: 0.8, tone: `danger` }, { value: 42, max: 60, tone: `success` }, { value: 0.35, tone: `info` }] } },
+      { id: `activity`, component: `Ring`, props: { size: `lg`, rings: [{ value: 0.8, tone: `danger` }, { value: 42, max: 60, tone: `success` }, { value: 0.35, tone: `info` }] } },
     ] },
   }],
   AudioPlayer: [{
