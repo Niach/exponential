@@ -62,6 +62,8 @@ pub struct TranscriptCopy {
     pub check_ins: String,
     /// #EXP-1873: between the label and the last firing's `HH:mm`.
     pub check_in_time_separator: String,
+    /// #FEED-317: between a run's first and last tick's `HH:mm`.
+    pub check_in_time_range: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -697,6 +699,10 @@ pub enum FeedRowRole {
     Quiet,
     /// An agent turn with blank text: never drawn.
     Blank,
+    /// #FEED-317: the agent's work (a tool line or run, an Exponential tool
+    /// run, a thought, a subagent line; never a notice or a `show` call).
+    Work,
+    /// Everything else drawn (cards, a `show` call).
     Other,
 }
 
@@ -709,6 +715,7 @@ impl FeedRowRole {
             "reply" => Some(Self::Reply),
             "quiet" => Some(Self::Quiet),
             "blank" => Some(Self::Blank),
+            "work" => Some(Self::Work),
             "other" => Some(Self::Other),
             _ => None,
         }
@@ -724,9 +731,9 @@ pub enum FeedRowShown {
     CheckIn(u32),
 }
 
-/// #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-/// turn only called quiet, nothing else) is one line;
-/// consecutive ones collapse onto the last.
+/// #EXP-1873 + #FEED-317 (`checkInCases`): a quiet tick (a schedule firing
+/// whose turn called quiet and said nothing visible: work folds in) is one
+/// line; consecutive ones collapse onto the last.
 pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
     let marker_kinds: Vec<FeedRowKind> = kinds
         .iter()
@@ -734,7 +741,7 @@ pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
             FeedRowRole::Schedule | FeedRowRole::Marker => FeedRowKind::Marker,
             FeedRowRole::Input => FeedRowKind::Input,
             FeedRowRole::Reply => FeedRowKind::Reply,
-            FeedRowRole::Quiet | FeedRowRole::Blank | FeedRowRole::Other => FeedRowKind::Other,
+            FeedRowRole::Quiet | FeedRowRole::Blank | FeedRowRole::Work | FeedRowRole::Other => FeedRowKind::Other,
         })
         .collect();
     let mut shown: Vec<FeedRowShown> = markers_shown(&marker_kinds)
@@ -788,16 +795,36 @@ pub fn feed_rows(kinds: &[FeedRowRole]) -> Vec<FeedRowShown> {
     shown
 }
 
-/// #EXP-1873 (`checkInLabelCases`): the check-in line's text.
-pub fn check_in_label(count: u32, time: Option<&str>) -> String {
+/// #FEED-317: the rows a schedule line at `index` covers ([`feed_rows`]
+/// gave it `count`): the last `count` schedule rows up to and including it,
+/// oldest first.
+pub fn check_in_ticks(kinds: &[FeedRowRole], index: usize, count: u32) -> Vec<usize> {
+    let mut ticks: Vec<usize> = (0..=index.min(kinds.len().saturating_sub(1)))
+        .rev()
+        .filter(|&at| kinds.get(at) == Some(&FeedRowRole::Schedule))
+        .take(count as usize)
+        .collect();
+    ticks.reverse();
+    ticks
+}
+
+/// #EXP-1873 + #FEED-317 (`checkInLabelCases`): the schedule line's text,
+/// `Schedule ×5 · 11:15–12:15`.
+pub fn check_in_label(count: u32, first: Option<&str>, last: Option<&str>) -> String {
     let copy = copy();
     let label = match count {
         1 => copy.check_in.clone(),
         _ => copy.check_ins.replace("{count}", &count.to_string()),
     };
+    let first = first.filter(|t| !t.is_empty());
+    let last = last.filter(|t| !t.is_empty());
+    let time = match (first, last) {
+        (Some(first), Some(last)) if first != last => Some(format!("{first}{}{last}", copy.check_in_time_range)),
+        _ => last.or(first).map(str::to_owned),
+    };
     match time {
-        Some(time) if !time.is_empty() => format!("{label}{}{time}", copy.check_in_time_separator),
-        _ => label,
+        Some(time) => format!("{label}{}{time}", copy.check_in_time_separator),
+        None => label,
     }
 }
 
@@ -1040,7 +1067,11 @@ mod tests {
         for case in cases {
             let name = case["name"].as_str().unwrap();
             let count = case["count"].as_u64().unwrap() as u32;
-            assert_eq!(check_in_label(count, case["time"].as_str()), case["expected"].as_str().unwrap(), "{name}");
+            assert_eq!(
+                check_in_label(count, case["first"].as_str(), case["last"].as_str()),
+                case["expected"].as_str().unwrap(),
+                "{name}"
+            );
         }
     }
 
