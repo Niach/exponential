@@ -171,9 +171,11 @@ struct Live {
     name: String,
 }
 
-/// The icon in `state` as SNI pixmaps.
+/// The icon in `state` as SNI pixmaps: the standard panel sizes, so a host
+/// drawing at 16, 22 or 24 px (eDE and Cinnamon at 1x) or 32 / 48 (2x) finds
+/// its exact size and never scales (#EDE-247).
 fn pixmaps(state: TrayIcon) -> Vec<Pixmap> {
-    super::icon_frames(state, &[22, 32, 48, 64])
+    super::icon_frames(state, &[16, 22, 24, 32, 48, 64])
         .into_iter()
         .map(|frame| {
             let argb = frame.rgba.chunks_exact(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
