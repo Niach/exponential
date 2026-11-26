@@ -249,6 +249,28 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
     })
   })
 
+  it(`production's shape: a ~129 KB package its upgrade grows past the cap migrates and is listed`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const base = structuredClone(CAT.fieldVisits) as Record<string, unknown>
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+      // Its templates again and again, as a big app grows (the upgrade adds ~6.5 %).
+      const templates = Object.entries(base.templates as Record<string, unknown>)
+      for (let i = 0; bytes(base) < 128_000; i++) for (const [id, template] of templates) (base.templates as Record<string, unknown>)[`${id}${i}`] = structuredClone(template)
+      expect(bytes(base)).toBeLessThan(131_072)
+      const big = await s.app(`big-${id8()}`, { package: base })
+      const version = await s.version(big, 1, base)
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(report.ok).toBe(true)
+      const pkg = (await appRow(tx, big)).package!
+      expect(pkg.formatVersion).toBe(6)
+      expect(bytes(pkg)).toBeGreaterThan(131_072)
+      expect(report.columns[`apps.package`]!.overCap).toEqual([{ id: big, bytes: bytes(pkg) }])
+      expect(report.columns[`app_versions.package`]!.overCap.map((row) => row.id)).toEqual([version])
+      expectPackageLoads(pkg)
+    })
+  })
+
   it(`a test the upgrade broke still fails its row`, async () => {
     const pkg = crm(`stage must be one of lead, won`)
     // Passes on format 5; a conversion that touched the action's data would not.

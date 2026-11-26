@@ -26,7 +26,8 @@ import { eq, sql, type SQL } from "drizzle-orm"
 import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, cardV10, runPackageTests, signPackageFile, verifyPackageFile } from "@exponential_app/eui"
 import type { db as appDb } from "@/db/connection"
 import { dataMigrations } from "@/db/schema"
-import { migratedPackageIssues } from "@/lib/apps/package"
+import { migratedPackageIssues, packageBytes } from "@/lib/apps/package"
+import { APP_PACKAGE_MAX_BYTES } from "@exp/domain-contract/apps"
 import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/card-surface"
 import { isSealedCard } from "@/lib/sessions/sealed"
 import { rename09, upgradeCard09, upgradePackage09, upgradePackageBody09 } from "./upgrade09"
@@ -39,8 +40,9 @@ export type MigrationDb = Pick<typeof appDb, `execute` | `transaction`>
 
 /** What one stored value needs. `empty` = nothing of ours in it (not counted);
  *  `unloadable` = no client loads it, before or after: left as it is;
- *  `testsFailing` = its own tests failed before the upgrade too. */
-export type Verdict = { kind: `empty` } | { kind: `current` } | { kind: `sealed` } | { kind: `unloadable`; reason: string } | { kind: `rewrite`; value: unknown; testsFailing?: string } | { kind: `failed`; reason: string }
+ *  `testsFailing` = its own tests failed before the upgrade too; `bytes` = the
+ *  upgrade grew it past `packageMaxBytes` (a write rule of this server alone). */
+export type Verdict = { kind: `empty` } | { kind: `current` } | { kind: `sealed` } | { kind: `unloadable`; reason: string } | { kind: `rewrite`; value: unknown; testsFailing?: string; bytes?: number } | { kind: `failed`; reason: string }
 
 export interface ColumnReport {
   /** Rows holding a value of ours (a NULL package is none; for
@@ -58,6 +60,9 @@ export interface ColumnReport {
   unloadable: { id: string; reason: string }[]
   /** Rewritten although its own tests fail: they failed before the upgrade. */
   testsAlreadyFailing: { id: string; reason: string }[]
+  /** Rewritten past `packageMaxBytes`: every client loads it (none checks
+   *  the cap), the app's next save asks its owner to trim it. */
+  overCap: { id: string; bytes: number }[]
   /** Changed under every read of this run; a later run takes them. */
   conflicted: string[]
   /** The JSON bytes of `toRewrite`. */
@@ -138,12 +143,14 @@ export async function upgradeStoredPackage(value: unknown): Promise<Verdict> {
   // A package's own test fails the row only when the upgrade broke it.
   const already = new Set(all.some((issue) => issue.path.startsWith(`/tests/`)) ? failingTests09(value) : [])
   const issues = all.filter((issue) => !already.has(issue.path))
-  if (issues.length === 0 && all.length > 0) return { kind: `rewrite`, value: upgraded.package, testsFailing: all.map((issue) => `${issue.path}: ${issue.message}`).join(`; `) }
+  const bytes = packageBytes(upgraded.package)
+  const over = bytes > APP_PACKAGE_MAX_BYTES ? { bytes } : {}
+  if (issues.length === 0 && all.length > 0) return { kind: `rewrite`, value: upgraded.package, testsFailing: all.map((issue) => `${issue.path}: ${issue.message}`).join(`; `), ...over }
   if (issues.length > 0) {
     const listed = issues.slice(0, 3).map((issue) => `${issue.path}: ${issue.message}`)
     return { kind: `failed`, reason: listed.join(`; `) + (issues.length > 3 ? `; and ${issues.length - 3} more` : ``) }
   }
-  return { kind: `rewrite`, value: upgraded.package }
+  return { kind: `rewrite`, value: upgraded.package, ...over }
 }
 
 /** A `messages.card`: its surface, if clear and 0.9, → 1.0. The upgraded
@@ -241,7 +248,7 @@ interface RowPlan {
 const rowsOf = <T>(result: unknown): T[] => (result as { rows: T[] }).rows
 const keyOf = (spec: TableSpec, column: ColumnSpec) => `${spec.table}.${column.column}`
 
-const emptyColumn = (synced: boolean): ColumnReport => ({ total: 0, alreadyV10: 0, toRewrite: 0, rewritten: 0, sealedSkipped: 0, heldBack: 0, failed: [], unloadable: [], testsAlreadyFailing: [], conflicted: [], bytes: 0, synced })
+const emptyColumn = (synced: boolean): ColumnReport => ({ total: 0, alreadyV10: 0, toRewrite: 0, rewritten: 0, sealedSkipped: 0, heldBack: 0, failed: [], unloadable: [], testsAlreadyFailing: [], overCap: [], conflicted: [], bytes: 0, synced })
 
 function selectRows(spec: TableSpec): SQL {
   const columns = spec.columns.map((c) => c.column)
@@ -290,6 +297,7 @@ async function planRow(spec: TableSpec, row: Row, columns: Record<string, Column
     else if (verdict.kind === `rewrite`) {
       const bytes = Buffer.byteLength(JSON.stringify(verdict.value))
       if (recount) {
+        if (verdict.bytes) report.overCap.push({ id: row.id, bytes: verdict.bytes })
         if (verdict.testsFailing) report.testsAlreadyFailing.push({ id: row.id, reason: verdict.testsFailing })
         report.toRewrite += 1
         report.bytes += bytes
@@ -459,11 +467,11 @@ export function stagedV09(rows: readonly { tableName: string; row: Record<string
 
 /** The report as the operator reads it. */
 export function formatMigrationReport(report: MigrationReport): string {
-  const header = [`column`, `total`, `1.0`, `to rewrite`, `rewritten`, `sealed`, `unloadable`, `tests failing`, `held`, `failed`, `conflicted`]
-  const rows = Object.entries(report.columns).map(([name, c]) => [name, c.total, c.alreadyV10, c.toRewrite, c.rewritten, c.sealedSkipped, c.unloadable.length, c.testsAlreadyFailing.length, c.heldBack, c.failed.length, c.conflicted.length].map(String))
+  const header = [`column`, `total`, `1.0`, `to rewrite`, `rewritten`, `sealed`, `unloadable`, `tests failing`, `over cap`, `held`, `failed`, `conflicted`]
+  const rows = Object.entries(report.columns).map(([name, c]) => [name, c.total, c.alreadyV10, c.toRewrite, c.rewritten, c.sealedSkipped, c.unloadable.length, c.testsAlreadyFailing.length, c.overCap.length, c.heldBack, c.failed.length, c.conflicted.length].map(String))
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)))
   const line = (cells: string[]) => cells.map((cell, i) => (i === 0 ? cell.padEnd(widths[i]!) : cell.padStart(widths[i]!))).join(`  `)
-  const failures = Object.entries(report.columns).flatMap(([name, c]) => [...c.failed.map((f) => `  FAILED ${name} ${f.id}: ${f.reason}`), ...c.unloadable.map((f) => `  unloadable before and after, left as it is: ${name} ${f.id}: ${f.reason}`), ...c.testsAlreadyFailing.map((f) => `  migrated, its tests already failed: ${name} ${f.id}: ${f.reason}`), ...c.conflicted.map((id) => `  CONFLICTED ${name} ${id}: changed under every read; run it again`)])
+  const failures = Object.entries(report.columns).flatMap(([name, c]) => [...c.failed.map((f) => `  FAILED ${name} ${f.id}: ${f.reason}`), ...c.unloadable.map((f) => `  unloadable before and after, left as it is: ${name} ${f.id}: ${f.reason}`), ...c.testsAlreadyFailing.map((f) => `  migrated, its tests already failed: ${name} ${f.id}: ${f.reason}`), ...c.overCap.map((f) => `  migrated past the ${APP_PACKAGE_MAX_BYTES}-byte cap (the next save asks to trim it): ${name} ${f.id}: ${f.bytes} bytes`), ...c.conflicted.map((id) => `  CONFLICTED ${name} ${id}: changed under every read; run it again`)])
   return [
     `a2ui10-migrate (${report.mode}): ${report.ok ? `ok` : `NOT ok`}`,
     line(header),

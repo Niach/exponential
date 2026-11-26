@@ -68,7 +68,9 @@ describe(`upgradeStoredPackage`, () => {
     expect(broken).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`no component has the id root`) })
   })
 
-  it(`a package the upgrade grows past the cap fails, never truncates`, async () => {
+  // Production's shape: ~129 KB of format 5 whose upgrade (mostly the 0.9
+  // presence wraps, then `@path`/`@call`) passes 131,072 bytes.
+  it(`a package the upgrade grows past the cap migrates whole and is reported`, async () => {
     const base = structuredClone(fixture.packages.fieldVisits) as Record<string, unknown>
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
     const before = bytes(base)
@@ -77,7 +79,14 @@ describe(`upgradeStoredPackage`, () => {
     // Fills the original to the cap exactly: it fits, its upgrade cannot.
     base.description = `${base.description}${`x`.repeat(APP_PACKAGE_MAX_BYTES - before)}`
     expect(bytes(base)).toBe(APP_PACKAGE_MAX_BYTES)
-    expect(await upgradeStoredPackage(base)).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`the cap is ${APP_PACKAGE_MAX_BYTES}`) })
+    const big = await upgradeStoredPackage(base)
+    expect(big).toMatchObject({ kind: `rewrite`, bytes: APP_PACKAGE_MAX_BYTES + growth })
+    const pkg = rewritten(big)
+    expect(pkg.description).toBe(base.description)
+    // Every client's load takes it; only this server's write rule refuses it.
+    expect(validatePackage(pkg, APP_CATALOG_IDS)).toEqual([])
+    expect(migratedPackageIssues(pkg)).toEqual([])
+    expect(appPackageIssues(pkg).map((issue) => issue.message)).toEqual([expect.stringContaining(`the cap is ${APP_PACKAGE_MAX_BYTES}`)])
   })
 })
 
