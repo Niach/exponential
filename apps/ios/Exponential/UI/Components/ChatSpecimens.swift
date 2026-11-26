@@ -612,19 +612,29 @@ struct ChatTranscriptSpecimens: View {
         }
     }
 
-    /// #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent
-    /// chat's check-ins through `feedRows`: quiet runs = ONE line each, the
-    /// one that answered keeps its marker above the bubble.
+    /// #EXP-1873 + #FEED-317 (transcript-grouping.json `checkInSpecimen`):
+    /// an agent chat's ticks through `feedRows`: quiet runs = ONE tool-group
+    /// line each (the agent's trace line beside its avatar, its work folded),
+    /// the one that answered keeps its marker above the bubble.
     private var checkIns: some View {
         let rows = TranscriptGrouping.checkInSpecimen
-        let shown = TranscriptGrouping.feedRows(rows.map(\.kind))
+        let kinds = rows.map(\.kind)
+        let shown = TranscriptGrouping.feedRows(kinds)
+        let agent = TranscriptGrouping.checkInSpecimenAgent
         return VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 switch shown[index] {
                 case .hidden:
                     EmptyView()
                 case let .checkIn(count):
-                    TranscriptMarkerRow(label: TranscriptGrouping.checkInLabel(count: count, time: row.time))
+                    TranscriptRow(
+                        side: .other, gap: 0,
+                        avatar: .agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
+                    ) {
+                        ScheduleTicksRow(
+                            times: TranscriptGrouping.checkInTicks(kinds, index: index, count: count).map { rows[$0].time }
+                        )
+                    }
                 case .row:
                     if row.kind == .schedule {
                         TranscriptMarkerRow(label: TranscriptGrouping.Copy.markers["schedule"] ?? "")
@@ -632,7 +642,6 @@ struct ChatTranscriptSpecimens: View {
                         TranscriptMarkerRow(label: TranscriptGrouping.traceNotice("exponential_session_self_quiet") ?? "")
                     } else {
                         // A real agent bubble: its avatar, name and tail.
-                        let agent = TranscriptGrouping.checkInSpecimenAgent
                         TranscriptRow(
                             side: .other, gap: 0,
                             avatar: .agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
