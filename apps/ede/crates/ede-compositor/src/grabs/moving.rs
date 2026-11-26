@@ -42,6 +42,13 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
     ) {
         // While the grab is active, no client has pointer focus
         handle.motion(data, None, event);
+        // The button that drives the grab is up and its release never came
+        // here (a grab started after it, an input device gone): it ends
+        // now instead of dragging the window after the pointer (#EDE-222).
+        if !handle.current_pressed().contains(&self.start_data.button) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
 
         let delta = event.location - self.start_data.location;
         if window_state(&self.window).tile.is_some() {

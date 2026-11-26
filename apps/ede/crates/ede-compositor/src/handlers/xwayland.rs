@@ -22,7 +22,7 @@ use smithay::{
     },
     input::{
         keyboard::KeyboardTarget,
-        pointer::{Focus, GrabStartData},
+        pointer::Focus,
     },
     utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
@@ -41,7 +41,7 @@ use smithay::{
 use crate::{
     desk::DeskId,
     spaces::x11::XwmDesk,
-    grabs::{MoveSurfaceGrab, ResizeEdge, ResizeSurfaceGrab, BTN_LEFT},
+    grabs::{MoveSurfaceGrab, ResizeEdge, ResizeSurfaceGrab},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
 };
@@ -497,6 +497,7 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
             self.tile(&w, Tile::Maximized);
         }
     }
@@ -525,6 +526,7 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
             self.set_fullscreen(&w, true);
         }
     }
@@ -593,6 +595,11 @@ impl XwmHandler for Ede {
         }
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.desk.space.element_location(&window) else { return };
+        let pointer = self.desk.seat.get_pointer().unwrap();
+        // #EDE-222: only while the press is still held; one already
+        // released (a quick or double click on the client's title bar)
+        // would leave the window glued to the pointer.
+        let Some(start) = pointer.grab_start_data() else { return };
         // Resizing a tiled window makes it float at its new size; a
         // fullscreen one keeps the output.
         let mut st = window_state(&window);
@@ -614,10 +621,6 @@ impl XwmHandler for Ede {
             X11ResizeEdge::BottomLeft => ResizeEdge::BOTTOM_LEFT,
             X11ResizeEdge::BottomRight => ResizeEdge::BOTTOM_RIGHT,
         };
-        let pointer = self.desk.seat.get_pointer().unwrap();
-        let start = pointer
-            .grab_start_data()
-            .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
         let rect = Rectangle::new(loc, window.geometry().size);
         pointer.set_grab(self, ResizeSurfaceGrab::start(start, window, edges, rect), SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
@@ -634,9 +637,8 @@ impl XwmHandler for Ede {
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.desk.space.element_location(&window) else { return };
         let pointer = self.desk.seat.get_pointer().unwrap();
-        let start = pointer
-            .grab_start_data()
-            .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
+        // As in a resize: only while the press is still held.
+        let Some(start) = pointer.grab_start_data() else { return };
         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 
