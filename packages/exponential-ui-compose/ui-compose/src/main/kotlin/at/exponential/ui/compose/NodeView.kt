@@ -72,6 +72,8 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalInputModeManager
@@ -157,15 +159,46 @@ private fun rememberAnimationFrame(id: String, spec: AnimationSpec?, reduced: Bo
             val timing = JsonValue.parse(spec.timingJson)
             val duration = timing["durationMs"]?.number ?: 0.0
             val runs = timing["iterations"]?.number ?: 1.0
+            // Round 4 motion: the stagger offset + animationDelay: the first
+            // keyframe holds (one wait, no frames), then the run.
+            val waitMs = timing["delayMs"]?.number ?: 0.0
             var start = -1L
+            if (waitMs > 0) {
+                start = withFrameNanos { it }
+                delay(waitMs.toLong())
+            }
             while (true) {
                 val now = if (spec.infinite) withInfiniteAnimationFrameNanos { it } else withFrameNanos { it }
                 if (start < 0) start = now
                 val elapsed = (now - start) / 1e6
                 frame = AnimFrame.parse(runCatching { animationFrameJson(spec.name, spec.timingJson, elapsed, false) }.getOrNull())
-                if (!spec.infinite && elapsed >= duration * runs) break
+                if (!spec.infinite && elapsed >= waitMs + duration * runs) break
             }
         }
+    }
+    return frame
+}
+
+/**
+ * Round 4 motion: the exit frame of a leaving ghost, from the moment it
+ * began leaving, one core frame per display frame; when it ran the model
+ * finishes it (the ghost leaves, layout closes its gap).
+ */
+@Composable
+private fun rememberExitFrame(id: String, spec: AnimationSpec?, exiting: Boolean, model: SurfaceModel): AnimFrame? {
+    if (spec == null || !exiting) return null
+    var frame by remember(id, spec.name) { mutableStateOf(AnimFrame.parse(runCatching { animationFrameJson(spec.name, spec.timingJson, 0.0, false) }.getOrNull())) }
+    LaunchedEffect(id, spec.name, spec.timingJson) {
+        val duration = JsonValue.parse(spec.timingJson)["durationMs"]?.number ?: 0.0
+        var start = -1L
+        while (true) {
+            val now = withFrameNanos { it }
+            if (start < 0) start = now
+            val elapsed = (now - start) / 1e6
+            frame = AnimFrame.parse(runCatching { animationFrameJson(spec.name, spec.timingJson, elapsed, false) }.getOrNull())
+            if (elapsed >= duration) break
+        }
+        model.finishExit(id)
     }
     return frame
 }
@@ -207,7 +240,9 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
     val pressable = node.pressable && !selfHandling(node) && !inert
     val tooltip = tooltipTarget(node, model)
     val style = transitionedTranslate(transitioned(base, model.reducedMotion), model.reducedMotion)
-    val anim = rememberAnimationFrame(node.id, base.animation, model.reducedMotion)
+    val entered = rememberAnimationFrame(node.id, base.animation, model.reducedMotion)
+    // Round 4 motion: a leaving ghost plays its exit instead.
+    val anim = rememberExitFrame(node.id, base.exit, node.exiting, model) ?: entered
     val focusRequester = remember(node.id) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     val request = model.focusRequest
@@ -380,7 +415,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         modifier
             .then(if (pinned || model.isListDragPath(index)) Modifier.zIndex(1f) else Modifier)
             .traversal(index)
-            .nodeSemantics(node, model)
+            .then(if (node.exiting) Modifier.ghost() else Modifier.nodeSemantics(node, model))
             .then(animated)
             .then(pressedScale)
             .skeletonPulse(node.component == "Skeleton" && node.isLeaf, model.reducedMotion)
@@ -963,3 +998,11 @@ private fun resizeHandle(node: NodeInfo, model: SurfaceModel, enabled: Boolean, 
             }
         }
 }
+
+/** Round 4 motion: a leaving ghost's subtree takes no input and leaves the semantics tree. */
+private fun Modifier.ghost(): Modifier =
+    clearAndSetSemantics {}.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+        }
+    }

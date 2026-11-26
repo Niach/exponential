@@ -435,7 +435,7 @@ impl Surface {
     /// state is updated here; bound props write through; `on` handlers fire.
     pub fn event(&mut self, index: u32, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
         self.ensure_reduced();
-        if !self.live.get(index as usize).copied().unwrap_or(false) {
+        if !self.live.get(index as usize).copied().unwrap_or(false) || self.ghosts.contains(&index) {
             return vec![];
         }
         let n = self.nodes[index as usize].clone();
@@ -865,7 +865,7 @@ impl Surface {
     /// but an enabled hold Button: nothing.
     pub fn hold(&mut self, index: u32, input: &crate::hold::HoldInput) -> Vec<OutEvent> {
         self.ensure_reduced();
-        if !self.live.get(index as usize).copied().unwrap_or(false) {
+        if !self.live.get(index as usize).copied().unwrap_or(false) || self.ghosts.contains(&index) {
             return vec![];
         }
         let n = self.nodes[index as usize].clone();

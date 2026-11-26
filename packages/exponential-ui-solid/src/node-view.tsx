@@ -19,6 +19,7 @@ import { ErrorBoundary, For, Show, createComputed, createEffect, createMemo, on,
 import { Dynamic } from "solid-js/web"
 import { UNKNOWN_COMPONENT, catalogView, forcedStatesOf, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
 import type { ExtensionDef, UiNode } from "@exponential_app/eui"
+import { MotionContext, PresenceList, motionAttributes, useMotionRoot, wantsPresence, type PresenceItem } from "./presence"
 import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, hasDynamic, isBubbleTail, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useScope, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionComponent, extensionMacroNames } from "./extensions"
@@ -294,11 +295,21 @@ function BoundNode(props: { node: UiNode }): JSX.Element {
     return typeof v?.src === `string` ? v.src : ``
   })
   const picture = createBackgroundImage(() => ctx.host, () => ctx.theme, pictureSrc)
+  // Round 4 motion: this node's root as its container paints it (the
+  // stagger offset, or a ghost's exit); its descendants paint without it.
+  const motion = useMotionRoot()
+  const motionRoot = createMemo(() => motionAttributes(motion, props.node))
   const boxVars = createMemo(() => {
     const p = picture()
-    return p ? ({ ...dynamicStyle(), ...p } as SolidStyle) : dynamicStyle()
+    const m = motionRoot().style
+    const d = dynamicStyle()
+    return p || m ? ({ ...(d ?? {}), ...(p ?? {}), ...(m ?? {}) } as SolidStyle) : d
   })
-  const rootProps = createRootProps(node, resolved, domId, recipeProps, boxVars)
+  const baseRoot = createRootProps(node, resolved, domId, recipeProps, boxVars)
+  const rootProps = createMemo(() => {
+    const attrs = motionRoot().attrs
+    return attrs ? { ...baseRoot(), ...attrs } : baseRoot()
+  })
   const emit = createEmitter(node, scope, domId)
   const component = createMemo(() => props.node.component)
   const override = createMemo(() => extensionComponent(ctx.extensions, component()))
@@ -333,14 +344,7 @@ function BoundNode(props: { node: UiNode }): JSX.Element {
       return ctx.theme.tokens
     },
     get children() {
-      return (
-        <>
-          <NodeList nodes={props.node.children} />
-          <Show when={props.node.template}>
-            <TemplateChildren node={props.node} scope={scope()} />
-          </Show>
-        </>
-      )
+      return <ContainerChildren node={props.node} scope={scope()} />
     },
     get slots() {
       const out: Record<string, JSX.Element> = {}
@@ -361,7 +365,7 @@ function BoundNode(props: { node: UiNode }): JSX.Element {
     },
   }
 
-  const paint = () => <Dynamic component={Painter()} {...painterProps} />
+  const paint = () => (motion ? <MotionContext.Provider value={null}>{<Dynamic component={Painter()} {...painterProps} />}</MotionContext.Provider> : <Dynamic component={Painter()} {...painterProps} />)
   const guarded = createMemo(() => !(UNGUARDED.has(component()) && !override()))
   return (
     <Show
@@ -529,4 +533,74 @@ function TemplateChildren(props: { node: UiNode; scope: string }): JSX.Element {
       <TemplateItems items={last().items} tpl={last().tpl} />
     </Show>
   )
+}
+
+/** A container's children: static ones then the template's items. Round 4
+ *  motion: through `PresenceList` (ghosts, stagger) once the container
+ *  staggers or a child has an exit; else as they are (React's). */
+function ContainerChildren(props: { node: UiNode; scope: string }): JSX.Element {
+  const ctx = useSurfaceContext()
+  let tracked = false
+  const motion = createMemo(() => {
+    const n = props.node
+    const tpl = n.template ? ctx.templateNode(n.template.component) : undefined
+    tracked ||= wantsPresence((n.style as Record<string, unknown> | undefined)?.animationStagger, [...n.children, tpl])
+    return tracked
+  })
+  return (
+    <Show
+      when={motion()}
+      fallback={
+        <>
+          <NodeList nodes={props.node.children} />
+          <Show when={props.node.template}>
+            <TemplateChildren node={props.node} scope={props.scope} />
+          </Show>
+        </>
+      }
+    >
+      <PresenceChildren node={props.node} scope={props.scope} />
+    </Show>
+  )
+}
+
+/** The presence pass over the visible static children and template items;
+ *  each renders by KEY (a ghost keeps its last node / item). */
+function PresenceChildren(props: { node: UiNode; scope: string }): JSX.Element {
+  const ctx = useSurfaceContext()
+  const items = createMemo((): PresenceItem[] => {
+    const rctx = resolveContextOf(ctx, props.scope)
+    const out: PresenceItem[] = []
+    for (const child of props.node.children) {
+      if (child.visible !== undefined && !resolveVisible(child.visible, rctx)) continue
+      const id = child.id
+      out.push({
+        key: id,
+        node: child,
+        render: () => {
+          const node = createMemo<UiNode>((prev) => props.node.children.find((c) => c.id === id) ?? prev!)
+          return <NodeView node={node()} />
+        },
+      })
+    }
+    const t = templateItems(ctx, props.node, props.scope)
+    if (t) {
+      for (const item of t.items) {
+        if (t.tpl.visible !== undefined && !resolveVisible(t.tpl.visible, resolveContextOf(ctx, item.path))) continue
+        const key = item.key
+        out.push({
+          key: `t:${key}`,
+          node: t.tpl,
+          render: () => {
+            const now = createMemo(() => templateItems(ctx, props.node, props.scope))
+            const tpl = createMemo<UiNode>((prev) => now()?.tpl ?? prev!)
+            const it = createMemo<TemplateItem>((prev) => now()?.items.find((i) => i.key === key) ?? prev!)
+            return <TemplateItemView tpl={tpl()} item={it()} />
+          },
+        })
+      }
+    }
+    return out
+  })
+  return <PresenceList items={items()} stagger={(props.node.style as Record<string, unknown> | undefined)?.animationStagger} />
 }

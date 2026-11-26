@@ -1146,6 +1146,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_finish_exit(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_forced_states_of(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
@@ -1589,6 +1591,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_finish_exit(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_forced_states_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -7588,6 +7592,12 @@ public interface SurfaceInterface {
     fun `fieldChecksJson`(`id`: kotlin.String): kotlin.String
     
     /**
+     * Round 4 motion: the painter played `id`'s exit to its end (the ghost
+     * leaves; lay out again). False = no such exit.
+     */
+    fun `finishExit`(`id`: kotlin.String): kotlin.Boolean
+    
+    /**
      * #EXP-1781: the forced states `id` carries, for a part the painter
      * draws itself (a Segmented item `<id>.item.<k>`).
      */
@@ -8233,6 +8243,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
+        it,
+        
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 4 motion: the painter played `id`'s exit to its end (the ghost
+     * leaves; lay out again). False = no such exit.
+     */override fun `finishExit`(`id`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_finish_exit(
         it,
         
         FfiConverterString.lower(`id`),_status)
@@ -11081,6 +11109,13 @@ data class FfiNode (
     var `removed`: kotlin.Boolean
     , 
     /**
+     * Round 4 motion: a leaving ghost root playing `exitJson` from the
+     * moment this turned true (its subtree: no hit-testing, out of the
+     * accessibility tree); call `finishExit(id)` once it ran.
+     */
+    var `exiting`: kotlin.Boolean = false 
+    , 
+    /**
      * The states the core resolved into the node's PART recipe query only
      * (a tab `selected`, an accordion trigger `open`, a check part
      * `checked`; VAPP-88).
@@ -11150,6 +11185,7 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterSequenceString.read(buf),
@@ -11182,6 +11218,7 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterOptionalString.allocationSize(value.`form`) +
             FfiConverterOptionalString.allocationSize(value.`live`) +
             FfiConverterBoolean.allocationSize(value.`removed`) +
+            FfiConverterBoolean.allocationSize(value.`exiting`) +
             FfiConverterSequenceString.allocationSize(value.`partStates`) +
             FfiConverterOptionalString.allocationSize(value.`macroName`) +
             FfiConverterSequenceString.allocationSize(value.`interactionStates`) +
@@ -11213,6 +11250,7 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterOptionalString.write(value.`form`, buf)
             FfiConverterOptionalString.write(value.`live`, buf)
             FfiConverterBoolean.write(value.`removed`, buf)
+            FfiConverterBoolean.write(value.`exiting`, buf)
             FfiConverterSequenceString.write(value.`partStates`, buf)
             FfiConverterOptionalString.write(value.`macroName`, buf)
             FfiConverterSequenceString.write(value.`interactionStates`, buf)
@@ -11896,6 +11934,13 @@ data class FfiVisual (
     var `animationJson`: kotlin.String? = null 
     , 
     /**
+     * Round 4 motion: the `exitAnimation` as `{name, timing}` (`timing.delayMs`
+     * never set), played while the node is `exiting`; sample it with
+     * `animationFrameJson`. None under reduced motion.
+     */
+    var `exitJson`: kotlin.String? = null 
+    , 
+    /**
      * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
      */
     var `sticky`: kotlin.Boolean = false 
@@ -11969,6 +12014,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
@@ -12017,6 +12063,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.allocationSize(value.`backdropBlur`) +
             FfiConverterOptionalString.allocationSize(value.`tail`) +
             FfiConverterOptionalString.allocationSize(value.`animationJson`) +
+            FfiConverterOptionalString.allocationSize(value.`exitJson`) +
             FfiConverterBoolean.allocationSize(value.`sticky`) +
             FfiConverterOptionalString.allocationSize(value.`backgroundClip`) +
             FfiConverterOptionalString.allocationSize(value.`backgroundImageJson`)
@@ -12064,6 +12111,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.write(value.`backdropBlur`, buf)
             FfiConverterOptionalString.write(value.`tail`, buf)
             FfiConverterOptionalString.write(value.`animationJson`, buf)
+            FfiConverterOptionalString.write(value.`exitJson`, buf)
             FfiConverterBoolean.write(value.`sticky`, buf)
             FfiConverterOptionalString.write(value.`backgroundClip`, buf)
             FfiConverterOptionalString.write(value.`backgroundImageJson`, buf)

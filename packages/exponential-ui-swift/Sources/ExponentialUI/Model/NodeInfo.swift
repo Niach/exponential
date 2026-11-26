@@ -26,6 +26,9 @@ public struct NodeInfo: Identifiable, Sendable {
     public let pressable: Bool
     /// Not painted: hidden by the core, or a removed slot.
     public let hidden: Bool
+    /// Round 4 motion: a leaving ghost root playing its exit (its subtree
+    /// takes no input and leaves the accessibility tree).
+    public let exiting: Bool
     public let triggerFor: String?
     public let accessibility: Props?
     /// The parsed `accessibility` (macro `$a11y` + the author's override).
@@ -67,6 +70,7 @@ public struct NodeInfo: Identifiable, Sendable {
         lines = n.lines.map { Int($0) }
         pressable = n.pressable && !n.removed
         hidden = n.hidden || n.removed
+        exiting = n.exiting
         triggerFor = n.triggerFor
         let a = n.accessibilityJson.flatMap { JSONValue.parse($0).object }
         accessibility = a
@@ -104,6 +108,7 @@ public struct NodeInfo: Identifiable, Sendable {
         lines = n.lines
         pressable = false
         hidden = true
+        exiting = false
         triggerFor = n.triggerFor
         accessibility = n.accessibility
         a11y = n.a11y

@@ -573,6 +573,41 @@ object Round2Suites {
         return JsonValue.parse(v)["timing"]
     }
 
+    /** A themed surface of flat components (+ data), laid out at the viewport. */
+    private fun motionSurface(theme: String, components: JsonValue, reduced: Boolean, data: JsonValue?, width: Float = 400f, height: Float = 400f): Surface {
+        val surface = Surface.withTheme("motion", coreCatalogId(), Theme.builtin(theme), "light")
+        surface.setPointer(false, reduced)
+        surface.setComponents(components.json)
+        for ((k, v) in data?.obj ?: emptyMap()) surface.setData("/$k", v.json)
+        surface.setViewport(width, height, null)
+        surface.layoutFixed(null, true)
+        return surface
+    }
+
+    /** One `presence` scenario: the container's painted children (ids, ghosts, enter delays) after every step. */
+    private fun presenceCase(c: JsonValue): String? {
+        val vp = c["viewport"]!!
+        motionSurface("neutral", c["components"]!!, c["reducedMotion"]?.bool ?: false, c["data"], (vp["width"]?.number ?: 400.0).toFloat(), (vp["height"]?.number ?: 400.0).toFloat()).use { surface ->
+            val first = c["first"]?.number?.toInt()
+            for ((i, step) in list(c, "steps").withIndex()) {
+                step["data"]?.let { d -> surface.setData(s(d, "path"), d["value"]!!.json) }
+                step["components"]?.let { surface.setComponents(it.json) }
+                step["finishExit"]?.string?.let { id -> if (!surface.finishExit(id)) return "step $i: no exit $id to finish" }
+                surface.layoutFixed(null, true)
+                val nodes = surface.nodes()
+                val container = surface.indexOf(s(c, "container")) ?: return "no container"
+                var got = nodes[container.toInt()].children.map { k ->
+                    val n = nodes[k.toInt()]
+                    val delay = if (n.exiting) 0.0 else surface.visual(k)?.animationJson?.let { JsonValue.parse(it)["timing"]?.get("delayMs")?.number } ?: 0.0
+                    JsonValue.Obj(mapOf("id" to JsonValue.Str(n.id), "exiting" to JsonValue.Bool(n.exiting), "delayMs" to JsonValue.Num(delay)))
+                }
+                if (first != null) got = got.take(first)
+                same(JsonValue.Arr(got).json, step["expect"]!!)?.let { return "step $i: $it" }
+            }
+        }
+        return null
+    }
+
     private fun frameNear(got: JsonValue, want: JsonValue): String? {
         for ((k, v) in want.obj ?: emptyMap()) {
             val g = got[k]
@@ -662,6 +697,45 @@ object Round2Suites {
                 val want = c["expected"]?.number ?: Double.NaN
                 if (abs(got - want) <= 1e-3) null else "$got vs $want"
             })
+        }
+        // Round 4 motion: the exit sets (the visual's `exitJson`), animationDelay
+        // (the visual's timing gains delayMs) and the presence scenarios
+        // replayed on a surface (ghosts, stagger).
+        for ((id, entries) in f["exits"]!!.obj!!) {
+            for ((name, e) in entries.obj!!) {
+                out.add(case("exit $id/$name") {
+                    motionSurface(id, JsonValue.Arr(listOf(JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "style" to JsonValue.Obj(mapOf("exitAnimation" to JsonValue.Str(name), "width" to JsonValue.Num(10.0), "height" to JsonValue.Num(10.0))))))), false, null).use { surface ->
+                        val exit = surface.visual(surface.indexOf("root") ?: return@case "no root")?.exitJson ?: return@case "no exit on the visual"
+                        val t = JsonValue.parse(exit)["timing"]!!
+                        same(t.json, e["timing"]!!)?.let { return@case "timing $it" }
+                        for (fr in list(e, "frames")) {
+                            val at = fr["t"]?.number ?: 0.0
+                            val got = JsonValue.parse(animationFrameJson(name, t.json, at, false) ?: return@case "no frame @$at")
+                            frameNear(got, fr["frame"]!!)?.let { return@case "@$at $it" }
+                        }
+                        same(JsonValue.Str(keyframesCss(name)).json, f["css"]!![name]!!)?.let { "css $it" }
+                    }
+                })
+            }
+        }
+        for (c in list(f, "delay")) {
+            out.add(case("delay ${s(c, "name")}") {
+                val style = (c["style"]!!.obj!!) + mapOf("width" to JsonValue.Num(10.0), "height" to JsonValue.Num(10.0))
+                motionSurface(s(c, "theme"), JsonValue.Arr(listOf(JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "style" to JsonValue.Obj(style))))), false, null).use { surface ->
+                    val a = JsonValue.parse(surface.visual(surface.indexOf("root") ?: return@case "no root")?.animationJson ?: return@case "no animation on the visual")
+                    val t = a["timing"]!!
+                    same(t.json, c["timing"]!!)?.let { return@case "timing $it" }
+                    for (fr in list(c, "frames")) {
+                        val at = fr["t"]?.number ?: 0.0
+                        val got = JsonValue.parse(animationFrameJson(s(a, "name"), t.json, at, false) ?: return@case "no frame @$at")
+                        frameNear(got, fr["frame"]!!)?.let { return@case "@$at $it" }
+                    }
+                    null
+                }
+            })
+        }
+        for (c in list(f, "presence")) {
+            out.add(case("presence ${s(c, "name")}") { presenceCase(c) })
         }
         val o = f["override"]!!
         out.add(case("override") {
