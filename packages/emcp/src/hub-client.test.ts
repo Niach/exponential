@@ -8,7 +8,6 @@ import {
   elicitResult,
   hubSkillMd,
   hubToolNames,
-  skillApprovalState,
   skillDirName,
   taskTrace,
   verifySkillFile,
@@ -54,12 +53,6 @@ describe(`skill files`, () => {
 
 describe(`digest sets`, () => {
   for (const entry of fixture.digestSetCases) test(entry.name, () => expect(digestSet(entry.resources)).toBe(entry.expected))
-})
-
-describe(`approval state`, () => {
-  for (const entry of fixture.approvalCases) {
-    test(entry.name, () => expect(skillApprovalState(entry.approvals, entry.uri, entry.digestSet)).toBe(entry.expected as never))
-  }
 })
 
 describe(`dir names`, () => {

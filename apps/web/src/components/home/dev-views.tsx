@@ -30,7 +30,6 @@ import {
 } from "@exp/ui"
 import { CiRunSpecimen } from "@/components/ci/ci-run-page"
 import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
-import { McpSkillsSpecimen } from "@/components/team/mcp-servers-section"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { isProductionBuild } from "@/lib/production-build"
 
@@ -46,8 +45,7 @@ import { isProductionBuild } from "@/lib/production-build"
 // ones: web's ringing and in-call surface, the desktop pill, the round
 // buttons; EXP-1681 `call-pill` THE floating call pill; #EXP-1804 `ci-run` /
 // `runner-settings` the CI run page and runner section over their fixtures'
-// specimens; #NEW-148 `mcp-skills` an open team MCP server's skills
-// (settings-mcp.json `skillsStateCases`); #EXP-1611 `pr-checks` the
+// specimens; #EXP-1611 `pr-checks` the
 // Merge pill's check states + the Checks submenu; #FEED-191
 // `results-tab` THE Results tab body, `needs-you` THE Needs you list; EXP-1558
 // `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
@@ -76,7 +74,6 @@ export const DEV_VIEWS = [
   `pr-checks`,
   `ci-run`,
   `runner-settings`,
-  `mcp-skills`,
   `results-tab`,
   `needs-you`,
   `mention-pill`,
@@ -125,8 +122,6 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <CiRunSpecimen />
       ) : dev === `runner-settings` ? (
         <RunnerSettingsSpecimen />
-      ) : dev === `mcp-skills` ? (
-        <McpSkillsSpecimen />
       ) : dev === `results-tab` ? (
         <ResultsTabSpecimen size={isMobile ? `phone` : `wide`} />
       ) : dev === `needs-you` ? (

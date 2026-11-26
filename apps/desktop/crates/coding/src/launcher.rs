@@ -1662,7 +1662,7 @@ fn resolve_team_skills(deps: &CodingDeps, session_id: &str) -> crate::team_skill
 
 /// #NEW-148 (@exp/emcp hub-client.json): mount the run's team MCP servers
 /// behind the device hub, leaving ONE `team` entry in `team_mcp`, and write
-/// their owner-approved skills into the session's skill dir. Called BEFORE
+/// their verified skills into the session's skill dir. Called BEFORE
 /// the device's own entries (computer use, code mode, screen memory) are
 /// attached; never a blocker (every miss is a logged warning).
 fn route_team_mcp(
@@ -1675,8 +1675,7 @@ fn route_team_mcp(
     let warned = team_mcp.warnings.len();
     let skills_warned = team_skills.warnings.len();
     let mounted = crate::team_hub::route(team_mcp, &deps.data_dir, deps.trpc.clone(), session_id, label);
-    let approvals = team_mcp.skill_approvals.clone();
-    crate::team_hub::write_mcp_skills(&deps.data_dir, session_id, &mounted, &approvals, team_skills);
+    crate::team_hub::write_mcp_skills(&deps.data_dir, session_id, &mounted, team_skills);
     for warning in team_mcp.warnings[warned..].iter().chain(&team_skills.warnings[skills_warned..]) {
         log::warn!("{warning}");
     }
@@ -2433,7 +2432,7 @@ fn prepare_session(
     let mut team_skills = resolve_team_skills(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     // #NEW-148: the team servers go behind the device hub (ONE `team`
-    // entry), their approved skills into the session's skill dir.
+    // entry), their verified skills into the session's skill dir.
     route_team_mcp(deps, &mut team_mcp, &mut team_skills, &session_id, &label);
     // #EXP-1514: a record of this row from before (a start that was retried)
     // keeps saying it had a space.

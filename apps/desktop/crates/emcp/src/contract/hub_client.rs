@@ -2,7 +2,7 @@
 //! `packages/emcp/fixtures/hub-client.json`): the capabilities every
 //! upstream request declares, MRTR's answers, the task poller's interval
 //! and TraceItem, the call's copy, and the skills rules (verify, digest
-//! set, approval, the skill dir name and its rewritten SKILL.md). Pure:
+//! set, the skill dir name and its rewritten SKILL.md). Pure:
 //! `tests/fixtures.rs` replays every case, like `src/hub-client.ts`.
 
 use serde::Deserialize;
@@ -306,45 +306,6 @@ pub fn skill_md(dir_name: &str, bytes: &[u8]) -> Option<String> {
         })
     })?;
     Some(format!("---\nname: {dir_name}\ndescription: {}\n---\n\n{}\n", Value::from(description), body.trim()))
-}
-
-/// One owner approval of a server's skill (`resolveForLaunch`
-/// `skillApprovals`).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillApproval {
-    pub uri: String,
-    pub digest_set: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ApprovalState {
-    Approved,
-    Changed,
-    Pending,
-}
-
-impl ApprovalState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ApprovalState::Approved => "approved",
-            ApprovalState::Changed => "changed",
-            ApprovalState::Pending => "pending",
-        }
-    }
-}
-
-/// `approvalCases`: approved = this uri with this digest set; changed =
-/// this uri with another one; pending = none of this uri.
-pub fn approval_state(approvals: &[SkillApproval], uri: &str, digest_set: &str) -> ApprovalState {
-    let mine: Vec<&SkillApproval> = approvals.iter().filter(|approval| approval.uri == uri).collect();
-    if mine.iter().any(|approval| approval.digest_set == digest_set) {
-        ApprovalState::Approved
-    } else if mine.is_empty() {
-        ApprovalState::Pending
-    } else {
-        ApprovalState::Changed
-    }
 }
 
 /// A skill file's path relative to its skill dir is safe to write: not

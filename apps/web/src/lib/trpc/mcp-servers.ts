@@ -31,7 +31,6 @@ import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
   mcpCredentials,
   mcpOauthFlows,
-  mcpServerSkillApprovals,
   apps,
   devices,
   mcpServers,
@@ -57,15 +56,7 @@ import { unlinkUpstream } from "@/lib/emcp/revoke"
 import { safeReturnTo } from "@/lib/emcp/upstream/urls"
 import { McpHttpError } from "@/lib/emcp/upstream/net"
 import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
-import {
-  listMcpServerSkills,
-  listMcpServerTools,
-  probeMcpServer,
-  testMcpServer,
-  type UpstreamSkillRow,
-  type UpstreamToolRow,
-} from "@/lib/emcp/upstream/mcp-client"
-import { skillApprovalState, type SkillApprovalState } from "@exp/emcp/hub-client"
+import { listMcpServerTools, probeMcpServer, testMcpServer, type UpstreamToolRow } from "@/lib/emcp/upstream/mcp-client"
 import { claimDeviceCall } from "@/lib/emcp/upstream/device-call"
 import { mcpUrlAllowed } from "@exp/emcp/upstream"
 import { sessionLaunchPick, sessionLaunchTeams, uniqueLaunchNames } from "@/lib/agents/team-picks"
@@ -318,18 +309,6 @@ function outboundError(e: unknown): never {
 const TOOL_LIST_TTL_MS = 5 * 60_000
 const TOOL_LIST_CACHE_MAX = 500
 const toolListCache = new Map<string, { at: number; answer: { ok: boolean; tools: UpstreamToolRow[] | null; error: string | null } }>()
-
-/** #NEW-148: one `mcpServers.skills` row: a verified skill the server
- *  serves the caller and its approval state in the team. */
-export type McpServerSkillRow = UpstreamSkillRow & { state: SkillApprovalState }
-
-/** `mcpServers.skills`' cache: a member's verified skill listing per server
- *  (keyed like `toolListCache`), 5 minutes, at most 500. The approval state
- *  is read fresh on every call, so an approve/revoke shows at once. */
-const skillListCache = new Map<string, { at: number; answer: { ok: boolean; skills: UpstreamSkillRow[] | null; error: string | null } }>()
-
-const skillUriSchema = z.string().trim().min(1).max(1024).startsWith(`skill://`)
-const digestSetSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
 
 export const mcpServersRouter = router({
   // One team's servers with the CALLER's connection per server and the
@@ -769,95 +748,6 @@ export const mcpServersRouter = router({
         toolListCache.set(key, { at: Date.now(), answer })
       }
       return answer
-    }),
-
-  // #NEW-148 Settings › MCP (fixtures/settings-mcp.json `skillsStateCases`,
-  // @exp/emcp hub-client.json `approvalCases`): the skills an open team
-  // server row's server serves, listed and verified with the caller's OWN
-  // credential like `tools` (cached the same way), each with its approval
-  // state in the team. A server without the skills extension = `skills: []`.
-  skills: authedProcedure
-    .input(z.object({ serverId: z.string().uuid() }))
-    .query(async ({ ctx, input }): Promise<{ ok: boolean; skills: McpServerSkillRow[] | null; error: string | null }> => {
-      await assertNotAgentKey(ctx)
-      const server = await loadMemberServer(ctx, input.serverId)
-      if (server.transport !== `http` || !server.url) {
-        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Only http servers list their skills here` })
-      }
-      const key = `${server.id}:${ctx.session.user.id}:${server.url}`
-      const cached = skillListCache.get(key)
-      let answer: { ok: boolean; skills: UpstreamSkillRow[] | null; error: string | null }
-      if (cached && cached.at > Date.now() - TOOL_LIST_TTL_MS) {
-        answer = cached.answer
-      } else {
-        const resolved = await resolveForLaunch(ctx.db, {
-          userId: ctx.session.user.id,
-          teamIds: [server.teamId],
-          serverIds: [server.id],
-        })
-        const entry = resolved.servers[0]
-        if (!entry) return { ok: false, skills: null, error: resolved.skipped[0]?.reason ?? `not connected` }
-        answer = await listMcpServerSkills(
-          server.url,
-          Object.fromEntries(entry.headers.map((header) => [header.name, header.value]))
-        )
-        if (answer.ok) {
-          if (skillListCache.size >= TOOL_LIST_CACHE_MAX) skillListCache.delete(skillListCache.keys().next().value as string)
-          skillListCache.set(key, { at: Date.now(), answer })
-        }
-      }
-      if (!answer.ok || !answer.skills) return { ok: answer.ok, skills: null, error: answer.error }
-      const approvals =
-        answer.skills.length === 0
-          ? []
-          : await ctx.db
-              .select({ uri: mcpServerSkillApprovals.uri, digestSet: mcpServerSkillApprovals.digestSet })
-              .from(mcpServerSkillApprovals)
-              .where(and(eq(mcpServerSkillApprovals.serverId, server.id), eq(mcpServerSkillApprovals.teamId, server.teamId)))
-      return {
-        ok: true,
-        skills: answer.skills.map((skill) => ({ ...skill, state: skillApprovalState(approvals, skill.uri, skill.digestSet) })),
-        error: null,
-      }
-    }),
-
-  // #NEW-148: a team OWNER approves exactly this content of one skill (its
-  // digest set as `skills` listed it); a later change reads `changed`.
-  approveSkill: authedProcedure
-    .input(z.object({ serverId: z.string().uuid(), uri: skillUriSchema, digestSet: digestSetSchema }))
-    .mutation(async ({ ctx, input }) => {
-      await assertNotAgentKey(ctx)
-      const server = await loadServer(ctx.db, input.serverId)
-      await assertTeamOwner(ctx.session.user.id, server.teamId)
-      const now = new Date()
-      await ctx.db
-        .insert(mcpServerSkillApprovals)
-        .values({
-          teamId: server.teamId,
-          serverId: server.id,
-          uri: input.uri,
-          digestSet: input.digestSet,
-          approvedByUserId: ctx.session.user.id,
-          approvedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [mcpServerSkillApprovals.serverId, mcpServerSkillApprovals.uri],
-          set: { digestSet: input.digestSet, approvedByUserId: ctx.session.user.id, approvedAt: now },
-        })
-      return { ok: true as const }
-    }),
-
-  // #NEW-148: a team OWNER withdraws a skill's approval (any digest set).
-  revokeSkill: authedProcedure
-    .input(z.object({ serverId: z.string().uuid(), uri: skillUriSchema }))
-    .mutation(async ({ ctx, input }) => {
-      await assertNotAgentKey(ctx)
-      const server = await loadServer(ctx.db, input.serverId)
-      await assertTeamOwner(ctx.session.user.id, server.teamId)
-      await ctx.db
-        .delete(mcpServerSkillApprovals)
-        .where(and(eq(mcpServerSkillApprovals.serverId, server.id), eq(mcpServerSkillApprovals.uri, input.uri)))
-      return { ok: true as const }
     }),
 
   // The launcher's read (desktop, CLI daemon): the caller's OWN credentials

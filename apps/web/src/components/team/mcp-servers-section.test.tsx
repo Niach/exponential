@@ -31,9 +31,6 @@ const mockState = vi.hoisted(() => ({
   setShared: vi.fn(),
   setSecret: vi.fn(),
   tools: vi.fn(),
-  skills: vi.fn(),
-  approveSkill: vi.fn(),
-  revokeSkill: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   assign: vi.fn(),
@@ -53,9 +50,6 @@ vi.mock(`@/lib/trpc-client`, () => ({
       test: { mutate: vi.fn() },
       setShared: { mutate: mockState.setShared },
       tools: { query: mockState.tools },
-      skills: { query: mockState.skills },
-      approveSkill: { mutate: mockState.approveSkill },
-      revokeSkill: { mutate: mockState.revokeSkill },
     },
   },
 }))
@@ -118,7 +112,6 @@ const openMenu = (name: string) =>
 
 beforeEach(() => {
   for (const fn of Object.values(mockState)) fn.mockReset()
-  mockState.skills.mockResolvedValue({ ok: true, skills: [], error: null })
   vi.stubGlobal(`location`, { ...window.location, assign: mockState.assign, pathname: `/t/acme/settings/mcp-servers` })
 })
 
@@ -221,52 +214,6 @@ describe(`TeamMcpServersSection`, () => {
     fireEvent.click(screen.getByLabelText(`Show local tools`))
     expect(screen.getByText(`A local command: its tools list where a session runs it.`)).toBeTruthy()
     expect(mockState.tools).toHaveBeenCalledTimes(2)
-  })
-
-  // #NEW-148 (settings-mcp.json `skillsStateCases`).
-  it(`lists an open server's skills after its tools; owners approve and revoke, then it re-reads`, async () => {
-    mockState.list.mockResolvedValue([server(`linear`, `oauth`, `connected`)])
-    mockState.tools.mockResolvedValue({ ok: true, tools: [{ name: `list_issues`, title: `List issues`, blurb: `Lists them.` }], error: null })
-    const SET = `sha256:${`a`.repeat(64)}`
-    const rows = (state: string) => ({
-      ok: true,
-      error: null,
-      skills: [
-        { uri: `skill://linear/triage/SKILL.md`, name: `triage`, description: `Route new issues`, digestSet: SET, state },
-        { uri: `skill://linear/notes/SKILL.md`, name: `notes`, description: `Take notes`, digestSet: SET, state: `approved` },
-      ],
-    })
-    mockState.skills.mockResolvedValueOnce(rows(`pending`)).mockResolvedValueOnce(rows(`approved`))
-    mockState.approveSkill.mockResolvedValue({ ok: true })
-    render(<TeamMcpServersSection teamId="t1" isOwner />)
-    await screen.findByText(`linear`)
-    fireEvent.click(screen.getByLabelText(`Show linear tools`))
-    await screen.findByText(`Skills`)
-    expect(mockState.skills).toHaveBeenCalledWith({ serverId: `linear` }, expect.anything())
-    const skillRows = () => screen.getAllByTestId(`mcp-server-skill-row`)
-    expect(skillRows().map((row) => row.textContent)).toEqual([`triageRoute new issuesNot approvedApprove`, `notesTake notesApprovedRevoke`])
-    fireEvent.click(screen.getByRole(`button`, { name: `Approve` }))
-    await waitFor(() => expect(mockState.skills).toHaveBeenCalledTimes(2))
-    expect(mockState.approveSkill).toHaveBeenCalledWith({ serverId: `linear`, uri: `skill://linear/triage/SKILL.md`, digestSet: SET }, expect.anything())
-    await waitFor(() => expect(skillRows()[0]!.textContent).toBe(`triageRoute new issuesApprovedRevoke`))
-  })
-
-  it(`members read the skill badges only; no skills = no Skills label; a failed list = the muted line`, async () => {
-    mockState.list.mockResolvedValue([server(`linear`, `oauth`, `connected`), server(`sentry`, `oauth`, `connected`)])
-    mockState.tools.mockResolvedValue({ ok: true, tools: [], error: null })
-    mockState.skills.mockImplementation(async ({ serverId }: { serverId: string }) =>
-      serverId === `linear`
-        ? { ok: true, error: null, skills: [{ uri: `skill://linear/triage/SKILL.md`, name: `triage`, description: `d`, digestSet: `x`, state: `changed` }] }
-        : { ok: false, skills: null, error: `HTTP 500` }
-    )
-    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
-    await screen.findByText(`linear`)
-    fireEvent.click(screen.getByLabelText(`Show linear tools`))
-    expect((await screen.findByTestId(`mcp-server-skill-row`)).textContent).toBe(`triagedChanged`)
-    expect(screen.queryByRole(`button`, { name: `Approve` })).toBeNull()
-    fireEvent.click(screen.getByLabelText(`Show sentry tools`))
-    await screen.findByText(`Could not list its skills: HTTP 500`)
-    expect(screen.getAllByText(`Skills`)).toHaveLength(1)
   })
 
   it(`gives each row the viewer's one action and hides owner controls from members`, async () => {

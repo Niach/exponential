@@ -7,8 +7,6 @@
 import { McpHttpError, mcpFetch } from "@/lib/emcp/upstream/net"
 import { discover } from "@/lib/emcp/upstream/oauth-client"
 import { readJsonRpcAnswer, type JsonRpcMessage } from "@/lib/emcp/upstream/json-rpc-reader"
-import { digestSet, verifySkillFile, type SkillResource } from "@exp/emcp/hub-client"
-import skillsFixture from "@exp/emcp/fixtures/skills.json" with { type: "json" }
 
 const PROTOCOL_VERSION = `2025-06-18`
 
@@ -152,127 +150,6 @@ export async function listMcpServerTools(
       ok: false,
       tools: null,
       error: e instanceof McpHttpError ? e.message : `the connection failed`,
-    }
-  }
-}
-
-/** #NEW-148: one skill a team server serves (the skills extension), as
- *  Settings › MCP lists it: verified, with the digest set an owner's
- *  approval binds to. */
-export interface UpstreamSkillRow {
-  uri: string
-  name: string
-  description: string
-  digestSet: string
-}
-
-const SKILLS_EXTENSION = skillsFixture.extension
-const MAX_SKILL_PAGES = 5
-
-function decodeBase64(value: string): Uint8Array {
-  const raw = atob(value)
-  const out = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i)
-  return out
-}
-
-/** A manifest row of a `skills/list` entry, or null when malformed. */
-function manifestRow(value: unknown): SkillResource | null {
-  if (!value || typeof value !== `object`) return null
-  const r = value as { uri?: unknown; digest?: unknown; size?: unknown }
-  if (typeof r.uri !== `string` || typeof r.digest !== `string` || typeof r.size !== `number`) return null
-  return { uri: r.uri, digest: r.digest, size: r.size }
-}
-
-/** #NEW-148 (@exp/emcp hub-client.json): initialize (declaring the skills
- *  extension) → `skills/list` (every page, up to five) → `resources/read` of
- *  every manifest file, each VERIFIED (size, then digest); a skill over the
- *  spec's limits or with one mismatching file is left out, like the device
- *  hub drops it. A server that does not declare the extension (or answers
- *  method-not-found) serves none: `skills: []`. */
-export async function listMcpServerSkills(
-  url: string,
-  headers: Record<string, string>
-): Promise<{ ok: boolean; skills: UpstreamSkillRow[] | null; error: string | null }> {
-  const session: Session = { url, headers, sessionId: null, protocolVersion: PROTOCOL_VERSION }
-  let nextId = 1
-  try {
-    const init = await rpc(session, {
-      jsonrpc: `2.0`,
-      id: nextId++,
-      method: `initialize`,
-      params: {
-        protocolVersion: PROTOCOL_VERSION,
-        capabilities: { extensions: { [SKILLS_EXTENSION]: {} } },
-        clientInfo: { name: `Exponential`, version: `1.0.0` },
-      },
-    })
-    if (!init.response.ok) return { ok: false, skills: null, error: statusError(init.response) }
-    if (!init.message?.result) {
-      return { ok: false, skills: null, error: init.message?.error?.message?.slice(0, 300) ?? `no initialize answer` }
-    }
-    session.sessionId = init.response.headers.get(`mcp-session-id`)
-    const negotiated = init.message.result.protocolVersion
-    if (typeof negotiated === `string`) session.protocolVersion = negotiated
-    const capabilities = init.message.result.capabilities as { extensions?: Record<string, unknown> } | undefined
-    if (!capabilities?.extensions || !(SKILLS_EXTENSION in capabilities.extensions)) return { ok: true, skills: [], error: null }
-    await rpc(session, { jsonrpc: `2.0`, method: `notifications/initialized` })
-
-    const entries: unknown[] = []
-    let cursor: string | null = null
-    for (let page = 0; page < MAX_SKILL_PAGES; page++) {
-      const list = await rpc(session, { jsonrpc: `2.0`, id: nextId++, method: `skills/list`, params: cursor ? { cursor } : {} })
-      if (!list.response.ok) return { ok: false, skills: null, error: statusError(list.response) }
-      if (list.message?.error?.code === -32601) return { ok: true, skills: [], error: null }
-      const skills = list.message?.result?.skills
-      if (!Array.isArray(skills)) {
-        return { ok: false, skills: null, error: list.message?.error?.message?.slice(0, 300) ?? `no skills/list answer` }
-      }
-      entries.push(...skills)
-      const next = list.message?.result?.nextCursor
-      cursor = typeof next === `string` && next ? next : null
-      if (!cursor) break
-    }
-
-    const rows: UpstreamSkillRow[] = []
-    for (const value of entries) {
-      if (!value || typeof value !== `object`) continue
-      const skill = value as { uri?: unknown; frontmatter?: { name?: unknown; description?: unknown }; resources?: unknown }
-      if (typeof skill.uri !== `string` || !Array.isArray(skill.resources)) continue
-      const resources = skill.resources.map(manifestRow)
-      if (resources.length === 0 || resources.some((r) => r === null)) continue
-      const manifest = resources as SkillResource[]
-      if (manifest.length > skillsFixture.limits.maxFiles) continue
-      if (manifest.reduce((n, r) => n + r.size, 0) > skillsFixture.limits.maxBytes) continue
-      let verified = true
-      for (const file of manifest) {
-        const read = await rpc(session, { jsonrpc: `2.0`, id: nextId++, method: `resources/read`, params: { uri: file.uri } })
-        if (!read.response.ok) return { ok: false, skills: null, error: statusError(read.response) }
-        const content = (read.message?.result?.contents as Array<{ uri?: unknown; text?: unknown; blob?: unknown }> | undefined)?.find(
-          (c) => c && c.uri === file.uri
-        )
-        const bytes = typeof content?.text === `string` ? content.text : typeof content?.blob === `string` ? decodeBase64(content.blob) : null
-        if (bytes === null || verifySkillFile(file, bytes) !== null) {
-          verified = false
-          break
-        }
-      }
-      if (!verified) continue
-      const fallback = skill.uri.split(`/`).at(-2) ?? skill.uri
-      rows.push({
-        uri: skill.uri,
-        name: typeof skill.frontmatter?.name === `string` && skill.frontmatter.name ? skill.frontmatter.name : fallback,
-        description: typeof skill.frontmatter?.description === `string` ? skill.frontmatter.description : ``,
-        digestSet: digestSet(manifest),
-      })
-    }
-    rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0))
-    return { ok: true, skills: rows, error: null }
-  } catch (e) {
-    return { ok: false, skills: null, error: e instanceof McpHttpError ? e.message : `the connection failed` }
-  } finally {
-    if (session.sessionId) {
-      void mcpFetch(url, { method: `DELETE`, headers: { ...headers, "mcp-session-id": session.sessionId } }).catch(() => undefined)
     }
   }
 }

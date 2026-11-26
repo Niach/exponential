@@ -89,8 +89,6 @@ pub struct ResolvedMcp {
     /// #NEW-148: secret values that no longer reach the spawn env (the
     /// routed servers' credentials, held by the hub) but stay redacted.
     pub redact: Vec<String>,
-    /// #NEW-148: each server's owner skill approvals, by server id.
-    pub skill_approvals: std::collections::BTreeMap<String, Vec<api::mcp_servers::McpSkillApproval>>,
 }
 
 impl ResolvedMcp {
@@ -434,9 +432,6 @@ pub fn resolve_with(resolution: &McpLaunchResolution, ids: Option<&[String]>) ->
             wire.env.push((pair.name.clone(), format!("${{{}}}", pair.name)));
             resolved.env.push((pair.name.clone(), pair.value.clone()));
         }
-        if !server.skill_approvals.is_empty() {
-            resolved.skill_approvals.insert(server.id.clone(), server.skill_approvals.clone());
-        }
         resolved.servers.push(wire);
     }
     for skipped in &resolution.skipped {
@@ -560,7 +555,6 @@ mod tests {
             headers,
             env: Vec::new(),
             actor: None,
-            skill_approvals: Vec::new(),
         }
     }
 
@@ -758,7 +752,6 @@ mod tests {
             headers: Vec::new(),
             env: vec![named("GITHUB_TOKEN", "ok"), named("ld_preload", "/tmp/x.so")],
             actor: None,
-            skill_approvals: Vec::new(),
         };
         let fine = McpLaunchServer {
             id: "s-ok".into(),
@@ -770,7 +763,6 @@ mod tests {
             headers: Vec::new(),
             env: vec![named("GITHUB_TOKEN", "ghp_x")],
             actor: None,
-            skill_approvals: Vec::new(),
         };
         let resolution = McpLaunchResolution {
             servers: vec![hijack, fine],
@@ -813,7 +805,6 @@ mod tests {
             headers: Vec::new(),
             env: vec![named("GITHUB_TOKEN", "ghp_x")],
             actor: None,
-            skill_approvals: Vec::new(),
         };
         // The server's order is NOT the pick's: the pick wins.
         let resolution = McpLaunchResolution {
@@ -1029,7 +1020,6 @@ mod tests {
             headers: Vec::new(),
             env: vec![named(env, value)],
             actor: None,
-            skill_approvals: Vec::new(),
         };
         let resolution = McpLaunchResolution {
             servers: vec![

@@ -13,7 +13,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import {
   mcpCredentials,
-  mcpServerSkillApprovals,
   mcpServers,
   teamMembers,
   users,
@@ -243,10 +242,6 @@ export interface ResolvedMcpServer {
   headers: Array<{ name: string; value: string }>
   env: Array<{ name: string; value: string }>
   actor: McpActor | null
-  /** #NEW-148 (@exp/emcp hub-client.json): the team owners' approvals of
-   *  this server's skills; the device hub writes only a skill whose digest
-   *  set matches one into the session. */
-  skillApprovals: Array<{ uri: string; digestSet: string }>
 }
 
 export interface ResolvedMcpLaunch {
@@ -374,7 +369,6 @@ async function resolveServerEntry(
     headers: [],
     env: [],
     actor: null,
-    skillApprovals: [],
   }
   if (server.auth === `none`) return { entry }
   const payload = row ? decryptCredential(row.ciphertext, row) : null
@@ -444,12 +438,6 @@ export async function resolveForLaunch(
           )
         )
   const rowByServer = new Map(rows.map((row) => [row.serverId, row]))
-  const approvals = servers.length === 0
-    ? []
-    : await db
-        .select({ serverId: mcpServerSkillApprovals.serverId, uri: mcpServerSkillApprovals.uri, digestSet: mcpServerSkillApprovals.digestSet })
-        .from(mcpServerSkillApprovals)
-        .where(inArray(mcpServerSkillApprovals.serverId, servers.map((server) => server.id)))
 
   for (const id of ids) {
     const server = byId.get(id)
@@ -466,10 +454,6 @@ export async function resolveForLaunch(
       outcome.entry.actor = { userId: args.userId, name: args.actorName ?? ``, shared: false }
     }
     if (outcome.warning) out.warnings.push(outcome.warning)
-    outcome.entry.skillApprovals = approvals
-      .filter((approval) => approval.serverId === server.id)
-      .map((approval) => ({ uri: approval.uri, digestSet: approval.digestSet }))
-      .sort((a, b) => (a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0))
     out.servers.push(outcome.entry)
   }
   return out

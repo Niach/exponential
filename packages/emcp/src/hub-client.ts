@@ -1,9 +1,8 @@
 // #NEW-148 / #NEW-143 D1: the device hub as the MCP CLIENT of team servers
 // (host side): tool names on the one `team` entry, the elicit results, the
 // task poll clamp + trace rows, and the skills it pulls: verification, the
-// digest set an owner's approval binds to, the approval state, the session
-// dir name and the rewritten SKILL.md. Pure and BROWSER-SAFE (@noble, never
-// `node:crypto`: Settings › MCP imports the approval rule). Locked by
+// digest set (the cache key), the session dir name and the rewritten
+// SKILL.md. Pure and BROWSER-SAFE (@noble, never `node:crypto`). Locked by
 // `fixtures/hub-client.json` (its `$comment` is the spec); the `emcp` crate
 // replays the same fixture.
 import { sha256 } from "@noble/hashes/sha2.js"
@@ -94,20 +93,6 @@ export function hubSkillMd(dirName: string, text: string): string | null {
     }
   }
   return `---\nname: ${dirName}\ndescription: ${JSON.stringify(description)}\n---\n\n${after.trim()}\n`
-}
-
-export type SkillApprovalState = `approved` | `changed` | `pending`
-
-/** An approval of this uri with this digest set = approved; with another =
- *  changed; none = pending. */
-export function skillApprovalState(
-  approvals: readonly { uri: string; digestSet: string }[],
-  uri: string,
-  set: string
-): SkillApprovalState {
-  const mine = approvals.filter((a) => a.uri === uri)
-  if (mine.length === 0) return `pending`
-  return mine.some((a) => a.digestSet === set) ? `approved` : `changed`
 }
 
 /** A task's poll interval, clamped to [min, max]; absent = the default. */

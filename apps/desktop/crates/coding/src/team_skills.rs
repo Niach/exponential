@@ -246,7 +246,7 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> usize {
     removed
 }
 
-/// #NEW-148: write ONE approved, verified MCP skill of the hub server
+/// #NEW-148: write ONE verified MCP skill of the hub server
 /// `server` into the session's skill dir as `<dir name>/` (hub-client.json
 /// `dirNameCases`): SKILL.md with its frontmatter rewritten to exactly
 /// name + description (`allowed-tools` and every other key ignored), every

@@ -88,9 +88,6 @@ import {
   sameMcpUrl,
   validateMcpServerDraft,
   mcpDialogLine,
-  mcpSkillRowView,
-  type McpSkillRow,
-  type McpSkillsAnswer,
   type McpDialogField,
   type McpServerDraft,
   type McpServerRow,
@@ -850,7 +847,7 @@ function ServerRow({
         </DropdownMenu>
       )}
     </ListRow>
-    {open && <ServerTools server={server} isOwner={isOwner} />}
+    {open && <ServerTools server={server} />}
     </>
   )
 }
@@ -981,7 +978,7 @@ type ToolsAnswer = { ok: boolean; tools: McpToolRow[] | null; error: string | nu
 /** An open team server's tools (`toolsStateCases`): listed with the viewer's
  *  own connection on first open (the server caches it 5 minutes). Flat: MCP
  *  has no categories. */
-function ServerTools({ server, isOwner }: { server: McpServerRow; isOwner: boolean }) {
+function ServerTools({ server }: { server: McpServerRow }) {
   const state = mcpToolsState({ transport: server.transport, status: server.connection.status })
   const [answer, setAnswer] = useState<ToolsAnswer | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -1012,97 +1009,7 @@ function ServerTools({ server, isOwner }: { server: McpServerRow; isOwner: boole
     )
   else if (answer.tools.length === 0) body = <ToolsLine>{SETTINGS_MCP.toolsNone}</ToolsLine>
   else body = answer.tools.map((tool) => <ToolRow key={tool.name} tool={tool} />)
-  return (
-    <div data-testid={SETTINGS_MCP.testIds.serverTools}>
-      {body}
-      {state === `list` && <ServerSkills server={server} isOwner={isOwner} attempt={attempt} />}
-    </div>
-  )
-}
-
-/** #NEW-148 (settings-mcp.json `skillsStateCases`): an open team server's
- *  skills after its tools, listed with the viewer's own connection (the
- *  server caches the listing; the states are read fresh). Re-read by the
- *  tools' retry (`attempt`) and after an owner's approve / revoke. Nothing
- *  while loading, nothing for zero skills. */
-function ServerSkills({ server, isOwner, attempt }: { server: McpServerRow; isOwner: boolean; attempt: number }) {
-  const [answer, setAnswer] = useState<McpSkillsAnswer | null>(null)
-  const [reads, setReads] = useState(0)
-  const [pendingUri, setPendingUri] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    trpc.mcpServers.skills
-      .query({ serverId: server.id }, SKIP_ERROR_TOAST)
-      .then((next) => live && setAnswer(next))
-      .catch((err) => live && setAnswer({ ok: false, skills: null, error: trpcErrorMessage(err, `the request failed`) }))
-    return () => {
-      live = false
-    }
-  }, [server.id, attempt, reads])
-  const act = async (skill: McpSkillRow) => {
-    const { action } = mcpSkillRowView(isOwner, skill.state)
-    if (!action) return
-    setPendingUri(skill.uri)
-    try {
-      if (action === `approveSkill`) {
-        await trpc.mcpServers.approveSkill.mutate({ serverId: server.id, uri: skill.uri, digestSet: skill.digestSet }, SKIP_ERROR_TOAST)
-      } else {
-        await trpc.mcpServers.revokeSkill.mutate({ serverId: server.id, uri: skill.uri }, SKIP_ERROR_TOAST)
-      }
-      setReads((n) => n + 1)
-    } catch (err) {
-      failedAction(action === `approveSkill` ? `approve` : `revoke`, skill.name, err)
-    } finally {
-      setPendingUri(null)
-    }
-  }
-  if (answer === null) return null
-  if (!answer.ok || !answer.skills) {
-    return <ToolsLine>{`${SETTINGS_MCP.skillsFailed} ${answer.error ?? `no answer`}`}</ToolsLine>
-  }
-  return <McpSkillRows skills={answer.skills} isOwner={isOwner} pendingUri={pendingUri} onAction={(skill) => void act(skill)} />
-}
-
-/** The Skills sub-label over one row per skill: the name in medium, its
- *  muted description, the state's Pill and (owners) the one outline action.
- *  Zero skills = nothing at all. */
-export function McpSkillRows({
-  skills,
-  isOwner,
-  pendingUri = null,
-  onAction,
-}: {
-  skills: readonly McpSkillRow[]
-  isOwner: boolean
-  pendingUri?: string | null
-  onAction?: (skill: McpSkillRow) => void
-}) {
-  if (skills.length === 0) return null
-  return (
-    <ToolBand label={SETTINGS_MCP.skillsLabel} band="skills">
-      {skills.map((skill) => {
-        const view = mcpSkillRowView(isOwner, skill.state)
-        return (
-          <ListRow key={skill.uri} className="gap-2 py-1.5 pl-10 pr-3" title={skill.uri} data-testid="mcp-server-skill-row" data-state={skill.state}>
-            <span className="shrink-0 text-sm font-medium">{skill.name}</span>
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{skill.description}</span>
-            <Pill size="sm">{view.badge}</Pill>
-            {view.action && (
-              <Button
-                variant="outline"
-                size="sm"
-                pending={pendingUri === skill.uri}
-                disabled={pendingUri !== null && pendingUri !== skill.uri}
-                onClick={() => onAction?.(skill)}
-              >
-                {view.action === `approveSkill` ? SETTINGS_MCP.approveSkill : SETTINGS_MCP.revokeSkill}
-              </Button>
-            )}
-          </ListRow>
-        )
-      })}
-    </ToolBand>
-  )
+  return <div data-testid={SETTINGS_MCP.testIds.serverTools}>{body}</div>
 }
 
 /** The viewer's ONE action on a row, from their own `connection`; a
@@ -1765,64 +1672,6 @@ function ChipsRow({
       {invalid && (
         <FieldError>Use letters, digits, `_` or `-`, starting with a letter or `_`.</FieldError>
       )}
-    </div>
-  )
-}
-
-// ── DEV specimen ────────────────────────────────────────────────────────────
-
-const SKILLS_SPECIMEN_TOOLS: readonly McpToolRow[] = [
-  { name: `create_issue`, title: `Create issue`, blurb: `Create a new issue in a team` },
-  { name: `search_issues`, title: `Search issues`, blurb: `Find issues by text, state or assignee` },
-]
-const SKILLS_SPECIMEN: readonly McpSkillRow[] = [
-  { uri: `skill://linear/code-review/SKILL.md`, name: `code-review`, description: `Review a diff with the team's checklist`, digestSet: `sha256:${`0`.repeat(64)}`, state: `approved` },
-  { uri: `skill://linear/release-notes/SKILL.md`, name: `release-notes`, description: `Draft the release notes from merged pull requests`, digestSet: `sha256:${`1`.repeat(64)}`, state: `pending` },
-  { uri: `skill://linear/triage/SKILL.md`, name: `triage`, description: `Label and route new issues`, digestSet: `sha256:${`2`.repeat(64)}`, state: `changed` },
-]
-
-/** #NEW-148 DEV-ONLY (`?dev=mcp-skills`): an open team server row's tools
- *  and skills (settings-mcp.json `skillsStateCases`), as an owner sees it
- *  and as a member does, over static rows (no live MCP server). */
-export function McpSkillsSpecimen() {
-  const [skills, setSkills] = useState<readonly McpSkillRow[]>(SKILLS_SPECIMEN)
-  const toggle = (skill: McpSkillRow) =>
-    setSkills((rows) => rows.map((row) => (row.uri === skill.uri ? { ...row, state: row.state === `approved` ? `pending` : `approved` } : row)))
-  const Glyph = getMcpServerIcon({ url: `https://mcp.linear.app/mcp` })
-  const group = (label: string, isOwner: boolean) => (
-    <div className="mb-6">
-      <GlassSectionHeader label={label} />
-      <div className={SETTINGS_LIST_CLASS}>
-        <ListRow className="gap-3 px-3 py-2">
-          <RowDisclosure
-            open
-            onToggle={() => undefined}
-            glyph={<Glyph className="size-4 shrink-0 text-foreground/70" />}
-            name="Linear"
-            pill={null}
-            caption={<span>mcp.linear.app</span>}
-          />
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-emerald-500">
-            <ConnectedIcon className="size-3.5 shrink-0" />
-            Connected
-          </span>
-        </ListRow>
-        <div data-testid={SETTINGS_MCP.testIds.serverTools}>
-          {SKILLS_SPECIMEN_TOOLS.map((tool) => (
-            <ToolRow key={tool.name} tool={tool} />
-          ))}
-          <McpSkillRows skills={skills} isOwner={isOwner} onAction={toggle} />
-        </div>
-      </div>
-    </div>
-  )
-  return (
-    <div className="mx-auto max-w-3xl" data-testid="mcp-skills-specimen">
-      {group(`Owner`, true)}
-      {group(`Member`, false)}
-      <div className={SETTINGS_LIST_CLASS}>
-        <ToolsLine>{`${SETTINGS_MCP.skillsFailed} the server answered HTTP 500`}</ToolsLine>
-      </div>
     </div>
   )
 }

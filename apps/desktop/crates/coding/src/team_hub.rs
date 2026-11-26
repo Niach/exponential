@@ -31,7 +31,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use api::mcp_servers::McpSkillApproval;
 use api::trpc::TrpcClient;
 use emcp::contract::hub_client;
 use emcp::hub::{AuditRow, AuditSink, Elicited, FetchedSkill, Hub, HubGrant, HubHost, Mount, TaskTrace};
@@ -271,7 +270,7 @@ pub fn run_ended(session_id: &str, ended: bool) {
     }
 }
 
-/// #NEW-148 skills: every APPROVED skill of the run's mounted servers,
+/// #NEW-148 skills: every skill of the run's mounted servers (no approval),
 /// verified by the hub, written into the session's skill dir (team_skills)
 /// and cached read-only outside every discovery path. Never a blocker:
 /// every miss is a warning.
@@ -279,7 +278,6 @@ pub fn write_mcp_skills(
     data_dir: &Path,
     session_id: &str,
     mounted: &Mounted,
-    approvals: &BTreeMap<String, Vec<McpSkillApproval>>,
     skills: &mut crate::team_skills::ResolvedSkills,
 ) {
     if mounted.servers.is_empty() {
@@ -298,15 +296,7 @@ pub fn write_mcp_skills(
         };
         let (fetched, warnings) = listed;
         skills.warnings.extend(warnings);
-        let approved = approvals.get(server_id).map(Vec::as_slice).unwrap_or_default();
         for skill in fetched {
-            let pairs: Vec<hub_client::SkillApproval> = approved
-                .iter()
-                .map(|a| hub_client::SkillApproval { uri: a.uri.clone(), digest_set: a.digest_set.clone() })
-                .collect();
-            if hub_client::approval_state(&pairs, &skill.uri, &skill.digest_set) != hub_client::ApprovalState::Approved {
-                continue;
-            }
             if let Err(err) = cache_skill(data_dir, server_id, &skill) {
                 log::warn!("coding: could not cache MCP skill {}: {err}", skill.uri);
             }

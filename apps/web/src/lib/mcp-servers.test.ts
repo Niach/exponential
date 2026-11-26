@@ -5,8 +5,6 @@ import {
   type McpDialogField,
   type McpServerDraft,
   mcpDialogLine,
-  mcpSkillRowView,
-  type McpSkillState,
   isTeamMcp,
   sharedSummary,
   validateMcpServerDraft,
@@ -77,20 +75,5 @@ describe(`sharedSummary`, () => {
     expect(
       sharedSummary({ connectedCount: 2, memberCount: 3, sharedCount: 1 })
     ).toBe(`2 of 3 connected · 1 shared`)
-  })
-})
-
-// #NEW-148: the skill rows of an open team server.
-describe(`mcpSkillRowView`, () => {
-  for (const c of fixture.skillsStateCases) {
-    it(c.name, () => {
-      expect(mcpSkillRowView(c.owner, c.state as McpSkillState)).toEqual(c.expected)
-    })
-  }
-
-  it(`labels every state from the fixture`, () => {
-    for (const [state, label] of Object.entries(fixture.skillStates)) {
-      expect(mcpSkillRowView(false, state as McpSkillState).badge).toBe(label)
-    }
   })
 })

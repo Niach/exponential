@@ -19,7 +19,7 @@ import fixture from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 | `skills.json` | Skills over MCP (#NEW-145): `skill://<team-slug>/<name>/SKILL.md` + the built-ins at `skill://exponential/…`, complete manifests, `sha256:` digests over the served bytes, `ttlMs` / `cacheScope`, `skills/list`, `skills/get`, `resources/read`, `resources/directory/read`, -32602 cases |
 | `elicitation.json` | form confirms on every delete and session stop, team and device picks, URL mode only to `/mcp/elicit/<id>`, the no-secret rule, decline / cancel / no capability, the MRTR `requestState` (exact vectors; shared with files) |
 | `tasks.json` | MCP tasks as the second watcher kind on `session_watches` (eagent rules.json `watcher`): who gets one, the status mapping from transitions, cards, reports and event firings, tasks/get, update (card-answer), cancel (stop), TTL, principals, rate limit |
-| `hub-client.json` | the device hub as the MCP client of a run's team servers (#NEW-148): one `team` entry, client capabilities, MRTR elicitation into the session's card, hub-driven tasks (poll clamp, trace steps, store, cancel), 401 refresh, skills (verify, digest set, owner approval, dir names, rewritten SKILL.md) |
+| `hub-client.json` | the device hub as the MCP client of a run's team servers (#NEW-148): one `team` entry, client capabilities, MRTR elicitation into the session's card, hub-driven tasks (poll clamp, trace steps, store, cancel), 401 refresh, skills (verify, digest set, dir names, rewritten SKILL.md; no approval) |
 | `files.json` | file uploads behind `MCP_FILES_EXTENSION`: inline up to 1 MiB, `upload_required` to staging, the retry's state, argument and byte checks |
 
 ## Migration: team MCP tool names (#NEW-148)

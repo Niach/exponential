@@ -5,7 +5,6 @@
 // encrypted; nothing here ever sees one) and how many members connected.
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import { mcpUrlAllowed } from "@exp/emcp/upstream"
-import { SETTINGS_MCP } from "@exp/domain-contract/settings-mcp"
 import type { trpc } from "@/lib/trpc-client"
 
 export type McpServerList = Awaited<
@@ -281,21 +280,4 @@ export function mcpAuthLine(auth: McpAuth): string {
   if (auth === `oauth`) return `Members sign in with their own account (OAuth)`
   if (auth === `secret`) return `Members paste their own API key`
   return `No sign-in needed`
-}
-
-/** #NEW-148: one `mcpServers.skills` answer (a server's verified skills,
- *  each with its approval state). */
-export type McpSkillsAnswer = Awaited<ReturnType<typeof trpc.mcpServers.skills.query>>
-export type McpSkillRow = NonNullable<McpSkillsAnswer[`skills`]>[number]
-export type McpSkillState = McpSkillRow[`state`]
-
-
-/** settings-mcp.json `skillsStateCases`: a skill row's Badge and the
- *  viewer's one action (owners only: approve a pending / changed skill,
- *  revoke an approved one). */
-export function mcpSkillRowView(owner: boolean, state: McpSkillState): { badge: string; action: `approveSkill` | `revokeSkill` | null } {
-  return {
-    badge: SETTINGS_MCP.skillStates[state],
-    action: !owner ? null : state === `approved` ? `revokeSkill` : `approveSkill`,
-  }
 }

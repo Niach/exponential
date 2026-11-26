@@ -541,7 +541,6 @@ fn every_case_list_is_replayed() {
                 "traceCases",
                 "verifyCases",
                 "digestSetCases",
-                "approvalCases",
                 "dirNameCases",
                 "skillMdCases",
             ],
@@ -783,7 +782,7 @@ fn automations_rate_resolve_and_audit_cases() {
 
 // ---------------------------------------------------------------- hub client (#NEW-148)
 
-use emcp::contract::hub_client::{self, ApprovalState, ElicitAction, Mismatch, SkillApproval, SkillEntry, TaskStatus};
+use emcp::contract::hub_client::{self, ElicitAction, Mismatch, SkillEntry, TaskStatus};
 
 #[test]
 fn hub_client_constants_match() {
@@ -919,15 +918,6 @@ fn hub_client_digest_set_cases() {
         let rows: Vec<(&str, &str, u64)> = entries.iter().map(|e| (e.uri.as_str(), e.digest.as_str(), e.size)).collect();
         assert_eq!(hub_client::digest_set(&rows), s(&case["expected"]), "{}", case["name"]);
         assert_eq!(hub_client::digest_set_of(&entries), s(&case["expected"]), "{}", case["name"]);
-    }
-}
-
-#[test]
-fn hub_client_approval_cases() {
-    for case in fixture::hub_client()["approvalCases"].as_array().unwrap() {
-        let approvals: Vec<SkillApproval> = serde_json::from_value(case["approvals"].clone()).unwrap();
-        let got: ApprovalState = hub_client::approval_state(&approvals, s(&case["uri"]), s(&case["digestSet"]));
-        assert_eq!(got.as_str(), s(&case["expected"]), "{}", case["name"]);
     }
 }
 
