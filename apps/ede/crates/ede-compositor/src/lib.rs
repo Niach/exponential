@@ -24,6 +24,7 @@ pub mod grabs;
 pub mod helpers;
 mod handlers;
 pub mod hold;
+pub mod hot_corners;
 pub mod hotkeys;
 pub mod idle;
 pub mod input;
