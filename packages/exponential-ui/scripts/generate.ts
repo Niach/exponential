@@ -1778,6 +1778,8 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     },
   }],
   // genUI round 4 (34282bdc): the site blocks with their slots and children.
+  // A press-only Link (no href, `on.press`): underlined on every renderer, as one with an allowed href.
+  Link: [{ label: `press only (no href)`, node: { id: `press_link`, component: `Link`, props: { label: `View all` } } }],
   NavBar: [{
     label: `logo + trailing action`,
     node: { id: `nav`, component: `NavBar`, props: { title: `Acme`, logo: AVATAR_PICTURE, value: `docs`, items: [{ label: `Product`, value: `product` }, { label: `Pricing`, value: `pricing` }, { label: `Docs`, value: `docs` }] }, slots: { trailing: { id: `signup`, component: `Button`, props: { label: `Sign up`, size: `sm` } } } },
