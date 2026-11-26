@@ -86,6 +86,9 @@
       "name",
       "scale"
     ],
+    "ede_panel_menu": [
+      "value"
+    ],
     "ede_pin": [
       "app"
     ],
@@ -141,6 +144,7 @@
       "direction"
     ],
     "ede_tray": [
+      "refresh",
       "service"
     ],
     "ede_tray_menu": [

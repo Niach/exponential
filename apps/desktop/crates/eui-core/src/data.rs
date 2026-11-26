@@ -1137,6 +1137,23 @@ mod tests {
     }
 
     #[test]
+    fn a_menu_binds_its_rows_and_their_checked_state() {
+        // #EDE-237: `Menu.items` is bindable: a menu's rows from a host
+        // source (a tray item's dbusmenu), a checkbox row's state per row.
+        let view = CatalogView::core();
+        let def = view.components.get("Menu").expect("Menu");
+        let bound = json!({"items": {"@path": "menu"}, "openOn": "contextmenu"});
+        assert_eq!(crate::validate::validate_props(def, bound.as_object().unwrap(), "props", &view), vec![]);
+        let data = json!({"menu": [{"label": "Quit", "value": "3", "icon": "ui-close"}]});
+        let out = resolve_node_props(Some(def), bound.as_object().unwrap(), &ResolveContext::new(&data, ""), &view.defs);
+        assert_eq!(out["items"], data["menu"]);
+        let literal = json!({"items": [{"kind": "checkbox", "label": "Pinned", "value": "pin", "checked": {"@path": "pinned"}}]});
+        assert_eq!(crate::validate::validate_props(def, literal.as_object().unwrap(), "props", &view), vec![]);
+        let out = resolve_node_props(Some(def), literal.as_object().unwrap(), &ResolveContext::new(&json!({"pinned": true}), ""), &view.defs);
+        assert_eq!(out["items"][0]["checked"], json!(true));
+    }
+
+    #[test]
     fn template_scope_resolves_relative_paths() {
         let data = json!({"items": [{"name": "one"}, {"name": "two"}]});
         let ctx = ResolveContext::new(&data, "/items/1");

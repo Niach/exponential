@@ -3001,7 +3001,8 @@
             "type": "object",
             "shape": "menuItem"
           },
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "side": {
           "type": "enum",

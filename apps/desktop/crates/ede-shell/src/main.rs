@@ -27,7 +27,7 @@
 //! and apps, chat, Alt-Tab; #EDE-65: `/shell/chats`, the rail's chats), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
-//! unread inbox merged in), `/needsYou`, `/tray`, `/traymenu`,
+//! unread inbox merged in), `/needsYou`, `/tray` (#EDE-237: each item's dbusmenu as Menu `items`),
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
 //! document may call are the `ede_*` names its `surface.functions` lists
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
@@ -37,7 +37,8 @@
 //! `ede_notify_open {id}`, `ede_notify_close {id, toast?}`, `ede_notify_action
 //! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
-//! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
+//! `ede_tray {service, refresh?}`, `ede_tray_menu {service, id}`, `ede_panel_menu {value}`
+//! (#EDE-237: the start button's and the clock's context menus), `ede_open_document
 //! {name, page?}` (#EDE-214: Settings on `page`; open popups close),
 //! `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
@@ -832,8 +833,18 @@ impl HostPlugin for Host {
                 }
             }
             "ede_tray" => {
-                if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
+                // #EDE-237: `refresh` = the pointer is on an item with a menu:
+                // its rows are read again (dbusmenu's AboutToShow) before a
+                // press opens them; a press on an item without one activates it.
+                if args.get("refresh").and_then(Value::as_bool) == Some(true) {
+                    tray_refresh(&shell);
+                } else if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |_| tray_press(&shell, &service));
+                }
+            }
+            "ede_panel_menu" => {
+                if let Some(value) = args.get("value").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| panel_menu(&shell, &value, cx));
                 }
             }
             "ede_open_document" | "ede_close_document" => {
@@ -903,13 +914,13 @@ impl HostPlugin for Host {
                 });
             }
             "ede_tray_menu" => {
-                let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
-                if let (Some(service), Some(id)) = (service, id) {
+                // #EDE-237: a Menu row's value is its dbusmenu id, as a string.
+                let id = args.get("id").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+                if let (Some(service), Some(id)) = (args.get("service").and_then(Value::as_str), id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
                         // On the tray thread (#EDE-135).
-                        d.tray_menu_event(&service, id as i32);
+                        d.tray_menu_event(service, id as i32);
                     }
-                    cx.defer(move |cx| close(&shell, "tray-menu", cx));
                 }
             }
             // The shell model (#EDE-50).
@@ -1083,6 +1094,11 @@ impl HostPlugin for Host {
                 let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(value)) = (app, value) {
                     cx.defer(move |cx| match value.as_str() {
+                        // #EDE-237: the menu's "Pinned to the taskbar" checkbox toggles.
+                        "pin" if shell.borrow().model.taskbar.pinned.contains(&app) => {
+                            dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
+                            pins_persist(&shell);
+                        }
                         "pin" => {
                             dispatch(&shell, ShellEvent::TaskbarPin { app }, cx);
                             pins_persist(&shell);
@@ -3988,7 +4004,6 @@ fn dbus_event(shell: &SharedShell, event: dbus::Event, cx: &mut App) {
             }
             refresh(shell, cx);
         }
-        dbus::Event::TrayMenu { service, entries } => tray_menu_show(shell, &service, &entries, cx),
     }
 }
 
@@ -4148,37 +4163,36 @@ fn tray_refresh(shell: &SharedShell) {
     }
 }
 
-/// A tray item pressed: its menu ([`dbus::Event::TrayMenu`]), else `Activate`.
+/// A tray item pressed: `Activate` (#EDE-237, Cinnamon's xapp status
+/// applet: an `ItemIsMenu` item's press opens its menu, the taskbar's Menu;
+/// a right click opens any item's).
 fn tray_press(shell: &SharedShell, service: &str) {
-    let has_menu = shell.borrow().tray.iter().find(|i| i.service == service).is_some_and(|i| i.has_menu);
     if let Some(d) = shell.borrow().dbus.as_ref() {
-        if has_menu {
-            d.tray_menu(service);
-        } else {
-            d.tray_activate(service);
-        }
+        d.tray_activate(service);
     }
 }
 
-/// A pressed item's menu as a popup.
-fn tray_menu_show(shell: &SharedShell, service: &str, entries: &[dbus::MenuEntry], cx: &mut App) {
-    let title = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| i.title.clone()).unwrap_or_default();
-    let items: Vec<Value> = entries
-        .iter()
-        .map(|e| {
-            let mut v = e.to_json();
-            if e.depth > 0 {
-                v["label"] = json!(format!("    {}", e.label));
-            }
-            v
-        })
-        .collect();
-    shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
-    if shell.borrow().surfaces.is_open("tray-menu") {
-        close(shell, "tray-menu", cx);
+/// #EDE-237: a row of the start button's or the clock's context menu.
+fn panel_menu(shell: &SharedShell, value: &str, cx: &mut App) {
+    match value {
+        "settings" => {
+            open_on_demand(shell, "settings", cx);
+            refresh(shell, cx);
+        }
+        "datetime" => settings_open_page(shell, "datetime", cx),
+        "history" => {
+            history_refresh(shell);
+            open_on_demand(shell, "history", cx);
+            refresh(shell, cx);
+        }
+        "lock" => {
+            with_ede(shell, |ede| ede.lock());
+        }
+        "logout" => {
+            with_ede(shell, |ede| ede.logout());
+        }
+        other => tracing::warn!(value = other, "unknown panel menu entry"),
     }
-    toggle_popup(shell, "tray-menu", cx);
-    refresh(shell, cx);
 }
 
 /// The taskbar's pins, kept in the shell's own file.
@@ -4453,7 +4467,6 @@ fn main() {
         feed.set("/previews", json!({"app": null, "windows": []}));
         feed.set("/thumbnails", json!({}));
         feed.set("/osd", json!({"icon": "media-volume-up", "level": 0, "label": ""}));
-        feed.set("/traymenu", json!({"service": "", "title": "", "items": []}));
         feed.set("/config", settings::config_json());
         feed.set("/pages", settings_pages::pages_json());
         if let Some(state) = settings_pages::demo_state() {
@@ -4503,16 +4516,20 @@ fn main() {
         }
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
-            feed.set("/tray", json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}, {"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""}]));
-            feed.set(
-                "/traymenu",
-                json!({"service": "demo/network", "title": "Network", "items": [
-                    {"id": 1, "label": "Connect to Wi-Fi", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0},
-                    {"id": 2, "label": "Airplane mode", "enabled": true, "separator": false, "checked": false, "checkable": true, "depth": 0},
-                    {"id": 3, "label": "", "enabled": true, "separator": true, "checked": false, "checkable": false, "depth": 0},
-                    {"id": 4, "label": "Settings…", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0}
-                ]}),
-            );
+            // #EDE-237: the demo's tray items, the first with a menu.
+            let network = dbus::TrayItem {
+                service: "demo/network".into(),
+                title: "Network".into(),
+                status: "Active".into(),
+                icon: String::new(),
+                menu: [(1, "Connect to Wi-Fi", None, false), (2, "Airplane mode", Some(false), false), (3, "", None, true), (4, "Settings…", None, false)]
+                    .into_iter()
+                    .map(|(id, label, checked, separator)| dbus::MenuEntry { id, label: label.into(), enabled: true, separator, checked, depth: 0, submenu: false })
+                    .collect(),
+                item_is_menu: true,
+            };
+            let sound = dbus::TrayItem { service: "demo/sound".into(), title: "Sound".into(), status: "Active".into(), icon: String::new(), menu: Vec::new(), item_is_menu: false };
+            feed.set("/tray", json!([network.to_json(), sound.to_json()]));
             feed.set("/services", settings::demo_services());
             feed.set("/outputs", Value::Array(settings::demo_outputs()));
         } else {
@@ -5742,10 +5759,10 @@ mod previews {
     #[test]
     fn a_press_that_opens_the_start_menu_does_not_dismiss_it() {
         let pressed_at = 1_000;
-        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("tray-menu".to_string(), Some(pressed_at - 4_000))];
-        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["tray-menu".to_string()]);
+        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("needs-you".to_string(), Some(pressed_at - 4_000))];
+        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["needs-you".to_string()]);
         // Escape in the open menu (or a press outside it) still closes it.
-        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "tray-menu".to_string()]);
+        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "needs-you".to_string()]);
         // A popup the shell has no stamp for goes, as before.
         assert_eq!(popups_to_dismiss(&[("menu".to_string(), None)], pressed_at), vec!["menu".to_string()]);
     }

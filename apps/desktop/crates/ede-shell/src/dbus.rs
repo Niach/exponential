@@ -51,8 +51,6 @@ pub enum Event {
     TrayChanged,
     /// The tray as read on the tray thread.
     TrayItems(Vec<TrayItem>),
-    /// A pressed item's menu ([`Dbus::tray_menu`]); an item without one was activated.
-    TrayMenu { service: String, entries: Vec<MenuEntry> },
 }
 
 /// What the tray thread does, in order; refreshes asked together read once.
@@ -60,7 +58,6 @@ pub enum Event {
 enum TrayRequest {
     Refresh,
     Activate(String),
-    Menu(String),
     MenuEvent(String, i32),
 }
 
@@ -269,16 +266,47 @@ pub struct TrayItem {
     pub status: String,
     /// A `file:` or `data:` URL, or empty.
     pub icon: String,
-    pub has_menu: bool,
+    /// #EDE-237: its dbusmenu, read with the item (`AboutToShow` first), so
+    /// the taskbar's Menu opens on it at once; empty = none (a press activates).
+    pub menu: Vec<MenuEntry>,
+    /// `ItemIsMenu`: a left click opens the menu too (Cinnamon's xapp
+    /// status applet); otherwise it activates and only a right click opens it.
+    pub item_is_menu: bool,
 }
 
 impl TrayItem {
+    /// `/tray`'s row: `menu` = the taskbar Menu's `items` ([`menu_items`]).
     pub fn to_json(&self) -> Value {
-        json!({"service": self.service, "title": self.title, "status": self.status, "icon": self.icon})
+        json!({"service": self.service, "title": self.title, "status": self.status, "icon": self.icon, "hasMenu": !self.menu.is_empty(), "menuOnPress": self.item_is_menu && !self.menu.is_empty(), "menu": menu_items(&self.menu)})
     }
 }
 
-/// A dbusmenu row, flattened one level (a submenu's rows follow it, indented).
+/// #EDE-237: a dbusmenu as genUI Menu items, the look every panel menu
+/// shares: a row's value is its dbusmenu id, a toggle a checkbox row with
+/// its state, a separator a separator, a submenu Cinnamon's way: its title
+/// as a group label over its rows, inline.
+pub fn menu_items(entries: &[MenuEntry]) -> Vec<Value> {
+    entries
+        .iter()
+        .map(|e| match () {
+            _ if e.separator => json!({"kind": "separator"}),
+            _ if e.submenu => json!({"kind": "label", "label": e.label}),
+            _ => {
+                let mut row = json!({"label": e.label, "value": e.id.to_string()});
+                if let Some(checked) = e.checked {
+                    row["kind"] = json!("checkbox");
+                    row["checked"] = json!(checked);
+                }
+                if !e.enabled {
+                    row["disabled"] = json!(true);
+                }
+                row
+            }
+        })
+        .collect()
+}
+
+/// A dbusmenu row, flattened one level (a submenu's rows follow it).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuEntry {
     pub id: i32,
@@ -287,12 +315,8 @@ pub struct MenuEntry {
     pub separator: bool,
     pub checked: Option<bool>,
     pub depth: u32,
-}
-
-impl MenuEntry {
-    pub fn to_json(&self) -> Value {
-        json!({"id": self.id, "label": self.label, "enabled": self.enabled, "separator": self.separator, "checked": self.checked.unwrap_or(false), "checkable": self.checked.is_some(), "depth": self.depth})
-    }
+    /// The title of a submenu (its rows follow, one level deeper).
+    pub submenu: bool,
 }
 
 /// The main loop's handle.
@@ -410,12 +434,6 @@ impl Dbus {
         let _ = self.tray.send(TrayRequest::Activate(service.to_string()));
     }
 
-    /// A press on an item with a menu: [`Event::TrayMenu`], or `Activate`
-    /// when it has no rows after all.
-    pub fn tray_menu(&self, service: &str) {
-        let _ = self.tray.send(TrayRequest::Menu(service.to_string()));
-    }
-
     /// A menu row clicked.
     pub fn tray_menu_event(&self, service: &str, id: i32) {
         let _ = self.tray.send(TrayRequest::MenuEvent(service.to_string(), id));
@@ -457,13 +475,6 @@ impl Tray {
                                 self.tray_activate(&service, 0, 0);
                                 None
                             }
-                            TrayRequest::Menu(service) => match self.tray_menu(&service) {
-                                Some(entries) if !entries.is_empty() => Some(Event::TrayMenu { service, entries }),
-                                _ => {
-                                    self.tray_activate(&service, 0, 0);
-                                    None
-                                }
-                            },
                             TrayRequest::MenuEvent(service, id) => {
                                 self.tray_menu_event(&service, id);
                                 None
@@ -513,7 +524,8 @@ impl Tray {
                 if title.is_empty() && icon.is_empty() && id.is_empty() {
                     return None;
                 }
-                Some(TrayItem { service: service.clone(), title: if title.is_empty() { id } else { title }, status, icon, has_menu })
+                let menu = if has_menu { self.tray_menu(service).unwrap_or_default() } else { Vec::new() };
+                Some(TrayItem { service: service.clone(), title: if title.is_empty() { id } else { title }, status, icon, menu, item_is_menu })
             })
             .collect()
     }
@@ -589,8 +601,9 @@ fn flatten_layout(node: &Layout, depth: u32, out: &mut Vec<MenuEntry>) {
             Some("checkmark") | Some("radio") => Some(props.get("toggle-state").and_then(|v| i32::try_from(v.clone()).ok()) == Some(1)),
             _ => None,
         };
-        out.push(MenuEntry { id: *id, label: get_str("label").unwrap_or_default().replace("__", "\u{0}").replace('_', "").replace('\u{0}', "_"), enabled: get_bool("enabled", true), separator, checked, depth });
-        if get_str("children-display").as_deref() == Some("submenu") && depth < 1 {
+        let submenu = get_str("children-display").as_deref() == Some("submenu") && depth < 1;
+        out.push(MenuEntry { id: *id, label: get_str("label").unwrap_or_default().replace("__", "\u{0}").replace('_', "").replace('\u{0}', "_"), enabled: get_bool("enabled", true), separator, checked, depth, submenu });
+        if submenu {
             flatten_layout(&child, depth + 1, out);
         }
     }
@@ -729,7 +742,7 @@ mod tests {
         // A press and a read, as the main loop makes them: neither waits.
         let asked = Instant::now();
         dbus.tray_activate(&service);
-        dbus.tray_menu(&service);
+        dbus.tray_menu_event(&service, 1);
         dbus.tray_refresh();
         dbus.tray_refresh();
         assert!(asked.elapsed() < Duration::from_millis(100), "the shell waited {:?}", asked.elapsed());
@@ -746,7 +759,7 @@ mod tests {
         use TrayRequest::*;
         let batch = vec![Refresh, Activate("a".into()), Refresh, MenuEvent("b".into(), 3), Refresh];
         assert_eq!(coalesce(batch), vec![Activate("a".into()), MenuEvent("b".into(), 3), Refresh]);
-        assert_eq!(coalesce(vec![Menu("a".into())]), vec![Menu("a".into())]);
+        assert_eq!(coalesce(vec![MenuEvent("a".into(), 1)]), vec![MenuEvent("a".into(), 1)]);
     }
 
     #[test]
@@ -780,5 +793,34 @@ mod tests {
         flatten_layout(&root, 0, &mut out);
         let labels: Vec<(i32, &str, u32)> = out.iter().map(|e| (e.id, e.label.as_str(), e.depth)).collect();
         assert_eq!(labels, [(1, "Quit", 0), (2, "More", 0), (3, "Inner", 1)]);
+        assert_eq!(out.iter().map(|e| e.submenu).collect::<Vec<_>>(), [false, true, false]);
+    }
+
+    /// #EDE-237: a tray item's dbusmenu as the panel's Menu items: ids as
+    /// values, toggles as checkbox rows, a submenu's title as a group label.
+    #[test]
+    fn a_dbusmenu_becomes_menu_items() {
+        let row = |id: i32, label: &str| MenuEntry { id, label: label.into(), enabled: true, separator: false, checked: None, depth: 0, submenu: false };
+        let entries = vec![
+            row(1, "Show window"),
+            MenuEntry { checked: Some(true), ..row(2, "Mute") },
+            MenuEntry { separator: true, ..row(3, "") },
+            MenuEntry { submenu: true, ..row(4, "Devices") },
+            MenuEntry { depth: 1, enabled: false, ..row(5, "Headset") },
+        ];
+        assert_eq!(
+            menu_items(&entries),
+            vec![
+                json!({"label": "Show window", "value": "1"}),
+                json!({"label": "Mute", "value": "2", "kind": "checkbox", "checked": true}),
+                json!({"kind": "separator"}),
+                json!({"kind": "label", "label": "Devices"}),
+                json!({"label": "Headset", "value": "5", "disabled": true}),
+            ]
+        );
+        let item = TrayItem { service: "a/b".into(), title: "T".into(), status: "Active".into(), icon: String::new(), menu: entries, item_is_menu: true };
+        assert_eq!(item.to_json()["menuOnPress"], json!(true));
+        assert_eq!(item.to_json()["hasMenu"], json!(true));
+        assert_eq!(TrayItem { menu: Vec::new(), ..item }.to_json()["hasMenu"], json!(false));
     }
 }
