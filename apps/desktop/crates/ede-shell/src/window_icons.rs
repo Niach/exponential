@@ -172,4 +172,14 @@ mod tests {
         assert_eq!(wm_class(b"dota2\0dota2\0").1.as_deref(), Some("dota2"));
         assert_eq!(wm_class(b""), (None, None));
     }
+
+    /// By hand against a running Xwayland (read-only property reads):
+    /// `EDE_PROBE_CLASS=dota2 XDG_RUNTIME_DIR=/tmp/x cargo test … -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "reads $DISPLAY's managed windows: run by hand"]
+    fn probe_a_live_class() {
+        let class = std::env::var("EDE_PROBE_CLASS").expect("EDE_PROBE_CLASS");
+        let mut hints = X11Hints::default();
+        println!("{class}: {:?}", hints.lookup(&class));
+    }
 }
