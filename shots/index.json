@@ -2149,6 +2149,15 @@
         "sha256": "77cb9ab145edbacd711ec4cb5c9707ca89664e8c00970cfed0b7e15f426c09d2"
       }
     },
+    "ede-applet-keyboard": {
+      "ede": {
+        "file": "shots/ede-applet-keyboard/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7174,
+        "sha256": "16afeeb51292cee3ce53eb71b820baa45ffe8b4dfa3b4b34089db9cbc9fa6a8f"
+      }
+    },
     "ede-applet-network": {
       "ede": {
         "file": "shots/ede-applet-network/ede.webp",
@@ -2309,6 +2318,15 @@
         "height": 720,
         "bytes": 7004,
         "sha256": "d7ce90125354faef5b42b34e9fbdbefc6a019da05b4592cbbb785f858a7d7a0e"
+      }
+    },
+    "ede-window-menu": {
+      "ede": {
+        "file": "shots/ede-window-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 10082,
+        "sha256": "938cbdb2224e365414a44184de91da668076aab87e876c06f81771588a4fb134"
       }
     },
     "exponential-ui-accordion": {

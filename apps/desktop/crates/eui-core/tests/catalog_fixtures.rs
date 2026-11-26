@@ -117,7 +117,9 @@ fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_b
                     assert!(has(&case), "{case}");
                 }
             }
-            if schema.type_ == "boolean" {
+            // #EDE-253: scripts/generate.ts CASELESS_PROPS (a Menu's `open`
+            // replays in interactions-round1.json menuOpen).
+            if schema.type_ == "boolean" && !(name == "Menu" && prop == "open") {
                 for value in [true, false] {
                     let case = format!("{name}/{prop}={value}");
                     assert!(has(&case), "{case}");

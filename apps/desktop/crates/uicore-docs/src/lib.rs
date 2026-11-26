@@ -25,7 +25,7 @@ macro_rules! docs {
     };
 }
 
-docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "space-view", "start-menu", "switcher", "taskbar"];
+docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "space-view", "start-menu", "switcher", "taskbar", "window-menu"];
 
 /// The tab bar only the IDE draws (eDE has Mint's taskbar).
 pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../../packages/uicore/docs/tabbar.json") };
@@ -97,7 +97,9 @@ mod tests {
                 continue;
             }
             let Some(bg) = v["root"]["style"].get("backgroundColor") else {
-                assert_eq!(d.name, "notifications", "{}: a layer document's root paints a background", d.name);
+                // The toasts paint their own; #EDE-253: nothing of the window
+                // menu's one-pixel anchor shows (the menu is its popup).
+                assert!(matches!(d.name, "notifications" | "window-menu"), "{}: a layer document's root paints a background", d.name);
                 continue;
             };
             let resolved = eui_core::theme::resolve_token(&theme, bg, eui_core::theme::Mode::Dark).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| bg.to_string());
