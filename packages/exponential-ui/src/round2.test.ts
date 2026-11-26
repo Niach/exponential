@@ -21,7 +21,7 @@ import { chartData, formatChartValue, type ChartValueFormat } from "./chart"
 import { itemExtents, itemOffsets, listSections, scrollOffsetForIndex, scrollOffsetForItem, sectionRows, stickyHeader, tableRowKeys, templateInstances, templateItemKeys, virtualWindow, type ScrollAlign } from "./list"
 import { dragDelta, keyboardResize, normalizeSizes, panelExtents, resizePanels, type PanelLimits } from "./resizable"
 import { nodeDirections, nodeTextAlign, physicalTextAlign, type Direction } from "./direction"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animationFrame, animationTiming, keyframesCss, paintedOpacity } from "./animation"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, animationFrame, animationTiming, enterDelay, exitTiming, finishExit, keyframesCss, paintedOpacity, presence, type PresenceEntry } from "./animation"
 import { preorder, reduceNested, reduceSurface } from "./reducer"
 import { validateStyle } from "./style"
 import { styleToCss } from "./css"
@@ -322,6 +322,59 @@ describe(`animations.json (§2)`, () => {
       expect(close(paintedOpacity(c.own, animationFrame(c.animation, c.t, neutral)), c.expected, 1e-3), c.name).toBe(true)
       expect(styleToCss({ opacity: c.own, animation: c.animation }, {}, neutral), c.name).toEqual(c.css)
     }
+  })
+
+  test(`round 4 motion: exit sets, animationDelay, presence (ghosts + stagger)`, () => {
+    const anim = animationsFixture as unknown as {
+      exits: Record<string, Record<string, { timing: unknown; frames: { t: number; frame: Record<string, number | null> }[] }>>
+      delay: { name: string; theme: string; animation: string; delay: number; timing: unknown; frames: { t: number; frame: Record<string, number | null> }[] }[]
+      presence: { name: string; reducedMotion?: boolean; windowed?: boolean; stagger?: number; first?: number; steps: { finishExit?: string; present?: { id: string; exit?: boolean; delay?: number }[]; expect: unknown }[] }[]
+      css: Record<string, string>
+    }
+    for (const [id, entries] of Object.entries(anim.exits)) {
+      const theme = builtinTheme(id)
+      expect(Object.keys(entries)).toEqual([...EXIT_ANIMATION_NAMES])
+      for (const [name, e] of Object.entries(entries)) {
+        expect(exitTiming(name, theme), `${id}/${name}`).toEqual(e.timing as never)
+        expect(exitTiming(name, theme, undefined, true)).toBeNull()
+        for (const f of e.frames) {
+          const got = animationFrame(name, f.t, theme)!
+          for (const [k, v] of Object.entries(f.frame)) expect(v === null ? got[k as keyof typeof got] === null : close(got[k as keyof typeof got] as number, v, 1e-3), `${id}/${name}@${f.t}.${k}`).toBe(true)
+        }
+        expect(keyframesCss(name)).toBe(anim.css[name])
+      }
+    }
+    // An enter set is no exit.
+    expect(exitTiming(`fade-in`, builtinTheme(`neutral`))).toBeNull()
+    for (const c of anim.delay) {
+      const theme = builtinTheme(c.theme)
+      expect({ ...animationTiming(c.animation, theme)!, delayMs: enterDelay(c.delay, null, 0) }, c.name).toEqual(c.timing as never)
+      for (const f of c.frames) {
+        const got = animationFrame(c.animation, f.t, theme, { delayMs: c.delay })!
+        for (const [k, v] of Object.entries(f.frame)) expect(v === null ? got[k as keyof typeof got] === null : close(got[k as keyof typeof got] as number, v, 1e-3), `${c.name}@${f.t}.${k}`).toBe(true)
+      }
+    }
+    for (const c of anim.presence) {
+      let entries: PresenceEntry<null>[] = []
+      const delays = new Map<string, number>()
+      let present: { id: string; exit?: boolean; delay?: number }[] = []
+      c.steps.forEach((step, i) => {
+        if (step.finishExit) entries = finishExit(entries, step.finishExit)
+        else {
+          present = step.present ?? present
+          const out = presence(entries, present.map((p) => ({ key: p.id, value: null, exitMs: p.exit && !c.windowed ? 1 : 0 })), c.reducedMotion)
+          out.entering.forEach((key, at) => delays.set(key, enterDelay(present.find((p) => p.id === key)?.delay, c.windowed && i > 0 ? null : at, c.stagger ?? 0, c.reducedMotion)))
+          entries = out.entries
+        }
+        const painted = entries.map((e) => ({ id: e.key, exiting: e.exiting, delayMs: delays.get(e.key) ?? 0 }))
+        expect(c.first ? painted.slice(0, c.first) : painted, `${c.name} step ${i}`).toEqual(step.expect as never)
+      })
+    }
+    expect(enterDelay(-5, 2, `x`)).toBe(0)
+    expect(enterDelay(10, 2, 30, true)).toBe(0)
+    expect(styleToCss({ animation: `fade-in`, animationDelay: 40, exitAnimation: `fade-out`, animationStagger: 20 }, {}, builtinTheme(`neutral`))).toEqual({ animation: `xui-fade-in 180ms cubic-bezier(0, 0, 0.2, 1) 40ms 1 both`, opacity: `var(--xui-a-opacity, 1)` })
+    expect(validateStyle({ exitAnimation: `slide-out-up`, animationStagger: 40, animationDelay: 10 })).toEqual([])
+    expect(validateStyle({ exitAnimation: `fade-in` }).length).toBe(1)
   })
 
   test(`style keys: sticky, backdropBlur (token only), animation (+ duration token)`, () => {

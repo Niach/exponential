@@ -20107,6 +20107,37 @@
           "type": "string",
           "pattern": "^\\$motion\\.[a-zA-Z0-9]+$"
         },
+        "exitAnimation": {
+          "enum": [
+            "fade-out",
+            "slide-out-up",
+            "slide-out-down",
+            "slide-out-left",
+            "slide-out-right"
+          ]
+        },
+        "animationStagger": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+            }
+          ]
+        },
+        "animationDelay": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+            }
+          ]
+        },
         ":hover": {
           "type": "object",
           "properties": {
@@ -21028,6 +21059,37 @@
             "animationDuration": {
               "type": "string",
               "pattern": "^\\$motion\\.[a-zA-Z0-9]+$"
+            },
+            "exitAnimation": {
+              "enum": [
+                "fade-out",
+                "slide-out-up",
+                "slide-out-down",
+                "slide-out-left",
+                "slide-out-right"
+              ]
+            },
+            "animationStagger": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
+            },
+            "animationDelay": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -21953,6 +22015,37 @@
             "animationDuration": {
               "type": "string",
               "pattern": "^\\$motion\\.[a-zA-Z0-9]+$"
+            },
+            "exitAnimation": {
+              "enum": [
+                "fade-out",
+                "slide-out-up",
+                "slide-out-down",
+                "slide-out-left",
+                "slide-out-right"
+              ]
+            },
+            "animationStagger": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
+            },
+            "animationDelay": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -22878,6 +22971,37 @@
             "animationDuration": {
               "type": "string",
               "pattern": "^\\$motion\\.[a-zA-Z0-9]+$"
+            },
+            "exitAnimation": {
+              "enum": [
+                "fade-out",
+                "slide-out-up",
+                "slide-out-down",
+                "slide-out-left",
+                "slide-out-right"
+              ]
+            },
+            "animationStagger": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
+            },
+            "animationDelay": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -23805,6 +23929,37 @@
             "animationDuration": {
               "type": "string",
               "pattern": "^\\$motion\\.[a-zA-Z0-9]+$"
+            },
+            "exitAnimation": {
+              "enum": [
+                "fade-out",
+                "slide-out-up",
+                "slide-out-down",
+                "slide-out-left",
+                "slide-out-right"
+              ]
+            },
+            "animationStagger": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
+            },
+            "animationDelay": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\$[a-z][a-zA-Z0-9.]*\\.[a-zA-Z0-9]+$"
+                }
+              ]
             }
           },
           "additionalProperties": false

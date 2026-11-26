@@ -428,6 +428,45 @@ pub fn animation_cases() -> Vec<Case> {
         frame_near(&to_value(&animation_frame(name, 60.0, &theme, false, token).ok_or("no frame")?), &o["frame"])?;
         same(&json!(eui_core::animation::ANIMATION_PROPERTIES_CSS), &f["properties"]).map_err(|x| format!("properties {x}"))
     }));
+    // Round 4 motion: the exit sets (timing on the visual of a node with
+    // `exitAnimation`), `animationDelay` (the visual's timing, the frames
+    // before/after it) and the presence scenarios (ghosts, stagger).
+    for (id, entries) in f["exits"].as_object().expect("exits") {
+        for (name, e) in entries.as_object().expect("entries") {
+            out.push(case(format!("exit {id}/{name}"), || {
+                ensure(eui_core::animation::EXIT_ANIMATION_NAMES.contains(&name.as_str()), || "unknown exit".into())?;
+                let mut s = motion_surface(id, json!([{"id": "root", "component": "Box", "style": {"exitAnimation": name, "width": 10, "height": 10}}]), false)?;
+                let timing = s.visual(s.index_of("root").ok_or("no root")?).and_then(|v| v.exit.clone()).ok_or("no exit on the visual")?.timing;
+                same(&to_value(&timing), &e["timing"]).map_err(|x| format!("timing {x}"))?;
+                for fr in arr(&e["frames"]) {
+                    let t = fr["t"].as_f64().unwrap_or(0.0);
+                    let got = to_value(&eui_core::animation::frame_with_timing(name, &timing, t, false).ok_or("no frame")?);
+                    frame_near(&got, &fr["frame"]).map_err(|x| format!("@{t} {x}"))?;
+                }
+                let _ = s.nodes();
+                same(&json!(keyframes_css(name)), &f["css"][name.as_str()]).map_err(|x| format!("css {x}"))
+            }));
+        }
+    }
+    for c in arr(&f["delay"]) {
+        out.push(case(format!("delay {}", c["name"].as_str().unwrap_or("")), || {
+            let mut style = c["style"].clone();
+            style["width"] = json!(10);
+            style["height"] = json!(10);
+            let s = motion_surface(c["theme"].as_str().unwrap_or(""), json!([{"id": "root", "component": "Box", "style": style}]), false)?;
+            let a = s.visual(s.index_of("root").ok_or("no root")?).and_then(|v| v.animation.clone()).ok_or("no animation on the visual")?;
+            same(&to_value(&a.timing), &c["timing"]).map_err(|x| format!("timing {x}"))?;
+            for fr in arr(&c["frames"]) {
+                let t = fr["t"].as_f64().unwrap_or(0.0);
+                let got = to_value(&eui_core::animation::frame_with_timing(&a.name, &a.timing, t, false).ok_or("no frame")?);
+                frame_near(&got, &fr["frame"]).map_err(|x| format!("@{t} {x}"))?;
+            }
+            Ok(())
+        }));
+    }
+    for c in arr(&f["presence"]) {
+        out.push(case(format!("presence {}", c["name"].as_str().unwrap_or("")), || presence_case(c)));
+    }
     // `opacity`: the painted opacity = own × the frame's (the CSS half is web-only).
     for c in arr(&f["opacity"]) {
         out.push(case(format!("opacity {}", c["name"].as_str().unwrap_or("")), || {
@@ -439,6 +478,68 @@ pub fn animation_cases() -> Vec<Case> {
         }));
     }
     out
+}
+
+/// A themed surface of flat components, laid out at 400 × 400.
+fn motion_surface(theme: &str, components: Value, reduced: bool) -> Result<eui_core::surface::Surface, String> {
+    motion_surface_with(theme, components, reduced, &Value::Null, (400.0, 400.0))
+}
+
+fn motion_surface_with(theme: &str, components: Value, reduced: bool, data: &Value, (w, h): (f32, f32)) -> Result<eui_core::surface::Surface, String> {
+    use eui_core::measure::FixedMeasure;
+    use eui_core::surface::{Surface, SurfaceOptions};
+    let theme = builtin_theme(theme).ok_or("not a built-in")?;
+    let mut s = Surface::new("motion", SurfaceOptions { theme: Some(theme), ..SurfaceOptions::default() });
+    s.set_pointer(false, reduced);
+    let components: Vec<FlatComponent> = serde_json::from_value(components).map_err(|e| e.to_string())?;
+    let outcome = s.set_components(components);
+    ensure(outcome.issues.is_empty(), || format!("issues {:?}", outcome.issues))?;
+    if let Some(data) = data.as_object() {
+        for (k, v) in data {
+            s.set_data(&format!("/{k}"), Some(v.clone()))?;
+        }
+    }
+    s.set_viewport(w, h, None);
+    s.layout(&mut FixedMeasure { sizes: std::collections::HashMap::new(), wrap: true });
+    Ok(s)
+}
+
+/// One `animations.json` `presence` scenario on a surface: the container's
+/// painted children (ids, ghosts, enter delays) after every step.
+fn presence_case(c: &Value) -> Result<(), String> {
+    use eui_core::measure::FixedMeasure;
+    let vp = &c["viewport"];
+    let mut s = motion_surface_with("neutral", c["components"].clone(), c["reducedMotion"].as_bool().unwrap_or(false), &c["data"], (vp["width"].as_f64().unwrap_or(400.0) as f32, vp["height"].as_f64().unwrap_or(400.0) as f32))?;
+    let first = c["first"].as_u64().map(|n| n as usize);
+    for (i, step) in arr(&c["steps"]).iter().enumerate() {
+        if let Some(d) = step.get("data") {
+            s.set_data(d["path"].as_str().unwrap_or(""), Some(d["value"].clone()))?;
+        }
+        if let Some(components) = step.get("components") {
+            let components: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| e.to_string())?;
+            let _ = s.set_components(components);
+        }
+        if let Some(id) = step.get("finishExit").and_then(Value::as_str) {
+            ensure(s.finish_exit(id), || format!("step {i}: no exit {id} to finish"))?;
+        }
+        s.layout(&mut FixedMeasure { sizes: std::collections::HashMap::new(), wrap: true });
+        let nodes = s.nodes();
+        let container = s.index_of(c["container"].as_str().unwrap_or("")).ok_or("no container")?;
+        let mut got: Vec<Value> = nodes[container as usize]
+            .children
+            .iter()
+            .map(|&k| {
+                let n = &nodes[k as usize];
+                let delay = s.visual(k).and_then(|v| v.animation.as_ref()).map(|a| a.timing.delay_ms).unwrap_or(0.0);
+                json!({"id": n.id, "exiting": n.exiting, "delayMs": delay})
+            })
+            .collect();
+        if let Some(n) = first {
+            got.truncate(n);
+        }
+        same(&json!(got), &step["expect"]).map_err(|x| format!("step {i}: {x}"))?;
+    }
+    Ok(())
 }
 
 /// VAPP-200 `read-only.json`: the pure pass (root, then each lifted

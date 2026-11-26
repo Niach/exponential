@@ -61,7 +61,7 @@ import { renderHost } from "./generate-host"
 import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
-import { ANIMATION_NAMES } from "../src/animation"
+import { ANIMATION_NAMES, EXIT_ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
 import { LIMITS } from "../src/limits"
@@ -445,6 +445,8 @@ const rows = {
   basicIconTargets: basicIcons.map(([, t]) => t),
   // Round 2 (docs/round-2-contract.md).
   animationNames: [...ANIMATION_NAMES],
+  // Round 4 motion: the `exitAnimation` sets.
+  exitAnimationNames: [...EXIT_ANIMATION_NAMES],
   formatFunctionNames: [...FORMAT_FUNCTION_NAMES],
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),

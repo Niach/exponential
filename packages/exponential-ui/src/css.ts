@@ -6,7 +6,7 @@
 // gradients) are handled here.
 
 import { easingCss, shadowCss } from "./theme"
-import { ANIMATIONS, animatesOpacity, animationCss, animationTiming } from "./animation"
+import { ANIMATIONS, animatesOpacity, animationCss, animationTiming, enterDelay } from "./animation"
 import type { Easing, FontSpec, ResolvedStyle, ResolvedTheme, Shadow } from "./theme-types"
 
 const UNITLESS = new Set([`flexGrow`, `flexShrink`, `opacity`, `fontWeight`, `aspectRatio`])
@@ -27,7 +27,7 @@ const SHORTHANDS: Record<string, string[]> = {
   backdropBlur: [`backdrop-filter`],
 }
 /** Keys that are not declarations of their own (folded into another). */
-const FOLDED = new Set([`transitionEasing`, `native`, `animationDuration`])
+const FOLDED = new Set([`transitionEasing`, `native`, `animationDuration`, `exitAnimation`, `animationStagger`, `animationDelay`])
 
 const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 
@@ -96,7 +96,8 @@ export function styleToCss(style: ResolvedStyle | Record<string, unknown>, fonts
       // replaces the animation's own token, its factor kept.
       const duration = (style as Record<string, unknown>).animationDuration
       const durationMs = typeof duration === `number` ? duration * (ANIMATIONS[value as string]?.factor ?? 1) : timing.durationMs
-      out.animation = animationCss(value as string, { ...timing, durationMs })
+      const delayMs = enterDelay((style as Record<string, unknown>).animationDelay, null, 0)
+      out.animation = animationCss(value as string, { ...timing, durationMs, ...(delayMs ? { delayMs } : {}) })
       continue
     }
     if (key.startsWith(`@`) || key.startsWith(`:`)) continue

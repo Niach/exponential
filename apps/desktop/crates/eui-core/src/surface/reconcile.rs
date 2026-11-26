@@ -156,7 +156,8 @@ impl Surface {
         self.rebuilt = true;
         self.built_nodes += built.nodes.len() as u32 - 1;
         let old_lists: HashSet<u32> = old.iter().copied().collect();
-        let (map, structure_changed) = self.reconcile_core(built.nodes, Some(parent), old);
+        let windowed: HashSet<u32> = built.lists.iter().filter(|l| l.windowed).map(|l| l.node).collect();
+        let (map, structure_changed) = self.reconcile_core(built.nodes, Some(parent), old, &windowed);
         self.lists.retain(|l| !old_lists.contains(&l.node));
         self.lists.extend(built.lists.into_iter().map(|mut l| {
             l.node = map[l.node as usize];
@@ -182,6 +183,9 @@ impl Surface {
     /// Forget every slot (a new surface, a compaction).
     fn clear_slots(&mut self) {
         self.archive_all();
+        self.exits.clear();
+        self.ghosts.clear();
+        self.ghost_roots.clear();
         if !self.nodes.is_empty() {
             self.renumbered = true;
             self.structure_version += 1;
@@ -280,6 +284,8 @@ impl Surface {
             self.states.remove(&id);
         }
         self.live[slot as usize] = false;
+        self.ghosts.remove(&slot);
+        self.ghost_roots.remove(&slot);
         self.engine.set_children(slot, &[]);
         self.memo.forget(slot);
         self.memo_versions.remove(&slot);
@@ -296,7 +302,8 @@ impl Surface {
     fn reconcile(&mut self, mut built: layout_tree::Built) {
         self.seed = layout_tree::BuildSeed { row_scopes: std::mem::take(&mut built.row_scopes), forms: std::mem::take(&mut built.forms) };
         let candidates: Vec<u32> = (0..self.nodes.len() as u32).filter(|s| self.live[*s as usize]).collect();
-        let (map, structure_changed) = self.reconcile_core(built.nodes, None, candidates);
+        let windowed: HashSet<u32> = built.lists.iter().filter(|l| l.windowed).map(|l| l.node).collect();
+        let (map, structure_changed) = self.reconcile_core(built.nodes, None, candidates, &windowed);
         self.main_root = map.first().copied();
         self.anchor_ids = std::mem::take(&mut built.anchors).into_iter().collect();
         self.layers = built
@@ -344,7 +351,9 @@ impl Surface {
     /// Map built nodes (pre-order, temp indices) onto slots by id, write
     /// them, kill the `candidates` nobody claimed. `pinned` = temp node 0 is
     /// an existing slot (the parent of a rebuilt subtree) that stays as it is.
-    fn reconcile_core(&mut self, nodes: Vec<LNode>, pinned: Option<u32>, candidates: Vec<u32>) -> (Vec<u32>, bool) {
+    fn reconcile_core(&mut self, mut nodes: Vec<LNode>, pinned: Option<u32>, candidates: Vec<u32>, windowed: &HashSet<u32>) -> (Vec<u32>, bool) {
+        // Round 4 motion: leaving nodes with an exit stay as ghosts.
+        let ghost_temps = self.splice_ghosts(&mut nodes, &candidates, windowed, pinned.is_some());
         let mut reusable = std::mem::take(&mut self.free);
         // Lowest slots first (pop from the end).
         reusable.sort_unstable_by(|a, b| b.cmp(a));
@@ -358,7 +367,8 @@ impl Surface {
             let slot = match (t, pinned) {
                 (0, Some(p)) => p,
                 _ => match self.slot_of.get(&n.id).copied() {
-                    Some(s) if !is_claimed(&claimed, s) && self.live[s as usize] && (pinned.is_none() || reclaimable.contains(&s)) => s,
+                    // A node back from its exit enters anew (a new slot).
+                    Some(s) if !is_claimed(&claimed, s) && self.live[s as usize] && (pinned.is_none() || reclaimable.contains(&s)) && (!self.ghosts.contains(&s) || ghost_temps.contains(&t)) => s,
                     _ => self.alloc(&mut reusable),
                 },
             };
@@ -367,6 +377,28 @@ impl Surface {
             }
             claimed[slot as usize] = true;
             map.push(slot);
+        }
+        // Round 4 motion: the stagger offset of every entering node (the
+        // children of one parent entering in this pass, i × its
+        // `animationStagger`; a windowed List only in its own first pass).
+        let reduced = self.settings.reduced_motion;
+        let entering: Vec<bool> = nodes.iter().enumerate().map(|(t, n)| !(t == 0 && pinned.is_some()) && !(self.live[map[t] as usize] && self.nodes[map[t] as usize].id == n.id)).collect();
+        let mut stagger = vec![0.0f64; nodes.len()];
+        if !reduced {
+            for (p, n) in nodes.iter().enumerate() {
+                let per = n.base_style.get("animationStagger");
+                if crate::animation::enter_delay(None, Some(1), per, false) <= 0.0 || (windowed.contains(&(p as u32)) && !entering[p]) {
+                    continue;
+                }
+                let mut i = 0u32;
+                for &c in &n.children {
+                    let c = c as usize;
+                    if entering[c] && !ghost_temps.contains(&c) {
+                        stagger[c] = crate::animation::enter_delay(None, Some(i), per, false);
+                        i += 1;
+                    }
+                }
+            }
         }
         let mut structure_changed = false;
         let stale: Vec<u32> = candidates.into_iter().filter(|s| self.live[*s as usize] && !is_claimed(&claimed, *s)).collect();
@@ -442,7 +474,7 @@ impl Surface {
                 self.delta_changed.remove(&slot);
                 self.delta_added.insert(slot);
                 self.style_dirty.insert(slot);
-                self.node_state[slot as usize] = NodeState::default();
+                self.node_state[slot as usize] = NodeState { stagger_ms: stagger[t], ..NodeState::default() };
                 self.memo.forget(slot);
                 self.memo_versions.remove(&slot);
                 if let Some(c) = self.archive.get(&n.id) {
@@ -470,7 +502,105 @@ impl Surface {
             let children = self.nodes[*slot as usize].children.clone();
             self.engine.set_children(*slot, &children);
         }
+        // The ghost slots of this pass (a subtree pass keeps the others').
+        if pinned.is_none() {
+            self.ghosts.clear();
+            self.ghost_roots.clear();
+        }
+        for &t in &ghost_temps {
+            self.ghosts.insert(map[t]);
+            if self.exits.contains(&self.nodes[map[t] as usize].id) {
+                self.ghost_roots.insert(map[t]);
+            }
+        }
         (map, structure_changed)
+    }
+
+    /// Round 4 motion: append to `nodes` (the new build, temp indices) the
+    /// last painted subtree of every candidate that LEFT the tree while its
+    /// parent stayed, when it has an exit (newly leaving with `Visual::exit`,
+    /// or still in `exits`): hooked into the parent's children right after
+    /// the nearest previous sibling still there (else first), in the old
+    /// order. Never under reduced motion, nor for a windowed List's rows, a
+    /// layer root, or when an id of the subtree is back in the build (the
+    /// node returned: its exit is cancelled). Returns the ghost temp indices.
+    fn splice_ghosts(&mut self, nodes: &mut Vec<LNode>, candidates: &[u32], windowed: &HashSet<u32>, subtree: bool) -> HashSet<usize> {
+        let mut out = HashSet::new();
+        if self.settings.reduced_motion {
+            self.exits.clear();
+            return out;
+        }
+        if self.ghosts.is_empty() && !candidates.iter().any(|s| self.node_state[*s as usize].visual.exit.is_some()) {
+            if !subtree {
+                self.exits.clear();
+            }
+            return out;
+        }
+        let by_id: HashMap<String, usize> = nodes.iter().enumerate().map(|(t, n)| (n.id.clone(), t)).collect();
+        let mut keep: HashSet<String> = HashSet::new();
+        // (parent temp, insert position, root slot) in the old order.
+        let mut roots: Vec<(usize, u32)> = Vec::new();
+        for &s in candidates {
+            let n = &self.nodes[s as usize];
+            if !self.live[s as usize] || by_id.contains_key(&n.id) {
+                continue;
+            }
+            let leaving = self.exits.contains(&n.id) || (!self.ghosts.contains(&s) && self.node_state[s as usize].visual.exit.is_some());
+            let Some(p) = n.parent else { continue };
+            let parent = &self.nodes[p as usize];
+            let Some(&pt) = by_id.get(&parent.id) else { continue };
+            if !leaving || n.layer != parent.layer || windowed.contains(&(pt as u32)) || nodes[pt].hidden {
+                continue;
+            }
+            let sub = self.subtree(s);
+            if sub.iter().any(|d| by_id.contains_key(&self.nodes[*d as usize].id) || self.nodes[*d as usize].layer != n.layer) {
+                continue;
+            }
+            keep.insert(n.id.clone());
+            roots.push((pt, s));
+        }
+        // In the old paint order (parent, then sibling position).
+        roots.sort_by_key(|(_, s)| {
+            let p = self.nodes[*s as usize].parent.unwrap_or(0);
+            (p, self.nodes[p as usize].children.iter().position(|c| c == s).unwrap_or(0))
+        });
+        let built = nodes.len();
+        // Exits whose node is no longer a ghost (it came back, its parent
+        // left) are over.
+        if !subtree {
+            self.exits.retain(|id| keep.contains(id));
+        }
+        for (pt, s) in roots {
+            let id = self.nodes[s as usize].id.clone();
+            self.exits.insert(id);
+            // Where: after the nearest previous old sibling still present
+            // (or a ghost placed earlier), else first.
+            let p = self.nodes[s as usize].parent.unwrap_or(0);
+            let siblings = self.nodes[p as usize].children.clone();
+            let at = siblings.iter().position(|c| *c == s).unwrap_or(0);
+            let anchor = siblings[..at].iter().rev().find_map(|c| {
+                let cid = &self.nodes[*c as usize].id;
+                by_id.get(cid).copied().filter(|t| nodes[pt].children.contains(&(*t as u32))).or_else(|| {
+                    // An earlier ghost of the same parent (appended below).
+                    nodes.iter().enumerate().skip(built).find(|(_, g)| &g.id == cid && g.parent == Some(pt as u32)).map(|(t, _)| t)
+                })
+            });
+            // Append the old subtree with temp indices.
+            let sub = self.subtree(s);
+            let base = nodes.len();
+            let temp_of: HashMap<u32, usize> = sub.iter().enumerate().map(|(k, slot)| (*slot, base + k)).collect();
+            for slot in &sub {
+                let mut g = self.nodes[*slot as usize].clone();
+                g.parent = if *slot == s { Some(pt as u32) } else { g.parent.and_then(|q| temp_of.get(&q)).map(|t| *t as u32) };
+                g.children = g.children.iter().filter_map(|c| temp_of.get(c)).map(|t| *t as u32).collect();
+                out.insert(temp_of[slot]);
+                nodes.push(g);
+            }
+            let kids = &mut nodes[pt].children;
+            let pos = anchor.and_then(|a| kids.iter().position(|c| *c as usize == a)).map(|i| i + 1).unwrap_or(0);
+            kids.insert(pos, base as u32);
+        }
+        out
     }
 }
 

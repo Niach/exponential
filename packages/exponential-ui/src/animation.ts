@@ -25,13 +25,18 @@ export interface AnimationDef {
   easing: string
   iterations: number | `infinite`
   rest: number
+  /** Round 4 motion: an `exitAnimation` set (played when the node leaves). */
+  exit?: boolean
   keyframes: Keyframe[]
   band?: { color: string; stops: { offset: number; alpha: number }[] }
 }
 
 /** The keyframe sets by name (style.json `animations`, `$comment` aside). */
 export const ANIMATIONS: Readonly<Record<string, AnimationDef>> = Object.fromEntries(Object.entries(styleJson.animations).filter(([k]) => !k.startsWith(`$`))) as unknown as Record<string, AnimationDef>
-export const ANIMATION_NAMES: readonly string[] = Object.keys(ANIMATIONS)
+/** The `animation` (enter + loop) sets. */
+export const ANIMATION_NAMES: readonly string[] = Object.keys(ANIMATIONS).filter((n) => !ANIMATIONS[n].exit)
+/** Round 4 motion: the `exitAnimation` sets. */
+export const EXIT_ANIMATION_NAMES: readonly string[] = Object.keys(ANIMATIONS).filter((n) => ANIMATIONS[n].exit)
 
 /** One frame: every channel at its value (`band` null = no shimmer band). */
 export interface AnimationFrame {
@@ -48,6 +53,10 @@ export interface AnimationTiming {
   /** A cubic bezier or `linear`. */
   easing: Easing | `linear`
   iterations: number | `infinite`
+  /** Round 4 motion: ms before the run starts (the node's stagger offset +
+   *  its `animationDelay`); absent = 0. The node holds the first keyframe
+   *  meanwhile (CSS fill `both`). */
+  delayMs?: number
 }
 
 const LINEAR: `linear` = `linear`
@@ -109,10 +118,11 @@ function frameAt(def: AnimationDef, progress: number, easing: Easing | `linear`)
   return out
 }
 
-/** The frame `elapsedMs` after the node entered the tree. Finished finite
- *  animations hold their last keyframe; reduced motion = the `rest`
- *  keyframe (no band). */
-export function animationFrame(name: string, elapsedMs: number, theme: ResolvedTheme, options: { reducedMotion?: boolean; durationToken?: string } = {}): AnimationFrame | null {
+/** The frame `elapsedMs` after the node entered the tree (an exit set:
+ *  after it began leaving). Finished finite animations hold their last
+ *  keyframe; reduced motion = the `rest` keyframe (no band); before
+ *  `delayMs` the first keyframe. */
+export function animationFrame(name: string, elapsedMs: number, theme: ResolvedTheme, options: { reducedMotion?: boolean; durationToken?: string; delayMs?: number } = {}): AnimationFrame | null {
   const def = ANIMATIONS[name]
   const timing = animationTiming(name, theme, options.durationToken)
   if (!def || !timing) return null
@@ -121,9 +131,11 @@ export function animationFrame(name: string, elapsedMs: number, theme: ResolvedT
     return { ...rest, band: null }
   }
   const d = timing.durationMs
+  const delay = options.delayMs ?? 0
+  if (delay > 0 && elapsedMs < delay) return frameAt(def, 0, timing.easing)
   if (d <= 0) return frameAt(def, 1, LINEAR)
   const iterations = timing.iterations === `infinite` ? Infinity : timing.iterations
-  const t = Math.max(0, elapsedMs)
+  const t = Math.max(0, elapsedMs - delay)
   if (t >= d * iterations) return frameAt(def, 1, timing.easing)
   return frameAt(def, (t % d) / d, timing.easing)
 }
@@ -174,5 +186,88 @@ export function keyframesCss(name: string): string {
 export function animationCss(name: string, timing: AnimationTiming): string {
   const easing = timing.easing === LINEAR ? `linear` : `cubic-bezier(${timing.easing.join(`, `)})`
   const iterations = timing.iterations === `infinite` ? `infinite` : String(timing.iterations)
-  return `xui-${name} ${timing.durationMs}ms ${easing} ${iterations} both`
+  const delay = timing.delayMs ? ` ${timing.delayMs}ms` : ``
+  return `xui-${name} ${timing.durationMs}ms ${easing}${delay} ${iterations} both`
+}
+
+const ms = (v: unknown): number => (typeof v === `number` && Number.isFinite(v) && v > 0 ? v : 0)
+
+/** Round 4 motion: the ms a node's ENTER animation waits: its stagger index
+ *  (null = it did not enter with a staggered batch) × the parent's
+ *  `animationStagger` + its own `animationDelay` (both base style, negative
+ *  or non-numbers = 0). Reduced motion = 0. */
+export function enterDelay(ownDelay: unknown, staggerIndex: number | null, parentStagger: unknown, reducedMotion = false): number {
+  if (reducedMotion) return 0
+  return r4(ms(ownDelay) + (staggerIndex === null ? 0 : staggerIndex * ms(parentStagger)))
+}
+
+/** Round 4 motion: the timing of a node's `exitAnimation` (`animationDuration`
+ *  ms, once resolved, replaces the set's own, its factor kept); null = no
+ *  exit (none set, an unknown set, or reduced motion: the node leaves at
+ *  once). */
+export function exitTiming(name: unknown, theme: ResolvedTheme, durationMs?: number, reducedMotion = false): AnimationTiming | null {
+  if (reducedMotion || typeof name !== `string` || !ANIMATIONS[name]?.exit) return null
+  const timing = animationTiming(name, theme)
+  if (!timing) return null
+  return typeof durationMs === `number` && Number.isFinite(durationMs) ? { ...timing, durationMs: durationMs * ANIMATIONS[name].factor } : timing
+}
+
+/** One child as a container paints it now (its key + what the renderer
+ *  needs to paint it; `exitMs` = its exit's duration, 0 = none). */
+export interface PresenceChild<T> {
+  key: string
+  value: T
+  exitMs: number
+}
+
+/** One painted child: a present one or a GHOST (`exiting`: its last painted
+ *  value, out of hit-testing, keeping its slot until `finishExit`). */
+export interface PresenceEntry<T> extends PresenceChild<T> {
+  exiting: boolean
+}
+
+/** Round 4 motion: the children a container paints after a pass (the
+ *  reference the web renderers run and fixtures/animations.json `presence`
+ *  locks with the Rust core's surface). A previous child missing from
+ *  `next` with an exit (or already exiting) stays as a ghost right after the
+ *  nearest previous sibling still present (else first), in the previous
+ *  order; a key back in `next` is present again (its ghost dropped; it
+ *  enters anew). Reduced motion keeps no ghost. `entering` = the keys of
+ *  `next` not present before (ghosts count as absent), in paint order: the
+ *  stagger batch (index i → i × animationStagger). */
+export function presence<T>(prev: readonly PresenceEntry<T>[], next: readonly PresenceChild<T>[], reducedMotion = false): { entries: PresenceEntry<T>[]; entering: string[] } {
+  const nextKeys = new Set(next.map((c) => c.key))
+  const present = new Set(prev.filter((p) => !p.exiting).map((p) => p.key))
+  const entering = next.filter((c) => !present.has(c.key)).map((c) => c.key)
+  // Ghosts by anchor (the last previous key still present before them).
+  const head: PresenceEntry<T>[] = []
+  const after = new Map<string, PresenceEntry<T>[]>()
+  let anchor: string | null = null
+  for (const p of prev) {
+    if (nextKeys.has(p.key)) {
+      anchor = p.key
+      continue
+    }
+    if (reducedMotion || (!p.exiting && !(p.exitMs > 0))) continue
+    const ghost = p.exiting ? p : { ...p, exiting: true }
+    if (anchor === null) head.push(ghost)
+    else {
+      const list = after.get(anchor)
+      if (list) list.push(ghost)
+      else after.set(anchor, [ghost])
+    }
+  }
+  if (head.length === 0 && after.size === 0) return { entries: next.map((c) => ({ ...c, exiting: false })), entering }
+  const entries: PresenceEntry<T>[] = [...head]
+  for (const c of next) {
+    entries.push({ ...c, exiting: false })
+    const ghosts = after.get(c.key)
+    if (ghosts) entries.push(...ghosts)
+  }
+  return { entries, entering }
+}
+
+/** The entries once `key`'s exit ended (layout closes its gap now). */
+export function finishExit<T>(entries: readonly PresenceEntry<T>[], key: string): PresenceEntry<T>[] {
+  return entries.filter((e) => !(e.exiting && e.key === key))
 }

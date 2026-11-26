@@ -201,6 +201,12 @@ pub struct Visual {
     /// [`crate::animation::frame_with_timing`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<VisualAnimation>,
+    /// Round 4 motion: the `exitAnimation` with its timing, played while the
+    /// node is a leaving ghost (`PlacedNode::exiting`) from the moment it
+    /// began leaving; the painter calls `Surface::finish_exit` once it ran.
+    /// None under reduced motion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<VisualAnimation>,
     /// Round 2: `position: sticky` (the pinned offsets are
     /// `LayoutOutput::sticky`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -730,6 +736,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         backdrop_blur: r.get("backdropBlur").and_then(px),
         tail: str_of("tail").filter(|t| matches!(t.as_str(), "start" | "end" | "down")),
         animation: None,
+        exit: None,
         sticky: r.get("position").and_then(Value::as_str) == Some("sticky"),
     }
 }

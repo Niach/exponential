@@ -167,6 +167,12 @@ export interface StyleProps {
   animation?: `pulse` | `spin` | `fade-in` | `slide-in-up` | `slide-in-down` | `slide-in-left` | `slide-in-right` | `shimmer`
   /** Round 2: `$motion.<name>` instead of the animation's own token. */
   animationDuration?: `$motion.${string}`
+  /** Round 4 motion: the keyframe set played when the node leaves the tree. */
+  exitAnimation?: `fade-out` | `slide-out-up` | `slide-out-down` | `slide-out-left` | `slide-out-right`
+  /** Round 4 motion: ms between the enter animations of children entering together. */
+  animationStagger?: number
+  /** Round 4 motion: ms before the node's enter animation (added to its stagger offset). */
+  animationDelay?: number
 }
 
 export type MediaKey = `@media (${string})` | `@container (${string})`
