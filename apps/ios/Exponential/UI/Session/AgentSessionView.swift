@@ -1158,11 +1158,9 @@ struct AgentSessionView: View {
                                     avatar: grouping.avatars[entry.id]
                                 ) {
                                     TranscriptRowSlot(key: rowKey(entry, isLast: isLast, layout: layout, model: model)) {
-                                        if let count = entry.checkIns {
-                                            // #EXP-1873: a quiet check-in (or a run) = ONE marker line.
-                                            TranscriptMarkerRow(label: TranscriptGrouping.checkInLabel(
-                                                count: count, time: Self.checkInTime(entry.row)
-                                            ))
+                                        if let ticks = entry.checkIns {
+                                            // #EXP-1873 + #FEED-317: a quiet tick (or a run) = THE tool-group line.
+                                            ScheduleRunRow(times: ticks.map(Self.checkInTime))
                                         } else {
                                             feedRow(entry.row, isLast: isLast, layout: layout)
                                         }
@@ -1450,9 +1448,9 @@ struct AgentSessionView: View {
         }
     }
 
-    /// #EXP-1873: the check-in line's `HH:mm` (its schedule firing's `at`).
-    static func checkInTime(_ row: AgentFeedRow) -> String? {
-        guard case let .single(.userMessage(_, _, _, at)) = row, let at else { return nil }
+    /// #EXP-1873 + #FEED-317: a tick's `HH:mm` (its schedule firing's `at`).
+    static func checkInTime(_ at: Int?) -> String? {
+        guard let at else { return nil }
         return GlassTimeRow.formatted(Date(timeIntervalSince1970: Double(at) / 1000))
     }
 
@@ -1827,6 +1825,9 @@ struct AgentSessionView: View {
             let id = "row:\(entry.id)"
             var item = TranscriptGrouping.Item(id: id, kind: .full)
             switch entry.row {
+            // #FEED-317: THE schedule line is the chat's own agent's trace line.
+            case _ where entry.checkIns != nil:
+                item = TranscriptGrouping.Item(id: id, kind: .trace)
             case .toolRun, .edits, .expRun, .subagentRun:
                 item = TranscriptGrouping.Item(id: id, kind: .trace)
             case .ask:
@@ -5078,6 +5079,41 @@ private struct ToolGroupRow: View {
         }
         .onChange(of: findOpens, initial: true) { _, open in
             if open { expanded = true }
+        }
+    }
+}
+
+/// #EXP-1873 + #FEED-317 (transcript-grouping.json): a run of quiet
+/// schedule ticks = THE tool-group row (the Trace sm collapsible `ToolGroupRow`
+/// draws): the schedule glyph + `checkInLabel(n, first, last)`; n > 1 opens
+/// (closed by default) to one line per tick, oldest first; n = 1 never opens.
+/// `times` = each tick's `HH:mm` (nil = unknown), oldest first.
+struct ScheduleRunRow: View {
+    let times: [String?]
+
+    private var icon: some View {
+        AppIcon(AppIcons.triggerSchedule, size: TraceSize.sm.geometry.icon)
+    }
+
+    private func line(_ title: String) -> some View {
+        TraceLine(title: title, size: .sm) { icon }
+    }
+
+    var body: some View {
+        let label = TranscriptGrouping.checkInLabel(
+            count: times.count, first: times.first ?? nil, last: times.last ?? nil
+        )
+        if times.count > 1 {
+            TraceCollapsible(size: .sm, accessibilityId: "session-schedule-run") {
+                line(label)
+            } content: {
+                ForEach(Array(times.enumerated()), id: \.offset) { _, time in
+                    line(TranscriptGrouping.checkInLabel(count: 1, first: time, last: time))
+                }
+            }
+        } else {
+            line(label)
+                .accessibilityIdentifier("session-schedule-run")
         }
     }
 }

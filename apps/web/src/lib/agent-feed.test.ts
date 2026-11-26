@@ -3086,6 +3086,30 @@ describe(`shownFeedRows (#EXP-1772)`, () => {
       [4, 1],
     ])
   })
+  it(`folds a quiet tick's work into ONE schedule line with each tick's time; a show call keeps the turn (#FEED-317)`, () => {
+    const quiet = (id: number) => ({ kind: `single` as const, item: { id, kind: `tool`, text: ``, name: `mcp__exponential__exponential_session_self_quiet` } })
+    const tick = (id: number, at: number) => ({ kind: `single` as const, item: { id, kind: `user_message`, text: `[schedule] Schedule \`*/15 * * * *\` fired.`, at } })
+    const tool = (id: number, name: string) => ({ kind: `single` as const, item: { id, kind: `tool`, text: ``, name } })
+    const rows = [
+      tick(1, 100),
+      tool(2, `mcp__exponential__exponential_sessions_list`),
+      quiet(3),
+      tick(4, 200),
+      { kind: `toolRun` as const, id: 5, items: [{ id: 5, kind: `tool`, text: ``, name: `Read` }, { id: 6, kind: `tool`, text: ``, name: `Grep` }] },
+      quiet(7),
+      tick(8, 300),
+      quiet(9),
+      tick(10, 400),
+      tool(11, `mcp__exponential__exponential_show`),
+      quiet(12),
+    ]
+    const shown = shownFeedRows(rows as never) as { kind: string; item?: { id: number; checkIns?: number; checkInTimes?: (number | null)[] } }[]
+    expect(shown.map((row) => (row.kind === `single` ? [row.item!.id, row.item!.checkIns, row.item!.checkInTimes] : null))).toEqual([
+      [8, 3, [100, 200, 300]],
+      [11, undefined, undefined],
+      [12, undefined, undefined],
+    ])
+  })
   it(`a blank message after quiet (a lone U+200B) keeps the check-in one line; a blank relay draws nothing (#FEED-256, #FEED-254)`, () => {
     const quiet = (id: number) => ({ kind: `single` as const, item: { id, kind: `tool`, text: ``, name: `mcp__exponential__exponential_session_self_quiet` } })
     const rows = [

@@ -873,9 +873,10 @@ pub(crate) struct SteerSessionView {
     /// their own rows at the tail — between the transcript and the working
     /// row, in feed order. Web, iOS and Android render the same orphans.
     orphan_workflows: Vec<String>,
-    /// #EXP-1873: the schedule rows drawn as THE check-in line, with the
-    /// number of quiet check-ins each covers ([`drop_silent_rows`]).
-    check_ins: HashMap<FeedItemId, u32>,
+    /// #EXP-1873 + #FEED-317: the schedule rows drawn as THE schedule line
+    /// (the tool-group row), with the `at` of every quiet tick it covers,
+    /// oldest first ([`drop_silent_rows`]).
+    check_ins: HashMap<FeedItemId, Vec<Option<i64>>>,
     /// #EXP-1943 (session-card.json THE LIVE CHAT): the feed's call report
     /// relays: each call's ONE card at its first report.
     call_fold: CallFold,
@@ -1643,6 +1644,9 @@ impl SteerSessionView {
                         if domain::chats::command_divider(text).is_none() && parse_command(text, self.agent()).is_none() =>
                     {
                         match feed_input(text) {
+                            // #FEED-317: a schedule line = THE tool-group
+                            // row, a trace of the chat's own agent.
+                            Some(FeedInput::Marker { .. }) if self.check_ins.contains_key(&spec.id()) => TranscriptItem::trace(id),
                             // #EXP-1772: a system input = THE marker, full width.
                             Some(FeedInput::Marker { .. }) => TranscriptItem::full(id),
                             // #EXP-2071: a press without a body = THE marker too.
@@ -2260,7 +2264,7 @@ impl SteerSessionView {
         // #EXP-1873: a quiet check-in (or a run of them) = ONE marker line.
         self.check_ins.clear();
         if focus.is_none() {
-            self.check_ins = drop_silent_rows(&mut self.rows, self.feed.items());
+            self.check_ins = drop_silent_rows(&mut self.rows, self.feed.items(), &self.feed.workflow_ids());
         }
     }
 
@@ -2300,9 +2304,9 @@ impl SteerSessionView {
                 0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(fingerprint, 1),
                 _ => fingerprint,
             };
-            // #EXP-1873: the check-in line's count is its label.
+            // #EXP-1873: the schedule line's ticks are its label.
             let fingerprint = match self.check_ins.get(&id) {
-                Some(count) => transcript_rows::fold_extra(fingerprint, u64::from(*count) + 2),
+                Some(ticks) => transcript_rows::fold_extra(fingerprint, ticks.len() as u64 + 2),
                 None => fingerprint,
             };
             // #EXP-1943: a call card's words (its ticking timer, its caption).
@@ -7187,14 +7191,11 @@ impl SteerSessionView {
                     Some(domain::transcript_grouping::FeedInput::Marker { label, .. }) => label,
                     _ => unreachable!("matched above"),
                 };
-                // #EXP-1873: a quiet check-in (or a run of them) = ONE line.
-                let label = match (self.check_ins.get(&item.id), &item.kind) {
-                    (Some(count), FeedKind::UserMessage { at, .. }) => domain::transcript_grouping::check_in_label(
-                        *count,
-                        at.map(crate::session_chat::clock_ms).as_deref(),
-                    ),
-                    _ => label,
-                };
+                // #EXP-1873 + #FEED-317: a quiet tick (or a run of them) =
+                // ONE tool-group row.
+                if let Some(ticks) = self.check_ins.get(&item.id) {
+                    return self.render_check_in(item.id, ticks, window, cx);
+                }
                 crate::surface_card::transcript_marker(SharedString::from(format!("steer-marker-{}", item.id)), &label, None, cx)
             }
             // #EXP-1943: a call's FIRST report relay = THE call card; every
@@ -8323,6 +8324,70 @@ impl SteerSessionView {
                 cx,
             ))
             .into_any_element()
+    }
+
+    /// #FEED-317 (transcript-grouping.json `checkInCases`): THE schedule line
+    /// = the tool-group row ([`Self::render_group`]'s Trace collapsible):
+    /// `Schedule ×5 · 11:15–12:15`, opening to one line per tick; one tick
+    /// never opens.
+    fn render_check_in(
+        &self,
+        id: FeedItemId,
+        ticks: &[Option<i64>],
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        use domain::transcript_grouping::check_in_label;
+        let clock = |at: Option<i64>| at.map(crate::session_chat::clock_ms);
+        let first = clock(ticks.first().copied().flatten());
+        let last = clock(ticks.last().copied().flatten());
+        let line = TraceLine::new(
+            ("steer-check-in", id as usize),
+            Icon::new(registry::TRIGGER_SCHEDULE),
+            check_in_label(ticks.len() as u32, first.as_deref(), last.as_deref()),
+        );
+        if ticks.len() < 2 {
+            return trace_line(line, window, cx);
+        }
+        let expanded = self.expanded_groups.contains(&id);
+        let content = expanded.then(|| {
+            trace_stack(
+                ticks
+                    .iter()
+                    .enumerate()
+                    .map(|(index, at)| {
+                        let at = clock(*at);
+                        trace_line(
+                            TraceLine::new(
+                                gpui::ElementId::NamedInteger(format!("steer-check-in-{id}").into(), index as u64),
+                                Icon::new(registry::TRIGGER_SCHEDULE),
+                                check_in_label(1, at.as_deref(), at.as_deref()),
+                            ),
+                            window,
+                            cx,
+                        )
+                    })
+                    .collect(),
+                TraceSize::Sm,
+            )
+            .into_any_element()
+        });
+        let entity = cx.entity().downgrade();
+        trace_collapsible(
+            line,
+            expanded,
+            move |_, cx| {
+                let _ = entity.update(cx, |this, cx| {
+                    if !this.expanded_groups.insert(id) {
+                        this.expanded_groups.remove(&id);
+                    }
+                    cx.notify();
+                });
+            },
+            content,
+            window,
+            cx,
+        )
     }
 
     /// EXP-948 — a run of ≥2 consecutive calls to the SAME Exponential MCP
@@ -10595,11 +10660,27 @@ pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
 /// #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
 /// minus a system input the agent never answered (THE marker shows only
 /// when an agent reply follows it before the next input or marker) and
-/// every blank agent turn (no empty bubble). #EXP-1873 (`feedRows`): a quiet
-/// check-in is ONE line, consecutive ones collapse onto the last; returns
-/// those schedule rows' ids with the count each line covers.
-pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed::FeedItem]) -> HashMap<FeedItemId, u32> {
-    use domain::transcript_grouping::{feed_input, feed_rows, FeedInput, FeedRowRole, FeedRowShown};
+/// every blank agent turn (no empty bubble). #EXP-1873 + #FEED-317
+/// (`feedRows`): a quiet tick is ONE line (its work folded away),
+/// consecutive ones collapse onto the last; returns those schedule rows' ids
+/// with the `at` of every tick each line covers, oldest first.
+pub(crate) fn drop_silent_rows(
+    rows: &mut Vec<FeedRowSpec>,
+    items: &[steer::feed::FeedItem],
+    workflow_ids: &[&str],
+) -> HashMap<FeedItemId, Vec<Option<i64>>> {
+    use domain::transcript_grouping::{check_in_ticks, feed_input, feed_rows, FeedInput, FeedRowRole, FeedRowShown};
+    // #FEED-317: the agent's WORK (a tool line or run, an Exponential tool
+    // run, a thought, a subagent line) folds into a quiet tick; a `show`
+    // call (its card), a card, a workflow or script card never does.
+    let card_call = |item: &steer::feed::FeedItem| {
+        item.tool_name().is_some_and(|name| {
+            matches!(
+                domain::ask_dock::card_call_row(name),
+                Some("show" | "session_self_show" | "session_self_plan" | "session_self_ask")
+            )
+        })
+    };
     let kinds: Vec<FeedRowRole> = rows
         .iter()
         .map(|spec| match spec {
@@ -10619,10 +10700,16 @@ pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed
                     },
                     FeedKind::Narration { text, .. } if domain::transcript_grouping::is_blank_text(text) => FeedRowRole::Blank,
                     FeedKind::Narration { .. } => FeedRowRole::Reply,
+                    FeedKind::Tool { .. } if card_call(item) || item.is_script_call() || item.is_workflow_call(workflow_ids) => {
+                        FeedRowRole::Other
+                    }
+                    FeedKind::Tool { .. } | FeedKind::Thought { .. } | FeedKind::Subagent { .. } => FeedRowRole::Work,
                     _ => FeedRowRole::Other,
                 },
                 None => FeedRowRole::Other,
             },
+            FeedRowSpec::ToolRun { .. } | FeedRowSpec::Subagent { .. } => FeedRowRole::Work,
+            FeedRowSpec::ExpRun { items: run, .. } if !run.iter().filter_map(|ix| items.get(*ix)).any(card_call) => FeedRowRole::Work,
             _ => FeedRowRole::Other,
         })
         .collect();
@@ -10631,9 +10718,17 @@ pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed
         return check_ins;
     }
     let shown = feed_rows(&kinds);
-    for (spec, drawn) in rows.iter().zip(&shown) {
+    let tick_at = |row: usize| match rows.get(row) {
+        Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
+            Some(FeedKind::UserMessage { at, .. }) => *at,
+            _ => None,
+        },
+        _ => None,
+    };
+    for (index, drawn) in shown.iter().enumerate() {
         if let FeedRowShown::CheckIn(count) = drawn {
-            check_ins.insert(spec.id(), *count);
+            let ticks = check_in_ticks(&kinds, index, *count).into_iter().map(tick_at).collect();
+            check_ins.insert(rows[index].id(), ticks);
         }
     }
     let mut keep = shown.iter().map(|drawn| *drawn != FeedRowShown::Hidden);
@@ -11487,10 +11582,58 @@ mod tests {
         let reply = |id| item(id, FeedKind::Narration { text: "No change since my last update.".into(), message_id: None, subagent_id: None, at: None });
         let items = vec![reply(1), fire(2), quiet(3), fire(4), quiet(5), fire(6), quiet(7), reply(8)];
         let mut rows: Vec<FeedRowSpec> = items.iter().enumerate().map(|(ix, item)| FeedRowSpec::Single { id: item.id, item: ix }).collect();
-        let check_ins = super::drop_silent_rows(&mut rows, &items);
+        let check_ins = super::drop_silent_rows(&mut rows, &items, &[]);
         assert_eq!(rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(), vec![1, 4, 6, 7, 8]);
-        assert_eq!(check_ins.get(&4), Some(&2));
+        assert_eq!(check_ins.get(&4).map(Vec::len), Some(2));
         assert_eq!(check_ins.len(), 1);
+    }
+
+    /// #FEED-317: a quiet tick's work folds into the line; a tick that
+    /// posted a card (a `show` call) keeps its rows and splits the run.
+    #[test]
+    fn quiet_ticks_fold_their_work() {
+        use steer::feed::{FeedItem, FeedKind, FeedRowSpec};
+        let item = |id: u64, kind: FeedKind| FeedItem { id, kind, seq: None };
+        let fire = |id: u64, at| item(id, FeedKind::UserMessage { text: "[schedule] Schedule `hourly` fired".into(), subagent_id: None, at: Some(at) });
+        let tool = |id: u64, name: &str| {
+            item(
+                id,
+                FeedKind::Tool {
+                    name: name.into(),
+                    detail: None,
+                    subagent_id: None,
+                    call_id: Some(format!("call-{id}")),
+                    tool_kind: None,
+                    settled: true,
+                    failed: false,
+                    diff: None,
+                    output: None,
+                    preview: None,
+                    script: None,
+                    settled_at: None,
+                    started_at: None,
+                },
+            )
+        };
+        let quiet = |id| tool(id, "mcp__exponential__exponential_session_self_quiet");
+        let items = vec![
+            fire(1, 1_000),
+            tool(2, "Bash"),
+            quiet(3),
+            fire(4, 2_000),
+            quiet(5),
+            fire(6, 3_000),
+            tool(7, "mcp__exponential__exponential_show"),
+            quiet(8),
+            fire(9, 4_000),
+            quiet(10),
+        ];
+        let mut rows: Vec<FeedRowSpec> = items.iter().enumerate().map(|(ix, item)| FeedRowSpec::Single { id: item.id, item: ix }).collect();
+        let check_ins = super::drop_silent_rows(&mut rows, &items, &[]);
+        assert_eq!(rows.iter().map(FeedRowSpec::id).collect::<Vec<_>>(), vec![4, 7, 8, 9]);
+        assert_eq!(check_ins.get(&4), Some(&vec![Some(1_000), Some(2_000)]));
+        assert_eq!(check_ins.get(&9), Some(&vec![Some(4_000)]));
+        assert_eq!(check_ins.len(), 2);
     }
 
     /// A long chat's replay: the drain takes the backlog in order, bounded,
