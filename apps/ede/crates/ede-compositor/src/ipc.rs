@@ -776,6 +776,18 @@ impl Ede {
                 }
                 json(serde_json::Value::Null)
             }
+            // #EDE-254: the taskbar menu's Maximize / Unmaximize.
+            Request::MaximizeWindow { window, maximized } => {
+                let w = self.window_by_id(&window)?;
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                let now = crate::state::window_state(&w).tile == Some(crate::layout::Tile::Maximized);
+                if maximized != now {
+                    self.toggle_maximized(&w);
+                }
+                json(serde_json::Value::Null)
+            }
             Request::MoveWindow { window, x, y } => {
                 let w = self.window_by_id(&window)?;
                 if crate::state::window_state(&w).tile.is_some() {
@@ -1514,6 +1526,7 @@ impl Ede {
                     x11: is_x11(w),
                     workspace: st.workspace,
                     minimized: st.minimized,
+                    maximized: st.tile == Some(crate::layout::Tile::Maximized),
                     // #EDE-91: every window is on the person's desk until spaces land.
                     space: None,
                 })

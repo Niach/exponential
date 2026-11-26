@@ -103,6 +103,7 @@ mod share;
 mod sealed;
 mod spaces;
 mod start_menu;
+mod taskbar_menu;
 mod system;
 mod team_chat;
 mod thumbs;
@@ -681,6 +682,19 @@ impl HostPlugin for Host {
             }
             return;
         }
+        // #EDE-254: a group button's middle button (Box auxPress {button}):
+        // grouped-window-list's default closes the last focused window.
+        if event.name == "ede_taskbar_input" && allowed(&self.shell.borrow(), &event.surface_id, "ede_taskbar_input") {
+            if let (Some(app), Some("middle")) = (event.context["app"].as_str(), event.context["button"].as_str()) {
+                let close = uicore_model::taskbar_middle(&self.shell.borrow().model, app);
+                if let Some(uicore_model::TaskbarMiddle::Close { id }) = close {
+                    if let Ok(id) = ede_protocol::WindowId::new(&id) {
+                        with_ede(&self.shell, |ede| ede.close_window(id));
+                    }
+                }
+            }
+            return;
+        }
         // #EDE-75: the hover previews' change is an event: its {open} reaches
         // a context, never a function's args, and a close ends the thumbnails.
         if event.name == "ede_previews" && allowed(&self.shell.borrow(), &event.surface_id, "ede_previews") {
@@ -1130,13 +1144,7 @@ impl HostPlugin for Host {
                             dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
                             pins_persist(&shell);
                         }
-                        "close" => {
-                            let ids: Vec<ede_protocol::WindowId> = shell.borrow().model.windows.iter().filter(|w| w.app == app).filter_map(|w| ede_protocol::WindowId::new(&w.id).ok()).collect();
-                            for id in ids {
-                                with_ede(&shell, |ede| ede.close_window(id));
-                            }
-                        }
-                        other => tracing::warn!(value = other, "unknown taskbar menu entry"),
+                        other => taskbar_menu_pick(&shell, &app, other, cx),
                     });
                 }
             }
@@ -1833,6 +1841,37 @@ fn app_name(shell: &Shell, app: &str) -> String {
     app_entry(shell, app).map(|a| a.name.clone()).unwrap_or_else(|| app.to_string())
 }
 
+/// #EDE-254: the desktop notifications of `app` (by its id, its entry's id
+/// or its name, as the sender names itself), the group's notification badge.
+fn app_notifications(shell: &Shell, app: &str) -> usize {
+    let entry = app_entry(shell, app);
+    let names: Vec<String> = [Some(app.trim_end_matches(".desktop").to_string()), entry.map(|e| e.id.trim_end_matches(".desktop").to_string()), entry.map(|e| e.name.clone())].into_iter().flatten().filter(|n| !n.is_empty()).collect();
+    shell.notifications.list.iter().filter(|n| names.iter().any(|name| name.eq_ignore_ascii_case(n.app.trim_end_matches(".desktop")))).count()
+}
+
+/// #EDE-254: what the group's menu knows beyond the model: the outputs, the
+/// app's windows' output and maximized state, its recent files and its
+/// desktop entry's actions.
+fn taskbar_menu_context(shell: &Shell, app: &str) -> uicore_model::TaskbarMenuContext {
+    let windows = shell
+        .model
+        .windows
+        .iter()
+        .filter(|w| w.app == app)
+        .filter_map(|w| {
+            let info = shell.windows.iter().find(|i| i.id.as_str() == w.id)?;
+            let output = output_of(&shell.person_outputs, info).and_then(|o| shell.person_outputs.iter().position(|p| *p == o)).unwrap_or(0);
+            Some((w.id.clone(), uicore_model::WindowFacts { output, maximized: info.maximized }))
+        })
+        .collect();
+    let entry = app_entry(shell, app);
+    let (recent, actions) = match entry {
+        Some(e) if !demo() => (taskbar_menu::recent(&e.id), taskbar_menu::menu_actions(&taskbar_menu::actions(&e.id))),
+        _ => (Vec::new(), Vec::new()),
+    };
+    uicore_model::TaskbarMenuContext { outputs: shell.person_outputs.len().max(1), windows, recent, actions, entry: entry.is_some() }
+}
+
 /// Mint's category glyphs for the start menu's column.
 fn category_icon(id: &str) -> &'static str {
     match id {
@@ -1861,6 +1900,11 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
             let app = b["app"].as_str().unwrap_or_default().to_string();
             b["name"] = json!(app_name(shell, &app));
             b["icon"] = json!(app_icon(shell, &app));
+            // #EDE-254: grouped-window-list's badges: the window count on a
+            // group of two or more, the app's notification count.
+            b["count"] = json!(b["windows"].as_array().map_or(0, Vec::len));
+            b["notifications"] = json!(app_notifications(shell, &app));
+            b["menu"] = json!(uicore_model::taskbar_menu(&shell.model, &app, &taskbar_menu_context(shell, &app)));
         }
     }
     value["chats"] = chats::chats_json(&shell.chats);
@@ -2336,8 +2380,8 @@ fn relaid(doc: &Document, header: SurfaceHeader, chatting: Option<&Value>) -> Op
     (header != doc.surface).then(|| as_drawn(doc, header, chatting))
 }
 
-/// Mint's click on a taskbar button: launch, focus, minimize, or the
-/// previews of a group.
+/// Mint's click on a taskbar button: launch, or toggle the group's last
+/// focused window (#EDE-254; previews show on hover only).
 fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
     let press = uicore_model::taskbar_press(&shell.borrow().model, app);
     match press {
@@ -2352,11 +2396,100 @@ fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
                 with_ede(shell, |ede| minimize(ede, id));
             }
         }
-        TaskbarPress::Previews => {
-            let open = shell.borrow().model.taskbar.previews.as_deref() == Some(app);
-            previews_set(shell, (!open).then(|| app.to_string()), cx);
+    }
+}
+
+/// #EDE-254: a row of a group's menu (`uicore_model::taskbar_menu`'s values)
+/// on the group's last focused window, or the whole group.
+fn taskbar_menu_pick(shell: &SharedShell, app: &str, value: &str, cx: &mut App) {
+    let (last, group) = {
+        let s = shell.borrow();
+        let last = uicore_model::last_focused(&s.model, app).map(|w| w.id.clone());
+        let group: Vec<String> = s.model.windows.iter().filter(|w| w.app == app && w.workspace == s.model.workspaces.active).map(|w| w.id.clone()).collect();
+        (last, group)
+    };
+    let id = |s: &str| ede_protocol::WindowId::new(s).ok();
+    let last_id = last.as_deref().and_then(id);
+    match value {
+        "about" => panel_menu(shell, "history", cx),
+        "configure" => panel_menu(shell, "settings", cx),
+        "minimize" => {
+            if let Some(w) = last_id {
+                with_ede(shell, |ede| minimize(ede, w));
+            }
+        }
+        "restore" => {
+            if let Some(w) = last_id {
+                with_ede(shell, |ede| ede.focus(w));
+            }
+        }
+        "maximize" | "unmaximize" => {
+            if let Some(w) = last_id {
+                with_ede(shell, |ede| ede.maximize(w, value == "maximize"));
+            }
+        }
+        "close" => {
+            if let Some(w) = last_id {
+                with_ede(shell, |ede| ede.close_window(w));
+            }
+        }
+        // Cinnamon's Close all asks the app to quit: every window of the group.
+        "close-all" | "close-others" => {
+            for w in group.iter().filter(|w| value == "close-all" || Some(w.as_str()) != last.as_deref()).filter_map(|w| id(w.as_str())) {
+                with_ede(shell, |ede| ede.close_window(w));
+            }
+        }
+        _ => {
+            if let Some(index) = value.strip_prefix("workspace:").and_then(|i| i.parse::<usize>().ok()) {
+                if let Some(w) = last_id {
+                    with_ede(shell, |ede| ede.move_to_workspace(w, index));
+                }
+            } else if let Some(index) = value.strip_prefix("monitor:").and_then(|i| i.parse::<usize>().ok()) {
+                if let Some(w) = last_id {
+                    move_to_output(shell, w, index);
+                }
+            } else if let Some(uri) = value.strip_prefix("recent:") {
+                // Cinnamon opens the file with its type's default application.
+                person_launch(shell, &format!("xdg-open '{}'", uri.replace('\'', "'\\''")));
+            } else if let Some(action) = value.strip_prefix("action:") {
+                let exec = app_entry(&shell.borrow(), app).and_then(|e| taskbar_menu::actions(&e.id).into_iter().find(|a| a.id == action)).map(|a| a.exec);
+                match exec {
+                    Some(exec) => person_launch(shell, &exec),
+                    None => tracing::warn!(app, action, "no such desktop action"),
+                }
+            } else {
+                tracing::warn!(value, "unknown taskbar menu entry");
+            }
         }
     }
+}
+
+/// #EDE-254: Cinnamon's `move_to_monitor`: the window keeps its place
+/// relative to the output's corner (pulled in to fit), a maximized one is
+/// maximized again there; then it takes the focus.
+fn move_to_output(shell: &SharedShell, window: ede_protocol::WindowId, index: usize) {
+    let target = {
+        let s = shell.borrow();
+        let Some(info) = s.windows.iter().find(|w| w.id == window).cloned() else { return };
+        let Some(to) = s.person_outputs.get(index).copied() else { return };
+        let from = output_of(&s.person_outputs, &info).unwrap_or(to);
+        let (x, y) = moved_into(from, to, (info.x, info.y, info.width, info.height));
+        (x, y, info.maximized)
+    };
+    let (x, y, maximized) = target;
+    with_ede(shell, |ede| ede.move_window(window.clone(), x, y));
+    if maximized {
+        with_ede(shell, |ede| ede.maximize(window.clone(), true));
+    }
+    with_ede(shell, |ede| ede.focus(window));
+}
+
+/// Where a window at `w` (x, y, width, height) on output `from` lands on
+/// `to`: the same offset from the corner, kept on `to`.
+fn moved_into(from: (i32, i32, i32, i32), to: (i32, i32, i32, i32), w: (i32, i32, i32, i32)) -> (i32, i32) {
+    let dx = (w.0 - from.0).clamp(0, (to.2 - w.2).max(0));
+    let dy = (w.1 - from.1).clamp(0, (to.3 - w.3).max(0));
+    (to.0 + dx, to.1 + dy)
 }
 
 /// The hover previews of a group: `/previews` lists its windows with live
@@ -4275,7 +4408,7 @@ fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowIn
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: None };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
@@ -5508,7 +5641,7 @@ mod switcher {
     #[test]
     fn the_switcher_is_sized_to_the_focused_windows_output() {
         let outputs = [(0, 0, 1920, 1080), (1920, 0, 1280, 800)];
-        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
+        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: None };
         assert_eq!(output_of(&outputs, &window(100, 800)), Some(outputs[0]));
         assert_eq!(output_of(&outputs, &window(1920, 1280)), Some(outputs[1]));
         // Across the edge: where most of it is.
