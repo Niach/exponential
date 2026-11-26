@@ -19,6 +19,7 @@ pub mod aside;
 pub mod child_exit;
 pub mod compaction;
 pub mod context_layout;
+pub mod elicitation_card;
 pub mod exp_tool_refs;
 pub mod external;
 pub mod host;

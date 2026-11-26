@@ -26,11 +26,10 @@ use serde_json::{json, Value};
 use super::host::{AskOutcome, SessionCtx};
 use super::mapper::MapOut;
 
-/// The `_meta` key of an ACP elicitation naming the THIRD-PARTY MCP server
-/// that asked (the name Exponential mounted it under): its presence makes the
-/// ask the elicitation card (#NEW-146, elicitation-card.json `serverMetaKey`)
-/// instead of the question stepper. The same key the codex adapter stamps.
-pub const MCP_SERVER_META: &str = "exponential.at/mcpServer";
+/// THE elicitation card's `serverMetaKey` (#NEW-146; one definition:
+/// [`super::elicitation_card::SERVER_META_KEY`], the key the codex adapter
+/// stamps too).
+pub use super::elicitation_card::SERVER_META_KEY as MCP_SERVER_META;
 
 struct Live {
     ctx: Weak<SessionCtx>,
@@ -96,6 +95,9 @@ pub fn mcp_elicitation_request(session: SessionId, server: &str, ask_id: &str, p
     };
     let mut meta = serde_json::Map::new();
     meta.insert(MCP_SERVER_META.to_string(), Value::String(server.to_string()));
+    // ACP's schema is a sorted map: the server's property order rides along.
+    let order = super::elicitation_card::schema_order(params.get("requestedSchema"));
+    meta.insert(super::elicitation_card::ORDER_META_KEY.to_string(), json!(order));
     meta.insert("askId".to_string(), Value::String(ask_id.to_string()));
     Some(CreateElicitationRequest::new(mode, message).meta(meta))
 }
@@ -143,7 +145,9 @@ pub enum Elicited {
 pub fn elicit(session_id: &str, server: &str, params: &Value, wait: std::time::Duration) -> Elicited {
     let Some(ctx) = live_ctx(session_id) else { return Elicited::NoSession };
     let ask_id = format!("mcp-{}", uuid::Uuid::new_v4().simple());
-    let Some(request) = mcp_elicitation_request(acp_session(&ctx), server, &ask_id, params) else {
+    let Some(request) = mcp_elicitation_request(acp_session(&ctx), server, &ask_id, params)
+        .filter(|request| !super::elicitation_card::undrawable(request))
+    else {
         log::debug!("engine: {server}'s elicitation declined (unrenderable)");
         return Elicited::Answered(json!({ "action": "decline" }));
     };
@@ -155,6 +159,7 @@ pub fn elicit(session_id: &str, server: &str, params: &Value, wait: std::time::D
     // parked senders, which answers `cancel` below.
     drop(ctx);
     match answers.recv_timeout(wait) {
+        Ok(AskOutcome::Elicited(reply)) => Elicited::Answered(reply.mcp()),
         Ok(AskOutcome::Elicitation(fields)) => Elicited::Answered(match fields {
             Value::Object(map) if !map.is_empty() => json!({ "action": "accept", "content": map }),
             _ => json!({ "action": "accept" }),
