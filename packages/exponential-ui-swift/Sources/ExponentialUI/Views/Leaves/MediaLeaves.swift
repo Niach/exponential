@@ -562,3 +562,42 @@ struct CarouselIndicatorLeaf: View {
         .frame(width: cx.size.width, height: cx.size.height)
     }
 }
+
+/// genUI round 4: a box's `backgroundImage` (style.json): the picture
+/// loaded like an Image (the host's image-source rule, the media request),
+/// cover (else contain) scaled and placed by the focal fractions (the
+/// alignment guides land it at `PicturePaint.rect`); until it painted
+/// (loading, failed, refused, no src) the `Image/fallback` fill, else
+/// muted, never a glyph; the scrim over both. `paintedBox` clips it to the
+/// box's corners, under the gradient and the border.
+struct BackgroundPicture: View {
+    let paint: PicturePaint
+    let model: SurfaceModel
+    let size: CGSize
+
+    var body: some View {
+        let w = size.width, h = size.height
+        let request = model.imageSource(paint.src, alt: "") == .load ? model.mediaRequest(paint.src) : nil
+        let fill = model.part("Image", "fallback", props: [:]).style.background ?? model.color("muted") ?? .clear
+        let (fx, fy) = (min(1, max(0, paint.focalX)), min(1, max(0, paint.focalY)))
+        ZStack(alignment: .topLeading) {
+            if let request {
+                MediaImage(request: request, options: model.mediaPolicy, appFile: model.appFile) { image in
+                    ImageLeaf.fitted(image, fit: paint.contain ? "contain" : "cover")
+                        .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
+                        .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
+                        .frame(width: w, height: h, alignment: .topLeading)
+                } placeholder: {
+                    fill
+                }
+            } else {
+                fill
+            }
+            if let scrim = paint.scrim { scrim }
+        }
+        .frame(width: w, height: h)
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}

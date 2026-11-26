@@ -97,7 +97,7 @@
           "description": "Extra Box styles merged over the window's own."
         }
       },
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "example": {
         "title": "exponential.at"
       }
@@ -2037,7 +2037,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = chromeless, label hidden; `code` = mono `row`."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2334,7 +2334,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
@@ -3833,7 +3833,7 @@
           "description": "Pins at x, y."
         }
       },
-      "description": "Map: the host's `map:` tile, else a grid + pin; `markers` at 0..1.",
+      "description": "Map: host `map:` tile, else grid + pin; `markers` at 0..1.",
       "example": {
         "label": "Vienna, Stephansplatz"
       }

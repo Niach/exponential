@@ -281,7 +281,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-window",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "children": "one",
       "slots": [],
       "events": [],
@@ -5756,7 +5756,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = chromeless, label hidden; `code` = mono `row`."
         },
         {
           "name": "disabled",
@@ -6591,7 +6591,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron."
         },
         {
           "name": "triggerIcon",
@@ -9886,7 +9886,7 @@
       "group": "media",
       "lite": false,
       "specimenId": "exponential-ui-map-placeholder",
-      "description": "Map: the host's `map:` tile, else a grid + pin; `markers` at 0..1.",
+      "description": "Map: host `map:` tile, else grid + pin; `markers` at 0..1.",
       "children": "none",
       "slots": [],
       "events": [],

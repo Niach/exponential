@@ -7819,7 +7819,8 @@ public struct FfiVisual: Equatable, Hashable {
     public var overflowHidden: Bool
     public var overflowScroll: Bool
     /**
-     * `{angle, stops: [{color, offset}]}`, painted over the background.
+     * `{kind?: radial, angle, centre?: [x, y], stops: [{color, offset}]}`,
+     * painted over the background.
      */
     public var backgroundGradientJson: String?
     /**
@@ -7897,6 +7898,12 @@ public struct FfiVisual: Equatable, Hashable {
      * (a recipe's `backgroundClip`); `None` = under it (`border-box`).
      */
     public var backgroundClip: String?
+    /**
+     * genUI round 4: `{src, fit: cover|contain, focalX, focalY, scrim?:
+     * {color, opacity}}` (defaults filled, the scrim colour resolved): the
+     * picture behind the children (style.json `backgroundImage`).
+     */
+    public var backgroundImageJson: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -7905,7 +7912,8 @@ public struct FfiVisual: Equatable, Hashable {
          * `[{x, y, blur, spread, color}]`, or null.
          */boxShadowJson: String?, fontSize: Float?, fontWeight: UInt16?, lineHeight: Float?, fontFamily: String?, textAlign: String?, paddingHorizontal: Float?, paddingVertical: Float?, gap: Float?, native: Bool, overflowHidden: Bool, overflowScroll: Bool, 
         /**
-         * `{angle, stops: [{color, offset}]}`, painted over the background.
+         * `{kind?: radial, angle, centre?: [x, y], stops: [{color, offset}]}`,
+         * painted over the background.
          */backgroundGradientJson: String?, 
         /**
          * `[top, right, bottom, left]` when a side differs.
@@ -7957,7 +7965,12 @@ public struct FfiVisual: Equatable, Hashable {
         /**
          * #EXP-1629: `padding-box` = the background paints inside the border
          * (a recipe's `backgroundClip`); `None` = under it (`border-box`).
-         */backgroundClip: String? = nil) {
+         */backgroundClip: String? = nil, 
+        /**
+         * genUI round 4: `{src, fit: cover|contain, focalX, focalY, scrim?:
+         * {color, opacity}}` (defaults filled, the scrim colour resolved): the
+         * picture behind the children (style.json `backgroundImage`).
+         */backgroundImageJson: String? = nil) {
         self.backgroundColor = backgroundColor
         self.color = color
         self.borderWidth = borderWidth
@@ -8001,6 +8014,7 @@ public struct FfiVisual: Equatable, Hashable {
         self.animationJson = animationJson
         self.sticky = sticky
         self.backgroundClip = backgroundClip
+        self.backgroundImageJson = backgroundImageJson
     }
 
     
@@ -8061,7 +8075,8 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
                 tail: FfiConverterOptionString.read(from: &buf), 
                 animationJson: FfiConverterOptionString.read(from: &buf), 
                 sticky: FfiConverterBool.read(from: &buf), 
-                backgroundClip: FfiConverterOptionString.read(from: &buf)
+                backgroundClip: FfiConverterOptionString.read(from: &buf), 
+                backgroundImageJson: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -8109,6 +8124,7 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.animationJson, into: &buf)
         FfiConverterBool.write(value.sticky, into: &buf)
         FfiConverterOptionString.write(value.backgroundClip, into: &buf)
+        FfiConverterOptionString.write(value.backgroundImageJson, into: &buf)
     }
 }
 
