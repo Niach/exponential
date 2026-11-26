@@ -745,7 +745,7 @@ impl Shell {
         window: &Window,
         cx: &gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        if self.left_anim.swapping {
+        if self.left_anim.swapping || self.rail_hidden() {
             return None;
         }
         let occupant = self.left_anim.to;
@@ -770,6 +770,11 @@ impl Shell {
                 .bottom(px(bottom))
                 .into_any_element(),
         )
+    }
+
+    /// #EDE-227: eDE's component shows no rail.
+    fn rail_hidden(&self) -> bool {
+        crate::ede_component::is_component() && matches!(self.left_anim.to, LeftOccupant::Rail)
     }
 
     /// One occupant of the left column, in a sized wrapper (load-bearing for
@@ -1033,7 +1038,9 @@ impl Render for Shell {
                 // EXP-456: the leftmost column — the rail, or the settings
                 // nav while `Screen::Settings` is up (animated swap). The
                 // EXP-303 material rules live on `render_left_column`.
-                .child(self.render_left_column(window, cx))
+                // #EDE-227: eDE's component has no rail of its own (the
+                // shell links into it); Settings keeps its nav.
+                .when(!self.rail_hidden(), |row| row.child(self.render_left_column(window, cx)))
                 .child({
                     // EXP-723's cutout: the app's working surface floats on
                     // the window ground as a rounded card inset by
@@ -1200,7 +1207,12 @@ impl Render for Shell {
                     body.child(crate::app_title_bar::chrome_only_title_bar())
                 })
                 .children(self.render_update_banner(cx))
-                .child(div().flex_1().min_h_0().child(self.login.clone()))
+                .child(div().flex_1().min_h_0().child(if crate::ede_component::is_component() {
+                    // #EDE-227: no login of its own: the way to the shell's Connect.
+                    Self::render_component_signed_out(cx)
+                } else {
+                    self.login.clone().into_any_element()
+                }))
                 .into_any_element(),
         };
 
@@ -1505,7 +1517,41 @@ impl Shell {
     /// [`Self::render_update_banner`] — but as a mandatory, non-dismissible
     /// gate. When no install plan is available (staging, dev, an assetless
     /// release) it degrades to a browser "Download update" link.
+    /// #EDE-227: a window of eDE's component while no account is synced:
+    /// the shell's Connect is the one sign-in.
+    fn render_component_signed_out(cx: &mut gpui::Context<Self>) -> AnyElement {
+        let signing_in = matches!(Store::global(cx).session(cx), SessionPhase::SigningIn);
+        let state = crate::controls::empty_state(Icon::new(registry::UI_SIGN_IN), "Not connected", None, cx);
+        let state = if signing_in {
+            state.child(crate::feedback::Spinner::new().icon(registry::UI_LOADING))
+        } else {
+            state.child(crate::controls::empty_state_actions().child(
+                Button::new("component-connect").primary().label("Connect Exponential").on_click(|_: &ClickEvent, _, cx| {
+                    if let Err(err) = crate::session_holder::open_connect() {
+                        crate::action_error::failed_action("open", "Connect Exponential", Some(err.to_string()), cx);
+                    }
+                }),
+            ))
+        };
+        div().size_full().flex().items_center().justify_center().child(state).into_any_element()
+    }
+
     fn render_update_required(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // #EDE-227: eDE's component updates with the desktop's package.
+        if crate::ede_component::is_component() {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(crate::controls::empty_state(
+                    Icon::new(registry::UI_UPDATE),
+                    "Update Exponential Desktop",
+                    Some("This version of Exponential Desktop is too old for the server. Update the exponential-desktop package.".into()),
+                    cx,
+                ))
+                .into_any_element();
+        }
         let (info, phase) = UpdateState::global_ref(cx)
             .map(|model| {
                 let state = model.read(cx);

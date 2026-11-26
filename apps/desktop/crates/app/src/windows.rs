@@ -94,9 +94,12 @@ pub fn open_shell_window(cx: &mut App) {
             #[cfg(target_os = "macos")]
             window_background: gpui::WindowBackgroundAppearance::Blurred,
             #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            window_background: if ui::ede_component::is_component() { gpui::WindowBackgroundAppearance::Opaque } else { gpui::WindowBackgroundAppearance::Transparent },
+            // #EDE-227: eDE's component wears eDE's frame (xdg-decoration,
+            // server side) like every other window; with it `ui` draws no
+            // title bar, shadow or rounded frame of its own.
             #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
+            window_decorations: Some(if ui::ede_component::is_component() { gpui::WindowDecorations::Server } else { gpui::WindowDecorations::Client }),
             ..Default::default()
         };
 

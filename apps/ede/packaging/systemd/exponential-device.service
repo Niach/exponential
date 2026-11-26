@@ -1,7 +1,13 @@
-# This machine as an Exponential device for the whole session: the
-# Exponential app (its launcher entry, the AppImage writes it where it was
-# started from) runs under this unit and comes back when it crashes, so the
-# device stays online while the person is logged in. It starts without a
+# This machine as an Exponential device for the whole session.
+# #EDE-227: the package's component (`exponential-app`, the app as a part of
+# the session, the login's holder) is the device. The compositor starts it
+# itself as one of its helpers (`[session] helpers = "compositor"`, a real
+# session's default), and this unit stays off then; with `helpers = "units"`
+# it runs `exponential-session --device`, which becomes the component.
+# Before #EDE-227 (and with no component installed) the Exponential app
+# (its launcher entry, the AppImage writes it where it was started from)
+# runs under this unit and comes back when it crashes, so the device stays
+# online while the person is logged in. It starts without a
 # window and closing its last window keeps it running (EXPONENTIAL_SESSION_DEVICE,
 # #EDE-64); the panel's launches bring a window up. `exponential-session
 # --device` does nothing when the CLI daemon's own unit
@@ -21,6 +27,7 @@ Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
 PartOf=graphical-session.target exponential-session.target
 After=graphical-session.target exponential-shell.service
 ConditionEnvironment=WAYLAND_DISPLAY
+ConditionEnvironment=!EDE_HELPERS_SPAWNED
 
 [Service]
 ExecStart=/usr/bin/exponential-session --device

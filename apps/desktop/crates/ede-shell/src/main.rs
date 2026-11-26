@@ -1582,7 +1582,7 @@ fn account_sign_out(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().signing_out = Some(account.id.clone());
     accounts_feed(shell);
     refresh(shell, cx);
-    let asked = accounts::ide_send(&api::holder::Command::SignOut { account: account.id.clone() }.to_datagram());
+    let asked = accounts::holder_command(api::holder::Command::SignOut { account: account.id.clone() });
     let (auth, done) = (shell.borrow().workspaces.auth.clone(), shell.borrow().signed_out_tx.clone());
     let spawned = std::thread::Builder::new().name("ede-shell-sign-out".into()).spawn(move || {
         if session_account::sign_out(&auth, &api::default_data_dir(), &account, asked) {
@@ -1605,7 +1605,7 @@ fn install_press(shell: &SharedShell, action: &str, install: String, code: Strin
         "remove" => api::holder::Command::Remove { account, install, code },
         other => return tracing::warn!(action = other, "unknown install action"),
     };
-    if !accounts::ide_send(&command.to_datagram()) {
+    if !accounts::holder_command(command) {
         failed_action(shell, action, "the install", "The Exponential app is not running", cx);
     }
 }
@@ -1745,6 +1745,11 @@ const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"]
 /// clicks launches anything once.
 fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
+    // #EDE-227: the login's holder brings a window up itself, with this
+    // press's launch token.
+    if EXPONENTIAL_APPS.contains(&wanted) && !demo() && open_in_holder(shell, None) {
+        return;
+    }
     if EXPONENTIAL_APPS.contains(&wanted) && bring_forward(shell, &[wanted]) {
         return;
     }
@@ -1787,11 +1792,19 @@ fn app_entry<'a>(shell: &'a Shell, app: &str) -> Option<&'a apps::App> {
 }
 
 fn app_icon(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).and_then(|a| a.icon.as_ref()).map(|p| format!("file://{}", p.display())).unwrap_or_default()
+    let icon = app_entry(shell, app).and_then(|a| a.icon.clone());
+    // #EDE-227: eDE's component has no start menu entry; its icon is the theme's.
+    let icon = icon.or_else(|| EXPONENTIAL_APPS.contains(&app).then(|| apps::icon_file(app)).flatten());
+    icon.map(|p| format!("file://{}", p.display())).unwrap_or_default()
 }
 
 fn app_name(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).map(|a| a.name.clone()).unwrap_or_else(|| app.to_string())
+    match app_entry(shell, app) {
+        Some(entry) => entry.name.clone(),
+        // #EDE-227: eDE's component (no start menu entry).
+        None if EXPONENTIAL_APPS.contains(&app) => "Exponential".to_string(),
+        None => app.to_string(),
+    }
 }
 
 /// Mint's category glyphs for the start menu's column.
@@ -2504,6 +2517,10 @@ fn hand_off(shell: &SharedShell, url: &str) {
         tracing::info!(url, "hand-off (demo: not sent)");
         return;
     }
+    if open_in_holder(shell, Some(url)) {
+        tracing::info!(url, "handed to the Exponential app over the session bus");
+        return;
+    }
     if accounts::ide_send(url) {
         tracing::info!(url, "handed to the Exponential app");
         bring_forward(shell, &EXPONENTIAL_APPS);
@@ -2515,6 +2532,20 @@ fn hand_off(shell: &SharedShell, url: &str) {
         Some(command) => person_launch(shell, &command),
         None => tracing::warn!(url, "no Exponential app to hand off to"),
     }
+}
+
+/// #EDE-227: `link` (none: a window) opens in the login's holder over the
+/// session bus, with a launch token of the person's press, so the window it
+/// lands in comes to the front (xdg-activation); false = no holder serves
+/// the bus.
+fn open_in_holder(shell: &SharedShell, link: Option<&str>) -> bool {
+    use api::bus::{Reply, Request};
+    if !api::bus::socket_path(&api::default_data_dir()).exists() {
+        return false;
+    }
+    let activation_token = with_ede(shell, |ede| ede.launch_token());
+    let reply = accounts::holder_call(&Request::Open { link: link.map(String::from), activation_token });
+    matches!(reply, Some(Reply::Done))
 }
 
 /// The Exponential app's desktop entry.
