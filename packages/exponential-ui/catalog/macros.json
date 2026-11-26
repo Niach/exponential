@@ -10581,6 +10581,498 @@
           }
         ]
       }
+    },
+    "Board": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "gap": "$spacing.md",
+          "overflowX": "auto",
+          "minWidth": 0
+        },
+        "$template": {
+          "path": "{props.columns.@path}",
+          "key": "value",
+          "item": {
+            "part": "column",
+            "component": "Box",
+            "$a11y": {
+              "role": "group",
+              "label": {
+                "@path": "title"
+              }
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "flexGrow": 1,
+              "flexShrink": 0,
+              "flexBasis": 0,
+              "minWidth": 280,
+              "padding": "$spacing.sm",
+              "position": "relative"
+            },
+            "children": [
+              {
+                "part": "tint",
+                "component": "Box",
+                "$a11y": {
+                  "hidden": true
+                },
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "borderRadius": "$radius.lg",
+                  "pointerEvents": "none"
+                }
+              },
+              {
+                "part": "header",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingHorizontal": "$spacing.xs",
+                  "minHeight": "$control.buttonSm"
+                },
+                "children": [
+                  {
+                    "part": "title",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "title"
+                      },
+                      "variant": "label",
+                      "lines": 1
+                    }
+                  },
+                  {
+                    "part": "count",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "$text": {
+                          "@call": "len",
+                          "args": {
+                            "value": {
+                              "@path": "cards"
+                            }
+                          }
+                        }
+                      },
+                      "variant": "muted"
+                    },
+                    "style": {
+                      "fontVariantNumeric": "tabular-nums"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "cards",
+                "component": "List",
+                "props": {
+                  "reorderable": true,
+                  "gap": "sm",
+                  "board": "{id}"
+                },
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$control.row"
+                },
+                "$on": {
+                  "move": "move"
+                },
+                "$context": {
+                  "column": {
+                    "@path": "value"
+                  }
+                },
+                "$template": {
+                  "path": "cards",
+                  "key": "value",
+                  "item": {
+                    "part": "card",
+                    "component": "Row",
+                    "props": {
+                      "title": {
+                        "@path": "label"
+                      },
+                      "subtitle": {
+                        "@path": "description"
+                      },
+                      "meta": {
+                        "@path": "trailing"
+                      },
+                      "icon": {
+                        "@path": "icon"
+                      },
+                      "surface": "card"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "alternatives": [
+        {
+          "$if": {
+            "$lt": [
+              0,
+              "{len(props.columns)}"
+            ]
+          },
+          "root": {
+            "part": "root",
+            "component": "Box",
+            "$a11y": {
+              "role": "group"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "gap": "$spacing.md",
+              "overflowX": "auto",
+              "minWidth": 0
+            },
+            "children": [
+              {
+                "part": "column",
+                "component": "Box",
+                "$each": "props.columns",
+                "$as": "col",
+                "$a11y": {
+                  "role": "group",
+                  "label": "{col.title}"
+                },
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm",
+                  "flexGrow": 1,
+                  "flexShrink": 0,
+                  "flexBasis": 0,
+                  "minWidth": 280,
+                  "padding": "$spacing.sm",
+                  "position": "relative"
+                },
+                "children": [
+                  {
+                    "part": "tint",
+                    "component": "Box",
+                    "$a11y": {
+                      "hidden": true
+                    },
+                    "style": {
+                      "position": "absolute",
+                      "inset": 0,
+                      "borderRadius": "$radius.lg",
+                      "pointerEvents": "none"
+                    }
+                  },
+                  {
+                    "part": "header",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.xs",
+                      "paddingHorizontal": "$spacing.xs",
+                      "minHeight": "$control.buttonSm"
+                    },
+                    "children": [
+                      {
+                        "part": "title",
+                        "component": "Text",
+                        "props": {
+                          "text": "{col.title}",
+                          "variant": "label",
+                          "lines": 1
+                        }
+                      },
+                      {
+                        "part": "count",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "$text": "len(col.cards)"
+                          },
+                          "variant": "muted"
+                        },
+                        "style": {
+                          "fontVariantNumeric": "tabular-nums"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "part": "cards",
+                    "component": "List",
+                    "props": {
+                      "reorderable": false,
+                      "gap": "sm"
+                    },
+                    "style": {
+                      "flexGrow": 1,
+                      "minHeight": "$control.row"
+                    },
+                    "children": [
+                      {
+                        "part": "card",
+                        "component": "Row",
+                        "props": {
+                          "title": "{card.label}",
+                          "subtitle": "{card.description}",
+                          "meta": "{card.trailing}",
+                          "icon": "{card.icon}",
+                          "surface": "card"
+                        },
+                        "$each": "col.cards",
+                        "$as": "card"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "MapPlaceholder": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "img",
+          "label": "{props.label}"
+        },
+        "style": {
+          "position": "relative",
+          "overflow": "hidden",
+          "width": "100%",
+          "aspectRatio": 1.7778,
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline"
+        },
+        "children": [
+          {
+            "part": "grid",
+            "component": "Box",
+            "$a11y": {
+              "hidden": true
+            },
+            "style": {
+              "position": "absolute",
+              "inset": 0
+            },
+            "children": [
+              {
+                "part": "column",
+                "component": "Box",
+                "$each": "range(3)",
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": {
+                    "$percent": [
+                      {
+                        "$add": [
+                          "{index}",
+                          1
+                        ]
+                      },
+                      4
+                    ]
+                  }
+                }
+              },
+              {
+                "part": "row",
+                "component": "Box",
+                "$each": "range(3)",
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": {
+                    "$percent": [
+                      {
+                        "$add": [
+                          "{index}",
+                          1
+                        ]
+                      },
+                      4
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "part": "center",
+            "component": "Box",
+            "$if": {
+              "$not": {
+                "$lt": [
+                  0,
+                  "{len(props.markers)}"
+                ]
+              }
+            },
+            "$a11y": {
+              "hidden": true
+            },
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "gap": "$spacing.xs"
+            },
+            "children": [
+              {
+                "part": "pin",
+                "component": "Icon",
+                "props": {
+                  "name": "map-pin",
+                  "size": "lg"
+                }
+              },
+              {
+                "part": "label",
+                "component": "Text",
+                "props": {
+                  "text": "{props.label}",
+                  "variant": "caption",
+                  "lines": 1
+                }
+              }
+            ]
+          },
+          {
+            "part": "tile",
+            "component": "Image",
+            "props": {
+              "src": "map:{props.label}",
+              "alt": "{props.label}",
+              "fit": "cover"
+            },
+            "$a11y": {
+              "hidden": true
+            },
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "width": "100%",
+              "height": "100%"
+            }
+          },
+          {
+            "part": "marker",
+            "component": "Box",
+            "$each": "props.markers",
+            "$as": "m",
+            "$a11y": {
+              "hidden": true
+            },
+            "style": {
+              "position": "absolute",
+              "left": {
+                "$percent": [
+                  "{m.x}",
+                  1
+                ]
+              },
+              "top": {
+                "$percent": [
+                  "{m.y}",
+                  1
+                ]
+              },
+              "marginLeft": -8,
+              "marginTop": -16,
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-end",
+              "gap": "$spacing.xxs"
+            },
+            "children": [
+              {
+                "part": "markerPin",
+                "component": "Icon",
+                "props": {
+                  "name": "map-pin",
+                  "size": "sm",
+                  "tone": "primary"
+                }
+              },
+              {
+                "part": "markerLabel",
+                "component": "Text",
+                "$if": "m.label",
+                "props": {
+                  "text": "{m.label}",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "style": {
+                  "paddingHorizontal": "$spacing.xxs",
+                  "borderRadius": "$radius.sm"
+                }
+              }
+            ]
+          },
+          {
+            "part": "caption",
+            "component": "Text",
+            "$if": {
+              "$lt": [
+                0,
+                "{len(props.markers)}"
+              ]
+            },
+            "$a11y": {
+              "hidden": true
+            },
+            "props": {
+              "text": "{props.label}",
+              "variant": "caption",
+              "lines": 1
+            },
+            "style": {
+              "position": "absolute",
+              "left": "$spacing.sm",
+              "bottom": "$spacing.sm",
+              "paddingHorizontal": "$spacing.xs",
+              "borderRadius": "$radius.sm"
+            }
+          }
+        ]
+      }
     }
   }
 }

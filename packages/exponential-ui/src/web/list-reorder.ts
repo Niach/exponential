@@ -8,7 +8,7 @@
 // its start) and a primary ring + faint fill marks into. Esc cancels.
 
 import { TAB_DRAG_THRESHOLD, TAB_LONG_PRESS_MS } from "../layout"
-import { listDropSlot, listMoveContext, type ListDrop, type ListMoveContext, type ListReorderRow } from "../list-reorder"
+import { boardDropSlot, listDropSlot, listMoveContext, type BoardColumn, type BoardDrop, type ListDrop, type ListMoveContext, type ListReorderRow } from "../list-reorder"
 
 /** The DOM contract of a reorderable row: the element carries
  *  `data-reorder-key` (+ `data-reorder-depth`, `data-reorder-group`,
@@ -17,6 +17,22 @@ export const REORDER_KEY_ATTR = `data-reorder-key`
 export const REORDER_DEPTH_ATTR = `data-reorder-depth`
 export const REORDER_GROUP_ATTR = `data-reorder-group`
 export const REORDER_INDENT_ATTR = `data-reorder-indent`
+/** genUI round 4 (fixtures/board-drop.json): a reorderable List that is a
+ *  Board column carries `data-reorder-board` = its internal `board` prop;
+ *  the Lists of one surface sharing it trade rows. */
+export const REORDER_BOARD_ATTR = `data-reorder-board`
+
+/** Each Board column List's own `move` (the TARGET column fires it). */
+const boardMoves = new WeakMap<Element, (context: Record<string, string>) => void>()
+
+/** A Board column List (its root element) and its `move`: registered while
+ *  mounted; returns the unregister. */
+export function registerBoardList(el: Element, move: (context: Record<string, string>) => void): () => void {
+  boardMoves.set(el, move)
+  return () => {
+    if (boardMoves.get(el) === move) boardMoves.delete(el)
+  }
+}
 
 /** The dragged row's opacity while it is lifted. */
 export const LIST_DRAG_DIM = 0.4
@@ -28,6 +44,9 @@ export interface ListDragSource {
   /** The list's rendered rows, in order (each with the DOM contract above). */
   rows: () => HTMLElement[]
   maxDepth: number
+  /** The List's root when it is a Board column (it carries
+   *  `data-reorder-board`): the drop then spans the Board's columns. */
+  board?: Element
   /** The paint colour (a CSS colour; default the genUI primary). */
   color?: string
 }
@@ -94,7 +113,9 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
   const color = source.color ?? `var(--xui-color-primary)`
   let armed = !touch
   let timer: ReturnType<typeof setTimeout> | undefined
-  let drag: { els: HTMLElement[]; rows: ListReorderRow[]; dragged: HTMLElement; ghost: HTMLElement; indicator: HTMLElement; offsetY: number; drop: ListDrop | null } | null = null
+  let drag: { els: HTMLElement[]; rows: ListReorderRow[]; dragged: HTMLElement; ghost: HTMLElement; indicator: HTMLElement; offsetX: number; offsetY: number; drop: ListDrop | null } | null = null
+  // A Board drag: its column Lists (measured at the start) and the drop.
+  let board: { lists: Element[]; columns: BoardColumn[]; els: HTMLElement[][]; drop: BoardDrop | null } | null = null
 
   const begin = () => {
     const els = source.rows()
@@ -132,7 +153,21 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     // A press-and-drag would select the rows' text.
     window.getSelection()?.removeAllRanges()
     dragged.style.opacity = String(LIST_DRAG_DIM)
-    drag = { els, rows: els.map(rowOf), dragged, ghost, indicator, offsetY: startY - rect.top, drop: null }
+    drag = { els, rows: els.map(rowOf), dragged, ghost, indicator, offsetX: startX - rect.left, offsetY: startY - rect.top, drop: null }
+    const name = source.board?.getAttribute(REORDER_BOARD_ATTR)
+    if (name) {
+      const lists = Array.from((source.board!.closest(`.xui-surface`) ?? document).querySelectorAll(`[${REORDER_BOARD_ATTR}]`)).filter((l) => l.getAttribute(REORDER_BOARD_ATTR) === name)
+      const rowsOf = lists.map((l) => listReorderRows(l))
+      board = {
+        lists,
+        els: rowsOf,
+        columns: lists.map((l, i) => {
+          const r = l.getBoundingClientRect()
+          return { key: String(i), left: r.left, width: r.width, rows: rowsOf[i].map(rowOf) }
+        }),
+        drop: null,
+      }
+    }
     on.state?.({ key, drop: null })
     try {
       ;(e.target as Element | null)?.setPointerCapture?.(e.pointerId)
@@ -141,19 +176,23 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     }
   }
 
-  const paint = (drop: ListDrop | null) => {
+  const paint = (drop: ListDrop | null, column?: number) => {
     if (!drag) return
     drag.drop = drop
     on.state?.({ key, drop })
     const ind = drag.indicator
-    if (!drop) {
+    // A Board drop on an empty column: the into highlight over its List.
+    const empty = board && column !== undefined && !drop ? board.lists[column] : null
+    if (!drop && !empty) {
       ind.style.display = `none`
       return
     }
-    const el = drag.els.find((row) => row.getAttribute(REORDER_KEY_ATTR) === drop.key)
-    if (!el) return
-    const indent = Number(el.getAttribute(REORDER_INDENT_ATTR) ?? 0) || 0
-    const box = listDropBox(el.getBoundingClientRect(), indent, drop)
+    const rows = board && column !== undefined ? board.els[column] : drag.els
+    const el = drop ? rows.find((row) => row.getAttribute(REORDER_KEY_ATTR) === drop.key) : null
+    if (drop && !el) return
+    const indent = el ? Number(el.getAttribute(REORDER_INDENT_ATTR) ?? 0) || 0 : 0
+    const box = el && drop ? listDropBox(el.getBoundingClientRect(), indent, drop) : listDropBox(empty!.getBoundingClientRect(), 0, { key: ``, position: `into` })
+    drop ??= { key: ``, position: `into` }
     Object.assign(ind.style, { display: `block`, left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` })
     ind.replaceChildren()
     if (drop.position === `into`) {
@@ -191,6 +230,15 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     ev.preventDefault()
     const d = drag as NonNullable<typeof drag>
     d.ghost.style.top = `${ev.clientY - d.offsetY}px`
+    if (board) {
+      // A Board card follows the pointer on both axes.
+      d.ghost.style.left = `${ev.clientX - d.offsetX + 12}px`
+      const drop = boardDropSlot(board.columns, key, ev.clientX, ev.clientY)
+      board.drop = drop
+      const column = drop ? Number(drop.column) : undefined
+      paint(drop?.key && drop.position ? { key: drop.key, position: drop.position } : null, column)
+      return
+    }
     paint(listDropSlot(d.rows, key, ev.clientY, source.maxDepth))
   }
   const up = (ev: PointerEvent) => {
@@ -217,7 +265,16 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     d.indicator.remove()
     d.dragged.style.opacity = ``
     on.state?.(null)
-    if (commit && d.drop) on.move(listMoveContext(key, d.drop))
+    const b = board
+    board = null
+    if (b) {
+      // The TARGET column's List fires (its macro adds `column`).
+      if (commit && b.drop) {
+        const target = b.lists[Number(b.drop.column)]
+        const context: Record<string, string> = b.drop.key && b.drop.position ? { id: key, [b.drop.position]: b.drop.key } : { id: key }
+        boardMoves.get(target)?.(context)
+      }
+    } else if (commit && d.drop) on.move(listMoveContext(key, d.drop))
     // The release after a drag is no click.
     window.addEventListener(`click`, swallow, { capture: true, once: true })
     setTimeout(() => window.removeEventListener(`click`, swallow, { capture: true }), 0)

@@ -4635,6 +4635,383 @@
       }
     },
     {
+      "name": "macro-template-board-bound",
+      "nested": {
+        "id": "board",
+        "component": "Board",
+        "props": {
+          "columns": {
+            "@path": "/board"
+          }
+        },
+        "on": {
+          "move": {
+            "event": {
+              "name": "move"
+            }
+          }
+        }
+      },
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "expected": {
+        "root": {
+          "id": "board",
+          "component": "Box",
+          "props": {},
+          "children": [],
+          "style": {
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "stretch",
+            "gap": "$spacing.md",
+            "overflowX": "auto",
+            "minWidth": 0
+          },
+          "recipe": {
+            "macro": "Board",
+            "part": "root",
+            "props": {}
+          },
+          "accessibility": {
+            "role": "group"
+          },
+          "template": {
+            "component": "board.column",
+            "path": "/board",
+            "key": "value"
+          }
+        },
+        "issues": [],
+        "templates": {
+          "board.column.cards.card": {
+            "id": "board.column.cards.card",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "board.column.cards.card.icon",
+                "component": "Icon",
+                "props": {
+                  "name": {
+                    "@path": "icon"
+                  },
+                  "size": "sm"
+                },
+                "children": [],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "icon"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "icon",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "card",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "board.column.cards.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "board.column.cards.card.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "label"
+                      },
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "card",
+                        "depth": 0
+                      }
+                    }
+                  },
+                  {
+                    "id": "board.column.cards.card.body.subtitle",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "description"
+                      },
+                      "variant": "muted",
+                      "lines": 1,
+                      "hostLinks": true
+                    },
+                    "children": [],
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "description"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "subtitle",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "card",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.md"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "card",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "board.column.cards.card.meta",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "trailing"
+                  },
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "trailing"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "card",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.lg"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "card",
+                "depth": 0
+              }
+            },
+            "accessibility": {
+              "role": "none"
+            }
+          },
+          "board.column": {
+            "id": "board.column",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "board.column.tint",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "borderRadius": "$radius.lg",
+                  "pointerEvents": "none"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "tint",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "board.column.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "board.column.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "title"
+                      },
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "title",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "board.column.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@call": "text",
+                        "args": {
+                          "value": {
+                            "@call": "len",
+                            "args": {
+                              "value": {
+                                "@path": "cards"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "style": {
+                      "fontVariantNumeric": "tabular-nums"
+                    },
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingHorizontal": "$spacing.xs",
+                  "minHeight": "$control.buttonSm"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "header",
+                  "props": {}
+                }
+              },
+              {
+                "id": "board.column.cards",
+                "component": "List",
+                "props": {
+                  "reorderable": true,
+                  "gap": "sm",
+                  "board": "board"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$control.row"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "cards",
+                  "props": {}
+                },
+                "on": {
+                  "move": {
+                    "event": {
+                      "name": "move",
+                      "context": {
+                        "column": {
+                          "@path": "value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "template": {
+                  "component": "board.column.cards.card",
+                  "path": "cards",
+                  "key": "value"
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "flexGrow": 1,
+              "flexShrink": 0,
+              "flexBasis": 0,
+              "minWidth": 280,
+              "padding": "$spacing.sm",
+              "position": "relative"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "column",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group",
+              "label": {
+                "@path": "title"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "macro-template-timeline",
       "nested": {
         "id": "tl",

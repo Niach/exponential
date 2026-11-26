@@ -9,7 +9,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "properties": {
         "component": {
           "const": "Box"
@@ -726,7 +726,7 @@
         },
         "maxDepth": {
           "type": "number",
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`.",
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`.",
           "default": 1
         },
         "style": {
@@ -8832,7 +8832,7 @@
     },
     "FileUpload": {
       "type": "object",
-      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; fires `upload`, lists `files`.",
       "properties": {
         "component": {
           "const": "FileUpload"
@@ -8916,7 +8916,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -8936,7 +8936,7 @@
         },
         "attachments": {
           "type": "boolean",
-          "description": "Attach control firing `attach` (a pasted image too, {files}).",
+          "description": "Attach control; fires `attach` {files}.",
           "default": false
         },
         "busy": {
@@ -8954,7 +8954,7 @@
         },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu).",
+          "description": "Arrow/Enter/Tab/Escape fire `key` {key} (host menu).",
           "default": false
         },
         "slots": {
@@ -8998,7 +8998,7 @@
     },
     "Row": {
       "type": "object",
-      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
+      "description": "THE list row: lead, title, subtitle, trailing meta/value/slot; nests, folds.",
       "properties": {
         "component": {
           "const": "Row"
@@ -10028,7 +10028,7 @@
     },
     "Motion": {
       "type": "object",
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation (loaders, states, explainers).",
       "properties": {
         "component": {
           "const": "Motion"
@@ -10375,7 +10375,7 @@
     },
     "RecordForm": {
       "type": "object",
-      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form; submit saves.",
       "properties": {
         "component": {
           "const": "RecordForm"
@@ -10476,7 +10476,7 @@
     },
     "MessageStatus": {
       "type": "object",
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "Message delivery mark: clock, check, double check, error.",
       "properties": {
         "component": {
           "const": "MessageStatus"
@@ -21939,6 +21939,55 @@
       },
       "required": [
         "name"
+      ],
+      "additionalProperties": false
+    },
+    "boardColumn": {
+      "type": "object",
+      "description": "One Board column.",
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The `move` event's `column`."
+        },
+        "title": {
+          "type": "string",
+          "description": "Header."
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          },
+          "description": "Rows: `label`, `description`, `trailing`, `icon`; `move` `id` = `value`."
+        }
+      },
+      "required": [
+        "value",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "mapMarker": {
+      "type": "object",
+      "description": "One MapPlaceholder pin.",
+      "properties": {
+        "x": {
+          "type": "number",
+          "description": "0..1 from the left."
+        },
+        "y": {
+          "type": "number",
+          "description": "0..1 from the top."
+        },
+        "label": {
+          "type": "string",
+          "description": "Beside the pin."
+        }
+      },
+      "required": [
+        "x",
+        "y"
       ],
       "additionalProperties": false
     },

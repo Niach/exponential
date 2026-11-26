@@ -17592,6 +17592,59 @@
           "size": "lg"
         }
       }
+    },
+    {
+      "name": "Board/example",
+      "node": {
+        "id": "board",
+        "component": "Board",
+        "props": {
+          "columns": [
+            {
+              "value": "todo",
+              "title": "Todo",
+              "cards": [
+                {
+                  "label": "Write the brief",
+                  "value": "c1",
+                  "description": "Due Friday"
+                },
+                {
+                  "label": "Pick a venue",
+                  "value": "c2",
+                  "trailing": "3d"
+                }
+              ]
+            },
+            {
+              "value": "doing",
+              "title": "Doing",
+              "cards": [
+                {
+                  "label": "Draft the agenda",
+                  "value": "c3",
+                  "icon": "pencil"
+                }
+              ]
+            },
+            {
+              "value": "done",
+              "title": "Done",
+              "cards": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "MapPlaceholder/example",
+      "node": {
+        "id": "map_placeholder",
+        "component": "MapPlaceholder",
+        "props": {
+          "label": "Vienna, Stephansplatz"
+        }
+      }
     }
   ]
 }

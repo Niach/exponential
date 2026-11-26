@@ -69,9 +69,13 @@ export function contentImageSrc(img: HTMLImageElement): string {
 export type ImageSourceVerdict = { kind: `load` } | { kind: `link`; href: string; text: string } | { kind: `text`; text: string }
 
 const LOAD: ImageSourceVerdict = { kind: `load` }
+const NO_MAP: ImageSourceVerdict = { kind: `text`, text: `` }
 
 /** The host's verdict for one picture, `load` without the hook. */
 export function imageSourceOf(host: AnyHostPlugin, src: string, alt: string): ImageSourceVerdict {
+  // genUI round 4 (catalog/host.json media.map): a `map:` src the host's
+  // `resolveUrl` does not resolve paints nothing (MapPlaceholder's grid shows).
+  if (src.startsWith(`map:`) && (host.resolveUrl ? host.resolveUrl(src) : src).startsWith(`map:`)) return NO_MAP
   if (!src || !host.imageSource) return LOAD
   return host.imageSource(src, alt) ?? LOAD
 }

@@ -106,7 +106,7 @@ export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, 
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { partitionTabs, tabDropSlot, tabKeySlot, tabReorder, moveTab } from "./tabs-strip"
 export { FORCED_STATE_NAMES, forcedStatesOf, normalizeForcedStates, type ForcedStateName, type ForcedStates } from "./forced-states"
-export { listDropSlot, listMoveContext, LIST_DROP_EDGE, type ListDrop, type ListDropPosition, type ListMoveContext, type ListReorderRow } from "./list-reorder"
+export { boardDropSlot, boardMoveContext, listDropSlot, listMoveContext, LIST_DROP_EDGE, type BoardColumn, type BoardDrop, type ListDrop, type ListDropPosition, type ListMoveContext, type ListReorderRow } from "./list-reorder"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
 export { MIDDLE_MIN_KEPT, middleTruncateWidth } from "./text-truncate"
 export { HIGHLIGHT_BARRIER, highlightCount, highlightLocalCurrent, highlightRanges, highlightSpec } from "./highlight"

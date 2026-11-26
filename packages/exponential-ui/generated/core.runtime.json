@@ -873,6 +873,40 @@
           "type": "string"
         }
       }
+    },
+    "boardColumn": {
+      "properties": {
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          }
+        }
+      }
+    },
+    "mapMarker": {
+      "properties": {
+        "x": {
+          "type": "number",
+          "required": true
+        },
+        "y": {
+          "type": "number",
+          "required": true
+        },
+        "label": {
+          "type": "string"
+        }
+      }
     }
   },
   "functions": {
@@ -5632,6 +5666,46 @@
           "type": "enum",
           "enum": "controlSize",
           "default": "default"
+        }
+      }
+    },
+    "Board": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "boardColumn"
+          },
+          "required": true,
+          "bindable": true
+        }
+      },
+      "events": [
+        "move"
+      ]
+    },
+    "MapPlaceholder": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "mapMarker"
+          }
         }
       }
     }

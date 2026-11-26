@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "example": {
         "style": {
           "display": "flex",
@@ -134,7 +134,7 @@
           "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
         },
         "maxDepth": {
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         "style": {
           "description": "Extra Box styles for the list frame."
@@ -728,7 +728,7 @@
           "description": "A11y label."
         }
       },
-      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "description": "Picture group with `+N`; press fires `select {index}`.",
       "example": {
         "pictures": [
           {
@@ -2479,7 +2479,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2680,7 +2680,7 @@
           "description": "Shows it inert."
         }
       },
-      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; fires `upload`, lists `files`.",
       "example": {
         "label": "Attachments",
         "name": "attachments",
@@ -2720,7 +2720,7 @@
           "description": "Submit button's a11y label."
         },
         "attachments": {
-          "description": "Attach control firing `attach` (a pasted image too, {files})."
+          "description": "Attach control; fires `attach` {files}."
         },
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
@@ -2729,10 +2729,10 @@
           "description": "stacked = field over controls; flat = one row."
         },
         "menuKeys": {
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrow/Enter/Tab/Escape fire `key` {key} (host menu)."
         }
       },
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "example": {
         "placeholder": "Ask anything"
       }
@@ -2788,7 +2788,7 @@
           "description": "Marks a search term in title and subtitle."
         }
       },
-      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
+      "description": "THE list row: lead, title, subtitle, trailing meta/value/slot; nests, folds.",
       "example": {
         "title": "r/selfhosted",
         "meta": "312 posts",
@@ -2991,7 +2991,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation (loaders, states, explainers).",
       "example": {
         "size": [
           48,
@@ -3296,7 +3296,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form; submit saves.",
       "example": {
         "kind": "deal",
         "fields": [
@@ -3448,7 +3448,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3568,7 +3568,7 @@
           "description": "Delivery state."
         }
       },
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "Message delivery mark: clock, check, double check, error.",
       "example": {
         "status": "read"
       }
@@ -3778,6 +3778,64 @@
             "seed": "user-mia"
           }
         ]
+      }
+    },
+    "Board": {
+      "props": {
+        "columns": {
+          "description": "Bind it."
+        }
+      },
+      "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
+      "example": {
+        "columns": [
+          {
+            "value": "todo",
+            "title": "Todo",
+            "cards": [
+              {
+                "label": "Write the brief",
+                "value": "c1",
+                "description": "Due Friday"
+              },
+              {
+                "label": "Pick a venue",
+                "value": "c2",
+                "trailing": "3d"
+              }
+            ]
+          },
+          {
+            "value": "doing",
+            "title": "Doing",
+            "cards": [
+              {
+                "label": "Draft the agenda",
+                "value": "c3",
+                "icon": "pencil"
+              }
+            ]
+          },
+          {
+            "value": "done",
+            "title": "Done",
+            "cards": []
+          }
+        ]
+      }
+    },
+    "MapPlaceholder": {
+      "props": {
+        "label": {
+          "description": "Place name."
+        },
+        "markers": {
+          "description": "Pins."
+        }
+      },
+      "description": "Map: the host's `map:` tile, else a grid + pin; `markers` at 0..1.",
+      "example": {
+        "label": "Vienna, Stephansplatz"
       }
     }
   },
@@ -4179,6 +4237,34 @@
         }
       },
       "description": "One person of an AvatarGroup."
+    },
+    "boardColumn": {
+      "properties": {
+        "value": {
+          "description": "The `move` event's `column`."
+        },
+        "title": {
+          "description": "Header."
+        },
+        "cards": {
+          "description": "Rows: `label`, `description`, `trailing`, `icon`; `move` `id` = `value`."
+        }
+      },
+      "description": "One Board column."
+    },
+    "mapMarker": {
+      "properties": {
+        "x": {
+          "description": "0..1 from the left."
+        },
+        "y": {
+          "description": "0..1 from the top."
+        },
+        "label": {
+          "description": "Beside the pin."
+        }
+      },
+      "description": "One MapPlaceholder pin."
     }
   },
   "functions": {

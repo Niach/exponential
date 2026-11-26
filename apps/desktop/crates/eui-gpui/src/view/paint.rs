@@ -975,6 +975,11 @@ impl SurfaceView {
         if prop("src").is_empty() {
             return None;
         }
+        // genUI round 4 (catalog/host.json media.map): a `map:` src the
+        // host's `resolve_url` does not resolve paints nothing.
+        if prop("src").starts_with("map:") && self.host.resolve_url(prop("src")).starts_with("map:") {
+            return Some((String::new(), None));
+        }
         match self.host.image_source(prop("src"), prop("alt"))? {
             crate::host::ImageSourceVerdict::Load => None,
             crate::host::ImageSourceVerdict::Text(text) => Some((text, None)),

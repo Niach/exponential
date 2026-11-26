@@ -59124,6 +59124,951 @@
       }
     },
     {
+      "name": "Board/example",
+      "input": {
+        "id": "board",
+        "component": "Board",
+        "props": {
+          "columns": [
+            {
+              "value": "todo",
+              "title": "Todo",
+              "cards": [
+                {
+                  "label": "Write the brief",
+                  "value": "c1",
+                  "description": "Due Friday"
+                },
+                {
+                  "label": "Pick a venue",
+                  "value": "c2",
+                  "trailing": "3d"
+                }
+              ]
+            },
+            {
+              "value": "doing",
+              "title": "Doing",
+              "cards": [
+                {
+                  "label": "Draft the agenda",
+                  "value": "c3",
+                  "icon": "pencil"
+                }
+              ]
+            },
+            {
+              "value": "done",
+              "title": "Done",
+              "cards": []
+            }
+          ]
+        }
+      },
+      "expected": {
+        "id": "board",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "board.column.0",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "board.column.0.tint",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "borderRadius": "$radius.lg",
+                  "pointerEvents": "none"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "tint",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "board.column.0.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "board.column.0.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Todo",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "title",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "board.column.0.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "2",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "style": {
+                      "fontVariantNumeric": "tabular-nums"
+                    },
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingHorizontal": "$spacing.xs",
+                  "minHeight": "$control.buttonSm"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "header",
+                  "props": {}
+                }
+              },
+              {
+                "id": "board.column.0.cards",
+                "component": "List",
+                "props": {
+                  "reorderable": false,
+                  "gap": "sm"
+                },
+                "children": [
+                  {
+                    "id": "board.column.0.cards.card.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": false
+                    },
+                    "children": [
+                      {
+                        "id": "board.column.0.cards.card.0.body",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "board.column.0.cards.card.0.body.title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Write the brief",
+                              "variant": "body",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "title",
+                              "props": {
+                                "selected": false,
+                                "density": "default",
+                                "surface": "card",
+                                "depth": 0
+                              }
+                            }
+                          },
+                          {
+                            "id": "board.column.0.cards.card.0.body.subtitle",
+                            "component": "Text",
+                            "props": {
+                              "text": "Due Friday",
+                              "variant": "muted",
+                              "lines": 1,
+                              "hostLinks": true
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "subtitle",
+                              "props": {
+                                "selected": false,
+                                "density": "default",
+                                "surface": "card",
+                                "depth": 0
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs",
+                          "flexGrow": 1,
+                          "minWidth": 0,
+                          "paddingVertical": "$spacing.md"
+                        },
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "body",
+                          "props": {
+                            "selected": false,
+                            "density": "default",
+                            "surface": "card",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "minHeight": "$control.row",
+                      "paddingHorizontal": "$spacing.md",
+                      "borderRadius": "$radius.lg"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "card",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "none"
+                    }
+                  },
+                  {
+                    "id": "board.column.0.cards.card.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": false
+                    },
+                    "children": [
+                      {
+                        "id": "board.column.0.cards.card.1.body",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "board.column.0.cards.card.1.body.title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Pick a venue",
+                              "variant": "body",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "title",
+                              "props": {
+                                "selected": false,
+                                "density": "default",
+                                "surface": "card",
+                                "depth": 0
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs",
+                          "flexGrow": 1,
+                          "minWidth": 0,
+                          "paddingVertical": "$spacing.md"
+                        },
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "body",
+                          "props": {
+                            "selected": false,
+                            "density": "default",
+                            "surface": "card",
+                            "depth": 0
+                          }
+                        }
+                      },
+                      {
+                        "id": "board.column.0.cards.card.1.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3d",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "meta",
+                          "props": {
+                            "selected": false,
+                            "density": "default",
+                            "surface": "card",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "minHeight": "$control.row",
+                      "paddingHorizontal": "$spacing.md",
+                      "borderRadius": "$radius.lg"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "card",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "none"
+                    }
+                  }
+                ],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$control.row"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "cards",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "flexGrow": 1,
+              "flexShrink": 0,
+              "flexBasis": 0,
+              "minWidth": 280,
+              "padding": "$spacing.sm",
+              "position": "relative"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "column",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Todo"
+            }
+          },
+          {
+            "id": "board.column.1",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "board.column.1.tint",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "borderRadius": "$radius.lg",
+                  "pointerEvents": "none"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "tint",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "board.column.1.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "board.column.1.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Doing",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "title",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "board.column.1.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "1",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "style": {
+                      "fontVariantNumeric": "tabular-nums"
+                    },
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingHorizontal": "$spacing.xs",
+                  "minHeight": "$control.buttonSm"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "header",
+                  "props": {}
+                }
+              },
+              {
+                "id": "board.column.1.cards",
+                "component": "List",
+                "props": {
+                  "reorderable": false,
+                  "gap": "sm"
+                },
+                "children": [
+                  {
+                    "id": "board.column.1.cards.card.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": false
+                    },
+                    "children": [
+                      {
+                        "id": "board.column.1.cards.card.0.icon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "pencil",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "icon",
+                          "props": {
+                            "selected": false,
+                            "density": "default",
+                            "surface": "card",
+                            "depth": 0
+                          }
+                        }
+                      },
+                      {
+                        "id": "board.column.1.cards.card.0.body",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "board.column.1.cards.card.0.body.title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Draft the agenda",
+                              "variant": "body",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "title",
+                              "props": {
+                                "selected": false,
+                                "density": "default",
+                                "surface": "card",
+                                "depth": 0
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs",
+                          "flexGrow": 1,
+                          "minWidth": 0,
+                          "paddingVertical": "$spacing.md"
+                        },
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "body",
+                          "props": {
+                            "selected": false,
+                            "density": "default",
+                            "surface": "card",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "minHeight": "$control.row",
+                      "paddingHorizontal": "$spacing.md",
+                      "borderRadius": "$radius.lg"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "card",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "none"
+                    }
+                  }
+                ],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$control.row"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "cards",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "flexGrow": 1,
+              "flexShrink": 0,
+              "flexBasis": 0,
+              "minWidth": 280,
+              "padding": "$spacing.sm",
+              "position": "relative"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "column",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Doing"
+            }
+          },
+          {
+            "id": "board.column.2",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "board.column.2.tint",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "borderRadius": "$radius.lg",
+                  "pointerEvents": "none"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "tint",
+                  "props": {}
+                },
+                "accessibility": {
+                  "hidden": true
+                }
+              },
+              {
+                "id": "board.column.2.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "board.column.2.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Done",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "title",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "board.column.2.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "0",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "style": {
+                      "fontVariantNumeric": "tabular-nums"
+                    },
+                    "recipe": {
+                      "macro": "Board",
+                      "part": "count",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingHorizontal": "$spacing.xs",
+                  "minHeight": "$control.buttonSm"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "header",
+                  "props": {}
+                }
+              },
+              {
+                "id": "board.column.2.cards",
+                "component": "List",
+                "props": {
+                  "reorderable": false,
+                  "gap": "sm"
+                },
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": "$control.row"
+                },
+                "recipe": {
+                  "macro": "Board",
+                  "part": "cards",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.sm",
+              "flexGrow": 1,
+              "flexShrink": 0,
+              "flexBasis": 0,
+              "minWidth": 280,
+              "padding": "$spacing.sm",
+              "position": "relative"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "column",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Done"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "gap": "$spacing.md",
+          "overflowX": "auto",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Board",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        }
+      }
+    },
+    {
+      "name": "MapPlaceholder/example",
+      "input": {
+        "id": "map_placeholder",
+        "component": "MapPlaceholder",
+        "props": {
+          "label": "Vienna, Stephansplatz"
+        }
+      },
+      "expected": {
+        "id": "map_placeholder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "map_placeholder.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid.column.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "grid",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.center",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.center.pin",
+                "component": "Icon",
+                "props": {
+                  "name": "map-pin",
+                  "size": "lg"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "pin",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center.label",
+                "component": "Text",
+                "props": {
+                  "text": "Vienna, Stephansplatz",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "center",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.tile",
+            "component": "Image",
+            "props": {
+              "src": "map:Vienna, Stephansplatz",
+              "alt": "Vienna, Stephansplatz",
+              "fit": "cover"
+            },
+            "children": [],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "width": "100%",
+              "height": "100%"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "tile",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          }
+        ],
+        "style": {
+          "position": "relative",
+          "overflow": "hidden",
+          "width": "100%",
+          "aspectRatio": 1.7778,
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline"
+        },
+        "recipe": {
+          "macro": "MapPlaceholder",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "img",
+          "label": "Vienna, Stephansplatz"
+        }
+      }
+    },
+    {
       "name": "Stack/bound:direction",
       "input": {
         "id": "stack",
@@ -94709,6 +95654,262 @@
         },
         "accessibility": {
           "role": "radiogroup"
+        }
+      }
+    },
+    {
+      "name": "MapPlaceholder/bound:label",
+      "input": {
+        "id": "map_placeholder",
+        "component": "MapPlaceholder",
+        "props": {
+          "label": {
+            "@path": "/label"
+          }
+        }
+      },
+      "expected": {
+        "id": "map_placeholder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "map_placeholder.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid.column.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "grid",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.center",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.center.pin",
+                "component": "Icon",
+                "props": {
+                  "name": "map-pin",
+                  "size": "lg"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "pin",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/label"
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "center",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.tile",
+            "component": "Image",
+            "props": {
+              "src": {
+                "@call": "concat",
+                "args": {
+                  "values": [
+                    "map:",
+                    {
+                      "@path": "/label"
+                    }
+                  ]
+                }
+              },
+              "alt": {
+                "@path": "/label"
+              },
+              "fit": "cover"
+            },
+            "children": [],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "width": "100%",
+              "height": "100%"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "tile",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          }
+        ],
+        "style": {
+          "position": "relative",
+          "overflow": "hidden",
+          "width": "100%",
+          "aspectRatio": 1.7778,
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline"
+        },
+        "recipe": {
+          "macro": "MapPlaceholder",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "img",
+          "label": {
+            "@path": "/label"
+          }
         }
       }
     },

@@ -165,6 +165,8 @@ private struct NodeBody: View {
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListReorderDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListDragOverlayModifier(node: node, model: model))
+        // genUI round 4: the path to the List a drag paints over stays on top.
+        .zIndex(model.isListDragPath(index) ? 1 : 0)
         .modifier(TabSwipeModifier(node: node, model: model, enabled: interactive))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
