@@ -12,7 +12,7 @@ use std::{
 
 use ede_session::{
     application_dirs, compositor_args, device_start, failure_file, load_crashes, migrate_legacy_dirs, recovery_args, state_file, store_crashes, take_failure, xdg_homes, DeviceStart, Exit, Next, Policy, DAEMON_UNIT, DEVICE_ENV, DEVICE_DESKTOP_ENTRIES,
-    EXPORTED_ENV, FATAL_EXIT, SESSION_ENV,
+    EXPORTED_ENV, FATAL_EXIT, PORTAL_UNITS, SESSION_ENV,
 };
 
 /// SIGTERM/SIGHUP/SIGINT arrived: the login manager ends the session.
@@ -51,6 +51,9 @@ fn ready() -> ExitCode {
         // Without the D-Bus tool, systemd alone still gets them.
         let _ = Command::new("systemctl").args(["--user", "import-environment"]).args(&vars).status();
     }
+    // A frontend still running from another desktop's login routes by that
+    // desktop's portals.conf: only running ones restart (`try-restart`).
+    let _ = Command::new("systemctl").args(["--user", "try-restart"]).args(PORTAL_UNITS).status();
     match Command::new("systemctl").args(["--user", "start", "--no-block", "exponential-session.target"]).status() {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         other => {
@@ -263,5 +266,6 @@ fn wait_or_terminate(mut child: Child, mut tick: impl FnMut()) -> std::io::Resul
 /// again on a restart.
 fn stop_session_units() {
     let _ = Command::new("systemctl").args(["--user", "stop", "exponential-session.target", "graphical-session.target"]).status();
+    let _ = Command::new("systemctl").args(["--user", "stop"]).args(PORTAL_UNITS).status();
     let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"]).status();
 }

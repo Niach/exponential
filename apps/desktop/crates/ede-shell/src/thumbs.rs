@@ -66,23 +66,6 @@ pub fn rgba_data_url(w: u32, h: u32, rgba: &[u8]) -> Option<String> {
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
 }
 
-/// The capture at full size as a PNG file (the Print key).
-pub fn write_png(path: &std::path::Path, capture: &Capture) -> std::io::Result<()> {
-    let (w, h) = (capture.info.width as u32, capture.info.height as u32);
-    let stride = capture.info.stride as usize;
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in 0..h as usize {
-        for px in capture.pixels[y * stride..y * stride + w as usize * 4].chunks_exact(4) {
-            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
-        }
-    }
-    let file = std::fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w, h);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header()?.write_image_data(&rgba).map_err(std::io::Error::other)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -167,6 +167,12 @@ pub struct Ede {
     /// #EDE-172 (P13): the services daemon the compositor runs, by its
     /// intake ([`crate::services`]).
     pub services: crate::services::Services,
+    /// ext-image-copy-capture + wlr-screencopy for the person's own
+    /// unsandboxed tools ([`crate::screencopy`]).
+    pub screencopy: crate::screencopy::Screencopy,
+    /// The person picking a part of their screen (`pick_region`,
+    /// [`crate::screen_pick`]); one at a time.
+    pub screen_pick: Option<crate::screen_pick::Pick>,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -327,6 +333,8 @@ impl Ede {
             config_path: None,
             helpers,
             services: Default::default(),
+            screencopy: crate::screencopy::Screencopy::new(&dh),
+            screen_pick: None,
         }
     }
 
