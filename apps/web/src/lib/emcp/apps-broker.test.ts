@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { Client } from "@modelcontextprotocol/client"
+import { InMemoryTransport } from "@modelcontextprotocol/client"
 import fixture from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 import type { Expose } from "@exp/emcp/exposes"
 import { auditRows } from "@/lib/emcp/audit"

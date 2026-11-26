@@ -64,6 +64,8 @@ import com.exponential.app.ui.styleguide.ChatCardsKind
 import com.exponential.app.ui.styleguide.AppConsentSpecimenScreen
 import com.exponential.app.ui.styleguide.AppConsentSpecimenTestId
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
+import com.exponential.app.ui.styleguide.ElicitationCardSpecimenScreen
+import com.exponential.app.ui.styleguide.ElicitationCardSpecimenTestId
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreenTestId
@@ -188,7 +190,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_session-synced-tail · sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
- *   sg_install-approval · sg_install-waiting (#EXP-1950) ·
+ *   sg_install-approval · sg_install-waiting (#EXP-1950) · sg_elicitation-card (#NEW-146) ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
@@ -307,6 +309,8 @@ class StyleguideScreenshotsTest {
             "sg_needs-you", "sg_results-tab",
             // #EXP-1950: the approval rows + the waiting state (install-trust.json).
             "sg_install-approval", "sg_install-waiting",
+            // #NEW-146: THE elicitation card (elicitation-card.json, the web specimen's four cases).
+            "sg_elicitation-card",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues tab, #EXP-1836). */
@@ -2093,6 +2097,13 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_install-approval")
         show(InstallWaitingSpecimenTestId) { InstallTrustSpecimenScreen(waiting = true) }
         flow.screenshot("sg_install-waiting")
+        // --- sg_elicitation-card (#NEW-146, elicitation-card.json): the
+        // fixture's cards through the real row model + ChatAskCard (the
+        // waiting form, the clean url, the warned url, an answered form).
+        if (ScreenshotFlow.anyRequested("sg_elicitation-card")) {
+            show(ElicitationCardSpecimenTestId) { ElicitationCardSpecimenScreen() }
+            flow.screenshot("sg_elicitation-card")
+        }
         // --- sg_os-live-activity · sg_os-live-activity-island ·
         // sg_os-notification-actions (#EXP-1639, #EXP-1641): the OS draws
         // them (a promoted ProgressStyle Live Update + its status-bar chip;

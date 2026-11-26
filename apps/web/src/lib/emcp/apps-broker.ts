@@ -11,17 +11,8 @@
 // chains: one call runs exactly one binding of one app.
 import { currentSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
 import { createHash } from "node:crypto"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
-import { Server } from "@modelcontextprotocol/sdk/server/index.js"
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-  type CallToolResult,
-  type Tool,
-} from "@modelcontextprotocol/sdk/types.js"
+import { Client } from "@modelcontextprotocol/client"
+import { InMemoryTransport, ProtocolError, ProtocolErrorCode, Server, type CallToolResult, type Tool } from "@modelcontextprotocol/server"
 import { and, eq, isNull } from "drizzle-orm"
 import { actionGrantable, canonicalAction, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { nounCall } from "@exp/mcp-apps/tool-names"
@@ -487,7 +478,7 @@ export function classifyAppToolResponse(response: unknown): { outcome: CallOutco
   if (!response || typeof response !== `object`) return { outcome: { error: true }, error: `noAnswer` }
   const r = response as { result?: unknown; error?: { code?: unknown; message?: unknown } }
   if (r.error) {
-    const unknown = r.error.code === ErrorCode.InvalidParams && typeof r.error.message === `string` && /Tool \S+ not found/.test(r.error.message)
+    const unknown = r.error.code === ProtocolErrorCode.InvalidParams && typeof r.error.message === `string` && /Tool \S+ not found/.test(r.error.message)
     return unknown ? { outcome: { denied: true }, error: `unknownTool` } : { outcome: { error: true }, error: `rpcError` }
   }
   const result = (r.result && typeof r.result === `object` ? r.result : {}) as { isError?: unknown; content?: unknown; _meta?: Record<string, unknown> }
@@ -520,12 +511,12 @@ export function createAppsMcpServer(ctx: BrokerContext, tools: readonly BrokerTo
     }
   )
   const byName = new Map(tools.map((t) => [t.name, t]))
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools.map(toolDefinition) }))
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler(`tools/list`, async () => ({ tools: tools.map(toolDefinition) }))
+  server.setRequestHandler(`tools/call`, async (req) => {
     const tool = byName.get(req.params.name)
     // A tool not listed for this caller answers MCP's unknown-tool error,
     // never a hint that it exists (access.json).
-    if (!tool) throw new McpError(ErrorCode.InvalidParams, `Tool ${req.params.name} not found`)
+    if (!tool) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${req.params.name} not found`)
     return runBrokerTool(ctx, tool, req.params.arguments)
   })
   return server
@@ -539,7 +530,7 @@ export const appsToolProvider: ToolProvider = async (caller, request) => {
   if (!grant) return noGrant()
   const { teamId, teamSlug, tools } = await brokerTools(caller.user.id, grant)
   const appOf = new Map(tools.map((t) => [t.name, t.app.id]))
-  const audit: ServeOptions = { teamId, appIdOf: (name) => appOf.get(name) ?? null, classify: classifyAppToolResponse }
+  const audit: ServeOptions = { teamId, appIdOf: (name) => appOf.get(name) ?? null, classify: classifyAppToolResponse, toolCallsOnly: true }
   return { server: createAppsMcpServer({ user: caller.user, request, teamId, teamSlug }, tools), audit }
 }
 

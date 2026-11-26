@@ -42,8 +42,9 @@
 import { resolve } from "node:path"
 import { and, eq, ne } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
+import { elicitationCard, type ElicitationRequest } from "@exp/domain-contract/elicitation-card"
 import { db } from "@/db/connection"
-import { comments, devices, issues, sessions, users } from "@/db/schema"
+import { comments, devices, issues, messages, sessions, users } from "@/db/schema"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -537,6 +538,80 @@ function storedFrames(sessionId: string, now: number): Record<string, unknown>[]
   )
 }
 
+/** #NEW-146: SCREENSHOT_FEED_ELICITATION=1 closes the feed on a third-party
+ *  MCP server's elicitation instead of the ask: the frame the engine
+ *  publishes (options and header only) plus THE card it posts beside it
+ *  (`messages.card` with the same `questionId`), so a capture shows the
+ *  live view drawing the posted card (elicitation-card.json LIVE).
+ *  Capture-only; the catalog's `steering` keeps the ask. */
+const ELICITATION = process.env.SCREENSHOT_FEED_ELICITATION === `1`
+const DEMO_ELICITATION_QUESTION_ID = `elicit-demo#0.0`
+const DEMO_ELICITATION_MESSAGE_ID = `0f4e7a2c-5b1d-4c8e-9a3f-6d2b8e1c7a50`
+const DEMO_ELICITATION_REQUEST: ElicitationRequest = {
+  server: `linear`,
+  message: `Where should the issue go?`,
+  mode: `form`,
+  order: [`title`, `team`, `estimate`, `notify`],
+  schema: {
+    properties: {
+      title: { type: `string`, title: `Title`, default: `Cold start regression on Pixel 6a` },
+      team: {
+        type: `string`,
+        title: `Team`,
+        oneOf: [
+          { const: `web`, title: `Web` },
+          { const: `android`, title: `Android` },
+        ],
+        default: `android`,
+      },
+      estimate: { type: `integer`, title: `Estimate`, minimum: 1, maximum: 8 },
+      notify: { type: `boolean`, title: `Notify the team`, description: `Posts in the team channel.`, default: true },
+    },
+    required: [`title`, `team`],
+  },
+}
+const DEMO_ELICITATION_FRAME = {
+  kind: `question`,
+  id: DEMO_ELICITATION_QUESTION_ID,
+  text: DEMO_ELICITATION_REQUEST.message,
+  header: DEMO_ELICITATION_REQUEST.server,
+  options: [`Submit`, `Decline`, `Cancel`].map((label, index) => ({ label, key: String(index + 1) })),
+} as (typeof FEED)[number]
+
+/** #NEW-146: THE posted elicitation card of the closing frame (replaced per
+ *  run, waiting). */
+async function postDemoElicitationCard(sessionId: string): Promise<void> {
+  const card = elicitationCard(DEMO_ELICITATION_REQUEST)
+  if (!card) throw new Error(`the demo elicitation request builds no card`)
+  const [session] = await db
+    .select({ rootId: sessions.rootId, teamId: sessions.teamId, userId: sessions.userId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+  if (!session) throw new Error(`no session ${sessionId}`)
+  const [conversation] = await db
+    .select({ id: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .limit(1)
+  if (!conversation) throw new Error(`session ${sessionId} has no messages to read its conversation from`)
+  await db.delete(messages).where(eq(messages.id, DEMO_ELICITATION_MESSAGE_ID))
+  const at = new Date()
+  await db.insert(messages).values({
+    id: DEMO_ELICITATION_MESSAGE_ID,
+    conversationId: conversation.id,
+    sessionId,
+    rootId: session.rootId,
+    teamId: session.teamId,
+    shared: true,
+    ownerId: session.userId,
+    authorKind: `agent`,
+    card: { ...card, questionId: DEMO_ELICITATION_QUESTION_ID } as never,
+    createdAt: at,
+    updatedAt: at,
+  })
+}
+
 /** The scripted feed as `activity {event, seq}` frames, stamped on a timeline
  *  ending now: what the eNet stub records and replays (VAPP-168). */
 function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[] {
@@ -563,8 +638,9 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
   // (`Writing ExitPlanMode… (54s)`) ends on a running turn instead of the ask.
   const writing = process.env.SCREENSHOT_FEED_WRITING === `1`
   const skipQuestion = writing || process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
-  for (const [index, entry] of entries.entries()) {
-    if (skipQuestion && entry.kind === `question`) continue
+  for (const [index, scripted] of entries.entries()) {
+    if (skipQuestion && scripted.kind === `question`) continue
+    const entry = ELICITATION && scripted.kind === `question` ? DEMO_ELICITATION_FRAME : scripted
     // Without the seeded comment (an older seed) the call is left out rather
     // than published as a card naming a comment nobody can open.
     if (entry.agentComment === true && !agentComment) continue
@@ -785,6 +861,7 @@ async function main() {
   process.on(`exit`, () => releaseStubRecord(pidFile, process.pid))
   const { userId, sessionId } = await resolveTarget()
   const agentComment = await resolveAgentComment()
+  if (ELICITATION) await postDemoElicitationCard(sessionId)
 
   const stopControl = hold({
     name: `control`,

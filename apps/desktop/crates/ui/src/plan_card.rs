@@ -209,6 +209,8 @@ struct CardDraft {
     step: usize,
     /// N-12: the reject button was picked: the feedback field shows.
     rejecting: bool,
+    /// #NEW-146: the surface view is watched ([`watch_surface`]).
+    watched: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -600,6 +602,13 @@ pub(crate) fn card_surface_view(
 /// its own frame (`card.surface*`; a skeleton-height box until the view
 /// exists).
 pub(crate) fn surface_block(message_id: &str, cx: &App) -> AnyElement {
+    surface_frame(message_id, true, false, cx)
+}
+
+/// [`surface_block`] with its `Preview` caption optional (#NEW-146: THE
+/// elicitation card draws none) and `inert` = read-only (web `inert` +
+/// `opacity-80`: an answered elicitation card's surface).
+pub(crate) fn surface_frame(message_id: &str, with_caption: bool, inert: bool, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
@@ -609,9 +618,10 @@ pub(crate) fn surface_block(message_id: &str, cx: &App) -> AnyElement {
         .w_full()
         .min_w_0()
         .gap(px(card.surface_label_gap))
-        .child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM))
+        .when(with_caption, |block| block.child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM)))
         .child(
             div()
+                .relative()
                 .w_full()
                 .min_w_0()
                 .p(px(card.surface_padding))
@@ -623,9 +633,50 @@ pub(crate) fn surface_block(message_id: &str, cx: &App) -> AnyElement {
                 .map(|frame| match view {
                     Some(view) => frame.child(view),
                     None => frame.min_h(px(48.)),
+                })
+                // Inert: nothing under the frame takes a press or a hover.
+                .when(inert, |frame| {
+                    frame.opacity(0.8).child(div().absolute().inset_0().occlude())
                 }),
         )
         .into_any_element()
+}
+
+/// #NEW-146 (elicitation-card.json): a card whose surface IS its form:
+/// the surface view built (live while waiting; at the answered data once
+/// closed), with `on_change` run whenever the view repaints (once per
+/// built view: the caller compares what it reads).
+pub(crate) fn prepare_surface(
+    message_id: &str,
+    surface: Option<&CardSurface>,
+    answered: bool,
+    surface_data: Option<&Value>,
+    window: &Window,
+    cx: &mut App,
+) {
+    if answered {
+        ensure_closed_surface(message_id, surface, surface_data, window, cx);
+    } else {
+        ensure(message_id, Needs { custom: Vec::new(), feedback: false, surface: surface.cloned() }, window, cx);
+    }
+}
+
+/// #NEW-146: watch the card's built surface view (`on_change` on every
+/// notify of it), once per view; the subscription goes with the draft.
+pub(crate) fn watch_surface(message_id: &str, on_change: impl FnMut(Entity<SurfaceView>, &mut App) + 'static, cx: &mut App) {
+    let Some(view) = draft(message_id, cx).filter(|draft| !draft.watched).and_then(|draft| draft.surface.clone()) else {
+        return;
+    };
+    let subscription = cx.observe(&view, on_change);
+    let draft = draft_mut(message_id, cx);
+    draft.watched = true;
+    draft._subscriptions.push(subscription);
+}
+
+/// #NEW-146: the card's surface data now (the live view's, else the card's
+/// own `data`).
+pub(crate) fn live_surface_data(message_id: &str, surface: Option<&CardSurface>, cx: &App) -> Option<Value> {
+    surface_data(message_id, surface, cx)
 }
 
 // ---------------------------------------------------------------------------

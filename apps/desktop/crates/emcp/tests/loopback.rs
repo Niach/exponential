@@ -179,7 +179,7 @@ fn a_run_reads_its_own_instructions_or_the_servers() {
 fn the_endpoint_wants_a_live_token() {
     let fake = Arc::new(Fake::default());
     let server = Server::serve(info(), fake.clone()).unwrap();
-    assert!(matches!(Client::connect(&upstream(server.url(), "nope"), "test", T), Err(ClientError::Http(401))));
+    assert!(matches!(Client::connect(&upstream(server.url(), "nope"), "test", T), Err(ClientError::Unauthorized)));
     let old = server.grant(&id("s1"), "EXP-1");
     let new = server.grant(&id("s1"), "EXP-1");
     assert!(server.admitted(&old).is_none());
@@ -187,7 +187,7 @@ fn the_endpoint_wants_a_live_token() {
     server.revoke(&id("s1"));
     assert!(server.admitted(&new).is_none());
     assert_eq!(fake.ended.lock().unwrap().as_slice(), ["s1"]);
-    assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Http(401))));
+    assert!(matches!(Client::connect(&upstream(server.url(), new.as_str()), "test", T), Err(ClientError::Unauthorized)));
 }
 
 /// A run whose grant ended reads why on its next call (a bare 401 reads as
@@ -208,8 +208,8 @@ fn a_revoked_run_reads_why_its_tools_stopped() {
         assert_eq!(refused["isError"], json!(true));
         let text = refused["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("fake") && text.contains("ended this session's access"), "{text}");
-        assert!(matches!(client.list_tools(T), Err(ClientError::Http(401))));
-        assert!(matches!(Client::connect(&upstream(server.url(), token.as_str()), "test", T), Err(ClientError::Http(401))));
+        assert!(matches!(client.list_tools(T), Err(ClientError::Unauthorized)));
+        assert!(matches!(Client::connect(&upstream(server.url(), token.as_str()), "test", T), Err(ClientError::Unauthorized)));
     }
     assert!(fake.calls.lock().unwrap().is_empty());
 }
@@ -267,7 +267,7 @@ fn the_bearer_is_an_ecore_token() {
     assert!(Client::connect(&lower, "test", T).is_ok());
     let upper = token.as_str().to_uppercase();
     let refused = Client::connect(&upstream(server.url(), &upper), "test", T).err().unwrap();
-    assert_eq!(refused, ClientError::Http(401));
+    assert_eq!(refused, ClientError::Unauthorized);
     assert_eq!(refused.delivery(), Some(DeliveryVerdict::NotDelivered));
     assert_eq!(ClientError::Timeout.delivery(), None);
 }

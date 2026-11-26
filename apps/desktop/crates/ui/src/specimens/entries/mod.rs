@@ -15,6 +15,7 @@ pub(crate) mod ci_run;
 pub(crate) mod code_block;
 pub(crate) mod device_readiness;
 pub(crate) mod dock_card;
+pub(crate) mod elicitation_card;
 pub(crate) mod feedback_states;
 pub(crate) mod mention_pill;
 pub(crate) mod needs_you;
@@ -68,6 +69,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },
+    Entry { id: elicitation_card::ID, owner: elicitation_card::OWNER, render: elicitation_card::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
     Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
