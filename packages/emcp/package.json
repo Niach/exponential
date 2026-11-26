@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@exp/domain-contract": "workspace:*"
+    "@exp/domain-contract": "workspace:*",
+    "@noble/hashes": "^2.2.0"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -28,6 +29,7 @@
     "./elicitation": "./src/elicitation.ts",
     "./tasks": "./src/tasks.ts",
     "./files": "./src/files.ts",
+    "./hub-client": "./src/hub-client.ts",
     "./request-state": "./src/request-state.ts",
     "./fixtures/*": "./fixtures/*"
   },

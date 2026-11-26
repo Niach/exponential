@@ -246,6 +246,46 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> usize {
     removed
 }
 
+/// #NEW-148: write ONE verified MCP skill of the hub server
+/// `server` into the session's skill dir as `<dir name>/` (hub-client.json
+/// `dirNameCases`): SKILL.md with its frontmatter rewritten to exactly
+/// name + description (`allowed-tools` and every other key ignored), every
+/// other file verbatim at its safe relative path. Returns the session dir
+/// (claude's `--add-dir`).
+pub fn write_mcp_skill(data_dir: &Path, session_id: &str, server: &str, skill: &emcp::hub::FetchedSkill) -> Result<PathBuf, String> {
+    use emcp::contract::hub_client;
+    let dir = session_dir(data_dir, session_id).ok_or_else(|| "the session id is not a plain path segment".to_string())?;
+    let name = hub_client::dir_name(server, &skill.name);
+    if !is_valid_name(&name) {
+        return Err(format!("the skill name {} is not valid", skill.name));
+    }
+    let skill_md = skill
+        .files
+        .iter()
+        .find(|(path, _)| path == "SKILL.md")
+        .and_then(|(_, bytes)| hub_client::skill_md(&name, bytes))
+        .ok_or_else(|| "its SKILL.md has no frontmatter".to_string())?;
+    let root = codex_root(&dir).join(&name);
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).map_err(|err| err.to_string())?;
+    std::fs::write(root.join("SKILL.md"), skill_md).map_err(|err| err.to_string())?;
+    for (path, bytes) in &skill.files {
+        if path == "SKILL.md" {
+            continue;
+        }
+        if !domain::skills::is_skill_file_path(path) {
+            log::warn!("coding: MCP skill {}: skipping the unsafe path {path:?}", skill.uri);
+            continue;
+        }
+        let target = root.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        std::fs::write(&target, bytes).map_err(|err| err.to_string())?;
+    }
+    Ok(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

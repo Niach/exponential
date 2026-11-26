@@ -607,7 +607,7 @@ pub(crate) enum AskOutcome {
 pub struct PendingAsks(Mutex<std::collections::HashMap<String, flume::Sender<AskOutcome>>>);
 
 impl PendingAsks {
-    fn park(&self, key: &PendingAskKey) -> flume::Receiver<AskOutcome> {
+    pub(crate) fn park(&self, key: &PendingAskKey) -> flume::Receiver<AskOutcome> {
         let (tx, rx) = flume::bounded(1);
         if let Ok(mut asks) = self.0.lock() {
             asks.insert(key.responder_key().to_string(), tx);
@@ -615,7 +615,7 @@ impl PendingAsks {
         rx
     }
 
-    fn resolve(&self, key: &str, outcome: AskOutcome) {
+    pub(crate) fn resolve(&self, key: &str, outcome: AskOutcome) {
         let sender = self
             .0
             .lock()
@@ -2098,6 +2098,16 @@ where
     let permission_ctx = ctx.clone();
     let elicit_ctx = ctx.clone();
     let main_ctx = ctx.clone();
+    // #NEW-148: the device hub's asks and task steps reach this run while
+    // its connection lives.
+    super::external::register(&ctx);
+    struct External(Arc<SessionCtx>);
+    impl Drop for External {
+        fn drop(&mut self) {
+            super::external::unregister(&self.0);
+        }
+    }
+    let _external = External(ctx.clone());
 
     Client
         .v1()
@@ -2680,6 +2690,9 @@ fn handle_command(
         // renders as read. Every client hands the bar's text back to the
         // composer on its Stop.
         EngineCommand::Cancel => {
+            // #NEW-148: the person's Stop also cancels the third-party MCP
+            // tasks the device hub drives for this session.
+            super::external::stopped(&ctx.session_id);
             // FEED-61: a person's Stop also stops the engine's own retry of
             // a turn that died on an API error.
             ctx.api_retry.lock().unwrap_or_else(|err| err.into_inner()).disarm();
