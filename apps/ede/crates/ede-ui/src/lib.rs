@@ -351,7 +351,7 @@ impl Runtime {
             ui.migrate_json()?;
         }
         let mut changes = Vec::new();
-        for name in ui.factory_names()? {
+        for name in ui.factory_files()? {
             let file = file_of(&name);
             let on_disk = fs::read(ui.dir.join(&file)).ok();
             if on_disk.is_none() && ui.repo.show_head(&file)?.is_none() {
@@ -490,6 +490,19 @@ impl Runtime {
         }
     }
 
+    /// #EDE-235: what the factory installs and resets: its documents and,
+    /// when it ships one, its `theme.json` (followed like a document: an
+    /// unedited copy takes the next release's, an edited one stays theirs).
+    /// The supervisor's apply machine keeps to [`Self::factory_names`]: a
+    /// theme draws no frame of its own.
+    pub fn factory_files(&self) -> io::Result<Vec<String>> {
+        let mut names = self.factory_names()?;
+        if self.factory.as_ref().is_some_and(|f| f.join(THEME_FILE).is_file()) {
+            names.push(THEME.to_string());
+        }
+        Ok(names)
+    }
+
     /// Put the factory copy of `name` back, as the commit `Factory <name>`
     /// (the apply machine's `factory` effect).
     pub fn restore_factory(&mut self, name: &str) -> io::Result<Vec<Change>> {
@@ -569,7 +582,7 @@ impl Runtime {
     /// the restore hotkey; the person's edits stay in the history).
     pub fn reset_to_factory(&mut self) -> io::Result<Vec<Change>> {
         let mut changes = Vec::new();
-        for name in self.factory_names()? {
+        for name in self.factory_files()? {
             changes.extend(self.restore_factory(&name)?);
         }
         Ok(changes)

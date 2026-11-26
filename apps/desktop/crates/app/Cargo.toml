@@ -5,9 +5,20 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[lib]
+name = "app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "exp-desktop"
 path = "src/main.rs"
+
+# #EDE-227: Exponential Desktop's component (its package builds it, as it
+# builds exponential-shell); the same app in `Mode::Component`.
+[[bin]]
+name = "exponential-app"
+path = "src/bin/exponential-app.rs"
+required-features = ["ede-component"]
 
 # Windows: embed the app icon into exp-desktop.exe (EXP-20). embed-resource is
 # already in the tree as gpui's own build-dep, so this pulls in no new crate;
@@ -26,6 +37,8 @@ staging = ["ui/staging", "api/staging"]
 # itself still waits for Send diagnostics or EXP_FRAME_STATS).
 default = ["frame-stats"]
 frame-stats = ["ui/frame-stats"]
+# #EDE-227: builds the `exponential-app` binary (apps/ede/packaging/stage.sh).
+ede-component = []
 
 [dependencies]
 ui = { path = "../ui" }
@@ -54,6 +67,8 @@ gpui-component-assets.workspace = true
 rust-embed.workspace = true
 anyhow.workspace = true
 flume.workspace = true
+# #EDE-227: the person's environment eDE's compositor saved for its helper.
+serde_json.workspace = true
 # EXP-1099: the startup line of the log file `coding::logging` installs.
 log = "0.4"
 dirs.workspace = true

@@ -374,6 +374,7 @@ dependencies = [
  "observability",
  "resvg 0.45.1",
  "rust-embed",
+ "serde_json",
  "steer",
  "sync",
  "terminal",
@@ -1802,6 +1803,7 @@ dependencies = [
  "domain",
  "eagent",
  "ecode",
+ "emcp",
  "enet-core",
  "epilot",
  "epilot-screen",
@@ -2861,6 +2863,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.23",
+ "url",
  "uuid",
  "wait-timeout",
 ]
@@ -11015,9 +11018,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.8.0"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
+checksum = "391f153431ab68664d946513ea0cb3edbca78eaf99c5a983036cacab6220d85b"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -11031,12 +11034,14 @@ dependencies = [
  "libc",
  "oauth2",
  "pastey 0.2.3",
+ "percent-encoding",
  "pin-project-lite",
  "rand 0.10.3",
  "reqwest",
  "schemars 1.2.1",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -11044,6 +11049,8 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "unicode-general-category",
+ "unicode-normalization",
  "url",
  "uuid",
 ]
@@ -13954,6 +13961,7 @@ dependencies = [
  "gpui-markdown-editor",
  "gpui-pre",
  "gpui-pre-apple",
+ "gpui-pre-linux",
  "gpui-pre-platform",
  "iana-time-zone",
  "image",
@@ -14081,6 +14089,12 @@ name = "unicode-ccc"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce61d488bcdc9bc8b5d1772c404828b17fc481c0a582b5581e95fb233aef503e"
+
+[[package]]
+name = "unicode-general-category"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-id"

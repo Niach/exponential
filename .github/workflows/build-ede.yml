@@ -42,12 +42,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/apt-mirror
-      - name: Linux system deps (udev backend + the shell's gpui)
+      - name: Linux system deps (udev backend + the shell's gpui + the app, #EDE-227)
         run: |
           sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
-            libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev
+            libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev \
+            libxkbcommon-x11-dev libx11-dev libxi-dev libxtst-dev
       - uses: actions/cache@v4
         id: xwayland
         if: github.event_name == 'pull_request' # #EXP-2151: a release builds its own

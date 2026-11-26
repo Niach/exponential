@@ -16,7 +16,7 @@ use crate::session::AuthContext;
 
 /// This app holds the login's account (the session is Exponential Desktop).
 pub(crate) fn holds_login() -> bool {
-    crate::local_desktops::available()
+    crate::ede_component::is_component() || crate::local_desktops::available()
 }
 
 /// Follows the sign-ins and sign-outs of the shell and the CLI.
@@ -66,8 +66,14 @@ fn account_changed(event: api::AuthEvent, cx: &mut App) {
 /// A holder command from the shell; `false`: `datagram` is none.
 pub(crate) fn command(datagram: &str, cx: &mut App) -> bool {
     let Some(command) = Command::parse(datagram) else { return false };
+    run_command(command, cx);
+    true
+}
+
+/// #EDE-227: a holder command, off the link socket or the session bus.
+pub(crate) fn run_command(command: Command, cx: &mut App) {
     if !holds_login() {
-        return true;
+        return;
     }
     match command {
         Command::SignOut { account } => {
@@ -82,7 +88,6 @@ pub(crate) fn command(datagram: &str, cx: &mut App) -> bool {
         Command::Approve { account, install, code } => press(account, install, code, true, cx),
         Command::Remove { account, install, code } => press(account, install, code, false, cx),
     }
-    true
 }
 
 /// The row the person pressed, as the pin store yields it: the install AND

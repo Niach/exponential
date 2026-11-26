@@ -1872,6 +1872,12 @@ pub(crate) fn ask_row_card_with(
         return Some(plan_row(id, session_id, plan, decision.as_deref(), *fresh, text.team_id().is_some(), dismiss, cx));
     }
     let (id, question, facts) = question_facts(row)?;
+    // #NEW-146: a third-party MCP server's elicitation = THE elicitation card.
+    if let SessionChatRow::Question { elicitation: Some(elicitation), .. } = row {
+        let markdown = (!question.is_empty())
+            .then(|| message_markdown(SharedString::from(format!("chat-question-{id}")), question, text, images));
+        return Some(crate::elicitation_card::elicitation_card(markdown, facts, elicitation, text.answers(), meta, dismiss, window, cx));
+    }
     let markdown = message_markdown(SharedString::from(format!("chat-question-{id}")), question, text, images);
     Some(question_card(markdown, facts, text.answers(), meta, dismiss, images, window, cx))
 }

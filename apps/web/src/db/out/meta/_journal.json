@@ -2136,6 +2136,20 @@
       "when": 1795642656581,
       "tag": "0304_supreme_exodus",
       "breakpoints": true
+    },
+    {
+      "idx": 305,
+      "version": "7",
+      "when": 1795698217775,
+      "tag": "0305_mcp_tasks_elicit",
+      "breakpoints": true
+    },
+    {
+      "idx": 306,
+      "version": "7",
+      "when": 1795703308854,
+      "tag": "0306_mcp_file_stagings",
+      "breakpoints": true
     }
   ]
 }

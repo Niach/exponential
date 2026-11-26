@@ -133,6 +133,7 @@ export async function auditFiring(app: AutomationApp, name: string, tool: string
       clientId: automationClientId(name),
       appId: app.id,
       tool: tool.slice(0, 128),
+      method: `tools/call`,
       status,
       error,
       latencyMs: Math.max(0, Math.floor(Date.now() - startedAt)),

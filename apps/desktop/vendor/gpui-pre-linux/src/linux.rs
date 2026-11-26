@@ -1,5 +1,7 @@
 mod dispatcher;
 mod display_connection;
+// Exponential patch (#EDE-227): an activation token handed in from outside.
+mod handed_activation;
 mod headless;
 mod keyboard;
 mod platform;
@@ -23,6 +25,9 @@ mod x11;
 mod xdg_desktop_portal;
 
 pub use dispatcher::*;
+pub use handed_activation::hand_activation_token;
+#[allow(unused_imports)]
+pub(crate) use handed_activation::take_handed_activation_token;
 pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
 pub(crate) use headless::*;
 pub(crate) use keyboard::*;
