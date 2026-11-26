@@ -19,8 +19,6 @@ custom_negative_phrases:
   - "hey cloud"
   - "hey clod"
   - "hey claudia"
-  - "okay claude"
-  - "claude"
   - "hey"
   - "hey clyde"
   - "hey called"
@@ -41,41 +39,27 @@ custom_negative_phrases:
   - "okay claudia"
   - "a cloud"
   - "hey crowd"
-  # "Claude" inside a normal sentence.
+  # "Claude" inside a normal sentence, never at its end: the classifier hears the
+  # last ~1.3 s, so "... okay Claude" there IS the wake word (NEW-129 run 2 collapsed
+  # to 21 % recall with "okay claude" and sentence-final Claude as negatives).
   - "i asked claude to review the code"
   - "claude wrote the summary yesterday"
-  - "did claude finish the report"
   - "we use claude for most of our coding"
   - "claude monet painted the water lilies"
   - "my friend claude lives in paris"
-  - "you could ask claude about it later"
   - "claude said it would take about an hour"
-  - "is claude available this afternoon"
   - "i think claude is right about that"
-  - "please tell claude i said hello"
   - "claude and i went out for lunch"
   - "that was claude on the phone"
-  - "the answer came from claude"
-  - "so claude fixed the failing test"
-  - "let me check what claude suggested"
   - "yesterday claude opened a pull request"
-  - "they named the model claude"
-  - "and then claude replied"
-  - "have you heard from claude"
-  - "okay claude will handle it"
-  - "say that again claude"
-  - "thanks claude"
-  - "good morning claude"
 
 # How often train.sh repeats a phrase of the list above (livekit-wakeword has
 # no per-phrase weight; train.sh expands this key and drops it). 400 lines =
 # ~5 % of the negative clips each, ~1,250 clips.
 negative_weights:
   "hey cloud": 400
-  "hey clod": 400
+  "hey clod": 40
   "hey claudia": 400
-  "okay claude": 400
-  "claude": 100
   "hey": 60
   "hey clyde": 100
   "hey called": 100
@@ -98,28 +82,14 @@ negative_weights:
   "hey crowd": 30
   "i asked claude to review the code": 25
   "claude wrote the summary yesterday": 25
-  "did claude finish the report": 25
   "we use claude for most of our coding": 25
   "claude monet painted the water lilies": 25
   "my friend claude lives in paris": 25
-  "you could ask claude about it later": 25
   "claude said it would take about an hour": 25
-  "is claude available this afternoon": 25
   "i think claude is right about that": 25
-  "please tell claude i said hello": 25
   "claude and i went out for lunch": 25
   "that was claude on the phone": 25
-  "the answer came from claude": 25
-  "so claude fixed the failing test": 25
-  "let me check what claude suggested": 25
   "yesterday claude opened a pull request": 25
-  "they named the model claude": 25
-  "and then claude replied": 25
-  "have you heard from claude": 25
-  "okay claude will handle it": 25
-  "say that again claude": 25
-  "thanks claude": 25
-  "good morning claude": 25
 
 noise_scales: [0.98]
 noise_scale_ws: [0.98]

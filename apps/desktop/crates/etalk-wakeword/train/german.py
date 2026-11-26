@@ -23,12 +23,11 @@ from pathlib import Path
 HEY = ["hˈɛɪ", "hˈeɪ", "hˈeː"]
 CLAUDE = ["klˈoːt", "klˈoːd", "klˈoʊd", "klˈɔːt", "klˈɔːd"]
 NEAR = ["klˈaʊt", "klˈaʊd", "klˈaʊdiːˌɑː", "klˈaʊdɪˌoː", "klˈaʊs", "klˈuːk", "klˈoː", "klˈoːn", "klˈoːstɜ", "ʃlˈoːt", "brˈoːt", "lˈoːt", "ɡlˈoːbʊs", "klˈaɪt", "krˈaʊt", "lˈaʊt"]
-LOOSE = [f"[[{hey}]]" for hey in HEY] + [f"[[{name}]]" for name in CLAUDE] + [f"[[ˈoːkeɪ {name}]]" for name in CLAUDE]
+LOOSE = [f"[[{hey}]]" for hey in HEY]  # never Claude at the end of a clip (see hey_claude.yaml)
 WITH_CLAUDE = [
-    "Ich habe {} gefragt.", "{} hat den Fehler gefunden.", "Kannst du das {} schicken?", "Das war die Idee von {}.", "Gestern hat {} den Bericht geschrieben.",
-    "Frag doch mal {}.", "Mein Onkel {} wohnt in Paris.", "Danke, {}.", "Wir arbeiten seit Wochen mit {}.", "Ist {} heute da?", "{} meint, es dauert eine Stunde.",
-    "Dann hat {} geantwortet.", "Guten Morgen, {}.", "Ich glaube, {} hat recht.", "Das Modell heißt {}.",
-]
+    "Ich habe {} gefragt.", "{} hat den Fehler gefunden.", "Gestern hat {} den Bericht geschrieben.",
+    "Mein Onkel {} wohnt in Paris.", "{} meint, es dauert eine Stunde.",
+    "Dann hat {} geantwortet.", "Ich glaube, {} hat recht.", ]
 SENTENCES = [
     "Kannst du mir das bitte noch einmal erklären?", "Morgen soll es den ganzen Tag regnen.", "Hey, hast du schon gegessen?", "Wir treffen uns um halb neun am Bahnhof.",
     "Der Zug hat leider zwanzig Minuten Verspätung.", "Hey, mach bitte die Tür zu.", "Ich muss heute noch einkaufen gehen.", "Die Wolken ziehen langsam nach Osten.",
