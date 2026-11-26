@@ -86,6 +86,7 @@ pub mod code;
 pub mod conditions;
 pub mod count_badge;
 pub mod data;
+pub mod data_viz;
 pub mod cel;
 pub mod dates;
 pub mod direction;

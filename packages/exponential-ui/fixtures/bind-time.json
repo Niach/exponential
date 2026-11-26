@@ -31556,26 +31556,42 @@
             }
           },
           {
-            "id": "meter.track",
+            "id": "meter.bar",
             "component": "Box",
             "props": {},
-            "children": [],
+            "children": [
+              {
+                "id": "meter.bar.track",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "height": "$control.meter",
+                  "borderRadius": "$radius.full",
+                  "overflow": "hidden",
+                  "width": "100%"
+                },
+                "recipe": {
+                  "macro": "Meter",
+                  "part": "track",
+                  "props": {}
+                },
+                "template": {
+                  "component": "meter.bar.track.segment",
+                  "path": "/segments"
+                }
+              }
+            ],
             "style": {
-              "display": "flex",
-              "flexDirection": "row",
-              "height": "$control.meter",
-              "borderRadius": "$radius.full",
-              "overflow": "hidden",
+              "position": "relative",
               "width": "100%"
             },
             "recipe": {
               "macro": "Meter",
-              "part": "track",
+              "part": "bar",
               "props": {}
-            },
-            "template": {
-              "component": "meter.track.segment",
-              "path": "/segments"
             }
           }
         ],
@@ -31665,25 +31681,41 @@
                 }
               },
               {
-                "id": "meter.track",
+                "id": "meter.bar",
                 "component": "Box",
                 "props": {},
-                "children": [],
+                "children": [
+                  {
+                    "id": "meter.bar.track",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "height": "$control.meter",
+                      "borderRadius": "$radius.full",
+                      "overflow": "hidden",
+                      "width": "100%"
+                    },
+                    "template": {
+                      "component": "meter.bar.track.segment",
+                      "path": "/segments"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "track",
+                      "props": {}
+                    }
+                  }
+                ],
                 "style": {
-                  "display": "flex",
-                  "flexDirection": "row",
-                  "height": "$control.meter",
-                  "borderRadius": "$radius.full",
-                  "overflow": "hidden",
+                  "position": "relative",
                   "width": "100%"
-                },
-                "template": {
-                  "component": "meter.track.segment",
-                  "path": "/segments"
                 },
                 "recipe": {
                   "macro": "Meter",
-                  "part": "track",
+                  "part": "bar",
                   "props": {}
                 }
               }
@@ -31766,25 +31798,41 @@
                 }
               },
               {
-                "id": "meter.track",
+                "id": "meter.bar",
                 "component": "Box",
                 "props": {},
-                "children": [],
+                "children": [
+                  {
+                    "id": "meter.bar.track",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "height": "$control.meter",
+                      "borderRadius": "$radius.full",
+                      "overflow": "hidden",
+                      "width": "100%"
+                    },
+                    "template": {
+                      "component": "meter.bar.track.segment",
+                      "path": "/segments"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "track",
+                      "props": {}
+                    }
+                  }
+                ],
                 "style": {
-                  "display": "flex",
-                  "flexDirection": "row",
-                  "height": "$control.meter",
-                  "borderRadius": "$radius.full",
-                  "overflow": "hidden",
+                  "position": "relative",
                   "width": "100%"
-                },
-                "template": {
-                  "component": "meter.track.segment",
-                  "path": "/segments"
                 },
                 "recipe": {
                   "macro": "Meter",
-                  "part": "track",
+                  "part": "bar",
                   "props": {}
                 }
               }
@@ -31865,25 +31913,41 @@
                 }
               },
               {
-                "id": "meter.track",
+                "id": "meter.bar",
                 "component": "Box",
                 "props": {},
-                "children": [],
+                "children": [
+                  {
+                    "id": "meter.bar.track",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "height": "$control.meter",
+                      "borderRadius": "$radius.full",
+                      "overflow": "hidden",
+                      "width": "100%"
+                    },
+                    "template": {
+                      "component": "meter.bar.track.segment",
+                      "path": "/segments"
+                    },
+                    "recipe": {
+                      "macro": "Meter",
+                      "part": "track",
+                      "props": {}
+                    }
+                  }
+                ],
                 "style": {
-                  "display": "flex",
-                  "flexDirection": "row",
-                  "height": "$control.meter",
-                  "borderRadius": "$radius.full",
-                  "overflow": "hidden",
+                  "position": "relative",
                   "width": "100%"
-                },
-                "template": {
-                  "component": "meter.track.segment",
-                  "path": "/segments"
                 },
                 "recipe": {
                   "macro": "Meter",
-                  "part": "track",
+                  "part": "bar",
                   "props": {}
                 }
               }

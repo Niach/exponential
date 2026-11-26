@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `data_viz` (genUI round 4, group D): `ring_arcs` (Ring `sweep` + `rings`), `waveform_bars` + `seek_fraction` (AudioPlayer `peaks`), replayed from `data-viz.json`; Meter's `range` band rides macros.json.
 - `exitAnimation`, `animationStagger`, `animationDelay` (genUI round 4 motion): the reconcile keeps a leaving node with an exit as a ghost (its last subtree in its slot, `PlacedNode::exiting` on the root, out of events and `pressable`) until `Surface::finish_exit(id)`; entering children get `i × animationStagger` (+ `animationDelay`) as `AnimationTiming::delay_ms`, which `frame_with_timing` holds on the first keyframe; `Visual::exit`, `enter_delay`, `exit_timing`, `total_ms`. Replays `animations.json` `exits`, `delay`, `presence`.
 - `Board` and `MapPlaceholder` (genUI round 4): the macros + neutral recipes. `list_reorder::board_drop_slot` / `board_move_context` (fixtures/board-drop.json); `Surface::list_drag` spans reorderable Lists sharing a `board` prop: the drop is picked across their columns, the target List fires `move`, and `list_drag_paint` names the List under the pointer with the lifted copy following x and y (`ListDragState.offset_x`, `board`, `over`).
 - Text `runs` + `dropCap` (genUI round 4, fixtures/text-runs.json): `text_runs` replays the fixture; the layout tree hands painters the normal form (`runs`, `text` = the joined text, `dropCap` = lines), and FixedMeasure gives a drop cap its lines.
