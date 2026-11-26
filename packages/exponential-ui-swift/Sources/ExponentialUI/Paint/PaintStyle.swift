@@ -11,11 +11,39 @@ public struct ShadowLayer: Equatable, Sendable {
     public var color: Color
 }
 
-/// A linear `backgroundGradient` (contract §2): CSS angle (0 = up,
-/// 90 = right), stops at 0…1, painted OVER `backgroundColor`.
+/// A `backgroundGradient` (contract §2): linear at a CSS angle (0 = up,
+/// 90 = right), or (genUI round 4) RADIAL about `centre` (unit fractions of
+/// the box) out to the farthest corner; stops at 0…1, painted OVER
+/// `backgroundColor`.
 public struct GradientPaint: Equatable, Sendable {
     public var angle: CGFloat
     public var stops: [Gradient.Stop]
+    /// A radial gradient's centre (nil = linear).
+    public var centre: CGPoint? = nil
+
+    /// The FFI `backgroundGradientJson` (`centre` = `[x, y]` on a radial one).
+    public static func parse(_ json: String?) -> GradientPaint? {
+        guard let json, let g = JSONValue.parse(json).object else { return nil }
+        let stops: [Gradient.Stop] = (g["stops"]?.array ?? []).compactMap { s in
+            guard let c = s["color"]?.string.flatMap({ Color(hex: $0) }) else { return nil }
+            return Gradient.Stop(color: c, location: CGFloat(min(1, max(0, s["offset"]?.number ?? 0))))
+        }
+        guard stops.count >= 2 else { return nil }
+        var centre: CGPoint?
+        if g["kind"]?.string == "radial" {
+            let c = g["centre"]?.array ?? []
+            centre = CGPoint(x: c.count > 0 ? (c[0].number ?? 0.5) : 0.5, y: c.count > 1 ? (c[1].number ?? 0.5) : 0.5)
+        }
+        return GradientPaint(angle: CGFloat(g["angle"]?.number ?? 180), stops: stops, centre: centre)
+    }
+
+    /// A radial gradient's 100% radius in a `w`×`h` box about the centre
+    /// fractions: the distance to the FARTHEST corner (CSS `circle
+    /// farthest-corner`, fixtures/box-backgrounds.json `radial`).
+    public static func radialRadius(width w: CGFloat, height h: CGFloat, cx: CGFloat, cy: CGFloat) -> CGFloat {
+        let x = cx * w, y = cy * h
+        return hypot(max(x, w - x), max(y, h - y))
+    }
 
     /// The gradient line's end points in UNIT coordinates of a `size` box,
     /// exactly CSS's: the line runs through the centre at `angle` and is
@@ -29,6 +57,39 @@ public struct GradientPaint: Equatable, Sendable {
         let sx = 0.5 - dx * half / w, sy = 0.5 - dy * half / h
         let ex = 0.5 + dx * half / w, ey = 0.5 + dy * half / h
         return (UnitPoint(x: sx, y: sy), UnitPoint(x: ex, y: ey))
+    }
+}
+
+/// genUI round 4: a box's `backgroundImage`: the src (loaded like an
+/// Image), `contain` (else cover), the focal fractions and the scrim (its
+/// opacity folded into the colour).
+public struct PicturePaint: Equatable, Sendable {
+    public var src: String
+    public var contain: Bool
+    public var focalX: CGFloat
+    public var focalY: CGFloat
+    public var scrim: Color?
+
+    /// Where a picture of `image` size lands in a `box` (fixtures/
+    /// box-backgrounds.json `picture`; the painter's alignment guides place
+    /// it exactly there): cover (else contain) scaled, offset by the focal
+    /// fractions.
+    public static func rect(contain: Bool, box: CGSize, image: CGSize, focalX: CGFloat, focalY: CGFloat) -> CGRect {
+        guard image.width > 0, image.height > 0 else { return CGRect(origin: .zero, size: box) }
+        let scale = contain ? min(box.width / image.width, box.height / image.height) : max(box.width / image.width, box.height / image.height)
+        let dw = image.width * scale, dh = image.height * scale
+        return CGRect(x: (box.width - dw) * min(1, max(0, focalX)), y: (box.height - dh) * min(1, max(0, focalY)), width: dw, height: dh)
+    }
+
+    /// The FFI `backgroundImageJson` (defaults filled, the scrim colour resolved).
+    public static func parse(_ json: String?) -> PicturePaint? {
+        guard let json, let o = JSONValue.parse(json).object, let src = o["src"]?.string else { return nil }
+        var scrim: Color?
+        if let sc = o["scrim"]?.object, let c = sc["color"]?.string.flatMap({ Color(hex: $0) }) {
+            let opacity = min(1, max(0, sc["opacity"]?.number ?? 0))
+            if opacity > 0 { scrim = c.opacity(opacity) }
+        }
+        return PicturePaint(src: src, contain: o["fit"]?.string == "contain", focalX: CGFloat(o["focalX"]?.number ?? 0.5), focalY: CGFloat(o["focalY"]?.number ?? 0.5), scrim: scrim)
     }
 }
 
@@ -115,6 +176,8 @@ public enum TextDecorationPaint: String, Equatable, Sendable {
 public struct PaintStyle: Equatable, Sendable {
     public var background: Color?
     public var gradient: GradientPaint?
+    /// genUI round 4: the picture behind the children.
+    public var picture: PicturePaint?
     public var color: Color?
     /// The uniform border width (the largest side when they differ: the
     /// value controls that paint one border read).
@@ -221,13 +284,8 @@ public struct PaintStyle: Equatable, Sendable {
                 return ShadowLayer(x: CGFloat(o["x"]?.number ?? 0), y: CGFloat(o["y"]?.number ?? 0), blur: CGFloat(o["blur"]?.number ?? 0), spread: CGFloat(o["spread"]?.number ?? 0), color: o["color"]?.string.flatMap { Color(hex: $0) } ?? .black.opacity(0.2))
             }
         }
-        if let json = v.backgroundGradientJson, let g = JSONValue.parse(json).object {
-            let stops: [Gradient.Stop] = (g["stops"]?.array ?? []).compactMap { s in
-                guard let c = s["color"]?.string.flatMap({ Color(hex: $0) }) else { return nil }
-                return Gradient.Stop(color: c, location: CGFloat(min(1, max(0, s["offset"]?.number ?? 0))))
-            }
-            if stops.count >= 2 { gradient = GradientPaint(angle: CGFloat(g["angle"]?.number ?? 180), stops: stops) }
-        }
+        gradient = GradientPaint.parse(v.backgroundGradientJson)
+        picture = PicturePaint.parse(v.backgroundImageJson)
         fontSize = v.fontSize.map { CGFloat($0) }
         fontWeight = v.fontWeight.map { Int($0) }
         lineHeight = v.lineHeight.map { CGFloat($0) }
@@ -356,16 +414,13 @@ extension View {
     /// #EXP-1876: a `tail` paints box and tail as ONE outline (one fill,
     /// the border stroked inside the whole path), outside the frame.
     @ViewBuilder
-    func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false, rtl: Bool = false) -> some View {
+    func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false, rtl: Bool = false, picture: AnyView? = nil) -> some View {
         if let tailed = s.tailedShape(size, rtl: rtl) {
             self
                 .background {
                     ZStack {
                         if let bg = s.background { tailed.fill(bg) }
-                        if let g = s.gradient {
-                            let p = g.points(in: size)
-                            tailed.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
-                        }
+                        if let g = s.gradient { g.fill(tailed, size: size) }
                     }
                 }
                 .overlay {
@@ -382,10 +437,9 @@ extension View {
                 .background {
                     ZStack {
                         if let bg = s.background { fill.fill(bg) }
-                        if let g = s.gradient {
-                            let p = g.points(in: size)
-                            fill.fill(LinearGradient(stops: g.stops, startPoint: p.start, endPoint: p.end))
-                        }
+                        // genUI round 4: the picture (+ its scrim), clipped to the box.
+                        if let picture { picture.clipShape(shape) }
+                        if let g = s.gradient { g.fill(fill, size: size) }
                     }
                 }
                 .overlay {
@@ -393,6 +447,21 @@ extension View {
                 }
                 .modifier(ShadowsModifier(shadows: s.shadows, shape: AnyShape(shape)))
                 .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
+        }
+    }
+}
+
+extension GradientPaint {
+    /// The gradient filling `shape` in a `size` box: linear, or a radial
+    /// circle about `centre` out to the farthest corner.
+    @ViewBuilder
+    func fill<S: Shape>(_ shape: S, size: CGSize) -> some View {
+        if let c = centre {
+            let r = Self.radialRadius(width: size.width, height: size.height, cx: c.x, cy: c.y)
+            shape.fill(RadialGradient(stops: stops, center: UnitPoint(x: c.x, y: c.y), startRadius: 0, endRadius: max(r, 0.0001)))
+        } else {
+            let p = points(in: size)
+            shape.fill(LinearGradient(stops: stops, startPoint: p.start, endPoint: p.end))
         }
     }
 }

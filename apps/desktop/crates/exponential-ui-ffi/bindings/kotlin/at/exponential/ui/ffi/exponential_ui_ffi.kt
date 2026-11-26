@@ -11802,7 +11802,8 @@ data class FfiVisual (
     var `overflowScroll`: kotlin.Boolean
     , 
     /**
-     * `{angle, stops: [{color, offset}]}`, painted over the background.
+     * `{kind?: radial, angle, centre?: [x, y], stops: [{color, offset}]}`,
+     * painted over the background.
      */
     var `backgroundGradientJson`: kotlin.String?
     , 
@@ -11904,6 +11905,13 @@ data class FfiVisual (
      * (a recipe's `backgroundClip`); `None` = under it (`border-box`).
      */
     var `backgroundClip`: kotlin.String? = null 
+    , 
+    /**
+     * genUI round 4: `{src, fit: cover|contain, focalX, focalY, scrim?:
+     * {color, opacity}}` (defaults filled, the scrim colour resolved): the
+     * picture behind the children (style.json `backgroundImage`).
+     */
+    var `backgroundImageJson`: kotlin.String? = null 
     
 ){
     
@@ -11963,6 +11971,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -12009,7 +12018,8 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.allocationSize(value.`tail`) +
             FfiConverterOptionalString.allocationSize(value.`animationJson`) +
             FfiConverterBoolean.allocationSize(value.`sticky`) +
-            FfiConverterOptionalString.allocationSize(value.`backgroundClip`)
+            FfiConverterOptionalString.allocationSize(value.`backgroundClip`) +
+            FfiConverterOptionalString.allocationSize(value.`backgroundImageJson`)
     )
 
     override fun write(value: FfiVisual, buf: ByteBuffer) {
@@ -12056,6 +12066,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.write(value.`animationJson`, buf)
             FfiConverterBoolean.write(value.`sticky`, buf)
             FfiConverterOptionalString.write(value.`backgroundClip`, buf)
+            FfiConverterOptionalString.write(value.`backgroundImageJson`, buf)
     }
 }
 

@@ -1,0 +1,1060 @@
+{
+  "$comment": "genUI round 4 (catalog/style.json `backgroundGradient` radial + `backgroundImage`, docs in its $comment): the BOX BACKGROUNDS contract, hand-written. `validate` = validateStyle(style, {path: \"style\"}) (src/style.ts; Rust style_check::validate_style). `radial` = the shared radial geometry: R = the distance from the centre C = (x·w, y·h) to the FARTHEST corner (CSS `circle farthest-corner`), a sample [px, py, t] paints the stop colour at t = |P − C| / R (src/background.ts radialRadius/radialT; Rust style::radial_radius/radial_t; Swift + Kotlin their painters' own functions), 1e-4 tolerance. `picture` = where a picture lands: [x, y, w, h] in the box for `fit` cover|contain and the focal fractions (CSS background-size + background-position; Image's focal_bounds), src/background.ts pictureRect, Rust style::picture_rect, Swift + Kotlin their painters'. `visual` = a RESOLVED style (hex colours) → the painted `backgroundImage` / `backgroundGradient` the core hands every native (Rust style::visual serialised = the FFI `backgroundImageJson` / `backgroundGradientJson`; Swift + Kotlin parse those strings into their PaintStyle). `css` = the web node sheet's declarations (src/web/theme-css.ts declarations): the layers top first, the gradient, the scrim (`color-mix`), then `var(--xui-bgi, <placeholder>)` the renderer sets to the decoded picture's url.",
+  "validate": [
+    {
+      "name": "a full picture with a scrim",
+      "style": {
+        "backgroundImage": {
+          "src": "https://example.com/a.jpg",
+          "fit": "contain",
+          "focalX": 0.25,
+          "focalY": 1,
+          "scrim": {
+            "color": "$color.background",
+            "opacity": 0.5
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a bare picture",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png"
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a radial gradient with its centre",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "centre": {
+            "x": 0.2,
+            "y": 0.8
+          },
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a radial gradient without angle or centre",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a radial gradient may carry an angle (ignored)",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "angle": 90,
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "an explicit linear gradient",
+      "style": {
+        "backgroundGradient": {
+          "kind": "linear",
+          "angle": 45,
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a gradient next to a picture",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png"
+        },
+        "backgroundGradient": {
+          "angle": 180,
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a picture without src",
+      "style": {
+        "backgroundImage": {
+          "fit": "cover"
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "an empty src",
+      "style": {
+        "backgroundImage": {
+          "src": ""
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a fit the picture has not",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "fit": "fill"
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a focal point past the box",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "focalX": 1.5
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a literal scrim colour",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "scrim": {
+            "color": "#000000",
+            "opacity": 0.4
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a scrim without opacity",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "scrim": {
+            "color": "$color.background"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "an unknown picture key",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "repeat": true
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a picture string",
+      "style": {
+        "backgroundImage": "a.png"
+      },
+      "issues": [
+        {
+          "path": "style.backgroundImage",
+          "message": "backgroundImage: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}"
+        }
+      ]
+    },
+    {
+      "name": "a picture inside a media block",
+      "style": {
+        "@media (min-width: 600px)": {
+          "backgroundImage": {
+            "src": "a.png"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "style.@media (min-width: 600px).backgroundImage",
+          "message": "backgroundImage: base style only, never in a condition block"
+        }
+      ]
+    },
+    {
+      "name": "a picture inside a state block",
+      "style": {
+        ":hover": {
+          "backgroundImage": {
+            "src": "a.png"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "style.:hover.backgroundImage",
+          "message": "backgroundImage: base style only, never in a condition block"
+        }
+      ]
+    },
+    {
+      "name": "a radial centre off the box",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "centre": {
+            "x": 2,
+            "y": 0.5
+          },
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: expected {kind: radial, centre?: {x, y 0..1}, stops: [{color, offset 0..1}, …]} with two or more stops"
+        }
+      ]
+    },
+    {
+      "name": "a radial centre missing y",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "centre": {
+            "x": 0.5
+          },
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: expected {kind: radial, centre?: {x, y 0..1}, stops: [{color, offset 0..1}, …]} with two or more stops"
+        }
+      ]
+    },
+    {
+      "name": "a radial gradient with one stop",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: expected {kind: radial, centre?: {x, y 0..1}, stops: [{color, offset 0..1}, …]} with two or more stops"
+        }
+      ]
+    },
+    {
+      "name": "a centre on a linear gradient",
+      "style": {
+        "backgroundGradient": {
+          "angle": 90,
+          "centre": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops"
+        }
+      ]
+    },
+    {
+      "name": "a linear gradient without angle",
+      "style": {
+        "backgroundGradient": {
+          "kind": "linear",
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops"
+        }
+      ]
+    },
+    {
+      "name": "a kind no painter has",
+      "style": {
+        "backgroundGradient": {
+          "kind": "conic",
+          "angle": 0,
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "path": "style.backgroundGradient",
+          "message": "backgroundGradient: kind expected one of linear|radial"
+        }
+      ]
+    }
+  ],
+  "radial": [
+    {
+      "name": "centred in a wide box",
+      "size": [
+        200,
+        100
+      ],
+      "centre": [
+        0.5,
+        0.5
+      ],
+      "radius": 111.803399,
+      "samples": [
+        [
+          100,
+          50,
+          0.0
+        ],
+        [
+          200,
+          100,
+          1.0
+        ],
+        [
+          0,
+          0,
+          1.0
+        ],
+        [
+          200,
+          50,
+          0.894427
+        ],
+        [
+          100,
+          0,
+          0.447214
+        ],
+        [
+          150,
+          75,
+          0.5
+        ]
+      ]
+    },
+    {
+      "name": "from the top-left corner (3-4-5)",
+      "size": [
+        300,
+        400
+      ],
+      "centre": [
+        0,
+        0
+      ],
+      "radius": 500.0,
+      "samples": [
+        [
+          0,
+          0,
+          0.0
+        ],
+        [
+          300,
+          400,
+          1.0
+        ],
+        [
+          300,
+          0,
+          0.6
+        ],
+        [
+          0,
+          400,
+          0.8
+        ],
+        [
+          150,
+          200,
+          0.5
+        ]
+      ]
+    },
+    {
+      "name": "off-centre at the bottom edge",
+      "size": [
+        80,
+        60
+      ],
+      "centre": [
+        0.25,
+        1
+      ],
+      "radius": 84.852814,
+      "samples": [
+        [
+          20,
+          60,
+          0.0
+        ],
+        [
+          80,
+          0,
+          1.0
+        ],
+        [
+          20,
+          0,
+          0.707107
+        ],
+        [
+          0,
+          60,
+          0.235702
+        ],
+        [
+          80,
+          60,
+          0.707107
+        ]
+      ]
+    },
+    {
+      "name": "an empty box",
+      "size": [
+        0,
+        0
+      ],
+      "centre": [
+        0.5,
+        0.5
+      ],
+      "radius": 0.0,
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  ],
+  "picture": [
+    {
+      "name": "cover crops a square to a wide box, centred",
+      "fit": "cover",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        0.5,
+        0.5
+      ],
+      "rect": [
+        0,
+        -50,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "cover keeps the top (focalY 0)",
+      "fit": "cover",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        0.5,
+        0
+      ],
+      "rect": [
+        0,
+        0,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "cover keeps the bottom (focalY 1)",
+      "fit": "cover",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        0.5,
+        1
+      ],
+      "rect": [
+        0,
+        -100,
+        200,
+        200
+      ]
+    },
+    {
+      "name": "cover keeps a quarter from the left",
+      "fit": "cover",
+      "size": [
+        100,
+        100
+      ],
+      "image": [
+        300,
+        150
+      ],
+      "focal": [
+        0.25,
+        0.5
+      ],
+      "rect": [
+        -25,
+        0,
+        200,
+        100
+      ]
+    },
+    {
+      "name": "contain letterboxes, centred",
+      "fit": "contain",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        0.5,
+        0.5
+      ],
+      "rect": [
+        50,
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "name": "contain toward the start",
+      "fit": "contain",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        0,
+        0.5
+      ],
+      "rect": [
+        0,
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "name": "contain toward the end",
+      "fit": "contain",
+      "size": [
+        200,
+        100
+      ],
+      "image": [
+        400,
+        400
+      ],
+      "focal": [
+        1,
+        0.5
+      ],
+      "rect": [
+        100,
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "name": "contain a wide picture in a tall box, bottom",
+      "fit": "contain",
+      "size": [
+        100,
+        200
+      ],
+      "image": [
+        400,
+        200
+      ],
+      "focal": [
+        0.5,
+        1
+      ],
+      "rect": [
+        0,
+        150,
+        100,
+        50
+      ]
+    },
+    {
+      "name": "an unknown picture size fills the box",
+      "fit": "cover",
+      "size": [
+        120,
+        80
+      ],
+      "image": [
+        0,
+        0
+      ],
+      "focal": [
+        0.5,
+        0.5
+      ],
+      "rect": [
+        0,
+        0,
+        120,
+        80
+      ]
+    }
+  ],
+  "visual": [
+    {
+      "name": "a bare picture fills its defaults",
+      "style": {
+        "backgroundImage": {
+          "src": "https://example.com/a.jpg"
+        }
+      },
+      "backgroundImage": {
+        "src": "https://example.com/a.jpg",
+        "fit": "cover",
+        "focalX": 0.5,
+        "focalY": 0.5
+      }
+    },
+    {
+      "name": "a contained picture under a scrim",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png",
+          "fit": "contain",
+          "focalX": 0,
+          "focalY": 1,
+          "scrim": {
+            "color": "#000000",
+            "opacity": 0.4
+          }
+        }
+      },
+      "backgroundImage": {
+        "src": "a.png",
+        "fit": "contain",
+        "focalX": 0,
+        "focalY": 1,
+        "scrim": {
+          "color": "#000000",
+          "opacity": 0.4
+        }
+      }
+    },
+    {
+      "name": "a radial gradient defaults to the centre",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "stops": [
+            {
+              "color": "#ff0000",
+              "offset": 0
+            },
+            {
+              "color": "#0000ff",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "backgroundGradient": {
+        "kind": "radial",
+        "angle": 180,
+        "centre": [
+          0.5,
+          0.5
+        ],
+        "stops": [
+          {
+            "color": "#ff0000",
+            "offset": 0
+          },
+          {
+            "color": "#0000ff",
+            "offset": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a radial gradient keeps its centre",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "centre": {
+            "x": 0.2,
+            "y": 0.8
+          },
+          "stops": [
+            {
+              "color": "#ff0000",
+              "offset": 0
+            },
+            {
+              "color": "#0000ff",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "backgroundGradient": {
+        "kind": "radial",
+        "angle": 180,
+        "centre": [
+          0.2,
+          0.8
+        ],
+        "stops": [
+          {
+            "color": "#ff0000",
+            "offset": 0
+          },
+          {
+            "color": "#0000ff",
+            "offset": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a linear gradient is unchanged",
+      "style": {
+        "backgroundGradient": {
+          "angle": 90,
+          "stops": [
+            {
+              "color": "#ff0000",
+              "offset": 0
+            },
+            {
+              "color": "#0000ff",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "backgroundGradient": {
+        "angle": 90,
+        "stops": [
+          {
+            "color": "#ff0000",
+            "offset": 0
+          },
+          {
+            "color": "#0000ff",
+            "offset": 1
+          }
+        ]
+      }
+    }
+  ],
+  "css": [
+    {
+      "name": "a picture alone: cover, centred, no scrim",
+      "style": {
+        "backgroundImage": {
+          "src": "a.png"
+        }
+      },
+      "declarations": [
+        [
+          "background-image",
+          "var(--xui-bgi, linear-gradient(var(--xui-color-muted), var(--xui-color-muted)))"
+        ],
+        [
+          "background-size",
+          "cover"
+        ],
+        [
+          "background-position",
+          "50% 50%"
+        ],
+        [
+          "background-repeat",
+          "no-repeat"
+        ]
+      ]
+    },
+    {
+      "name": "a contained picture under a scrim and a fade",
+      "style": {
+        "backgroundColor": "$color.card",
+        "backgroundImage": {
+          "src": "a.png",
+          "fit": "contain",
+          "focalX": 0.25,
+          "focalY": 1,
+          "scrim": {
+            "color": "$color.background",
+            "opacity": 0.4
+          }
+        },
+        "backgroundGradient": {
+          "angle": 180,
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "declarations": [
+        [
+          "background-color",
+          "var(--xui-color-card)"
+        ],
+        [
+          "background-image",
+          "linear-gradient(180deg, var(--xui-color-primary) 0%, var(--xui-color-background) 100%), linear-gradient(color-mix(in srgb, var(--xui-color-background) 40%, transparent), color-mix(in srgb, var(--xui-color-background) 40%, transparent)), var(--xui-bgi, linear-gradient(var(--xui-color-muted), var(--xui-color-muted)))"
+        ],
+        [
+          "background-size",
+          "auto, auto, contain"
+        ],
+        [
+          "background-position",
+          "0 0, 0 0, 25% 100%"
+        ],
+        [
+          "background-repeat",
+          "no-repeat"
+        ]
+      ]
+    },
+    {
+      "name": "a radial gradient",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "centre": {
+            "x": 0.2,
+            "y": 0.8
+          },
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 1
+            }
+          ]
+        }
+      },
+      "declarations": [
+        [
+          "background-image",
+          "radial-gradient(circle farthest-corner at 20% 80%, var(--xui-color-primary) 0%, var(--xui-color-background) 100%)"
+        ]
+      ]
+    },
+    {
+      "name": "a radial gradient at the default centre",
+      "style": {
+        "backgroundGradient": {
+          "kind": "radial",
+          "stops": [
+            {
+              "color": "$color.primary",
+              "offset": 0
+            },
+            {
+              "color": "$color.background",
+              "offset": 0.75
+            }
+          ]
+        }
+      },
+      "declarations": [
+        [
+          "background-image",
+          "radial-gradient(circle farthest-corner at 50% 50%, var(--xui-color-primary) 0%, var(--xui-color-background) 75%)"
+        ]
+      ]
+    }
+  ]
+}

@@ -972,6 +972,8 @@ function treeCases(): ComponentCase[] {
 }
 
 /** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
+/** genUI round 4: a 120×80 landscape for the box-background specimens. */
+const BOX_PHOTO = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABQCAMAAADlRUG7AAAAkFBMVEX/1oyrjnKfiHSZhHWWgnaSgHeNfXiJe3iHenmEeHmCd3p/dnp9dHt6c3t4cnx1cHxzb31wbX1ubH5ra35paX9maH9kZ4BgZYFcYoFaYYJXYIJVXoNSXYNQXIRNWoRLWYVIV4VGVoZDVYZBU4c+Uoc8UYg5T4g3Tok0TIkyS4ovSootSIsqR4soRow0ME4cHjA/KnmaAAAB60lEQVR42u3SWVuTMRCG4Re7I24sKqAiKDtO/v+/Q7pAlpkkk6adk96HyWSer9dV/DOCJyN4NIIHI7g3gjsjuDWCGyO4NoK/RvDHCK6M4NIIfhvBxSZgITvyqz+8yQz97A4+eepHbwiJY+edISbNnfWFlDB42hcTFga/dwUOP/mtKzbMT5qFv3bFhvnJk67YMD953BUb5iePumLD/ORhX0xXGPzSFxMWBj+vhZKTpCu8xKd1EFFyFnWlp/i4BnqRnAZd8S0+tKOF5Nzryo9x0IxW0qtlNvca71vRm5bn2GfRfpEXrphOYMb5v2tWQIGZGqaM+a5pFkWmWpiklrsmGZSYKGGcWu0ai4gx1kFuq6arLWMU83eNWCQYaSC/VdPVlTEMxbuGCcoYyuI7DALprsGgNJGb9p+FB8UwabpSmbnDOx+7qzggTsev/DNUrFWFSe4Gl6jZqukmZeESVb9G043K0iX2VrK7yhPJtLR1eYGq7nycSF3OXNaGSdNdLc9dorKrld3pham70n8G+a6jDVmExeyLDZUhd92rrYZdYCPhYrUh7SrCVVlVu2oc1dm6dPU8FNliWjMPVTazSzsPbZZd1fCt0GejTY0fi4aqt6n1a5dhtzVB2G3Va9htn1l43jYKO7cL78K7cDfPYAywHr9+5gIAAAAASUVORK5CYII=`
 const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
 /** nav-badges.json `teamMark`: a row's lead with its team's mark on the corner. */
 const avatarBadge = (size: string, lead: NestedNode, badge: NestedNode): NestedNode => ({ id: `avatar_badge`, component: `AvatarBadge`, props: { size }, children: [lead], slots: { badge } })
@@ -1759,6 +1761,34 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     },
   }],
   // genUI round 4 (34282bdc): the site blocks with their slots and children.
+  // genUI round 4: the box backgrounds (style.json `backgroundImage`, radial `backgroundGradient`): text over a photo under a scrim, a contained picture's letterbox, a radial glow.
+  Box: [
+    {
+      label: `backgroundImage · cover + scrim`,
+      node: {
+        id: `photo`,
+        component: `Box`,
+        style: { height: 160, padding: `$spacing.lg`, borderRadius: `$radius.lg`, flexDirection: `column`, justifyContent: `flex-end`, gap: `$spacing.xs`, backgroundImage: { src: BOX_PHOTO, focalY: 1, scrim: { color: `$color.background`, opacity: 0.35 } } },
+        children: [
+          { id: `photo_title`, component: `Text`, props: { text: `Alpine weekend`, variant: `title` } },
+          { id: `photo_meta`, component: `Text`, props: { text: `Three huts, two passes` } },
+        ],
+      },
+    },
+    {
+      label: `backgroundImage · contain, focalX 0`,
+      node: { id: `letterbox`, component: `Box`, style: { height: 96, borderRadius: `$radius.md`, backgroundColor: `$color.card`, borderWidth: 1, borderColor: `$color.border`, backgroundImage: { src: BOX_PHOTO, fit: `contain`, focalX: 0 } } },
+    },
+    {
+      label: `backgroundGradient · radial`,
+      node: {
+        id: `glow`,
+        component: `Box`,
+        style: { height: 120, padding: `$spacing.lg`, borderRadius: `$radius.lg`, alignItems: `center`, justifyContent: `center`, backgroundGradient: { kind: `radial`, centre: { x: 0.3, y: 0.35 }, stops: [{ color: `$color.primary`, offset: 0 }, { color: `$color.background`, offset: 1 }] } },
+        children: [{ id: `glow_text`, component: `Text`, props: { text: `Radial, farthest corner` } }],
+      },
+    },
+  ],
   NavBar: [{
     label: `logo + trailing action`,
     node: { id: `nav`, component: `NavBar`, props: { title: `Acme`, logo: AVATAR_PICTURE, value: `docs`, items: [{ label: `Product`, value: `product` }, { label: `Pricing`, value: `pricing` }, { label: `Docs`, value: `docs` }] }, slots: { trailing: { id: `signup`, component: `Button`, props: { label: `Sign up`, size: `sm` } } } },

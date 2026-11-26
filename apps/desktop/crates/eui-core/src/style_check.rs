@@ -24,6 +24,9 @@ pub struct KeySpec {
     pub root_only: Option<bool>,
     #[serde(default, rename = "layoutEffect")]
     pub layout_effect: Option<bool>,
+    /// Refused inside a condition block (`backgroundImage`).
+    #[serde(default, rename = "baseOnly")]
+    pub base_only: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -124,25 +127,71 @@ pub fn is_transform(s: &str) -> bool {
     }
 }
 
+fn unit(v: Option<&Value>) -> bool {
+    v.and_then(Value::as_f64).is_some_and(|o| o.is_finite() && (0.0..=1.0).contains(&o))
+}
+
+fn only_keys(o: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
+    o.keys().all(|k| keys.contains(&k.as_str()))
+}
+
+fn stops_ok(stops: Option<&Value>) -> bool {
+    let Some(stops) = stops.and_then(Value::as_array).filter(|s| s.len() >= 2) else { return false };
+    stops.iter().all(|stop| {
+        // Round 4: a node colour is a `$color.*` token, never a literal.
+        stop.as_object().is_some_and(|stop| stop.get("color").is_some_and(|c| token_ok(c, &["color"])) && stop.get("offset").and_then(Value::as_f64).is_some_and(|o| (0.0..=1.0).contains(&o)))
+    })
+}
+
 fn gradient_error(key: &str, value: &Value) -> Option<String> {
     let bad = || Some(format!("{key}: expected {{angle, stops: [{{color, offset 0..1}}, …]}} with two or more stops"));
     let Some(g) = value.as_object() else { return bad() };
-    if !g.get("angle").is_some_and(finite_number) {
+    // genUI round 4: `kind: radial` + an optional `centre`.
+    if g.get("kind").and_then(Value::as_str) == Some("radial") {
+        let bad_radial = || Some(format!("{key}: expected {{kind: radial, centre?: {{x, y 0..1}}, stops: [{{color, offset 0..1}}, …]}} with two or more stops"));
+        if g.get("angle").is_some_and(|a| !finite_number(a)) {
+            return bad_radial();
+        }
+        if let Some(c) = g.get("centre") {
+            let Some(c) = c.as_object() else { return bad_radial() };
+            if !unit(c.get("x")) || !unit(c.get("y")) || !only_keys(c, &["x", "y"]) {
+                return bad_radial();
+            }
+        }
+        if !only_keys(g, &["kind", "angle", "centre", "stops"]) || !stops_ok(g.get("stops")) {
+            return bad_radial();
+        }
+        return None;
+    }
+    if g.get("kind").is_some_and(|k| k.as_str() != Some("linear")) {
+        return Some(format!("{key}: kind expected one of linear|radial"));
+    }
+    if !g.get("angle").is_some_and(finite_number) || !stops_ok(g.get("stops")) || !only_keys(g, &["kind", "angle", "stops"]) {
         return bad();
     }
-    let Some(stops) = g.get("stops").and_then(Value::as_array).filter(|s| s.len() >= 2) else { return bad() };
-    for stop in stops {
-        let Some(stop) = stop.as_object() else { return bad() };
-        // Round 4: a node colour is a `$color.*` token, never a literal.
-        let color_ok = stop.get("color").is_some_and(|c| token_ok(c, &["color"]));
-        if !color_ok {
-            return bad();
-        }
-        if !stop.get("offset").and_then(Value::as_f64).is_some_and(|o| (0.0..=1.0).contains(&o)) {
+    None
+}
+
+/// genUI round 4: `backgroundImage` {src, fit?, focalX?, focalY?, scrim?}.
+fn background_image_error(key: &str, value: &Value) -> Option<String> {
+    let bad = || Some(format!("{key}: expected {{src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {{color: $color.<name>, opacity 0..1}}}}"));
+    let Some(b) = value.as_object() else { return bad() };
+    if !b.get("src").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) {
+        return bad();
+    }
+    if b.get("fit").is_some_and(|f| !matches!(f.as_str(), Some("cover" | "contain"))) {
+        return bad();
+    }
+    if (b.contains_key("focalX") && !unit(b.get("focalX"))) || (b.contains_key("focalY") && !unit(b.get("focalY"))) {
+        return bad();
+    }
+    if let Some(scrim) = b.get("scrim") {
+        let Some(o) = scrim.as_object() else { return bad() };
+        if !o.get("color").is_some_and(|c| token_ok(c, &["color"])) || !unit(o.get("opacity")) || !only_keys(o, &["color", "opacity"]) {
             return bad();
         }
     }
-    if g.keys().any(|k| k != "angle" && k != "stops") {
+    if !only_keys(b, &["src", "fit", "focalX", "focalY", "scrim"]) {
         return bad();
     }
     None
@@ -195,6 +244,7 @@ fn value_error(key: &str, spec: &KeySpec, value: &Value) -> Option<String> {
             }
         }
         Some("gradient") => gradient_error(key, value),
+        Some("backgroundImage") => background_image_error(key, value),
         Some("transform") => {
             if s.is_some_and(is_transform) {
                 None
@@ -275,6 +325,10 @@ fn walk(obj: &serde_json::Map<String, Value>, at: &str, nested: bool, root: Opti
         };
         if spec.root_only == Some(true) && root == Some(false) {
             issues.push(StyleIssue { path: here.clone(), message: "allowed on the root only".into() });
+        }
+        if spec.base_only == Some(true) && nested {
+            issues.push(StyleIssue { path: here, message: format!("{key}: base style only, never in a condition block") });
+            continue;
         }
         if let Some(error) = value_error(key, spec, value) {
             issues.push(StyleIssue { path: here, message: error });
