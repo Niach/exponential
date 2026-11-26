@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -229,8 +230,19 @@ internal fun RichTextLeaf(cx: LeafContext, spans: at.exponential.ui.measure.Rich
             if (cap != null && capTs != null) {
                 val ink = cap.tone?.let { tones[it] } ?: cx.ink
                 val x = if (cx.rtl) width - capAdvance else 0f
-                Box(Modifier.absoluteOffset(x.dp, 0.dp).size(capAdvance.dp, (spans.lines * ts.lineHeight).dp)) {
-                    BasicText(cap.text, style = cx.composeTextStyle(capTs, color = ink), softWrap = false, maxLines = 1)
+                // The glyph's baseline by CSS half-leading in the box: its own
+                // ascent and descent centred in `lines` × lineHeight.
+                val natural = cx.composeTextStyle(capTs, color = ink).copy(
+                    lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
+                    lineHeightStyle = null,
+                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+                )
+                val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+                val density = androidx.compose.ui.platform.LocalDensity.current.density
+                val laid = remember(cap.text, natural, density) { measurer.measure(cap.text, natural, softWrap = false, maxLines = 1) }
+                val top = (spans.lines * ts.lineHeight - laid.size.height / density) / 2f
+                Box(Modifier.absoluteOffset(x.dp, top.dp).wrapContentSize(unbounded = true)) {
+                    BasicText(cap.text, style = natural, softWrap = false, maxLines = 1)
                 }
             }
             for (piece in flow.pieces) {
