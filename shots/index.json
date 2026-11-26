@@ -1564,8 +1564,8 @@
         "file": "shots/chat-screen/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 73378,
-        "sha256": "98651dd6ea6ad435de37441cc8052bbc16b36663e2c45ae9774f522d92e64667"
+        "bytes": 76992,
+        "sha256": "7b831f55961542e64d2ad72862f5ad6c8ceb3682f12adc9f9b5d72903ce3342d"
       },
       "desktop": {
         "file": "shots/chat-screen/desktop.webp",
@@ -1592,8 +1592,8 @@
         "file": "shots/chat-screen/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 74278,
-        "sha256": "8beabb59e489d58356f216679d97e9796cd4d4aa4b4689f38f7a326b1d275de4"
+        "bytes": 80222,
+        "sha256": "04140b73eaced1bf43f0db6c24d2ef8f0517384479b92d251b7c0d37402dea93"
       }
     },
     "chat-selection": {
