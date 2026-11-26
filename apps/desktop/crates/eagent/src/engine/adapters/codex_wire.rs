@@ -1065,6 +1065,57 @@ pub fn cancel_result(method: &str) -> Value {
     }
 }
 
+/// #NEW-146: codex's `mcpServer/elicitation/request` params (flat: the
+/// MCP request beside `serverName`, `threadId`, `turnId`) as THE ACP
+/// elicitation. `form` carries its `requestedSchema` over as is (ACP's
+/// schema IS MCP's); `url` its `url` + `elicitationId`; the server's name
+/// rides `_meta` under [`super::MCP_SERVER_META`]. `None` = nothing the card
+/// can render honestly (codex's private `openai/form` modes, a schema ACP
+/// cannot read, a url mode without its url): the caller declines.
+pub fn mcp_elicitation_request(
+    params: &Value,
+    session_id: agent_client_protocol::v1::schema::SessionId,
+) -> Option<agent_client_protocol::v1::schema::CreateElicitationRequest> {
+    use agent_client_protocol::v1::schema::{
+        CreateElicitationRequest, ElicitationFormMode, ElicitationMode, ElicitationSchema,
+        ElicitationSessionScope, ElicitationUrlMode,
+    };
+    let text = |key: &str| params.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+    let server = text("serverName").unwrap_or("MCP server").to_string();
+    let message = params.get("message").and_then(Value::as_str).unwrap_or_default().to_string();
+    let scope = ElicitationSessionScope::new(session_id);
+    let mode: ElicitationMode = match text("mode")? {
+        "form" => {
+            let schema: ElicitationSchema =
+                serde_json::from_value(params.get("requestedSchema")?.clone()).ok()?;
+            ElicitationFormMode::new(scope, schema).into()
+        }
+        "url" => ElicitationUrlMode::new(scope, text("elicitationId")?.to_string(), text("url")?.to_string()).into(),
+        _ => return None,
+    };
+    let mut meta = serde_json::Map::new();
+    meta.insert(super::MCP_SERVER_META.to_string(), Value::String(server));
+    // ACP's schema is a sorted map: the server's property order rides along.
+    let order = crate::engine::elicitation_card::schema_order(params.get("requestedSchema"));
+    meta.insert(crate::engine::elicitation_card::ORDER_META_KEY.to_string(), json!(order));
+    Some(CreateElicitationRequest::new(mode, message).meta(meta))
+}
+
+/// #NEW-146: the person's action as MCP's `ElicitResult`: `accept` with its
+/// content (a url elicitation's accept carries none), `decline`, `cancel`
+/// (and anything a newer ACP adds, which is never an accept).
+pub fn mcp_elicitation_result(action: &agent_client_protocol::v1::schema::ElicitationAction) -> Value {
+    use agent_client_protocol::v1::schema::ElicitationAction;
+    match action {
+        ElicitationAction::Accept(accepted) => match &accepted.content {
+            Some(content) => json!({ "action": "accept", "content": content }),
+            None => json!({ "action": "accept" }),
+        },
+        ElicitationAction::Decline => json!({ "action": "decline" }),
+        _ => json!({ "action": "cancel" }),
+    }
+}
+
 /// Apply a unified diff to `original`. `item/fileChange` carries a REAL diff
 /// only for `update` changes (add and delete carry the whole file), and the
 /// hunks are anchored against the file as it is on disk, so the card needs
@@ -1597,6 +1648,66 @@ mod tests {
 #[cfg(test)]
 mod wire_tests {
     use super::*;
+
+    /// #NEW-146: codex's MCP elicitation reaches THE ACP elicitation (form
+    /// and url) with the server's name in `_meta`, and the person's action
+    /// goes back as MCP's; codex's private modes decline.
+    #[test]
+    fn an_mcp_elicitation_maps_to_the_acp_one_and_back() {
+        use agent_client_protocol::v1::schema::{
+            ElicitationAcceptAction, ElicitationAction, ElicitationContentValue, ElicitationMode,
+            ElicitationPropertySchema, SessionId,
+        };
+        let form = json!({
+            "threadId": "t1", "turnId": "u1", "serverName": "linear",
+            "mode": "form", "message": "Pick a team",
+            "requestedSchema": {
+                "type": "object",
+                "properties": {
+                    "team": { "type": "string", "title": "Team", "enum": ["web", "ios"], "default": "web" },
+                    "count": { "type": "integer", "minimum": 1 },
+                    "notify": { "type": "boolean", "default": true }
+                },
+                "required": ["team"]
+            }
+        });
+        let request = mcp_elicitation_request(&form, SessionId::new("s1")).expect("form");
+        assert_eq!(request.message, "Pick a team");
+        assert_eq!(request.meta.as_ref().unwrap()[super::super::MCP_SERVER_META], json!("linear"));
+        let ElicitationMode::Form(mode) = &request.mode else { panic!("{:?}", request.mode) };
+        assert!(matches!(mode.requested_schema.properties.get("team"), Some(ElicitationPropertySchema::String(_))));
+        assert!(matches!(mode.requested_schema.properties.get("count"), Some(ElicitationPropertySchema::Integer(_))));
+        assert_eq!(mode.requested_schema.required.as_deref(), Some(&["team".to_string()][..]));
+
+        let url = json!({
+            "threadId": "t1", "serverName": "github", "mode": "url",
+            "message": "Sign in", "url": "https://github.com/login/oauth?x=1", "elicitationId": "e-1"
+        });
+        let request = mcp_elicitation_request(&url, SessionId::new("s1")).expect("url");
+        let ElicitationMode::Url(mode) = &request.mode else { panic!("{:?}", request.mode) };
+        assert_eq!(mode.url, "https://github.com/login/oauth?x=1");
+        assert_eq!(mode.elicitation_id.0.as_ref(), "e-1");
+
+        let private = json!({ "serverName": "x", "mode": "openai/form", "message": "m", "requestedSchema": {} });
+        assert!(mcp_elicitation_request(&private, SessionId::new("s1")).is_none());
+        let no_url = json!({ "serverName": "x", "mode": "url", "message": "m", "elicitationId": "e" });
+        assert!(mcp_elicitation_request(&no_url, SessionId::new("s1")).is_none());
+
+        let mut content = std::collections::BTreeMap::new();
+        content.insert("team".to_string(), ElicitationContentValue::String("ios".into()));
+        content.insert("count".to_string(), ElicitationContentValue::Integer(3));
+        let accepted = ElicitationAction::Accept(ElicitationAcceptAction::new().content(content));
+        assert_eq!(
+            mcp_elicitation_result(&accepted),
+            json!({ "action": "accept", "content": { "team": "ios", "count": 3 } })
+        );
+        assert_eq!(
+            mcp_elicitation_result(&ElicitationAction::Accept(ElicitationAcceptAction::new())),
+            json!({ "action": "accept" })
+        );
+        assert_eq!(mcp_elicitation_result(&ElicitationAction::Decline), json!({ "action": "decline" }));
+        assert_eq!(mcp_elicitation_result(&ElicitationAction::Cancel), json!({ "action": "cancel" }));
+    }
 
     #[test]
     fn the_default_mode_is_full_access() {

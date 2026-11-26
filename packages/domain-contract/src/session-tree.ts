@@ -16,6 +16,7 @@ import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { chatTimeLabel, commandDivider } from "./chats"
 import type { LockedReason } from "./sealed-content"
+import type { ElicitationSidecar } from "./elicitation-card"
 import { crossSessionInput, isBlankText } from "./transcript-grouping"
 import { agentChatOf } from "./agent-settings"
 
@@ -851,6 +852,9 @@ export type SessionChatRow =
       answered: boolean
       /** #EXP-1561 (waiting-cards.json): a person dismissed it; present only when true. */
       dismissed?: true
+      /** #NEW-146 (elicitation-card.json): a third-party MCP server's
+       *  elicitation; present only on such a card. */
+      elicitation?: ElicitationSidecar
     }
   | {
       type: `plan`
@@ -916,6 +920,7 @@ function askRow(
       surfaceData: dataRecord(card.surfaceData),
       answered: message.answeredAt !== null,
       ...(card.dismissed === true ? { dismissed: true as const } : {}),
+      ...elicitationField(card.elicitation),
     }
   }
   return {
@@ -930,6 +935,21 @@ function askRow(
     answers: planAnswers(card.answers),
     feedback: typeof card.feedback === `string` && card.feedback !== `` ? card.feedback : null,
     surfaceData: dataRecord(card.surfaceData),
+  }
+}
+
+/** #NEW-146: the card's elicitation sidecar, when it is a well-formed one. */
+function elicitationField(value: unknown): { elicitation?: ElicitationSidecar } {
+  if (!value || typeof value !== `object`) return {}
+  const v = value as Record<string, unknown>
+  if (typeof v.server !== `string` || (v.mode !== `form` && v.mode !== `url`)) return {}
+  return {
+    elicitation: {
+      server: v.server,
+      mode: v.mode,
+      required: Array.isArray(v.required) ? v.required.filter((r): r is string => typeof r === `string`) : [],
+      url: typeof v.url === `string` ? v.url : null,
+    },
   }
 }
 

@@ -37,6 +37,10 @@ pub use crate::engine::launch::RunOptions;
 pub const PLAN_MODE_ID: &str = "plan";
 pub const BUILD_MODE_ID: &str = "bypassPermissions";
 
+/// #NEW-146: THE elicitation card's `serverMetaKey` (one definition:
+/// [`crate::engine::elicitation_card::SERVER_META_KEY`]).
+pub use crate::engine::elicitation_card::SERVER_META_KEY as MCP_SERVER_META;
+
 /// The contract's `/new` steer command (`contract.json` `steerCommands`): a
 /// fresh conversation in the SAME session row, between turns — claude via
 /// its own `/clear`, codex via a new thread. Never prompt text.
