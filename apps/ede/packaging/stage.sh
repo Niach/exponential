@@ -9,7 +9,8 @@
 # fontconfig, clang). --dev stages the dev profile (a VM check in minutes;
 # never a release); --no-build stages what target/ already holds.
 # Contents (#EDE-2): exponential-compositor, exponential-session,
-# exponential-ui, exponential-shell, exponential-sealed (#EDE-17: lock,
+# exponential-ui, exponential-shell, exponential-app (#EDE-227: the app as
+# the session's component), exponential-sealed (#EDE-17: lock,
 # polkit, consent), exponential-services (#EDE-13), exponential-theme
 # (#EDE-19) in /usr/bin, xdg-desktop-portal-exponential (#EDE-15) and the space
 # guard (#EDE-146..148, a system service started by its socket) in /usr/libexec, the
@@ -45,6 +46,8 @@ if [ "$build" = 1 ]; then
   (cd "$ede" && cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal -p ede-theme -p ede-ctl -p ede-space-guard --features ede-compositor/udev)
   # The shell builds in the IDE's workspace (gpui never enters the compositor's).
   (cd "$desktop" && cargo build "${release[@]}" --locked -p ede-shell --bins)
+  # #EDE-227: the app as the session's component, from the same workspace.
+  (cd "$desktop" && cargo build "${release[@]}" --locked -p app --features ede-component --bin exponential-app)
 fi
 
 rm -rf "$stage"; mkdir -p "$stage"; chmod 755 "$stage"
@@ -52,6 +55,12 @@ for bin in exponential-compositor exponential-session exponential-ui exponential
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
 install -Dm755 "$shell_target/$profile/exponential-shell" "$stage/usr/bin/exponential-shell"
+# #EDE-227: the app as the session's component (the compositor starts it;
+# the login's holder: account, install, keys, device, coding sessions), its
+# windows' entry (no start menu entry) and icon.
+install -Dm755 "$shell_target/$profile/exponential-app" "$stage/usr/bin/exponential-app"
+install -Dm644 "$here/applications/at.exponential.desktop" "$stage/usr/share/applications/at.exponential.desktop"
+install -Dm644 "$desktop/assets/icons/logo-white.svg" "$stage/usr/share/icons/hicolor/scalable/apps/at.exponential.svg"
 # Tier B (#EDE-17): the lock screen, the polkit agent and consent.
 install -Dm755 "$shell_target/$profile/exponential-sealed" "$stage/usr/bin/exponential-sealed"
 # The portal backend (#EDE-15): ScreenCast, Screenshot, RemoteDesktop,

@@ -716,6 +716,46 @@ fn a_genuine_shell_started_by_hand_is_refused_once_the_compositor_starts_the_hel
     assert!(asks.try_recv().is_err(), "nobody was asked");
 }
 
+/// #EDE-227: eDE's component (`exponential-app`) holds the root token as
+/// the compositor's helper with nobody asked (the consent prompt named "an
+/// unknown program" while the device unit started the app); the same file
+/// started by hand is refused, again with nobody asked.
+#[test]
+fn the_component_is_root_as_the_compositors_helper_and_nobody_is_asked() {
+    let Ok(python) = std::fs::canonicalize("/usr/bin/python3") else {
+        eprintln!("skipped: no /usr/bin/python3");
+        return;
+    };
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let app = dir.path().join(ede_compositor::helpers::APP);
+    std::fs::copy(&python, &app).unwrap();
+    std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755)).unwrap();
+    h.with(|ede| ede.start_helpers_with(vec![]));
+    let kind = |said: &serde_json::Value| said["type"].as_str().unwrap_or_default().to_string();
+    let by_hand = |env: Vec<(String, String)>| {
+        let mut command = Command::new(&app);
+        command.args(["-I", "-c", PY_HELLO]).envs(env).stdout(Stdio::null()).stderr(Stdio::null());
+        Some(command)
+    };
+    let said = interpreted_hello(&h, &app, by_hand);
+    assert_eq!((kind(&said), said["error"]["code"].as_str()), ("error".to_string(), Some("unauthorized")), "started by hand: {said}");
+    let said = interpreted_hello(&h, &app, |_| None);
+    assert_eq!(kind(&said), "reply", "the compositor's helper: {said}");
+    assert!(asks.try_recv().is_err(), "nobody was asked");
+}
+
+#[test]
+fn the_component_is_a_helper_where_it_is_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = dir.path().join(ede_compositor::helpers::APP);
+    assert!(ede_compositor::helpers::app_spec(&app.display().to_string()).is_none(), "not installed: not started");
+    std::fs::write(&app, b"").unwrap();
+    let spec = ede_compositor::helpers::app_spec(&app.display().to_string()).unwrap();
+    assert_eq!((spec.name.as_str(), spec.argv.clone(), spec.channel, spec.wayland), (ede_compositor::helpers::APP, vec![app.display().to_string()], None, None), "its own Wayland connection, the root token by its pid");
+}
+
 /// A policy file that root does not own (here: the test's), group-writable
 /// or not, is ignored: no principal comes from it, and (P14) its `[control]
 /// consent = false` and `[session] helpers = "units"` do not weaken a real

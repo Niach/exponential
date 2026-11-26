@@ -25,7 +25,7 @@ esac
 # The rendered script the repositories serve (the host and key filled in).
 curl -fsSL "$EXPONENTIAL_PKG_URL/setup.sh" | sh
 
-for b in /usr/bin/exponential-compositor /usr/bin/exponential-session /usr/bin/exponential-shell /usr/bin/exponential-sealed /usr/bin/exponential-ui /usr/bin/exponential-services /usr/bin/exponential-theme /usr/bin/exponential-ctl /usr/libexec/xdg-desktop-portal-exponential /usr/libexec/exponential-space-guard; do
+for b in /usr/bin/exponential-compositor /usr/bin/exponential-session /usr/bin/exponential-shell /usr/bin/exponential-app /usr/bin/exponential-sealed /usr/bin/exponential-ui /usr/bin/exponential-services /usr/bin/exponential-theme /usr/bin/exponential-ctl /usr/libexec/xdg-desktop-portal-exponential /usr/libexec/exponential-space-guard; do
   test -x "$b"
   if ldd "$b" | grep 'not found'; then echo "$b: missing libraries" >&2; exit 1; fi
 done

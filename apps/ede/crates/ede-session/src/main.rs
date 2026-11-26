@@ -1,8 +1,10 @@
 //! `exponential-session [--safe-mode]`: the session the login manager starts.
 //! `exponential-session --ready`: run by the compositor once it is up.
 //! `exponential-session --device`: exponential-device.service's command; it
-//! becomes the Exponential app (its launcher entry) so this machine is an
-//! online device for the whole session, unless the CLI daemon's own unit runs.
+//! becomes eDE's component (`exponential-app`, #EDE-227) where the package
+//! ships it, else the Exponential app (its launcher entry) so this machine is
+//! an online device for the whole session, unless the CLI daemon's own unit
+//! runs.
 
 use std::{
     process::{Child, Command, ExitCode, ExitStatus},
@@ -65,6 +67,17 @@ fn ready() -> ExitCode {
 /// daemon's own unit (`exponential daemon install`) already starts at login:
 /// nothing to do then, and nothing when neither is installed.
 fn device() -> ExitCode {
+    // #EDE-227: the package's own component is the device. The compositor
+    // starts it itself (`[session] helpers = "compositor"`, this unit is off
+    // then); with the units starting the helpers this unit runs it.
+    if let Some(app) = std::env::current_exe().ok().and_then(|me| ede_session::component_next_to(&me)) {
+        use std::os::unix::process::CommandExt as _;
+        tracing::info!("starting eDE's component: {}", app.display());
+        ede_observability::flush();
+        let err = Command::new(&app).exec();
+        tracing::error!("{}: {err}", app.display());
+        return ExitCode::FAILURE;
+    }
     let daemon_unit = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
         .map(std::path::PathBuf::from)

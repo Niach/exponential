@@ -44,7 +44,8 @@ pub const EXPORTED_ENV: &[&str] =
 /// The units the compositor starts the programs of itself when
 /// `[session] helpers = "compositor"` (#EDE-172 P4): installed, and
 /// conditioned off by `EDE_HELPERS_SPAWNED`.
-pub const HELPER_UNITS: &[&str] = &["systemd/exponential-shell.service", "systemd/exponential-polkit-agent.service", "portal/xdg-desktop-portal-exponential.service", "systemd/exponential-services.service"];
+/// #EDE-227: the device unit too (the compositor starts the component).
+pub const HELPER_UNITS: &[&str] = &["systemd/exponential-shell.service", "systemd/exponential-polkit-agent.service", "portal/xdg-desktop-portal-exponential.service", "systemd/exponential-services.service", "systemd/exponential-device.service"];
 
 /// A crash this soon after start counts toward safe mode.
 pub const QUICK_CRASH: Duration = Duration::from_secs(60);
@@ -152,6 +153,12 @@ pub enum DeviceStart {
     App(Vec<String>),
     /// Neither is installed.
     Nothing,
+}
+
+/// #EDE-227: eDE's component beside `exe` (`exponential-session` in
+/// /usr/bin), when the package ships it.
+pub fn component_next_to(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    exe.parent().map(|dir| dir.join("exponential-app")).filter(|path| path.is_file())
 }
 
 /// What tells the Exponential app it runs as the session's device: it
@@ -547,6 +554,18 @@ mod tests {
         assert_eq!(desktop_exec("[Desktop Entry]\nExec=app %i --name %c\n").unwrap(), vec!["app", "--name"]);
     }
 
+    /// #EDE-227: the package's component beside exponential-session is the device.
+    #[test]
+    fn the_component_beside_the_session_is_the_device() {
+        let dir = std::env::temp_dir().join(format!("ede-component-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = dir.join("exponential-session");
+        assert_eq!(component_next_to(&me), None, "none shipped");
+        std::fs::write(dir.join("exponential-app"), b"").unwrap();
+        assert_eq!(component_next_to(&me), Some(dir.join("exponential-app")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn launcher_entries_are_looked_up_in_the_xdg_data_dirs() {
         let dirs = application_dirs();
@@ -580,7 +599,7 @@ mod tests {
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE") && EXPORTED_ENV.contains(&"XAUTHORITY"));
         let deb = [root.join("stage.sh"), root.join("pack-deb.sh")].iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<String>();
-        for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme"] {
+        for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme", "exponential-app"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/exponential-desktop/ui/"), "the factory documents ship");

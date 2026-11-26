@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-app-built-in",
+    date: "2026-11-26",
+    title: "Exponential Desktop brings the app with it",
+    summary: "Exponential Desktop now ships the Exponential app itself: no AppImage to download, no prompt about an unknown program at login.",
+    body: r##"- **No AppImage needed**: Exponential Desktop starts the Exponential app with your session, already signed in with your desktop's account. Its windows wear the desktop's frame and come to the front from any link in the shell.
+- **One Exponential**: an AppImage you installed before hands over to it and closes, keeps the same data, and its own start menu entry stays out of the menu, search, favourites and pins while the built-in app runs.
+- **Updates**: the app updates with the Exponential Desktop package."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_370: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-ede-rerusted-look",
     date: "2026-11-26",
     title: "Exponential Desktop wears its own colours",

@@ -444,6 +444,33 @@ pub fn ide_send(link: &str) -> bool {
     crate::inbox::hand_off(link)
 }
 
+/// #EDE-227: one request to the login's holder (eDE's component, or a
+/// standalone app) over the session bus; `None` = no holder serves one (an
+/// older app: the link socket is its way in).
+pub fn holder_call(request: &api::bus::Request) -> Option<api::bus::Reply> {
+    match api::bus::call(&api::bus::socket_path(&api::default_data_dir()), request) {
+        Ok(reply) => Some(reply),
+        Err(e) => {
+            tracing::info!("exp-desktop.bus: {e}");
+            None
+        }
+    }
+}
+
+/// #EDE-226/#EDE-227: what the shell asks of the login's account and
+/// install, over the bus, else on the link socket (false: nobody took it).
+pub fn holder_command(command: api::holder::Command) -> bool {
+    use api::bus::{Reply, Request};
+    match holder_call(&Request::Holder { command: command.clone() }) {
+        Some(Reply::Done) => true,
+        Some(Reply::Refused { message }) => {
+            tracing::warn!(message, "the holder refused a command");
+            false
+        }
+        Some(_) | None => ide_send(&command.to_datagram()),
+    }
+}
+
 /// The goldens' switcher: two Local desktops and one account with two teams.
 fn demo_entries() -> Vec<SwitcherEntry> {
     vec![
