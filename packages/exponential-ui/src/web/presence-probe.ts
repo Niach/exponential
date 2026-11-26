@@ -12,6 +12,7 @@ export interface PresenceScenario {
   reducedMotion?: boolean
   windowed?: boolean
   first?: number
+  viewport?: { width: number; height: number }
   components: FlatComponent[]
   data: Record<string, unknown>
   steps: { data?: { path: string; value: unknown }; components?: FlatComponent[]; finishExit?: string; expect: PresencePainted[] }[]

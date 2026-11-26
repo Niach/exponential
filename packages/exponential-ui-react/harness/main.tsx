@@ -26,6 +26,7 @@ import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_
 // controls view paints each control from its example, so attach them here.
 import { describeCatalog } from "@exponential_app/eui/prompt"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential_app/eui"
+import { readPresence, setPointer, type PresenceScenario, type PresencePainted } from "@exponential_app/eui/web"
 import benchFixture from "@exponential_app/eui/fixtures/bench-list.json"
 import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json"
 import geometry from "@exponential_app/eui/fixtures/layout-geometry.json"
