@@ -107,6 +107,7 @@ mod start_menu;
 mod system;
 mod team_chat;
 mod thumbs;
+mod window_icons;
 
 use std::{
     cell::RefCell,
@@ -341,6 +342,8 @@ struct Shell {
     /// The installed applications, scanned at start (the launcher, the start menu).
     apps: Vec<apps::App>,
     menu_apps: Vec<StartMenuApp>,
+    /// #EDE-242: what Xwayland says about classes no entry names.
+    x11_hints: window_icons::X11Hints,
     /// The compositor's last window list (ede-protocol), to shape `/windows`.
     windows: Vec<ede_protocol::WindowInfo>,
     /// Live thumbnails by window id, refreshed by the capture loop while
@@ -1305,8 +1308,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()], wm_class: None, steam_app: None },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()], wm_class: None, steam_app: None },
     ]
 }
 
@@ -1806,18 +1809,39 @@ fn bring_forward(shell: &SharedShell, apps: &[&str]) -> bool {
     false
 }
 
-/// The installed entry for an app id (a window's app_id, a pin), if any.
+/// The installed entry for an app id (a window's app_id, a pin), if any:
+/// Cinnamon's window tracker's order ([`apps::for_window`]), then (#EDE-242)
+/// the Steam game an X11 window's process runs.
 fn app_entry<'a>(shell: &'a Shell, app: &str) -> Option<&'a apps::App> {
-    let wanted = app.trim_end_matches(".desktop");
-    shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").eq_ignore_ascii_case(wanted)).or_else(|| shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").rsplit('.').next().is_some_and(|tail| tail.eq_ignore_ascii_case(wanted))))
+    apps::for_window(&shell.apps, app).or_else(|| shell.x11_hints.cached(app).and_then(|h| h.steam_game.as_deref()).and_then(|game| apps::for_steam_game(&shell.apps, game)))
 }
 
+/// The entry's icon, else (#EDE-242) the window's own `_NET_WM_ICON`.
 fn app_icon(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).and_then(|a| a.icon.as_ref()).map(|p| format!("file://{}", p.display())).unwrap_or_default()
+    app_entry(shell, app)
+        .and_then(|a| a.icon.clone())
+        .or_else(|| shell.x11_hints.cached(app).and_then(|h| h.icon.clone()))
+        .map(|p| format!("file://{}", p.display()))
+        .unwrap_or_default()
 }
 
+/// The entry's name, else (#EDE-242, Cinnamon's window-backed app) a
+/// window's title, else the id.
 fn app_name(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).map(|a| a.name.clone()).unwrap_or_else(|| app.to_string())
+    app_entry(shell, app)
+        .map(|a| a.name.clone())
+        .or_else(|| shell.windows.iter().filter(|w| w.app_id.as_deref() == Some(app)).find_map(|w| w.title.clone().filter(|t| !t.is_empty())))
+        .unwrap_or_else(|| app.to_string())
+}
+
+/// #EDE-242: the X11 hints of every class no entry names, read once.
+fn learn_x11_apps(shell: &mut Shell, list: &[ede_protocol::WindowInfo]) {
+    for w in list.iter().filter(|w| w.x11 && !w.protected) {
+        let Some(class) = w.app_id.as_deref() else { continue };
+        if shell.x11_hints.cached(class).is_none() && apps::for_window(&shell.apps, class).is_none() {
+            shell.x11_hints.lookup(class);
+        }
+    }
 }
 
 /// Mint's category glyphs for the start menu's column.
@@ -2275,6 +2299,7 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
             s.launches.mapped(app);
         }
         let next = s.focus_next.opened(list.iter().map(|w| (w.id.as_str(), w.app_id.as_deref())), Instant::now());
+        learn_x11_apps(&mut s, &list);
         s.windows = list;
         next
     };
@@ -4662,6 +4687,7 @@ fn main() {
             ede: control::connect().ok(),
             apps: installed,
             menu_apps,
+            x11_hints: Default::default(),
             windows: Vec::new(),
             thumbnails: HashMap::new(),
             captures: captures_shared,
@@ -5892,6 +5918,8 @@ mod ide_launch {
             icon: None,
             keywords: String::new(),
             categories: vec![],
+            wm_class: None,
+            steam_app: None,
         };
         assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
         assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
