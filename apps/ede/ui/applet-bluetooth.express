@@ -2,17 +2,18 @@
 # a popup surface. The power switch (power), the known devices (/services/bluetooth/devices: Connect /
 # Disconnect), the Search switch that scans for a while (discover), and the Bluetooth settings link.
 # Every action is ede_service on the bluetooth domain.
-surface("applet-bluetooth", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_bluetooth", placement: "top-end", size: {width: 380, height: 230}}, functions: ["ede_service", "ede_open_document"]}})
+# #EDE-235: it hugs its rows at the eDE spacing scale; the header's height is only its cap.
+surface("applet-bluetooth", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_bluetooth", placement: "top-end", size: {width: 380, height: 480}}, functions: ["ede_service", "ede_open_document"]}})
 $/services/bluetooth/available = false
 $/services/bluetooth/devices = []
 $/services/bluetooth/discovering = false
 $/services/bluetooth/powered = false
 $/services/bluetooth/reason = ""
-root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 230, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[bt_off, bt_power, devices_title, devices_scroll, discover, bluetooth_foot])
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[bt_off, bt_power, devices_title, devices_scroll, discover, bluetooth_foot])
 bt_off = Text(text=$/services/bluetooth/reason, variant="muted", visible=not(value=cond(if=$/services/bluetooth/available, then=true, else=false)))
 bt_power = Switch(label="Bluetooth", name="bluetooth", checked=$/services/bluetooth/powered, on={change: ede_service(action="power", args={on: $/services/bluetooth/powered}, domain="bluetooth")})
 devices_title = Text(text="Devices", variant="label", visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
-devices_scroll = ScrollArea(maxHeight=150, children=[devices, device, no_devices], visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
+devices_scroll = ScrollArea(maxHeight=240, children=[devices, device, no_devices], visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
 devices = List(gap="none", divided=true, children=_template($/services/bluetooth/devices, device, key="path"))
 device = Row(title=$name, subtitle=$address, icon="ede-bluetooth", density="compact", slots={trailing: "device_actions"})
 device_actions = Stack(direction="horizontal", gap="none", align="center", children=[device_disconnect, device_connect])

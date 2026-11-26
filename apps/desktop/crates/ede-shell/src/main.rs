@@ -1611,7 +1611,7 @@ fn account_sign_out(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().signing_out = Some(account.id.clone());
     accounts_feed(shell);
     refresh(shell, cx);
-    let asked = accounts::ide_send(&api::holder::Command::SignOut { account: account.id.clone() }.to_datagram());
+    let asked = accounts::holder_command(api::holder::Command::SignOut { account: account.id.clone() });
     let (auth, done) = (shell.borrow().workspaces.auth.clone(), shell.borrow().signed_out_tx.clone());
     let spawned = std::thread::Builder::new().name("ede-shell-sign-out".into()).spawn(move || {
         if session_account::sign_out(&auth, &api::default_data_dir(), &account, asked) {
@@ -1634,7 +1634,7 @@ fn install_press(shell: &SharedShell, action: &str, install: String, code: Strin
         "remove" => api::holder::Command::Remove { account, install, code },
         other => return tracing::warn!(action = other, "unknown install action"),
     };
-    if !accounts::ide_send(&command.to_datagram()) {
+    if !accounts::holder_command(command) {
         failed_action(shell, action, "the install", "The Exponential app is not running", cx);
     }
 }
@@ -1766,6 +1766,21 @@ fn ide_command(app: &apps::App, link: Option<&str>) -> String {
     }
 }
 
+/// #EDE-227: eDE's component runs as the session's helper: the package
+/// ships `exponential-app` beside this shell (the compositor, else
+/// exponential-device.service, starts it).
+fn component_runs() -> bool {
+    std::env::current_exe().ok().and_then(|me| me.parent().map(|dir| dir.join("exponential-app"))).is_some_and(|app| app.is_file())
+}
+
+/// #EDE-227: a saved pin of the person's own app entry (`standalone`) is
+/// the component's: its windows group under the component's app id, so
+/// the pin and they are one taskbar button.
+fn pinned_as(app: &str, standalone: &[String]) -> String {
+    let id = app.trim_end_matches(".desktop");
+    if standalone.iter().any(|s| s == id) { apps::COMPONENT_APP_ID.to_string() } else { app.to_string() }
+}
+
 /// The Exponential app's ids: one IDE per person, a hand-off target.
 const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
 
@@ -1774,6 +1789,11 @@ const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"]
 /// clicks launches anything once.
 fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
+    // #EDE-227: the login's holder brings a window up itself, with this
+    // press's launch token.
+    if EXPONENTIAL_APPS.contains(&wanted) && !demo() && open_in_holder(shell, None) {
+        return;
+    }
     if EXPONENTIAL_APPS.contains(&wanted) && bring_forward(shell, &[wanted]) {
         return;
     }
@@ -1820,6 +1840,8 @@ fn app_entry<'a>(shell: &'a Shell, app: &str) -> Option<&'a apps::App> {
 fn app_icon(shell: &Shell, app: &str) -> String {
     app_entry(shell, app)
         .and_then(|a| a.icon.clone())
+        // #EDE-227: eDE's component has no start menu entry; its icon is the theme's.
+        .or_else(|| EXPONENTIAL_APPS.contains(&app).then(|| apps::icon_file(app)).flatten())
         .or_else(|| shell.x11_hints.cached(app).and_then(|h| h.icon.clone()))
         .map(|p| format!("file://{}", p.display()))
         .unwrap_or_default()
@@ -1830,6 +1852,8 @@ fn app_icon(shell: &Shell, app: &str) -> String {
 fn app_name(shell: &Shell, app: &str) -> String {
     app_entry(shell, app)
         .map(|a| a.name.clone())
+        // #EDE-227: eDE's component (no start menu entry).
+        .or_else(|| EXPONENTIAL_APPS.contains(&app).then(|| "Exponential".to_string()))
         .or_else(|| shell.windows.iter().filter(|w| w.app_id.as_deref() == Some(app)).find_map(|w| w.title.clone().filter(|t| !t.is_empty())))
         .unwrap_or_else(|| app.to_string())
 }
@@ -2238,8 +2262,24 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
-        Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
+        // #EDE-235: every surface redraws in the new theme; a refused one
+        // leaves the last good theme on screen.
+        Change::ThemeApplied { id, .. } => {
+            history_refresh(shell);
+            let theme = shell_theme(shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
+            shell.borrow_mut().surfaces.set_theme(theme, cx);
+            tracing::info!(theme = %id, "theme applied");
+        }
+        Change::ThemeRejected { issues, .. } => tracing::warn!(?issues, "theme refused; the last good one stays"),
     }
+}
+
+/// The theme the shell's surfaces paint in: `base` (the ui directory's)
+/// with the IDE's ground rule (no Sidebar fill), and the rail's glyphs in
+/// its colours.
+fn shell_theme(base: &eui_core::theme::ResolvedTheme) -> std::sync::Arc<eui_core::theme::ResolvedTheme> {
+    uicore_gpui::glyphs::set_palette(uicore_gpui::glyphs::Palette::of(base));
+    uicore_gpui::inline::theme(base)
 }
 
 /// The frame line a change owes the supervisor without drawing (#EDE-110):
@@ -2555,6 +2595,10 @@ fn hand_off(shell: &SharedShell, url: &str) {
         tracing::info!(url, "hand-off (demo: not sent)");
         return;
     }
+    if open_in_holder(shell, Some(url)) {
+        tracing::info!(url, "handed to the Exponential app over the session bus");
+        return;
+    }
     if accounts::ide_send(url) {
         tracing::info!(url, "handed to the Exponential app");
         bring_forward(shell, &EXPONENTIAL_APPS);
@@ -2566,6 +2610,20 @@ fn hand_off(shell: &SharedShell, url: &str) {
         Some(command) => person_launch(shell, &command),
         None => tracing::warn!(url, "no Exponential app to hand off to"),
     }
+}
+
+/// #EDE-227: `link` (none: a window) opens in the login's holder over the
+/// session bus, with a launch token of the person's press, so the window it
+/// lands in comes to the front (xdg-activation); false = no holder serves
+/// the bus.
+fn open_in_holder(shell: &SharedShell, link: Option<&str>) -> bool {
+    use api::bus::{Reply, Request};
+    if !api::bus::socket_path(&api::default_data_dir()).exists() {
+        return false;
+    }
+    let activation_token = with_ede(shell, |ede| ede.launch_token());
+    let reply = accounts::holder_call(&Request::Open { link: link.map(String::from), activation_token });
+    matches!(reply, Some(Reply::Done))
 }
 
 /// The Exponential app's desktop entry.
@@ -4430,7 +4488,13 @@ fn main() {
             });
         })
         .expect("the events thread");
-    let mut installed = if demo { apps::demo() } else { apps::scan() };
+    // #EDE-227: while eDE's component runs as the session's helper, the
+    // person's own app entries (the AppImage's, exp-desktop's) stay out of
+    // the start menu, its search, the favourites and the pins: one Exponential.
+    let scanned = if demo { apps::Scan { apps: apps::demo(), standalone: Vec::new() } } else { apps::scan_in(&apps::data_dirs(), component_runs()) };
+    let standalone = scanned.standalone;
+    tracing::info!(?standalone, "the person's own app entries left out for the component");
+    let mut installed = scanned.apps;
     installed.extend(builtin_apps(demo));
     // #VAPP-273: the apps on the Engine: the factory ones, then the person's (the goldens only with EDE_APPS_DIR).
     let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan_installed(&engine::factory_apps_dir(), &engine::apps_dir()) };
@@ -4532,7 +4596,9 @@ fn main() {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
-        let theme = uicore_gpui::inline::theme(&eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
+        // #EDE-235: the theme the ui directory holds (its last good
+        // theme.json; the factory ships the Rerusted one), followed live.
+        let theme = shell_theme(ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
@@ -4618,7 +4684,7 @@ fn main() {
         let mut model = ShellState::default();
         let saved = if demo { json!({"pinned": ["firefox", "nemo", "org.gnome.Calculator"]}) } else { settings::shell_json() };
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-            model = reduce(&model, &ShellEvent::TaskbarPin { app: app.into() });
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(app, &standalone) });
         }
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
@@ -5232,7 +5298,7 @@ mod toast_presses {
     fn toasts(n: &Notifications) -> Surface {
         let source = uicore_docs::doc("notifications").expect("the toast document").json();
         let doc = ede_ui::validate_document("notifications", &source).expect("it validates as shipped");
-        let mut s = doc.surface(eui_core::themes::builtin_theme("exponential").expect("the theme"));
+        let mut s = doc.surface(uicore_docs::factory_theme());
         s.set_data("/notifications", Some(n.to_json())).expect("the feed binds");
         s.set_viewport(380.0, 0.0, None);
         s.layout(&mut eui_core::measure::FixedMeasure::default());
@@ -5642,7 +5708,9 @@ mod layer_sizes {
         };
         assert_eq!(popup_height("applet-sound", 534), room);
         assert_eq!(popup_height("start-menu", 534), room);
-        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-battery", 534), 360, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-network", 534), room, "#EDE-235: the network applet's 520 is held too");
+        assert_eq!(popup_height("applet-network", 800), 520);
         assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
         for d in uicore_docs::DOCS.iter() {
             let doc = factory(d.name);
@@ -5925,6 +5993,28 @@ mod ide_launch {
         assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
         let no_urls = apps::App { exec_url: None, ..app };
         assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
+    }
+
+    /// #EDE-227: with the component, saved pins of the person's own app
+    /// entries become the component's, and a standalone app's window (app
+    /// id `at.exponential`) groups with them: one Exponential button.
+    #[test]
+    fn the_persons_app_pins_and_windows_are_the_components_one_button() {
+        let standalone = vec!["appimagekit_1234-Exponential".to_string(), "at.exponential".to_string(), "exponential".to_string()];
+        let mut model = ShellState::default();
+        for pin in ["firefox", "exponential", "appimagekit_1234-Exponential.desktop", "at.exponential", "nemo"] {
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(pin, &standalone) });
+        }
+        assert_eq!(model.taskbar.pinned, ["firefox", "at.exponential", "nemo"]);
+        model = reduce(&model, &ShellEvent::WindowOpened { id: "w1".into(), app: "at.exponential".into(), title: "Exponential".into(), workspace: 0 });
+        let buttons = uicore_model::taskbar_buttons(&model);
+        assert_eq!(buttons.iter().map(|b| (b.app.as_str(), b.windows.clone())).collect::<Vec<_>>(), [("firefox", vec![]), ("at.exponential", vec!["w1".to_string()]), ("nemo", vec![])]);
+        assert_eq!(pinned_as("firefox.desktop", &standalone), "firefox.desktop", "another app's pin stays");
+        // Not in the favourites either: the start menu lists no entry of it.
+        let apps = [uicore_model::StartMenuApp { id: "firefox".into(), name: "Firefox".into(), comment: String::new(), categories: vec![], keywords: String::new() }];
+        let mut menu = model.clone();
+        menu.start_menu.category = "favourites".into();
+        assert_eq!(uicore_model::start_menu_apps(&menu, &apps, &model.taskbar.pinned).into_iter().map(|a| a.id).collect::<Vec<_>>(), ["firefox"]);
     }
 }
 

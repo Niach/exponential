@@ -30,7 +30,7 @@ install -Dm644 "$here/pam/exponential-desktop" "$stage/etc/pam.d/exponential-des
 # Vulkan driver is a Recommends: Mesa's for AMD and Intel, NVIDIA's comes
 # with its own driver packages (#EDE-59). Mesa's also brings lavapipe, the
 # software Vulkan an agent space's apps draw with (#EDE-138).
-depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, libfontconfig1, libfreetype6, git"
+depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, libfontconfig1, libfreetype6, git, libstdc++6, libxcb1, libxcb-xkb1, libxkbcommon-x11-0"
 if [ -n "$xwl" ]; then
   cp -a "$xwl/usr" "$stage/"
   # One entry per package: the versioned one wins.

@@ -164,6 +164,9 @@ raw-window-handle = "0.6"
 # #FEED-232: the launcher entry's count (Unity LauncherEntry over the session
 # bus); zbus 5 with these features is already in the tree (etalk-gpui's tray).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# #EDE-227: the launch token a link brings over the session bus raises the
+# window it lands in (the vendored crate's `hand_activation_token`, PATCHES.md).
+gpui_linux = { package = "gpui-pre-linux", version = "=0.3.11", default-features = false }
 
 # The headless test text system on macOS without the Mac platform: gpui-pre
 # builds `MacPlatform` only on the process main thread, and libtest runs

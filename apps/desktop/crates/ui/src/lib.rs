@@ -218,6 +218,10 @@ mod scroll_pane;
 mod search_sheet;
 mod session;
 mod session_holder;
+/// #EDE-227: eDE's component and the session bus.
+pub mod ede_component;
+#[cfg(target_os = "linux")]
+pub mod session_bus;
 mod session_extras;
 mod session_bar;
 mod session_data;

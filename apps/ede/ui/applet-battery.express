@@ -2,7 +2,8 @@
 # popup surface. The battery (/services/power/battery: the percent as a progress bar, the state and
 # the time left or until full), the power profile tiles (set_profile), and the Power settings link;
 # without a battery the profile still shows. Every action is ede_service on the power domain.
-surface("applet-battery", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_battery", placement: "top-end", size: {width: 380, height: 180}}, functions: ["ede_service", "ede_open_document"]}})
+# #EDE-235: it hugs its rows at the eDE spacing scale; the header's height is only its cap.
+surface("applet-battery", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_battery", placement: "top-end", size: {width: 380, height: 360}}, functions: ["ede_service", "ede_open_document"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/services/power/available = false
@@ -11,7 +12,7 @@ $/services/power/battery/present = false
 $/services/power/battery/state = "unknown"
 $/services/power/battery/timeText = ""
 $/services/power/profile = "balanced"
-root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 180, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[battery_head, battery_bar, no_battery, profile_title, profile, power_foot])
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[battery_head, battery_bar, no_battery, profile_title, profile, power_foot])
 battery_head = Stack(direction="horizontal", gap="sm", align="center", children=[battery_icon, battery_texts, battery_time], visible=cond(if=$/services/power/battery/present, then=true, else=false))
 battery_icon = Icon(name=$/applets/battery/icon, size="lg", label="Battery")
 battery_texts = Stack(direction="vertical", gap="none", style={flexGrow: 1, minWidth: 0}, children=[battery_percent, battery_state])

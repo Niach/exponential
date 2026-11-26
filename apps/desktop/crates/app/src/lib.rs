@@ -1,0 +1,417 @@
+//! The Exponential desktop app (masterplan-v3 §3.1), behind two thin
+//! binaries: `exp-desktop` (the standalone app: Cinnamon, macOS, Windows,
+//! the AppImage) and `exponential-app` (#EDE-227: Exponential Desktop's
+//! component, started by its compositor; [`Mode::Component`]).
+//!
+//! The §3.6 bootstrap, verbatim. Thin — it wires, it does not implement:
+//! `gpui_platform::application()` (the cross-platform backend-selecting
+//! entrypoint — NOT `gpui::Application::new()`, which does not exist at the
+//! pinned rev) → embedded assets → the `on_open_urls` OAuth-callback channel
+//! → `run`: `gpui_component::init` FIRST, forced Exponential Dark theme,
+//! panel registry, keymap/menubar, the global `Store`, then the first window
+//! inside a foreground `cx.spawn`.
+
+mod actions;
+mod assets;
+mod channel;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod desktop_integration;
+#[cfg(target_os = "macos")]
+mod macos_integration;
+#[cfg(target_os = "macos")]
+mod menus;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod single_instance;
+mod windows;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod x11_window_icon;
+#[cfg(target_os = "windows")]
+mod windows_integration;
+
+/// EXP-1558: the checkout this binary was built from, one greppable
+/// literal (`exp-built-from:<dir of this crate>`): the shots lane refuses a
+/// binary another worktree linked into the shared `CARGO_TARGET_DIR`
+/// (`packages/shots/src/capture-desktop.ts` `assertBinaryFromCheckout`).
+const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
+
+/// Which binary runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// `exp-desktop`: the app a person installed.
+    Standalone,
+    /// `exponential-app` (#EDE-227): eDE's component, the login's holder,
+    /// started by the compositor: always the session's resident device, no
+    /// login, chrome, rail or updater of its own ([`ui::ede_component`]),
+    /// no launcher entry or scheme of its own; a standalone app that holds
+    /// the data directory is asked to hand it over.
+    Component,
+}
+
+pub fn run(mode: Mode) {
+    // #EDE-227: before any thread, the loader's variables the compositor
+    // kept from its helper come back for what the component starts
+    // (terminals, agents, git): read at exec only, they reach no code here.
+    #[cfg(target_os = "linux")]
+    if mode == Mode::Component {
+        restore_person_loader_env();
+    }
+    // EXP-2060: first, before any thread: an inherited SIG_IGN of the
+    // termination signals becomes a no-op handler, so every git this host
+    // runs starts at the defaults through posix_spawn, never a fork of it.
+    terminal::process::catch_ignored_signals();
+    // #EXP-1616: started AS `git-remote-exp` (the link installed below):
+    // git's remote helper for exp:// and nothing else (stdout is git's pipe).
+    if git_remote_exp::invoked_as_helper() {
+        api::http::init();
+        std::process::exit(match git_remote_exp::main_with(coding::ecode_helper::helper_auth) {
+            code if code == std::process::ExitCode::SUCCESS => 0,
+            _ => 128,
+        });
+    }
+    // #ERR-12: the crash monitor (this binary, `__exp-crash-monitor`) runs
+    // and exits here, before anything else starts.
+    observability::run_crash_monitor_if_requested();
+    // Read once and cleared before any thread starts, so the terminals and
+    // agents this app spawns don't inherit it.
+    // #EDE-64: the session's device is resident and windowless until the
+    // person opens it.
+    let session_device = ui::take_session_device() || mode == Mode::Component;
+    if mode == Mode::Component {
+        ui::ede_component::set_component();
+    }
+    // EXP-1287: code mode's script worker (`__codemode-worker`, one
+    // child per `exec`): the engine and nothing else, killable by its host.
+    if coding::codemode::worker::requested() {
+        coding::codemode::worker::run_and_exit();
+    }
+    // #FEED-311: `<binary> mcp` = the stdio MCP server of the person's own
+    // clients, forwarding to the key holder of the running app.
+    if std::env::args().nth(1).is_some_and(|arg| arg == "mcp") {
+        coding::client_mcp::run_stdio(api::default_data_dir());
+        return;
+    }
+    // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
+    // per app): the voice model and the audio device, killable by the host.
+    if etalk::requested() {
+        // #ERR-29: its native crashes reach the app's next report (the
+        // panics reach the app on its stdout, etalk-engine).
+        if let Some(data_dir) = etalk::data_dir_arg() {
+            observability::watch_helper_crashes(observability::Product::Desktop, domain::client_version::current_version(), &data_dir, "speech-worker");
+        }
+        etalk_engine::run_and_exit();
+    }
+    // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
+    // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
+    // this the app installed none, so every `log::` line (a failing
+    // heartbeat included) went nowhere. Panics land in the file too. The
+    // data dir resolves exactly as `AuthStore::load` sees it below.
+    let log_data_dir = api::default_data_dir();
+    // #EXP-1616: `git … exp://` in every terminal and session this app starts.
+    coding::ecode_helper::install_git_helper(&log_data_dir);
+    let logger = coding::logging::ExpLogger::new(coding::logging::level_from_env())
+        .with_file(&log_data_dir, "exponential.log")
+        .with_tap(observability::log_tap);
+    if let Some(logger) = coding::logging::install(logger) {
+        log::info!(
+            "Exponential desktop {} starting (pid {}, {}, log {})",
+            domain::client_version::current_version(),
+            std::process::id(),
+            BUILT_FROM,
+            logger
+                .file_path()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "unavailable".to_string())
+        );
+    }
+    coding::logging::install_panic_hook();
+    // #LOGS-2: diagnostics from the cached server config (before any
+    // network, so an early panic is caught), off unless the server and the
+    // person's "Send diagnostics" switch both say on. On this thread: it is
+    // the UI thread the lag instrumentation watches.
+    observability::init(observability::Setup {
+        product: observability::Product::Desktop,
+        version: domain::client_version::current_version().to_string(),
+        data_dir: log_data_dir.clone(),
+        http: api::http::shared,
+        native_crashes: true,
+    });
+    observability::lag::mark_main_thread();
+    // #EXP-2091: the last run's stall files into the log, then the watchdog
+    // that writes the thread stacks when this thread or the heartbeat stops.
+    observability::watch_stalls();
+
+    // Build the app's ONE HTTP client here, first, on the foreground thread
+    // (EXP-304). `reqwest::blocking` must not be constructed from inside an
+    // async context, and `crates/steer` reaches the api crate from tokio's
+    // `spawn_blocking` — doing it eagerly means no code path can ever build it
+    // on a runtime thread.
+    api::http::init();
+
+    // OAuth-callback channel (exponential:// → §5.7): filled by the macOS
+    // `on_open_urls` surface AND — on Linux, where gpui never invokes that —
+    // by the single-instance datagram bridge. Drained by a foreground task
+    // (§3.6) into `ui::handle_open_urls`.
+    let (url_tx, url_rx) = flume::unbounded::<Vec<String>>();
+
+    // Linux/BSD: enforce a single instance and route the browser's exponential://
+    // deep link into the RUNNING window (gpui's on_open_urls is macOS-only).
+    // A forwarding launch exits here BEFORE we spin up any display/GPU state;
+    // the primary registers itself as the exponential:// handler so the callback can
+    // reach it at all (AppImage/dev builds register nothing otherwise).
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    match single_instance::acquire(url_tx.clone(), mode == Mode::Component) {
+        single_instance::Instance::Forwarded => return,
+        // #EDE-227: the component has no launcher entry or scheme of its
+        // own (the desktop's package and its shell are both).
+        single_instance::Instance::Primary if mode == Mode::Component => {}
+        single_instance::Instance::Primary => desktop_integration::ensure_scheme_registered(),
+    }
+
+    // Windows: same single-instance + deep-link bridge as Linux (gpui's
+    // on_open_urls is macOS-only), over loopback TCP instead of a Unix
+    // socket, plus per-user HKCU registration of the exponential:// scheme.
+    // FEED-189: a relaunch waits for the app it replaces first.
+    #[cfg(target_os = "windows")]
+    windows_integration::await_relaunch();
+    #[cfg(target_os = "windows")]
+    match windows_integration::acquire(url_tx.clone()) {
+        windows_integration::Instance::Forwarded => return,
+        windows_integration::Instance::Primary => {
+            windows_integration::ensure_scheme_registered()
+        }
+    }
+
+    // macOS: re-assert ourselves as the default exponential:// handler each launch
+    // (self-registration parity with Linux). No-op when run unbundled. macOS
+    // needs no single-instance socket — Launch Services delivers exponential:// to the
+    // already-running bundle via on_open_urls below.
+    #[cfg(target_os = "macos")]
+    macos_integration::ensure_scheme_registered();
+    #[cfg(target_os = "macos")]
+    macos_integration::match_web_font_smoothing();
+
+    // #EXP-1938: closing the last window quits only when the shell, the tray
+    // or `ui`'s observer say so; gpui's default would end the loop first.
+    let app = gpui_platform::application().with_quit_mode(ui::QUIT_MODE).with_assets(assets::Assets);
+    let app = ui::relaunch_as(app, session_device);
+
+    // on_open_urls is the macOS OAuth-callback surface (exponential:// → §5.7).
+    // Real signature: FnMut(Vec<String>) — NO cx.
+    app.on_open_urls(move |urls| {
+        let _ = url_tx.send(urls);
+    });
+
+    // macOS: clicking the dock icon with no SHELL window open reopens one.
+    //
+    // EXP-287: `cx.windows()` counts EVERY window, so a lingering native
+    // dialog or undocked terminal swallows the dock click and the app looks
+    // dead. `windows_open` counts only `ui::Shell` windows, which is what
+    // "reopen the app" actually means. The global is absent until
+    // `Store::open` runs inside `app.run` below — before that there is
+    // nothing to reopen anyway.
+    app.on_reopen(|cx| {
+        let shells_open = cx
+            .try_global::<sync::Store>()
+            .is_some_and(|store| store.state().read(cx).windows_open > 0);
+        if !shells_open {
+            windows::open_shell_window(cx);
+        }
+    });
+
+    app.run(move |cx| {
+        // MUST be first — installs the component globals + base keys (§3.3).
+        gpui_component::init(cx);
+
+        // Fonts before theme: the theme sets font_family = "Inter", which the
+        // embedded TTFs make resolvable with no runtime font path (§3.2).
+        assets::load_embedded_fonts(cx);
+
+        // ORDER IS LOAD-BEARING (§3.6/§4.3): theme::init forces dark FIRST
+        // (Theme::change reassigns colors AND tokens from the stock config),
+        // THEN overwrites the palette from the generated tokens and rebuilds
+        // tokens. Dark-only, like web — never sync_system_appearance.
+        theme::init(cx);
+
+        // Panel-name → constructor registry for DockAreaState rehydration
+        // (§3.3), before any window can load a persisted layout.
+        ui::init(cx);
+
+        // EXP-287: `ui` opens windows of its own (native dialogs, undocked
+        // terminals) long after launch, and on X11 each of those now carries
+        // its own taskbar button — which reads `_NET_WM_ICON`, a property the
+        // launch-time stamping thread is far too short-lived to have set. Give
+        // `ui` a way back here to re-run the (idempotent) pass. No-op
+        // elsewhere; `install()` self-skips on Wayland.
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        ui::set_window_opened_hook(x11_window_icon::install, cx);
+
+        actions::init(cx);
+        #[cfg(target_os = "macos")]
+        menus::install_menubar(cx);
+
+        // EXP-638: the process identity OS notifications post under. Windows
+        // needs it (an unpackaged exe has no AppUserModelID; gpui sets the
+        // process AUMID and registers its display name so toasts show
+        // without a Start-menu shortcut), Linux takes the app name for the
+        // XDG notification, macOS reads the bundle itself (no-op). Must
+        // precede the first window and the first notification.
+        cx.set_app_identity(channel::APP_ID, channel::APP_NAME);
+        // #FEED-232: the launcher entry the app icon's count names.
+        ui::set_app_badge_id(channel::APP_ID);
+
+        // ---- Auth + sync globals (§5.7 / §5.8) -----------------------------
+        // The AuthStore hydrates remembered accounts + tokens (0600-file
+        // store); its unauthorized handler is wired into the sync manager so a
+        // hard 401 deletes the dead token BEFORE the store's delta drain
+        // routes the UI to login.
+        let data_dir = api::default_data_dir();
+        let auth = api::AuthStore::load(data_dir.clone());
+        // EXP-104: the sync manager also gets a 426 hook — a stale build stops
+        // polling and the shell renders the blocking "Update required" view.
+        // Built before `Store::open` (it can't share the `&mut App` borrow).
+        let on_upgrade_required = ui::upgrade_required_handler(cx);
+        let store = sync::Store::open(
+            cx,
+            Some(auth.unauthorized_handler_fn()),
+            Some(on_upgrade_required),
+        );
+        cx.set_global(store);
+        // EXP-640: the crash-recovery session registry drops an entry only
+        // once its `codingSessions.end` resolved — installed before any
+        // session can launch.
+        ui::install_session_end_observer(data_dir.clone());
+        cx.set_global(ui::AuthContext {
+            auth,
+            client: std::sync::Arc::new(api::AuthClient::new()),
+            data_dir,
+        });
+        // VAPP-235: the app record outbox (loads + flushes at sign-in and
+        // when the sync connection comes back): before the bootstrap.
+        ui::install_record_outbox(cx);
+
+        // Remote-steer subsystem (§08): the single steer tokio runtime, the
+        // own-row Electric kill-switch, and the remote-`start_session` inbox.
+        // MUST run before the session bootstrap connects an account (which
+        // dials the per-account control socket). A no-op-friendly install:
+        // when the relay is unconfigured the whole subsystem stays silent.
+        ui::steer_wiring::install(cx);
+
+        // EXP-638: OS notifications off the synced `notifications` shape —
+        // observes the store's collection (needs `Store::open` above) and
+        // reads the per-machine switch through the coding hub (needs the
+        // `AuthContext` global). A toast clicked with every shell window
+        // closed asks this hook for a fresh one to land in.
+        ui::set_open_shell_window_hook(windows::open_shell_window, cx);
+        ui::os_notifications::install(cx);
+        // #EXP-1422: eTalk (after the store + AuthContext, like the notifier
+        // above): Speak replies (NEW-53), push to talk (#NEW-54), caller mode
+        // (NEW-55), meeting mode's host (NEW-57) and the voice tray (NEW-68),
+        // in that order, with Exponential as their host.
+        ui::talk_host::install(cx);
+
+        // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
+        // (headless verification, dev-only) or a warm-start resume of the
+        // persisted account — else the team boots to the login surface.
+        ui::bootstrap_session(cx);
+        // #EDE-226: eDE's shell signs in and out (its Connect, its Settings).
+        ui::follow_accounts(cx);
+        // #EDE-227: the session bus (links with the press's launch token,
+        // the holder's commands, the component's handover), served by the
+        // lock's holder beside the link socket.
+        #[cfg(target_os = "linux")]
+        if single_instance::holds_lock() {
+            let role = if mode == Mode::Component { api::bus::Role::Component } else { api::bus::Role::Standalone };
+            ui::session_bus::install(role, cx);
+        }
+
+        // Update check (§11.2, EXP-68): at launch and periodically while
+        // running; non-blocking, offline-safe; flips a global the Shell
+        // renders as a dismissible "Update available" banner. Staging channel
+        // skips it internally.
+        ui::check_for_updates(cx);
+
+        // Foreground drain for the OAuth-callback URLs (on_open_urls has no
+        // cx): `exponential://oauth-return#token=…` → the §5.7 token adoption in
+        // `ui::handle_open_urls` (parse locally, validate, sign in, sync).
+        cx.spawn(async move |cx| {
+            while let Ok(urls) = url_rx.recv_async().await {
+                // NEW-68: an empty batch is a plain second launch: bring a
+                // window up (the voice tray may keep the IDE running with
+                // every window closed).
+                if urls.is_empty() {
+                    cx.update(ui::talk_host::open_ide);
+                } else {
+                    cx.update(|cx| ui::handle_open_urls(urls, cx));
+                }
+            }
+        })
+        .detach();
+
+        if session_device {
+            ui::set_resident_device(cx);
+        } else {
+            cx.activate(true);
+            windows::open_shell_window(cx);
+        }
+
+        // DEV-ONLY (EXP-633): with EXP_DEV_READY_FILE set, signal the capture
+        // pipeline once the window, the session and (signed in) every shape
+        // have settled. No-op in normal runs.
+        ui::install_dev_ready_probe(cx);
+
+        // #LOGS-2: frame timings, the main-thread heartbeat and the
+        // connected server's monitoring config (no-op while nothing listens).
+        ui::diagnostics::install(cx);
+
+        // Dev hook: EXP_WINDOWS=N opens N shell windows at startup so the
+        // §3.10 multi-window gate ("a second window opens sharing the global
+        // Store") is demonstrable headlessly/in CI without synthesizing menu
+        // clicks. Users open further windows via File ▸ New Window /
+        // cmd-shift-n (the real §3.6 paths).
+        if let Some(extra) = std::env::var("EXP_WINDOWS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .map(|count| count.clamp(1, 4) - 1)
+        {
+            for _ in 0..extra {
+                windows::open_shell_window(cx);
+            }
+        }
+    });
+}
+
+/// #EDE-227: what eDE's compositor saved of the person's environment for
+/// its helper (`EDE_PERSON_ENV`, a JSON object) gives back the dynamic
+/// loader's variables, which only an exec reads, to the processes the
+/// component starts; the rest the compositor pins (Vulkan's layers, the GL
+/// and PipeWire module paths: this process loads them) stays pinned. The
+/// saved object is not passed on.
+#[cfg(target_os = "linux")]
+fn restore_person_loader_env() {
+    const PERSON_ENV: &str = "EDE_PERSON_ENV";
+    let Ok(saved) = std::env::var(PERSON_ENV) else { return };
+    // Safety: called first thing in `run`, before any thread starts.
+    unsafe { std::env::remove_var(PERSON_ENV) };
+    for (name, value) in person_loader_env(&saved) {
+        // Safety: as above.
+        unsafe { std::env::set_var(name, value) };
+    }
+}
+
+/// The loader's variables in the saved environment `saved`.
+#[cfg(target_os = "linux")]
+fn person_loader_env(saved: &str) -> Vec<(String, String)> {
+    const LOADER: [&str; 3] = ["LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH"];
+    let Ok(map) = serde_json::from_str::<std::collections::BTreeMap<String, String>>(saved) else { return Vec::new() };
+    map.into_iter().filter(|(name, _)| LOADER.contains(&name.as_str())).collect()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[test]
+    fn only_the_loaders_variables_come_back() {
+        let saved = r#"{"LD_LIBRARY_PATH":"/opt/lib","VK_ICD_FILENAMES":"/x.json","PIPEWIRE_MODULE_DIR":"/m","LD_PRELOAD":"/p.so"}"#;
+        assert_eq!(super::person_loader_env(saved), vec![("LD_LIBRARY_PATH".to_string(), "/opt/lib".to_string()), ("LD_PRELOAD".to_string(), "/p.so".to_string())]);
+        assert!(super::person_loader_env("not json").is_empty());
+    }
+}
