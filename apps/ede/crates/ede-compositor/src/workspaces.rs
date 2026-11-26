@@ -2,8 +2,8 @@
 //! Cinnamon. A window lives on one workspace; the windows of the others
 //! are parked (unmapped from the space, their place remembered) so
 //! rendering, hit-testing, the switcher and the taskbar only ever see the
-//! active one. Super+1…9 switch, Super+Shift+1…9 move the focused window
-//! along, Ctrl+Alt+Left/Right step (Shift moves the window). The shell
+//! active one. Ctrl+Alt+Left/Right step (Shift moves the window), as
+//! Cinnamon binds it (#EDE-243: Super+1…9 are the taskbar's). The shell
 //! hears `workspace.switched` and can switch or move over ede-protocol.
 
 use serde_json::json;

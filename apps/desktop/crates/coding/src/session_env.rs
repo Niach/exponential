@@ -99,7 +99,16 @@ pub struct XdgContext {
     pub real_config: PathBuf,
     pub real_data: PathBuf,
     pub manifests: Option<PathBuf>,
+    /// The app's own data dir ([`api::default_data_dir`] as the launching
+    /// process sees it): the session's `git-remote-exp` signs in from it
+    /// ([`GIT_DATA_DIR_VAR`]), though the session's XDG dirs keep it out.
+    pub app_data: Option<PathBuf>,
 }
+
+/// #EXP-2187: where a session's `git-remote-exp` finds the app's account.
+/// Only the helper reads it ([`crate::ecode_helper::helper_auth`]); every
+/// other Exponential process in the session keeps the session's own dirs.
+pub const GIT_DATA_DIR_VAR: &str = "EXP_GIT_DATA_DIR";
 
 impl XdgContext {
     /// This machine's (Linux/BSD only; `None` on macOS/Windows, where the
@@ -110,7 +119,13 @@ impl XdgContext {
             return None;
         }
         let (real_config, real_data) = real_xdg_dirs()?;
-        Some(Self { temp: std::env::temp_dir(), real_config, real_data, manifests: crate::session_manifest::manifest_dir() })
+        Some(Self {
+            temp: std::env::temp_dir(),
+            real_config,
+            real_data,
+            manifests: crate::session_manifest::manifest_dir(),
+            app_data: Some(api::default_data_dir()),
+        })
     }
 }
 
@@ -135,6 +150,9 @@ pub fn apply_in(spawn: SpawnSpec, session: Option<&str>, xdg: Option<&XdgContext
             spawn = spawn
                 .env("XDG_CONFIG_HOME", config.to_string_lossy().into_owned())
                 .env("XDG_DATA_HOME", data.to_string_lossy().into_owned());
+            if let Some(app_data) = &xdg.app_data {
+                spawn = spawn.env(GIT_DATA_DIR_VAR, app_data.to_string_lossy().into_owned());
+            }
         }
         Err(err) => log::warn!("session {session}: own XDG dirs not made ({err:#}); the real ones stay"),
     }
@@ -173,12 +191,15 @@ mod tests {
             real_config: dir.join("real/config"),
             real_data: dir.join("real/data"),
             manifests: Some(dir.join("manifests")),
+            app_data: Some(dir.join("real/data/exponential")),
         };
         let spawn = apply_in(SpawnSpec::new("agent"), Some("sess-1"), Some(&xdg));
         let root = xdg_root(&xdg.temp, "sess-1");
         let get = |key: &str| spawn.env.iter().find(|(k, _)| k == key).map(|(_, v)| PathBuf::from(v));
         assert_eq!(get("XDG_CONFIG_HOME"), Some(root.join("config")));
         assert_eq!(get("XDG_DATA_HOME"), Some(root.join("data")));
+        // #EXP-2187: the git helper still finds the app's account.
+        assert_eq!(get(GIT_DATA_DIR_VAR), Some(dir.join("real/data/exponential")));
         assert!(root.join("config/gh").exists() && !root.join("data/applications").exists());
         assert!(spawn.env_remove.iter().any(|key| key == "APPIMAGE"));
         let manifest = std::fs::read_to_string(dir.join("manifests/sess-1")).unwrap();

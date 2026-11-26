@@ -9649,6 +9649,48 @@
       }
     },
     {
+      "id": "ede-applet-drives",
+      "group": "ede",
+      "title": "Exponential Desktop · removable drives applet",
+      "blurb": "The factory removable-drives applet (apps/ede/ui/applet-drives.express, #EDE-245, Cinnamon removable-drives): the taskbar button shown while a removable drive is mounted opens it above it: each mounted removable filesystem (a press opens it in the file manager) with its eject button (a sample USB stick in the golden).",
+      "order": 24,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-drives"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-printers",
+      "group": "ede",
+      "title": "Exponential Desktop · printers applet",
+      "blurb": "The factory printers applet (apps/ede/ui/applet-printers.express, #EDE-245, Cinnamon printers): the taskbar button shown while CUPS lists a printer opens it above it: the print jobs each with Cancel, Cancel all jobs, the printers (the default selected) and the Printer settings link (a sample printer and job in the golden).",
+      "order": 25,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-printers"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
       "id": "record-form-field-states",
       "group": "coding",
       "title": "Record form field states",

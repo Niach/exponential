@@ -18,6 +18,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.failedAction
 import androidx.compose.ui.Modifier
+import com.exponential.app.ui.components.headerFoldChip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.MergeTrain
@@ -72,8 +73,12 @@ fun MergeStatusPill(
 ) {
     val size = PillSize.Md
     val glyph = view.glyph
+    // #EXP-2183 (header-actions.json COLLAPSE): a narrow chat header folds the
+    // pill to its glyph (the icon-only capsule), the label read out.
+    val folded = com.exponential.app.ui.components.headerFolded("primary")
     GlassPill(
-        view.label,
+        if (folded) "" else view.label,
+        contentDescription = if (folded) view.label else null,
         icon = if (glyph == "spinner" || view.tone == "red") null else ExpIcons.byConcept(glyph),
         leading = when {
             loading -> null
@@ -103,7 +108,9 @@ fun MergeStatusPill(
         loading = loading,
         enabled = !loading,
         onClick = onClick,
-        modifier = modifier.testTag(MergeTrain.TestIds.STATUS_PILL),
+        modifier = modifier
+            .then(Modifier.headerFoldChip("primary", view.label, GlassPillDefaults.MdHeight))
+            .testTag(MergeTrain.TestIds.STATUS_PILL),
     )
 }
 

@@ -21,6 +21,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,8 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +47,8 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.HeaderEdgeChrome
+import com.exponential.app.ui.components.HeaderFold
+import com.exponential.app.ui.components.LocalHeaderFold
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -93,7 +100,23 @@ fun ChatHeader(
      *  right after the title ([ChatMarks]); empty = none. */
     marks: List<String> = emptyList(),
 ) {
+    // #EXP-2183 (header-actions.json COLLAPSE): the title keeps its share of
+    // a narrow bar; the Merge pill, then the waiting chip, fold to the glyph.
+    val fold = remember { HeaderFold() }
+    val titleStyle = MaterialTheme.typography.titleMedium.copy(
+        fontSize = Chats.Shell.ChatHeader.TITLE.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.sp,
+    )
+    val measurer = rememberTextMeasurer()
+    val titleIntrinsic = remember(title, titleStyle) {
+        measurer.measure(title, titleStyle, maxLines = 1, softWrap = false).size.width.toFloat()
+    }
+    SideEffect { fold.titleIntrinsic = titleIntrinsic }
+    LaunchedEffect(fold) { fold.follow() }
     HeaderEdgeChrome {
+        CompositionLocalProvider(LocalHeaderFold provides fold) {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding()
             // Landscape: clear of the camera cutout and a side navigation bar, like the transcript.
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).testTag("chat-header")) {
@@ -102,6 +125,7 @@ fun ChatHeader(
                     .fillMaxWidth()
                     // A large font scale grows the row with its two lines.
                     .heightIn(min = Chats.Shell.ChatHeader.ROW.dp)
+                    .onSizeChanged { fold.bar = it.width.toFloat() }
                     .padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -117,16 +141,11 @@ fun ChatHeader(
                 }
                 lead()
                 Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).onSizeChanged { fold.titleSpace = it.width.toFloat() }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = Chats.Shell.ChatHeader.TITLE.sp,
-                            lineHeight = 22.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.sp,
-                        ),
+                        style = titleStyle,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -184,6 +203,7 @@ fun ChatHeader(
                 }
             }
             tabs?.invoke()
+        }
         }
     }
 }

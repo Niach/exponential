@@ -10,6 +10,7 @@ import {
   Menu,
   prChecksMenuEntry,
   PrStatusPill,
+  useHeaderFolded,
   Prompt,
   type MenuEntry,
 } from "@exp/ui"
@@ -190,6 +191,8 @@ export function PullRequestStatusPill({
   className?: string
 }) {
   const [checksOpen, setChecksOpen] = useState(false)
+  // #EXP-2183: a narrow header folds the pill to its glyph.
+  const folded = useHeaderFolded(`primary`)
   const open = pr.state === `open`
   const state = prMergeState(pr)
   const approval = open && member && state === `checks` && pr.mergeWait === `approval`
@@ -217,6 +220,7 @@ export function PullRequestStatusPill({
     <PrStatusPill
       view={view}
       busy={approve.busy}
+      folded={folded}
       disabled={view.tap === `approve` && (approve.busy || !approve.ready)}
       aria-label={approve.busy ? FEEDBACK_WORDS.pending.merge : view.label}
       title={view.label}

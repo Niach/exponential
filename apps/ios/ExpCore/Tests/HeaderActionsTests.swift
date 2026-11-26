@@ -21,5 +21,26 @@ final class HeaderActionsTests: XCTestCase {
         for c in try XCTUnwrap(fixture["menuCases"] as? [[String: Any]]) {
             XCTAssertEqual(HeaderActions.menu(try XCTUnwrap(c["entries"] as? [String])), c["expected"] as? [String])
         }
+        let collapse = try XCTUnwrap(fixture["collapse"] as? [String: Any])
+        XCTAssertEqual(collapse["titleMinShare"] as? Double, HeaderActions.titleMinShare)
+        XCTAssertEqual(collapse["order"] as? [String], HeaderActions.collapseOrder.map(\.rawValue))
+        let cases = try XCTUnwrap(fixture["collapseCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let chips = try XCTUnwrap(c["chips"] as? [[String: Any]]).map { chip in
+                HeaderActions.CollapseChip(
+                    action: HeaderActions.Action(rawValue: chip["action"] as? String ?? "") ?? .more,
+                    full: (chip["full"] as? NSNumber)?.doubleValue ?? 0,
+                    compact: (chip["compact"] as? NSNumber)?.doubleValue ?? 0
+                )
+            }
+            let folded = HeaderActions.collapse(
+                bar: (c["bar"] as? NSNumber)?.doubleValue ?? 0,
+                title: (c["title"] as? NSNumber)?.doubleValue ?? 0,
+                fixed: (c["fixed"] as? NSNumber)?.doubleValue ?? 0,
+                chips: chips
+            )
+            XCTAssertEqual(folded.map(\.rawValue), c["expected"] as? [String], c["name"] as? String ?? "")
+        }
     }
 }

@@ -45,7 +45,8 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
         // The button that drives the grab is up and its release never came
         // here (a grab started after it, an input device gone): it ends
         // now instead of dragging the window after the pointer (#EDE-222).
-        if !handle.current_pressed().contains(&self.start_data.button) {
+        // A keyboard move/resize (Alt+F7/F8, #EDE-243) has no button: a click ends it.
+        if self.start_data.button != 0 && !handle.current_pressed().contains(&self.start_data.button) {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
@@ -99,7 +100,9 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
 
     fn button(&mut self, data: &mut Ede, handle: &mut PointerInnerHandle<'_, Ede>, event: &ButtonEvent) {
         handle.button(data, event);
-        if !handle.current_pressed().contains(&super::BTN_LEFT) {
+        // #EDE-243: a keyboard move (Alt+F7, button 0) ends at the first click.
+        let button = self.start_data.button;
+        if button == 0 || !handle.current_pressed().contains(&button) {
             let pointer = handle.current_location();
             handle.unset_grab(self, data, event.serial, event.time, true);
             if let Some((tile, _)) = data.drop_tile(&self.window, pointer) {

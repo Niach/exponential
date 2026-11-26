@@ -771,6 +771,10 @@ impl HostPlugin for Host {
                     other => tracing::warn!(action = ?other, "unknown history action"),
                 }
             }
+            // #EDE-245: the corner bar, Muffin's toggle_desktop.
+            "ede_show_desktop" => {
+                with_ede(&self.shell, |ede| ede.toggle_desktop());
+            }
             "ede_close" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.close_window(id));
@@ -840,20 +844,7 @@ impl HostPlugin for Host {
                     tracing::warn!(%args, "a notification action without its notification id or key");
                 }
             }
-            "ede_notify_clear" => {
-                cx.defer(move |cx| {
-                    let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
-                    for id in ids {
-                        notification_close(&shell, id, 2, cx);
-                    }
-                    // #EDE-65: and every inbox entry it lists is marked read.
-                    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
-                    for key in keys {
-                        inbox_mark_read(&shell, &key, cx);
-                    }
-                    close(&shell, "notification-center", cx);
-                });
-            }
+            "ede_notify_clear" => cx.defer(move |cx| notifications_clear(&shell, cx)),
             "ede_needs_you_open" => {
                 if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| needs_you_open(&shell, &key, cx));
@@ -1993,6 +1984,10 @@ fn applets_json(services: &Value) -> Value {
         "sound": {"icon": sound_icon},
         "bluetooth": {"show": bluetooth["available"].as_bool() == Some(true) && bluetooth["powered"].as_bool() == Some(true)},
         "battery": {"show": battery["present"].as_bool() == Some(true), "icon": if charging { "ede-battery-charging" } else { "ede-battery" }},
+        // #EDE-245: Cinnamon's printers applet "When printers exist", its
+        // removable-drives applet while one is mounted.
+        "printers": {"show": services["printers"]["printers"].as_array().is_some_and(|p| !p.is_empty())},
+        "drives": {"show": services["disks"]["removable"].as_array().is_some_and(|d| !d.is_empty())},
     })
 }
 
@@ -3729,6 +3724,14 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
         "switcher.cancel" => switcher_close(shell, cx),
         "menu.toggle" => start_menu_toggle(shell, cx),
         "agent.toggle" => chat_toggle(shell, cx),
+        // #EDE-243: Cinnamon's notifications applet keys and the grouped window list's Super+1…9.
+        "notifications.open" => toggle_popup(shell, "notification-center", cx),
+        "notifications.clear" => notifications_clear(shell, cx),
+        n if n.starts_with("taskbar.activate.") || n.starts_with("taskbar.launch.") => {
+            if let Some(i) = n.rsplit('.').next().and_then(|d| d.parse::<usize>().ok()).filter(|i| (1..=9).contains(i)) {
+                taskbar_hotkey(shell, i - 1, n.starts_with("taskbar.launch."), cx);
+            }
+        }
         "expo.toggle" => overlay_toggle(shell, "expo", cx),
         "scale.toggle" => overlay_toggle(shell, "scale", cx),
         "volume.up" | "volume.down" => osd_show(shell, system::volume_step(name == "volume.up"), cx),
@@ -3772,6 +3775,50 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
         }
         other => tracing::info!(name = other, "hotkey without a handler"),
     }
+}
+
+/// Clear all: every notification closed and every inbox entry the bell
+/// lists marked read (Shift+Super+C, #EDE-243, and the bell's button).
+fn notifications_clear(shell: &SharedShell, cx: &mut App) {
+    let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
+    for id in ids {
+        notification_close(shell, id, 2, cx);
+    }
+    // #EDE-65: and every inbox entry it lists is marked read.
+    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
+    for key in keys {
+        inbox_mark_read(shell, &key, cx);
+    }
+    close(shell, "notification-center", cx);
+}
+
+/// #EDE-243, Cinnamon's grouped window list's Super+1…9: the nth button
+/// (pinned apps first): no window launches it, else its last focused window
+/// comes forward, and a press while it is focused cycles the group; with
+/// Shift a new instance.
+fn taskbar_hotkey(shell: &SharedShell, index: usize, launch: bool, cx: &mut App) {
+    let (app, next) = {
+        let s = shell.borrow();
+        let Some(button) = uicore_model::taskbar_buttons(&s.model).into_iter().nth(index) else { return };
+        let next = if launch || button.windows.is_empty() {
+            None
+        } else if button.focused {
+            match uicore_model::taskbar_scroll(&s.model, &button.app, uicore_model::ScrollDirection::Down) {
+                Some(TaskbarPress::Focus { id }) => Some(id),
+                _ => None,
+            }
+        } else {
+            s.model.mru.iter().find(|id| button.windows.contains(id)).cloned().or_else(|| button.windows.first().cloned())
+        };
+        (button.app, next)
+    };
+    match next.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+        Some(id) => {
+            with_ede(shell, |ede| ede.focus(id));
+        }
+        None => launch_app(shell, &app),
+    }
+    let _ = cx;
 }
 
 /// Expo / Scale (#EDE-49): an on-demand overlay document with every
