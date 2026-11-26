@@ -204,6 +204,8 @@ pub mod plan_card;
 pub mod plan_page;
 // #EXP-1710: the merge train's status pill, `…` rows, stuck row and pr_merge lines (merge-train.json).
 pub mod merge_train;
+// #EXP-2161: member spaces (member-space.json).
+pub mod member_space;
 // #FEED-191: every plan and question waiting on the viewer, fixture-locked ×4.
 pub mod needs_you;
 // #FEED-232: ONE count badge on every nav destination (nav-badges.json).

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-assistant-on-team-device",
+    date: "2026-11-26",
+    title: "Your Assistant on a team's machine",
+    summary: "Run your private Assistant on a server shared with your team, once its owner allows it.",
+    body: r##"- **Runs on**: Settings › Assistant › Runs on lists the servers your teams allow, under each team's name. Picking one starts a new conversation there; it stays private to you, but the machine's owner and admins can read what it does.
+- **For device owners**: Device settings › Sharing has a Members' Assistants switch per team. Members use the logins on the machine, each in a separate, closed-off space, and you can remove any of them.
+- **Approval**: the new device asks for your approval in Needs you before it reads anything."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_366: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-desktop-cli-0-14-185-phones",
     date: "2026-11-26",
     title: "Teams as one tree on phones, Dismiss in Needs you, and ended chats keep their transcript",

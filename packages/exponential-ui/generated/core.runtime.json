@@ -455,6 +455,9 @@
         "hint": {
           "type": "string"
         },
+        "section": {
+          "type": "string"
+        },
         "mono": {
           "type": "boolean"
         },

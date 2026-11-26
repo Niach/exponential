@@ -36,7 +36,13 @@ import { TRPCError } from "@trpc/server"
 import { apikeys } from "@/db/auth-schema"
 import type { Context } from "@/lib/trpc"
 
-export const API_KEY_KINDS = [`personal`, `agent`] as const
+// #EXP-2161 (member-space.json, THE CREDENTIAL): `space` = a member space's
+// own key (`memberSpaces.provision`), `spaceId` = its devices row; an AGENT
+// key minted through it carries the same `spaceId`. Both grant nothing while
+// the space row is gone (lib/spaces/grant.ts, read per request).
+export const API_KEY_KINDS = [`personal`, `agent`, `space`] as const
+/** The kinds `users.mintPersonalApiKey` mints (never `space`). */
+export const MINTABLE_KEY_KINDS = [`personal`, `agent`] as const
 export type ApiKeyKind = (typeof API_KEY_KINDS)[number]
 
 /** A stored key scope: never "everything" (an all-teams pick stores NO
@@ -57,6 +63,8 @@ export interface ApiKeyMetadata {
   scope: ApiKeyScope | null
   /** #EXP-2028: the session the key is bound to (`null` = unbound). */
   sessionId?: string | null
+  /** #EXP-2161: the member space the key belongs to (`null` = none). */
+  spaceId?: string | null
 }
 
 const UNSCOPED_PERSONAL: ApiKeyMetadata = { kind: `personal`, scope: null }
@@ -83,8 +91,20 @@ export function parseApiKeyMetadata(
     return UNSCOPED_PERSONAL
   }
   if (!parsed || typeof parsed !== `object`) return UNSCOPED_PERSONAL
-  const record = parsed as { kind?: unknown; scope?: unknown; sessionId?: unknown }
-  const kind: ApiKeyKind = record.kind === `agent` ? `agent` : `personal`
+  const record = parsed as { kind?: unknown; scope?: unknown; sessionId?: unknown; spaceId?: unknown }
+  const kind: ApiKeyKind = record.kind === `agent` ? `agent` : record.kind === `space` ? `space` : `personal`
+  // #EXP-2161: a space's key without its space (or with a malformed one)
+  // grants nothing, and so does any other key carrying a malformed one.
+  if (kind === `space` || (record.spaceId !== undefined && record.spaceId !== null)) {
+    const spaceId = typeof record.spaceId === `string` && UUID_RE.test(record.spaceId) ? record.spaceId.toLowerCase() : null
+    if (!spaceId || kind === `personal`) return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
+    if (kind === `space`) return { kind, scope: null, spaceId }
+    return { ...parseBoundMetadata(kind, record), spaceId }
+  }
+  return parseBoundMetadata(kind, record)
+}
+
+function parseBoundMetadata(kind: ApiKeyKind, record: { scope?: unknown; sessionId?: unknown }): ApiKeyMetadata {
   // #EXP-2028: a session-bound key (only the launcher's agent key is ever
   // minted bound). A present but malformed binding fails CLOSED: the key
   // grants nothing (an empty scope), never the unbound full key.

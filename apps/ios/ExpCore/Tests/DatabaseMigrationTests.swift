@@ -149,7 +149,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
         )
     }
 
@@ -220,7 +220,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
         )
     }
 
@@ -763,7 +763,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -882,7 +882,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -4136,6 +4136,54 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.groupChatId }, "g-1")
+    }
+
+    // #EXP-2161: v115 adds `devices.assistant_team_ids`, `space_host_id` and
+    // `space_team_id`, resetting ONLY the devices cursor; a wire row's
+    // `{a,b}` literal and a space's host round-trip, absent reads as none.
+    func testDeviceMemberSpacesAdded() throws {
+        let pool = try makePool("exp2161-device-member-spaces")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v114_agent_group_chat")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "devices" ("id", "user_id", "device_id", "label")
+                VALUES ('d1', 'u', 'mac', 'Mac')
+                """)
+            for shape in ["devices", "agents"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "devices").contains("space_host_id"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v115_device_member_spaces"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["devices"])
+            let old = try XCTUnwrap(try DeviceEntity.fetchOne(db, key: "d1"))
+            XCTAssertEqual(old.assistantTeamIds, [])
+            XCTAssertNil(old.spaceHostId)
+        }
+        let space = try JSONDecoder().decode(DeviceEntity.self, from: Data("""
+            {"id":"d2","user_id":"u","device_id":"space-1","label":"unraid","assistant_team_ids":"{t1,t2}",
+             "space_host_id":"h1","space_team_id":"t1"}
+            """.utf8))
+        XCTAssertEqual(space.assistantTeamIds, ["t1", "t2"])
+        XCTAssertTrue(space.isMemberSpace)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in try space.save(db) }
+        let stored = try XCTUnwrap(try pool.read { db in try DeviceEntity.fetchOne(db, key: "d2") })
+        XCTAssertEqual(stored.assistantTeamIds, ["t1", "t2"])
+        XCTAssertEqual(stored.spaceHostId, "h1")
+        XCTAssertEqual(stored.spaceTeamId, "t1")
     }
 
     // #NEW-49: v110 adds `sessions.watching` (jsonb text), resetting ONLY

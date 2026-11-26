@@ -1,3 +1,4 @@
+import { assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
@@ -73,6 +74,8 @@ export async function loadCardForAnswer(
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)
+  // #EXP-2161: a dismiss only closes the card.
+  if (!input.dismissed) await assertTreeHasDevice(database, session.id)
   // #NEW-79: a voice conversation's proposal cards approve calls made in
   // its member's name: only that member answers them.
   if (session.userId !== userId && (await isVoiceConversation(session, database))) {

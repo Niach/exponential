@@ -9,6 +9,7 @@
 // upstream MCP tool with the member's own vaulted credential (a missing link
 // answers a connect URL). Every result carries `_meta` provenance; nothing
 // chains: one call runs exactly one binding of one app.
+import { currentSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
 import { createHash } from "node:crypto"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
@@ -532,6 +533,8 @@ export function createAppsMcpServer(ctx: BrokerContext, tools: readonly BrokerTo
 
 /** `/api/mcp/apps`'s tool provider: the grant, the tools, the audit context. */
 export const appsToolProvider: ToolProvider = async (caller, request) => {
+  // #EXP-2161: an app's tools write what automations run on: never through a space.
+  if (currentSpace()) return jsonResponse(403, { jsonrpc: `2.0`, error: { code: -32000, message: SPACE_KEY_MESSAGE }, id: null })
   const grant = await resolveAppsGrant(caller, request)
   if (!grant) return noGrant()
   const { teamId, teamSlug, tools } = await brokerTools(caller.user.id, grant)

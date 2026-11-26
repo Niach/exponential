@@ -10,7 +10,8 @@ import GRDB
 /// cancels one. A send carries the entry's clientId as `clientMessageId`
 /// (F21: a resend returns the row the server already stored); success
 /// stamps the messageId, a failure flips the entry to `failed` (no toast:
-/// the bubble's red mark says so).
+/// the bubble's red mark says so; #EXP-2161: but WHY, when the Assistant has
+/// no device, `copy.noDevice`, is news: the failed-action toast, as on web).
 @MainActor
 final class SessionOutbox {
     static let shared = SessionOutbox()
@@ -93,6 +94,11 @@ final class SessionOutbox {
                 messageId = result.messageId
             } catch {
                 failed = true
+                if error.userFacingMessage == MemberSpace.Copy.noDevice {
+                    Toaster.shared.error(
+                        FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: error.userFacingMessage
+                    )
+                }
             }
             self?.inFlight.remove(entry.clientId)
             guard let pool = try? db.pool(forAccountId: accountId) else { return }

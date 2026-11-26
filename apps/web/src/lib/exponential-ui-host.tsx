@@ -61,7 +61,7 @@ import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { deviceRowIsOnline, listedDevices } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/emcp/upstream/json-rpc-reader"
 import { UPSTREAM_BINDING, upstreamHostBanners, type UpstreamHostBanner, type UpstreamReadAnswer } from "@exp/emcp/upstream"
@@ -113,11 +113,11 @@ export function devicesValue(
     version: string | null
     icon: string | null
     lastSeenAt: Date | string | null
+    spaceHostId?: string | null
   }[],
   now: Date
 ) {
-  const rows = devices
-    .slice()
+  const rows = listedDevices(devices)
     .sort((a, b) => a.label.localeCompare(b.label))
     .map((d) => {
       const online = d.lastSeenAt ? deviceRowIsOnline(d.lastSeenAt, now) : false

@@ -709,6 +709,12 @@ pub const SHAPES: [ShapeSpec; 37] = [
             // FEED-33: `uuid[]`, every team the machine is shared with
             // (`{}` = private); replaced the single `shared_team_id`.
             "shared_team_ids",
+            // #EXP-2161 (member-space.json): the opt-in per team; a space
+            // row's host and team (set = a space: never listed as a device).
+            // `heal_missing_columns` ALTERs them onto existing store tables.
+            "assistant_team_ids",
+            "space_host_id",
+            "space_team_id",
             // EXP-622: the owner's default machine. It was missing from this
             // list (the proxy always served it), so `DeviceRow.is_default`
             // hydrated None on the desktop and every picker fell back to
@@ -1400,6 +1406,9 @@ mod tests {
                 "active_sessions",
                 "last_seen_at",
                 "shared_team_ids",
+                "assistant_team_ids",
+                "space_host_id",
+                "space_team_id",
                 "is_default",
                 "update_requested_at",
                 "runner",

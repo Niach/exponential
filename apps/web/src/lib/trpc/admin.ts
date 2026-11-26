@@ -1,3 +1,4 @@
+import { endAccountSpacesInTx, endSpacesInTx, finishEndedSpaces, spacesOfTeam, type EndedSpace } from "@/lib/spaces/end"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -312,12 +313,15 @@ export const adminRouter = router({
       let doomedSubscriptions: CancellableSubscription[] = []
       // Cross-account coding sessions the cleanup ended in-tx (EXP-445).
       let endedSessionIds: string[] = []
+      let endedSpaces: EndedSpace[] = []
       await ctx.db.transaction(async (tx) => {
         // Same orphan safety as users.deleteAccount (lib/account-deletion.ts):
         // fail closed when the user is the sole owner of a team that
         // still has other members — an admin delete must not silently strand
         // a team — delete teams where they are the only member, and scrub the
         // address out of mentions + email residue.
+        // #EXP-2161: their member space, and the ones their machines host.
+        endedSpaces = await endAccountSpacesInTx(tx, input.userId)
         const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           input.userId,
@@ -350,6 +354,7 @@ export const adminRouter = router({
       // Tear the shared-device runs down immediately (EXP-445); the committed
       // `ended` rows above are the durable signal either way.
       await relayKillSessionsBestEffort(endedSessionIds)
+      await finishEndedSpaces(endedSpaces)
 
       return { ok: true }
     }),
@@ -1140,6 +1145,7 @@ export const adminRouter = router({
       let storageKeys: string[] = []
       // #EXP-2138: the team's sessions, read before the cascade drops them.
       let kills: KillTarget[] = []
+      let endedSpaces: EndedSpace[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
@@ -1148,13 +1154,17 @@ export const adminRouter = router({
           input.teamId,
         ])
         kills = await teamKillTargets(tx, input.teamId)
+        // #EXP-2161: the member spaces picked through it end with it.
+        const spaceIds = await spacesOfTeam(tx, input.teamId)
         await tx.delete(teams).where(eq(teams.id, input.teamId))
+        endedSpaces = await endSpacesInTx(tx, spaceIds, `unshared`)
         await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
       await relayKillDeletedBestEffort(kills)
+      await finishEndedSpaces(endedSpaces)
 
       // No remote cancellation here: the gate above already proved the
       // subscription is cancelled (or scheduled to cancel, in which case the

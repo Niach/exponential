@@ -103,6 +103,7 @@ import {
   usedByCaption,
 } from "@exp/domain-contract/settings-mcp"
 import { deviceCollection } from "@/lib/collections"
+import { listedDevices } from "@/lib/steer-devices"
 import { useSession } from "@/hooks/use-session"
 import type { Device } from "@/db/schema"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
@@ -1262,7 +1263,7 @@ function useRunsOnDevices(current: McpServerRow[`device`] | null): DevicePickerD
   const me = session?.user?.id
   const { data: rows } = useLiveQuery((query) => (me ? query.from({ d: deviceCollection }) : undefined), [me])
   return useMemo(() => {
-    const own = ((rows ?? []) as Device[])
+    const own = listedDevices((rows ?? []) as Device[])
       .filter((device) => device.userId === me && (device.kind === `desktop` || device.kind === `server`))
       .map((device) => ({ id: device.id, name: device.label || device.deviceId, icon: device.icon, kind: device.kind }))
     if (current && !own.some((device) => device.id === current.id)) {

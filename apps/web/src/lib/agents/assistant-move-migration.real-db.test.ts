@@ -35,7 +35,6 @@ import {
 } from "@exp/domain-contract/sealed-content"
 import {
   agents,
-  devices,
   installs,
   mcpServers,
   messages,
@@ -102,6 +101,17 @@ function folderBefore(): string {
   return folder
 }
 
+/** Today's triggers as that schema can take them: without #EXP-2161's, on
+ *  columns a later migration adds. */
+function triggersBefore(): string {
+  const text = readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`)
+  const from = text.indexOf(`-- 16b. (#EXP-2161)`)
+  const to = text.indexOf(`-- Heal pass (idempotent, every boot): shares left`)
+  expect(from).toBeGreaterThan(0)
+  expect(to).toBeGreaterThan(from)
+  return text.slice(0, from) + text.slice(to)
+}
+
 const indexDef = async (pool: Pool) =>
   (await pool.query<{ indexdef: string }>(`SELECT indexdef FROM pg_indexes WHERE indexname = 'uniq_agents_assistant'`)).rows[0]
     ?.indexdef ?? ``
@@ -133,7 +143,7 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
     // The release before: every migration up to 0292, then its boot's triggers.
     await on(names.moved, async (db, pool) => {
       await migrate(db, { migrationsFolder: folderBefore() })
-      await pool.query(readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`))
+      await pool.query(triggersBefore())
       expect(await applied(pool)).toBe(before)
       expect(await indexDef(pool)).toMatch(TEAM_OWNER_INDEX)
     })
@@ -172,21 +182,11 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
         )[0]!
       const root = async (input: { teamId: string; agentId: string; userId: string; deviceId: string; shared?: boolean; lastActivityAt: string; publicKey?: string; skillIds?: string[]; mcpServerIds?: string[] }) => {
         const id = crypto.randomUUID()
-        await db.insert(sessions).values({
-          id,
-          rootId: id,
-          teamId: input.teamId,
-          agentId: input.agentId,
-          userId: input.userId,
-          deviceId: input.deviceId,
-          shared: input.shared ?? false,
-          status: `running`,
-          lastActivityAt: new Date(input.lastActivityAt),
-          createdAt: new Date(`2026-11-01T09:00:00Z`),
-          skillIds: input.skillIds ?? [],
-          mcpServerIds: input.mcpServerIds ?? [],
-          ...(input.publicKey ? { sealPublicKey: input.publicKey, sealEpoch: 1 } : {}),
-        } as never)
+        // Raw, like the devices row: that schema has no column a later one adds.
+        await db.execute(sql`
+          INSERT INTO sessions (id, root_id, team_id, agent_id, user_id, device_id, shared, status, last_activity_at, created_at, skill_ids, mcp_server_ids, seal_public_key, seal_epoch)
+          VALUES (${id}, ${id}, ${input.teamId}, ${input.agentId}, ${input.userId}, ${input.deviceId}, ${input.shared ?? false}, 'running', ${input.lastActivityAt}::timestamptz, '2026-11-01T09:00:00Z',
+            ${JSON.stringify(input.skillIds ?? [])}::jsonb, ${JSON.stringify(input.mcpServerIds ?? [])}::jsonb, ${input.publicKey ?? null}, ${input.publicKey ? 1 : null})`)
         return id
       }
       const say = (sessionId: string, teamId: string, authorId: string, body: string, shared: boolean) =>
@@ -212,7 +212,8 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const teamA = await team([me, mate])
       const teamB = await team([me])
       const deviceId = `dev-${id8()}`
-      await db.insert(devices).values({ userId: me, deviceId, label: `desk`, kind: `desktop`, lastSeenAt: new Date(), sharedTeamIds: [teamA] } as never)
+      // Raw: that schema has no columns a later migration adds (#EXP-2161).
+      await db.execute(sql`INSERT INTO devices (user_id, device_id, label, kind, shared_team_ids) VALUES (${me}, ${deviceId}, 'desk', 'desktop', ARRAY[${teamA}]::uuid[])`)
       const myPhone = await install(me)
       const matePhone = await install(mate)
       const [skA, skB, skB2] = [await skill(teamA, `alpha`), await skill(teamB, `beta`), await skill(teamB, `gamma`)]
@@ -250,7 +251,11 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const untouched = async () => ({
         agents: await db.select().from(agents).where(eq(agents.ownerId, solo)),
         teams: await db.select().from(teams).where(eq(teams.ownerId, solo)),
-        sessions: await db.select().from(sessions).where(eq(sessions.userId, solo)),
+        // Named: a later migration's columns are not there before it.
+        sessions: await db
+          .select({ id: sessions.id, rootId: sessions.rootId, teamId: sessions.teamId, agentId: sessions.agentId, deviceId: sessions.deviceId, shared: sessions.shared, status: sessions.status, skillIds: sessions.skillIds, mcpServerIds: sessions.mcpServerIds, updatedAt: sessions.updatedAt })
+          .from(sessions)
+          .where(eq(sessions.userId, solo)),
         messages: await db.select().from(messages).where(eq(messages.sessionId, rSolo)),
         plain: await db.select().from(agents).where(eq(agents.ownerId, plain)),
         plainHome: await db.select().from(teams).where(and(eq(teams.ownerId, plain), eq(teams.kind, `personal`))),

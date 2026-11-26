@@ -4167,7 +4167,8 @@
         "itemText",
         "itemLabel",
         "itemDescription",
-        "itemHint"
+        "itemHint",
+        "sectionHeading"
       ],
       "props": [
         "multiple",

@@ -1,3 +1,5 @@
+import { currentSpace } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { and, desc, eq, isNull, or } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import {
@@ -92,6 +94,8 @@ const day = (v: Date | string | null | undefined): string | null => (v == null ?
  *  (shared, or the viewer's own). */
 export async function serverSourceStore(teamId: string, viewerId: string, wanted: ReadonlySet<keyof SourceStore>, executor: Executor = defaultDb): Promise<SourceStore> {
   const want = (t: keyof SourceStore) => wanted.has(t)
+  // #EXP-2161: a member space's app data holds its own sessions only.
+  const space = currentSpace()
   const [b, i, m, s, c, a, e, l] = await Promise.all([
     want(`boards`)
       ? executor.select().from(boards).where(and(eq(boards.teamId, teamId), boardVisible()))
@@ -103,7 +107,7 @@ export async function serverSourceStore(teamId: string, viewerId: string, wanted
       ? executor.select({ userId: teamMembers.userId, role: teamMembers.role, name: users.name, email: users.email, image: users.image }).from(teamMembers).innerJoin(users, eq(users.id, teamMembers.userId)).where(eq(teamMembers.teamId, teamId))
       : [],
     want(`sessions`)
-      ? executor.select().from(sessions).where(and(eq(sessions.teamId, teamId), or(eq(sessions.shared, true), eq(sessions.userId, viewerId)))).orderBy(desc(sessions.updatedAt)).limit(2000)
+      ? executor.select().from(sessions).where(and(eq(sessions.teamId, teamId), or(eq(sessions.shared, true), eq(sessions.userId, viewerId)), space ? spaceReachCondition(space) : undefined)).orderBy(desc(sessions.updatedAt)).limit(2000)
       : [],
     want(`comments`)
       ? executor.select().from(comments).where(and(eq(comments.teamId, teamId), isNull(comments.boardDeletedAt), isNull(comments.boardArchivedAt)))
@@ -125,7 +129,7 @@ export async function serverSourceStore(teamId: string, viewerId: string, wanted
           .select({ sessionId: sessionIssues.sessionId, issueId: sessionIssues.issueId })
           .from(sessionIssues)
           .innerJoin(sessions, eq(sessions.id, sessionIssues.sessionId))
-          .where(and(eq(sessionIssues.teamId, teamId), or(eq(sessions.shared, true), eq(sessions.userId, viewerId))))
+          .where(and(eq(sessionIssues.teamId, teamId), or(eq(sessions.shared, true), eq(sessions.userId, viewerId)), space ? spaceReachCondition(space) : undefined))
       : [],
   ])
   return {

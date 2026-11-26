@@ -660,6 +660,23 @@ pub fn tree_keyed(root_id: &str) -> bool {
     with_keyring(|keyring| keyring.current(root_id).is_some())
 }
 
+/// #EXP-2161: whether this install can open what a tree is sealed to now
+/// (`epoch` = its root row's; None = not known: any epoch held). With no key
+/// on the tree yet: whether it may make one. BLOCKING (asks for the tree's
+/// wraps once when none is held).
+pub fn can_open_tree(root_id: &str, epoch: Option<u32>) -> bool {
+    let held = || match epoch {
+        Some(epoch) => cached_secret(root_id, epoch).is_some(),
+        None => with_keyring(|keyring| !keyring.epochs(root_id).is_empty()),
+    };
+    if held() {
+        return true;
+    }
+    let Some(service) = service() else { return false };
+    service.fetch_secrets(root_id);
+    held() || (epoch.is_none() && !tree_keyed(root_id) && service.makes_keys())
+}
+
 /// #EDE-97: the roots known to be CLEAR trees (`sessions.clear_tree`, roots
 /// only, never changes): process-global, independent of the key holder (a
 /// clear tree needs none).
@@ -1354,6 +1371,27 @@ impl NewRootSeal {
     }
 }
 
+/// #EXP-2161: a new chat's key made by a member space, which starts chats
+/// but reads none of them: wrapped for `readers` alone (the member's own
+/// installs, the target device's) and kept by nobody here.
+pub fn seal_new_root_for(own_install_id: &str, readers: &[(String, String)]) -> Result<NewRootSeal, SealError> {
+    let key = generate_tree_key();
+    let mut wraps: Vec<api::session_keys::InstallWrap> = Vec::new();
+    for (install_id, public) in readers {
+        if install_id == own_install_id || wraps.iter().any(|w| &w.install_id == install_id) {
+            continue;
+        }
+        let Ok(public) = public_key_from_b64(public) else { continue };
+        if let Ok(wrapped) = wrap_tree_key(&public, &key.secret) {
+            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped, signature: None });
+        }
+    }
+    if wraps.is_empty() {
+        return Err(SealError::NoKey("no trusted install of the member to keep its key".into()));
+    }
+    Ok(NewRootSeal { install_id: own_install_id.to_string(), public_key: key.public_key(), epoch: 1, wraps, secret: key.secret })
+}
+
 /// A fresh tree key wrapped for this install plus `readers`
 /// (`(install_id, x25519_public)`; duplicates and malformed keys skipped).
 pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(String, String)]) -> Result<NewRootSeal, SealError> {
@@ -1546,6 +1584,37 @@ mod tests {
     fn hex32(v: &Value) -> [u8; 32] {
         let s = v.as_str().unwrap();
         (0..32).map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap()
+    }
+
+    /// #EXP-2161: a space's key for a chat it starts is everyone's but its own.
+    #[test]
+    fn a_new_roots_key_for_others_has_no_wrap_of_the_makers() {
+        let reader = generate_tree_key();
+        let public = reader.public_key();
+        let seal = seal_new_root_for("me", &[("phone".into(), public.clone()), ("me".into(), public.clone()), ("phone".into(), public)]).unwrap();
+        assert_eq!(seal.wraps.iter().map(|w| w.install_id.as_str()).collect::<Vec<_>>(), ["phone"]);
+        assert!(matches!(seal_new_root_for("me", &[]), Err(SealError::NoKey(_))));
+    }
+
+    /// #EXP-2161: a space claims nothing before it can read it.
+    #[test]
+    fn a_tree_opens_with_its_current_key_or_one_this_install_may_make() {
+        let _serial = serial();
+        uninstall();
+        assert!(!can_open_tree("root", None), "no holder");
+        let fake = install_fake();
+        assert!(can_open_tree("root", None), "unkeyed, and it may make the key");
+        fake.waits.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!can_open_tree("root", None), "unkeyed, waiting for approval");
+        let key = generate_tree_key();
+        fake.keyring.set_current("root", 1, key.public);
+        fake.waits.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(!can_open_tree("root", None), "keyed by another, not held");
+        assert!(!can_open_tree("root", Some(1)));
+        fake.keyring.insert_secret("root", 1, key.secret);
+        assert!(can_open_tree("root", Some(1)) && can_open_tree("root", None));
+        assert!(!can_open_tree("root", Some(2)), "rotated past what it holds");
+        uninstall();
     }
 
     /// The fixture's tree secrets, held for `root`.

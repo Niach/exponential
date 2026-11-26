@@ -17,7 +17,7 @@
 // remote command queue that drove them from here is gone with them.
 // "Remove device" is a plain row of the shell rather than a section of its
 // own.
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { promptActions, removeDevicePrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
@@ -76,6 +76,7 @@ import {
   modelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { MemberSpaceMembers, MemberSpaceOptInRow } from "@/components/devices/member-spaces"
 import { RunnerSection } from "@/components/ci/runner-section"
 import { workScreenPickerItems } from "@/lib/work-screen-picker"
 
@@ -854,16 +855,27 @@ export function DeviceSettingsBody({
                      pushing the agent card off the column. */
                   <GlassGroup scroll className="max-h-56 *:shrink-0">
                     {teams.map((team) => (
-                      <GlassToggleRow
-                        key={team.id}
-                        id={`device-settings-share-${team.id}`}
-                        label={team.name}
-                        checked={row?.sharedTeamIds?.includes(team.id) ?? false}
-                        onCheckedChange={(checked) =>
-                          void setShared(team.id, checked)
-                        }
-                        disabled={busySection !== null}
-                      />
+                      <Fragment key={team.id}>
+                        <GlassToggleRow
+                          id={`device-settings-share-${team.id}`}
+                          label={team.name}
+                          checked={row?.sharedTeamIds?.includes(team.id) ?? false}
+                          onCheckedChange={(checked) =>
+                            void setShared(team.id, checked)
+                          }
+                          disabled={busySection !== null}
+                        />
+                        {/* #EXP-2161: members' Assistants, per shared team. */}
+                        {deviceId && row?.sharedTeamIds?.includes(team.id) && (
+                          <MemberSpaceOptInRow
+                            deviceId={deviceId}
+                            teamId={team.id}
+                            kind={row.kind}
+                            doctor={row.doctor}
+                            checked={row.assistantTeamIds?.includes(team.id) ?? false}
+                          />
+                        )}
+                      </Fragment>
                     ))}
                   </GlassGroup>
                 ) : (
@@ -875,6 +887,12 @@ export function DeviceSettingsBody({
                   Teammates of a shared team can start coding sessions on this
                   device.
                 </p>
+                {open && (
+                  <MemberSpaceMembers
+                    rowId={row?.id}
+                    version={(row?.assistantTeamIds ?? []).join(`,`)}
+                  />
+                )}
               </>
             )}
 

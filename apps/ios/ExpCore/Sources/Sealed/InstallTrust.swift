@@ -42,14 +42,82 @@ public enum PinVia: String, Codable, Sendable {
     case chain, approved, first, reset, existing
 }
 
+/// The class of an install (#EXP-2161), as its REGISTRATION says it (which
+/// label its signature covers), never a served field. `space` = a member's
+/// private Assistant on a device shared with their team.
+public enum InstallClass: String, Codable, Sendable {
+    case install, space
+}
+
+/// member-space.json `pinCases`: whether a pinned install may take part in a
+/// root's keys (nil = not pinned). A space: only in the member's own
+/// Assistant conversation.
+public func pinCovers(_ pin: InstallClass?, rootIsOwnAssistant: Bool) -> Bool {
+    switch pin {
+    case .install: true
+    case .space: rootIsOwnAssistant
+    case nil: false
+    }
+}
+
+/// What an install remembers about a root, beside its pins
+/// (member-space.json `rootMark`).
+public enum RootMark: String, Codable, Sendable {
+    case assistant, never, unseen
+}
+
+/// What its synced rows say of it now (`unknown` = not synced).
+public enum RootSight: String, Sendable {
+    case assistant, other, unknown
+}
+
+/// `rootMarkCases`: whether a root counts as the member's own Assistant
+/// conversation for a space's pin, sticky; `keyed` = the store already held a
+/// key record of it, `record` = it records one now.
+public func rootMark(_ mark: RootMark?, see: RootSight, keyed: Bool, record: Bool) -> (mark: RootMark?, counts: Bool) {
+    if mark == .never || see == .other { return (.never, false) }
+    if see == .assistant { return mark == nil && keyed ? (.never, false) : (.assistant, true) }
+    if mark == nil, record, !keyed { return (.unseen, false) }
+    return (mark, false)
+}
+
+/// What the synced rows say of a root (web `sightOfRoot`): a row or an agent
+/// not synced yet says nothing. `agentIsOwnAssistant` = whether its agent is
+/// the Assistant `me` owns; nil = not synced.
+public func sightOfRoot(parentId: String?, userId: String?, agentId: String?, agentIsOwnAssistant: Bool?, me: String) -> RootSight {
+    let mine = (parentId ?? "").isEmpty && userId == me && !me.isEmpty
+    let hasAgent = !(agentId ?? "").isEmpty
+    guard hasAgent, mine else { return .other }
+    guard let agentIsOwnAssistant else { return .unknown }
+    return agentIsOwnAssistant ? .assistant : .other
+}
+
 public struct TrustPin: Codable, Equatable, Sendable {
     public var userId: String
     public var x25519Public: String
     public var via: PinVia
     /// The approver (`approved`, `reset`); nil otherwise.
     public var by: String?
+    /// #EXP-2161: a space's pin covers only the member's own Assistant
+    /// conversation (`pinCovers`).
+    public var installClass: InstallClass
 
-    public init(userId: String, x25519Public: String, via: PinVia, by: String?) {
+    enum CodingKeys: String, CodingKey {
+        case userId, x25519Public, via, by
+        case installClass = "class"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        userId = try c.decode(String.self, forKey: .userId)
+        x25519Public = try c.decode(String.self, forKey: .x25519Public)
+        via = try c.decode(PinVia.self, forKey: .via)
+        by = try c.decodeIfPresent(String.self, forKey: .by)
+        installClass = try c.decodeIfPresent(InstallClass.self, forKey: .installClass) ?? .install
+    }
+
+    public init(userId: String, x25519Public: String, via: PinVia, by: String?, installClass: InstallClass = .install) {
+        self.installClass = installClass
         self.userId = userId
         self.x25519Public = x25519Public
         self.via = via
@@ -82,6 +150,10 @@ public struct TrustStore: Codable, Equatable, Sendable {
     /// one, writes that account's store first, `false`). Consumed (`false`)
     /// by the first reconcile that serves this install.
     public var existing: Bool
+    /// #EXP-2161: this install IS a member space's (never a phone's): it joins
+    /// only through a `space` approval and never claims, approves, resets or
+    /// declines.
+    public var space: Bool
     public var pins: [String: TrustPin]
     /// Every team-mate ever pinned: a new root of one is a Reset, not a first contact.
     public var members: [String]
@@ -89,10 +161,16 @@ public struct TrustStore: Codable, Equatable, Sendable {
     public var declined: [String]
     /// Per root (lowercase): the highest VERIFIED epoch and what each held epoch is.
     public var roots: [String: TrustRootRecord]
+    /// #EXP-2161 (`rootMark`): per root (lowercase), sticky.
+    public var rootMarks: [String: RootMark]
+    /// #EXP-2161: every endpoint id ever served with a space's registration
+    /// (any account's), sorted. The server may stop serving it (or its
+    /// registration): it stays a space, never an ordinary install nobody pinned.
+    public var knownSpaces: [String]
 
     enum CodingKeys: String, CodingKey {
         case selfEndpointId = "self"
-        case userId, joined, existing, pins, members, declined, roots
+        case userId, joined, existing, space, pins, members, declined, roots, rootMarks, knownSpaces
     }
 
     public init(selfEndpointId: String, userId: String, existing: Bool = false) {
@@ -100,10 +178,13 @@ public struct TrustStore: Codable, Equatable, Sendable {
         self.userId = userId
         joined = false
         self.existing = existing
+        space = false
         pins = [:]
         members = []
         declined = []
         roots = [:]
+        rootMarks = [:]
+        knownSpaces = []
     }
 
     public init(from decoder: Decoder) throws {
@@ -112,10 +193,35 @@ public struct TrustStore: Codable, Equatable, Sendable {
         userId = try c.decode(String.self, forKey: .userId)
         joined = try c.decode(Bool.self, forKey: .joined)
         existing = try c.decodeIfPresent(Bool.self, forKey: .existing) ?? false
+        space = try c.decodeIfPresent(Bool.self, forKey: .space) ?? false
         pins = try c.decode([String: TrustPin].self, forKey: .pins)
         members = try c.decode([String].self, forKey: .members)
         declined = try c.decode([String].self, forKey: .declined)
         roots = try c.decode([String: TrustRootRecord].self, forKey: .roots)
+        rootMarks = try c.decodeIfPresent([String: RootMark].self, forKey: .rootMarks) ?? [:]
+        knownSpaces = try c.decodeIfPresent([String].self, forKey: .knownSpaces) ?? []
+    }
+
+    /// Whether `rootId` counts as the member's own Assistant conversation;
+    /// remembers what was seen. `record` = a key of it is recorded now (asked
+    /// BEFORE `recordKey`).
+    public mutating func ownAssistant(rootId: String, see: RootSight, record: Bool) -> Bool {
+        let root = rootId.lowercased()
+        let keyed = !(roots[root]?.epochs.isEmpty ?? true)
+        let (mark, counts) = rootMark(rootMarks[root], see: see, keyed: keyed, record: record)
+        if let mark { rootMarks[root] = mark }
+        return counts
+    }
+
+    /// A space not (or no longer) pinned: nothing it signs is kept, nothing is
+    /// wrapped for it, in every mode.
+    func foreignSpace(_ endpointId: String) -> Bool {
+        knownSpaces.contains(endpointId) || pins[endpointId]?.installClass == .space
+    }
+
+    /// The pins that may take part in the root's keys.
+    func covering(rootIsOwnAssistant: Bool) -> [String] {
+        pins.filter { pinCovers($0.value.installClass, rootIsOwnAssistant: rootIsOwnAssistant) }.map(\.key)
     }
 
     /// The record of a held key; a key the store never saw = `legacy` (decision c).
@@ -176,7 +282,7 @@ public struct ServedInstall: Codable, Equatable, Sendable {
 
 /// What an approval says (`approval.kinds`).
 public enum ApprovalKind: String, Codable, Sendable, CaseIterable {
-    case root, approve, reset, decline
+    case root, approve, reset, decline, space
 
     public var byte: UInt8 {
         switch self {
@@ -184,6 +290,7 @@ public enum ApprovalKind: String, Codable, Sendable, CaseIterable {
         case .approve: 2
         case .reset: 3
         case .decline: 4
+        case .space: 5
         }
     }
 }
@@ -460,12 +567,35 @@ public enum InstallTrust {
         return out
     }
 
+    /// #EXP-2161 (member-space.json `registrationLabel`).
+    public static let spaceRegistrationLabel = "exp-install-space-v1"
+
+    /// The same lines under the label a member space's install signs: its
+    /// registration never verifies as an ordinary one.
+    public static func spaceRegistrationMessage(userId: String, endpointId: String, x25519Public: String, signedAt: String) -> String {
+        "\(spaceRegistrationLabel)\n\(userId)\n\(endpointId)\n\(x25519Public)\n\(signedAt)"
+    }
+
     /// Whether the row's stored registration binds its user, endpoint id and
-    /// X25519 key (install-register.json's message).
+    /// X25519 key (install-register.json's message), as an ordinary install's.
     public static func registrationValid(_ install: ServedInstall, crypto: TrustCrypto) -> Bool {
-        guard let signature = install.registrationSignature, let signedAt = install.registrationSignedAt else { return false }
-        let text = registrationMessage(userId: install.userId, endpointId: install.endpointId, x25519Public: install.x25519Public, signedAt: signedAt)
-        return crypto.verify(signature: signature, message: Data(text.utf8), endpointId: install.endpointId)
+        registrationClass(install, crypto: crypto) == .install
+    }
+
+    /// The class the stored registration proves; nil = it stores none, or it
+    /// verifies under neither label.
+    public static func registrationClass(_ install: ServedInstall, crypto: TrustCrypto) -> InstallClass? {
+        guard let signature = install.registrationSignature, let signedAt = install.registrationSignedAt else { return nil }
+        let verifies: (String) -> Bool = { text in
+            crypto.verify(signature: signature, message: Data(text.utf8), endpointId: install.endpointId)
+        }
+        if verifies(registrationMessage(
+            userId: install.userId, endpointId: install.endpointId, x25519Public: install.x25519Public, signedAt: signedAt
+        )) { return .install }
+        if verifies(spaceRegistrationMessage(
+            userId: install.userId, endpointId: install.endpointId, x25519Public: install.x25519Public, signedAt: signedAt
+        )) { return .space }
+        return nil
     }
 
     /// Follows the server's answer. The server may only SHRINK the pins (a
@@ -483,31 +613,64 @@ public enum InstallTrust {
         var order: [String] = []
         var counted: [String: ServedInstall] = [:]
         var countedOrder: [String] = []
-        for install in served.installs {
-            if registrationValid(install, crypto: crypto) {
+        var classes: [String: InstallClass] = [:]
+        var ownSpaces: Set<String> = []
+        let registeredAs = served.installs.map { registrationClass($0, crypto: crypto) }
+        var known = Set(store.knownSpaces)
+        for (install, registered) in zip(served.installs, registeredAs) where registered == .space { known.insert(install.endpointId) }
+        for (endpointId, pin) in store.pins where pin.installClass == .space { known.insert(endpointId) }
+        if store.space { known.remove(store.selfEndpointId) }
+        store.knownSpaces = known.sorted()
+        for (install, registered) in zip(served.installs, registeredAs) {
+            // Once a space, always one: what the server serves of it now
+            // cannot make it an ordinary install.
+            if registered != .space, known.contains(install.endpointId) { continue }
+            if registered == .space {
+                // Another member's space is nobody's business but theirs.
+                if install.userId != store.userId { continue }
+                ownSpaces.insert(install.endpointId)
+            }
+            // A space knows its own member's ordinary installs and itself, nobody else.
+            if store.space, install.userId != store.userId || (registered == .space && install.endpointId != store.selfEndpointId) { continue }
+            if registered != nil {
                 if valid[install.endpointId] == nil { order.append(install.endpointId) }
                 valid[install.endpointId] = install
             }
             if valid[install.endpointId] != nil || install.registrationSignature == nil {
                 if counted[install.endpointId] == nil { countedOrder.append(install.endpointId) }
                 counted[install.endpointId] = install
+                // A row without a stored registration is an ordinary install's.
+                if let registered {
+                    classes[install.endpointId] = registered
+                } else if install.registrationSignature == nil {
+                    classes[install.endpointId] = .install
+                }
             }
         }
+        let classOf: (String) -> InstallClass = { [classes] in classes[$0] ?? .install }
+        let isSpace: (String) -> Bool = { classOf($0) == .space }
         let me = counted[store.selfEndpointId]
 
         // Shrink: what the server no longer lists (or binds) is no longer pinned.
         for (endpointId, pin) in store.pins where endpointId != store.selfEndpointId {
-            guard let row = counted[endpointId], row.userId == pin.userId, row.x25519Public == pin.x25519Public else {
+            guard let row = counted[endpointId], row.userId == pin.userId, row.x25519Public == pin.x25519Public,
+                  classOf(endpointId) == pin.installClass else {
                 store.pins[endpointId] = nil
                 continue
             }
         }
-        if let me { store.pins[store.selfEndpointId] = TrustPin(userId: store.userId, x25519Public: me.x25519Public, via: .itself, by: nil) }
+        if let me {
+            store.pins[store.selfEndpointId] = TrustPin(
+                userId: store.userId, x25519Public: me.x25519Public, via: .itself, by: nil, installClass: store.space ? .space : .install
+            )
+        }
 
         // The approvals that verify, against the subject as its registration binds it.
         let approvals = served.approvals.filter { approval in
             guard let subject = counted[approval.subjectEndpointId] else { return false }
             if approval.kind == .root, approval.approverEndpointId != approval.subjectEndpointId { return false }
+            // A space is approved by `space` alone, and approves nothing.
+            if (approval.kind == .space) != isSpace(approval.subjectEndpointId) || isSpace(approval.approverEndpointId) { return false }
             return InstallApproval.verify(approval.kind, subject: subject, signature: approval.signature, approverEndpointId: approval.approverEndpointId, crypto: crypto)
         }
         let roots = Set(approvals.filter { $0.kind == .root }.map(\.subjectEndpointId))
@@ -518,18 +681,19 @@ public enum InstallTrust {
         // to it, or (decision e) an existing install of an account with no
         // chain: every install of its account served now that did not ask is pinned.
         if !store.joined, me != nil {
-            if roots.contains(store.selfEndpointId) {
+            if !store.space, roots.contains(store.selfEndpointId) {
                 store.joined = true
-            } else if let path = chain(to: store.selfEndpointId, userId: store.userId, approvals: approvals, roots: roots, userOf: userOf) {
+            } else if store.space == isSpace(store.selfEndpointId), let path = chain(to: store.selfEndpointId, userId: store.userId, approvals: approvals, roots: roots, userOf: userOf) {
                 for endpointId in path where endpointId != store.selfEndpointId {
                     let row = counted[endpointId]!
                     store.pins[endpointId] = TrustPin(userId: row.userId, x25519Public: row.x25519Public, via: .chain, by: nil)
                 }
                 store.joined = true
-            } else if store.existing, !ownChain {
+            } else if store.existing, !ownChain, !store.space {
                 for endpointId in countedOrder {
                     let install = counted[endpointId]!
-                    if install.userId != store.userId || endpointId == store.selfEndpointId || install.approvalRequested { continue }
+                    // A space always asks (#EXP-2161).
+                    if isSpace(endpointId) || install.userId != store.userId || endpointId == store.selfEndpointId || install.approvalRequested { continue }
                     store.pins[endpointId] = TrustPin(userId: install.userId, x25519Public: install.x25519Public, via: .existing, by: nil)
                 }
                 store.joined = true
@@ -539,7 +703,7 @@ public enum InstallTrust {
         if me != nil { store.existing = false }
 
         // Declines by this account's pinned installs.
-        for approval in approvals where approval.kind == .decline {
+        for approval in approvals where approval.kind == .decline && !store.space {
             if store.pins[approval.approverEndpointId]?.userId == store.userId, !store.declined.contains(approval.subjectEndpointId) {
                 store.declined.append(approval.subjectEndpointId)
             }
@@ -566,12 +730,14 @@ public enum InstallTrust {
                     let subject = counted[approval.subjectEndpointId]!
                     if store.pins[subject.endpointId] != nil || store.declined.contains(subject.endpointId) { continue }
                     guard let approver = store.pins[approval.approverEndpointId] else { continue }
-                    let pinned = (approval.kind == .approve && approver.userId == subject.userId)
+                    let sameAccount = (approval.kind == .approve || approval.kind == .space) && approver.userId == subject.userId
+                    let pinned = (sameAccount && approver.installClass == .install)
                         || (approval.kind == .reset && approver.userId != subject.userId && subject.userId != store.userId && roots.contains(subject.endpointId))
                     guard pinned else { continue }
                     store.pins[subject.endpointId] = TrustPin(
                         userId: subject.userId, x25519Public: subject.x25519Public,
-                        via: approval.kind == .approve ? .approved : .reset, by: approval.approverEndpointId
+                        via: sameAccount ? .approved : .reset, by: approval.approverEndpointId,
+                        installClass: classOf(subject.endpointId)
                     )
                     changed = true
                 }
@@ -581,7 +747,7 @@ public enum InstallTrust {
         }
 
         var rows: [TrustRow] = []
-        if store.joined {
+        if store.joined, !store.space {
             for endpointId in order {
                 let install = valid[endpointId]!
                 if store.pins[endpointId] != nil || store.declined.contains(endpointId) { continue }
@@ -603,8 +769,18 @@ public enum InstallTrust {
         // A new install claims a root only ALONE (decision e): next to installs
         // of its account that are on no chain yet (older builds) it waits for
         // one of them to update, adopt and approve it.
-        let alone = !served.installs.contains { $0.userId == store.userId && $0.endpointId != store.selfEndpointId }
-        let status: TrustStatus = store.joined ? (ownChain ? .trusted : .claimRoot) : (ownChain || !alone ? .waiting : .claimRoot)
+        // A space is no other install of the account: it can approve nobody.
+        let alone = !served.installs.contains {
+            $0.userId == store.userId && $0.endpointId != store.selfEndpointId && !ownSpaces.contains($0.endpointId) && !known.contains($0.endpointId)
+        }
+        let status: TrustStatus
+        if store.space {
+            status = store.joined ? .trusted : .waiting
+        } else if store.joined {
+            status = ownChain ? .trusted : .claimRoot
+        } else {
+            status = ownChain || !alone ? .waiting : .claimRoot
+        }
 
         // The existing pins its account's chain does not reach yet, approved
         // by this install with its root claim or once it is on the chain itself.
@@ -613,14 +789,15 @@ public enum InstallTrust {
                 || approvals.contains { $0.kind == .approve && $0.subjectEndpointId == endpointId && store.pins[$0.approverEndpointId] != nil }
         }
         let onChain = reached(store.selfEndpointId)
-        let approveExisting = store.joined && (status == .claimRoot || onChain)
+        let approveExisting = store.joined && !store.space && (status == .claimRoot || onChain)
             ? store.pins.filter { $0.value.via == .existing && !reached($0.key) }.map(\.key).sorted()
             : []
         return TrustView(store: store, status: status, rows: rows, approveExisting: approveExisting)
     }
 
     /// The approvals from a root of `userId` down to `target` (`approve`
-    /// only, every approver of `userId`), shortest first; nil when none.
+    /// only, every approver of `userId`; a space's last step is its `space`
+    /// approval), shortest first; nil when none.
     static func chain(
         to target: String, userId: String, approvals: [ServedApproval], roots: Set<String>, userOf: (String) -> String?
     ) -> [String]? {
@@ -637,7 +814,9 @@ public enum InstallTrust {
                 while let parent = parents[path[0]] { path.insert(parent, at: 0) }
                 return path
             }
-            for approval in approvals where approval.kind == .approve && approval.approverEndpointId == at && !seen.contains(approval.subjectEndpointId) {
+            for approval in approvals where approval.approverEndpointId == at && !seen.contains(approval.subjectEndpointId) {
+                let step = approval.kind == .approve || (approval.kind == .space && approval.subjectEndpointId == target)
+                if !step { continue }
                 if userOf(approval.subjectEndpointId) != userId || roots.contains(approval.subjectEndpointId) { continue }
                 seen.insert(approval.subjectEndpointId)
                 parents[approval.subjectEndpointId] = at
@@ -658,16 +837,20 @@ public enum InstallTrust {
     /// signature that fails, a malformed wrap and one that does not open are
     /// refused in every mode; `record` keeps an unsigned wrap (`unsigned`)
     /// and one signed by an UNPINNED install that verifies (`refused-would-be`).
+    /// #EXP-2161: a wrap signed by a space whose pin does not cover the root
+    /// is refused in every mode.
     public static func keepWrap(
-        _ wrap: HeldTreeKey, identity: Data, installSecret: Data, store: TrustStore, mode: TrustMode, crypto: TrustCrypto
+        _ wrap: HeldTreeKey, identity: Data, installSecret: Data, store: TrustStore, mode: TrustMode, crypto: TrustCrypto,
+        rootIsOwnAssistant: Bool = false
     ) -> KeepVerdict {
-        let pins = Array(store.pins.keys)
+        let pins = store.covering(rootIsOwnAssistant: rootIsOwnAssistant)
         switch crypto.acceptWrap(wrap, identity: identity, installSecret: installSecret, pins: pins, required: mode == .mandatory) {
         case let .verified(secret, key): return .keep(record: .verified, secret: secret, treePublicKey: key)
         case let .unsigned(secret, key): return .keep(record: .unsigned, secret: secret, treePublicKey: key)
         case .refused(.unpinned) where mode == .record:
             // Is it at least its signer's? Then it is kept, and recorded.
             guard let signer = wrap.signerEndpointId else { return .refuse(.signature) }
+            if store.pins[signer] != nil || store.foreignSpace(signer) { return .refuse(.unpinned) }
             switch crypto.acceptWrap(wrap, identity: identity, installSecret: installSecret, pins: [signer], required: false) {
             case let .verified(secret, key): return .keep(record: .refusedWouldBe, secret: secret, treePublicKey: key)
             case let .refused(reason): return .refuse(reason)
@@ -716,10 +899,11 @@ public enum InstallTrust {
     /// key. Without: a vouch by a pinned install = `verified`; none =
     /// `unsigned` and one by an unpinned install that verifies =
     /// `refused-would-be`, both sealed in `record` mode, refused once
-    /// mandatory; a vouch whose signature fails is refused in every mode.
+    /// mandatory; a vouch whose signature fails is refused in every mode, as
+    /// is one by a space whose pin does not cover the root (#EXP-2161).
     public static func sealTo(
         rootId: String, epoch: UInt32, publicKey: String, held: (secret: Data, record: KeyRecord)?, vouch: Vouch?,
-        store: TrustStore, mode: TrustMode, crypto: TrustCrypto
+        store: TrustStore, mode: TrustMode, crypto: TrustCrypto, rootIsOwnAssistant: Bool = false
     ) -> SealVerdict {
         guard sealEpochOk(store, rootId: rootId, epoch: epoch) else { return .refuse(.rollback) }
         if let held {
@@ -730,13 +914,14 @@ public enum InstallTrust {
         }
         guard let vouch else { return mode == .record ? .seal(record: .unsigned) : .refuse(.unsigned) }
         let statement = WrapStatement(rootId: rootId, epoch: epoch, treePublicKey: publicKey, recipientEndpointId: vouch.recipientEndpointId, wrapped: vouch.wrapped)
-        switch crypto.acceptVouch(statement, signature: vouch.signature, signerEndpointId: vouch.signerEndpointId, pins: Array(store.pins.keys)) {
+        switch crypto.acceptVouch(statement, signature: vouch.signature, signerEndpointId: vouch.signerEndpointId, pins: store.covering(rootIsOwnAssistant: rootIsOwnAssistant)) {
         case nil: return .seal(record: .verified)
         case .unsigned: return mode == .record ? .seal(record: .unsigned) : .refuse(.unsigned)
         case .unpinned:
             if let own = crypto.acceptVouch(statement, signature: vouch.signature, signerEndpointId: vouch.signerEndpointId, pins: [vouch.signerEndpointId]) {
                 return .refuse(sealRefusal(own))
             }
+            if store.pins[vouch.signerEndpointId] != nil || store.foreignSpace(vouch.signerEndpointId) { return .refuse(.unpinned) }
             return mode == .record ? .seal(record: .refusedWouldBe) : .refuse(.unpinned)
         case let refusal?: return .refuse(sealRefusal(refusal))
         }
@@ -761,17 +946,27 @@ public enum InstallTrust {
     /// that never asked and claims no root is an older build: `legacy`,
     /// wrapped in `record` mode, refused once mandatory. A registration that
     /// does not verify, or a pinned endpoint served with another key, is
-    /// refused always.
+    /// refused always. #EXP-2161: a space is a target only while its pin
+    /// covers the root; an unapproved one is refused in every mode.
     public static func wrapTarget(
-        _ target: ServedInstall, store: TrustStore, mode: TrustMode, roots: Set<String> = [], crypto: TrustCrypto
+        _ target: ServedInstall, store: TrustStore, mode: TrustMode, roots: Set<String> = [], crypto: TrustCrypto,
+        rootIsOwnAssistant: Bool = false
     ) -> TargetVerdict {
         if target.endpointId == store.selfEndpointId { return .wrap(record: .verified) }
         guard store.joined else { return .refuse(.notTrusted) }
         if let pin = store.pins[target.endpointId] {
-            return pin.x25519Public == target.x25519Public && pin.userId == target.userId ? .wrap(record: .verified) : .refuse(.keyMismatch)
+            guard pin.x25519Public == target.x25519Public, pin.userId == target.userId else { return .refuse(.keyMismatch) }
+            return pinCovers(pin.installClass, rootIsOwnAssistant: rootIsOwnAssistant) ? .wrap(record: .verified) : .refuse(.unapproved)
         }
+        if store.foreignSpace(target.endpointId) { return .refuse(.unapproved) }
         // An older build that registered before #EXP-1950 kept no signature: legacy too.
-        if target.registrationSignature != nil, !registrationValid(target, crypto: crypto) { return .refuse(.registration) }
+        if target.registrationSignature != nil {
+            switch registrationClass(target, crypto: crypto) {
+            case nil: return .refuse(.registration)
+            case .space: return .refuse(.unapproved)
+            case .install: break
+            }
+        }
         // Decision (e): every own install that existed is pinned (`existing`);
         // one nobody pinned is a New install row, any build: unapproved in every mode.
         if target.userId == store.userId { return .refuse(.unapproved) }

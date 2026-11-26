@@ -195,6 +195,7 @@ fn fixture_store(fx: &Value, spec: &Value) -> TrustStore {
                 x25519_public: text(&k["x25519Public"]).into(),
                 via: serde_json::from_value(pin[0].clone()).unwrap(),
                 by: pin[1].as_str().map(|by| endpoint(fx, by)),
+                class: InstallClass::Install,
             },
         );
     }
@@ -486,7 +487,7 @@ fn decision_e_a_planted_install_after_the_first_reconcile_a_row_no_wrap_never_ap
     v.keeper.sync();
     assert!(v.keeper.snapshot().rows.is_empty());
     assert!(!v.keeper.store().pins.contains_key(&z));
-    assert_eq!(v.keeper.target("install-Z", text(&key(&fx, "Z")["x25519Public"]), Some(&z), None), TargetVerdict::Refuse(TargetRefusal::Unapproved));
+    assert_eq!(v.keeper.target(None, "install-Z", text(&key(&fx, "Z")["x25519Public"]), Some(&z), None), TargetVerdict::Refuse(TargetRefusal::Unapproved));
 }
 
 #[test]
@@ -505,8 +506,8 @@ fn decision_e_a_hidden_chain_waits_and_asks_once() {
     assert!(lock(&liar.claims).is_empty(), "adopts nothing, claims nothing");
     assert_eq!(*lock(&liar.requests), vec!["install-N".to_string()], "asks once");
     // A waiting install wraps for nobody but itself.
-    assert_eq!(n.target("install-A", text(&key(&fx, "A")["x25519Public"]), Some(&endpoint(&fx, "A")), None), TargetVerdict::Refuse(TargetRefusal::NotTrusted));
-    assert_eq!(n.target("install-N", "x", None, None), TargetVerdict::Wrap(KeyRecord::Verified));
+    assert_eq!(n.target(None, "install-A", text(&key(&fx, "A")["x25519Public"]), Some(&endpoint(&fx, "A")), None), TargetVerdict::Refuse(TargetRefusal::NotTrusted));
+    assert_eq!(n.target(None, "install-N", "x", None, None), TargetVerdict::Wrap(KeyRecord::Verified));
 }
 
 #[test]
@@ -620,7 +621,7 @@ fn a_reader_installs_trust_does_not_list_is_judged_by_r4_alone_both_modes() {
         let v = victim(mode);
         let t2 = endpoint(&fx, "T2");
         assert!(lock(&v.liar.installs).iter().all(|i| i.endpoint_id != t2));
-        let got = v.keeper.target("install-T2", text(&key(&fx, "T2")["x25519Public"]), Some(&t2), None);
+        let got = v.keeper.target(None, "install-T2", text(&key(&fx, "T2")["x25519Public"]), Some(&t2), None);
         let got = match got {
             TargetVerdict::Wrap(record) => record.as_str().to_string(),
             TargetVerdict::Refuse(reason) => format!("refused:{}", reason.as_str()),
@@ -934,4 +935,92 @@ fn a_joined_install_rotates_a_stranded_root_it_holds_no_secret_of() {
     // Already rotated: nothing again.
     assert_eq!(holder.rotate_due(), 0);
     assert_eq!(server.creates(), 1);
+}
+
+// ── #EXP-2161: a member space ─────────────────────────────────────────────
+
+#[test]
+fn a_space_gets_no_wrap_until_its_approval_and_then_for_the_own_assistant_alone() {
+    let fx = fixture();
+    let s = &fx["space"]["keys"]["S"];
+    let row = ServedInstall {
+        install_id: "install-S".into(),
+        user_id: text(&s["userId"]).into(),
+        endpoint_id: text(&s["endpointId"]).into(),
+        x25519_public: text(&s["x25519Public"]).into(),
+        registration_signature: Some(text(&s["registrationSignature"]).into()),
+        registration_signed_at: Some(text(&s["signedAt"]).into()),
+        approval_requested: true,
+        label: Some("unraid".into()),
+    };
+    let (assistant, other) = ("aaaaaaaa-89ab-4def-8123-456789abcdef", "11111111-89ab-4def-8123-456789abcdef");
+    let v = victim(TRUST_MODE);
+    v.keeper.set_own_assistant(Arc::new(move |root| if root == assistant { RootSight::Assistant } else { RootSight::Other }));
+    lock(&v.liar.installs).push(row.clone());
+    v.keeper.sync();
+    let wraps = |root: Option<&str>| {
+        matches!(
+            v.keeper.target(root, "install-S", &row.x25519_public, Some(&row.endpoint_id), None),
+            TargetVerdict::Wrap(_)
+        )
+    };
+    assert!(!wraps(Some(assistant)), "not approved");
+    // Every account key the server may forge as an ordinary approval is ignored.
+    let subject = ApprovalSubject { user_id: &row.user_id, endpoint_id: &row.endpoint_id, x25519_public: &row.x25519_public };
+    lock(&v.liar.approvals).push(ServedApproval {
+        kind: ApprovalKind::Approve,
+        subject_endpoint_id: row.endpoint_id.clone(),
+        approver_endpoint_id: endpoint(&fx, "A"),
+        signature: sign_approval(&identity(&fx, "A"), ApprovalKind::Approve, &subject).unwrap(),
+    });
+    v.keeper.sync();
+    assert!(!wraps(Some(assistant)), "`approve` is no approval of a space");
+    let pressed = v.keeper.snapshot().rows.into_iter().find(|r| r.endpoint_id == row.endpoint_id).unwrap();
+    v.keeper.approve(&pressed).unwrap();
+    assert_eq!(lock(&v.liar.approves).last().unwrap().2, ApprovalKind::Space);
+    assert!(wraps(Some(assistant)));
+    assert!(!wraps(Some(other)), "another tree");
+    assert!(!wraps(None), "a root that does not exist yet");
+    // Gone from the server: no wrap.
+    lock(&v.liar.installs).retain(|i| i.install_id != "install-S");
+    v.keeper.sync();
+    assert!(!v.keeper.store().pins.contains_key(&row.endpoint_id));
+}
+
+#[test]
+fn a_space_itself_waits_and_never_claims() {
+    let fx = fixture();
+    let s = &fx["space"]["keys"]["S"];
+    let id = Identity::from_bytes(hex32(&s["identity"]));
+    let v = victim(TRUST_MODE);
+    let path = store_file();
+    let keeper = TrustKeeper::open_space(path.clone(), &id, text(&s["userId"]), "install-S".into(), v.liar.clone(), TRUST_MODE);
+    keeper.sync();
+    assert_eq!(keeper.snapshot().state, TrustState::Waiting);
+    assert_eq!(keeper.snapshot().code.as_deref(), s["code"].as_str());
+    assert!(!keeper.makes_keys());
+    assert!(keeper.store().space && keeper.snapshot().rows.is_empty());
+    // Kept as one across a restart.
+    let again = TrustKeeper::open_space(path, &id, text(&s["userId"]), "install-S".into(), v.liar.clone(), TRUST_MODE);
+    assert!(again.store().space);
+}
+
+/// End-to-end finding (#EXP-2161): a new Assistant conversation this install
+/// started itself (its seal adopted before its row synced) still counts, and
+/// its key is wrapped for the approved space once its row says so.
+#[test]
+fn a_root_this_install_made_counts_once_its_row_says_so() {
+    let v = victim(TRUST_MODE);
+    let sight = Arc::new(Mutex::new(RootSight::Unknown));
+    let seen = Arc::clone(&sight);
+    v.keeper.set_own_assistant(Arc::new(move |_| *lock(&seen)));
+    let root = "bbbbbbbb-89ab-4def-8123-456789abcdef";
+    let seal = v.holder.new_root_seal(Vec::new()).unwrap();
+    v.holder.adopt(root, &seal);
+    // The holder's next pass must not take it for a key from before.
+    v.keeper.record_legacy(&[(root.to_string(), 1)]);
+    assert_eq!(v.keeper.store().record(root, 1), Some(KeyRecord::Verified));
+    *lock(&sight) = RootSight::Assistant;
+    let mut store = v.keeper.store();
+    assert!(store.own_assistant(root, RootSight::Assistant, false));
 }

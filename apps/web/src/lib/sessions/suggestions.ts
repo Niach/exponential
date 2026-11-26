@@ -1,3 +1,4 @@
+import { assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, isNotNull } from "drizzle-orm"
 import {
@@ -347,7 +348,8 @@ export async function startSuggestion(
   userId: string,
   input: StartSuggestionInput
 ): Promise<{ sessionId: string; txid: number }> {
-  const { message, card } = await loadSuggestionCard(userId, input.messageId)
+  const { message, card, session } = await loadSuggestionCard(userId, input.messageId)
+  await assertTreeHasDevice(db, session.id)
   const item = openItem(card, input.itemId)
   const text = suggestionRequest(item)
   if (input.where === `here`) {
@@ -400,7 +402,8 @@ export async function startAllSuggestions(
   userId: string,
   messageId: string
 ): Promise<{ sessionIds: string[]; txid: number | null }> {
-  const { card } = await loadSuggestionCard(userId, messageId)
+  const { card, session } = await loadSuggestionCard(userId, messageId)
+  await assertTreeHasDevice(db, session.id)
   const sessionIds: string[] = []
   let txid: number | null = null
   for (const item of card.items) {

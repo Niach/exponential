@@ -1,3 +1,5 @@
+import { assertSpaceDevice, currentSpace, deviceRestrictedUser, runViaSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
+import { assertAssistantHasDevice, assertStaysOnSpace, assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
@@ -43,6 +45,8 @@ import { startDiskWarning } from "@/lib/device-disk"
 import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
 import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
+import { maySpaceRun } from "@exp/domain-contract/member-space"
+import { isSpaceDeviceId } from "@/lib/spaces/grant"
 import { ownAssistantTeam, treeReach, treeRootKind, treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
@@ -58,6 +62,7 @@ import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import { SEALED_CARD_PLAIN_ANSWER_MESSAGE } from "@/lib/sessions/card-answer"
 import {
   assertCanSteer,
+  assertSpaceMaySteer,
   isSessionPrincipal,
   loadSessionForUser,
   sessionDeviceOwner,
@@ -247,11 +252,27 @@ export const DEVICE_NOT_SHARED_MESSAGE = `This device is not yours and not share
  * that runs it (the host).
  */
 export async function resolveSessionDevice(
+  ...args: Parameters<typeof findSessionDevice>
+): Promise<{ shared: boolean; ownerId: string }> {
+  const device = await findSessionDevice(...args)
+  // #EXP-2161 (TEAMS): through a space, never a machine of its member's own.
+  assertSpaceDevice({ ownerId: device.ownerId, deviceId: args[2] })
+  return device
+}
+
+async function findSessionDevice(
   userId: string,
   teamId: string,
   deviceId: string,
-  exec: Db = db
+  exec: Db = db,
+  /** #EXP-2161: the start belongs to the Assistant conversation that runs on
+   *  this space (the conversation itself, its children). */
+  opts: { space?: boolean } = {}
 ): Promise<{ shared: boolean; ownerId: string }> {
+  // A member space runs only the trees of its Assistant conversation.
+  if (isSpaceDeviceId(deviceId) && !opts.space) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: DEVICE_NOT_SHARED_MESSAGE })
+  }
   const rows = await exec
     .select({ userId: devices.userId, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
@@ -291,10 +312,20 @@ export async function resolveSessionDeviceInTx(
   tx: Tx,
   userId: string,
   teamId: string,
-  deviceId: string
+  deviceId: string,
+  opts: { space?: boolean } = {}
 ): Promise<{ shared: boolean; ownerId: string }> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`device-share:${deviceId}`}, 0))`)
-  return resolveSessionDevice(userId, teamId, deviceId, tx)
+  return resolveSessionDevice(userId, teamId, deviceId, tx, opts)
+}
+
+/** #EXP-2161 (member-space.json `startCases`): whether a session of the tree
+ *  `rootId` may run on `deviceId` although it is a member space: the tree is
+ *  the Assistant's conversation and its root runs there. */
+async function spaceStart(rootId: string | null, deviceId: string): Promise<{ space?: boolean }> {
+  if (!rootId || !isSpaceDeviceId(deviceId)) return {}
+  const [root] = await db.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  return { space: !!root && maySpaceRun(await treeRootKind(root), root.deviceId === deviceId) }
 }
 
 async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: string) {
@@ -555,6 +586,16 @@ async function postSendMessage(
   // agent acts with its host's key, so the caller is the uploader set's
   // first entry, never the effective starter).
   const sealUserId = uploaderIds[0]!
+  // #EXP-2161: the device went since the send was checked.
+  await assertTreeHasDevice(tx, session.rootId)
+  if (deviceRestrictedUser()) {
+    const [row] = await tx
+      .select({ deviceId: sessions.deviceId, userId: sessions.userId, teamId: sessions.teamId })
+      .from(sessions)
+      .where(eq(sessions.id, session.id))
+      .limit(1)
+    if (row) await assertSpaceMaySteer(row, tx)
+  }
   // #EXP-1720/#EXP-2027: the turn's Teams pick becomes the root's scope, even with nothing to post.
   const scope = input.scopeTeamIds === undefined ? undefined : await applyTeamsPick(tx, session, authorId, input.scopeTeamIds)
   let text = input.text ?? ``
@@ -974,6 +1015,22 @@ export async function sendSession(args: {
 
 async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
+  // #EXP-2161: a chat a space started keeps the device rule for life.
+  const [root] =
+    caller && !currentSpace()
+      ? await db.select({ viaSpace: sessions.viaSpace, userId: sessions.userId }).from(sessions).where(eq(sessions.id, caller.rootId)).limit(1)
+      : []
+  return root?.viaSpace ? runViaSpace(root.userId, () => sendSessionAs(args, caller)) : sendSessionAs(args, caller)
+}
+
+async function sendSessionAs(
+  args: Parameters<typeof sendSession>[0],
+  caller: Session | null
+): Promise<SessionsSendResult & { txid: number }> {
+  // #EXP-2161: through a space no other agent or app is spoken to.
+  if (deviceRestrictedUser() && (args.input.agentId || args.input.appId)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_KEY_MESSAGE })
+  }
   const starter = effectiveStarter(args.userId, caller)
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
@@ -1346,6 +1403,8 @@ async function messageSession(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const target = await loadSessionForUser(userId, sent.sessionId!)
+  // #EXP-2161: an Assistant without a device takes nothing.
+  await assertTreeHasDevice(db, target.id)
   if (target.subagentKey !== null && target.parentId) {
     // #EXP-1731: a subagent runs inside its parent's process and takes no
     // input of its own (a message mid-run would resume a second copy of
@@ -1567,12 +1626,14 @@ async function messageSession(
   // An ended CHILD continues: a new session on its device (or the named
   // one), same pickers and branch, its first message = this one.
   const deviceId = input.deviceId ?? target.deviceId
+  assertStaysOnSpace(target, deviceId)
   if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
     await assertSessionAccount(target, input.account, cli)
   }
+  const space = await spaceStart(target.rootId, deviceId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId)
+    const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId, space)
     const result = await continueSession(tx, {
       ended: target,
       userId,
@@ -1616,6 +1677,7 @@ async function messageAgent(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const agent = await loadAgentForUser(userId, input.agentId!)
+  assertAssistantHasDevice(agent)
   // #EXP-1714: the member's Assistant answers from every team (clients send
   // the team they are in; the global one lives in their personal team).
   if (input.teamId && input.teamId !== agent.teamId && agent.role !== `assistant`) {
@@ -1921,6 +1983,7 @@ async function startChild(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
+  await assertTreeHasDevice(db, parent.id)
   // #EXP-1731: the CLI's subagents attach to the session that runs the CLI.
   if (parent.subagentKey !== null) throw new TRPCError({ code: `BAD_REQUEST`, message: SUBAGENT_NO_CHILDREN })
   await assertCanSteer(userId, parent)
@@ -1930,18 +1993,19 @@ async function startChild(
   // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
   // a login of THAT device (the named one, or the parent's by email).
   const crossDevice = deviceId !== parent.deviceId
+  const space = await spaceStart(parent.rootId, deviceId)
   const childAccount = crossDevice
     ? await childAccountOnDevice(
         parent,
         input.cli ?? (await effectiveCli(parent)) ?? `claude`,
-        { deviceId, ownerId: (await resolveSessionDevice(userId, teamId, deviceId)).ownerId },
+        { deviceId, ownerId: (await resolveSessionDevice(userId, teamId, deviceId, db, space)).ownerId },
         input.account
       )
     : undefined
 
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
+    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId, space)
     // #EXP-1899: the parent's value unless the child opts out (a person may
     // also opt it back in; #FEED-302: over MCP the device owner's own tree).
     const { computerUse, raised } = await resolveComputerUseAtStart(tx, {
@@ -2130,6 +2194,7 @@ async function startRoot(
       userId,
       deviceId,
       startedByAgentId,
+      viaSpace: deviceRestrictedUser() !== null,
       // NEW-1: the root WORKS: the composer's picks are its own.
       ...runnerFields(input, null, await gatedComputerUse(tx, computerUse, deviceId, device.ownerId)),
       mcpServerIds,

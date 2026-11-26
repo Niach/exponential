@@ -843,6 +843,38 @@ pub fn my_assistant<'a>(
         .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+/// #EXP-2161 (member-space.json `pinCases` `rootIsOwnAssistant`): whether
+/// `root` is the viewer's own Assistant conversation: a root they started,
+/// of the Assistant they own.
+pub fn is_own_assistant_root<'a>(
+    root: &crate::rows::SessionRow,
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    me: &str,
+) -> bool {
+    let Some(agent_id) = root.agent_id.as_deref().filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    !me.is_empty()
+        && root.is_root()
+        && root.user_id.as_deref() == Some(me)
+        && agents.into_iter().any(|agent| agent.id == agent_id && agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
+}
+
+/// #EXP-2161 (`rootMarkCases`, web `sightOfRoot`): what the synced rows say
+/// of a root: its own Assistant's or not; None = its row, or its agent's, is
+/// not synced yet.
+pub fn sight_of_root(root: Option<&crate::rows::SessionRow>, agents: &[crate::rows::AgentDefRow], me: &str) -> Option<bool> {
+    let root = root?;
+    let agent_id = root.agent_id.as_deref().filter(|id| !id.is_empty());
+    if let Some(agent_id) = agent_id {
+        let known = agents.iter().any(|agent| agent.id == agent_id);
+        if !known && root.is_root() && root.user_id.as_deref() == Some(me) {
+            return None;
+        }
+    }
+    Some(is_own_assistant_root(root, agents, me))
+}
+
 /// #EXP-1990 (TS `agentChatOf`, agent-settings.json `groupChat.chatCases`):
 /// THE chat of an agent for the viewer: its group chat (`group_chat_id`)
 /// when that root is synced, none when it names a root the viewer does not
@@ -1849,6 +1881,34 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    /// #EXP-2161: only a root the viewer started, of the Assistant they own.
+    #[test]
+    fn the_own_assistant_root() {
+        use crate::rows::{AgentDefRow, SessionRow};
+        let agent: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "a", "role": "assistant", "owner_id": "me" })).unwrap();
+        let team_agent: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "t", "role": "agent", "owner_id": "me" })).unwrap();
+        let theirs: AgentDefRow = serde_json::from_value(serde_json::json!({ "id": "b", "role": "assistant", "owner_id": "you" })).unwrap();
+        let agents = [agent, team_agent, theirs];
+        let root = |agent: Option<&str>, user: &str, parent: Option<&str>| SessionRow {
+            id: "r".into(),
+            agent_id: agent.map(Into::into),
+            user_id: Some(user.into()),
+            parent_id: parent.map(Into::into),
+            ..Default::default()
+        };
+        assert!(is_own_assistant_root(&root(Some("a"), "me", None), &agents, "me"));
+        for other in [root(None, "me", None), root(Some("a"), "you", None), root(Some("a"), "me", Some("p")), root(Some("t"), "me", None), root(Some("b"), "me", None)] {
+            assert!(!is_own_assistant_root(&other, &agents, "me"));
+        }
+        assert!(!is_own_assistant_root(&root(Some("a"), "me", None), &agents, ""));
+        // Not synced yet says nothing.
+        assert_eq!(sight_of_root(None, &agents, "me"), None);
+        assert_eq!(sight_of_root(Some(&root(Some("later"), "me", None)), &agents, "me"), None);
+        assert_eq!(sight_of_root(Some(&root(Some("later"), "you", None)), &agents, "me"), Some(false));
+        assert_eq!(sight_of_root(Some(&root(None, "me", None)), &agents, "me"), Some(false));
+        assert_eq!(sight_of_root(Some(&root(Some("a"), "me", None)), &agents, "me"), Some(true));
     }
 
     #[test]

@@ -110,12 +110,16 @@ pub(crate) fn agent_devices(team_id: Option<&str>, cx: &App) -> Vec<AgentDevice>
         return Vec::new();
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let me = queries::active_account(cx).map(|account| account.user_id);
+    let me = viewer_id(cx);
     let mut devices: Vec<AgentDevice> = store
         .collections()
         .devices
         .read(cx)
         .iter()
+        // #EXP-2161 (member-space.json `listed`): a member space is never a
+        // device to pick; the Assistant's bound one resolves through
+        // [`space_rows`].
+        .filter(|row| !row.is_space())
         .filter(|row| {
             // #EXP-1440: an own machine shared only with OTHER teams is theirs.
             let mine = me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me));
@@ -124,52 +128,199 @@ pub(crate) fn agent_devices(team_id: Option<&str>, cx: &App) -> Vec<AgentDevice>
                 None => mine,
             }
         })
-        .filter_map(|row| {
-            let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
-            let agents = row.agent_ids();
-            // `launch_defaults` syncs as JSON that may itself be a JSON
-            // string; the default agent only counts when runnable there.
-            let launch_defaults = row.launch_defaults.as_ref().and_then(|value| match value {
-                Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
-                other => Some(other.clone()),
-            });
-            let mut settings = coding::Settings::default();
-            if let Some(patch) = launch_defaults
-                .as_ref()
-                .and_then(|value| serde_json::from_value::<coding::DefaultsPatch>(value.clone()).ok())
-            {
-                coding::apply_defaults_patch(&mut settings, &patch);
-            }
-            if let Some(agent) = launch_defaults
-                .as_ref()
-                .and_then(|value| value.get("defaultAgent").and_then(Value::as_str))
-                .filter(|agent| agents.iter().any(|id| id == agent))
-                .and_then(coding::CodingAgent::parse)
-            {
-                settings.default_agent = agent;
-            }
-            Some(AgentDevice {
-                label: row.label.clone().unwrap_or_else(|| device_id.clone()),
-                icon: row.icon.clone(),
-                server: row.is_server(),
-                kind: row.kind.clone(),
-                online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
-                is_default: me
-                    .as_deref()
-                    .is_some_and(|me| row.user_id.as_deref() == Some(me))
-                    && row.is_default.unwrap_or(false),
-                team_shared: team_id.is_some_and(|team_id| row.is_shared_with(team_id)),
-                agents,
-                accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
-                usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
-                settings,
-                device_id,
-            })
-        })
+        .filter_map(|row| agent_device(row, me.as_deref(), team_id, now_ms))
         .collect();
     devices.sort_by(|a, b| b.online.cmp(&a.online).then_with(|| a.label.cmp(&b.label)));
     devices
 }
+
+/// One synced `devices` row as a Runs on machine.
+fn agent_device(row: &domain::rows::DeviceRow, me: Option<&str>, team_id: Option<&str>, now_ms: i64) -> Option<AgentDevice> {
+    let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
+    let agents = row.agent_ids();
+    // `launch_defaults` syncs as JSON that may itself be a JSON
+    // string; the default agent only counts when runnable there.
+    let launch_defaults = row.launch_defaults.as_ref().and_then(|value| match value {
+        Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
+        other => Some(other.clone()),
+    });
+    let mut settings = coding::Settings::default();
+    if let Some(patch) = launch_defaults
+        .as_ref()
+        .and_then(|value| serde_json::from_value::<coding::DefaultsPatch>(value.clone()).ok())
+    {
+        coding::apply_defaults_patch(&mut settings, &patch);
+    }
+    if let Some(agent) = launch_defaults
+        .as_ref()
+        .and_then(|value| value.get("defaultAgent").and_then(Value::as_str))
+        .filter(|agent| agents.iter().any(|id| id == agent))
+        .and_then(coding::CodingAgent::parse)
+    {
+        settings.default_agent = agent;
+    }
+    Some(AgentDevice {
+        label: row.label.clone().unwrap_or_else(|| device_id.clone()),
+        icon: row.icon.clone(),
+        server: row.is_server(),
+        kind: row.kind.clone(),
+        online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+        is_default: me.is_some_and(|me| row.user_id.as_deref() == Some(me)) && row.is_default.unwrap_or(false),
+        team_shared: team_id.is_some_and(|team_id| row.is_shared_with(team_id)),
+        agents,
+        accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
+        usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
+        settings,
+        device_id,
+    })
+}
+
+/// #EXP-2161 (web `spaceDevice`): the machine the Account and Model rows read
+/// for an Assistant on a member space: the space's own row (its logins are
+/// the host's), the host's logins while the space reports none yet.
+pub(crate) fn space_device(space: &domain::rows::DeviceRow, host: Option<&domain::rows::DeviceRow>, me: Option<&str>, now_ms: i64) -> Option<AgentDevice> {
+    let mut own = agent_device(space, me, None, now_ms)?;
+    if let Some(host) = host.filter(|_| own.accounts.is_empty()).and_then(|host| agent_device(host, me, None, now_ms)) {
+        own.agents = host.agents;
+        own.accounts = host.accounts;
+        own.usage = host.usage;
+        own.settings = host.settings;
+    }
+    Some(own)
+}
+
+/// #EXP-2161 (web `SpacePick`): one team device of Runs on's team sections;
+/// `value` names the team too (one host may be listed under several).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SpacePick {
+    pub(crate) value: String,
+    pub(crate) label: String,
+    pub(crate) icon: Option<String>,
+    pub(crate) server: bool,
+    /// The section's title (the team's name).
+    pub(crate) section: String,
+    pub(crate) team_id: String,
+    pub(crate) host_device_id: String,
+    pub(crate) owner_id: String,
+    pub(crate) online: bool,
+    pub(crate) selected: bool,
+    pub(crate) disabled: bool,
+}
+
+/// #EXP-2161 (web `useSpaceRows`): the bound space and its host (resolved
+/// from the RAW rows: a space is never listed), the team picks and the
+/// picked one's value.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SpaceRows {
+    pub(crate) space: Option<domain::rows::DeviceRow>,
+    pub(crate) host: Option<domain::rows::DeviceRow>,
+    pub(crate) picks: Vec<SpacePick>,
+    pub(crate) value: Option<String>,
+}
+
+/// The picker rows of `domain::member_space::space_sections`, in order, and
+/// the picked one's value (web `spacePicks`). Pure.
+pub(crate) fn space_picks(rows: &[domain::rows::DeviceRow], teams: &[(String, String)], bound: Option<&str>, me: &str, now_ms: i64) -> SpaceRows {
+    let devices: Vec<domain::member_space::SpaceDevice> = rows
+        .iter()
+        .filter_map(|row| {
+            Some(domain::member_space::SpaceDevice {
+                row_id: row.id.clone(),
+                device_id: row.device_id.clone().filter(|id| !id.is_empty())?,
+                user_id: row.user_id.clone().unwrap_or_default(),
+                label: row.label.clone().unwrap_or_default(),
+                online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
+                assistant_team_ids: row.assistant_team_ids.clone(),
+                space_host_id: row.space_host_id.clone().filter(|id| !id.is_empty()),
+            })
+        })
+        .collect();
+    let sections = domain::member_space::space_sections(&devices, teams, bound, me);
+    let picks: Vec<SpacePick> = sections
+        .iter()
+        .flat_map(|section| {
+            section.rows.iter().map(move |row| {
+                let host = rows.iter().find(|device| {
+                    device.device_id.as_deref() == Some(row.id.as_str()) && device.user_id.as_deref() != Some(me) && device.is_assistant_team(&section.team_id)
+                });
+                let online = host.is_some_and(|host| crate::device_settings::row_is_online(host.last_seen_at.as_deref(), now_ms));
+                SpacePick {
+                    value: format!("{}:{}", section.team_id, row.id),
+                    label: if row.label.is_empty() { row.id.clone() } else { row.label.clone() },
+                    icon: host.and_then(|host| host.icon.clone()),
+                    server: host.is_none_or(|host| host.is_server()),
+                    section: section.title.clone(),
+                    team_id: section.team_id.clone(),
+                    host_device_id: row.id.clone(),
+                    owner_id: host.and_then(|host| host.user_id.clone()).unwrap_or_default(),
+                    online,
+                    selected: row.selected,
+                    disabled: row.disabled,
+                }
+            })
+        })
+        .collect();
+    let space = rows.iter().find(|row| bound.is_some() && row.device_id.as_deref() == bound && row.is_space()).cloned();
+    let host = space.as_ref().and_then(|space| rows.iter().find(|row| Some(row.id.as_str()) == space.space_host_id.as_deref()).cloned());
+    let picked: Vec<&SpacePick> = picks.iter().filter(|pick| pick.selected).collect();
+    let value = picked
+        .iter()
+        .find(|pick| space.as_ref().and_then(|space| space.space_team_id.as_deref()) == Some(pick.team_id.as_str()))
+        .or(picked.first())
+        .map(|pick| pick.value.clone());
+    SpaceRows { space, host, picks, value }
+}
+
+/// The member's teams as Settings › Assistant lists them (by name,
+/// case-insensitive, then id; a personal team never syncs).
+pub(crate) fn member_teams(cx: &App) -> Vec<(String, String)> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let mut teams: Vec<(String, String)> = store.collections().teams_sorted(cx).into_iter().map(|team| (team.id, team.name)).collect();
+    teams.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()).then_with(|| a.0.cmp(&b.0)));
+    teams
+}
+
+/// [`space_picks`] over the synced rows.
+pub(crate) fn space_rows(bound: Option<&str>, cx: &App) -> SpaceRows {
+    let Some(store) = Store::try_global(cx) else {
+        return SpaceRows::default();
+    };
+    let Some(me) = viewer_id(cx) else {
+        return SpaceRows::default();
+    };
+    let rows: Vec<domain::rows::DeviceRow> = store.collections().devices.read(cx).iter().cloned().collect();
+    space_picks(&rows, &member_teams(cx), bound, &me, chrono::Utc::now().timestamp_millis())
+}
+
+/// The signed-in member's user id (under test, the bench's stand-in:
+/// headless has no account).
+fn viewer_id(cx: &App) -> Option<String> {
+    #[cfg(test)]
+    if let Some(id) = SHOT_VIEWER.with(|viewer| viewer.borrow().clone()) {
+        return Some(id);
+    }
+    queries::active_account(cx).map(|account| account.user_id)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The bench's signed-in member ([`viewer_id`]).
+    pub(crate) static SHOT_VIEWER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A user's display name (name, else email).
+fn user_name(user_id: &str, cx: &App) -> String {
+    Store::try_global(cx)
+        .and_then(|store| store.collections().users.read(cx).get(user_id).cloned())
+        .and_then(|user| user.name.filter(|name| !name.is_empty()).or(user.email))
+        .unwrap_or_default()
+}
+
+/// #EXP-2161 (web `useSpaceWaiting`): how often a space that is not let in
+/// yet is read again.
+const SPACE_WAITING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The device a NEW agent seeds to: the caller's default machine, else the
 /// only candidate. Several machines and no default leave the pick explicit.
@@ -388,6 +539,11 @@ pub struct AgentDetailPane {
     /// settings' Agent group (`Some(editor)`): only the Runs on rows, the
     /// device = `Each member's own device` or a team-shared one.
     slot: Option<bool>,
+    /// #EXP-2161 (web `useSpaceWaiting`): the bound space's `memberSpaces.mine`
+    /// poll (keyed by the space's row id) and whether it waits for this
+    /// member's approval (the space id it does).
+    space_poll: Option<(String, gpui::Task<()>)>,
+    space_waiting: Option<String>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     /// The bench's owner flag (headless has no signed-in member).
@@ -471,6 +627,8 @@ impl AgentDetailPane {
             wake_word_error: None,
             wake_word_write: 0,
             slot: slot.then_some(false),
+            space_poll: None,
+            space_waiting: None,
             binding,
             view,
             #[cfg(test)]
@@ -671,6 +829,78 @@ impl AgentDetailPane {
             });
         })
         .detach();
+    }
+
+    /// #EXP-2161: read `memberSpaces.mine` while the bound space `space_id`
+    /// is not `ready` (every [`SPACE_WAITING_INTERVAL`]); another space (or
+    /// none) drops the poll.
+    fn ensure_space_poll(&mut self, space_id: Option<String>, cx: &mut gpui::Context<Self>) {
+        if self.space_poll.as_ref().map(|(id, _)| id) == space_id.as_ref() {
+            return;
+        }
+        self.space_waiting = None;
+        let Some(space_id) = space_id else {
+            self.space_poll = None;
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.space_poll = None;
+            return;
+        };
+        let trpc = std::sync::Arc::new(trpc);
+        let id = space_id.clone();
+        let task = cx.spawn(async move |this, cx| loop {
+            let answer = cx.background_executor().spawn({
+                let trpc = trpc.clone();
+                async move { api::member_spaces::mine(&trpc) }
+            });
+            let answer = answer.await;
+            let status = match &answer {
+                Ok(mine) => mine.space.as_ref().filter(|space| space.space_id == id).map(|space| space.status.clone()),
+                Err(err) => {
+                    log::debug!("[ui] memberSpaces.mine: {err}");
+                    Some(String::new())
+                }
+            };
+            let ready = status.as_deref() == Some("ready");
+            let waiting = status.as_deref() == Some("waiting");
+            let alive = this
+                .update(cx, |this, cx| {
+                    // An error keeps what was shown.
+                    if answer.is_ok() {
+                        let next = waiting.then(|| id.clone());
+                        if this.space_waiting != next {
+                            this.space_waiting = next;
+                            cx.notify();
+                        }
+                    }
+                })
+                .is_ok();
+            if !alive || ready {
+                return;
+            }
+            cx.background_executor().timer(SPACE_WAITING_INTERVAL).await;
+        });
+        self.space_poll = Some((space_id, task));
+    }
+
+    /// #EXP-2161: a team device picked on Runs on: the confirm
+    /// (`copy.pick*`), then `memberSpaces.request`.
+    fn confirm_space_pick(pick: SpacePick, window: &mut Window, cx: &mut App) {
+        let owner = user_name(&pick.owner_id, cx);
+        let spec = crate::member_spaces::pick_alert(&pick.label, &owner, move |cx| {
+            let (host, team) = (pick.host_device_id.clone(), pick.team_id.clone());
+            spawn_agent_write(cx, "save", "the device", move |trpc| api::member_spaces::request(trpc, &host, &team));
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// The bench's member space waiting for approval (headless has no server).
+    #[cfg(test)]
+    pub(crate) fn seed_space_waiting_for_shots(&mut self, space_row_id: &str, cx: &mut gpui::Context<Self>) {
+        self.space_poll = Some((space_row_id.to_string(), gpui::Task::ready(())));
+        self.space_waiting = Some(space_row_id.to_string());
+        cx.notify();
     }
 
     /// The bench's team MCP servers (headless has no server).
@@ -1149,7 +1379,7 @@ impl AgentDetailPane {
     fn devices(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> Vec<AgentDevice> {
         // #EXP-2079 (`deviceCases`): the viewer's own Assistant runs on their
         // own machines, whatever teams those are shared with.
-        let me = queries::active_account(cx).map(|account| account.user_id);
+        let me = viewer_id(cx);
         let own = agent.is_assistant() && me.is_some() && agent.owner_id == me;
         let all = agent_devices((!own).then_some(team_id), cx);
         // #EXP-1849: an app agent's slot = a device shared with the team.
@@ -1164,6 +1394,20 @@ impl AgentDetailPane {
             .map(str::to_string)
             .collect::<Vec<_>>();
         all.iter().filter(|device| kept.contains(&device.device_id)).cloned().collect()
+    }
+
+    /// The machine the Account and Model rows read: the bound one, or
+    /// (#EXP-2161) the Assistant's member space ([`space_device`]).
+    fn bound_device(&self, agent: &AgentDefRow, devices: &[AgentDevice], cx: &App) -> Option<AgentDevice> {
+        let bound = agent.device_id.as_deref().filter(|id| !id.is_empty())?;
+        if agent.is_assistant() && self.slot.is_none() {
+            let spaces = space_rows(Some(bound), cx);
+            if let Some(space) = spaces.space.as_ref() {
+                let me = viewer_id(cx);
+                return space_device(space, spaces.host.as_ref(), me.as_deref(), chrono::Utc::now().timestamp_millis());
+            }
+        }
+        devices.iter().find(|device| device.device_id == bound).cloned()
     }
 
     /// A document action.
@@ -1195,6 +1439,21 @@ impl AgentDetailPane {
         // value: never a pick.
         let picked = super::doc::picked_value(payload).is_some();
         let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
+        // #EXP-2161 (member-space.json UI ×4): the Assistant's Runs on: a team
+        // device confirms first (`memberSpaces.request`), the bound space's
+        // own row is no change.
+        if name == "device" && picked && agent.is_assistant() && self.slot.is_none() {
+            let spaces = space_rows(agent.device_id.as_deref().filter(|id| !id.is_empty()), cx);
+            if let Some(pick) = spaces.picks.iter().find(|pick| pick.value == value).cloned() {
+                if !pick.selected {
+                    Self::confirm_space_pick(pick, window, cx);
+                }
+                return;
+            }
+            if spaces.space.as_ref().and_then(|space| space.device_id.as_deref()) == Some(value.as_str()) {
+                return;
+            }
+        }
         match name {
             TEAM_SKILLS | TEAM_MCP_SERVERS if picked => {
                 if let Some(team_id) = context.get("teamId").and_then(Value::as_str) {
@@ -1217,7 +1476,7 @@ impl AgentDetailPane {
             }
             "account" if picked => {
                 let devices = self.devices(&agent, &team_id, cx);
-                let options = agent.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
+                let options = self.bound_device(&agent, &devices, cx).as_ref().map(account_options).unwrap_or_default();
                 if let Some(option) = options.iter().find(|option| option.account_option_key() == value) {
                     update_agent(cx, "change", "the agent's account", api::agents::UpdateInput { account: Some(option.wire_account()), ..api::agents::UpdateInput::new(agent_id) });
                 }
@@ -1275,7 +1534,14 @@ impl AgentDetailPane {
         // and are disabled unless bound; a bound device that isn't synced
         // here leads by its raw id.
         let bound_device = agent.device_id.as_deref().filter(|id| !id.is_empty());
-        let mut device_options: Vec<Value> = runs_on_rows_of(&devices, bound_device)
+        // #EXP-2161 (member-space.json UI ×4): the Assistant's own machines,
+        // then one section per team with opted-in hosts of others, headed by
+        // the team's name; the bound space shows as its host's row.
+        let own_assistant = assistant && self.slot.is_none();
+        let spaces = if own_assistant { space_rows(bound_device, cx) } else { SpaceRows::default() };
+        let on_space = spaces.space.is_some() || bound_device.is_some_and(|id| own_assistant && id.starts_with(domain::member_space::MEMBER_SPACE.device_id_prefix.as_str()));
+        let own_bound = if on_space { None } else { bound_device };
+        let mut device_options: Vec<Value> = runs_on_rows_of(&devices, own_bound)
             .into_iter()
             .map(|row| {
                 let Some(device) = devices.iter().find(|device| device.device_id == row.id) else {
@@ -1298,15 +1564,37 @@ impl AgentDetailPane {
         if slot {
             device_options.insert(0, json!({"label": APPS.agent_slot.copy.each_member, "value": EACH_MEMBER}));
         }
+        if own_assistant {
+            // A space whose host is gone from the list names itself.
+            if let Some(space) = spaces.space.as_ref().filter(|_| spaces.value.is_none()) {
+                let id = space.device_id.clone().unwrap_or_default();
+                let label = space.label.clone().filter(|label| !label.is_empty()).unwrap_or_else(|| id.clone());
+                device_options.insert(0, json!({"label": label, "value": id, "icon": crate::icons::device_icon_name(space.icon.as_deref(), space.is_server())}));
+            }
+            // #EXP-2161: each team's devices under its name (genUI option
+            // `section`: the popup's heading, web's picker group heading).
+            for pick in &spaces.picks {
+                let mut option = json!({"label": pick.label, "value": pick.value, "icon": crate::icons::device_icon_name(pick.icon.as_deref(), pick.server), "section": pick.section});
+                if !pick.online {
+                    option["description"] = json!(domain::agent_settings::RUNS_ON_OFFLINE);
+                }
+                if pick.disabled {
+                    option["disabled"] = json!(true);
+                }
+                device_options.push(option);
+            }
+        }
         let device_value = match bound_device {
+            Some(_) if on_space => spaces.value.clone().or_else(|| spaces.space.as_ref().and_then(|space| space.device_id.clone())).unwrap_or_default(),
             Some(id) => id.to_string(),
             None if slot => EACH_MEMBER.to_string(),
             None => String::new(),
         };
+        let space_waiting = spaces.space.as_ref().is_some_and(|space| self.space_waiting.as_deref() == Some(space.id.as_str()));
         let has_device = !slot || bound_device.is_some();
         // The Account row: THE account picker over the bound machine's
         // logins (brand mark + email), "Last used" when it reports none.
-        let account_options_list = agent.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
+        let account_options_list = self.bound_device(agent, &devices, cx).as_ref().map(account_options).unwrap_or_default();
         let current = current_account(&account_options_list, agent.account.as_deref(), agent.cli.as_deref()).cloned();
         let logins: Vec<Value> = account_options_list
             .iter()
@@ -1375,6 +1663,7 @@ impl AgentDetailPane {
             },
             "device": {"value": device_value, "options": device_options},
             "hasDevice": has_device,
+            "spaceWaiting": space_waiting,
             "account": {"has": has_device && current.is_some(), "none": has_device && current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
             "skills": picks["skills"],
             "mcpServers": picks["mcpServers"],
@@ -1440,6 +1729,11 @@ impl Render for AgentDetailPane {
             self.wake_placeholder = placeholder;
             self.doc_teams = teams;
         }
+        // #EXP-2161: while the Assistant's member space waits for approval.
+        let space_id = (agent.is_assistant() && self.slot.is_none())
+            .then(|| space_rows(agent.device_id.as_deref().filter(|id| !id.is_empty()), cx).space.map(|space| space.id))
+            .flatten();
+        self.ensure_space_poll(space_id, cx);
         let projection = self.project(&agent, &team_id, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         let page = div().w_full().min_w_0().child(self.view.clone());
@@ -1684,7 +1978,17 @@ fn runs_on_rows(ink: &Ink) -> Vec<Value> {
     let [account_pick, account_none] = account_rows(ink);
     let mut model = read_only(select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({})));
     model["visible"] = path("/pane/hasDevice");
-    let mut runs_on = vec![read_only(device_row())];
+    // #EXP-2161: the Assistant's Device row reads `copy.noDevice` while it
+    // has none (its space ended), then `copy.waiting` muted under it while
+    // its member space waits for approval.
+    let mut device = read_only(device_row());
+    device["visible"] = path("/pane/agentPage");
+    let space_copy = &domain::member_space::MEMBER_SPACE.copy;
+    let mut assistant_device = read_only(select_row("assistant_device", field_label("device"), "device", "device", json!({"placeholder": space_copy.no_device.clone(), "popupMinWidth": 170})));
+    assistant_device["visible"] = path("/pane/assistant");
+    let waiting = ink.shell("space_waiting", false, path("/pane/spaceWaiting"), vec![ink.text("space_waiting_text", json!(space_copy.waiting.clone()), SM, &ink.muted)]);
+    let mut runs_on = vec![device, assistant_device];
+    runs_on.extend(divided(ink, waiting));
     runs_on.extend(divided(ink, read_only(account_pick)));
     runs_on.extend(divided(ink, account_none));
     runs_on.extend(divided(ink, model));

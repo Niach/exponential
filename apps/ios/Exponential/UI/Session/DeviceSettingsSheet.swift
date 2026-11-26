@@ -101,6 +101,10 @@ struct DeviceSettingsSheet: View {
     /// moves (nil = render the row's own glyph).
     @State private var iconPick: String?
     @State private var savingShare = false
+    /// #EXP-2161: the team whose opt-in waits for its confirm.
+    @State private var optInTeamId: String?
+    @State private var savingAssistants = false
+    @State private var spaceMembers = MemberSpaceMembersModel()
     @State private var savingDefaultDevice = false
     /// EXP-1158: the machine's LAST USED agent (`launchDefaults.defaultAgent`),
     /// READ-ONLY here — only the device writes it; the agent tab opens on it.
@@ -164,6 +168,8 @@ struct DeviceSettingsSheet: View {
                     defaultDeviceSection(device)
                     if device.isServer {
                         sharingSection(device)
+                        // #EXP-2161: who runs their Assistant here.
+                        MemberSpaceMembersSection(model: spaceMembers, rowId: device.rowId)
                     }
                     if let doctor = device.doctor {
                         readinessSection(device, doctor: doctor)
@@ -196,6 +202,11 @@ struct DeviceSettingsSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
         .onAppear { seed(device) }
+        // #EXP-2161: re-read whenever the opt-in moves (it may end spaces).
+        .task(id: "\(device.rowId ?? "")/\(device.assistantTeamIds.joined(separator: ","))") {
+            guard device.isServer else { return }
+            await spaceMembers.run(deps: deps, accountId: accountId, rowId: device.rowId)
+        }
         // EXP-909: only a daemon server has an Update section to gate.
         .task {
             guard device.isServer, latestVersions == nil else { return }
@@ -231,6 +242,14 @@ struct DeviceSettingsSheet: View {
                         prompt: Prompts.RemoveDevice.copy(name: deviceName(device)),
                         handlers: ["remove": { removeDevice() }]
                     )
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $optInTeamId) { teamId in
+                    GlassAlert(prompt: MemberSpace.optInPrompt(), handlers: ["allow": { saveAssistants(teamId: teamId, allowed: true) }])
                 }
         )
         .background(
@@ -482,6 +501,10 @@ struct DeviceSettingsSheet: View {
                 )
                 .disabled(savingShare)
                 .accessibilityIdentifier("device-share-\(team.id)")
+                // #EXP-2161: members' Assistants, per shared team.
+                if device.sharedTeamIds.contains(team.id) {
+                    assistantsRow(device, teamId: team.id)
+                }
             }
         } header: {
             GlassSectionHeader("Sharing")
@@ -489,6 +512,41 @@ struct DeviceSettingsSheet: View {
             Text("Teammates of a shared team can start sessions on this server. Removing a team ends its sessions on it.")
         }
         .listRowBackground(glassFormRowFill)
+    }
+
+    /// #EXP-2161 (member-space.json, web `MemberSpaceOptInRow`): the owner's
+    /// opt-in under one shared team, indented; disabled with the doctor's
+    /// detail while it cannot; on confirms (`copy.optIn*`), off is one press.
+    private func assistantsRow(_ device: SteerDevice, teamId: String) -> some View {
+        let checked = device.assistantTeamIds.contains(teamId)
+        let row = MemberSpace.optInRow(checked: checked, kind: device.kind, doctor: device.doctor)
+        return GlassToggleRow(
+            MemberSpace.Copy.optIn,
+            description: row.disabled ? row.detail : nil,
+            isOn: Binding(
+                get: { checked },
+                set: { next in
+                    if next { optInTeamId = teamId } else { saveAssistants(teamId: teamId, allowed: false) }
+                }
+            )
+        )
+        .padding(.leading, 16)
+        .disabled(row.disabled || savingAssistants)
+        .accessibilityIdentifier("device-assistants-\(teamId)")
+    }
+
+    private func saveAssistants(teamId: String, allowed: Bool) {
+        savingAssistants = true
+        Task {
+            do {
+                try await deps.devicesApi.setAssistantTeam(
+                    accountId: accountId, deviceId: deviceId, teamId: teamId, allowed: allowed
+                )
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "update", thing: "sharing"), description: error.userFacingMessage)
+            }
+            savingAssistants = false
+        }
     }
 
     private func saveShare(teamId: String, shared: Bool) {

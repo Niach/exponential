@@ -680,7 +680,7 @@
     },
     "List": {
       "type": "object",
-      "description": "Windowed list for anything past a screen; children may be a data template.",
+      "description": "Windowed list; children may be a data template.",
       "properties": {
         "component": {
           "const": "List"
@@ -18825,6 +18825,10 @@
         "hint": {
           "type": "string",
           "description": "Small muted text at the row's end (Select popup)."
+        },
+        "section": {
+          "type": "string",
+          "description": "Popup heading it sits under."
         },
         "mono": {
           "type": "boolean",

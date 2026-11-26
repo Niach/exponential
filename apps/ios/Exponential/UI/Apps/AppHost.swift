@@ -799,7 +799,7 @@ enum AppHostStore {
         let observe = Task { @MainActor in
             do {
                 for try await next in ValueObservation.tracking({ try DeviceEntity.fetchAll($0) }).values(in: pool) {
-                    rows = next
+                    rows = DeviceEntity.listed(next)
                     push()
                 }
             } catch {}

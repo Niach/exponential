@@ -198,3 +198,44 @@ class GroupChatMigrationTest {
         assertNull(decode("""{"id":"ag1"}""").groupChatId)
     }
 }
+
+/** #EXP-2161: v135 adds the member-space columns to `devices` and refetches ONLY the devices shape. */
+class MemberSpaceMigrationTest {
+    @Test
+    fun `v135 adds the devices columns and refetches only devices`() {
+        assertEquals(134, MIGRATION_134_135.startVersion)
+        assertEquals(135, MIGRATION_134_135.endVersion)
+        val statements = mutableListOf<String>()
+        val db = Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            if (method.name == "execSQL") statements += args!![0] as String else error("unexpected ${method.name}")
+            null
+        } as SupportSQLiteDatabase
+        MIGRATION_134_135.migrate(db)
+        assertEquals(
+            listOf(
+                "ALTER TABLE `devices` ADD COLUMN `assistant_team_ids` TEXT NOT NULL DEFAULT '[]'",
+                "ALTER TABLE `devices` ADD COLUMN `space_host_id` TEXT",
+                "ALTER TABLE `devices` ADD COLUMN `space_team_id` TEXT",
+                "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                    "`needs_refetch` = 1 WHERE `shape` = 'devices'",
+            ),
+            statements,
+        )
+    }
+
+    @Test
+    fun `the devices row decodes the member-space columns, absent = none`() {
+        val json = Json { ignoreUnknownKeys = true }
+        fun decode(raw: String) = json.decodeFromString(DeviceEntity.serializer(), raw)
+        val space = decode("""{"id":"r","user_id":"u","device_id":"space-1","assistant_team_ids":"{}","space_host_id":"h","space_team_id":"t"}""")
+        assertEquals("h", space.spaceHostId)
+        assertEquals("t", space.spaceTeamId)
+        val host = decode("""{"id":"r","user_id":"u","device_id":"srv","assistant_team_ids":"{a1,b2}"}""")
+        assertEquals(listOf("a1", "b2"), host.assistantTeamIds)
+        assertNull(host.spaceHostId)
+        assertEquals(emptyList<String>(), decode("""{"id":"r","user_id":"u","device_id":"srv"}""").assistantTeamIds)
+    }
+}

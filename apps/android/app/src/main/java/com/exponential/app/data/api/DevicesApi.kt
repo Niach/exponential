@@ -116,6 +116,14 @@ internal data class SetSharedInput(
  * `devices.dropShare` (FEED-149): [id] = the synced `devices` ROW id (not the
  * machine's device id), [teamId] = the team the share is dropped from.
  */
+/** `devices.setAssistantTeam` (#EXP-2161): members' Assistants on a device, per team. */
+@Serializable
+private data class SetAssistantTeamInput(
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("teamId") val teamId: String,
+    @SerialName("allowed") val allowed: Boolean,
+)
+
 @Serializable
 internal data class DropShareInput(
     @SerialName("id") val id: String,
@@ -268,6 +276,32 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "devices.setShared",
             input = SetSharedInput(deviceId = deviceId, teamId = teamId, shared = shared),
             inputSerializer = SetSharedInput.serializer(),
+        )
+    }
+
+    /**
+     * #EXP-2161 (member-space.json `optInCases`): the device OWNER lets
+     * [teamId]'s members run their Assistant on [deviceId] (or stops it;
+     * members running there end). PRECONDITION_FAILED with the doctor's
+     * detail when the machine cannot host them.
+     */
+    suspend fun setAssistantTeam(accountId: String, deviceId: String, teamId: String, allowed: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.setAssistantTeam",
+            input = SetAssistantTeamInput(deviceId, teamId, allowed),
+            inputSerializer = SetAssistantTeamInput.serializer(),
+        )
+    }
+
+    /** #EXP-2161: a team OWNER switches members' Assistants off on a
+     *  teammate's device row [rowId] (off only). */
+    suspend fun dropAssistantTeam(accountId: String, rowId: String, teamId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.dropAssistantTeam",
+            input = DropShareInput(id = rowId, teamId = teamId),
+            inputSerializer = DropShareInput.serializer(),
         )
     }
 

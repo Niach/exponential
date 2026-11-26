@@ -68,8 +68,99 @@ class InstallTrustFixtureTest {
         assertEquals(approval.str("label"), InstallApproval.LABEL)
         assertEquals(approval["messageBytes"]!!.jsonPrimitive.int, InstallApproval.MESSAGE_BYTES)
         val kinds = approval.obj("kinds")
-        for (kind in ApprovalKind.entries) assertEquals(kind.wire, kinds[kind.wire]!!.jsonPrimitive.int, kind.byte)
-        assertEquals(ApprovalKind.entries.size, kinds.size)
+        val space = f.obj("space")
+        for (kind in ApprovalKind.entries) {
+            val want = if (kind.wire == space.str("kind")) space["kindByte"] else kinds[kind.wire]
+            assertEquals(kind.wire, want!!.jsonPrimitive.int, kind.byte)
+        }
+        assertEquals(ApprovalKind.entries.size, kinds.size + 1)
+    }
+
+    /** #EXP-2161 (member-space.json). */
+    @Test
+    fun memberSpacePinCases() {
+        val space = Json.parseToJsonElement(contractFixtureJson("member-space.json")).jsonObject
+        assertEquals(space.str("registrationLabel"), InstallTrust.SPACE_REGISTRATION_LABEL)
+        assertEquals(space.str("approvalKind"), ApprovalKind.Space.wire)
+        assertEquals(space["approvalKindByte"]!!.jsonPrimitive.int, ApprovalKind.Space.byte)
+        for (c in space.cases("pinCases")) {
+            assertEquals(
+                c.str("name"),
+                c["expected"]!!.jsonPrimitive.boolean,
+                pinCovers(c.strOrNull("pin")?.let { InstallClass.of(it)!! }, c["rootIsOwnAssistant"]!!.jsonPrimitive.boolean),
+            )
+        }
+    }
+
+    /** #EXP-2161 (member-space.json `rootMarkCases`). */
+    @Test
+    fun rootMarkCases() {
+        val space = Json.parseToJsonElement(contractFixtureJson("member-space.json")).jsonObject
+        val root = "01234567-89ab-4def-8123-456789abcdef"
+        val all = space.cases("rootMarkCases")
+        assertTrue(all.size >= 10)
+        for (c in all) {
+            val name = c.str("name")
+            var store = TrustStore(selfEndpointId = "me", userId = "user-me")
+            fun markOf(o: JsonObject) = (o["mark"] as? JsonPrimitive)?.contentOrNull?.let { w -> RootMark.entries.single { it.wire == w } }
+            markOf(c)?.let { store = store.copy(rootMarks = mapOf(root to it)) }
+            if (c["keyed"]?.jsonPrimitive?.booleanOrNull == true) store = store.recordKey(root, 1, KeyRecord.Legacy)
+            for (step in c.cases("steps")) {
+                val see = RootSight.entries.single { it.wire == step.str("see") }
+                val record = step["record"]?.jsonPrimitive?.booleanOrNull == true
+                val (next, counts) = store.ownAssistant(root.uppercase(), see, record)
+                store = next
+                assertEquals(name, step["counts"]!!.jsonPrimitive.boolean, counts)
+                assertEquals(name, markOf(step), store.rootMarks[root])
+                if (record) store = store.recordKey(root, 1, KeyRecord.Verified)
+                store = Json.decodeFromString(TrustStore.serializer(), Json.encodeToString(TrustStore.serializer(), store))
+            }
+        }
+    }
+
+    /** #EXP-2161 (web `sightOfRoot`). */
+    @Test
+    fun whatTheRowsSayOfARoot() {
+        fun root(agent: String?, user: String = "me", parent: String? = null) =
+            com.exponential.app.data.db.RootFacts("r", parent, user, agent)
+        val agents = mapOf("a" to true, "t" to false)
+        assertEquals(RootSight.Unknown, sightOfRoot(null, agents, "me"))
+        assertEquals(RootSight.Assistant, sightOfRoot(root("a"), agents, "me"))
+        assertEquals(RootSight.Unknown, sightOfRoot(root("later"), agents, "me"))
+        for (other in listOf(root(null), root("t"), root("a", user = "you"), root("a", parent = "p"), root("later", user = "you"))) {
+            assertEquals(RootSight.Other, sightOfRoot(other, agents, "me"))
+        }
+    }
+
+    /** #EXP-2161: a server that stops serving a space (or its registration) does not make it an unpinned ordinary install. */
+    @Test
+    fun onceASpaceAlwaysASpace() {
+        val s = fx.endpoint("S")
+        fun seen(store: TrustStore, vararg specs: JsonObject) = InstallTrust.reconcile(store, TrustAnswer(specs.map { fx.served(it) }, emptyList()), crypto).store
+        val a = spec("key" to "A")
+        val bare = spec("key" to "S", "registration" to "none")
+        val joined = fx.namedStore("withoutSpace", fx.space.obj("stores"))
+        val known = seen(joined.store, a, spec("key" to "S"))
+        assertTrue(s in known.knownSpaces)
+        for (specs in listOf(arrayOf(a), arrayOf(a, bare))) {
+            val store = seen(known, *specs)
+            assertTrue(s in store.knownSpaces && s !in store.pins)
+            assertFalse(s in seen(store.copy(existing = true, joined = false), *specs).pins)
+        }
+        val keep = fx.space.cases("keepCases").first { it.str("store") == "withoutSpace" }
+        fun kept(store: TrustStore) = InstallTrust.keepWrap(fx.heldWrap(keep.obj("wrap")), joined.identity, joined.installSecret, store, TrustMode.Record, crypto, true)
+        assertTrue(kept(joined.store) is InstallTrust.KeepVerdict.Keep)
+        val gone = seen(known, a)
+        assertEquals(InstallTrust.KeepVerdict.Refuse(WrapRefusal.Unpinned), kept(gone))
+        val seal = fx.space.cases("sealCases").first { it.str("store") == "withoutSpace" }
+        assertEquals(
+            InstallTrust.SealVerdict.Refuse(InstallTrust.SealRefusal.Unpinned),
+            InstallTrust.sealTo(seal.str("rootId"), 1, seal.str("publicKey"), null, fx.vouch(seal.obj("vouch")), gone, TrustMode.Record, crypto, true),
+        )
+        assertEquals(
+            InstallTrust.TargetVerdict.Refuse(InstallTrust.TargetRefusal.Unapproved),
+            InstallTrust.wrapTarget(fx.served(bare), gone, TrustMode.Record, emptySet(), crypto, true),
+        )
     }
 
     @Test
@@ -259,6 +350,98 @@ class InstallTrustFixtureTest {
             assertEquals(name, before.obj("pins").keys.sorted(), pins)
         }
         assertTrue(attacks.any { c -> c.cases("rows").any { it.str("key") == "Z" && it.str("kind") == "newInstall" } })
+    }
+
+    // ── member spaces (the `space` section, #EXP-2161) ────────────────────
+
+    @Test
+    fun spaceConstantsRegistrationsAndTheApproval() {
+        val space = fx.space
+        assertEquals(space.str("registrationLabel"), InstallTrust.SPACE_REGISTRATION_LABEL)
+        for (name in space.obj("keys").keys) {
+            val key = fx.key(name)
+            val message = InstallTrust.spaceRegistrationMessage(key.str("userId"), fx.endpoint(name), key.str("x25519Public"), key.str("signedAt"))
+            assertEquals(name, key.str("registrationSignature"), crypto.sign(fx.identity(name), message.toByteArray()))
+            assertEquals(name, key.str("code"), InstallCode.of(fx.endpoint(name)))
+            assertEquals(name, InstallClass.Space, InstallTrust.registrationClass(fx.served(spec("key" to name)), crypto))
+            assertFalse(name, InstallTrust.registrationValid(fx.served(spec("key" to name)), crypto))
+        }
+        assertEquals(InstallClass.Install, InstallTrust.registrationClass(fx.served(spec("key" to "A")), crypto))
+        assertNull(InstallTrust.registrationClass(fx.served(spec("key" to "S", "registration" to "none")), crypto))
+        val v = space.obj("approval")
+        val s = v.obj("subject")
+        val subject = ServedInstall("x", s.str("userId"), s.str("endpointId"), s.str("x25519Public"))
+        assertArrayEquals(v.str("message").hexBytes(), InstallApproval.message(ApprovalKind.Space, subject))
+        assertEquals(v.str("signature"), InstallApproval.sign(ApprovalKind.Space, subject, fx.identity("A"), crypto))
+        assertTrue(InstallApproval.verify(ApprovalKind.Space, subject, v.str("signature"), v.str("approverEndpointId"), crypto))
+        assertFalse(InstallApproval.verify(ApprovalKind.Approve, subject, v.str("signature"), v.str("approverEndpointId"), crypto))
+    }
+
+    @Test
+    fun spaceTrustCases() {
+        val all = fx.space.cases("trustCases")
+        assertTrue(all.isNotEmpty())
+        for (c in all) {
+            val name = c.str("name")
+            val answer = TrustAnswer(
+                installs = c.cases("installs").map { fx.served(it) },
+                approvals = c.cases("approvals").map { a ->
+                    ServedApproval(ApprovalKind.of(a.str("kind"))!!, fx.endpoint(a.str("subject")), fx.endpoint(a.str("approver")), a.str("signature"))
+                },
+            )
+            val view = InstallTrust.reconcile(fx.store(c.obj("before")), answer, crypto)
+            assertEquals(name, c.str("status"), view.status.wire)
+            val after = c.obj("after")
+            assertEquals(name, after["joined"]!!.jsonPrimitive.boolean, view.store.joined)
+            val pins = view.store.pins.map { (endpointId, pin) ->
+                fx.nameOf(endpointId) to listOfNotNull(
+                    pin.via.wire, pin.by?.let(fx::nameOf) ?: "-", pin.installClass.wire.takeIf { pin.installClass == InstallClass.Space },
+                )
+            }.toMap()
+            val expected = after.obj("pins").mapValues { (_, pin) -> pin.jsonArray.map { (it as? JsonPrimitive)?.contentOrNull ?: "-" } }
+            assertEquals(name, expected, pins)
+            assertEquals(name, after.strings("members"), view.store.members)
+            assertEquals(name, c.cases("rows").map { it.str("kind") to it.str("key") }, view.rows.map { it.kind.wire to fx.nameOf(it.endpointId) })
+            if ("knownSpaces" in after) assertEquals(name, after.strings("knownSpaces"), view.store.knownSpaces.map { fx.nameOf(it) })
+            if (view.store.space) assertEquals(name, emptyList<String>(), view.approveExisting)
+        }
+    }
+
+    @Test
+    fun spaceRulesCoverTheMembersOwnAssistantAlone() {
+        val stores = fx.space.obj("stores")
+        fun own(c: JsonObject) = c["rootIsOwnAssistant"]!!.jsonPrimitive.boolean
+        fun answer(ok: Boolean, key: String, value: String) = mapOf("ok" to ok.toString(), key to value)
+        fun want(c: JsonObject, mode: TrustMode, field: String) = at(c, mode).let { w ->
+            w.mapValues { it.value.jsonPrimitive.content }.mapKeys { if (it.key == field) "ok" else it.key }
+        }
+        for (mode in TrustMode.entries) {
+            for (c in fx.space.cases("keepCases")) {
+                val named = fx.namedStore(c.str("store"), stores)
+                val got = when (val v = InstallTrust.keepWrap(fx.heldWrap(c.obj("wrap")), named.identity, named.installSecret, named.store, mode, crypto, own(c))) {
+                    is InstallTrust.KeepVerdict.Keep -> answer(true, "record", v.record.wire)
+                    is InstallTrust.KeepVerdict.Refuse -> answer(false, "reason", v.reason.wire)
+                }
+                assertEquals("${c.str("name")} ($mode)", want(c, mode, "keep"), got)
+            }
+            for (c in fx.space.cases("sealCases")) {
+                val store = fx.namedStore(c.str("store"), stores).store
+                val vouch = c["vouch"]?.takeIf { it !is JsonNull }?.jsonObject?.let(fx::vouch)
+                val got = when (val v = InstallTrust.sealTo(c.str("rootId"), c["epoch"]!!.jsonPrimitive.int, c.str("publicKey"), null, vouch, store, mode, crypto, own(c))) {
+                    is InstallTrust.SealVerdict.Seal -> answer(true, "record", v.record.wire)
+                    is InstallTrust.SealVerdict.Refuse -> answer(false, "reason", v.reason.wire)
+                }
+                assertEquals("${c.str("name")} ($mode)", want(c, mode, "seal"), got)
+            }
+            for (c in fx.space.cases("targetCases")) {
+                val store = fx.namedStore(c.str("store"), stores).store
+                val got = when (val v = InstallTrust.wrapTarget(fx.served(c.obj("target")), store, mode, emptySet(), crypto, own(c))) {
+                    is InstallTrust.TargetVerdict.Wrap -> answer(true, "record", v.record.wire)
+                    is InstallTrust.TargetVerdict.Refuse -> answer(false, "reason", v.reason.wire)
+                }
+                assertEquals("${c.str("name")} ($mode)", want(c, mode, "wrap"), got)
+            }
+        }
     }
 
     // ── the four rules, now and once mandatory ────────────────────────────
@@ -455,11 +638,14 @@ internal class TrustFixture {
     val f: JsonObject = Json.parseToJsonElement(contractFixtureJson("install-trust.json")).jsonObject
     val keys: JsonObject = f.obj("keys")
 
-    fun key(name: String): JsonObject = keys.obj(name)
+    /** #EXP-2161: the `space` section (its keys S and X beside `keys`). */
+    val space: JsonObject = f.obj("space")
+
+    fun key(name: String): JsonObject = (keys[name] ?: space.obj("keys")[name]!!).jsonObject
     fun endpoint(name: String): String = key(name).str("endpointId")
     fun identity(name: String): ByteArray = key(name).str("identity").hexBytes()
     fun installSecret(name: String): ByteArray = key(name).str("installSecret").hexBytes()
-    fun nameOf(endpointId: String): String? = keys.entries.firstOrNull { it.value.jsonObject.str("endpointId") == endpointId }?.key
+    fun nameOf(endpointId: String): String? = (keys.entries + space.obj("keys").entries).firstOrNull { it.value.jsonObject.str("endpointId") == endpointId }?.key
 
     /** An install spec (`key`, `approvalRequested`, `registration`, `x25519Public`) as served. */
     fun served(spec: JsonObject): ServedInstall {
@@ -502,6 +688,7 @@ internal class TrustFixture {
                 x25519Public = key(name).str("x25519Public"),
                 via = PinVia.of(pair[0].jsonPrimitive.content)!!,
                 by = (pair[1] as? JsonPrimitive)?.contentOrNull?.let(::endpoint),
+                installClass = (pair.getOrNull(2) as? JsonPrimitive)?.contentOrNull?.let { InstallClass.of(it) } ?: InstallClass.Install,
             )
         }
         val roots = (spec["roots"] as? JsonObject)?.mapValues { (_, value) ->
@@ -513,17 +700,19 @@ internal class TrustFixture {
             userId = key(viewer).str("userId"),
             joined = spec["joined"]!!.jsonPrimitive.boolean,
             existing = (spec["existing"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            space = (spec["space"] as? JsonPrimitive)?.booleanOrNull ?: false,
             pins = pins,
             members = spec.strings("members"),
             declined = spec.strings("declined").map(::endpoint),
             roots = roots,
+            knownSpaces = spec.strings("knownSpaces").map(::endpoint),
         )
     }
 
     class Named(val store: TrustStore, val identity: ByteArray, val installSecret: ByteArray)
 
-    fun namedStore(name: String): Named {
-        val spec = f.obj("stores").obj(name)
+    fun namedStore(name: String, stores: JsonObject = f.obj("stores")): Named {
+        val spec = stores.obj(name)
         val viewer = spec.str("viewer")
         return Named(store(spec), identity(viewer), installSecret(viewer))
     }

@@ -1855,6 +1855,17 @@ pub struct DeviceRow {
     /// Postgres array literal in a JSON string (`"{a,b}"`).
     #[serde(default, deserialize_with = "tolerant_id_list")]
     pub shared_team_ids: Vec<String>,
+    /// #EXP-2161 (member-space.json) `uuid[]`: the shared teams whose members
+    /// may run their Assistant here (always a subset of `shared_team_ids`).
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub assistant_team_ids: Vec<String>,
+    /// #EXP-2161: set = this row is a member SPACE (the host's `devices` row
+    /// id): never listed as a device (`member_space::is_listed`).
+    #[serde(default)]
+    pub space_host_id: Option<String>,
+    /// #EXP-2161: the team a space was picked through.
+    #[serde(default)]
+    pub space_team_id: Option<String>,
     /// EXP-622: the ROW OWNER's default machine — the one every device picker
     /// prefills. Honour it only when `user_id` is the signed-in user: a
     /// teammate's shared server carries THEIR preference, not ours.
@@ -1939,6 +1950,16 @@ impl DeviceRow {
     /// FEED-33: shared with `team_id` specifically.
     pub fn is_shared_with(&self, team_id: &str) -> bool {
         self.shared_team_ids.iter().any(|id| id == team_id)
+    }
+
+    /// #EXP-2161: members of `team_id` may run their Assistant here.
+    pub fn is_assistant_team(&self, team_id: &str) -> bool {
+        self.assistant_team_ids.iter().any(|id| id == team_id)
+    }
+
+    /// #EXP-2161: a member space's row (never a device of any list).
+    pub fn is_space(&self) -> bool {
+        !crate::member_space::is_listed(self)
     }
 
     /// #EXP-1440: one of the caller's OWN machines may run a team's sessions

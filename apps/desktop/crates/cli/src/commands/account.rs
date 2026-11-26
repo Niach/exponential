@@ -29,6 +29,8 @@ pub fn logout(args: &[String]) -> CommandResult {
             }
         }
     }
+    // #EXP-2161: the members' Assistants this account hosts end here.
+    crate::members::teardown(&ctx.data_dir, Some(&ctx.account.id));
     ctx.auth.sign_out(&ctx.account.id);
     // #EXP-1514 (row 14): the agent spaces of this account's daemon
     // sessions close (their records name this machine's CLI device).

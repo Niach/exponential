@@ -515,3 +515,21 @@ val MIGRATION_133_134: Migration = object : Migration(133, 134) {
         )
     }
 }
+
+/**
+ * v135 (#EXP-2161, member-space.json): `devices.assistant_team_ids` (the
+ * per-team opt-in), `space_host_id` + `space_team_id` (a member space's host
+ * and team). Only the devices shape refetches, so synced rows re-arrive
+ * carrying them.
+ */
+val MIGRATION_134_135: Migration = object : Migration(134, 135) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `assistant_team_ids` TEXT NOT NULL DEFAULT '[]'")
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `space_host_id` TEXT")
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `space_team_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'devices'",
+        )
+    }
+}

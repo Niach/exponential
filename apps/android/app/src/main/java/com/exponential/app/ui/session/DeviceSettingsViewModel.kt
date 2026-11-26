@@ -114,6 +114,7 @@ class DeviceSettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val devicesApi: DevicesApi,
+    private val memberSpacesApi: com.exponential.app.data.api.MemberSpacesApi,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
@@ -262,6 +263,84 @@ class DeviceSettingsViewModel @Inject constructor(
                     fail("update", "sharing", t) { setShared(deviceId, teamId, shared) }
                 }
             _shareBusy.value = false
+        }
+    }
+
+    // ── #EXP-2161 (member-space.json): members' Assistants on this machine ──
+
+    private val _assistantsBusy = MutableStateFlow(false)
+    val assistantsBusy: StateFlow<Boolean> = _assistantsBusy
+
+    /** The owner's opt-in per shared team (`devices.setAssistantTeam`):
+     *  turning it on confirms first (the sheet's prompt), off is one press. */
+    fun setAssistantTeam(deviceId: String, teamId: String, allowed: Boolean, onDone: () -> Unit = {}) {
+        if (_assistantsBusy.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _assistantsBusy.value = true
+            try {
+                devicesApi.setAssistantTeam(accountId, deviceId, teamId, allowed)
+                onDone()
+                reloadMembers()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                fail("update", "sharing", t)
+            } finally {
+                _assistantsBusy.value = false
+            }
+        }
+    }
+
+    private val _members = MutableStateFlow<List<com.exponential.app.data.api.SpaceMember>>(emptyList())
+
+    /** `copy.members`: who runs their Assistant here (`memberSpaces.forDevice`,
+     *  read again every 30 s while the sheet is open; the spaces are not synced). */
+    val members: StateFlow<List<com.exponential.app.data.api.SpaceMember>> = _members
+
+    private var membersJob: Job? = null
+
+    private var membersRowId: String? = null
+
+    /** Follows the members of the device row [rowId] (null = stop). */
+    fun followMembers(rowId: String?) {
+        membersJob?.cancel()
+        _members.value = emptyList()
+        membersRowId = rowId
+        if (rowId == null) return
+        membersJob = viewModelScope.launch {
+            while (true) {
+                reloadMembers()
+                delay(MEMBERS_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun reloadMembers() {
+        val rowId = membersRowId ?: return
+        val accountId = auth.activeAccountId.value ?: return
+        runCatching { memberSpacesApi.forDevice(accountId, rowId) }
+            .onFailure { if (it is CancellationException) throw it }
+            .onSuccess { _members.value = it }
+    }
+
+    private val _removingSpace = MutableStateFlow<String?>(null)
+    val removingSpace: StateFlow<String?> = _removingSpace
+
+    /** `copy.remove`: the device owner's Remove of one member's space. */
+    fun removeSpace(spaceId: String) {
+        if (_removingSpace.value != null) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _removingSpace.value = spaceId
+            try {
+                memberSpacesApi.remove(accountId, spaceId)
+                reloadMembers()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                fail("remove", "the member", t)
+            } finally {
+                _removingSpace.value = null
+            }
         }
     }
 
@@ -546,6 +625,9 @@ private val deviceSettingsFlushScope = CoroutineScope(SupervisorJob() + Dispatch
 
 /** How long an edit rests before it is written (one relay nudge per write). */
 private const val AUTOSAVE_DEBOUNCE_MS = 800L
+
+/** #EXP-2161: how often the open sheet reads its members again. */
+private const val MEMBERS_INTERVAL_MS = 30_000L
 
 private const val COMMAND_POLL_INTERVAL_MS = 2_000L
 private const val COMMAND_POLL_DEADLINE_MS = 90_000L

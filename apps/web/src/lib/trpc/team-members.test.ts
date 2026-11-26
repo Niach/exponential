@@ -123,6 +123,8 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
   endHostedSessions: vi.fn(async (..._args: unknown[]) => [] as string[]),
 }))
 // #EXP-1935: the removed member's voice mirror is re-derived after commit.
+// #EXP-2161: its own real-DB suite (lib/spaces).
+vi.mock(`@/lib/spaces/end`, () => ({ endLeaverSpacesInTx: vi.fn(async () => []), finishEndedSpaces: vi.fn(async () => {}) }))
 vi.mock(`@/lib/agents/assistant`, () => ({ syncVoiceMirror: vi.fn(async () => {}) }))
 vi.mock(`@/lib/sessions/host`, () => ({
   lockDeviceShares: vi.fn(async () => {}),

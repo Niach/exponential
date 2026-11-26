@@ -361,7 +361,7 @@ public actor TreeKeyHolder {
                 // R4: never for a target that asked and is not approved, or whose key is not the pinned one.
                 if let trust {
                     let verdict = await trust.target(
-                        accountId: accountId, installId: pair.targetInstallId, x25519Public: pair.targetX25519Public,
+                        accountId: accountId, rootId: pair.rootId, installId: pair.targetInstallId, x25519Public: pair.targetX25519Public,
                         endpointId: pair.targetEndpointId, userId: nil
                     )
                     if !verdict.wraps { continue }

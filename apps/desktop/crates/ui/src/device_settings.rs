@@ -436,6 +436,10 @@ pub struct DeviceSettingsView {
     readiness: Entity<crate::settings::readiness::ReadinessBlock>,
     /// #EXP-1804: the machine's CI runner section (runner-settings.json).
     runner: Entity<crate::ci_run::RunnerSection>,
+    /// #EXP-2161: a `devices.setAssistantTeam` in flight, and the members
+    /// running their Assistant here (Sharing's `copy.members`).
+    assistants_busy: bool,
+    members: Entity<crate::member_spaces::MemberSpacesList>,
     /// EXP-909: the remove landed — the row this dialog configures is gone,
     /// so the dialog closes on the next frame.
     removed: bool,
@@ -487,6 +491,9 @@ impl DeviceSettingsView {
                 active_sessions: None,
                 last_seen_at: None,
                 shared_team_ids: Vec::new(),
+                assistant_team_ids: Vec::new(),
+                space_host_id: None,
+                space_team_id: None,
                 is_default: None,
                 update_requested_at: None,
                 runner: None,
@@ -629,6 +636,8 @@ impl DeviceSettingsView {
             remove_busy: false,
             readiness: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("device-readiness", window, cx)),
             runner: cx.new(|cx| crate::ci_run::RunnerSection::new("device-runner", window, cx)),
+            assistants_busy: false,
+            members: cx.new(|cx| crate::member_spaces::MemberSpacesList::new(window, cx)),
             removed: false,
             settings_scroll: ScrollHandle::new(),
             max_height: px(CONTENT_H),
@@ -1136,6 +1145,30 @@ impl DeviceSettingsView {
         self.run_section(
             "sharing",
             move |trpc| api::devices::set_shared(trpc, &device_id, &team_id, shared),
+            cx,
+        );
+    }
+
+    /// #EXP-2161 (member-space.json THE OPT-IN): let `team_id`'s members run
+    /// their Assistant here, or stop it. Straight through like the share
+    /// switches: the row's `assistant_team_ids` echo flips the switch.
+    fn save_assistant_team(&mut self, team_id: String, allowed: bool, cx: &mut gpui::Context<Self>) {
+        if self.assistants_busy {
+            return;
+        }
+        self.assistants_busy = true;
+        cx.notify();
+        let view = cx.entity().downgrade();
+        crate::member_spaces::set_assistant_team(
+            self.device_id.clone(),
+            team_id,
+            allowed,
+            move |cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.assistants_busy = false;
+                    cx.notify();
+                });
+            },
             cx,
         );
     }
@@ -1672,12 +1705,45 @@ impl DeviceSettingsView {
                 .child("Join a team to share this device.");
         }
         let busy = self.busy_section.is_some();
+        // #EXP-2161: the opt-in row reads this machine's doctor item.
+        let doctor = device_readiness::parse(row.and_then(|row| row.doctor.as_ref()));
+        let kind = row.and_then(|row| row.kind.clone()).unwrap_or_default();
+        let view = cx.entity().downgrade();
         let rows: Vec<Div> = teams
             .into_iter()
-            .map(|team| {
+            .flat_map(|team| {
                 let checked = row.is_some_and(|row| row.is_shared_with(&team.id));
                 let team_id = team.id.clone();
-                surface::glass_toggle_row(
+                // #EXP-2161 (member-space.json UI ×4): under each SHARED
+                // team's switch, members' Assistants; on confirms first.
+                let opt_in = (checked && !self.device_id.is_empty()).then(|| {
+                    let on = row.is_some_and(|row| row.is_assistant_team(&team.id));
+                    let (disabled, detail) = crate::member_spaces::opt_in_row(on, &kind, doctor.as_ref());
+                    let (view, team_id) = (view.clone(), team.id.clone());
+                    crate::member_spaces::opt_in_toggle(
+                        SharedString::from(format!("device-settings-assistants-{}", team.id)),
+                        on,
+                        disabled || self.assistants_busy,
+                        detail,
+                        move |next, window, cx| {
+                            let (view, team_id) = (view.clone(), team_id.clone());
+                            if *next {
+                                crate::member_spaces::confirm_opt_in(
+                                    move |cx| {
+                                        let team_id = team_id.clone();
+                                        let _ = view.update(cx, |this, cx| this.save_assistant_team(team_id, true, cx));
+                                    },
+                                    window,
+                                    cx,
+                                );
+                            } else {
+                                let _ = view.update(cx, |this, cx| this.save_assistant_team(team_id, false, cx));
+                            }
+                        },
+                        cx,
+                    )
+                });
+                let share = surface::glass_toggle_row(
                     team.name.clone(),
                     None,
                     crate::controls::web_switch(SharedString::from(format!(
@@ -1692,7 +1758,8 @@ impl DeviceSettingsView {
                         }))
                         .into_any_element(),
                     cx,
-                )
+                );
+                std::iter::once(share).chain(opt_in)
             })
             .collect();
         v_flex()
@@ -1702,6 +1769,8 @@ impl DeviceSettingsView {
             .child(div().text_xs().text_color(muted).child(
                 "Teammates of a shared team can start sessions on this device.",
             ))
+            // #EXP-2161: `copy.members`, one row per member with a space here.
+            .child(self.members.clone())
     }
 }
 
@@ -2122,6 +2191,9 @@ impl Render for DeviceSettingsView {
                 cx,
             )]));
         if server {
+            // #EXP-2161: the members list follows this row and its opt-ins.
+            let (row_id, version) = (row.as_ref().map(|row| row.id.clone()), row.as_ref().map(|row| row.assistant_team_ids.join(",")).unwrap_or_default());
+            self.members.update(cx, |members, cx| members.set_device(row_id, version, cx));
             body = body.child(self.render_sharing_section(row.as_ref(), cx));
         }
         // The autosave says nothing while it succeeds; a write in flight or a

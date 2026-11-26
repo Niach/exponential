@@ -105,6 +105,7 @@ pub mod session_manifest;
 pub mod session_teardown;
 pub mod settings;
 pub mod skill;
+pub mod space_logins;
 pub mod team_skills;
 #[cfg(test)]
 pub(crate) mod test_support;

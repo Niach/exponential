@@ -13,8 +13,17 @@ public struct DevicePickerDevice: Identifiable, Hashable {
     /// A muted reason under the name (`Offline`).
     public let description: String?
     public let disabled: Bool
+    /// #EXP-2161: the heading of its run of rows (a team's name).
+    public let section: String?
+    /// #EXP-2161: the picked device's other row (listed under two teams).
+    public let checked: Bool
 
-    public init(id: String, name: String, icon: String? = nil, description: String? = nil, disabled: Bool = false) {
+    public init(
+        id: String, name: String, icon: String? = nil, description: String? = nil, disabled: Bool = false,
+        section: String? = nil, checked: Bool = false
+    ) {
+        self.section = section
+        self.checked = checked
         self.id = id
         self.name = name
         self.icon = icon
@@ -69,7 +78,9 @@ public struct DevicePicker<Trigger: View>: View {
                 label: device.name,
                 icon: device.icon,
                 description: device.description,
-                disabled: device.disabled
+                disabled: device.disabled,
+                checked: device.checked ? .all : nil,
+                section: device.section
             )
         }
     }
