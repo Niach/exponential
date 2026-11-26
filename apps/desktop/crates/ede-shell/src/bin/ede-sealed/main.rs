@@ -25,7 +25,7 @@
 //!   its caller; with it, consent (and the share chooser, whose ask says
 //!   its `size`) asks the compositor nothing.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
-//!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
+//!   (#EDE-15): the ask as JSON on stdin (`app_id`, `app_name`, `types`, `multiple`,
 //!   `remote_control`, `outputs`, `windows`, `selected` = the rows a
 //!   restored share starts with), the picks on stdout
 //!   (`output:NAME`, `window:ID`, and `allow` for remote control).
@@ -629,12 +629,13 @@ fn share() {
     let mut input = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
     let ask: Value = serde_json::from_str(&input).unwrap_or(json!({}));
-    let app = ask["app_id"].as_str().filter(|a| !a.is_empty()).unwrap_or("An app").to_string();
+    // The app's desktop-entry name (the portal resolves it), else its id.
+    let app = [&ask["app_name"], &ask["app_id"]].into_iter().find_map(|v| v.as_str().filter(|a| !a.is_empty())).unwrap_or("An app").to_string();
     let types: Vec<String> = ask["types"].as_array().map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
     let multiple = ask["multiple"].as_bool().unwrap_or(false);
     let remote = ask["remote_control"].as_bool().unwrap_or(false);
     let mut outputs: Vec<Value> = ask["outputs"].as_array().map(|l| l.iter().map(|o| json!({"id": format!("output:{}", o["name"].as_str().unwrap_or("")), "label": o["name"], "detail": format!("{}×{}", o["width"], o["height"]), "selected": false})).collect()).unwrap_or_default();
-    let mut windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_id"].as_str().unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
+    let mut windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_name"].as_str().or(w["app_id"].as_str()).unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
     let preselected = preselect(&ask, multiple, &mut outputs, &mut windows);
     let what = match (types.iter().any(|t| t == "monitor"), types.iter().any(|t| t == "window")) {
         (true, true) => "share a screen or a window",

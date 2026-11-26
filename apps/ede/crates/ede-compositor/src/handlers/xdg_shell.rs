@@ -122,7 +122,13 @@ impl XdgShellHandler for Ede {
             return self.space_keeps_state(id, surface);
         }
         match self.window_for_surface(surface.wl_surface()) {
-            Some(window) if self.desk.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
+            Some(window) if self.desk.space.element_location(&window).is_some() => {
+                // One it may not maximize (Muffin: a fixed size, a minimum
+                // the work area can't hold) still gets its configure.
+                if !self.tile(&window, Tile::Maximized) {
+                    surface.send_configure();
+                }
+            }
             // Not mapped yet: it opens maximized once its first buffer arrives.
             _ => {
                 surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Maximized));
@@ -248,8 +254,10 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
             state.place_new_window(state.desk_of_window(&window), window.clone());
-            if wants_max {
-                state.tile(&window, Tile::Maximized);
+            if wants_max && !state.tile(&window, Tile::Maximized) {
+                // Its size hints forbid it (Muffin's rule): it floats.
+                toplevel.with_pending_state(|s| s.states.unset(xdg_toplevel::State::Maximized));
+                toplevel.send_configure();
             }
             if wants_full {
                 state.set_fullscreen(&window, true);
@@ -277,6 +285,18 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
 }
 
 impl Ede {
+    /// The output a layer surface `root` stands on, in the coordinates of
+    /// `popup`'s parent: what [`layer_popup_target_rect`] gives the positioner.
+    fn layer_popup_target(&self, root: &WlSurface, popup: &PopupSurface) -> Option<Rectangle<i32, smithay::utils::Logical>> {
+        self.desk.space.outputs().find_map(|o| {
+            let map = smithay::desktop::layer_map_for_output(o);
+            let layer = map.layer_for_surface(root, smithay::desktop::WindowSurfaceType::TOPLEVEL)?;
+            let layer_geo = map.layer_geometry(layer)?;
+            let output_size = self.desk.space.output_geometry(o)?.size;
+            Some(layer_popup_target_rect(output_size, layer_geo.loc, get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()))))
+        })
+    }
+
     /// Is `popup` under a layer surface whose keyboard interactivity is not
     /// `none`, or under any layer surface when it `grabs`?
     pub fn layer_root_takes_keyboard(&self, popup: &PopupKind, grabs: bool) -> bool {
@@ -287,11 +307,26 @@ impl Ede {
         })
     }
 
+    /// A popup of a layer surface, kept on that layer's output.
+    pub(crate) fn unconstrain_layer_popup(&self, popup: &PopupSurface) {
+        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
+        if let Some(target) = self.layer_popup_target(&root, popup) {
+            popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));
+        }
+    }
+
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         if let Some(id) = space_of_surface(popup.wl_surface()) {
             return self.space_unconstrain_popup(id, popup);
         }
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
+        // A panel's popup (the taskbar's context menus, its previews, the
+        // start menu): kept on the panel's output (#EDE-252: a menu at the
+        // pointer opened downwards off the screen).
+        if let Some(target) = self.layer_popup_target(&root, popup) {
+            popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));
+            return;
+        }
         let Some(window) = self.window_for_surface(&root) else { return };
         let Some(window_geo) = self.desk.space.element_geometry(&window) else { return };
         let Some(output) = self.output_at(window_geo.loc.to_f64()) else { return };
@@ -304,5 +339,103 @@ impl Ede {
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
+    }
+}
+
+/// The output (`output_size`, its own origin) as a positioner's constraint
+/// rectangle for a popup of a layer surface at `layer_loc` on it, whose
+/// parent sits `parent_offset` into that layer (a nested popup's parent).
+pub fn layer_popup_target_rect(output_size: smithay::utils::Size<i32, smithay::utils::Logical>, layer_loc: smithay::utils::Point<i32, smithay::utils::Logical>, parent_offset: smithay::utils::Point<i32, smithay::utils::Logical>) -> Rectangle<i32, smithay::utils::Logical> {
+    let mut target = Rectangle::new((0, 0).into(), output_size);
+    target.loc -= layer_loc;
+    target.loc -= parent_offset;
+    target
+}
+
+#[cfg(test)]
+mod tests {
+    use smithay::{
+        reexports::wayland_protocols::xdg::shell::server::xdg_positioner::{Anchor, ConstraintAdjustment, Gravity},
+        utils::{Logical, Rectangle},
+        wayland::shell::xdg::PositionerState,
+    };
+
+    use super::layer_popup_target_rect;
+
+    const OUTPUT: (i32, i32) = (1920, 1080);
+    const PANEL: i32 = 48;
+    const MENU: (i32, i32) = (220, 150);
+
+    /// The shell's positioner for a panel's context menu (uicore-gpui
+    /// `panel_positioner`): the anchor is the panel's whole height at the
+    /// pointer; above it for a bottom panel, below it for a top one; only
+    /// sliding along the panel, never flipping into it.
+    fn menu_at(pointer_x: i32, bottom_panel: bool) -> PositionerState {
+        let (anchor_edges, gravity, offset) = if bottom_panel { (Anchor::TopLeft, Gravity::TopRight, (0, -4)) } else { (Anchor::BottomLeft, Gravity::BottomRight, (0, 4)) };
+        PositionerState {
+            rect_size: MENU.into(),
+            anchor_rect: Rectangle::new((pointer_x, 0).into(), (0, PANEL).into()),
+            anchor_edges,
+            gravity,
+            constraint_adjustment: ConstraintAdjustment::SlideX,
+            offset: offset.into(),
+            ..Default::default()
+        }
+    }
+
+    fn placed(pointer_x: i32, bottom_panel: bool) -> Rectangle<i32, Logical> {
+        let layer_loc = if bottom_panel { (0, OUTPUT.1 - PANEL) } else { (0, 0) };
+        let target = layer_popup_target_rect(OUTPUT.into(), layer_loc.into(), (0, 0).into());
+        let mut geo = menu_at(pointer_x, bottom_panel).get_unconstrained_geometry(target);
+        // Back to output coordinates.
+        geo.loc += smithay::utils::Point::from(layer_loc);
+        geo
+    }
+
+    fn on_output(geo: Rectangle<i32, Logical>) -> bool {
+        geo.loc.x >= 0 && geo.loc.y >= 0 && geo.loc.x + geo.size.w <= OUTPUT.0 && geo.loc.y + geo.size.h <= OUTPUT.1
+    }
+
+    #[test]
+    fn a_bottom_panels_menu_opens_upwards_on_its_top_edge() {
+        let geo = placed(400, true);
+        assert_eq!(geo.loc.y + geo.size.h, OUTPUT.1 - PANEL - 4, "the menu stands on the panel: {geo:?}");
+        assert_eq!(geo.loc.x, 400, "at the pointer");
+        assert!(on_output(geo), "{geo:?}");
+    }
+
+    #[test]
+    fn a_top_panels_menu_opens_downwards_under_it() {
+        let geo = placed(400, false);
+        assert_eq!(geo.loc.y, PANEL + 4, "the menu hangs under the panel: {geo:?}");
+        assert!(on_output(geo), "{geo:?}");
+    }
+
+    #[test]
+    fn a_menu_at_the_right_edge_slides_left_onto_the_output() {
+        let geo = placed(OUTPUT.0 - 10, true);
+        assert_eq!(geo.loc.x + geo.size.w, OUTPUT.0, "flush with the right edge: {geo:?}");
+        assert_eq!(geo.loc.y + geo.size.h, OUTPUT.1 - PANEL - 4, "still above the panel: {geo:?}");
+        let top = placed(OUTPUT.0 - 10, false);
+        assert_eq!(top.loc.x + top.size.w, OUTPUT.0, "{top:?}");
+        assert_eq!(top.loc.y, PANEL + 4, "{top:?}");
+    }
+
+    #[test]
+    fn a_menu_at_the_left_edge_stays_on_the_output() {
+        let geo = placed(0, true);
+        assert_eq!(geo.loc.x, 0, "{geo:?}");
+        assert!(on_output(geo), "{geo:?}");
+        // A pointer left of the output (a panel wider than it): slides back.
+        let mut state = menu_at(-30, true);
+        state.anchor_rect.loc.x = -30;
+        let target = layer_popup_target_rect(OUTPUT.into(), (0, OUTPUT.1 - PANEL).into(), (0, 0).into());
+        assert_eq!(state.get_unconstrained_geometry(target).loc.x, 0);
+    }
+
+    #[test]
+    fn the_target_is_the_output_in_the_parents_coordinates() {
+        let target = layer_popup_target_rect(OUTPUT.into(), (0, OUTPUT.1 - PANEL).into(), (10, 5).into());
+        assert_eq!(target, Rectangle::new((-10, -(OUTPUT.1 - PANEL) - 5).into(), OUTPUT.into()));
     }
 }

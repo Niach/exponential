@@ -83,9 +83,10 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::SpaceOfProcess { pid: std::process::id() },
         Request::SpaceReadiness,
         Request::SpaceBusy,
+        Request::PickRegion { mode: ede_protocol::PickMode::Area },
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 41, "one request per op at least");
+    assert_eq!(ops.len(), 42, "one request per op at least");
     all
 }
 
@@ -97,7 +98,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => {}
         Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } => {}
         Request::ClipboardText | Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
-        Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}
+        Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy | Request::PickRegion { .. } => {}
     }
     std::mem::discriminant(request)
 }

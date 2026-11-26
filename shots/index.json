@@ -2311,15 +2311,6 @@
         "sha256": "6c72281412c89562546e174b3201aad8cb41de2935a6ea006487b39a9a43a768"
       }
     },
-    "ede-tray-menu": {
-      "ede": {
-        "file": "shots/ede-tray-menu/ede.webp",
-        "width": 1280,
-        "height": 720,
-        "bytes": 8462,
-        "sha256": "c009f395df97ae8eb299b694c28e358d1799ecbab1bdb837193e8353426f9fa2"
-      }
-    },
     "exponential-ui-accordion": {
       "android": {
         "file": "shots/exponential-ui-accordion/android.webp",

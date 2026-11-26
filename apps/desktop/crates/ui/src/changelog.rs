@@ -57,13 +57,23 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_370: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_371: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-ede-rerusted-look",
     date: "2026-11-26",
     title: "Exponential Desktop wears its own colours",
     summary: "Exponential Desktop paints every shell surface in a warm dark palette with roomier spacing, from a theme you can edit.",
     body: r##"- **New look**: the taskbar, start menu, applets, notifications and Settings use a warm dark palette with a rust accent, and controls and rows have more room.
 - **Your theme**: the desktop paints the theme.json in its ui folder; an edit redraws everything at once, a broken one keeps the last good theme, and Version history undoes it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_370: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-app-screen-without-asking",
+    date: "2026-11-26",
+    title: "Exponential Desktop lets the Exponential app use the screen without asking",
+    summary: "On Exponential Desktop, the genuine Exponential app no longer asks for your screen at login. Other programs still ask.",
+    body: r##"- **No prompt for the app**: Exponential Desktop checks the app's signature and lets it use your screen at login without the Allow Exponential to use your screen question. A copy that was changed, or another program, is still asked. Needs the next desktop release and eDE 0.2.39."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

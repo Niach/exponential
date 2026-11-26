@@ -95,6 +95,10 @@ pub(crate) enum ConsentEvent {
     Hashed { key: crate::consent::HashKey, hash: Result<[u8; 32], String> },
     /// The person's answer to the question `key`.
     Answered { key: Key, allowed: bool },
+    /// Process `(pid, start)` checked against its signed binaries list
+    /// ([`crate::signed::check`]) off the loop: the hellos waiting for it go
+    /// on with its executable's `hash`.
+    Checked { pid: u32, start: u64, hash: [u8; 32], passed: Result<(), String> },
 }
 
 /// A bound grant (#EDE-172): never taken by its token, it lives on its
@@ -355,6 +359,7 @@ impl Ede {
         let answer = *CONSENT_ANSWER.lock().unwrap_or_else(|p| p.into_inner());
         self.ipc.consent.on = self.config.control.consent() || answer.is_some();
         self.ipc.consent.answer_with = answer;
+        self.ipc.consent.signing_key = crate::signed::pinned_key();
         if let Some(fd) = CONTROL_FD.lock().unwrap_or_else(|p| p.into_inner()).take() {
             if !self.ipc_insert_root_channel(UnixStream::from(fd)) {
                 tracing::warn!("--control-fd: the connection could not be served");
@@ -460,6 +465,10 @@ impl Ede {
             }
         }
         self.ipc.shortcuts.drop_client(id);
+        // Its pick has no one to answer: the person's screen is theirs again.
+        if self.screen_pick.as_ref().is_some_and(|p| p.conn == id) {
+            self.pick_cancel();
+        }
         if let Some(desk) = self.desk_of_scope(&scope) {
             self.release_driven(desk, id);
             self.release_input(desk, id);
@@ -814,6 +823,15 @@ impl Ede {
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
             }
+            Request::PickRegion { mode } => {
+                // The person's own hand: never an agent's grant (a run's),
+                // computer use ([`Ede::ipc_computer_use`]) or a space.
+                if grant.run_id.is_some() || desk != DeskId::PERSON {
+                    return Err(fail(ErrorCode::Forbidden, "only the person picks a part of their screen"));
+                }
+                self.pick_region_start(id, call_id, mode)?;
+                Ok(None)
+            }
             Request::Input { event, bindings } => {
                 self.ipc_input(id, desk, &grant, event, bindings, now)?;
                 json(serde_json::Value::Null)
@@ -1095,6 +1113,8 @@ impl Ede {
         let refused = match request {
             Request::Lock | Request::Logout | Request::Unlock | Request::SetOutput { .. } | Request::ReloadConfig | Request::LaunchToken => true,
             Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => true,
+            // The person picks with their own hand, not the app.
+            Request::PickRegion { .. } => true,
             // #EDE-172 (P13): the services are the shell's buttons.
             Request::OpenServices { .. } => true,
             Request::Input { bindings, .. } => *bindings,
@@ -1137,6 +1157,30 @@ impl Ede {
                 return Err(fail(ErrorCode::Internal, &e.to_string()));
             }
             return Ok(None);
+        }
+        // First-party: the app's signed binaries list, checked off the loop
+        // once per process (its proc files and libraries are read).
+        if let (Some(peer), Some(hash)) = (peer, hash) {
+            if !own.holds(peer, &self.installed) && self.ipc.consent.needs_signed_check(peer, &self.installed, Some(&hash)) {
+                let process = (peer.pid, peer.start);
+                if let Some(waiting) = self.ipc.consent.checking.get_mut(&process) {
+                    waiting.push((id, call_id));
+                    return Ok(None);
+                }
+                let (Some(exe), Some(key)) = (peer.exe.clone(), self.ipc.consent.signing_key.clone()) else { return Err(fail(ErrorCode::Unauthorized, "its executable could not be read")) };
+                self.ipc.consent.checking.insert(process, vec![(id, call_id)]);
+                self.ipc.consent.checks_started += 1;
+                let tx = self.consent_events();
+                let spawned = std::thread::Builder::new().name("ede-consent-signed".into()).spawn(move || {
+                    let passed = crate::signed::check(process.0, process.1, &exe, &hash, &key);
+                    let _ = tx.send(ConsentEvent::Checked { pid: process.0, start: process.1, hash, passed });
+                });
+                if let Err(e) = spawned {
+                    self.ipc.consent.checking.remove(&process);
+                    return Err(fail(ErrorCode::Internal, &e.to_string()));
+                }
+                return Ok(None);
+            }
         }
         let verdict = self.ipc.consent.verdict(peer, &self.installed, &own, &policy, hash.as_ref());
         let (pid, start) = peer.map_or((0, 0), |p| (p.pid, p.start));
@@ -1209,6 +1253,21 @@ impl Ede {
                 }
             }
             ConsentEvent::Answered { key, allowed } => self.consent_answered(key, allowed),
+            ConsentEvent::Checked { pid, start, hash, passed } => {
+                match &passed {
+                    Ok(()) => tracing::info!(pid, "a signed Exponential binary: computer use without asking"),
+                    Err(why) => tracing::info!(pid, "not a signed Exponential binary, the person is asked: {why}"),
+                }
+                self.ipc.consent.checked(pid, start, passed.is_ok());
+                let waiting = self.ipc.consent.checking.remove(&(pid, start)).unwrap_or_default();
+                for (conn, call) in waiting {
+                    match self.ipc_gate(conn, call, Some(hash)) {
+                        Ok(Some(principal)) => self.consent_finish(conn, call, principal),
+                        Ok(None) => {}
+                        Err(failure) => self.ipc_reply_later(conn, call, Err(failure)),
+                    }
+                }
+            }
         }
     }
 
