@@ -1,4 +1,4 @@
-import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/server"
 import type { LegacyTool } from "./nouns"
 
 // #NEW-141 — OpenAI's MCP extensions beside the views (OpenAI's
@@ -10,13 +10,9 @@ import type { LegacyTool } from "./nouns"
 //   - a link's issue is read as `exponential://issues/<IDENT>` through the
 //     `get` op, with its access checks.
 
-export const MENTIONS_TOOL = `exponential_issues`
+export { MCP_EXTENSION_CAPABILITIES, MENTIONS_TOOL } from "./extensions"
 export const ISSUE_URI_TEMPLATE = `exponential://issues/{id}`
 const MENTIONS_LIMIT = 10
-
-export const MCP_EXTENSION_CAPABILITIES = {
-  extensions: { "openai/mentions": { searchTool: MENTIONS_TOOL } },
-}
 
 type Result = { content: unknown[]; isError?: boolean; structuredContent?: unknown }
 

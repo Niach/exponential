@@ -1,7 +1,7 @@
 import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
 import { currentSpace } from "@/lib/spaces/context"
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { registerExponentialTools } from "./tools"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
@@ -12,6 +12,7 @@ import { mentionIssues, mentionQuery } from "./mentions"
 import { compactViewResult, isViewListOp } from "./view-results"
 import { guardDestructiveCall } from "./delete-guard"
 import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
+import { NO_CLIENT, withEmcpContext, type EmcpContext } from "./request-context"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -648,8 +649,13 @@ export function registerNounTools(
   request: Request,
   access: McpAccess,
   sessionId: string | null = null,
-  gates: McpToolGates = ALL_MCP_TOOL_GATES
+  gates: McpToolGates = ALL_MCP_TOOL_GATES,
+  context: EmcpContext = { client: NO_CLIENT, principal: { userId: user.id, grant: `member` } }
 ): Map<string, LegacyTool> {
+  // #NEW-144: every handler's `extra` carries ctx.client, ctx.principal and
+  // the wire call (request-context.ts).
+  const ctxOf = (extra: unknown, tool: string, args: Record<string, unknown>) =>
+    withEmcpContext(extra, { ...context, call: context.call ?? { tool, args } })
   const legacy = collectLegacyTools(user, request, access, sessionId, gates)
   // The worst-case surface, so every op's parameters are described for
   // every caller (descriptions never depend on the gates).
@@ -675,10 +681,11 @@ export function registerNounTools(
         annotations: { ...(shape.def.annotations ?? {}), title: spec.label, ...VERB_ANNOTATIONS[spec.name] },
         ...(spec.alwaysLoad ? { _meta: { ...(shape.def._meta ?? {}), ...ALWAYS_LOAD_META } } : {}),
       }
+      const wire = `${PREFIX}${spec.name}`
       const handler: LegacyHandler = tool
-        ? tool.handler
+        ? (args, extra) => tool.handler(args, ctxOf(extra, wire, args))
         : async () => err(new Error(`${spec.name} only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`))
-      server.registerTool(`${PREFIX}${spec.name}`, def as never, handler as never)
+      server.registerTool(wire, def as never, handler as never)
       continue
     }
     const allOps = Object.keys(spec.ops ?? {})
@@ -722,7 +729,8 @@ export function registerNounTools(
           annotations: half.annotations,
           ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         } as never,
-        (async (args: Record<string, unknown>, extra: unknown) => {
+        (async (args: Record<string, unknown>, sdkExtra: unknown) => {
+          const extra = ctxOf(sdkExtra, half.name, args)
           const { op = openOp, ...rest } = args
           const query = openOp && args.op === undefined ? mentionQuery(rest) : null
           if (query !== null) return mentionIssues(legacy, query, extra)
