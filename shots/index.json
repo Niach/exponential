@@ -2149,6 +2149,15 @@
         "sha256": "77cb9ab145edbacd711ec4cb5c9707ca89664e8c00970cfed0b7e15f426c09d2"
       }
     },
+    "ede-applet-drives": {
+      "ede": {
+        "file": "shots/ede-applet-drives/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7310,
+        "sha256": "09e662a9f8ec2c63c55c78495ec9326f3e12bd426f04a86ad3e3d926fab26225"
+      }
+    },
     "ede-applet-network": {
       "ede": {
         "file": "shots/ede-applet-network/ede.webp",
@@ -2156,6 +2165,15 @@
         "height": 720,
         "bytes": 12366,
         "sha256": "b649e1cbfc8550d19143f0d7f7ecfb7dfa7f8327bd357ea9e2ddd9a0828712ab"
+      }
+    },
+    "ede-applet-printers": {
+      "ede": {
+        "file": "shots/ede-applet-printers/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 9344,
+        "sha256": "b2faa6ed6744a8ca95c426182c44bf790e9ad81120f155fee48738e0f92ac64b"
       }
     },
     "ede-applet-sound": {
