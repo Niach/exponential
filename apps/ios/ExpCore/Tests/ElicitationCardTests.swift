@@ -5,8 +5,8 @@ import XCTest
 // #NEW-146: THE elicitation card, locked ×4 against
 // packages/domain-contract/fixtures/elicitation-card.json (TS
 // `elicitation-card.test.ts`, desktop `domain::elicitation_card`, Android
-// `ElicitationCardTest`): the renderers replay `missingCases` and
-// `actionCases`, whole values compared, and pin the constants.
+// `ElicitationCardTest`): the renderers replay `missingCases`,
+// `actionCases` and `feedCardCases`, whole values compared, and pin the constants.
 final class ElicitationCardTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -79,6 +79,30 @@ final class ElicitationCardTests: XCTestCase {
                 dismissed: CardJSON.isTrue(card["dismissed"])
             )
             XCTAssertEqual(action, expected, name)
+        }
+    }
+
+    /// A live question frame draws the posted card (`feedCardCases`).
+    func testFeedCardCases() throws {
+        for entry in try cases("feedCardCases") {
+            let name = entry["name"] as? String ?? "?"
+            let raw = try XCTUnwrap(entry["messages"] as? [[String: Any]], name)
+            let messages = try raw.map { message in
+                TreeMessage(
+                    id: try XCTUnwrap(message["id"] as? String, name), sessionId: "s1", authorKind: "agent",
+                    authorId: nil, body: "",
+                    card: (message["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
+                    answeredAt: message["answeredAt"] as? String, consumedAt: nil,
+                    createdAt: "2026-11-26T12:00:00.000Z", authorSessionId: nil
+                )
+            }
+            let questionId = try XCTUnwrap(entry["questionId"] as? String, name)
+            let resolved = try XCTUnwrap(entry["resolved"] as? Bool, name)
+            XCTAssertEqual(
+                ElicitationCard.feedCard(messages, questionId: questionId, resolved: resolved),
+                entry["expected"] as? String,
+                name
+            )
         }
     }
 

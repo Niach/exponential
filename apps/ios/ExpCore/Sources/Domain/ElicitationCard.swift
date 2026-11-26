@@ -5,8 +5,9 @@ import Foundation
 /// `domain::elicitation_card`, Android `domain/ElicitationCard.kt`): a
 /// THIRD-PARTY MCP server's elicitation as the question card. The device
 /// builds the card (form surface or URL review); the renderers replay
-/// `missingCases` (Submit waits for the required fields) and `actionCases`
-/// (what an answer carries back). `ElicitationCardTests` pins the constants.
+/// `missingCases` (Submit waits for the required fields), `actionCases`
+/// (what an answer carries back) and `feedCardCases` (a live frame draws
+/// the posted card). `ElicitationCardTests` pins the constants.
 public enum ElicitationCard {
     public enum Copy {
         public static let submit = "Submit"
@@ -146,6 +147,27 @@ public enum ElicitationCard {
         let oauth = segments.contains { $0.hasPrefix("oauth") }
             || (query.contains("response_type") && query.contains("client_id"))
         return oauth ? .oauth(url) : .safari(url)
+    }
+
+    /// The live feed's view of THE card (`feedCardCases`, TS
+    /// `elicitationFeedCard`): an engine ask reaches a live session view
+    /// twice, as the relay's question frame (question, options, header: no
+    /// surface, no sidecar) and as the posted `messages.card`. A live view
+    /// draws the POSTED card (its form or URL review, answered via
+    /// `sessions.answer`) for a frame of the same `questionId`: the id of the
+    /// first message whose card is a `question` with that `questionId` and an
+    /// `elicitation` sidecar. nil = the frame stays: no such card synced yet,
+    /// or the frame already resolved while the card never got an answer
+    /// (withdrawn: the frame names it Dismissed).
+    public static func feedCard(_ messages: [TreeMessage], questionId: String, resolved: Bool) -> String? {
+        for message in messages {
+            guard let card = message.card, card.kind == "question",
+                  card.questionId == questionId, card.elicitation != nil
+            else { continue }
+            if resolved && message.answeredAt == nil { return nil }
+            return message.id
+        }
+        return nil
     }
 
     /// The action an answered (or dismissed) card carries back: Submit /
