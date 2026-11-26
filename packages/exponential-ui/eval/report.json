@@ -471,7 +471,13 @@
       "RecordForm",
       "RecordTable",
       "MessageStatus",
-      "AvatarBadge"
+      "AvatarBadge",
+      "NavBar",
+      "Footer",
+      "Hero",
+      "MediaCard",
+      "DayStrip",
+      "AvatarGroup"
     ]
   },
   "rows": [

@@ -1023,6 +1023,434 @@
       }
     ]
   },
+  "AvatarGroup\/example" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "avatar_group"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.0",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          2,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.0.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          28,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.1",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          30,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.1.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          56,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.2",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          58,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.2.avatar",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          84,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.more",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          92,
+          8,
+          16,
+          20
+        ],
+        "id" : "avatar_group.more.moreLabel"
+      }
+    ]
+  },
+  "AvatarGroup\/size=default" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "avatar_group"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.0",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          2,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.0.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          28,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.1",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          30,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.1.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          56,
+          0,
+          36,
+          36
+        ],
+        "id" : "avatar_group.item.2",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          58,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.item.2.avatar",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          84,
+          2,
+          32,
+          32
+        ],
+        "id" : "avatar_group.more",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          92,
+          8,
+          16,
+          20
+        ],
+        "id" : "avatar_group.more.moreLabel"
+      }
+    ]
+  },
+  "AvatarGroup\/size=lg" : {
+    "height" : 44,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          44
+        ],
+        "id" : "avatar_group"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          44,
+          44
+        ],
+        "id" : "avatar_group.item.0",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          2,
+          2,
+          40,
+          40
+        ],
+        "id" : "avatar_group.item.0.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          36,
+          0,
+          44,
+          44
+        ],
+        "id" : "avatar_group.item.1",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          38,
+          2,
+          40,
+          40
+        ],
+        "id" : "avatar_group.item.1.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          72,
+          0,
+          44,
+          44
+        ],
+        "id" : "avatar_group.item.2",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          74,
+          2,
+          40,
+          40
+        ],
+        "id" : "avatar_group.item.2.avatar",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          108,
+          2,
+          40,
+          40
+        ],
+        "id" : "avatar_group.more",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          120,
+          12,
+          16,
+          20
+        ],
+        "id" : "avatar_group.more.moreLabel"
+      }
+    ]
+  },
+  "AvatarGroup\/size=sm" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "avatar_group"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          28,
+          28
+        ],
+        "id" : "avatar_group.item.0",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          2,
+          2,
+          24,
+          24
+        ],
+        "id" : "avatar_group.item.0.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          20,
+          0,
+          28,
+          28
+        ],
+        "id" : "avatar_group.item.1",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          22,
+          2,
+          24,
+          24
+        ],
+        "id" : "avatar_group.item.1.avatar",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          40,
+          0,
+          28,
+          28
+        ],
+        "id" : "avatar_group.item.2",
+        "radius" : 9999
+      },
+      {
+        "component" : "Avatar",
+        "frame" : [
+          42,
+          2,
+          24,
+          24
+        ],
+        "id" : "avatar_group.item.2.avatar",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          60,
+          2,
+          24,
+          24
+        ],
+        "id" : "avatar_group.more",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          64,
+          4,
+          16,
+          20
+        ],
+        "id" : "avatar_group.more.moreLabel"
+      }
+    ]
+  },
   "Badge\/example" : {
     "height" : 20,
     "nodes" : [
@@ -11912,6 +12340,329 @@
       }
     ]
   },
+  "DayStrip\/example" : {
+    "height" : 74,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          74
+        ],
+        "id" : "day_strip"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.0",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          14.14,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.0.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          18.14,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.0.date"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          23.14,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.0.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          56.29,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.1",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          70.43,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.1.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          74.43,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.1.date"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          79.43,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.1.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          112.57,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.2",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          126.71,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.2.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130.71,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.2.date"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          135.71,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.2.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          168.86,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.3",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          183,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.3.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          187,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.3.date"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          192,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.3.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          225.14,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.4",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          239.29,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.4.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          243.29,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.4.date"
+      },
+      {
+        "bg" : "#facc15",
+        "component" : "Box",
+        "frame" : [
+          248.29,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.4.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          281.43,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.5",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          295.57,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.5.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          299.57,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.5.date"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          304.57,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.5.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          337.71,
+          0,
+          52.29,
+          74
+        ],
+        "id" : "day_strip.day.6",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          351.86,
+          8,
+          24,
+          20
+        ],
+        "id" : "day_strip.day.6.weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          355.86,
+          30,
+          16,
+          28
+        ],
+        "id" : "day_strip.day.6.date"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          360.86,
+          60,
+          6,
+          6
+        ],
+        "id" : "day_strip.day.6.dot",
+        "radius" : 9999
+      }
+    ]
+  },
   "Dialog\/dismissible=false" : {
     "height" : 0,
     "nodes" : [
@@ -14172,6 +14923,82 @@
       }
     ]
   },
+  "Footer\/example" : {
+    "height" : 133,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          133
+        ],
+        "id" : "footer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          25,
+          358,
+          20
+        ],
+        "id" : "footer_child"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          57,
+          358,
+          20
+        ],
+        "id" : "footer.links"
+      },
+      {
+        "component" : "Link",
+        "frame" : [
+          16,
+          57,
+          56,
+          20
+        ],
+        "id" : "footer.links.link.0"
+      },
+      {
+        "component" : "Link",
+        "frame" : [
+          88,
+          57,
+          40,
+          20
+        ],
+        "id" : "footer.links.link.1"
+      },
+      {
+        "component" : "Link",
+        "frame" : [
+          144,
+          57,
+          56,
+          20
+        ],
+        "id" : "footer.links.link.2"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          89,
+          358,
+          20
+        ],
+        "id" : "footer.caption"
+      }
+    ]
+  },
   "Form\/busy=false" : {
     "height" : 20,
     "nodes" : [
@@ -14880,6 +15707,274 @@
           28
         ],
         "id" : "heading"
+      }
+    ]
+  },
+  "Hero\/align=center" : {
+    "height" : 244,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          244
+        ],
+        "id" : "hero",
+        "radius" : 16
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          183,
+          48,
+          24,
+          20
+        ],
+        "id" : "hero.eyebrow"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          115,
+          80,
+          160,
+          36
+        ],
+        "id" : "hero.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          51,
+          128,
+          288,
+          28
+        ],
+        "id" : "hero.subtitle"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          175,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero_child"
+      }
+    ]
+  },
+  "Hero\/align=end" : {
+    "height" : 244,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          244
+        ],
+        "id" : "hero",
+        "radius" : 16
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          342,
+          48,
+          24,
+          20
+        ],
+        "id" : "hero.eyebrow"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          206,
+          80,
+          160,
+          36
+        ],
+        "id" : "hero.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          78,
+          128,
+          288,
+          28
+        ],
+        "id" : "hero.subtitle"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          326,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          326,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero_child"
+      }
+    ]
+  },
+  "Hero\/align=start" : {
+    "height" : 244,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          244
+        ],
+        "id" : "hero",
+        "radius" : 16
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          48,
+          24,
+          20
+        ],
+        "id" : "hero.eyebrow"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          80,
+          160,
+          36
+        ],
+        "id" : "hero.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          128,
+          288,
+          28
+        ],
+        "id" : "hero.subtitle"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          24,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero_child"
+      }
+    ]
+  },
+  "Hero\/example" : {
+    "height" : 244,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          244
+        ],
+        "id" : "hero",
+        "radius" : 16
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          183,
+          48,
+          24,
+          20
+        ],
+        "id" : "hero.eyebrow"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          115,
+          80,
+          160,
+          36
+        ],
+        "id" : "hero.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          51,
+          128,
+          288,
+          28
+        ],
+        "id" : "hero.subtitle"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          175,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          176,
+          40,
+          20
+        ],
+        "id" : "hero_child"
       }
     ]
   },
@@ -17101,6 +18196,333 @@
       }
     ]
   },
+  "MediaCard\/example" : {
+    "height" : 376.5,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          374.5
+        ],
+        "id" : "media_card.card.body"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          1,
+          1,
+          388,
+          242.5
+        ],
+        "id" : "media_card.card.image"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          255.5,
+          388,
+          120
+        ],
+        "id" : "media_card.card.info"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          267.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          291.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.subtitle"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          315.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          343.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          343.5,
+          40,
+          20
+        ],
+        "id" : "media_card_child"
+      }
+    ]
+  },
+  "MediaCard\/pressable=false" : {
+    "height" : 376.5,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          374.5
+        ],
+        "id" : "media_card.card.body"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          1,
+          1,
+          388,
+          242.5
+        ],
+        "id" : "media_card.card.image"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          255.5,
+          388,
+          120
+        ],
+        "id" : "media_card.card.info"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          267.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          291.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.subtitle"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          315.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          343.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          343.5,
+          40,
+          20
+        ],
+        "id" : "media_card_child"
+      }
+    ]
+  },
+  "MediaCard\/pressable=true" : {
+    "height" : 376.5,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          376.5
+        ],
+        "id" : "media_card.card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          374.5
+        ],
+        "id" : "media_card.card.body"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          1,
+          1,
+          388,
+          242.5
+        ],
+        "id" : "media_card.card.image"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          255.5,
+          388,
+          120
+        ],
+        "id" : "media_card.card.info"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          267.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          291.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.subtitle"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          315.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          343.5,
+          364,
+          20
+        ],
+        "id" : "media_card.card.info.actions"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          343.5,
+          40,
+          20
+        ],
+        "id" : "media_card_child"
+      }
+    ]
+  },
   "Menu\/align=center" : {
     "height" : 20,
     "nodes" : [
@@ -18747,6 +20169,128 @@
           48
         ],
         "id" : "motion"
+      }
+    ]
+  },
+  "NavBar\/example" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "nav_bar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          16,
+          11.5,
+          32,
+          24
+        ],
+        "id" : "nav_bar.brand"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          11.5,
+          32,
+          24
+        ],
+        "id" : "nav_bar.brand.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          64,
+          11.5,
+          294,
+          24
+        ],
+        "id" : "nav_bar.links"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          64,
+          11.5,
+          72,
+          24
+        ],
+        "id" : "nav_bar.links.link.0",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          72,
+          13.5,
+          56,
+          20
+        ],
+        "id" : "nav_bar.links.link.0.label"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          138,
+          11.5,
+          72,
+          24
+        ],
+        "id" : "nav_bar.links.link.1",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          146,
+          13.5,
+          56,
+          20
+        ],
+        "id" : "nav_bar.links.link.1.label"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          212,
+          11.5,
+          48,
+          24
+        ],
+        "id" : "nav_bar.links.link.2",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          220,
+          13.5,
+          32,
+          20
+        ],
+        "id" : "nav_bar.links.link.2.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          374,
+          23.5,
+          0,
+          0
+        ],
+        "id" : "nav_bar.actions"
       }
     ]
   },
