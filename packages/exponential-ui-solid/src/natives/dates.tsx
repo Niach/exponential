@@ -276,7 +276,7 @@ export function DatePickerNative(props: NativeProps): JSX.Element {
         aria-describedby={f.describedBy}
         onClick={() => setOpen(!open())}
       >
-        <span>{label() || <span {...part(`placeholder`)}>{str(props.props.placeholder)}</span>}</span>
+        <span>{label() || <span {...part(`placeholder`)}>{str(props.props.placeholder) || ctx.t(`choose`)}</span>}</span>
         <BuiltinIcon slot="DatePicker.trigger" />
       </button>
       <PickerPopover
@@ -362,7 +362,7 @@ export function DateRangePickerNative(props: NativeProps): JSX.Element {
         aria-describedby={f.describedBy}
         onClick={() => setOpen(!open())}
       >
-        <span>{label() || <span {...part(`placeholder`)}>{str(props.props.placeholder)}</span>}</span>
+        <span>{label() || <span {...part(`placeholder`)}>{str(props.props.placeholder) || ctx.t(`choose`)}</span>}</span>
         <BuiltinIcon slot="DateRangePicker.trigger" />
       </button>
       <PickerPopover

@@ -228,7 +228,7 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
       <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
       <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
         <PopoverPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, open && `open`, f.invalid && `invalid`, disabled && `disabled`) as Record<string, string>)} disabled={disabled} data-value={value || undefined} aria-haspopup="dialog" aria-invalid={f.invalid || undefined} aria-describedby={f.describedBy}>
-          <span>{label || <span {...(part(`placeholder`) as Record<string, string>)}>{str(props.placeholder)}</span>}</span>
+          <span>{label || <span {...(part(`placeholder`) as Record<string, string>)}>{str(props.placeholder) || ctx.t(`choose`)}</span>}</span>
           <BuiltinIcon slot="DatePicker.trigger" />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
@@ -293,7 +293,7 @@ export function DateRangePickerNative({ node, props, rootProps, emit, scope, dom
       <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
       <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
         <PopoverPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, open && `open`, f.invalid && `invalid`) as Record<string, string>)} data-start={start || undefined} data-end={end || undefined} aria-haspopup="dialog" aria-describedby={f.describedBy}>
-          <span>{label || <span {...(part(`placeholder`) as Record<string, string>)}>{str(props.placeholder)}</span>}</span>
+          <span>{label || <span {...(part(`placeholder`) as Record<string, string>)}>{str(props.placeholder) || ctx.t(`choose`)}</span>}</span>
           <BuiltinIcon slot="DateRangePicker.trigger" />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>

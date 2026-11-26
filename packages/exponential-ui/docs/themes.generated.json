@@ -4281,6 +4281,7 @@
         "root",
         "label",
         "trigger",
+        "placeholder",
         "calendar",
         "day"
       ],
@@ -4297,6 +4298,7 @@
         "root",
         "label",
         "trigger",
+        "placeholder",
         "calendar",
         "day",
         "range"
