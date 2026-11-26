@@ -122,7 +122,13 @@ impl XdgShellHandler for Ede {
             return self.space_keeps_state(id, surface);
         }
         match self.window_for_surface(surface.wl_surface()) {
-            Some(window) if self.desk.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
+            Some(window) if self.desk.space.element_location(&window).is_some() => {
+                // One it may not maximize (Muffin: a fixed size, a minimum
+                // the work area can't hold) still gets its configure.
+                if !self.tile(&window, Tile::Maximized) {
+                    surface.send_configure();
+                }
+            }
             // Not mapped yet: it opens maximized once its first buffer arrives.
             _ => {
                 surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Maximized));
@@ -248,8 +254,10 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
             state.place_new_window(state.desk_of_window(&window), window.clone());
-            if wants_max {
-                state.tile(&window, Tile::Maximized);
+            if wants_max && !state.tile(&window, Tile::Maximized) {
+                // Its size hints forbid it (Muffin's rule): it floats.
+                toplevel.with_pending_state(|s| s.states.unset(xdg_toplevel::State::Maximized));
+                toplevel.send_configure();
             }
             if wants_full {
                 state.set_fullscreen(&window, true);

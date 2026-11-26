@@ -142,6 +142,12 @@ pub struct Ctx {
     start_pw: StartPipe,
     conn: OnceLock<zbus::Connection>,
     next_stream: Mutex<u64>,
+    /// Shares the person picked in the chooser for a session that persists
+    /// only while the app runs (`persist_mode` 1): Chromium's and Electron's
+    /// way (Discord, browsers) picks in one session and captures in the
+    /// next, restoring the first; that one restore shares without asking
+    /// again ([`screencast::HANDOFF`]).
+    pub(crate) handoffs: Mutex<Vec<screencast::Handoff>>,
 }
 
 impl Ctx {
@@ -161,6 +167,7 @@ impl Ctx {
             start_pw,
             conn: OnceLock::new(),
             next_stream: Mutex::new(1),
+            handoffs: Mutex::default(),
         })
     }
 

@@ -19,6 +19,14 @@
 //! eDE has no wlr/ext data-control global, so no clipboard manager sees a
 //! selection: only the keyboard-focused client (Wayland's rule, and the
 //! XWM's `allow_selection_access`) can read a sensitive one.
+//!
+//! The compositor is the clipboard manager instead: every copy a client
+//! (Wayland or X11) makes is read into memory as it is set ([`Want::Keep`]:
+//! its text types and one picture type, [`KEEP_TOTAL`] at most), and when
+//! that client quits with the selection still its own ("Copy error and
+//! quit"), the kept copy becomes our selection ([`Ede::clipboard_source_gone`]).
+//! A copy marked secret ([`CLIPBOARD_SECRET_HINT`]) or made while a
+//! protected surface ([`crate::protected`]) holds the keyboard is never kept.
 
 use std::{
     cell::Cell,
@@ -52,6 +60,11 @@ use crate::{desk::DeskId, state::Ede};
 const SNAPSHOT_MS: u64 = 3000;
 /// Our bytes to a reader that stopped reading are dropped after this long.
 const WRITE_MS: u64 = 10_000;
+/// What a kept copy holds at most (its text and one picture).
+pub const KEEP_TOTAL: usize = 8 << 20;
+/// A type no source offers: asks smithay whether a client's selection is
+/// still there without asking the client anything.
+const PROBE_MIME: &str = "\u{0}ede-probe";
 /// X11's selection plumbing, never data.
 const META_TARGETS: [&str; 7] = ["TARGETS", "MULTIPLE", "TIMESTAMP", "SAVE_TARGETS", "DELETE", "INSERT_SELECTION", "INSERT_PROPERTY"];
 
@@ -99,6 +112,16 @@ pub enum Owner {
 pub enum Want {
     Snapshot,
     Text,
+    /// The compositor's own copy of a client's selection, nobody's call.
+    Keep,
+}
+
+/// A client's selection, read as it was set: it takes the selection's
+/// place when its client quits.
+#[derive(Debug)]
+struct Kept {
+    serial: u64,
+    items: Vec<ClipboardItem>,
 }
 
 #[derive(Debug, Default)]
@@ -110,6 +133,10 @@ pub struct Clipboard {
     taken: bool,
     jobs: Vec<Job>,
     next_job: u64,
+    /// The copy of the selection at `serial` ([`Want::Keep`]).
+    kept: Option<Kept>,
+    /// The source at `serial` went away while its copy was still read.
+    gone: bool,
 }
 
 impl Clipboard {
@@ -118,6 +145,8 @@ impl Clipboard {
         self.serial += 1;
         self.taken = false;
         self.owner = owner;
+        self.kept = None;
+        self.gone = false;
         self.serial
     }
 
@@ -128,9 +157,14 @@ impl Clipboard {
         }
     }
 
-    /// The reads that wait for their source.
+    /// The reads that wait for their source (a call's, never a keep).
     pub fn pending(&self) -> usize {
-        self.jobs.len()
+        self.jobs.iter().filter(|job| job.want != Want::Keep).count()
+    }
+
+    /// The types of the kept copy of the current selection.
+    pub fn kept(&self) -> Option<Vec<String>> {
+        self.kept.as_ref().filter(|kept| kept.serial == self.serial).map(|kept| kept.items.iter().map(|item| item.mime.clone()).collect())
     }
 
     pub fn taken(&self, serial: u64) -> ClipboardTaken {
@@ -152,7 +186,32 @@ pub fn wanted(offered: &[String], want: Want) -> Vec<String> {
             }
             out
         }
+        Want::Keep => keepable(offered),
     }
+}
+
+/// What a copy keeps of the types a source offers: its text types and its
+/// first picture type; nothing of a copy marked secret.
+pub fn keepable(offered: &[String]) -> Vec<String> {
+    if offered.iter().any(|mime| mime == CLIPBOARD_SECRET_HINT) {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut picture = false;
+    for mime in offered {
+        if META_TARGETS.contains(&mime.as_str()) || out.contains(mime) {
+            continue;
+        }
+        if mime.starts_with("image/") {
+            if !picture {
+                picture = true;
+                out.push(mime.clone());
+            }
+        } else if mime.starts_with("text/") || CLIPBOARD_TEXT_MIMES.contains(&mime.as_str()) {
+            out.push(mime.clone());
+        }
+    }
+    out
 }
 
 /// The items a `clipboard_set` asked for, checked: unique types, the hint
@@ -198,6 +257,8 @@ struct Job {
     /// The types this read left out (#EXP-1900): the reply names them.
     unread: Vec<String>,
     total: usize,
+    /// What this read takes at most.
+    cap: usize,
     deadline: Instant,
     /// Bumped per type: a stale pipe or timer callback sees another one.
     attempt: u64,
@@ -322,10 +383,41 @@ impl Ede {
             Owner::Client(mimes) => (Source::Client, mimes),
             Owner::X11(mimes) => (Source::X11, mimes),
         };
-        let mimes: VecDeque<String> = wanted(&offered, want).into();
-        if mimes.is_empty() {
+        if !self.start_job(desk, conn, call_id, want, from, &offered) {
             return Some(reply(want, serial, Vec::new(), Vec::new()));
         }
+        None
+    }
+
+    /// A client of `desk` (or its Xwayland's) just copied: the compositor
+    /// keeps a copy unless it is secret or a protected surface made it.
+    /// Read once the loop is idle: smithay names the new source to the
+    /// handler before the seat holds it.
+    pub(crate) fn clipboard_keep(&mut self, desk: DeskId) {
+        if self.keyboard_focus_protected(desk) {
+            return;
+        }
+        let Some(serial) = self.try_desk(desk).map(|desk| desk.clipboard.serial) else { return };
+        self.loop_handle.insert_idle(move |state| state.clipboard_keep_now(desk, serial));
+    }
+
+    fn clipboard_keep_now(&mut self, desk: DeskId, serial: u64) {
+        let Some(clipboard) = self.try_desk(desk).map(|desk| &desk.clipboard).filter(|clipboard| clipboard.serial == serial) else { return };
+        let (from, offered) = match &clipboard.owner {
+            Owner::Client(mimes) => (Source::Client, mimes.clone()),
+            Owner::X11(mimes) => (Source::X11, mimes.clone()),
+            _ => return,
+        };
+        self.start_job(desk, 0, 0, Want::Keep, from, &offered);
+    }
+
+    /// Reads `want` of what `from` offers; `false` = nothing to read.
+    fn start_job(&mut self, desk: DeskId, conn: u64, call_id: u64, want: Want, from: Source, offered: &[String]) -> bool {
+        let mimes: VecDeque<String> = wanted(offered, want).into();
+        if mimes.is_empty() {
+            return false;
+        }
+        let serial = self.desk(desk).clipboard.serial;
         self.desk_mut(desk).clipboard.next_job += 1;
         let id = self.desk(desk).clipboard.next_job;
         self.desk_mut(desk).clipboard.jobs.push(Job {
@@ -339,12 +431,63 @@ impl Ede {
             items: Vec::new(),
             unread: Vec::new(),
             total: 0,
+            cap: if want == Want::Keep { KEEP_TOTAL } else { CLIPBOARD_TOTAL_MAX },
             deadline: Instant::now() + Duration::from_millis(SNAPSHOT_MS),
             attempt: 0,
             reading: None,
         });
         self.read_next(desk, id);
-        None
+        true
+    }
+
+    /// Whether `desk`'s selection is still a Wayland client's source
+    /// (smithay drops it, unannounced, when its client quits).
+    fn client_source_alive(&self, desk: DeskId) -> bool {
+        let Some(desk) = self.try_desk(desk) else { return false };
+        let Ok((_read, write)) = pipe_with(PipeFlags::CLOEXEC) else { return true };
+        !matches!(
+            request_data_device_client_selection(&desk.seat, PROBE_MIME.to_string(), write),
+            Err(smithay::wayland::selection::data_device::SelectionRequestError::NoSelection)
+        )
+    }
+
+    /// After the loop served the clients: a Wayland client that quit
+    /// holding its desk's selection leaves its kept copy behind.
+    pub(crate) fn clipboard_clients_gone(&mut self) {
+        let desks: Vec<DeskId> = std::iter::once(DeskId::PERSON).chain(self.spaces.iter().map(|space| space.desk.id)).collect();
+        for desk in desks {
+            let client = self.try_desk(desk).is_some_and(|d| matches!(d.clipboard.owner, Owner::Client(_)));
+            if client && !self.client_source_alive(desk) {
+                self.clipboard_source_gone(desk);
+            }
+        }
+    }
+
+    /// The client (Wayland or X11) holding `desk`'s selection went away:
+    /// its kept copy becomes our selection, else the clipboard is empty.
+    /// A copy still being read takes over once it is read.
+    pub(crate) fn clipboard_source_gone(&mut self, desk: DeskId) {
+        let Some(clipboard) = self.try_desk_mut(desk).map(|desk| &mut desk.clipboard) else { return };
+        if !matches!(clipboard.owner, Owner::Client(_) | Owner::X11(_)) {
+            return;
+        }
+        let serial = clipboard.serial;
+        if clipboard.jobs.iter().any(|job| job.want == Want::Keep && job.serial == serial) {
+            clipboard.gone = true;
+            return;
+        }
+        match clipboard.kept.take().filter(|kept| kept.serial == serial) {
+            Some(kept) => {
+                if let Err(e) = self.clipboard_set(desk, kept.items, false) {
+                    tracing::warn!("keep the clipboard: {}", e.message);
+                }
+            }
+            None => {
+                clipboard.changed(Owner::Empty);
+                clear_data_device_selection(&self.display_handle, &self.desk(desk).seat);
+                self.xwm_selection(desk, None);
+            }
+        }
     }
 
     /// The job `id` of `desk`'s clipboard; `None` when it is done or its
@@ -360,7 +503,9 @@ impl Ede {
             for token in job.reading.into_iter().flat_map(|reading| [reading.pipe, reading.timer]).flatten() {
                 self.loop_handle.remove(token);
             }
-            self.ipc_reply_later(job.conn, job.call_id, Err(Failure::new(ErrorCode::Unavailable, "the space closed")));
+            if job.want != Want::Keep {
+                self.ipc_reply_later(job.conn, job.call_id, Err(Failure::new(ErrorCode::Unavailable, "the space closed")));
+            }
         }
     }
 
@@ -372,7 +517,7 @@ impl Ede {
             job.attempt += 1;
             let attempt = job.attempt;
             let from = job.from;
-            let next = if Instant::now() < job.deadline && job.total < CLIPBOARD_TOTAL_MAX { job.mimes.pop_front() } else { None };
+            let next = if Instant::now() < job.deadline && job.total < job.cap { job.mimes.pop_front() } else { None };
             let Some(mime) = next else { return self.finish_job(desk, id) };
             let Ok((read, write)) = pipe_with(PipeFlags::CLOEXEC) else {
                 job.unread.push(mime);
@@ -381,7 +526,7 @@ impl Ede {
             let _ = fcntl_setfl(&read, OFlags::NONBLOCK);
             if !self.ask_source(desk, from, &mime, write) {
                 // A selection that is gone has nothing left to lose.
-                if !self.try_desk(desk).is_some_and(|desk| matches!(desk.clipboard.owner, Owner::Empty)) {
+                if !self.try_desk(desk).is_some_and(|desk| !matches!(desk.clipboard.owner, Owner::Client(_) | Owner::X11(_))) {
                     self.leave_unread(desk, id, mime);
                 }
                 continue;
@@ -413,9 +558,7 @@ impl Ede {
                 Ok(()) => true,
                 Err(smithay::wayland::selection::data_device::SelectionRequestError::NoSelection) => {
                     // The source died without a new selection.
-                    if matches!(clipboard.clipboard.owner, Owner::Client(_)) {
-                        clipboard.clipboard.changed(Owner::Empty);
-                    }
+                    self.clipboard_source_gone(desk);
                     false
                 }
                 Err(_) => false,
@@ -439,7 +582,7 @@ impl Ede {
                     Ok(0) => break Step::Done,
                     Ok(n) => {
                         reading.buf.extend_from_slice(&chunk[..n]);
-                        if reading.buf.len() > CLIPBOARD_ITEM_MAX || job.total + reading.buf.len() > CLIPBOARD_TOTAL_MAX {
+                        if reading.buf.len() > CLIPBOARD_ITEM_MAX || job.total + reading.buf.len() > job.cap {
                             break Step::Skip;
                         }
                     }
@@ -497,15 +640,36 @@ impl Ede {
         let mut job = jobs.remove(index);
         // The deadline or the total ended the read: the rest was never asked.
         job.unread.extend(job.mimes.drain(..));
+        if job.want == Want::Keep {
+            return self.kept(desk, job.serial, job.items);
+        }
         let value = reply(job.want, job.serial, job.items, job.unread);
         self.ipc_reply_later(job.conn, job.call_id, Ok(value));
+    }
+}
+
+impl Ede {
+    /// A keep read of `desk`'s selection at `serial` is done.
+    fn kept(&mut self, desk: DeskId, serial: u64, mut items: Vec<ClipboardItem>) {
+        // A source that quit mid-write left nothing worth pasting.
+        items.retain(|item| !item.data.is_empty());
+        let Some(clipboard) = self.try_desk_mut(desk).map(|desk| &mut desk.clipboard) else { return };
+        if clipboard.serial != serial {
+            return;
+        }
+        if !items.is_empty() {
+            clipboard.kept = Some(Kept { serial, items });
+        }
+        if std::mem::take(&mut clipboard.gone) {
+            self.clipboard_source_gone(desk);
+        }
     }
 }
 
 fn reply(want: Want, serial: u64, items: Vec<ClipboardItem>, unread: Vec<String>) -> serde_json::Value {
     match want {
         Want::Snapshot => serde_json::to_value(ClipboardSnapshot { serial, items, unread: Some(unread) }).unwrap(),
-        Want::Text => serde_json::to_value(ClipboardText { serial, text: text_of(&items) }).unwrap(),
+        Want::Text | Want::Keep => serde_json::to_value(ClipboardText { serial, text: text_of(&items) }).unwrap(),
     }
 }
 
@@ -556,6 +720,14 @@ mod tests {
         assert_eq!(wanted(&offered, Want::Text), ["text/plain"]);
         assert_eq!(wanted(&["image/png".to_string()], Want::Text), Vec::<String>::new());
         assert_eq!(text_of(&[item("STRING", b"x"), item("text/plain;charset=utf-8", "ü".as_bytes())]).as_deref(), Some("ü"));
+    }
+
+    #[test]
+    fn a_keep_takes_text_and_one_picture_and_nothing_secret() {
+        let offered: Vec<String> = ["TARGETS", "text/plain", "UTF8_STRING", "chromium/x-web-custom-data", "image/png", "image/bmp", "text/html"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(wanted(&offered, Want::Keep), ["text/plain", "UTF8_STRING", "image/png", "text/html"]);
+        let secret: Vec<String> = ["text/plain", CLIPBOARD_SECRET_HINT].iter().map(|s| s.to_string()).collect();
+        assert!(keepable(&secret).is_empty());
     }
 
     #[test]
