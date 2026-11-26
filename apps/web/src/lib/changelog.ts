@@ -25,6 +25,35 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-desktop-cli-0-14-185-phones`,
+    date: `2026-11-26`,
+    title: `Teams as one tree on phones, Dismiss in Needs you, and ended chats keep their transcript`,
+    summary: `Desktop and CLI 0.14.185, Android 0.14.160 and iOS 0.14.147: the phone Teams tab is one tree, badges count the same everywhere, every Needs you row can be dismissed, and an ended chat keeps its transcript.`,
+    body: `- **Teams on your phone**: the Teams tab is one tree of your teams with their folders, boards, agents, apps and chats, in the sidebar's order. Headers stay pinned, and every page shows its actions as the same round buttons, with + and … last.
+- **One set of badges**: menus and sidebar items count the same way on every platform: a number up to 99+, yellow when something waits on you, muted for unread.
+- **Dismiss in Needs you**: every plan and question row has a Dismiss button, and you can dismiss any card of your own conversation, also over MCP.
+- **New issue in any team**: the board picker of New issue offers the boards of every team you are in.
+- **Long-press menus on phones**: every navigation row has the same menu as on the desktop's sidebar.
+- **Teams in every composer**: a plain chat's Teams pick is in the composer of every chat, not only on Home, and two teams' agents with the same name wear their team's mark in New chat.
+- **Ended chats keep their transcript**: ending a chat keeps its transcript under Keep session history; deleting a chat, its agent or its team removes it from your devices. A new line in an ended chat no longer hides the answers it already had.
+- **After the usage limit**: a turn the usage limit stopped continues once when the limit resets, also after a restart.
+- **Faster restarts**: a restarted daemon takes over its sessions at once instead of after about 45 seconds, and a ready update restarts the desktop app within a bound while sessions resume.
+- **Encrypted chats and calls**: a call no longer makes the agent answer the chat's first message, a retried first message keeps the chat's own key, and a message waiting to send is drawn once.
+- **Computer use**: a computer-use session that cannot run says why in its own chat.
+- **Storage**: Clean up in Settings → Storage only takes issue images that nothing refers to, and deletes them 30 days later.
+- **Pull requests**: merging a base pull request never merges the ones stacked on it.
+- **Low disk**: a device low on disk can raise the team event device.disk_low (opt-in).
+- **Everything from 0.14.184**: message your agents from your editor and your shell, and /new starts a new conversation in group chats.`,
+  },
+  {
+    id: `2026-11-25-desktop-cli-0-14-184`,
+    date: `2026-11-25`,
+    title: `Message your agents from your editor and shell`,
+    summary: `Desktop and CLI 0.14.184: connect Claude Code and other MCP clients to your encrypted chats, and New conversation works in group chats again.`,
+    body: `- **Message agents from your editor and shell**: \`exponential mcp serve\`, or the desktop app started with \`mcp\`, connects Claude Code and other MCP clients to your encrypted chats; \`exponential agents message\` and \`exponential sessions message\` do the same from a shell. Your device encrypts every message before it leaves.
+- **New conversation in group chats**: it starts a new conversation again, and changed instructions apply.`,
+  },
+  {
     id: `2026-11-25-desktop-cli-0-14-183-android`,
     date: `2026-11-25`,
     title: `A woken agent answers from its own device`,
