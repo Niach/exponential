@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-213: the three BUILT-IN skills (packages/domain-contract/fixtures/
+// VAPP-213: the BUILT-IN skills (packages/domain-contract/fixtures/
 // skills.json `builtin`), generated from the docs so they never drift from
 // them. Run from the repo root with `bun packages/exponential-ui/scripts/
 // generate-skills.ts`; apps/web's builtin-skills.test.ts re-renders in
@@ -13,7 +13,7 @@
 //   index.ts                 the same with every file inlined (?raw), for the server
 //
 // Sources: packages/exponential-ui/docs/package-format.md, docs/spec/apps.md,
-// docs/spec/motion.md, samples/apps/*.app.json, the genUI prompt (src/prompt.ts:
+// docs/spec/motion.md, docs/spec/workflow.md, samples/apps/*.app.json, the genUI prompt (src/prompt.ts:
 // the rules, functions and style sections every model gets), the built-in
 // themes, the Motion guide (eval/motion/guide.md + lottie-guide.md, the
 // text models get) and the Motion gallery (the 8 recorded replies the guide
@@ -41,6 +41,7 @@ const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 const DESCRIPTIONS: Record<string, string> = {
   "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps_write upsert) or its records.`,
   "exponential-genui": `Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
+  "exponential-workflow": `Work in Exponential the way its sessions do: the noun tools and their _write twins, a coding session from issue to pull request, the session tree and wake-ups (never poll), ending and reporting, showing results and asking through one card, and the same UI on every platform. Use when acting on Exponential issues, sessions or pull requests over MCP.`,
   "exponential-motion": `Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
 }
 
@@ -283,10 +284,27 @@ function motionSkill(): Files {
 
 // ── the set ─────────────────────────────────────────────────────────────
 
+// ── exponential-workflow ────────────────────────────────────────────────
+
+// #NEW-145 (#NEW-143 D3): the workflow every Exponential session follows,
+// served to outside MCP hosts as a built-in skill. Source: docs/spec/workflow.md
+// (written from the MCP server instructions and the team prompt).
+function workflowSkill(): Files {
+  const spec = read(`docs/spec/workflow.md`)
+  const lines = tidy(spec).split(`\n`)
+  const body = [
+    lines[0]!,
+    `> Generated from docs/spec/workflow.md (genUI ${pkg.version}) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.`,
+    lines.slice(1).join(`\n`).trim(),
+  ].join(`\n\n`)
+  return new Map([[`SKILL.md`, skillMd(`exponential-workflow`, body)]])
+}
+
 const BUILDERS: Record<string, () => Files> = {
   "exponential-apps": appsSkill,
   "exponential-genui": uiSkill,
   "exponential-motion": motionSkill,
+  "exponential-workflow": workflowSkill,
 }
 
 /** Every generated file, path relative to skills/ → content. */

@@ -54,7 +54,7 @@ import {
   SKILL_NAME_MAX,
   SKILL_NAME_PATTERN,
 } from "@exp/db-schema/domain"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import {
   and,
   asc,
@@ -179,6 +179,9 @@ import { reconcileDeviceUsage } from "@/lib/usage-reconcile"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
+import { createEventTask, createSessionTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
+import type { EmcpToolContext } from "@/lib/emcp/request-context"
+import { downloadMetaFor } from "@/lib/emcp/files"
 import {
   assertCanSteer,
   isSessionPrincipal,
@@ -1673,7 +1676,7 @@ export function registerExponentialTools(
       description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content, downscaled when large (the JSON's inline field reports what was sent; downloadUrl always has the original); small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
-    async ({ id }) => {
+    async ({ id }, extra) => {
       try {
         // Issue attachments first; EXP-1291: a conversation message's file
         // (`attachments.message_id`) shares the /api/attachments/{id} url
@@ -1740,6 +1743,16 @@ export function registerExponentialTools(
         if (`durationMs` in attachment && attachment.durationMs != null) {
           payload.durationMs = attachment.durationMs
         }
+        // #NEW-149 (files.json `download`): a client that declared the files
+        // extension's `download` (flag on) gets the signed URL as a DownloadTarget.
+        const filesMeta = downloadMetaFor(extra as unknown as EmcpToolContext, {
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          sizeBytes: attachment.sizeBytes,
+          downloadUrl: payload.downloadUrl as string,
+          expiresAt: expiresAt.toISOString(),
+        })
+        const withFilesMeta = <T extends object>(result: T) => (filesMeta ? { ...result, _meta: filesMeta } : result)
 
         const contentType = attachment.contentType
         // EXP-853 review: the inline copy goes through sharp, so classify
@@ -1779,7 +1792,7 @@ export function registerExponentialTools(
             bytes: inlineBytes.byteLength,
             downscaled: inlined?.downscaled ?? false,
           }
-          return {
+          return withFilesMeta({
             content: [
               {
                 type: `image` as const,
@@ -1791,10 +1804,10 @@ export function registerExponentialTools(
                 text: JSON.stringify(payload, null, 2),
               },
             ],
-          }
+          })
         }
 
-        return ok(payload)
+        return withFilesMeta(ok(payload))
       } catch (e) {
         return err(e)
       }
@@ -2600,8 +2613,21 @@ export function registerExponentialTools(
         stop: z.boolean().optional(),
       }),
     },
-    async ({ issueIds: issueRefs, stop, forwardAttachments, ...rest }) => {
+    async ({ issueIds: issueRefs, stop, forwardAttachments, ...rest }, extra?: unknown) => {
       try {
+        // #NEW-147 (emcp tasks.json): an external host that declared tasks
+        // gets the call's work as a TASK (a session watch, or event watches).
+        const ctx = extra as EmcpToolContext | undefined
+        const taskSpec: TaskCallSpec | null = ctx?.client
+          ? {
+              ctx,
+              args: { ...rest, ...(issueRefs ? { issueIds: issueRefs } : {}), ...(stop !== undefined ? { stop } : {}) },
+              inSession: sessionId !== null,
+              access,
+            }
+          : null
+        const planned = taskSpec ? await plannedTaskWatch(taskSpec) : null
+        if (planned?.kind === `events`) return (await createEventTask(taskSpec!, planned.specs)) as never
         const own = await loadCallerSession()
         if (forwardAttachments) {
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_send`, `attachmentIds`))
@@ -2665,6 +2691,7 @@ export function registerExponentialTools(
           // sessions that read "via <app>".
           ...(viaAppOf(request) ? { viaAppId: viaAppOf(request) } : {}),
         })
+        if (planned?.kind === `session` && result.sessionId) return (await createSessionTask(taskSpec!, result.sessionId)) as never
         return ok(result)
       } catch (e) {
         return err(e)

@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { Client } from "@modelcontextprotocol/client"
+import { InMemoryTransport } from "@modelcontextprotocol/client"
 
 // #NEW-141: the OpenAI MCP extensions over a real MCP connection: the recorded
 // per-operation tools are stand-ins, everything else is the server's own.
