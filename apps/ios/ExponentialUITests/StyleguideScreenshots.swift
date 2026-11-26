@@ -28,7 +28,7 @@ import XCTest
 ///   sg_teams · sg_team · sg_assistant-tab ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
-///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
+///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_elicitation-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
@@ -254,7 +254,8 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_assistant-tab · sg_teams · sg_teams-menu (#EXP-2109, live) ────────
         if ScreenshotShots.isWanted("sg_assistant-tab") {
             showTab(app, "tab-assistant", root: "assistant-tab")
-            expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The Assistant tab drew no chat")
+            // #FEED-271: an agent's header has no tabs: wait on its `…`.
+            expect(anyElement(app, identified: "session-menu"), within: Wait.sync, "The Assistant tab drew no chat")
             snapshot("sg_assistant-tab", settle: 3)
         }
         if ScreenshotShots.isWanted("sg_teams") || ScreenshotShots.isWanted("sg_teams-menu") {
@@ -1287,11 +1288,22 @@ final class StyleguideScreenshots: XCTestCase {
     @MainActor
     private func showTeamSettings(_ app: XCUIApplication) {
         showTeam(app)
-        app.buttons["team-actions"].tap()
-        let item = anyElement(app, identified: "team-menu-settings")
+        teamButton(app, "team-actions").tap()
+        let item = anyElement(app, identified: "sidebar-menu-settings")
         expect(item, within: Wait.nav, "The team menu has no Settings")
         item.tap()
         expect(anyElement(app, identified: "team-settings"), within: Wait.nav, "The team's settings never opened")
+    }
+
+    /// #EXP-2109 (header-actions.json `rows.team`): a team row's own + or
+    /// `…` (`team-new-<id>` / `team-actions-<id>`), the team named `name`.
+    @MainActor
+    private func teamButton(_ app: XCUIApplication, _ prefix: String, _ name: String = "Acme") -> XCUIElement {
+        let button = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label ENDSWITH %@", "\(prefix)-", ": \(name)")
+        ).firstMatch
+        expect(button, within: Wait.nav, "The \(name) row has no \(prefix)")
+        return button
     }
 
     /// Settings › Devices.
@@ -1311,7 +1323,7 @@ final class StyleguideScreenshots: XCTestCase {
         "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
-        "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states",
+        "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states", "elicitation-card",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
     ]
 
@@ -1367,6 +1379,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "record-form-field-states": snapshot("sg_record-form-field-states", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
+            // #NEW-146: THE elicitation card (elicitation-card.json specimen).
+            case "elicitation-card": snapshot("sg_elicitation-card", settle: 2)
             // #FEED-191: THE entry row + THE list, THE Results tab body.
             case "needs-you": snapshot("sg_needs-you", settle: 2)
             case "results-tab": snapshot("sg_results-tab", settle: 2)
@@ -1821,12 +1835,11 @@ final class StyleguideScreenshots: XCTestCase {
     /// → dismissed.
     @MainActor
     private func walkAppImport(_ app: XCUIApplication) {
-        app.buttons["team-actions"].tap()
-        for id in ["team-menu-new", "team-menu-new-app"] {
-            let item = anyElement(app, identified: id)
-            expect(item, within: Wait.nav, "The team menu has no \(id)")
-            item.tap()
-        }
+        // #EXP-2109: the team row's + = THE new menu, its App = THE NEW MENU.
+        teamButton(app, "team-new").tap()
+        let item = anyElement(app, identified: "sidebar-new-app")
+        expect(item, within: Wait.nav, "The team's new menu has no App")
+        item.tap()
         let importItem = anyElement(app, identified: "apps-import")
         expect(importItem, within: Wait.nav, "THE NEW MENU has no Import…")
         importItem.tap()
@@ -1937,7 +1950,9 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_chat-screen: the cold-start chat (DEMO_CHAT_ID) ──────────────
         let coldStart = chatRow(app, containing: Self.coldStartChatTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Chats list")
-        coldStart.tap()
+        // #EXP-2184: the row may sit under the docked tab bar: scroll it
+        // into the readable band, then tap it there.
+        revealAndTap(app, coldStart, "The cold-start chat row never cleared the tab bar")
         // #EXP-1732: THE session tabs under the header, Chat active (the
         // seeded question + the child's plan stay inline, not in the Dock).
         let chatSegment = anyElement(app, identified: "session-tabs-chat")

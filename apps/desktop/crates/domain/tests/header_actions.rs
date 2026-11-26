@@ -31,6 +31,18 @@ fn menu_cases() {
 }
 
 #[test]
+fn collapse_cases() {
+    let f = fixture();
+    assert_eq!(json!(HEADER_ACTIONS.collapse.order), f["collapse"]["order"]);
+    assert_eq!(HEADER_ACTIONS.collapse.title_min_share as f64, f["collapse"]["titleMinShare"].as_f64().unwrap() as f32 as f64);
+    for case in cases(&f, "collapseCases") {
+        let chips: Vec<HeaderCollapseChip> = serde_json::from_value(case["chips"].clone()).unwrap();
+        let num = |key: &str| case[key].as_f64().unwrap() as f32;
+        assert_eq!(json!(header_collapse(num("bar"), num("title"), num("fixed"), &chips)), case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
 fn every_pages_lists_are_in_the_one_order() {
     let f = fixture();
     for (page, forms) in f["pages"].as_object().unwrap() {

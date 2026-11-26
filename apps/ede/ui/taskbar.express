@@ -27,14 +27,21 @@
 # settings, Cinnamon's calendar applet) or on a tray item opens one; a tray item's menu is its dbusmenu (/tray/*/menu, read
 # again while the pointer is on it); a left click activates it, or opens the same menu for an item
 # that is only a menu (ItemIsMenu: /tray/*/menuOnPress), as Cinnamon's tray does.
+# #EDE-245: the right side in Cinnamon's order (Mint 22's enabled-applets): the status icons (the tray, then
+# Bluetooth, Needs you and Agent spaces as status icons), notifications (hidden while empty, Cinnamon's
+# showEmptyTray false), printers (only while CUPS lists one), removable drives (only while one is mounted),
+# network, sound, power, the clock, then the corner bar: a thin strip at the very end that shows the
+# desktop (ede_show_desktop, Muffin's toggle_desktop).
 # #EDE-253: the keyboard applet (keyboard@cinnamon.org) left of the network one, only with more than one
 # layout (/keyboard/show): the active layout's short label (us, de), its menu the layouts (the active one
 # checked; a pick switches: ede_keyboard_layout) and Keyboard settings.
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close"]}})
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
+$/applets/drives/show = false
 $/applets/network/icon = "ede-wifi"
+$/applets/printers/show = false
 $/applets/sound/icon = "media-volume-up"
 $/installs/waiting = false
 $/keyboard/items = []
@@ -75,7 +82,7 @@ button_icon_dim = Image(src=$icon, alt=$name, fit="contain", width=24, height=24
 running_focused = Box(style={height: 2, width: 20, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.primary"}, visible=cond(if=$focused, then=true, else=false))
 running = Box(style={height: 2, width: 8, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.mutedForeground"}, visible=and(values=[cond(if=$running, then=true, else=false), not(value=cond(if=$focused, then=true, else=false))]))
 not_running = Box(style={height: 2, marginTop: 3}, visible=not(value=cond(if=$running, then=true, else=false)))
-right = Stack(direction="horizontal", gap="xs", align="center", children=[tray, tray_entry, applet_keyboard, applet_network, applet_sound, applet_bluetooth, applet_battery, needs_you, needs_you_count, agent_spaces, bell, bell_count, session])
+right = Stack(direction="horizontal", gap="xs", align="center", children=[tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
 tray = Stack(direction="horizontal", gap="xs", align="center", children=_template($/tray, tray_entry, key="service"))
 tray_entry = Box(style={display: "flex", alignItems: "center"}, children=[tray_item, tray_menu])
 tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "$radius.sm"}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service)}, visible=not(value=cond(if=$hasMenu, then=true, else=false)))
@@ -92,6 +99,8 @@ applet_keyboard_button = Button(label=$/keyboard/label, variant="ghost", size="s
 applet_network = Button(label="Network", icon=$/applets/network/icon, variant="ghost", size="icon", on={press: Event("applet")})
 applet_sound = Button(label="Sound", icon=$/applets/sound/icon, variant="ghost", size="icon", on={press: Event("applet")})
 applet_bluetooth = Button(label="Bluetooth", icon="ede-bluetooth", variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/bluetooth/show, then=true, else=false))
+applet_printers = Button(label="Printers", icon="printer", variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/printers/show, then=true, else=false))
+applet_drives = Button(label="Removable drives", icon="hard-drive", variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/drives/show, then=true, else=false))
 applet_battery = Button(label="Battery", icon=$/applets/battery/icon, variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/battery/show, then=true, else=false))
 needs_you = Button(label="Needs you", icon="nav-needs-you", variant="ghost", size="icon", on={press: Event("needs_you")}, visible=or(values=[not(value=eq(a=$/needsYou/count, b=0)), cond(if=$/installs/waiting, then=true, else=false)]))
 needs_you_count = CountBadge(count=$/needsYou/count, tone="attention", visible=not(value=eq(a=$/needsYou/count, b=0)))
@@ -104,7 +113,9 @@ space_row = Row(title=$title, subtitle=$subtitle, density="compact", pressable=t
 space_picture = Image(src=$picture, alt=$title, fit="contain", width=96, height=60, fallback="nav-computer")
 space_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_space_close(space=$id)})
 agent_spaces_button = Button(label="Agent spaces", icon="nav-computer", variant="ghost", size="icon")
-bell = Button(label="Notifications", icon="nav-notifications", variant="ghost", size="icon", on={press: Event("bell")})
+bell = Button(label="Notifications", icon="nav-notifications", variant="ghost", size="icon", on={press: Event("bell")}, visible=not(value=eq(a=$/notifications/count, b=0)))
 bell_count = CountBadge(count=$/notifications/count, tone="muted", visible=not(value=eq(a=$/notifications/count, b=0)))
 session = Menu(items=[{label: "Date and time settings", value: "datetime", icon: "ui-clock"}], openOn="contextmenu", children=[clock], on={select: ede_panel_menu(value=$value)})
 clock = Button(label=$/time, variant="ghost", size="sm", on={press: Event("clock")}, style={fontVariantNumeric: "tabular-nums"})
+corner_bar = Box(style={display: "flex", alignItems: "center", justifyContent: "flex-end", width: 12, height: 48}, pressable=true, children=[corner_line], on={press: ede_show_desktop()})
+corner_line = Box(style={width: 1, height: 24, backgroundColor: "$color.border"})

@@ -1,0 +1,13 @@
+[Desktop Entry]
+# #EDE-227: eDE's component (`exponential-app`, the compositor starts it).
+# Not a start menu entry: it names the component's windows (app id
+# at.exponential) for the taskbar's icon and title; a launch of it hands
+# the person's press to the running component and exits.
+Type=Application
+Name=Exponential
+Exec=/usr/bin/exponential-app
+Icon=at.exponential
+NoDisplay=true
+OnlyShowIn=Exponential;
+StartupWMClass=at.exponential
+Terminal=false

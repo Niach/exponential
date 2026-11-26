@@ -52,6 +52,7 @@ export async function writeUpstreamMappings(db: Db, app: { id: string; teamId: s
       clientId: null,
       appId: app.id,
       tool: upstreamMappingTool(pick.upstream, server),
+      method: `tools/call`,
       status: `ok`,
       error: null,
       latencyMs: 0,

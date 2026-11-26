@@ -186,6 +186,12 @@ internal fun ColumnScope.PlanAskCard(
     val plan = row as? SessionTree.SessionChatRow.Plan
     val question = row as? SessionTree.SessionChatRow.Question
     if (plan == null && question == null) return
+    // #NEW-146 (elicitation-card.json): a third-party MCP server's
+    // elicitation is THE elicitation card, wherever a question card draws.
+    if (question?.elicitation != null) {
+        ElicitationAskCard(question, question.elicitation, onAnswer, modifier)
+        return
+    }
     var state by remember(row.id) { mutableStateOf<AnswerState?>(null) }
     val settle: (Boolean) -> Unit = { ok -> state = if (ok) AnswerState.Acked else null }
     val answered = plan?.decision != null || question?.answered == true
@@ -540,7 +546,7 @@ internal fun ColumnScope.PlanAskCard(
 
 /** The answer on its way: the small spinner + `copy.answering`. */
 @Composable
-private fun AnsweringLine() {
+internal fun AnsweringLine() {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -873,25 +879,42 @@ private fun CardTextField(
     )
 }
 
+/** The card button's look (web `Button` variants at `size="sm"`). */
+internal enum class CardButtonLook { Primary, Secondary, Outline, Ghost }
+
 /** The card's small button (web `Button size="sm"`): [primary] = the
  *  question's Answer and the plan's decide button, else the stepper's
- *  secondary Back / Next (the row fill + glass hairline); a blocked one dims
- *  to `inertOpacity`. */
+ *  secondary Back / Next (the quiet solid); #NEW-146 [look] adds the
+ *  elicitation card's outline (Decline, I'm done) and ghost (Cancel). A
+ *  blocked one dims to `inertOpacity`. */
 @Composable
-private fun CardButton(
+internal fun CardButton(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     primary: Boolean = true,
+    look: CardButtonLook = if (primary) CardButtonLook.Primary else CardButtonLook.Secondary,
 ) {
     val shape = RoundedCornerShape(PlanCard.Look.ROW_RADIUS.dp)
+    val fill = when (look) {
+        CardButtonLook.Primary -> MaterialTheme.colorScheme.primary
+        // Web's `secondary` button: the quiet solid, no hairline.
+        CardButtonLook.Secondary -> DesignTokens.Palette.Secondary
+        CardButtonLook.Outline, CardButtonLook.Ghost -> androidx.compose.ui.graphics.Color.Transparent
+    }
     Box(
         modifier = modifier
             .alpha(if (enabled) 1f else PlanCard.Look.INERT_OPACITY)
             .clip(shape)
-            // Web's `secondary` button: the quiet solid, no hairline.
-            .background(if (primary) MaterialTheme.colorScheme.primary else DesignTokens.Palette.Secondary, shape)
+            .background(fill, shape)
+            .then(
+                if (look == CardButtonLook.Outline) {
+                    Modifier.border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape)
+                } else {
+                    Modifier
+                },
+            )
             .then(if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
             .padding(horizontal = 12.dp),
@@ -900,7 +923,7 @@ private fun CardButton(
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
-            color = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            color = if (look == CardButtonLook.Primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         )
     }
 }

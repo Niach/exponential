@@ -478,6 +478,8 @@ export const sessionsRouter = router({
       const { txid } = await endSession({
         userId: ctx.session.user.id,
         sessionId: input.sessionId,
+        // #NEW-147: a person's End before its report fails its MCP tasks.
+        failure: `killed`,
       })
       return { txid }
     }),

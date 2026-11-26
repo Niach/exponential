@@ -11,6 +11,7 @@ import {
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { Menu, MenuRow } from "./menu"
+import { HeaderFoldLabel, useHeaderFolded } from "./header-collapse"
 import { StripChip } from "./strip-chip"
 
 const WaitingPlanIcon = conceptIcon(`coding-plan`)
@@ -43,6 +44,8 @@ export function ChatWaitingChips({
   menuOpen?: boolean
 }) {
   const [shown, setShown] = useState(false)
+  // #EXP-2183: a narrow header folds the chip to its icon.
+  const folded = useHeaderFolded(`status`)
   const { layout, count, chips } = waitingChips(cards, phone)
   if (layout === `hidden`) return null
   const fullTitle = (id: string) => {
@@ -83,9 +86,21 @@ export function ChatWaitingChips({
           aria-label={label}
           tooltip={label}
           boxClassName="shrink-0"
+          boxProps={{ "data-header-fold": `status`, "data-folded": folded ? `true` : undefined }}
           className="px-2"
-          lead={<WaitingQuestionIcon className="size-3.5 text-yellow-400" />}
-          label={<span className="text-muted-foreground tabular-nums">{count}</span>}
+          lead={
+            <>
+              <WaitingQuestionIcon className="size-3.5 text-yellow-400" />
+              {folded && <HeaderFoldLabel folded gap={4}>{count}</HeaderFoldLabel>}
+            </>
+          }
+          label={
+            folded ? undefined : (
+              <HeaderFoldLabel folded={false} gap={4}>
+                <span className="text-muted-foreground tabular-nums">{count}</span>
+              </HeaderFoldLabel>
+            )
+          }
         />
       }
       body={

@@ -145,7 +145,7 @@ pub fn retryable(err: &ApiError) -> bool {
 /// The card's question id, for the cards answered IN the Conversation.
 fn card_question_id(card: Option<&ReplyCard>) -> Option<&str> {
     match card? {
-        ReplyCard::Question { question_id, .. } => Some(question_id),
+        ReplyCard::Question { question_id, .. } | ReplyCard::Elicitation { question_id, .. } => Some(question_id),
         _ => None,
     }
 }

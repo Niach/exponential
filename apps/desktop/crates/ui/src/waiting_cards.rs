@@ -292,6 +292,7 @@ mod tests {
                 surface_data: None,
                 answered: false,
                 dismissed: None,
+                elicitation: None,
             },
         ];
         let got: Vec<(String, String)> =

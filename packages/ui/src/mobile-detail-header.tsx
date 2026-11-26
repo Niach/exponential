@@ -59,6 +59,7 @@ export function MobileDetailHeader({
 }) {
   const row = (
     <div
+      data-slot="mobile-detail-header-row"
       className={cn(MOBILE_DETAIL_HEADER_CLASS, className)}
     >
       {onBack ? (

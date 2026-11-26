@@ -18,6 +18,14 @@ pub enum ReplyCard {
         options: Vec<ReplyOption>,
         question_id: String,
     },
+    /// #NEW-146: THE elicitation card (elicitation-card.json): a question
+    /// card built whole by `elicitation_card::elicitation_card` (its
+    /// `surface`, `custom: false`, `multi: false` and the `elicitation`
+    /// sidecar), posted with its `questionId`.
+    Elicitation {
+        question_id: String,
+        card: serde_json::Value,
+    },
     Subagent {
         title: String,
         status: String,
@@ -45,6 +53,15 @@ impl serde::Serialize for ReplyCard {
                 map.serialize_entry("options", &labels)?;
                 if let Some(descriptions) = &descriptions {
                     map.serialize_entry("optionDescriptions", descriptions)?;
+                }
+                map.serialize_entry("questionId", question_id)?;
+                map.end()
+            }
+            Self::Elicitation { question_id, card } => {
+                let fields = card.as_object().cloned().unwrap_or_default();
+                let mut map = serializer.serialize_map(Some(fields.len() + 1))?;
+                for (key, value) in fields.iter().filter(|(key, _)| key.as_str() != "questionId") {
+                    map.serialize_entry(key, value)?;
                 }
                 map.serialize_entry("questionId", question_id)?;
                 map.end()

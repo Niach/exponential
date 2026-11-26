@@ -1919,6 +1919,25 @@ class AgentSessionViewModel @AssistedInject constructor(
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * #NEW-146 (elicitation-card.json LIVE): this session's ENGINE-posted
+     * elicitation cards (left out of [sessionCards]: their live frame draws
+     * them), opened like every card row; a frame of the same `questionId`
+     * draws THE card instead of its bare options ([ElicitationFeedCards.rowFor]).
+     */
+    val elicitationCards: StateFlow<ElicitationFeedCards> = cardRows
+        .map { rows ->
+            val cards = rows.filter { it.locked == null && com.exponential.app.domain.ElicitationCard.isElicitationCard(it.card) }
+            if (cards.isEmpty()) {
+                ElicitationFeedCards.None
+            } else {
+                ElicitationFeedCards(cards, cards.mapNotNull { m -> SessionTree.askRow(m)?.let { m.id to it } }.toMap())
+            }
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ElicitationFeedCards.None)
+
     /** The plan / question rows of [sessionCards] (the dock's sources). */
     val toolAsks: StateFlow<List<SessionTree.SessionChatRow>> = sessionCards
         .map { cards -> cards.filter { it.first.kind != AskDock.SessionCardKind.Surface }.map { it.second } }

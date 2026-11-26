@@ -322,6 +322,11 @@ impl OnboardingView {
         if std::env::var("EXP_SKIP_ONBOARDING").as_deref() == Ok("1") {
             return false;
         }
+        // #EDE-227: eDE's component shows no onboarding (the shell's
+        // Connect and Settings are the desktop's).
+        if crate::ede_component::is_component() {
+            return false;
+        }
         self.desired_step(cx).is_some()
     }
 

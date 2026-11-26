@@ -9,10 +9,12 @@ import {
 import {
   Button,
   conceptIcon,
+  HeaderFoldContext,
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
   PhoneHeaderTitle,
   SegmentedControl,
+  useHeaderCollapse,
   useIsMobile,
 } from "@exp/ui"
 import { BackStackButton } from "@/components/chat/session-body"
@@ -187,6 +189,7 @@ export function SessionScreenFrame({
   itemFind,
 }: SessionScreenFrameProps) {
   const phone = useIsMobile()
+  const collapse = useHeaderCollapse()
   const findBand = find?.open && !phone ? find.wide : null
   const itemFindBand = itemFind?.open && !phone ? itemFind.wide : null
   // #FEED-271: no tabs (an agent, the Assistant) = no strip at all.
@@ -274,7 +277,7 @@ export function SessionScreenFrame({
               disc={avatar}
               title={
                 <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate" data-testid="chat-title">
+                  <span className="truncate" data-testid="chat-title" data-header-title>
                     {title}
                   </span>
                   {titleTrailing}
@@ -302,11 +305,16 @@ export function SessionScreenFrame({
             />
           }
           onBack={onBack}
+          ref={collapse.ref}
           menu={
-            <span className="flex shrink-0 items-center gap-2">
-              {trailing}
-              {menu?.(``)}
-            </span>
+            // #EXP-2183 (header-actions.json COLLAPSE): the title keeps its
+            // share of the bar, the Merge pill then the waiting chip fold.
+            <HeaderFoldContext.Provider value={collapse.folded}>
+              <span className="flex shrink-0 items-center gap-2">
+                {trailing}
+                {menu?.(``)}
+              </span>
+            </HeaderFoldContext.Provider>
           }
           below={tabs && <div className="px-3 pb-2">{tabs}</div>}
         />}

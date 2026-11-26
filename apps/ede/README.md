@@ -6,7 +6,7 @@ libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
-| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
+| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: eDE's component `exponential-app` (#EDE-227) when the units start the helpers, else the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
 | `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`; `session` runs those from stdin, one per line, on one connection (#EDE-172 P7: in a real session the person is asked once per ctl process; a VM or CI machine names `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml`). |
@@ -167,9 +167,38 @@ the factory ones. `exponential-shell --windowed` opens normal windows instead
 ### The login's account (#EDE-226)
 
 One Exponential account per eDE login. The shell signs in and out; the
-HOLDER, the app `exponential-device.service` starts, keeps the account's
-install, its keys, the device and the coding sessions (its data directory,
-`~/.local/share/exponential`, unchanged).
+HOLDER keeps the account's install, its keys, the device and the coding
+sessions (its data directory, `~/.local/share/exponential`, unchanged).
+
+### The app as a component (#EDE-227)
+
+The holder is `exponential-app`, in the package: the desktop app's `ui`
+crate behind a thin `main` (`apps/desktop/crates/app`, `Mode::Component`),
+built from the desktop workspace as `exponential-shell` is. No AppImage is
+needed any more.
+
+- **Started by the compositor** as one of its helpers (`[session] helpers =
+  "compositor"`), in a scope of its own, and again when it ends; it is the
+  compositor's child, so the root token from it is root's with no consent
+  prompt. With `helpers = "units"`, `exponential-device.service` runs it
+  (`exponential-session --device`). It starts without a window.
+- **eDE mode** (`ui::ede_component`): no login or onboarding (signed out, a
+  window offers the shell's Connect), no title bar or frame of its own (its
+  windows ask for server-side decorations: eDE's frame), no rail (the shell
+  links into it), no updater (it updates with the package; it follows
+  `CLIENT_MIN_VERSION_DESKTOP`, `.github/workflows/README.md`).
+- **The session bus** (`api::bus`): `exp-desktop.bus` beside the link socket
+  in the data directory, request and reply, JSON lines, both ends checked by
+  peer credentials (same user). The shell's links come as `open` with a
+  launch token it minted for the press, which the component hands to
+  xdg-activation, so the window the link lands in comes to the front; Sign
+  out, Approve and Remove come as `holder`. The link socket stays for
+  releases that only know it.
+- **Migration:** nothing moves (same data directory: same install, same
+  device row). A standalone app started while the component runs hands its
+  link over the bus and exits; one that runs when the component starts is
+  asked to hand the login over (`handover`) and quits, an older one is
+  waited for.
 
 - **Sign in:** `connect.express`, shown at the first login with no account
   (`connect-shown` beside `compositor.toml` says it was) and from Settings,

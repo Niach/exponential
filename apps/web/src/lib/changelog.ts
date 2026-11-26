@@ -25,6 +25,34 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-ede-app-built-in`,
+    date: `2026-11-26`,
+    title: `Exponential Desktop brings the app with it`,
+    summary: `Exponential Desktop now ships the Exponential app itself: no AppImage to download, no prompt about an unknown program at login.`,
+    body: `- **No AppImage needed**: Exponential Desktop starts the Exponential app with your session, already signed in with your desktop's account. Its windows wear the desktop's frame and come to the front from any link in the shell.
+- **One Exponential**: an AppImage you installed before hands over to it and closes, keeps the same data, and its own start menu entry stays out of the menu, search, favourites and pins while the built-in app runs.
+- **Updates**: the app updates with the Exponential Desktop package.`,
+  },
+  {
+    id: `2026-11-26-ede-rerusted-look`,
+    date: `2026-11-26`,
+    title: `Exponential Desktop wears its own colours`,
+    summary: `Exponential Desktop paints every shell surface in a warm dark palette with roomier spacing, from a theme you can edit.`,
+    body: `- **New look**: the taskbar, start menu, applets, notifications and Settings use a warm dark palette with a rust accent, and controls and rows have more room.
+- **Your theme**: the desktop paints the theme.json in its ui folder; an edit redraws everything at once, a broken one keeps the last good theme, and Version history undoes it.`,
+  },
+  {
+    id: `2026-11-26-mcp-skills-tasks-questions`,
+    date: `2026-11-26`,
+    title: `Skills, tasks and questions over MCP`,
+    summary: `Claude, Claude Code and other MCP hosts get your team's skills, follow sessions as tasks and ask before deletes, and MCP servers' questions reach you as a card.`,
+    body: `- **Skills over MCP**: Claude, Claude Code and other MCP hosts list and load your teams' skills plus Exponential's genUI and workflow skills, each checked against its digest.
+- **Sessions as tasks**: a session started from Claude Code becomes a task it follows; plans and questions show up there, and the first answer, there or in Exponential, counts.
+- **Confirm before deleting**: deletes and stops from an MCP host ask you first, and sign-ins and payments open on Exponential's own pages.
+- **Questions from MCP servers**: when a team MCP server or Codex asks something, it reaches you as a card on every platform that names the server; a link opens in your browser only after you tap it.
+- **One entry for team servers**: agents reach team MCP servers through your device as \`mcp__team__<server>__<tool>\`, and an expired login is renewed mid-session.`,
+  },
+  {
     id: `2026-11-26-ede-app-screen-without-asking`,
     date: `2026-11-26`,
     title: `Exponential Desktop lets the Exponential app use the screen without asking`,
