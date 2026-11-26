@@ -23,6 +23,7 @@
     "./automations": "./src/automations.ts",
     "./webhooks": "./src/webhooks.ts",
     "./deletes": "./src/deletes.ts",
+    "./protocol": "./src/protocol.ts",
     "./skills": "./src/skills.ts",
     "./elicitation": "./src/elicitation.ts",
     "./tasks": "./src/tasks.ts",
