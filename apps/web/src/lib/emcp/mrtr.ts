@@ -30,7 +30,7 @@ import {
 } from "@exp/emcp/protocol"
 import type { EmcpContext, EmcpToolContext, Principal } from "./request-context"
 
-export { elicitForm, elicitUrl, type InputRequest, type InputRequiredResult } from "@exp/emcp/protocol"
+export { elicitForm, elicitUrlRequest as elicitUrl, type InputRequest, type InputRequiredResult } from "@exp/emcp/protocol"
 
 const IV_BYTES = 12
 const TAG_BYTES = 16

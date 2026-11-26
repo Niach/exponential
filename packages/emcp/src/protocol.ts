@@ -112,7 +112,7 @@ export function elicitForm(message: string, requestedSchema: Record<string, unkn
 }
 
 /** A url-mode `elicitation/create` input request (2026-07-28: no elicitationId). */
-export function elicitUrl(message: string, url: string): InputRequest {
+export function elicitUrlRequest(message: string, url: string): InputRequest {
   return { method: `elicitation/create`, params: { mode: `url`, url, message } }
 }
 

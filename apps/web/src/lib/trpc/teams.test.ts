@@ -214,6 +214,7 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
       [`exponential-apps`, true],
       [`exponential-genui`, true],
       [`exponential-motion`, true],
+      [`exponential-workflow`, true],
     ])
     expect(inserts[2]!.inTx).toBe(true)
     expect(inserts[3]!.table).toBe(conversionEvents)

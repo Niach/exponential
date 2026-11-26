@@ -1,0 +1,1973 @@
+{
+  "$comment": "#NEW-145 / #NEW-143 D4 (Danny 2026-11-26): MCP TASKS on Exponential's MCP server, the `io.modelcontextprotocol/tasks` extension (tasks.extensions.modelcontextprotocol.io/specification/2026-07-28), UNIFIED with the session watches (#NEW-49): an MCP task is the second kind of WATCHER on `session_watches` (packages/eagent fixtures/rules.json `watcher`, kind `watcherKind`), next to a session; ONE system, not two. ROW (server-side, #NEW-147): `mcp_tasks` {id = the taskId (`tsk_` + 32 random bytes base64url: unguessable), principal (`user:<id>|client:<oauth client id or token prefix>`, elicitation.json's), status, status_message, cards (the open cards it renders, by message id), result, error, created_at, last_updated_at, expires_at = created_at + `ttlMs`}; `session_watches` gains `watcher_kind` (`session` | `mcp_task`, default `session`) and `task_id`; a task watcher's `session_id` is null. WHO GETS ONE (`taskWatchFor`, `eligibilityCases`): only a `tool` call (`exponential_sessions_send`) from an EXTERNAL caller (not inside a session of its own: our own agents keep wake messages) whose request's `_meta[\"io.modelcontextprotocol/clientCapabilities\"].extensions` declared the extension, while it holds fewer than `maxLivePerPrincipal` live tasks; past it, or for anyone else, the call answers as today. The server decides, the client never asks (no request field). What it watches, first match: a message to `sessionId` or `agentId` (the agent's conversation) = that session; a start (`text`, `promptId` or `issueIds`, no target) = the started session; else a `wakeOn` of EVENT specs only (`eventSpecPattern`: `pr:N`, `pr:N:closed`, `issue:X[:status]`, `at:<ISO>`) = those events (one task, all its watches). A stop or an answer never makes a task. The call's ordinary work happens first; its result is then the CreateTaskResult = the Task (`taskWire`) + `resultType` \"task\", returned only once tasks/get would find it. STATUS MAPPING (`taskReduce`, `reduceCases`; the bus that posts a `session` watcher's wake lines drives a task watcher instead, and never posts for it): a watched session's TRANSITION (any bus line about it) = `working`, `statusMessage` = the last non-blank line of its digest (`sessions.digest`), clipped to `statusMessageMax`; an OPEN ask or plan card = `input_required` with `inputRequests` keyed by the CARD MESSAGE ID (unique for the task's life, never reused), each an `elicitation/create` form (`cardRequest`, `cardCases`: an ask = `answer` oneOf its options (`answers` array anyOf when multi) plus a free `text` unless `custom` is false, or `text` alone without options; a plan = its text clipped to `planMax` (eagent rules.ask.planMax), `decision` approved/rejected plus `q_<id>` oneOf per question); a SEALED card cannot be rendered by the server: the task stays `working` with `copy.sealedCard` and the card is answered in the app; the card answered (by anyone: first wins) = back to `working` unless another card is open; the END REPORT = `completed`, `result` = a CallToolResult {content: [{type: text, text: the summary (empty = `copy.noSummary`)}], isError: false}; an end with a failure reason (`failures`: the device's stall watchdog (eagent rules.report.reasons.stalled), the watchdog or a person killing it, a failed start) = `failed`, `error` {code `failureCode`, message}; an EVENT watch FIRING (`watch.fire`, a `gone` subject included) = `completed` with the host's fire text as the result. A terminal task ignores everything after. Every change stamps `lastUpdatedAt`. METHODS (`taskHandle`, `handleCases`; over Streamable HTTP the Mcp-Name header = params.taskId): `tasks/get {taskId}` = the Task + `resultType` \"complete\"; `tasks/update {taskId, inputResponses}` = {resultType \"complete\"}; each response keyed by an OPEN card goes through CARD-ANSWER (`cardAnswer`, `sessions.send {sessionId, answer}`: first wins; accept = `answers` (the picked labels; a label not offered = nothing) or `answer` (the free text), a plan = `decision` + `answers` {id: [label]}; decline = `dismissed`; cancel = nothing, the card stays open); unknown, answered or sealed keys are ignored; the status moves when the bus reports the card answered (eventually consistent); `tasks/cancel {taskId}` = {resultType \"complete\"}: a live task turns `cancelled` (`copy.cancelled`), its watcher row goes, and a session task STOPS its session (`sessions.send {sessionId, stop: true}`: the turn is interrupted; the session itself stays, like any stopped session); cancelling a terminal task changes nothing. ERRORS (`errors`, `errorCodes`): a client that did not declare the extension = -32021 with data.requiredCapabilities (`missingCapability`); more than `rateLimit.max` tasks/* calls by one principal within `rateLimit.windowSeconds` (deletes.json's sliding window; clients poll at `pollIntervalMs`) = `rateLimited`; a missing taskId, an unknown one or ANOTHER PRINCIPAL'S (same answer: no leak) = -32602 `missingTaskId` / `notFound`; past `ttlMs` from creation = -32602 `expired` (the watcher row is gone at expiry; the session keeps running, it is an ordinary session); inputResponses not an object = -32602. No tasks/list (the spec has none). Times are unix ms in, ISO 8601 out.",
+  "extension": "io.modelcontextprotocol/tasks",
+  "watcherKind": "mcp_task",
+  "tool": "exponential_sessions_send",
+  "ttlMs": 604800000,
+  "pollIntervalMs": 5000,
+  "maxLivePerPrincipal": 100,
+  "rateLimit": {
+    "max": 120,
+    "windowSeconds": 60
+  },
+  "statusMessageMax": 200,
+  "planMax": 2000,
+  "eventSpecPattern": "^(pr:[0-9]+(:closed)?|issue:[A-Za-z0-9-]+(:.+)?|at:.+)$",
+  "failureCode": -32603,
+  "failures": {
+    "stalled": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work.",
+    "killed": "Stopped by the watchdog or a person before it reported.",
+    "failed": "The session failed before it could report."
+  },
+  "copy": {
+    "plan": "Proposes a plan.",
+    "sealedCard": "Waiting for an answer in Exponential.",
+    "noSummary": "Ended without a summary.",
+    "cancelled": "Cancelled; the session's turn was stopped."
+  },
+  "form": {
+    "answer": "Answer",
+    "orText": "Or write your own",
+    "decision": "Decision",
+    "approve": "Approve",
+    "reject": "Reject"
+  },
+  "errorCodes": {
+    "default": -32602,
+    "missingCapability": -32021,
+    "rateLimited": -32000
+  },
+  "errors": {
+    "missingCapability": "This client did not declare the tasks extension.",
+    "rateLimited": "Too many task requests; poll at pollIntervalMs.",
+    "missingTaskId": "Failed to retrieve task: taskId is required",
+    "notFound": "Failed to retrieve task: Task not found",
+    "expired": "Failed to retrieve task: Task has expired",
+    "badResponses": "inputResponses must be an object keyed by the input request keys."
+  },
+  "eligibilityCases": [
+    {
+      "name": "an outside host starts a session",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "text": "Fix EXP-12",
+          "deviceId": "d1"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "session",
+        "target": "started"
+      }
+    },
+    {
+      "name": "an outside host messages a session",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "sessionId": "s1",
+          "text": "Also add tests"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 3
+      },
+      "expected": {
+        "kind": "session",
+        "target": "sessionId"
+      }
+    },
+    {
+      "name": "an outside host messages an agent",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "agentId": "a1",
+          "text": "Triage the inbox"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "session",
+        "target": "agentId"
+      }
+    },
+    {
+      "name": "a start from issues",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "issueIds": [
+            "EXP-12"
+          ],
+          "deviceId": "d1"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "session",
+        "target": "started"
+      }
+    },
+    {
+      "name": "event watches only",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "wakeOn": [
+            "pr:1130",
+            "issue:EXP-12:done",
+            "at:2026-11-27T09:00:00Z"
+          ]
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "events",
+        "specs": [
+          "pr:1130",
+          "issue:EXP-12:done",
+          "at:2026-11-27T09:00:00Z"
+        ]
+      }
+    },
+    {
+      "name": "a merged-or-closed watch",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "wakeOn": [
+            "pr:1130:closed"
+          ]
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "events",
+        "specs": [
+          "pr:1130:closed"
+        ]
+      }
+    },
+    {
+      "name": "a session id in a target-less wakeOn: no task",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "wakeOn": [
+            "2e035d84-4f50-474f-a970-638c3b543823",
+            "pr:1"
+          ]
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "our own agents keep wake messages",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "parentId": "s0",
+          "text": "Do part 2"
+        },
+        "inSession": true,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "an agent's wakeOn stays a wake message",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "wakeOn": [
+            "pr:1130"
+          ]
+        },
+        "inSession": true,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "undeclared: today's result",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "text": "Fix EXP-12",
+          "deviceId": "d1"
+        },
+        "inSession": false,
+        "declared": false,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "another tool",
+      "call": {
+        "tool": "exponential_issues_write",
+        "args": {
+          "op": "create",
+          "title": "x"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "a stop is never a task",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "sessionId": "s1",
+          "stop": true
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "an answer is never a task",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "sessionId": "s1",
+          "answer": {
+            "answer": "Postgres"
+          }
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "past the live cap: today's result",
+      "call": {
+        "tool": "exponential_sessions_send",
+        "args": {
+          "text": "Fix EXP-12",
+          "deviceId": "d1"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 100
+      },
+      "expected": null
+    }
+  ],
+  "reduceCases": [
+    {
+      "name": "transitions are working with the digest's last line",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.transition",
+            "at": 1764158401000,
+            "digest": "Started working on its device.\n"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "working",
+            "statusMessage": "Started working on its device.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000
+          }
+        },
+        {
+          "event": {
+            "kind": "session.transition",
+            "at": 1764158402000,
+            "digest": "Reading EXP-12\nRunning the tests\n\n"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "working",
+            "statusMessage": "Running the tests",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": "an ask card: input_required keyed by its message id, then answered",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "card.open",
+            "at": 1764158401000,
+            "messageId": "m1",
+            "card": {
+              "kind": "ask",
+              "question": "Which database?",
+              "options": [
+                "Postgres",
+                "SQLite"
+              ],
+              "multi": false
+            }
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "input_required",
+            "statusMessage": "Which database?",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "inputRequests": {
+              "m1": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "Which database?",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "answer": {
+                        "type": "string",
+                        "title": "Answer",
+                        "oneOf": [
+                          {
+                            "const": "Postgres",
+                            "title": "Postgres"
+                          },
+                          {
+                            "const": "SQLite",
+                            "title": "SQLite"
+                          }
+                        ]
+                      },
+                      "text": {
+                        "type": "string",
+                        "title": "Or write your own"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "card.answered",
+            "at": 1764158402000,
+            "messageId": "m1"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "working",
+            "statusMessage": "Which database?",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": "two cards: stays input_required until both are answered",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "card.open",
+            "at": 1764158401000,
+            "messageId": "m1",
+            "card": {
+              "kind": "ask",
+              "question": "Which database?",
+              "options": [
+                "Postgres",
+                "SQLite"
+              ],
+              "multi": false
+            }
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "input_required",
+            "statusMessage": "Which database?",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "inputRequests": {
+              "m1": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "Which database?",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "answer": {
+                        "type": "string",
+                        "title": "Answer",
+                        "oneOf": [
+                          {
+                            "const": "Postgres",
+                            "title": "Postgres"
+                          },
+                          {
+                            "const": "SQLite",
+                            "title": "SQLite"
+                          }
+                        ]
+                      },
+                      "text": {
+                        "type": "string",
+                        "title": "Or write your own"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "card.open",
+            "at": 1764158402000,
+            "messageId": "m2",
+            "card": {
+              "kind": "plan",
+              "text": "1. Add the table\n2. Backfill",
+              "questions": [
+                {
+                  "id": "q1",
+                  "prompt": "Backfill when?",
+                  "options": [
+                    "Now",
+                    "Tonight"
+                  ]
+                }
+              ]
+            }
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "input_required",
+            "statusMessage": "Proposes a plan.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "inputRequests": {
+              "m1": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "Which database?",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "answer": {
+                        "type": "string",
+                        "title": "Answer",
+                        "oneOf": [
+                          {
+                            "const": "Postgres",
+                            "title": "Postgres"
+                          },
+                          {
+                            "const": "SQLite",
+                            "title": "SQLite"
+                          }
+                        ]
+                      },
+                      "text": {
+                        "type": "string",
+                        "title": "Or write your own"
+                      }
+                    }
+                  }
+                }
+              },
+              "m2": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "1. Add the table\n2. Backfill",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string",
+                        "title": "Decision",
+                        "oneOf": [
+                          {
+                            "const": "approved",
+                            "title": "Approve"
+                          },
+                          {
+                            "const": "rejected",
+                            "title": "Reject"
+                          }
+                        ]
+                      },
+                      "q_q1": {
+                        "type": "string",
+                        "title": "Backfill when?",
+                        "oneOf": [
+                          {
+                            "const": "Now",
+                            "title": "Now"
+                          },
+                          {
+                            "const": "Tonight",
+                            "title": "Tonight"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "decision"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "card.answered",
+            "at": 1764158403000,
+            "messageId": "m1"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "input_required",
+            "statusMessage": "Proposes a plan.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:03.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "inputRequests": {
+              "m2": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "1. Add the table\n2. Backfill",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string",
+                        "title": "Decision",
+                        "oneOf": [
+                          {
+                            "const": "approved",
+                            "title": "Approve"
+                          },
+                          {
+                            "const": "rejected",
+                            "title": "Reject"
+                          }
+                        ]
+                      },
+                      "q_q1": {
+                        "type": "string",
+                        "title": "Backfill when?",
+                        "oneOf": [
+                          {
+                            "const": "Now",
+                            "title": "Now"
+                          },
+                          {
+                            "const": "Tonight",
+                            "title": "Tonight"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "decision"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "card.answered",
+            "at": 1764158404000,
+            "messageId": "m2"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "working",
+            "statusMessage": "Proposes a plan.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:04.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a sealed card stays working",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "card.open",
+            "at": 1764158401000,
+            "messageId": "m1",
+            "card": {
+              "kind": "ask",
+              "question": "Which database?",
+              "options": [
+                "Postgres",
+                "SQLite"
+              ],
+              "multi": false,
+              "sealed": true
+            }
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "working",
+            "statusMessage": "Waiting for an answer in Exponential.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "name": "the end report completes with the tool result; later events are ignored",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "card.open",
+            "at": 1764158401000,
+            "messageId": "m1",
+            "card": {
+              "kind": "ask",
+              "question": "Which database?",
+              "options": [
+                "Postgres",
+                "SQLite"
+              ],
+              "multi": false
+            }
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "input_required",
+            "statusMessage": "Which database?",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "inputRequests": {
+              "m1": {
+                "method": "elicitation/create",
+                "params": {
+                  "mode": "form",
+                  "message": "Which database?",
+                  "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                      "answer": {
+                        "type": "string",
+                        "title": "Answer",
+                        "oneOf": [
+                          {
+                            "const": "Postgres",
+                            "title": "Postgres"
+                          },
+                          {
+                            "const": "SQLite",
+                            "title": "SQLite"
+                          }
+                        ]
+                      },
+                      "text": {
+                        "type": "string",
+                        "title": "Or write your own"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1764158405000,
+            "summary": "Fixed EXP-12; PR #1130 is open.\n"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "completed",
+            "statusMessage": "Fixed EXP-12; PR #1130 is open.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fixed EXP-12; PR #1130 is open."
+                }
+              ],
+              "isError": false
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "session.transition",
+            "at": 1764158406000,
+            "digest": "Revived"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "completed",
+            "statusMessage": "Fixed EXP-12; PR #1130 is open.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fixed EXP-12; PR #1130 is open."
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an empty report",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1764158405000,
+            "summary": "  "
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "completed",
+            "statusMessage": "Ended without a summary.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Ended without a summary."
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "the stall watchdog fails it",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1764158405000,
+            "summary": "",
+            "reason": "stalled"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "failed",
+            "statusMessage": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "error": {
+              "code": -32603,
+              "message": "Stopped responding mid-turn (no output, and an interrupt changed nothing), so its device ended the run. A message to it resumes the work."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a kill fails it",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1764158405000,
+            "summary": "",
+            "reason": "killed"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "failed",
+            "statusMessage": "Stopped by the watchdog or a person before it reported.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "error": {
+              "code": -32603,
+              "message": "Stopped by the watchdog or a person before it reported."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an unknown reason is a failure",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 1764158405000,
+            "summary": "",
+            "reason": "exploded"
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "failed",
+            "statusMessage": "The session failed before it could report.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:05.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "error": {
+              "code": -32603,
+              "message": "The session failed before it could report."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "an event watch firing completes it",
+      "task": {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "events",
+        "sessionId": null,
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 1764158409000,
+            "text": "#1130 was merged."
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "completed",
+            "statusMessage": "#1130 was merged.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:09.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "#1130 was merged."
+                }
+              ],
+              "isError": false
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "watch.fire",
+            "at": 1764158409500,
+            "text": "It is 09:00 UTC, the time you asked to be woken at."
+          },
+          "expected": {
+            "taskId": "tsk_A",
+            "status": "completed",
+            "statusMessage": "#1130 was merged.",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "lastUpdatedAt": "2025-11-26T12:00:09.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "#1130 was merged."
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "cardCases": [
+    {
+      "name": "single choice + free text",
+      "card": {
+        "kind": "ask",
+        "question": "Which database?",
+        "options": [
+          "Postgres",
+          "SQLite"
+        ],
+        "multi": false
+      },
+      "request": {
+        "method": "elicitation/create",
+        "params": {
+          "mode": "form",
+          "message": "Which database?",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "answer": {
+                "type": "string",
+                "title": "Answer",
+                "oneOf": [
+                  {
+                    "const": "Postgres",
+                    "title": "Postgres"
+                  },
+                  {
+                    "const": "SQLite",
+                    "title": "SQLite"
+                  }
+                ]
+              },
+              "text": {
+                "type": "string",
+                "title": "Or write your own"
+              }
+            }
+          }
+        }
+      },
+      "answers": [
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "answer": "Postgres"
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "answers": [
+              "Postgres"
+            ]
+          }
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "text": "MySQL, please"
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "answer": "MySQL, please"
+          }
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "answer": "Oracle"
+            }
+          },
+          "expected": null
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {}
+          },
+          "expected": null
+        },
+        {
+          "result": {
+            "action": "decline"
+          },
+          "expected": {
+            "messageId": "m1",
+            "dismissed": true
+          }
+        },
+        {
+          "result": {
+            "action": "cancel"
+          },
+          "expected": null
+        },
+        {
+          "result": "Postgres",
+          "expected": null
+        }
+      ]
+    },
+    {
+      "name": "multi choice without free text",
+      "card": {
+        "kind": "ask",
+        "question": "Which platforms?",
+        "options": [
+          "web",
+          "ios",
+          "android"
+        ],
+        "multi": true,
+        "custom": false
+      },
+      "request": {
+        "method": "elicitation/create",
+        "params": {
+          "mode": "form",
+          "message": "Which platforms?",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "answers": {
+                "type": "array",
+                "title": "Answer",
+                "items": {
+                  "anyOf": [
+                    {
+                      "const": "web",
+                      "title": "web"
+                    },
+                    {
+                      "const": "ios",
+                      "title": "ios"
+                    },
+                    {
+                      "const": "android",
+                      "title": "android"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "answers": [
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "answers": [
+                "ios",
+                "web"
+              ]
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "answers": [
+              "ios",
+              "web"
+            ]
+          }
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "text": "all"
+            }
+          },
+          "expected": null
+        }
+      ]
+    },
+    {
+      "name": "an open question",
+      "card": {
+        "kind": "ask",
+        "question": "What should the button say?",
+        "options": []
+      },
+      "request": {
+        "method": "elicitation/create",
+        "params": {
+          "mode": "form",
+          "message": "What should the button say?",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "title": "Answer"
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
+        }
+      },
+      "answers": [
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "text": " Ship it "
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "answer": "Ship it"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a plan with a question",
+      "card": {
+        "kind": "plan",
+        "text": "1. Add the table\n2. Backfill",
+        "questions": [
+          {
+            "id": "q1",
+            "prompt": "Backfill when?",
+            "options": [
+              "Now",
+              "Tonight"
+            ]
+          }
+        ]
+      },
+      "request": {
+        "method": "elicitation/create",
+        "params": {
+          "mode": "form",
+          "message": "1. Add the table\n2. Backfill",
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "title": "Decision",
+                "oneOf": [
+                  {
+                    "const": "approved",
+                    "title": "Approve"
+                  },
+                  {
+                    "const": "rejected",
+                    "title": "Reject"
+                  }
+                ]
+              },
+              "q_q1": {
+                "type": "string",
+                "title": "Backfill when?",
+                "oneOf": [
+                  {
+                    "const": "Now",
+                    "title": "Now"
+                  },
+                  {
+                    "const": "Tonight",
+                    "title": "Tonight"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          }
+        }
+      },
+      "answers": [
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "decision": "approved",
+              "q_q1": "Tonight"
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "decision": "approved",
+            "answers": {
+              "q1": [
+                "Tonight"
+              ]
+            }
+          }
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "decision": "rejected"
+            }
+          },
+          "expected": {
+            "messageId": "m1",
+            "decision": "rejected"
+          }
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "decision": "approved",
+              "q_q1": "Never"
+            }
+          },
+          "expected": null
+        },
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "q_q1": "Now"
+            }
+          },
+          "expected": null
+        },
+        {
+          "result": {
+            "action": "decline"
+          },
+          "expected": {
+            "messageId": "m1",
+            "dismissed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "a long plan is clipped",
+      "card": {
+        "kind": "plan",
+        "text": {
+          "repeat": "x",
+          "times": 2100
+        },
+        "questions": []
+      },
+      "request": {
+        "method": "elicitation/create",
+        "params": {
+          "mode": "form",
+          "message": {
+            "concat": [
+              {
+                "repeat": "x",
+                "times": 1999
+              },
+              "…"
+            ]
+          },
+          "requestedSchema": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "title": "Decision",
+                "oneOf": [
+                  {
+                    "const": "approved",
+                    "title": "Approve"
+                  },
+                  {
+                    "const": "rejected",
+                    "title": "Reject"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          }
+        }
+      },
+      "answers": []
+    },
+    {
+      "name": "a sealed card is not rendered",
+      "card": {
+        "kind": "ask",
+        "question": "Which database?",
+        "options": [
+          "Postgres",
+          "SQLite"
+        ],
+        "multi": false,
+        "sealed": true
+      },
+      "request": null,
+      "answers": [
+        {
+          "result": {
+            "action": "accept",
+            "content": {
+              "answer": "Postgres"
+            }
+          },
+          "expected": null
+        }
+      ]
+    }
+  ],
+  "handleGiven": {
+    "tasks": [
+      {
+        "taskId": "tsk_A",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "input_required",
+        "statusMessage": "Which database?",
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {
+          "m1": {
+            "kind": "ask",
+            "question": "Which database?",
+            "options": [
+              "Postgres",
+              "SQLite"
+            ],
+            "multi": false
+          }
+        },
+        "result": null,
+        "error": null
+      },
+      {
+        "taskId": "tsk_B",
+        "principal": "user:u1|client:c1",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "completed",
+        "statusMessage": "Done.",
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Done."
+            }
+          ],
+          "isError": false
+        },
+        "error": null
+      },
+      {
+        "taskId": "tsk_C",
+        "principal": "user:u1|client:c1",
+        "watch": "events",
+        "sessionId": null,
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      {
+        "taskId": "tsk_D",
+        "principal": "user:u2|client:c9",
+        "watch": "session",
+        "sessionId": "s1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      }
+    ]
+  },
+  "handleCases": [
+    {
+      "name": "get",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "taskId": "tsk_A",
+          "status": "input_required",
+          "statusMessage": "Which database?",
+          "createdAt": "2025-11-26T12:00:00.000Z",
+          "lastUpdatedAt": "2025-11-26T12:00:00.000Z",
+          "ttlMs": 604800000,
+          "pollIntervalMs": 5000,
+          "inputRequests": {
+            "m1": {
+              "method": "elicitation/create",
+              "params": {
+                "mode": "form",
+                "message": "Which database?",
+                "requestedSchema": {
+                  "type": "object",
+                  "properties": {
+                    "answer": {
+                      "type": "string",
+                      "title": "Answer",
+                      "oneOf": [
+                        {
+                          "const": "Postgres",
+                          "title": "Postgres"
+                        },
+                        {
+                          "const": "SQLite",
+                          "title": "SQLite"
+                        }
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "title": "Or write your own"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "resultType": "complete"
+        },
+        "effects": []
+      }
+    },
+    {
+      "name": "update answers the card through card-answer",
+      "request": {
+        "method": "tasks/update",
+        "params": {
+          "taskId": "tsk_A",
+          "inputResponses": {
+            "m1": {
+              "action": "accept",
+              "content": {
+                "answer": "SQLite"
+              }
+            },
+            "m9": {
+              "action": "accept",
+              "content": {
+                "answer": "x"
+              }
+            }
+          }
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": [
+          {
+            "kind": "answer",
+            "sessionId": "s1",
+            "answer": {
+              "messageId": "m1",
+              "answers": [
+                "SQLite"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "update with cancel answers nothing",
+      "request": {
+        "method": "tasks/update",
+        "params": {
+          "taskId": "tsk_A",
+          "inputResponses": {
+            "m1": {
+              "action": "cancel"
+            }
+          }
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": []
+      }
+    },
+    {
+      "name": "update on a finished task is ignored",
+      "request": {
+        "method": "tasks/update",
+        "params": {
+          "taskId": "tsk_B",
+          "inputResponses": {
+            "m1": {
+              "action": "accept",
+              "content": {
+                "answer": "SQLite"
+              }
+            }
+          }
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": []
+      }
+    },
+    {
+      "name": "update without inputResponses",
+      "request": {
+        "method": "tasks/update",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "inputResponses must be an object keyed by the input request keys."
+        }
+      }
+    },
+    {
+      "name": "cancel stops the session",
+      "request": {
+        "method": "tasks/cancel",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": [
+          {
+            "kind": "stop",
+            "sessionId": "s1"
+          },
+          {
+            "kind": "unwatch",
+            "taskId": "tsk_A"
+          }
+        ],
+        "status": "cancelled"
+      }
+    },
+    {
+      "name": "cancel an event task drops its watches",
+      "request": {
+        "method": "tasks/cancel",
+        "params": {
+          "taskId": "tsk_C"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": [
+          {
+            "kind": "unwatch",
+            "taskId": "tsk_C"
+          }
+        ],
+        "status": "cancelled"
+      }
+    },
+    {
+      "name": "cancel a finished task changes nothing",
+      "request": {
+        "method": "tasks/cancel",
+        "params": {
+          "taskId": "tsk_B"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": [],
+        "status": "completed"
+      }
+    },
+    {
+      "name": "another principal's task is not found",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": "tsk_D"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: Task not found"
+        }
+      }
+    },
+    {
+      "name": "same user, another client",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c2",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: Task not found"
+        }
+      }
+    },
+    {
+      "name": "unknown",
+      "request": {
+        "method": "tasks/cancel",
+        "params": {
+          "taskId": "tsk_nope"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: Task not found"
+        }
+      }
+    },
+    {
+      "name": "missing taskId",
+      "request": {
+        "method": "tasks/get",
+        "params": {},
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: taskId is required"
+        }
+      }
+    },
+    {
+      "name": "a non-string taskId",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": 12
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: taskId is required"
+        }
+      }
+    },
+    {
+      "name": "expired",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764763200000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32602,
+          "message": "Failed to retrieve task: Task has expired"
+        }
+      }
+    },
+    {
+      "name": "undeclared client",
+      "request": {
+        "method": "tasks/get",
+        "params": {
+          "taskId": "tsk_A"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": false,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": false,
+        "error": {
+          "code": -32021,
+          "message": "This client did not declare the tasks extension.",
+          "data": {
+            "requiredCapabilities": {
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "rateCases": [
+    {
+      "name": "polling at pollIntervalMs passes",
+      "max": 120,
+      "windowSeconds": 60,
+      "everyMs": 5000,
+      "calls": 30,
+      "expectedRefused": 0
+    },
+    {
+      "name": "a tight loop is refused past the window's max",
+      "max": 120,
+      "windowSeconds": 60,
+      "everyMs": 10,
+      "calls": 130,
+      "expectedRefused": 10
+    }
+  ]
+}

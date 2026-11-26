@@ -8,7 +8,7 @@ import {
   clientContextOf,
   elicitationAnswer,
   elicitForm,
-  elicitUrl,
+  elicitUrlRequest,
   inputRequiredResult,
   redeemVerdict,
   type InputRequest,
@@ -53,9 +53,9 @@ describe(`the spec's goldens`, () => {
     const { params } = golden.inputRequests.github_login
     expect(elicitForm(params.message, params.requestedSchema) as unknown).toEqual(golden.inputRequests.github_login)
   })
-  test(`elicitUrl builds the spec's url request`, () => {
+  test(`elicitUrlRequest builds the spec's url request`, () => {
     const { params } = fixture.spec.urlElicitation
-    expect(elicitUrl(params.message, params.url) as unknown).toEqual(fixture.spec.urlElicitation)
+    expect(elicitUrlRequest(params.message, params.url) as unknown).toEqual(fixture.spec.urlElicitation)
   })
   test(`inputRequiredResult builds the spec's result`, () => {
     const built = inputRequiredResult({ inputRequests: golden.inputRequests as Record<string, InputRequest>, requestState: golden.requestState })
