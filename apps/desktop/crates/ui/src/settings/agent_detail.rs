@@ -189,9 +189,6 @@ pub(crate) fn space_device(space: &domain::rows::DeviceRow, host: Option<&domain
     Some(own)
 }
 
-/// #EXP-2161: a Runs on option heading a team section (never pickable).
-const SECTION_PREFIX: &str = "__section__:";
-
 /// #EXP-2161 (web `SpacePick`): one team device of Runs on's team sections;
 /// `value` names the team too (one host may be listed under several).
 #[derive(Clone, Debug, PartialEq)]
@@ -1443,12 +1440,9 @@ impl AgentDetailPane {
         let picked = super::doc::picked_value(payload).is_some();
         let value = super::doc::picked_value(payload).unwrap_or_default().to_string();
         // #EXP-2161 (member-space.json UI ×4): the Assistant's Runs on: a team
-        // section's heading picks nothing, a team device confirms first
-        // (`memberSpaces.request`), the bound space's own row is no change.
+        // device confirms first (`memberSpaces.request`), the bound space's
+        // own row is no change.
         if name == "device" && picked && agent.is_assistant() && self.slot.is_none() {
-            if value.starts_with(SECTION_PREFIX) {
-                return;
-            }
             let spaces = space_rows(agent.device_id.as_deref().filter(|id| !id.is_empty()), cx);
             if let Some(pick) = spaces.picks.iter().find(|pick| pick.value == value).cloned() {
                 if !pick.selected {
@@ -1577,13 +1571,10 @@ impl AgentDetailPane {
                 let label = space.label.clone().filter(|label| !label.is_empty()).unwrap_or_else(|| id.clone());
                 device_options.insert(0, json!({"label": label, "value": id, "icon": crate::icons::device_icon_name(space.icon.as_deref(), space.is_server())}));
             }
-            let mut heading: Option<&str> = None;
+            // #EXP-2161: each team's devices under its name (genUI option
+            // `section`: the popup's heading, web's picker group heading).
             for pick in &spaces.picks {
-                if heading != Some(pick.section.as_str()) {
-                    heading = Some(pick.section.as_str());
-                    device_options.push(json!({"label": pick.section, "value": format!("{SECTION_PREFIX}{}", pick.team_id), "disabled": true}));
-                }
-                let mut option = json!({"label": pick.label, "value": pick.value, "icon": crate::icons::device_icon_name(pick.icon.as_deref(), pick.server)});
+                let mut option = json!({"label": pick.label, "value": pick.value, "icon": crate::icons::device_icon_name(pick.icon.as_deref(), pick.server), "section": pick.section});
                 if !pick.online {
                     option["description"] = json!(domain::agent_settings::RUNS_ON_OFFLINE);
                 }

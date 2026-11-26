@@ -4049,6 +4049,18 @@
               }
             }
           ],
+          "sectionHeading": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": 6,
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
           "itemDescription": [
             {
               "style": {
@@ -13826,6 +13838,18 @@
               }
             }
           ],
+          "sectionHeading": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": 6,
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
           "itemDescription": [
             {
               "style": {
@@ -23174,6 +23198,18 @@
               "style": {
                 "fontSize": "$type.size.xs",
                 "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionHeading": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": 6,
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
                 "color": "$color.mutedForeground"
               }
             }
@@ -33281,6 +33317,18 @@
               "style": {
                 "fontSize": 10.5,
                 "lineHeight": 16.99
+              }
+            }
+          ],
+          "sectionHeading": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": 6,
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
               }
             }
           ],

@@ -1357,3 +1357,72 @@ fn field_ink_an_authored_color_reaches_the_typed_text_only() {
         }
     }
 }
+
+/// #EXP-2161 selectSections at the core: the unsectioned options first,
+/// then each section's under its `sectionHeading` (never pressable), in
+/// first-seen order; a heading splits a `multiple` block. gpui, SwiftUI
+/// and Compose's popup rows paint these parts.
+#[test]
+fn select_section_cases_head_their_runs_like_the_reference() {
+    let f = fixture();
+    let cases = f["selectSections"].as_array().unwrap();
+    assert_eq!(cases.len(), 5);
+    for c in cases {
+        let name = c["name"].as_str().unwrap();
+        let mut props = json!({"label": "Device", "name": "s", "options": c["options"], "value": c["value"]});
+        for key in ["multiple", "searchable"] {
+            if let Some(v) = c.get(key) {
+                props[key] = v.clone();
+            }
+        }
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "s", "component": "Select", "props": props, "on": {"change": {"event": {"name": "change"}}}}]}));
+        let mut m = fixed();
+        s.layout(&mut m);
+        let trigger = s.index_of("s.trigger").unwrap_or_else(|| panic!("{name}: no trigger"));
+        s.event(trigger, "press", None);
+        s.layout(&mut m);
+        if let Some(q) = c["query"].as_str() {
+            let field = s.index_of("s.search").unwrap_or_else(|| panic!("{name}: no search"));
+            s.event(field, "change", Some(json!({"value": q})));
+            s.layout(&mut m);
+        }
+        let nodes = s.nodes();
+        let list = nodes.iter().find(|n| n.id == "s.list").unwrap_or_else(|| panic!("{name}: no list"));
+        let mut rows = vec![];
+        for &child in &list.children {
+            let n = &nodes[child as usize];
+            match n.part.as_deref() {
+                Some("sectionHeading") => {
+                    assert!(!n.pressable, "{name}: a heading never presses");
+                    rows.push(json!({"heading": n.props["text"]}));
+                }
+                Some("item") => {
+                    let mut row = json!({"option": n.props["value"]});
+                    let v = s.visual(child).expect("an item's visual");
+                    let corners = v.corner_radii.unwrap_or([v.border_radius.unwrap_or(0.0); 4]);
+                    let picked = n.props.get("selected").and_then(Value::as_bool).unwrap_or(false);
+                    if picked && corners[0] == 0.0 {
+                        row["joinTop"] = json!(true);
+                    }
+                    if picked && corners[3] == 0.0 {
+                        row["joinBottom"] = json!(true);
+                    }
+                    rows.push(row);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(json!(rows), c["rows"], "{name}: rows");
+        let at = nodes.iter().find(|n| n.part.as_deref() == Some("item") && n.props.get("value") == Some(&c["press"])).map(|n| n.id.clone()).unwrap_or_else(|| panic!("{name}: no option to press"));
+        let item = s.index_of(&at).unwrap();
+        let mut changes = vec![];
+        for e in s.event(item, "press", None) {
+            if let OutEvent::Action { name, context, .. } = e {
+                if name == "change" && context.get("value").is_some() {
+                    changes.push(context["value"].clone());
+                }
+            }
+        }
+        assert_eq!(json!(changes), c["changes"], "{name}: changes");
+    }
+}

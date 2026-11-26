@@ -3598,6 +3598,9 @@
         "hint": {
           "description": "Small muted text at the row's end (Select popup)."
         },
+        "section": {
+          "description": "Heading it sits under (Select popup); unsectioned options first."
+        },
         "mono": {
           "description": "Label in the mono type (Select popup)."
         },
