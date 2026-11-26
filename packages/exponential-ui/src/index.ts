@@ -44,7 +44,7 @@ export {
   styleKeyEnum,
   styleKeyType,
 } from "./style"
-export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition, FormFactor } from "./style"
+export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, BackgroundImage, ConditionContext, MediaCondition, FormFactor } from "./style"
 export { validateProps, validateNode, isCallableName, isKnownFunctionName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, present, coerceBoolean, binding, bindingPath, callName, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
@@ -189,6 +189,7 @@ export {
 export type { ThemeOptions, GlyphGradient } from "./theme"
 export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, orangeTheme, builtinTheme, builtinThemes, themeOrDefault } from "./themes"
 export { styleToCss, styleAttribute, gradientCss } from "./css"
+export { pictureRect, radialRadius, radialT } from "./background"
 export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
 export type { ThemeImport } from "./builder"
 export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"

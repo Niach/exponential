@@ -127,6 +127,15 @@ impl SurfaceView {
         self.motion.style(index, &target, self.now())
     }
 
+    /// genUI round 4: what a background picture shows until it painted:
+    /// the theme's `Image/fallback` fill, else `muted`.
+    fn picture_placeholder(&self) -> Option<Hsla> {
+        let theme = self.surface.theme().cloned();
+        let mode = self.surface.mode();
+        let props = crate::paint::parts::part_props(theme.as_deref(), mode, "Image", "fallback", &serde_json::Map::new(), &[]);
+        crate::paint::PaintStyle::from_visual(&eui_core::style::visual(&props, eui_core::style::BoxKind::Leaf)).bg.or_else(|| crate::paint::parts::theme_color(theme.as_deref(), mode, "muted"))
+    }
+
     /// EXP-1555: an Image placeholder's surroundings: does an ancestor
     /// already paint a background (no second muted fill), and does a later
     /// sibling lay the Mosaic's "+N" over it (no glyph under the count)?
@@ -134,7 +143,7 @@ impl SurfaceView {
         let mut backdrop = false;
         let mut at = n.parent;
         while let Some(p) = at {
-            if self.styles.get(p as usize).is_some_and(|s| s.bg.is_some_and(|c| c.a > 0.0) || s.gradient.is_some()) {
+            if self.styles.get(p as usize).is_some_and(|s| s.bg.is_some_and(|c| c.a > 0.0) || s.gradient.is_some() || s.picture.is_some()) {
                 backdrop = true;
                 break;
             }
@@ -155,7 +164,7 @@ impl SurfaceView {
         let mut at = n.parent;
         while let Some(p) = at {
             if let Some(s) = self.styles.get(p as usize) {
-                if s.gradient.is_some() {
+                if s.gradient.is_some() || s.picture.is_some() {
                     return None;
                 }
                 if let Some(bg) = s.bg.filter(|c| c.a > 0.0) {
@@ -275,7 +284,7 @@ impl SurfaceView {
         // painted as a ghost, does not).
         let lifted = if !self.ghosting.get() && self.list_paint.iter().any(|p| p.row == index) { eui_core::list_reorder::LIST_DRAG_DIM } else { 1.0 };
         let total = place.dim * style.opacity.unwrap_or(1.0) * lifted;
-        let hand_down = !leaf && total < 1.0 && style.bg.is_none() && style.gradient.is_none() && style.shadows.is_empty() && !style.has_border() && anim.is_none() && n.component != "Extension" && n.component != "VoiceWave" && !self.scrolls.contains_key(&index);
+        let hand_down = !leaf && total < 1.0 && style.bg.is_none() && style.gradient.is_none() && style.picture.is_none() && style.shadows.is_empty() && !style.has_border() && anim.is_none() && n.component != "Extension" && n.component != "VoiceWave" && !self.scrolls.contains_key(&index);
         style.opacity = (!hand_down && total < 1.0).then_some(total);
         let child_dim = if hand_down { total } else { 1.0 };
         // Round 2 §2: `position: sticky` / a pinned section header moves by
@@ -316,7 +325,7 @@ impl SurfaceView {
         // Round 8: gpui-component's checkbox has no mixed state, so a MIXED
         // box always paints the eUI look (the dash).
         let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Checkbox", Some("box" | "checkbox")));
-        let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
+        let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, picture: None, ..style } } else { style };
         // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
         // its label never shows its own fill through it. On an opaque
         // backdrop the dim is flattened (`group_dim`); elsewhere it stays the
@@ -373,8 +382,14 @@ impl SurfaceView {
                 el = el.cursor(c);
             }
         }
+        // genUI round 4: the picture (+ its scrim) over the colour, then the
+        // gradient (a radial one rasterised: `paint::background`).
+        if let Some(p) = style.picture.as_ref().filter(|_| !pulses && tail.is_none()) {
+            let placeholder = self.picture_placeholder();
+            el = el.child(crate::paint::background::picture(p, w, h, radii, placeholder, self.host.as_ref(), window, cx));
+        }
         if let Some(g) = &style.gradient {
-            el = el.child(gradient(g, w, h, radii));
+            el = el.child(if g.centre.is_some() { crate::paint::background::radial(g, w, h, radii, window, cx) } else { gradient(g, w, h, radii) });
         }
         // The border paints over the background, under the children, and
         // never offsets them (an overlay, not gpui's box border).

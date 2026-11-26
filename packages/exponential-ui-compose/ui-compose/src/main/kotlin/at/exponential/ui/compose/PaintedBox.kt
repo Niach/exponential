@@ -9,6 +9,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -148,8 +153,13 @@ internal fun Modifier.glyphSheen(g: GradientPaint): Modifier =
         drawRect(gradientBrush(g, size), blendMode = BlendMode.SrcIn)
     }
 
-/** The gradient brush over a box of [size] px for a CSS angle (0 = up, 90 = right). */
+/** The gradient brush over a box of [size] px: a CSS angle (0 = up, 90 = right), or genUI round 4 a radial circle about its centre out to the farthest corner. */
 internal fun gradientBrush(g: GradientPaint, size: Size): Brush {
+    g.centre?.let { (cx, cy) ->
+        val r = at.exponential.ui.theme.radialRadius(size.width, size.height, cx, cy)
+        if (r <= 0f) return SolidColor(Color.Transparent)
+        return Brush.radialGradient(colorStops = g.stops.map { it.first to it.second }.toTypedArray(), center = Offset(cx * size.width, cy * size.height), radius = r)
+    }
     val rad = g.angle * PI.toFloat() / 180f
     val dx = sin(rad)
     val dy = -cos(rad)
@@ -162,6 +172,12 @@ internal fun gradientBrush(g: GradientPaint, size: Size): Brush {
 }
 
 /**
+ * genUI round 4: what a box's background picture paints: the decoded [image]
+ * (null = loading, failed, refused, no src: the [placeholder] fill instead).
+ */
+class PictureLayer(val image: ImageBitmap?, val placeholder: Color?)
+
+/**
  * A box painted from a resolved [PaintStyle] at a frame of [size] (dp):
  * the shadows behind (blurred rounded rects, spread and offset honoured),
  * the background (+ its gradient) as a rounded rect (per-corner radii, CSS
@@ -172,7 +188,7 @@ internal fun gradientBrush(g: GradientPaint, size: Size): Brush {
  * the centre and `visibility: hidden` (nothing paints). `backdropBlur` paints
  * the translucent background alone (see the README).
  */
-fun Modifier.paintedBox(boxStyle: PaintStyle, size: Size, alphaScale: Float = 1f, rtl: Boolean = false): Modifier {
+fun Modifier.paintedBox(boxStyle: PaintStyle, size: Size, alphaScale: Float = 1f, rtl: Boolean = false, picture: PictureLayer? = null): Modifier {
     val style = boxStyle.withTailCorner(rtl)
     val tail = physicalTail(style.tail, rtl)
     var m: Modifier = this
@@ -193,7 +209,8 @@ fun Modifier.paintedBox(boxStyle: PaintStyle, size: Size, alphaScale: Float = 1f
             if (matrix == null) drawContent() else withTransform({ transform(matrix) }) { this@drawWithContent.drawContent() }
         }
     }
-    if (style.shadows.isNotEmpty() || style.background != null || style.gradient != null) {
+    val pic = style.picture?.takeIf { picture != null && tail == null }
+    if (style.shadows.isNotEmpty() || style.background != null || style.gradient != null || pic != null) {
         m = m.drawBehind {
             val rr = boxRoundRect(style, size, this.size, density)
             for (layer in style.shadows) drawShadowLayer(layer, rr)
@@ -207,6 +224,19 @@ fun Modifier.paintedBox(boxStyle: PaintStyle, size: Size, alphaScale: Float = 1f
                 Path().apply { addRoundRect(if (padded) paddingRoundRect(style, size, this@drawBehind.size, density) else rr) }
             }
             style.background?.let { bg -> drawPath(path, bg) }
+            // genUI round 4: the picture (placed by `pictureRect`) and its scrim, clipped to the box.
+            if (pic != null) {
+                clipPath(Path().apply { addRoundRect(rr) }) {
+                    val image = picture?.image
+                    if (image != null) {
+                        val r = at.exponential.ui.theme.pictureRect(pic.contain, this.size.width, this.size.height, image.width.toFloat(), image.height.toFloat(), pic.focalX, pic.focalY)
+                        drawImage(image, srcOffset = IntOffset.Zero, srcSize = IntSize(image.width, image.height), dstOffset = IntOffset(kotlin.math.round(r[0]).toInt(), kotlin.math.round(r[1]).toInt()), dstSize = IntSize(kotlin.math.round(r[2]).toInt(), kotlin.math.round(r[3]).toInt()), filterQuality = FilterQuality.Medium)
+                    } else {
+                        picture?.placeholder?.let { drawRect(it) }
+                    }
+                    pic.scrim?.let { drawRect(it) }
+                }
+            }
             style.gradient?.let { g -> drawPath(path, gradientBrush(g, this.size)) }
         }
     }

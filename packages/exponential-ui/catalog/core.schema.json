@@ -14,7 +14,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style; macros expand into it.",
       "properties": {
         "component": {
           "const": "Box"
@@ -612,7 +612,7 @@
     },
     "Window": {
       "type": "object",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "properties": {
         "component": {
           "const": "Window"
@@ -13681,7 +13681,7 @@
     },
     "KeyRecorder": {
       "type": "object",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "properties": {
         "component": {
           "const": "KeyRecorder"
@@ -16437,7 +16437,7 @@
     },
     "RecordTable": {
       "type": "object",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
       "properties": {
         "component": {
           "const": "RecordTable"
@@ -19798,8 +19798,34 @@
         "backgroundGradient": {
           "type": "object",
           "properties": {
+            "kind": {
+              "enum": [
+                "linear",
+                "radial"
+              ]
+            },
             "angle": {
               "type": "number"
+            },
+            "centre": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
             },
             "stops": {
               "type": "array",
@@ -19826,8 +19852,82 @@
             }
           },
           "required": [
-            "angle",
             "stops"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "angle"
+              ],
+              "not": {
+                "required": [
+                  "centre"
+                ]
+              },
+              "properties": {
+                "kind": {
+                  "const": "linear"
+                }
+              }
+            },
+            {
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "radial"
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "backgroundImage": {
+          "type": "object",
+          "properties": {
+            "src": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fit": {
+              "enum": [
+                "cover",
+                "contain"
+              ]
+            },
+            "focalX": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "focalY": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "scrim": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string",
+                  "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
+                },
+                "opacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "color",
+                "opacity"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "src"
           ],
           "additionalProperties": false
         },
@@ -20720,8 +20820,34 @@
             "backgroundGradient": {
               "type": "object",
               "properties": {
+                "kind": {
+                  "enum": [
+                    "linear",
+                    "radial"
+                  ]
+                },
                 "angle": {
                   "type": "number"
+                },
+                "centre": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
                 },
                 "stops": {
                   "type": "array",
@@ -20748,8 +20874,34 @@
                 }
               },
               "required": [
-                "angle",
                 "stops"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "angle"
+                  ],
+                  "not": {
+                    "required": [
+                      "centre"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "linear"
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "radial"
+                    }
+                  }
+                }
               ],
               "additionalProperties": false
             },
@@ -21645,8 +21797,34 @@
             "backgroundGradient": {
               "type": "object",
               "properties": {
+                "kind": {
+                  "enum": [
+                    "linear",
+                    "radial"
+                  ]
+                },
                 "angle": {
                   "type": "number"
+                },
+                "centre": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
                 },
                 "stops": {
                   "type": "array",
@@ -21673,8 +21851,34 @@
                 }
               },
               "required": [
-                "angle",
                 "stops"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "angle"
+                  ],
+                  "not": {
+                    "required": [
+                      "centre"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "linear"
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "radial"
+                    }
+                  }
+                }
               ],
               "additionalProperties": false
             },
@@ -22570,8 +22774,34 @@
             "backgroundGradient": {
               "type": "object",
               "properties": {
+                "kind": {
+                  "enum": [
+                    "linear",
+                    "radial"
+                  ]
+                },
                 "angle": {
                   "type": "number"
+                },
+                "centre": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
                 },
                 "stops": {
                   "type": "array",
@@ -22598,8 +22828,34 @@
                 }
               },
               "required": [
-                "angle",
                 "stops"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "angle"
+                  ],
+                  "not": {
+                    "required": [
+                      "centre"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "linear"
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "radial"
+                    }
+                  }
+                }
               ],
               "additionalProperties": false
             },
@@ -23497,8 +23753,34 @@
             "backgroundGradient": {
               "type": "object",
               "properties": {
+                "kind": {
+                  "enum": [
+                    "linear",
+                    "radial"
+                  ]
+                },
                 "angle": {
                   "type": "number"
+                },
+                "centre": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
                 },
                 "stops": {
                   "type": "array",
@@ -23525,8 +23807,34 @@
                 }
               },
               "required": [
-                "angle",
                 "stops"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "angle"
+                  ],
+                  "not": {
+                    "required": [
+                      "centre"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "linear"
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "radial"
+                    }
+                  }
+                }
               ],
               "additionalProperties": false
             },

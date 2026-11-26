@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style; macros expand into it.",
       "example": {
         "style": {
           "display": "flex",
@@ -97,7 +97,7 @@
           "description": "Extra Box styles merged over the window's own."
         }
       },
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "example": {
         "title": "exponential.at"
       }
@@ -2485,7 +2485,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -3454,7 +3454,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
