@@ -859,6 +859,20 @@
           "type": "string"
         }
       }
+    },
+    "person": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "src": {
+          "type": "url"
+        },
+        "seed": {
+          "type": "string"
+        }
+      }
     }
   },
   "functions": {
@@ -1778,12 +1792,17 @@
           "default": false,
           "bindable": true
         },
+        "actionLabel": {
+          "type": "string",
+          "bindable": true
+        },
         "style": {
           "type": "style"
         }
       },
       "events": [
-        "change"
+        "change",
+        "action"
       ]
     },
     "Group": {
@@ -5439,6 +5458,176 @@
         "badge"
       ],
       "props": {
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        }
+      }
+    },
+    "NavBar": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": false,
+      "children": "none",
+      "slots": [
+        "trailing"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "bindable": true
+        },
+        "logo": {
+          "type": "url"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
+    "Footer": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          }
+        },
+        "caption": {
+          "type": "string",
+          "bindable": true
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
+    "Hero": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "eyebrow": {
+          "type": "string",
+          "bindable": true
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "default": "center"
+        }
+      }
+    },
+    "MediaCard": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "bindable": true
+        },
+        "alt": {
+          "type": "string",
+          "bindable": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true
+        },
+        "meta": {
+          "type": "string",
+          "bindable": true
+        },
+        "aspectRatio": {
+          "type": "number",
+          "default": 1.6
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "DayStrip": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "dateMark"
+          },
+          "required": true
+        },
+        "value": {
+          "type": "date",
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "AvatarGroup": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "people": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "person"
+          },
+          "required": true
+        },
+        "max": {
+          "type": "number",
+          "default": 4
+        },
         "size": {
           "type": "enum",
           "enum": "controlSize",

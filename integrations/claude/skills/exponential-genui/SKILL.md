@@ -11,10 +11,10 @@ genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an `ex
 
 ## Rules
 
-- Reply with A2UI 1.0 messages, each {"version": "1.0", <kind>}: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (value null removes). Keep data in the model; bind to it.
-- A component = {id (letters, digits, _), component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.
-- Include every required prop. A ~ prop takes a binding {"@path": "/json/pointer"} or a live call {"@call": name, args}. visible: false (or bound) hides.
-- An action (on: {event: action}) = {event: {name, context?}} (sent to you; context bindings read after the component's own write) and/or {functionCall: {"@call": name, args}} (client-side: a function below or a flat host one like app_toast).
+- Send A2UI messages {"version": "1.0", <kind>}: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (value null removes). Keep data in the model; bind to it.
+- A component = {id (a_b), component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.
+- Include every required prop. A ~ prop takes {"@path": "/pointer"} or a live call {"@call": name, args}. visible: false (or bound) hides.
+- An action (on: {event: action}) = {event: {name, context?}} (to you; bindings read after its own write) and/or {functionCall: {"@call": name, args}} (client-side: a function below or a host one, e.g. app_toast).
 - Lay out with Page, Stack, Grid, Card, SplitView, Sidebar, List (past a screen); control row = Toolbar, side-by-side fields = FieldGroup, Cancel/submit row = FormActions; Box + style for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.
 - Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-/max-height, in px or $breakpoint.*; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.
 - Prefer components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token (light and dark apply), never #hex. Built-in copy (Cancel, Search…) is localized: leave it unset.
@@ -24,16 +24,16 @@ genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an `ex
 
 Their props are in exponential_apps {op: "catalog"} (only: [names] = just these). By group:
 
-- layout: Box, Stack, Grid, Card, Window, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar, Embed
+- layout: Box, Stack, Grid, Card, Window, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar, Embed, Footer, Hero
 - list: Section, Group, Trace, TraceItem, Plan, Row, Tree, MessageBubble, MessageStatus
 - text: Text, Heading, Markdown, CodeBlock, Kbd, KbdGroup, Label
-- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas, AvatarBadge
-- navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper
+- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas, AvatarBadge, MediaCard, AvatarGroup
+- navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper, NavBar
 - overlay: Dialog, Drawer, DockCard, AlertDialog, Popover, Tooltip, Menu, Toast
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave, CountBadge
 - data: Table, Chart, Sparkline, StatTile, Calendar, Timeline, RecordForm, RecordTable
 - action: Button, Link, Toggle
-- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, IconPicker, ColorPicker, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
+- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, IconPicker, ColorPicker, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer, DayStrip
 
 ## References (read on demand)
 

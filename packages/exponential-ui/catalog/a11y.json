@@ -853,6 +853,44 @@
       "role": "none",
       "notes": "none (layout only); the badge names itself",
       "keys": []
+    },
+    "NavBar": {
+      "role": "navigation",
+      "notes": "navigation labelled by the brand; links are links, the current one aria-current=page",
+      "keys": [
+        "Tab through the links; Enter: select"
+      ]
+    },
+    "Footer": {
+      "role": "group",
+      "notes": "group; the links are links",
+      "keys": [
+        "Tab through the links; Enter: select"
+      ]
+    },
+    "Hero": {
+      "role": "group",
+      "notes": "group labelled by the title; the title a heading (level 1)",
+      "keys": []
+    },
+    "MediaCard": {
+      "role": "group",
+      "notes": "group labelled by the title; the picture an img with `alt`; a pressable card a button",
+      "keys": [
+        "Enter, Space: press when pressable"
+      ]
+    },
+    "DayStrip": {
+      "role": "radiogroup",
+      "notes": "radiogroup; each day a radio named by its full date, checked when selected",
+      "keys": [
+        "Tab to a day; Enter, Space: select"
+      ]
+    },
+    "AvatarGroup": {
+      "role": "group",
+      "notes": "group; each avatar an img named by the person, the `+N` disc labelled by its count",
+      "keys": []
     }
   }
 }
