@@ -27,6 +27,23 @@ macro_rules! docs {
 
 docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network", "applet-sound", "chat", "connect", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "settings", "sidebar", "space-view", "start-menu", "switcher", "taskbar", "tray-menu"];
 
+/// #EDE-235: eDE's factory theme (`apps/ede/ui/theme.json`: the Rerusted
+/// palette and eDE's spacing scale), installed beside the documents.
+pub const THEME: &str = include_str!("../../../../ede/ui/theme.json");
+
+/// [`THEME`] resolved over the built-ins (once per process): what the
+/// sealed surfaces paint in (never the person's editable copy) and the
+/// shell's goldens and tests check against.
+pub fn factory_theme() -> std::sync::Arc<ede_ui::ResolvedTheme> {
+    static RESOLVED: OnceLock<std::sync::Arc<ede_ui::ResolvedTheme>> = OnceLock::new();
+    RESOLVED
+        .get_or_init(|| {
+            let source: Value = serde_json::from_str(THEME).expect("the factory theme parses");
+            ede_ui::validate_theme(&source).unwrap_or_else(|issues| panic!("the factory theme: {issues:?}"))
+        })
+        .clone()
+}
+
 /// The tab bar only the IDE draws (eDE has Mint's taskbar).
 pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../../packages/uicore/docs/tabbar.json") };
 
@@ -90,7 +107,7 @@ mod tests {
     /// opaque in the dark theme (`$color.card` is a white glaze at 6%).
     #[test]
     fn layer_documents_have_an_opaque_root() {
-        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        for theme in [eui_core::themes::builtin_theme("exponential").expect("the exponential theme"), factory_theme()] {
         for d in DOCS {
             let v = d.json();
             if v["surface"].get("layer").is_none() && v["surface"].get("popup").is_some() {
@@ -102,7 +119,25 @@ mod tests {
             };
             let resolved = eui_core::theme::resolve_token(&theme, bg, eui_core::theme::Mode::Dark).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| bg.to_string());
             let hex = resolved.trim_start_matches('#');
-            assert!(hex.len() == 6 || (hex.len() == 8 && hex.ends_with("ff")), "{}: root background {bg} resolves to {resolved}, not opaque", d.name);
+            assert!(hex.len() == 6 || (hex.len() == 8 && hex.ends_with("ff")), "{}: root background {bg} resolves to {resolved} in {}, not opaque", d.name, theme.id);
         }
+        }
+    }
+
+    /// #EDE-235: the factory theme is the Rerusted palette over the
+    /// exponential theme, with eDE's spacing scale.
+    #[test]
+    fn the_factory_theme_is_rerusted_with_room() {
+        let theme = factory_theme();
+        let dark = &theme.modes.dark.color;
+        let base = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        assert_eq!(dark.get("success"), base.modes.dark.color.get("success"), "the rest is the exponential theme's");
+        assert_eq!(dark.get("background").map(String::as_str), Some("#0f0807"));
+        assert_eq!(dark.get("accent"), dark.get("muted"), "eUI's accent is the hover surface");
+        assert_eq!(dark.get("ring").map(String::as_str), Some("#ba4f1f"));
+        let spacing = theme.tokens.numbers("spacing").expect("spacing");
+        assert_eq!((spacing["xs"], spacing["sm"], spacing["md"], spacing["lg"]), (6.0, 10.0, 16.0, 20.0));
+        let control = theme.tokens.numbers("control").expect("control");
+        assert_eq!((control["row"], control["input"], control["buttonMd"]), (40.0, 38.0, 34.0));
     }
 }

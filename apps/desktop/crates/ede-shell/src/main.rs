@@ -2188,8 +2188,24 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
-        Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
+        // #EDE-235: every surface redraws in the new theme; a refused one
+        // leaves the last good theme on screen.
+        Change::ThemeApplied { id, .. } => {
+            history_refresh(shell);
+            let theme = shell_theme(shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
+            shell.borrow_mut().surfaces.set_theme(theme, cx);
+            tracing::info!(theme = %id, "theme applied");
+        }
+        Change::ThemeRejected { issues, .. } => tracing::warn!(?issues, "theme refused; the last good one stays"),
     }
+}
+
+/// The theme the shell's surfaces paint in: `base` (the ui directory's)
+/// with the IDE's ground rule (no Sidebar fill), and the rail's glyphs in
+/// its colours.
+fn shell_theme(base: &eui_core::theme::ResolvedTheme) -> std::sync::Arc<eui_core::theme::ResolvedTheme> {
+    uicore_gpui::glyphs::set_palette(uicore_gpui::glyphs::Palette::of(base));
+    uicore_gpui::inline::theme(base)
 }
 
 /// The frame line a change owes the supervisor without drawing (#EDE-110):
@@ -4441,7 +4457,9 @@ fn main() {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
-        let theme = uicore_gpui::inline::theme(&eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
+        // #EDE-235: the theme the ui directory holds (its last good
+        // theme.json; the factory ships the Rerusted one), followed live.
+        let theme = shell_theme(ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
@@ -5130,7 +5148,7 @@ mod toast_presses {
     fn toasts(n: &Notifications) -> Surface {
         let source = uicore_docs::doc("notifications").expect("the toast document").json();
         let doc = ede_ui::validate_document("notifications", &source).expect("it validates as shipped");
-        let mut s = doc.surface(eui_core::themes::builtin_theme("exponential").expect("the theme"));
+        let mut s = doc.surface(uicore_docs::factory_theme());
         s.set_data("/notifications", Some(n.to_json())).expect("the feed binds");
         s.set_viewport(380.0, 0.0, None);
         s.layout(&mut eui_core::measure::FixedMeasure::default());
@@ -5540,7 +5558,9 @@ mod layer_sizes {
         };
         assert_eq!(popup_height("applet-sound", 534), room);
         assert_eq!(popup_height("start-menu", 534), room);
-        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-battery", 534), 360, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-network", 534), room, "#EDE-235: the network applet's 520 is held too");
+        assert_eq!(popup_height("applet-network", 800), 520);
         assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
         for d in uicore_docs::DOCS.iter() {
             let doc = factory(d.name);
