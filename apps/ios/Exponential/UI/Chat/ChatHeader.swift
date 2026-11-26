@@ -43,18 +43,6 @@ struct ChatHeader<Title: View, Trailing: View>: View {
             }
             title()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .headerWidth(HeaderFoldKey.titleSlot)
-                .background {
-                    // The title's intrinsic width, off screen.
-                    if folded != nil {
-                        title()
-                            .fixedSize(horizontal: true, vertical: false)
-                            .headerWidth(HeaderFoldKey.title)
-                            .hidden()
-                            .accessibilityHidden(true)
-                            .allowsHitTesting(false)
-                    }
-                }
             HStack(spacing: CGFloat(HeaderActions.gap)) { trailing() }
         }
         // One row of fixed height: its glyphs and text keep their size.
@@ -68,7 +56,8 @@ struct ChatHeader<Title: View, Trailing: View>: View {
         .clearsWindowControls()
     }
 
-    /// `fixed` = the bar less the title's slot and the chips as drawn now
+    /// `ChatHeaderTitle` reports the title text's slot and intrinsic width
+    /// (Android `HeaderFold`); `fixed` = the bar less that slot and the chips as drawn now
     /// (back, the buttons that never fold, gaps, padding).
     private func fold(_ widths: [String: CGFloat]) {
         guard let folded, let bar = widths[HeaderFoldKey.bar], let slot = widths[HeaderFoldKey.titleSlot],
@@ -105,7 +94,7 @@ enum HeaderFoldKey {
 }
 
 extension View {
-    fileprivate func headerWidth(_ key: String) -> some View {
+    func headerWidth(_ key: String) -> some View {
         background {
             GeometryReader { proxy in
                 Color.clear.preference(key: HeaderFoldWidths.self, value: [key: proxy.size.width])
@@ -261,6 +250,16 @@ struct ChatHeaderTitle: View {
                             .truncationMode(.tail)
                             .accessibilityAddTraits(.isHeader)
                             .accessibilityIdentifier("chat-title")
+                            .background(alignment: .leading) {
+                                // #EXP-2183: the title's intrinsic width, off screen.
+                                Text(title)
+                                    .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .headerWidth(HeaderFoldKey.title)
+                                    .hidden()
+                                    .accessibilityHidden(true)
+                            }
                         ChatMarksView(marks: marks)
                     }
                     if let titleAccessory { titleAccessory }
@@ -277,6 +276,7 @@ struct ChatHeaderTitle: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .headerWidth(HeaderFoldKey.titleSlot)
         }
     }
 

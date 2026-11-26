@@ -254,7 +254,8 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_assistant-tab · sg_teams · sg_teams-menu (#EXP-2109, live) ────────
         if ScreenshotShots.isWanted("sg_assistant-tab") {
             showTab(app, "tab-assistant", root: "assistant-tab")
-            expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The Assistant tab drew no chat")
+            // #FEED-271: an agent's header has no tabs: wait on its `…`.
+            expect(anyElement(app, identified: "session-menu"), within: Wait.sync, "The Assistant tab drew no chat")
             snapshot("sg_assistant-tab", settle: 3)
         }
         if ScreenshotShots.isWanted("sg_teams") || ScreenshotShots.isWanted("sg_teams-menu") {
