@@ -7,7 +7,8 @@ import UIKit
 /// authenticator's registration against the served creation options and hands
 /// back the raw attestation, or nil when the user dismissed the system sheet
 /// (a cancel is never an error). The login screen's assertion ceremony
-/// (`LoginViewModel.startPasskeyLogin`) is the sign-in twin.
+/// (`LoginViewModel.startPasskeyLogin`) is the sign-in twin; `authenticate`
+/// runs the same assertion for "Confirm it's you" (#EXP-2143 follow-up).
 @MainActor
 final class PasskeyRegistrationCeremony: NSObject,
     ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
@@ -17,9 +18,16 @@ final class PasskeyRegistrationCeremony: NSObject,
         case failed(String)
     }
 
+    enum AssertionOutcome {
+        case asserted(PasskeyAssertion)
+        case cancelled
+        case failed
+    }
+
     // ASAuthorizationController does not retain itself while its sheet is up.
     private var controller: ASAuthorizationController?
     private var continuation: CheckedContinuation<Outcome, Never>?
+    private var assertionContinuation: CheckedContinuation<AssertionOutcome, Never>?
 
     func register(_ options: PasskeyRegistrationOptions) async -> Outcome {
         continuation?.resume(returning: .cancelled)
@@ -46,10 +54,40 @@ final class PasskeyRegistrationCeremony: NSObject,
         }
     }
 
+    /// The step-up proof: the login's assertion request (the served
+    /// challenge, allowCredentials = this account's passkeys).
+    func authenticate(_ options: PasskeyAuthenticationOptions) async -> AssertionOutcome {
+        assertionContinuation?.resume(returning: .cancelled)
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
+            relyingPartyIdentifier: options.rpId
+        )
+        let request = provider.createCredentialAssertionRequest(challenge: options.challenge)
+        if !options.allowedCredentialIds.isEmpty {
+            request.allowedCredentials = options.allowedCredentialIds.map {
+                ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: $0)
+            }
+        }
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        self.controller = controller
+        return await withCheckedContinuation { continuation in
+            self.assertionContinuation = continuation
+            controller.performRequests()
+        }
+    }
+
     private func finish(_ outcome: Outcome) {
         controller = nil
         let continuation = continuation
         self.continuation = nil
+        continuation?.resume(returning: outcome)
+    }
+
+    private func finishAssertion(_ outcome: AssertionOutcome) {
+        controller = nil
+        let continuation = assertionContinuation
+        assertionContinuation = nil
         continuation?.resume(returning: outcome)
     }
 
@@ -71,6 +109,19 @@ final class PasskeyRegistrationCeremony: NSObject,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
         // Reduce the non-Sendable credential to raw bytes before the hop.
+        if let assertion = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
+            let userHandle = assertion.userID
+            let passkey = PasskeyAssertion(
+                credentialId: assertion.credentialID,
+                clientDataJSON: assertion.rawClientDataJSON,
+                authenticatorData: assertion.rawAuthenticatorData,
+                signature: assertion.signature,
+                userHandle: (userHandle?.isEmpty ?? true) ? nil : userHandle,
+                attachment: "platform"
+            )
+            Task { @MainActor in self.finishAssertion(.asserted(passkey)) }
+            return
+        }
         guard let registration = authorization.credential
             as? ASAuthorizationPlatformPublicKeyCredentialRegistration,
             let attestationObject = registration.rawAttestationObject else {
@@ -93,7 +144,11 @@ final class PasskeyRegistrationCeremony: NSObject,
         let cancelled = (error as? ASAuthorizationError)?.code == .canceled
         let description = error.localizedDescription
         Task { @MainActor in
-            self.finish(cancelled ? .cancelled : .failed(description))
+            if self.assertionContinuation != nil {
+                self.finishAssertion(cancelled ? .cancelled : .failed)
+            } else {
+                self.finish(cancelled ? .cancelled : .failed(description))
+            }
         }
     }
 }
