@@ -260,7 +260,8 @@ struct TextLabel: NSViewRepresentable {
         // TextKit sits the glyphs at the BOTTOM of a pinned line; CSS
         // centres them. A baseline offset of half the leading does it.
         let shifted = NSMutableAttributedString(attributedString: TextLabel.shaped(attributed, paint, rtl: rtl))
-        if shifted.length > 0, let half = shifted.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat, half > 0 {
+        // (Negative only for a drop cap taller than its box, round 4.)
+        if shifted.length > 0, let half = shifted.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat, half != 0 {
             shifted.addAttribute(.baselineOffset, value: half, range: NSRange(location: 0, length: shifted.length))
         }
         label.source = shifted

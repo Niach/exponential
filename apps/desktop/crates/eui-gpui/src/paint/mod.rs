@@ -19,6 +19,7 @@ pub mod markdown_selection;
 pub mod natives;
 pub mod parts;
 pub mod qr;
+pub mod rich_text;
 pub mod tail;
 
 use eui_core::style::{Transition, TransformOp, Visual};

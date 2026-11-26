@@ -260,6 +260,17 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return MeasuredContent(used, ts.lineHeight, Self.baseline(ts))
     }
 
+    /// Round 4: what a Text's runs measure with (geometry only: the
+    /// Text's type, inline code's `Markdown/code` recipe, the weights).
+    private func textRunsLook(_ ts: TextStyle, props: Props) -> TextRunsLook {
+        var look = TextRunsLook(style: ts)
+        look.mono = theme?.monoFamily
+        look.chip = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: [:], fontScale: fontScale).chip
+        look.weight = { [theme] in theme?.fontWeight($0) }
+        look.gap = spacing("xs")
+        return look
+    }
+
     /// Plain text at an inner wrap width (with the `lines` clamp).
     private func para(_ text: String, _ ts: TextStyle, wrap: CGFloat?, lines: Int?) -> MeasuredContent {
         let s = TextShaper.measure(text, ts, wrap: wrap, lines: lines)
@@ -319,6 +330,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
                 let code = Self.codeStyle(ts)
                 let m = para(raw, code, wrap: inner, lines: leaf.lines)
                 content = MeasuredContent(m.width, max(m.height, code.lineHeight), m.baseline)
+            } else if TextRuns.paintsRich(props) {
+                // Round 4 (fixtures/text-runs.json): runs and a drop cap
+                // measure as the styled string they paint.
+                let s = TextRuns.measure(props, textRunsLook(ts, props: props), wrap: inner, lines: leaf.lines)
+                content = MeasuredContent(s.width, s.height, Self.baseline(ts))
             } else {
                 content = para(raw, ts, wrap: inner, lines: leaf.lines)
             }

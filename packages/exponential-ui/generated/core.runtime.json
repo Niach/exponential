@@ -907,6 +907,39 @@
           "type": "string"
         }
       }
+    },
+    "textRun": {
+      "properties": {
+        "text": {
+          "type": "string",
+          "required": true
+        },
+        "weight": {
+          "type": "enum",
+          "values": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold"
+          ]
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        },
+        "mark": {
+          "type": "enum",
+          "values": [
+            "highlight",
+            "code",
+            "strike",
+            "underline"
+          ]
+        },
+        "link": {
+          "type": "url"
+        }
+      }
     }
   },
   "functions": {
@@ -1861,7 +1894,14 @@
       "props": {
         "text": {
           "type": "string",
-          "required": true,
+          "bindable": true
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "textRun"
+          },
           "bindable": true
         },
         "variant": {
@@ -1886,6 +1926,9 @@
             "end",
             "middle"
           ]
+        },
+        "dropCap": {
+          "type": "number"
         },
         "tone": {
           "type": "enum",

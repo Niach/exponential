@@ -125,7 +125,7 @@
           "description": "Hairline between items."
         },
         "sectionBy": {
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "description": "Pins the current header."
@@ -180,7 +180,7 @@
           "description": "Which axis scrolls."
         },
         "maxHeight": {
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         "style": {
           "description": "Extra Box styles merged over the region's own."
@@ -343,6 +343,9 @@
         "text": {
           "description": "Text to show."
         },
+        "runs": {
+          "description": "Spans replacing `text`."
+        },
         "variant": {
           "description": "Type style."
         },
@@ -354,6 +357,9 @@
         },
         "truncate": {
           "description": "One line; `middle` = start…end."
+        },
+        "dropCap": {
+          "description": "Lines the first letter spans (2-4)."
         },
         "tone": {
           "description": "Colour tone instead of the default foreground."
@@ -371,7 +377,7 @@
           "description": "Extra Box styles for the text box."
         }
       },
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "example": {
         "text": "Hello, world!",
         "variant": "body"
@@ -801,7 +807,7 @@
           "description": "Selected value (comma-joined when multiple); bind it."
         },
         "variant": {
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         "size": {
           "description": "Control height class."
@@ -893,7 +899,7 @@
           "description": "Muted detail (a duration)."
         },
         "status": {
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "running shimmers, error tints, done ticks, skipped strikes."
         },
         "size": {
           "description": "sm = compact."
@@ -1195,7 +1201,7 @@
           "description": "`hover` is press on touch."
         },
         "matchAnchorWidth": {
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       },
       "description": "Small panel anchored to its trigger.",
@@ -1241,7 +1247,7 @@
           "description": "Child's press, or right-click/long-press."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
       "example": {
         "label": "More",
         "items": [
@@ -1691,7 +1697,7 @@
           "description": "Chart form."
         },
         "categories": {
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         "series": {
           "description": "One per line, bar group or pie ring."
@@ -1826,7 +1832,7 @@
           "description": "URL a press opens; `press` still fires."
         },
         "variant": {
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "description": "`icon` = square icon-only, `icon-xs` = small round."
@@ -1920,7 +1926,7 @@
           "description": "Also lists failed checks above the fields."
         }
       },
-      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "example": {
         "name": "profile"
       }
@@ -1990,7 +1996,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden."
         },
         "size": {
           "description": "sm = compact."
@@ -2037,7 +2043,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = chromeless, label hidden; `code` = mono `row`."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2729,7 +2735,7 @@
           "description": "stacked = field over controls; flat = one row."
         },
         "menuKeys": {
-          "description": "Arrow/Enter/Tab/Escape fire `key` {key} (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       },
       "description": "Chat input: growing field + submit; slots join its controls row.",
@@ -2850,7 +2856,7 @@
           "description": "out = the viewer's."
         },
         "tail": {
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
+          "description": "start/end = top corner, down = bottom edge."
         },
         "time": {
           "description": "Under the text."
@@ -3187,7 +3193,7 @@
           "description": "{root: a nested component, data?: object}."
         }
       },
-      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "example": {
         "surface": {
           "root": {
@@ -3711,7 +3717,7 @@
           "description": "Selected day; bind it."
         }
       },
-      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "example": {
         "value": "2026-11-25",
         "days": [
@@ -4265,6 +4271,26 @@
         }
       },
       "description": "One MapPlaceholder pin."
+    },
+    "textRun": {
+      "properties": {
+        "text": {
+          "description": "Span text."
+        },
+        "weight": {
+          "description": "Font weight."
+        },
+        "tone": {
+          "description": "Colour tone."
+        },
+        "mark": {
+          "description": "Span mark."
+        },
+        "link": {
+          "description": "Opens like Link `href`."
+        }
+      },
+      "description": "One inline span of a Text."
     }
   },
   "functions": {

@@ -717,7 +717,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -908,7 +908,7 @@
         },
         "maxHeight": {
           "type": "number",
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -1970,7 +1970,7 @@
     },
     "Text": {
       "type": "object",
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "properties": {
         "component": {
           "const": "Text"
@@ -1978,6 +1978,23 @@
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Text to show."
+        },
+        "runs": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/textRun"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
+          "description": "Spans replacing `text`."
         },
         "variant": {
           "enum": [
@@ -2010,6 +2027,10 @@
             "middle"
           ],
           "description": "One line; `middle` = start…end."
+        },
+        "dropCap": {
+          "type": "number",
+          "description": "Lines the first letter spans (2-4)."
         },
         "tone": {
           "enum": [
@@ -2059,8 +2080,7 @@
         }
       },
       "required": [
-        "component",
-        "text"
+        "component"
       ],
       "allowedChildren": [],
       "metadata": {
@@ -4305,7 +4325,7 @@
             "outline",
             "bar"
           ],
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar.",
+          "description": "Pill track, toggles, outline group, icon bar.",
           "default": "segmented"
         },
         "size": {
@@ -5138,7 +5158,7 @@
             "done",
             "skipped"
           ],
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "running shimmers, error tints, done ticks, skipped strikes."
         },
         "size": {
           "enum": [
@@ -6478,7 +6498,7 @@
         },
         "matchAnchorWidth": {
           "type": "boolean",
-          "description": "Panel exactly as wide as its anchor/trigger.",
+          "description": "As wide as its trigger.",
           "default": false
         },
         "children": {
@@ -6565,7 +6585,7 @@
     },
     "Menu": {
       "type": "object",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
       "properties": {
         "component": {
           "const": "Menu"
@@ -10115,7 +10135,7 @@
         },
         "categories": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         "series": {
           "oneOf": [
@@ -11022,7 +11042,7 @@
             "link",
             "fab"
           ],
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button.",
+          "description": "`default` = primary; `fab` = floating round icon.",
           "default": "default"
         },
         "size": {
@@ -11828,7 +11848,7 @@
     },
     "Form": {
       "type": "object",
-      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "properties": {
         "component": {
           "const": "Form"
@@ -12073,7 +12093,7 @@
             "code",
             "box"
           ],
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden.",
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden.",
           "default": "field"
         },
         "size": {
@@ -12179,7 +12199,7 @@
             "row",
             "code"
           ],
-          "description": "`row` = chromeless, label hidden; `code` = mono `row`.",
+          "description": "`row` = in a Group, label hidden; `code` = mono row.",
           "default": "field"
         },
         "disabled": {
@@ -14855,7 +14875,7 @@
         },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "Arrow/Enter/Tab/Escape fire `key` {key} (host menu).",
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}.",
           "default": false
         },
         "slots": {
@@ -15753,7 +15773,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge.",
+          "description": "start/end = top corner, down = bottom edge.",
           "default": "none"
         },
         "time": {
@@ -16158,7 +16178,7 @@
     },
     "Embed": {
       "type": "object",
-      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "properties": {
         "component": {
           "const": "Embed"
@@ -16909,7 +16929,7 @@
     },
     "DayStrip": {
       "type": "object",
-      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "properties": {
         "component": {
           "const": "DayStrip"
@@ -28948,6 +28968,54 @@
       "required": [
         "x",
         "y"
+      ],
+      "additionalProperties": false
+    },
+    "textRun": {
+      "type": "object",
+      "description": "One inline span of a Text.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Span text."
+        },
+        "weight": {
+          "enum": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold"
+          ],
+          "description": "Font weight."
+        },
+        "tone": {
+          "enum": [
+            "neutral",
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info"
+          ],
+          "description": "Colour tone."
+        },
+        "mark": {
+          "enum": [
+            "highlight",
+            "code",
+            "strike",
+            "underline"
+          ],
+          "description": "Span mark."
+        },
+        "link": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "Opens like Link `href`."
+        }
+      },
+      "required": [
+        "text"
       ],
       "additionalProperties": false
     },
