@@ -3,7 +3,7 @@
 // reordering keeps each item's state), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, resolveContextOf, useSurfaceContext } from "../context"
 import { MotionContext, usePresence } from "../presence"
@@ -244,6 +244,9 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
     const at = `item` in row && row.item >= childCount ? tpl!.items[row.item - childCount].path : scope
     return !resolveVisible(n.visible, resolveContextOf(ctx, at))
   }
+  // Those rows' `visible` is this List's question: follow it.
+  const hiddenKey = () => (windowed ? `` : rows.map((_, r) => (hiddenExit(r) ? `1` : `0`)).join(``))
+  useSyncExternalStore(ctx.subscribe, hiddenKey, hiddenKey)
   const flat = usePresence(windowed ? [] : rows.flatMap((_, r) => (hiddenExit(r) ? [] : [{ key: keyOf(r), node: rowNode(r), render: () => flatRow(r) }])), windowed ? 0 : stagger)
   if (windowed) {
     const headerRows = sticky ? rows.flatMap((row, r) => (`header` in row ? [r] : [])) : undefined

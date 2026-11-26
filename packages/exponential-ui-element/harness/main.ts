@@ -431,7 +431,7 @@ function Mount(): Node {
       }
       if (step.data) el.data = data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
       // The painter ends an exit itself (its timer): wait it out.
-      if (step.finishExit) await new Promise((r) => setTimeout(r, 400))
+      for (let k = 0; step.finishExit && k < 60 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
       await frames(2)
       out.push(readPresence(el, c.container, c.first))
     }

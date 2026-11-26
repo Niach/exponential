@@ -3,7 +3,7 @@
 // (keyed by `template.key`), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { For, Show, createEffect, createMemo, onCleanup, onMount, untrack, useContext, type Accessor, type JSX } from "solid-js"
+import { Show, createEffect, createMemo, onCleanup, onMount, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
 import { getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useSurfaceContext } from "../context"
@@ -186,7 +186,9 @@ export function ListNative(props: NativeProps): JSX.Element {
   const stagger = () => (props.node.style as Record<string, unknown> | undefined)?.animationStagger
   const firstWindow = new Map<string, number>()
   let mounted = false
-  onMount(() => (mounted = true))
+  // The first window: what the list paints in its first task (its window
+  // fills from effects after mount).
+  onMount(() => void setTimeout(() => (mounted = true), 0))
   const rowNode = (r: number): UiNode | undefined => {
     const row = rows()[r]
     return !row || `header` in row ? undefined : row.item < childCount() ? props.node.children[row.item] : tpl()?.tpl
@@ -241,7 +243,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     const r = createMemo<number>((prev) => flatIndex().get(key) ?? prev!)
     const here = () => flatIndex().has(key)
     const row = createMemo<ListRow>((prev) => (here() ? rows()[r()] : prev!))
-    const t = createMemo<ReturnType<typeof templateItems>>((prev) => (here() ? tpl() : prev))
+    const t = createMemo<ReturnType<typeof templateItems>>((prev) => (here() ? tpl() : (prev ?? null)))
     const line = createMemo(() => (here() ? divider(r()) : null))
     return (
       <div class="xui-list-row" data-axis={axis()} data-xui-row={r()} {...itemAttrs(r())}>

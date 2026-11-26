@@ -5355,10 +5355,10 @@
           ]
         },
         {
-          "finishExit": "item.a",
+          "finishExit": "item.b",
           "expect": [
             {
-              "id": "item.b",
+              "id": "item.a",
               "exiting": true,
               "delayMs": 0
             },
@@ -5370,7 +5370,7 @@
           ]
         },
         {
-          "finishExit": "item.b",
+          "finishExit": "item.a",
           "expect": [
             {
               "id": "item.c",

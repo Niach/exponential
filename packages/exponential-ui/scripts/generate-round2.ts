@@ -653,8 +653,8 @@ const PRESENCE: Scenario[] = [
       { present: [{ id: `item.a`, exit: true }, { id: `item.b`, exit: true }, { id: `item.c`, exit: true }] },
       { data: { path: `/items`, value: items(`a`, `c`) }, present: [{ id: `item.a`, exit: true }, { id: `item.c`, exit: true }] },
       { data: { path: `/items`, value: items(`c`) }, present: [{ id: `item.c`, exit: true }] },
-      { finishExit: `item.a` },
       { finishExit: `item.b` },
+      { finishExit: `item.a` },
     ],
   },
   {

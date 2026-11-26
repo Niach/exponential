@@ -46,7 +46,10 @@ describe(`animations.json presence (round 4 motion)`, () => {
           if (step.data) data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
           if (step.components) components = step.components
           if (step.data || step.components) view.rerender(<ExponentialSurface {...tree()} data={data} theme="neutral" id="p" />)
-          if (step.finishExit) act(() => void vi.advanceTimersByTime(1000))
+          // Each step a tick later: its exits start (and end) after the earlier ones.
+          act(() => void vi.advanceTimersByTime(1))
+          // The painter ends each exit itself (its timer, in start order).
+          for (let k = 0; step.finishExit && k < 10 && readPresence(view.container, c.container).some((p) => p.id === step.finishExit); k++) act(() => void vi.advanceTimersToNextTimer())
           expect(painted(view.container, c, c.components.concat(step.components ?? [])), `step ${i}`).toEqual(step.expect)
         })
       } finally {

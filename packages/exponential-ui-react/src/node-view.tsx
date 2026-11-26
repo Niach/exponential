@@ -14,7 +14,7 @@
 // `set`, then dispatch the event. A data template renders its component
 // once per item under the item's scope, keyed by `template.key`.
 
-import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react"
+import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from "react"
 import { UNKNOWN_COMPONENT, forcedStatesOf, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential_app/eui/web"
@@ -432,6 +432,8 @@ function ContainerChildren({ node, scope }: { node: UiNode; scope: string }) {
  *  template items (visible under their scope). */
 function PresenceChildren({ node, scope, stagger }: { node: UiNode; scope: string; stagger: unknown }) {
   const ctx = useSurfaceContext()
+  // A child's `visible` is the CONTAINER's question here: follow the data.
+  useSyncExternalStore(ctx.subscribe, () => ctx.data, () => ctx.data)
   const rctx = resolveContextOf(ctx, scope)
   const items: PresenceItem[] = []
   for (const child of node.children) {
