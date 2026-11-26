@@ -243,6 +243,9 @@ pub enum AnswerDecision {
         fields: serde_json::Value,
         submit: bool,
     },
+    /// #NEW-146: THE elicitation card answered whole (accept with its
+    /// content, decline, cancel).
+    ElicitationCard(super::elicitation_card::ElicitationReply),
     /// Already answered — re-ack only, never re-resolve (EXP-374).
     ReAck,
     /// Nothing is parked under that key; the answer is dropped.
@@ -453,6 +456,10 @@ struct PermissionAsk {
 }
 
 struct ElicitationAsk {
+    /// #NEW-146: THE elicitation card's request (`elicitation_card::
+    /// card_request`): a third-party MCP server's ask, ONE card (no steps)
+    /// answered whole with accept / decline / cancel.
+    card: Option<Value>,
     steps: Vec<ElicitStep>,
     /// The step a fresh answer applies to; `steps.len()` = the submit step.
     current: usize,
@@ -1158,6 +1165,11 @@ impl Mapper {
         } else {
             wire::activity::truncate(ask_id, ID_MAX)
         };
+        // #NEW-146: a third-party MCP server's ask (or any url) is THE
+        // elicitation card, never the stepper.
+        if let Some(card_request) = super::elicitation_card::card_request(request) {
+            return self.publish_elicitation_card(ask_id, card_request, out);
+        }
         let steps = match &request.mode {
             ElicitationMode::Form(form) => {
                 self.elicit_steps(&request.message, &form.requested_schema)
@@ -1167,6 +1179,7 @@ impl Mapper {
             _ => Vec::new(),
         };
         let ask = ElicitationAsk {
+            card: None,
             steps,
             current: 0,
             fields: Map::new(),
@@ -1180,6 +1193,104 @@ impl Mapper {
             question_id,
             ask_id: Some(ask_id),
         }
+    }
+
+    /// #NEW-146: publish THE elicitation card (elicitation-card.json): ONE
+    /// question card with its genUI surface and `elicitation` sidecar,
+    /// posted like every engine ask (sealed, Needs you, push). Its question
+    /// id is the ask's submit id (no steps), so a withdraw, a cancel and the
+    /// eviction close it like any elicitation. An undrawable request (see
+    /// [`super::elicitation_card::undrawable`]) never gets here.
+    fn publish_elicitation_card(&mut self, ask_id: String, card_request: Value, out: &mut MapOut) -> PendingAskKey {
+        let card = super::elicitation_card::elicitation_card(&card_request).unwrap_or(Value::Null);
+        let question_id = elicit_step_id(&ask_id, 0, 0);
+        let text = self.clean_marked(card.get("question").and_then(Value::as_str).unwrap_or_default(), QUESTION_TEXT_MAX);
+        let labels: Vec<String> = card
+            .get("options")
+            .and_then(Value::as_array)
+            .map(|options| options.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default();
+        let header = card.pointer("/elicitation/server").and_then(Value::as_str).map(str::to_string);
+        self.elicitations.insert(
+            ask_id.clone(),
+            ElicitationAsk {
+                card: Some(card_request),
+                steps: Vec::new(),
+                current: 0,
+                fields: Map::new(),
+                answered: false,
+                message: text.clone(),
+            },
+        );
+        self.questions.insert(question_id.clone(), AskRef::Elicitation(ask_id.clone()));
+        self.reset_turn_reply();
+        out.replies.push(Reply::card(ReplyCard::Elicitation { question_id: question_id.clone(), card }));
+        emit(
+            out,
+            ActivityEvent::Question {
+                text,
+                options: labels.iter().map(|label| QuestionOption::new(label.clone(), elicitation_card_key(label))).collect(),
+                multi_select: None,
+                plan_mode: None,
+                id: question_id.clone(),
+                ask_id: Some(ask_id.clone()),
+                index: Some(1),
+                total: Some(1),
+                header,
+                at: None,
+            },
+            None,
+        );
+        out.needs_input = Some(true);
+        PendingAskKey { question_id, ask_id: Some(ask_id) }
+    }
+
+    /// #NEW-146: an answered (or dismissed) Conversation card of THE
+    /// elicitation card `question_id` (`messages.card` with `answers` and
+    /// `surfaceData`): the reply it carries back and the responder key it
+    /// resolves. `None` = no waiting elicitation card under that id, or an
+    /// accepted form whose content is not valid (the card stays waiting:
+    /// never a guessed accept).
+    pub fn answer_elicitation_card(
+        &mut self,
+        question_id: &str,
+        card: &Value,
+        out: &mut MapOut,
+    ) -> Option<(String, super::elicitation_card::ElicitationReply)> {
+        let AskRef::Elicitation(ask_id) = self.questions.get(question_id)? else {
+            return None;
+        };
+        let ask_id = ask_id.clone();
+        let ask = self.elicitations.get_mut(&ask_id).filter(|ask| !ask.answered)?;
+        let request = ask.card.as_ref()?;
+        let reply = super::elicitation_card::elicitation_reply(request, card)?;
+        ask.answered = true;
+        let dismissed = card.get("dismissed").and_then(Value::as_bool) == Some(true);
+        emit(
+            out,
+            ActivityEvent::AnswerAck { id: question_id.to_string(), ask_id: Some(ask_id.clone()), at: None },
+            None,
+        );
+        if dismissed {
+            emit(
+                out,
+                ActivityEvent::QuestionResolved {
+                    id: Some(question_id.to_string()),
+                    ask_id: Some(ask_id.clone()),
+                    answers: None,
+                    dismissed: Some(true),
+                    at: None,
+                },
+                None,
+            );
+        } else {
+            emit_step_resolved(out, &ask_id, question_id, vec![elicitation_reply_label(&reply, request).to_string()]);
+        }
+        self.retire_ask(RetiredAsk::Elicitation(ask_id.clone()));
+        if self.pending_asks() == 0 {
+            out.needs_input = Some(false);
+        }
+        Some((ask_id, reply))
     }
 
     /// An inbound `answer` frame (relay or local composer). Publishes
@@ -2069,7 +2180,7 @@ impl Mapper {
         let AskRef::Elicitation(ask_id) = self.questions.get(question_id)? else {
             return None;
         };
-        let ask = self.elicitations.get(ask_id)?;
+        let ask = self.elicitations.get(ask_id).filter(|ask| ask.card.is_none())?;
         (!ask.answered && ask.current >= ask.steps.len()).then(|| wire::activity::RemoteAnswer {
             question_id: elicit_step_id(ask_id, ask.current, ask.steps.len()),
             ask_id: Some(ask_id.clone()),
@@ -3583,6 +3694,18 @@ impl Mapper {
             );
             return AnswerDecision::ReAck;
         }
+        if ask.card.is_some() {
+            // #NEW-146: a relay / TUI answer names an option by its key (or
+            // label); it carries no surface data, so a form accepts only
+            // when its content is valid without any.
+            let pick = answer.keys.first().map(String::as_str).unwrap_or_default();
+            let label = elicitation_card_label(pick);
+            let card = serde_json::json!({ "answers": [label] });
+            return match self.answer_elicitation_card(&key.question_id, &card, out) {
+                Some((_, reply)) => AnswerDecision::ElicitationCard(reply),
+                None => AnswerDecision::ReAck,
+            };
+        }
         let expected = elicit_step_id(ask_id, ask.current, ask.steps.len());
         if expected != key.question_id {
             // EXP-820: an EARLIER step answered again — the stepper's
@@ -3992,6 +4115,41 @@ fn multi_select_options(
 }
 
 /// `<ask>#<n>` for a step, `<ask>#submit` for the final marker (D3).
+/// #NEW-146: THE elicitation card's option keys on the wire `Question`
+/// (`submit`, `decline`, `cancel`, `done`).
+fn elicitation_card_key(label: &str) -> &'static str {
+    use super::elicitation_card as card;
+    match label {
+        card::COPY_SUBMIT => "submit",
+        card::COPY_DECLINE => "decline",
+        card::COPY_DONE => "done",
+        _ => "cancel",
+    }
+}
+
+/// The label an option key (or the label itself) names; anything else is
+/// Cancel (never an accept).
+fn elicitation_card_label(pick: &str) -> &'static str {
+    use super::elicitation_card as card;
+    match pick.trim() {
+        "submit" | card::COPY_SUBMIT => card::COPY_SUBMIT,
+        "decline" | card::COPY_DECLINE => card::COPY_DECLINE,
+        "done" | card::COPY_DONE => card::COPY_DONE,
+        _ => card::COPY_CANCEL,
+    }
+}
+
+/// The answered line of THE elicitation card: the label that answered.
+fn elicitation_reply_label(reply: &super::elicitation_card::ElicitationReply, request: &Value) -> &'static str {
+    use super::elicitation_card::{self as card, ElicitationReply};
+    match reply {
+        ElicitationReply::Accept(_) if request.get("mode").and_then(Value::as_str) == Some("url") => card::COPY_DONE,
+        ElicitationReply::Accept(_) => card::COPY_SUBMIT,
+        ElicitationReply::Decline => card::COPY_DECLINE,
+        ElicitationReply::Cancel => card::COPY_CANCEL,
+    }
+}
+
 fn elicit_step_id(ask_id: &str, step: usize, total: usize) -> String {
     if step >= total {
         format!("{ask_id}#submit")
@@ -7768,6 +7926,88 @@ mod conversation_tests {
             AnswerDecision::Elicitation { submit: true, .. }
         ));
         assert!(mapper.pending_submit("ask-1#1").is_none());
+    }
+
+    #[test]
+    fn elicitation_from_a_named_server_is_the_elicitation_card_and_never_auto_accepts() {
+        use super::super::elicitation_card::{ElicitationReply, ORDER_META_KEY, SERVER_META_KEY};
+        use agent_client_protocol::v1::schema::{BooleanPropertySchema, ElicitationUrlMode};
+        let mut mapper = live();
+        let form = |ask: &str| {
+            let mut meta = serde_json::Map::new();
+            meta.insert(SERVER_META_KEY.into(), json!("linear"));
+            meta.insert(ORDER_META_KEY.into(), json!(["title", "notify"]));
+            let _ = ask;
+            CreateElicitationRequest::new(
+                ElicitationFormMode::new(
+                    ElicitationSessionScope::new(SessionId::new("acp-1")),
+                    ElicitationSchema::new()
+                        .property("title", ElicitationPropertySchema::String(StringPropertySchema::new().title("Title")), true)
+                        .property("notify", ElicitationPropertySchema::Boolean(BooleanPropertySchema::new()), false),
+                ),
+                "Where should the issue go?",
+            )
+            .meta(meta)
+        };
+        let mut out = MapOut::default();
+        let key = mapper.on_elicitation("mcp-1", &form("mcp-1"), &mut out);
+        assert_eq!(key.question_id, "mcp-1#submit");
+        assert_eq!(out.needs_input, Some(true));
+        let [Reply { card: Some(ReplyCard::Elicitation { question_id, card }), .. }] = &out.replies[..] else {
+            panic!("{:?}", out.replies)
+        };
+        assert_eq!(question_id, "mcp-1#submit");
+        let posted = serde_json::to_value(ReplyCard::Elicitation { question_id: question_id.clone(), card: card.clone() }).unwrap();
+        assert_eq!(posted["kind"], "question");
+        assert_eq!(posted["questionId"], "mcp-1#submit");
+        assert_eq!(posted["options"], json!(["Submit", "Decline", "Cancel"]));
+        assert_eq!(posted["custom"], json!(false));
+        assert_eq!(posted["elicitation"], json!({ "server": "linear", "mode": "form", "required": ["title"], "url": null }));
+        assert_eq!(posted["surface"]["root"]["children"][0]["id"], "f_title");
+        assert!(out.wire.iter().any(|event| matches!(event, ActivityEvent::Question { id, header: Some(h), .. } if id == "mcp-1#submit" && h == "linear")));
+
+        // The stepper's card answer never takes it; an invalid submit leaves it waiting.
+        assert!(mapper.card_answer("mcp-1#submit", &json!({ "answers": ["Submit"] })).is_none());
+        assert!(mapper.pending_submit("mcp-1#submit").is_none());
+        let mut none = MapOut::default();
+        assert!(mapper
+            .answer_elicitation_card("mcp-1#submit", &json!({ "answers": ["Submit"], "surfaceData": { "form": { "title": " " } } }), &mut none)
+            .is_none());
+        let mut done = MapOut::default();
+        let (responder, reply) = mapper
+            .answer_elicitation_card(
+                "mcp-1#submit",
+                &json!({ "answers": ["Submit"], "surfaceData": { "form": { "title": " Crash ", "notify": true } } }),
+                &mut done,
+            )
+            .expect("a valid submit");
+        assert_eq!(responder, "mcp-1");
+        assert_eq!(reply, ElicitationReply::Accept(Some(serde_json::from_value(json!({ "title": "Crash", "notify": true })).unwrap())));
+        assert_eq!(done.needs_input, Some(false));
+        assert!(mapper.answer_elicitation_card("mcp-1#submit", &json!({ "answers": ["Decline"] }), &mut MapOut::default()).is_none());
+
+        // Decline, the × (cancel), and a relay answer by key.
+        mapper.on_elicitation("mcp-2", &form("mcp-2"), &mut MapOut::default());
+        let (_, reply) = mapper.answer_elicitation_card("mcp-2#submit", &json!({ "answers": ["Decline"] }), &mut MapOut::default()).unwrap();
+        assert_eq!(reply, ElicitationReply::Decline);
+        mapper.on_elicitation("mcp-3", &form("mcp-3"), &mut MapOut::default());
+        let (_, reply) =
+            mapper.answer_elicitation_card("mcp-3#submit", &json!({ "answers": ["Submit"], "dismissed": true }), &mut MapOut::default()).unwrap();
+        assert_eq!(reply, ElicitationReply::Cancel);
+        let key = mapper.on_elicitation("mcp-4", &form("mcp-4"), &mut MapOut::default());
+        let answer = wire::activity::RemoteAnswer { question_id: key.question_id.clone(), ask_id: Some("mcp-4".into()), keys: vec!["cancel".into()], text: None };
+        assert_eq!(mapper.on_answer(&key, &answer, &mut MapOut::default()), AnswerDecision::ElicitationCard(ElicitationReply::Cancel));
+
+        // A url is the card without a server named, its accept carries nothing.
+        let url = CreateElicitationRequest::new(
+            ElicitationUrlMode::new(ElicitationSessionScope::new(SessionId::new("acp-1")), "e-1", "https://github.com/login"),
+            "Sign in",
+        );
+        let mut out = MapOut::default();
+        mapper.on_elicitation("mcp-5", &url, &mut out);
+        assert!(matches!(&out.replies[..], [Reply { card: Some(ReplyCard::Elicitation { .. }), .. }]));
+        let (_, reply) = mapper.answer_elicitation_card("mcp-5#submit", &json!({ "answers": ["I'm done"] }), &mut MapOut::default()).unwrap();
+        assert_eq!(reply, ElicitationReply::Accept(None));
     }
 
     #[test]

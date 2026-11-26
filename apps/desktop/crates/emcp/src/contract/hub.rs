@@ -163,6 +163,8 @@ impl AuditRow {
             "client_id": self.client_id,
             "app_id": self.app_id,
             "tool": self.tool,
+            // #NEW-147: the JSON-RPC method; a hub row is always a tool call.
+            "method": "tools/call",
             "status": self.status.as_str(),
             "error": self.error,
             "latency_ms": self.latency_ms,

@@ -1,0 +1,472 @@
+{
+  "$comment": "#NEW-144 (part of #NEW-143): THE PROTOCOL BASE of Exponential's MCP endpoints (`/api/mcp`, `/api/mcp/apps`) for MCP 2026-07-28 next to the 2025 handshake. ERAS (`versions`): a request whose `params._meta` carries `metaKeys.protocolVersion` is MODERN (2026-07-28: stateless, no handshake, `server/discover` answers the versions and capabilities, every request carries its client's capabilities); anything else is LEGACY (2025-06-18 / 2025-11-25: `initialize` still answers, its `params.capabilities` are the client's only on that one request; every later legacy request reads as a client that declared nothing). THE CLIENT (`clientCases`): the gate reads the per-request envelope ONCE (`clientContextOf`) and every handler gets it as `ctx.client`: era, protocolVersion, clientInfo, the raw capabilities, the `extensions` map, and the derived flags (`elicitation.form` = `elicitation: {}` or `elicitation.form`; `elicitation.url` only when declared; `tasks` = extension `io.modelcontextprotocol/tasks`; `ui` = extension `io.modelcontextprotocol/ui`; `sampling`, `roots`). A capability nobody declared is false; a malformed envelope reads as nothing declared. THE SERVER'S EXTENSIONS (`serverExtensions`): one map in one place (`lib/emcp/extensions.ts`), declared in `capabilities.extensions` of both `initialize` and `server/discover` for callers outside a session; an extension enters the map only with its handlers (#NEW-147: skills and tasks). MRTR (`mrtr`): only `tools/call`, `prompts/get` and `resources/read` may answer `resultType: \"input_required\"` (`inputRequiredMethods`), with at least one of `inputRequests` / `requestState`; an input request goes out only when the client declared its capability (`deliverCases`: form elicitation needs `elicitation.form`, url needs `elicitation.url`, sampling `sampling`, roots `roots`); a declined, cancelled or missing answer reads as no answer (`answerCases`). REQUEST STATE (`stateCases`): Exponential's `requestState` is AEAD-sealed (AES-256-GCM, key = HKDF-SHA256 of BETTER_AUTH_SECRET, salt `stateKey.salt`, info `stateKey.info`; wire = `stateKey.prefix` + base64url(iv | ciphertext | tag)) over the claims {v, sub = the member, grant = the credential (`oauth:<clientId>`, `key:<keyId>` or `member`), method, tool, args = base64url SHA-256 of the canonical JSON of the call's arguments (audit.json's canonical JSON, no arguments = `{}`), exp = mint + `ttlSeconds`, jti, data = the handler's own state}; it redeems ONCE: the first check that fails names the refusal in this order: `expired` (now >= exp), `member`, `grant`, `method`, `tool`, `args`, `replayed` (the jti was already redeemed); a state that does not open (tampered, another key, malformed) is `sealed`. Every refusal answers JSON-RPC -32602 `Invalid or expired requestState` (the SDK's frozen wording), never the reason. ERRORS (`errors`): the 2026-07-28 codes. GOLDENS (`spec`): the spec's own examples, verbatim (comments stripped); `discoverResultKeys` are the keys every `server/discover` result of ours carries.",
+  "versions": {
+    "modern": ["2026-07-28"],
+    "legacy": ["2025-11-25", "2025-06-18"]
+  },
+  "metaKeys": {
+    "protocolVersion": "io.modelcontextprotocol/protocolVersion",
+    "clientInfo": "io.modelcontextprotocol/clientInfo",
+    "clientCapabilities": "io.modelcontextprotocol/clientCapabilities",
+    "serverInfo": "io.modelcontextprotocol/serverInfo"
+  },
+  "extensionIds": {
+    "mentions": "openai/mentions",
+    "ui": "io.modelcontextprotocol/ui",
+    "tasks": "io.modelcontextprotocol/tasks"
+  },
+  "serverExtensions": {
+    "openai/mentions": { "searchTool": "exponential_issues" },
+    "io.modelcontextprotocol/skills": { "directoryRead": true },
+    "io.modelcontextprotocol/tasks": {}
+  },
+  "errors": {
+    "invalidParams": -32602,
+    "headerMismatch": -32020,
+    "missingRequiredClientCapability": -32021,
+    "unsupportedProtocolVersion": -32022,
+    "invalidRequestState": "Invalid or expired requestState"
+  },
+  "mrtr": {
+    "inputRequiredMethods": ["tools/call", "prompts/get", "resources/read"],
+    "ttlSeconds": 600,
+    "stateKey": { "salt": "exp-mcp-request-state-v1", "info": "request-state", "prefix": "es1." }
+  },
+  "clientCases": [
+    {
+      "name": "the spec's tools/call example (trace context): modern, nothing declared",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+          "name": "get_weather",
+          "arguments": { "location": "New York" },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { "name": "ExampleClient", "version": "1.0.0" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01"
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": { "name": "ExampleClient", "version": "1.0.0" },
+        "capabilities": {},
+        "extensions": {},
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "the spec's server/discover request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "discover-1",
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { "name": "ExampleClient", "version": "1.0.0" },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": { "name": "ExampleClient", "version": "1.0.0" },
+        "capabilities": {},
+        "extensions": {},
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "the spec's elicitation declaration: form and url",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "x",
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": { "elicitation": { "form": {}, "url": {} } }
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": null,
+        "capabilities": { "elicitation": { "form": {}, "url": {} } },
+        "extensions": {},
+        "elicitation": { "form": true, "url": true },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "elicitation: {} is form mode only (backward compatible)",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "x",
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": { "elicitation": {}, "sampling": {}, "roots": {} }
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": null,
+        "capabilities": { "elicitation": {}, "sampling": {}, "roots": {} },
+        "extensions": {},
+        "elicitation": { "form": true, "url": false },
+        "sampling": true,
+        "roots": true,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "the spec's tasks declaration (what Claude Code sends)",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "x",
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": { "extensions": { "io.modelcontextprotocol/tasks": {} } }
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": null,
+        "capabilities": { "extensions": { "io.modelcontextprotocol/tasks": {} } },
+        "extensions": { "io.modelcontextprotocol/tasks": {} },
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": true,
+        "ui": false
+      }
+    },
+    {
+      "name": "the spec's MCP Apps declaration",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": { "io.modelcontextprotocol/ui": { "mimeTypes": ["text/html;profile=mcp-app"] } }
+            }
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": null,
+        "capabilities": { "extensions": { "io.modelcontextprotocol/ui": { "mimeTypes": ["text/html;profile=mcp-app"] } } },
+        "extensions": { "io.modelcontextprotocol/ui": { "mimeTypes": ["text/html;profile=mcp-app"] } },
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": true
+      }
+    },
+    {
+      "name": "a 2025-11-25 initialize: legacy, its capabilities on this request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": { "elicitation": { "form": {}, "url": {} }, "extensions": { "io.modelcontextprotocol/ui": {} } },
+          "clientInfo": { "name": "claude-code", "version": "2.1.332" }
+        }
+      },
+      "expected": {
+        "era": "legacy",
+        "protocolVersion": "2025-11-25",
+        "info": { "name": "claude-code", "version": "2.1.332" },
+        "capabilities": { "elicitation": { "form": {}, "url": {} }, "extensions": { "io.modelcontextprotocol/ui": {} } },
+        "extensions": { "io.modelcontextprotocol/ui": {} },
+        "elicitation": { "form": true, "url": true },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": true
+      }
+    },
+    {
+      "name": "a 2025-06-18 tools/call after the handshake: legacy, nothing declared",
+      "message": { "jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": { "name": "exponential_issues", "arguments": { "op": "list" } } },
+      "expected": {
+        "era": "legacy",
+        "protocolVersion": null,
+        "info": null,
+        "capabilities": {},
+        "extensions": {},
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "a malformed envelope reads as nothing declared",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": ["elicitation"],
+            "io.modelcontextprotocol/clientInfo": "nope"
+          }
+        }
+      },
+      "expected": {
+        "era": "modern",
+        "protocolVersion": "2026-07-28",
+        "info": null,
+        "capabilities": {},
+        "extensions": {},
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    },
+    {
+      "name": "a batch or a non-request reads as legacy, nothing declared",
+      "message": [{ "jsonrpc": "2.0", "id": 9, "method": "tools/list" }],
+      "expected": {
+        "era": "legacy",
+        "protocolVersion": null,
+        "info": null,
+        "capabilities": {},
+        "extensions": {},
+        "elicitation": { "form": false, "url": false },
+        "sampling": false,
+        "roots": false,
+        "tasks": false,
+        "ui": false
+      }
+    }
+  ],
+  "deliverCases": [
+    { "name": "form elicitation, form declared", "request": { "method": "elicitation/create", "params": { "mode": "form", "message": "m", "requestedSchema": { "type": "object", "properties": {} } } }, "capabilities": { "elicitation": {} }, "expected": true },
+    { "name": "form elicitation without a mode, form declared", "request": { "method": "elicitation/create", "params": { "message": "m", "requestedSchema": { "type": "object", "properties": {} } } }, "capabilities": { "elicitation": { "form": {} } }, "expected": true },
+    { "name": "url elicitation, only form declared", "request": { "method": "elicitation/create", "params": { "mode": "url", "message": "m", "url": "https://example.com" } }, "capabilities": { "elicitation": {} }, "expected": false },
+    { "name": "url elicitation, url declared", "request": { "method": "elicitation/create", "params": { "mode": "url", "message": "m", "url": "https://example.com" } }, "capabilities": { "elicitation": { "url": {} } }, "expected": true },
+    { "name": "form elicitation, only url declared", "request": { "method": "elicitation/create", "params": { "mode": "form", "message": "m", "requestedSchema": { "type": "object", "properties": {} } } }, "capabilities": { "elicitation": { "url": {} } }, "expected": false },
+    { "name": "elicitation, nothing declared", "request": { "method": "elicitation/create", "params": { "mode": "form", "message": "m", "requestedSchema": { "type": "object", "properties": {} } } }, "capabilities": {}, "expected": false },
+    { "name": "sampling declared", "request": { "method": "sampling/createMessage", "params": { "messages": [], "maxTokens": 1 } }, "capabilities": { "sampling": {} }, "expected": true },
+    { "name": "sampling undeclared", "request": { "method": "sampling/createMessage", "params": { "messages": [], "maxTokens": 1 } }, "capabilities": { "elicitation": {} }, "expected": false },
+    { "name": "roots declared", "request": { "method": "roots/list" }, "capabilities": { "roots": {} }, "expected": true },
+    { "name": "an unknown method is never delivered", "request": { "method": "ping" }, "capabilities": { "elicitation": {}, "sampling": {}, "roots": {} }, "expected": false }
+  ],
+  "answerCases": [
+    { "name": "the spec's accepted form answer", "key": "github_login", "expected": { "action": "accept", "content": { "name": "octocat" } } },
+    { "name": "a sampling answer is no elicitation answer", "key": "capital_of_france", "expected": null },
+    { "name": "a missing key", "key": "nope", "expected": null },
+    { "name": "a declined answer", "key": "declined", "expected": { "action": "decline", "content": null } },
+    { "name": "a cancelled answer", "key": "cancelled", "expected": { "action": "cancel", "content": null } },
+    { "name": "an accept without an object content", "key": "accepted_bare", "expected": { "action": "accept", "content": null } },
+    { "name": "a wrapped {method, result} answer is not bare", "key": "wrapped", "expected": null }
+  ],
+  "answerResponses": {
+    "github_login": { "action": "accept", "content": { "name": "octocat" } },
+    "capital_of_france": {
+      "role": "assistant",
+      "content": { "type": "text", "text": "The capital of France is Paris." },
+      "model": "claude-3-sonnet-20240307",
+      "stopReason": "endTurn"
+    },
+    "declined": { "action": "decline" },
+    "cancelled": { "action": "cancel", "content": { "ignored": true } },
+    "accepted_bare": { "action": "accept", "content": "octocat" },
+    "wrapped": { "method": "elicitation/create", "result": { "action": "accept", "content": { "name": "octocat" } } }
+  },
+  "digestCases": [
+    { "name": "key order does not matter", "args": { "b": 1, "a": [{ "y": 2, "x": "é" }] }, "canonical": "{\"a\":[{\"x\":\"é\",\"y\":2}],\"b\":1}" },
+    { "name": "undefined keys drop, null stays", "args": { "a": null }, "canonical": "{\"a\":null}" },
+    { "name": "no arguments", "args": null, "canonical": "{}" }
+  ],
+  "stateCases": [
+    {
+      "name": "the same member, credential, method, tool and arguments, in time: redeemed",
+      "claims": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "exponential_issues_write", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "exponential_issues_write", "args": "A" },
+      "now": 1999,
+      "used": false,
+      "verdict": "ok"
+    },
+    {
+      "name": "at exp: expired",
+      "claims": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A" },
+      "now": 2000,
+      "used": false,
+      "verdict": "expired"
+    },
+    {
+      "name": "expired wins over a mismatch",
+      "claims": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u2", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A" },
+      "now": 3000,
+      "used": false,
+      "verdict": "expired"
+    },
+    {
+      "name": "another member",
+      "claims": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u2", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A" },
+      "now": 1000,
+      "used": false,
+      "verdict": "member"
+    },
+    {
+      "name": "the same member through another credential",
+      "claims": { "sub": "u1", "grant": "oauth:c1", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "key:k1", "method": "tools/call", "tool": "t", "args": "A" },
+      "now": 1000,
+      "used": false,
+      "verdict": "grant"
+    },
+    {
+      "name": "another method",
+      "claims": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "member", "method": "prompts/get", "tool": "t", "args": "A" },
+      "now": 1000,
+      "used": false,
+      "verdict": "method"
+    },
+    {
+      "name": "another tool",
+      "claims": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "exponential_issues_write", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "exponential_sessions_write", "args": "A" },
+      "now": 1000,
+      "used": false,
+      "verdict": "tool"
+    },
+    {
+      "name": "other arguments",
+      "claims": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "t", "args": "B" },
+      "now": 1000,
+      "used": false,
+      "verdict": "args"
+    },
+    {
+      "name": "a second redemption",
+      "claims": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "t", "args": "A", "exp": 2000, "jti": "j1" },
+      "expected": { "sub": "u1", "grant": "member", "method": "tools/call", "tool": "t", "args": "A" },
+      "now": 1000,
+      "used": true,
+      "verdict": "replayed"
+    }
+  ],
+  "spec": {
+    "discoverRequest": {
+      "jsonrpc": "2.0",
+      "id": "discover-1",
+      "method": "server/discover",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { "name": "ExampleClient", "version": "1.0.0" },
+          "io.modelcontextprotocol/clientCapabilities": {}
+        }
+      }
+    },
+    "discoverResponse": {
+      "jsonrpc": "2.0",
+      "id": "discover-1",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": { "tools": {}, "resources": {} },
+        "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "ExampleServer", "version": "1.0.0" } },
+        "instructions": "This server provides weather and resource utilities.",
+        "ttlMs": 3600000,
+        "cacheScope": "public"
+      }
+    },
+    "discoverResultKeys": ["resultType", "supportedVersions", "capabilities", "_meta", "instructions", "ttlMs", "cacheScope"],
+    "unsupportedVersionError": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+        "code": -32022,
+        "message": "Unsupported protocol version",
+        "data": { "supported": ["2026-07-28", "2025-11-25"], "requested": "1900-01-01" }
+      }
+    },
+    "inputRequiredResult": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "github_login": {
+            "method": "elicitation/create",
+            "params": {
+              "mode": "form",
+              "message": "Please provide your GitHub username",
+              "requestedSchema": {
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"]
+              }
+            }
+          },
+          "capital_of_france": {
+            "method": "sampling/createMessage",
+            "params": {
+              "messages": [{ "role": "user", "content": { "type": "text", "text": "What is the capital of France?" } }],
+              "modelPreferences": { "hints": [{ "name": "claude-3-sonnet" }], "intelligencePriority": 0.8, "speedPriority": 0.5 },
+              "systemPrompt": "You are a helpful assistant.",
+              "maxTokens": 100
+            }
+          }
+        },
+        "requestState": "AEAD-protected blob"
+      }
+    },
+    "urlElicitation": {
+      "method": "elicitation/create",
+      "params": { "mode": "url", "url": "https://mcp.example.com/ui/set_api_key", "message": "Please provide your API key to continue." }
+    }
+  }
+}
