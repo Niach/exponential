@@ -34,6 +34,7 @@ import {
   passkeyRelyingParty,
 } from "@/lib/auth/config"
 import { androidPasskeyOrigins, parseFingerprints } from "@/lib/app-links"
+import { stepUpPlugin } from "./step-up"
 import {
   recordEmailDelivery,
   sendEmailChangeCodeEmail,
@@ -175,6 +176,16 @@ if (
 const EMAIL_OTP_ALLOWED_ATTEMPTS = 5
 
 const clientMetadata = cimdOptions()
+
+// The WebAuthn origins a passkey ceremony may come from: the web origin (also
+// what iOS's associated-domain ceremony reports) plus one apk-key-hash origin
+// per Android signing cert. Shared by the passkey plugin and the step-up.
+function passkeyOrigins(): string[] {
+  return [
+    new URL(process.env.BETTER_AUTH_URL!).origin,
+    ...androidPasskeyOrigins(parseFingerprints(process.env.ANDROID_APP_LINK_FINGERPRINTS)),
+  ]
+}
 
 export const auth = betterAuth({
   // The token endpoints are server-only (see DISABLED_AUTH_PATHS).
@@ -654,12 +665,7 @@ export const auth = betterAuth({
       ? [
           passkey({
             ...passkeyRelyingParty(),
-            origin: [
-              new URL(process.env.BETTER_AUTH_URL!).origin,
-              ...androidPasskeyOrigins(
-                parseFingerprints(process.env.ANDROID_APP_LINK_FINGERPRINTS)
-              ),
-            ],
+            origin: passkeyOrigins(),
             authenticatorSelection: {
               residentKey: `preferred`,
               userVerification: `preferred`,
@@ -670,6 +676,22 @@ export const auth = betterAuth({
     // EXP-1126: "at least one way in remains" in front of /unlink-account and
     // /passkey/delete-passkey for direct API callers (clients use tRPC).
     signInMethodsGuardPlugin(),
+    // #EXP-2143 follow-up: "Confirm it's you" — a SESSION_NOT_FRESH refusal
+    // (the passkey registration pair above) is answered in place: the person
+    // proves it is them (passkey, mailed code or password) and THIS session
+    // becomes fresh; the refused action then runs again (fixtures/step-up.json).
+    stepUpPlugin({
+      instance: () => ({
+        passkey: isPasskeyEnabled(),
+        email: isEmailOtpEnabled(),
+        password: process.env.AUTH_PASSWORD_ENABLED !== `false`,
+      }),
+      passkey: () => ({ rpID: passkeyRelyingParty().rpID, origin: passkeyOrigins() }),
+      sendCode: async ({ email, code, userId }) => {
+        const result = await sendSignInCodeEmail({ to: email, code })
+        await recordEmailDelivery({ userId, toEmail: email, kind: `sign_in_code`, result })
+      },
+    }),
     apiKey({
       // Personal API keys (desktop coding sessions / MCP clients) — minted by
       // the user for their own auth, never a synthetic identity.

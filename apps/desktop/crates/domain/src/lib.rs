@@ -234,6 +234,8 @@ pub mod rows;
 pub mod sealed;
 // NEW-2: THE schedule picker (cron <-> rows, labels, summary), fixture-locked ×4.
 pub mod schedule_picker;
+// #EXP-2143 follow-up: "Confirm it's you", the step-up reducer, fixture-locked ×4.
+pub mod step_up;
 pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;
