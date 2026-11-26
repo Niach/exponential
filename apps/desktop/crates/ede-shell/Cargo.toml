@@ -60,6 +60,8 @@ libc = "0.2"
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # The switcher's thumbnails: captures as PNG data URLs.
 png = "0.17"
+# #EDE-242: an X11 window's _NET_WM_PID and _NET_WM_ICON from Xwayland (pure Rust, already in the tree).
+x11rb = "0.13"
 base64 = "0.22"
 # #EDE-65 lane L: the chat composer's uploads (api::attachment_upload).
 anyhow.workspace = true
