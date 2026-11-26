@@ -13,7 +13,7 @@
 // wording (the reason goes to the server's onerror only). The handler then
 // reads its `data` and the answers with `redeemInput(ctx)`.
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, randomUUID } from "node:crypto"
-import { ProtocolError } from "@modelcontextprotocol/server"
+import { ProtocolError, type McpServer } from "@modelcontextprotocol/server"
 import {
   argsCanonical,
   canDeliver,
@@ -217,3 +217,32 @@ export function redeemInput<T = unknown>(ctx: EmcpToolContext): Redeemed<T> | nu
   const responses = ctx.mcpReq?.inputResponses
   return { data: (state as StateClaims).data as T | undefined, answer: (key) => elicitationAnswer(responses, key) }
 }
+
+// #NEW-147: McpServer answers ANY throw of a tool handler as an `isError`
+// tool result; the few JSON-RPC errors a call itself must answer (an
+// elicitation answer that was not offered: -32602) escape through this
+// slot, keyed by the request's abort signal, and its tools/call wrapper.
+const rpcEscapes = new WeakMap<object, ProtocolError>()
+
+/** Answer this tool call with the JSON-RPC `error` (outside an SDK request: thrown). */
+export function escapeAsRpcError(ctx: Pick<EmcpToolContext, `mcpReq`>, error: ProtocolError): { content: { type: `text`; text: string }[]; isError: true } {
+  const key = (ctx.mcpReq as { signal?: object } | undefined)?.signal
+  if (!key) throw error
+  rpcEscapes.set(key, error)
+  return { content: [{ type: `text`, text: error.message }], isError: true }
+}
+
+/** Wraps `server`'s tools/call (registered by its first tool) to throw an escaped error. */
+export function installRpcErrorEscape(server: McpServer): void {
+  const handlers = (server.server as unknown as { _requestHandlers: Map<string, (request: unknown, ctx: { mcpReq?: { signal?: object } }) => Promise<unknown>> })._requestHandlers
+  const inner = handlers.get(`tools/call`)
+  if (!inner) return
+  handlers.set(`tools/call`, async (request, ctx) => {
+    const result = await inner(request, ctx)
+    const key = ctx?.mcpReq?.signal
+    const escaped = key ? rpcEscapes.get(key) : undefined
+    if (escaped) throw escaped
+    return result
+  })
+}
+

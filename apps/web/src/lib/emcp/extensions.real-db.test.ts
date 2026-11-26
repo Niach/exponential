@@ -266,3 +266,64 @@ describe.skipIf(!ready.ok)(`/api/mcp extensions (real db, #NEW-147)`, () => {
     expect(rows).toEqual([{ tool: `tasks/cancel` }])
   })
 })
+
+describe.skipIf(!ready.ok)(`/api/mcp: a start (real db, #NEW-147)`, () => {
+  it(`a session start returns a task; a plan card is a question`, async () => {
+    resetTaskRateWindows()
+    const w = await world()
+    const deviceId = `dev-${id8()}`
+    await db.insert(devices).values({ userId: w.userId, deviceId, label: `mac`, kind: `desktop` })
+    const started = await call(w.token, `exponential_sessions_send`, { text: `Fix the login bug`, deviceId, teamId: w.teamId })
+    expect(started.error).toBeUndefined()
+    if (started.result!.isError) throw new Error(JSON.stringify(started.result))
+    expect(started.result!.resultType).toBe(`task`)
+    const taskId = started.result!.taskId as string
+    const [task] = await db.select().from(mcpTasks).where(eq(mcpTasks.id, taskId))
+    expect(task).toMatchObject({ kind: `session`, teamId: w.teamId })
+    const planId = await db.transaction((tx) =>
+      insertMessage(tx, task!.ref!, {
+        authorKind: `agent`,
+        body: `Plan`,
+        card: { kind: `plan`, plan: `1. Read\n2. Fix`, questions: [{ id: `db`, prompt: `Which db?`, options: [{ label: `Postgres` }, { label: `SQLite` }] }] } as never,
+      })
+    )
+    const asking = await rpc(w.token, `tasks/get`, { taskId })
+    expect(asking.result!.status).toBe(`input_required`)
+    const request = asking.result!.inputRequests[planId] as { method: string; params: { mode: string; requestedSchema: { properties: Record<string, unknown> } } }
+    expect(request.method).toBe(`elicitation/create`)
+    expect(Object.keys(request.params.requestedSchema.properties)).toEqual(expect.arrayContaining([`decision`, `q_db`]))
+  })
+
+  it(`a start naming no team asks which one when the grant reaches several`, async () => {
+    resetTaskRateWindows()
+    const w = await world()
+    const [second] = await db.insert(teams).values({ name: `Another`, slug: `ext-${id8()}` }).returning({ id: teams.id })
+    made.teams.push(second!.id)
+    await db.insert(teamMembers).values({ teamId: second!.id, userId: w.userId, role: `owner` })
+    await db.update(mcpGrants).set({ teamIds: [w.teamId, second!.id] }).where(eq(mcpGrants.clientId, w.clientId))
+    invalidateMembershipCaches()
+    const deviceId = `dev-${id8()}`
+    await db.insert(devices).values({ userId: w.userId, deviceId, label: `mac`, kind: `desktop` })
+    const args = { text: `Fix it`, deviceId }
+    const first = await call(w.token, `exponential_sessions_send`, args)
+    expect(first.result!.resultType).toBe(`input_required`)
+    const [key, request] = Object.entries(first.result!.inputRequests as Record<string, { params: { requestedSchema: any } }>)[0]!
+    const offered = request.params.requestedSchema.properties.teamId.oneOf as { const: string; title: string }[]
+    expect(offered.map((option) => option.title)).toEqual([`Another`, `Ext`])
+    // A value that was not offered is refused.
+    const bad = await call(w.token, `exponential_sessions_send`, args, {
+      inputResponses: { [key]: { action: `accept`, content: { teamId: crypto.randomUUID() } } },
+      requestState: first.result!.requestState,
+    })
+    expect(bad.error?.code).toBe(-32602)
+    const again = await call(w.token, `exponential_sessions_send`, args)
+    const [key2] = Object.keys(again.result!.inputRequests)
+    const picked = await call(w.token, `exponential_sessions_send`, args, {
+      inputResponses: { [key2!]: { action: `accept`, content: { teamId: second!.id } } },
+      requestState: again.result!.requestState,
+    })
+    expect(picked.result!.resultType).toBe(`task`)
+    const [task] = await db.select({ teamId: mcpTasks.teamId }).from(mcpTasks).where(eq(mcpTasks.id, picked.result!.taskId))
+    expect(task!.teamId).toBe(second!.id)
+  })
+})

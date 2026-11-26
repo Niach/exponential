@@ -5,7 +5,7 @@ import { registerExponentialApps } from "./apps"
 import { registerIssueResource } from "./mentions"
 import { MCP_EXTENSION_CAPABILITIES } from "./extensions"
 import { NO_CLIENT, type EmcpContext } from "./request-context"
-import { requestStateVerifier } from "./mrtr"
+import { installRpcErrorEscape, requestStateVerifier } from "./mrtr"
 import { registerSkills } from "./skills-mcp"
 import { registerTasks } from "./tasks"
 import { appBaseUrl } from "@/lib/notification-email-policy"
@@ -62,6 +62,8 @@ export function createExponentialMcpServer(
   )
   // NEW-4: the 17 tools (S-3 added `show`) route `op` to the per-operation definitions.
   const tools = registerNounTools(server, user, request, access, sessionId, gates, context)
+  // #NEW-147: an elicitation answer that was not offered answers -32602 (mrtr.ts).
+  installRpcErrorEscape(server)
   // EXP-1183: the MCP Apps views the issue/run tools point at. EXP-1212: not
   // for a coding run (it cannot draw them, and reading one would pull the
   // whole inlined page into its context); external MCP Apps hosts only.

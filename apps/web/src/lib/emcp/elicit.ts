@@ -35,7 +35,7 @@ import { PLAN_LIMIT_MESSAGE_PREFIX } from "@/lib/plan-limit-error"
 import { composeDeviceList } from "@/lib/steer-devices"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { githubAppInstallUrl } from "@/lib/integrations/github-app"
-import { askInput, redeemInput, type InputRequiredResult } from "./mrtr"
+import { askInput, escapeAsRpcError, redeemInput, type InputRequiredResult } from "./mrtr"
 import { isTeamFullyGranted, type McpAccess } from "./scope"
 import type { EmcpToolContext } from "./request-context"
 
@@ -103,7 +103,7 @@ export async function elicitBeforeCall(
   const confirm = confirmGate(spec.tool, args, modes)
   if (confirm.kind === `confirm` && !data.confirmed) {
     const outcome = redeemed && data.awaiting === undefined ? confirmOutcome(rawResponse(ctx, CONFIRM_KEY)) : `reask`
-    if (outcome === `invalid`) throw invalidAnswer()
+    if (outcome === `invalid`) return { kind: `answer`, result: escapeAsRpcError(ctx, invalidAnswer()) }
     if (outcome === `declined`) return { kind: `answer`, result: refused(ELICIT_RESULTS.declined) }
     if (outcome === `cancelled`) return { kind: `answer`, result: refused(ELICIT_RESULTS.cancelled) }
     if (outcome === `run`) data.confirmed = true
@@ -124,7 +124,7 @@ export async function elicitBeforeCall(
     }
     if (redeemed && data.awaiting === pick) {
       const outcome = pickOutcome(property, data.offered ?? [], rawResponse(ctx, key))
-      if (outcome.kind === `invalid`) throw invalidAnswer()
+      if (outcome.kind === `invalid`) return { kind: `answer`, result: escapeAsRpcError(ctx, invalidAnswer()) }
       if (outcome.kind === `noPick`) return { kind: `answer`, result: refused(ELICIT_RESULTS.noPick) }
       if (outcome.kind === `use`) {
         args[property] = outcome.id
