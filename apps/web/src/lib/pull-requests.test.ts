@@ -125,7 +125,8 @@ import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { compareCommitMessages, linkedIssuesOfPullRequest, loadPrPictures } from "@/lib/pr-pictures"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import { _clearPrActorClaims, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
-import { ForgeError, partialForgeForTests, type Forge } from "@/lib/ecode/forge"
+import { ForgeError, partialForgeForTests, setForgeForTests, type Forge } from "@/lib/ecode/forge"
+import { loadRepository, resolveGatedRepoToken } from "@/lib/trpc/repositories"
 import {
   closePullRequest,
   createOrAdoptOnForge,
@@ -350,6 +351,37 @@ describe(`openPullRequest`, () => {
     await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
     expect(gh.createPullRequest).toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  // #EXP-2170: a hosted repo (eCode's own forge) needs no GitHub token and
+  // never reaches GitHub's compare API.
+  it(`opens on a hosted repo without a GitHub token or compare`, async () => {
+    chatOf([])
+    vi.mocked(loadRepository).mockResolvedValueOnce({ ...REPO, provider: `ecode`, fullName: `acme/dog`, installationId: null } as never)
+    const opened: unknown[] = []
+    setForgeForTests((repo) =>
+      repo.provider === `ecode`
+        ? partialForgeForTests({
+            kind: `ecode`,
+            inferBase: async () => ({ base: `main` }),
+            findOpenByHead: async () => null,
+            openPullRequest: async (at, opts) => {
+              opened.push({ token: at.token, base: opts.base })
+              return { url: `https://exp.example/t/acme/repos/dog/pulls/1`, number: 1, base: opts.base } as never
+            },
+          } as never)
+        : null
+    )
+    try {
+      const result = await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Hosted` })
+      expect(result.number).toBe(1)
+      expect(opened).toEqual([{ token: ``, base: `main` }])
+      expect(resolveGatedRepoToken).not.toHaveBeenCalled()
+      expect(compareChangedPaths).not.toHaveBeenCalled()
+      expect(compareCommitMessages).not.toHaveBeenCalled()
+    } finally {
+      setForgeForTests(null)
+    }
   })
 
   // EXP-1468: a sealed show card (device gateway) feeds the gate through
