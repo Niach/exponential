@@ -1630,7 +1630,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       style: { maxWidth: 320 },
       props: {
         runs: [
-          { text: `Deploy ` },
+          { text: `Release ` },
           { text: `v2.4`, weight: `semibold` },
           { text: ` shipped `, tone: `success` },
           { text: `today`, mark: `highlight` },
@@ -1649,7 +1649,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }, {
     // Round 4: the first letter spans three lines, the text wraps beside it.
     label: `dropCap · 3`,
-    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it within minutes, so nobody waits on a button.` } },
+    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button.` } },
   }, {
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },

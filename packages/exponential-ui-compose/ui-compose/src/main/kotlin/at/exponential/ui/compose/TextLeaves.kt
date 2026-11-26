@@ -129,6 +129,12 @@ internal fun CalendarMarkedDayLeaf(cx: LeafContext) {
  */
 @Composable
 internal fun TextLeaf(cx: LeafContext) {
+    // Round 4 (fixtures/text-runs.json): runs and the drop cap.
+    val rich = remember(cx.props, cx.textStyle.textTransform) { at.exponential.ui.measure.richSpans(cx.props) { cx.shown(it) } }
+    if (rich != null) {
+        RichTextLeaf(cx, rich)
+        return
+    }
     val align = leafTextAlign(cx.style.textAlign ?: cx.props["align"]?.string, cx.rtl)
     val lines = cx.node.lines
     val text = cx.props.shownText("text")
@@ -168,6 +174,82 @@ internal fun TextLeaf(cx: LeafContext) {
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
             onTextLayout = fills.onTextLayout,
         )
+    }
+}
+
+/**
+ * Round 4 (fixtures/text-runs.json): a Text's runs as one inline paragraph
+ * through the Markdown span machinery (the measurer's
+ * [at.exponential.ui.paint.RichText.flow]), its drop cap a box `lines` ×
+ * lineHeight tall at the inline start, the glyph by half-leading in it. A
+ * link opens through the URL policy (denied = plain text) and never presses
+ * the parent; nothing is selectable.
+ */
+@Composable
+internal fun RichTextLeaf(cx: LeafContext, spans: at.exponential.ui.measure.RichSpans) {
+    val model = cx.model
+    val theme = model.effectiveTheme
+    val ts = cx.textStyle
+    val styles = remember(theme, model.mode, ts, model.textScale) { MarkdownPainter.styles(theme, model.mode, ts, emptyMap(), model.textScale) }
+    val variant = cx.props["variant"] ?: JsonValue.Str("body")
+    val tones = remember(theme, model.mode, variant) {
+        at.exponential.ui.measure.TextRuns.TONES.mapNotNull { tone -> cx.part("Text", "root", mapOf("variant" to variant, "tone" to JsonValue.Str(tone))).color?.let { tone to it } }.toMap()
+    }
+    val border = cx.themeColor("border") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.2f)
+    val colors = MarkdownColors(
+        ink = cx.ink,
+        muted = cx.themeColor("mutedForeground") ?: cx.ink,
+        // A Text's link keeps its run's colour (the #EXP-1674 text link look).
+        link = cx.ink,
+        border = border,
+        codeBackground = cx.part("Markdown", "code", emptyMap()).style.background,
+        codeBlockBackground = cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.06f),
+        quoteBorder = border,
+        tones = tones,
+        markFill = cx.themeColor("match") ?: HIGHLIGHT_MATCH,
+    )
+    val inlines = remember(spans) { at.exponential.ui.paint.RichText.inlines(spans.runs) { model.href(it) } }
+    val shaper = model.textShaper()
+    val md = remember(shaper, theme) { at.exponential.ui.measure.MarkdownShaper(shaper, theme?.monoFamily) }
+    val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }
+    val cap = spans.cap
+    val capSize = if (cap != null) at.exponential.ui.measure.TextRuns.dropCapSize(ts.fontSize, ts.lineHeight, spans.lines) else 0f
+    val capTs = cap?.let { ts.copy(fontSize = capSize, lineHeight = spans.lines * ts.lineHeight, fontWeight = it.fontWeight ?: ts.fontWeight) }
+    val capAdvance = capTs?.let { shaper.maxContent(cap.text, it) } ?: 0f
+    val capBox = if (cap != null) (capAdvance + (theme?.spacing(at.exponential.ui.measure.TextRuns.GAP_TOKEN) ?: 4f)) to spans.lines else null
+    val width = cx.inner.width
+    val flow = remember(inlines, styles, width, capBox, cx.rtl) { at.exponential.ui.paint.RichText.flow(inlines, styles, width, capBox, cx.rtl, md) }
+    val highlight = remember(cx.props["highlight"], cx.themeColor("match"), cx.themeColor("matchCurrent")) {
+        at.exponential.ui.measure.highlightSpec(cx.props["highlight"])?.let { spec ->
+            at.exponential.ui.primitives.MarkdownHighlight(spec.query, at.exponential.ui.primitives.highlightLocalCurrent(spec), cx.themeColor("match") ?: HIGHLIGHT_MATCH, cx.themeColor("matchCurrent") ?: HIGHLIGHT_MATCH_CURRENT)
+        }
+    }
+    InnerBox(cx) {
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            if (cap != null && capTs != null) {
+                val ink = cap.tone?.let { tones[it] } ?: cx.ink
+                val x = if (cx.rtl) width - capAdvance else 0f
+                Box(Modifier.absoluteOffset(x.dp, 0.dp).size(capAdvance.dp, (spans.lines * ts.lineHeight).dp)) {
+                    BasicText(cap.text, style = cx.composeTextStyle(capTs, color = ink), softWrap = false, maxLines = 1)
+                }
+            }
+            for (piece in flow.pieces) {
+                Box(Modifier.absoluteOffset(piece.x.dp, piece.y.dp).size(piece.width.dp, piece.height.dp)) {
+                    MarkdownView(
+                        text = "",
+                        ready = piece.blocks,
+                        modifier = Modifier.fillMaxSize(),
+                        styles = styles,
+                        colors = colors,
+                        monoFamily = theme?.monoFamily,
+                        fonts = fonts,
+                        onLink = { model.openHref(it) },
+                        options = at.exponential.ui.primitives.MarkdownOptions(selectable = false),
+                        highlight = highlight,
+                    )
+                }
+            }
+        }
     }
 }
 

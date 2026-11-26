@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Text `runs` + `dropCap` (genUI round 4): styled spans (weights, tones, marks, policed links) and a floated first letter.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`; `formatString` reads `${fn(name: value)}` calls; a call that names its catalog runs only what that catalog declares.
 - A hosted Popover / Menu follows its anchor (#EXP-2047): while `popupHost` holds it, a move or a resize of its anchor calls `popupHost.mount` again with the same owner and the anchor's new box instead of closing it (`watchAnchor`'s `onMoved`); a scroll or the anchor going still closes it. `interactions-fixture.test.tsx` replays the hosted cases.
 - Row `depth` bound to data (#EXP-1843): TreeGuides reads its resolved `depth` through the core's `treeGuideDepth` (a finite number floored, never below 0; a numeric STRING is 0 now, as in the Rust core); `list-reorder.test.tsx` renders a templated folder tree whose rows bind `depth`.

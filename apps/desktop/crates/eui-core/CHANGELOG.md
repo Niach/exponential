@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Text `runs` + `dropCap` (genUI round 4, fixtures/text-runs.json): `text_runs` replays the fixture; the layout tree hands painters the normal form (`runs`, `text` = the joined text, `dropCap` = lines), and FixedMeasure gives a drop cap its lines.
 - `NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup` and `Section.actionLabel` (genUI round 4): macros.json + the neutral recipes, replayed from `catalog-macros.json` as in TypeScript.
 - **Breaking.** A2UI 1.0 re-pinned at upstream `main@a23b19c4` (2026-11-25), the `@` envelope keys (#VAPP-289): a component entry writes `@catalogId`, `@accessibility`, `@metadata` and `@checks` (a nested card node carries the same four at node level, next to `props`, its checks included). A bare `catalogId`, `accessibility`, `metadata` or `checks` is an ordinary prop of a component whose catalog declares one; on any other component the entry is refused (INVALID_MESSAGE at that key, naming the `@` key), `@` + bare together too. The normalized `UiNode` is unchanged (`props.checks`, `accessibility`, `metadata`). `NestedNode.checks` is new; `NestedNode` / `FlatComponent` read `@accessibility`, `@catalogId` and `@metadata`.
 - `formatString` reads `${fn(name: value)}` calls: named args (quoted strings, numbers, booleans, null, `${…}`, calls, pointers), resolved against the catalog the enclosing call resolved to; a literal `${` is `\${`; a malformed or failing call fails the template (`format_template`).

@@ -28549,7 +28549,7 @@
             "strike",
             "underline"
           ],
-          "description": "Mark."
+          "description": "Span mark."
         },
         "link": {
           "type": "string",

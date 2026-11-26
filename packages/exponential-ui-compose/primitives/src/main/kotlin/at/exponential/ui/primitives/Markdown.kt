@@ -26,6 +26,14 @@ data class MarkdownInline(
     val link: String? = null,
     /** #VAPP-258: a host chip (a text link painted as the Chip look, inline); never merged with a neighbour. */
     val chip: MarkdownChip? = null,
+    /** Round 4 (fixtures/text-runs.json): a Text run's own weight (null = the block's, or bold's 600). */
+    val weight: Int? = null,
+    /** A Text run's tone ([MarkdownColors.tones]; null = the ink, or the link colour). */
+    val tone: String? = null,
+    /** A Text run's `underline` mark. */
+    val underline: Boolean = false,
+    /** A Text run's `highlight` mark: [MarkdownColors.markFill] in the glyph box. */
+    val fill: Boolean = false,
 )
 
 /** #VAPP-258 (catalog/host.json `markdown`): a text link's chip: [kind] in [KINDS], a non-empty [label], an optional icon registry name. */
@@ -352,6 +360,10 @@ data class MarkdownStyles(
  * (null = one line per paragraph), widths, widest words. All in dp.
  */
 interface MarkdownTextMeasure {
+    /** Round 4 (a drop cap): [inlines] wrapped at [width], per visual line its first char and its width. Default: one line. */
+    fun lineStarts(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float, chips: MarkdownChipStyle): List<Pair<Int, Float>> =
+        listOf(0 to minOf(width(inlines, spec, chips), width))
+
     /** The height of `inlines` wrapped at `width` (null = no wrap). */
     fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?): Float
 
@@ -382,6 +394,42 @@ data class MarkdownLayout(val blocks: List<MarkdownBlockBox>, val height: Float)
 
 /** The parser and the layout rule. */
 object Markdown {
+    /**
+     * Round 4 (fixtures/text-runs.json): the spans beside a drop cap and the
+     * spans under it. [inlines] wrap at [beside] for at most [lines] lines; a
+     * line wider than [beside] (its first unbreakable segment does not fit)
+     * and every line after it go under the cap. The split falls on a line
+     * start, so it never cuts a chip.
+     */
+    fun dropCapFlow(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, beside: Float, lines: Int, chips: MarkdownChipStyle, text: MarkdownTextMeasure): Pair<List<MarkdownInline>, List<MarkdownInline>> {
+        val starts = text.lineStarts(inlines, spec, maxOf(beside, 1f), chips)
+        var cut = -1
+        for ((k, line) in starts.withIndex()) {
+            if (k >= lines || line.second > beside + 0.5f) {
+                cut = line.first
+                break
+            }
+        }
+        if (cut < 0) return inlines to emptyList()
+        val head = ArrayList<MarkdownInline>()
+        val rest = ArrayList<MarkdownInline>()
+        var at = 0
+        for (span in inlines) {
+            val end = at + span.text.length
+            when {
+                end <= cut -> head.add(span)
+                at >= cut -> rest.add(span)
+                else -> {
+                    head.add(span.copy(text = span.text.substring(0, cut - at)))
+                    rest.add(span.copy(text = span.text.substring(cut - at)))
+                }
+            }
+            at = end
+        }
+        if (rest.isNotEmpty() && rest[0].chip == null) rest[0] = rest[0].copy(text = rest[0].text.trimStart(' '))
+        return head to rest.filter { it.text.isNotEmpty() }
+    }
+
     private data class Flags(val bold: Boolean = false, val italic: Boolean = false, val strike: Boolean = false)
 
     private val ENTITIES = mapOf("amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to "\u00A0")

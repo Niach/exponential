@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Text `runs` + `dropCap` (genUI round 4), through the React renderer.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`; `formatString` reads `${fn(name: value)}` calls; a call that names its catalog runs only what that catalog declares.
 - `highlight` on Text, Markdown, MessageBubble and Row (#EDE-95): through the Solid painter.
 - `forcedStates` property (#EXP-1781): host-only FORCED interaction states, paint only, through the Solid painter.

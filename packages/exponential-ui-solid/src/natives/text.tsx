@@ -54,19 +54,19 @@ export function TextNative(props: NativeProps): JSX.Element {
       data-truncate={truncate()}
       aria-live={live()}
       aria-atomic={live() && live() !== `off` ? true : undefined}
-      data-xui-align={align()}
+      data-xui-align={rich() ? undefined : align()}
       data-lines={lines() > 0 ? lines() : undefined}
       data-clamp={lines() > 1 ? `` : undefined}
       data-xui-shimmer={props.props.shimmer === true ? `` : undefined}
       data-xui-dropcap={rich()?.cap ? `` : undefined}
-      style={mergeStyle(props.rootProps, lines() > 1 ? { WebkitLineClamp: lines() } : undefined)}
+      style={mergeStyle(props.rootProps, lines() > 1 || rich() ? { ...(lines() > 1 ? { WebkitLineClamp: lines() } : {}), ...(rich() ? { textAlign: `start` } : {}) } : undefined)}
     >
       <Show when={rich()} fallback={<Plain />}>
         {(paint) => (
           <>
             <Show when={paint().cap}>
               {(cap) => (
-                <span data-xui-cap="" aria-hidden={true} style={solidCss(cap().css)}>
+                <span data-xui-cap="" style={solidCss(cap().css)}>
                   {cap().text}
                 </span>
               )}
