@@ -38,7 +38,6 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ChatMenuItem
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
@@ -49,43 +48,13 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * #EXP-1688 (chats.json `shell.chatHeader`, web `MobileDetailHeader` +
- * `PhoneHeaderTitle`): the ghost button the chat header's back, telephone and
- * `…` all wear: no fill, no hairline, the secondary glyph (the filled circle
- * is the top-level page header's). The tap target stays the platform minimum.
- */
-@Composable
-fun ChatHeaderButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    /** #EXP-1878: the disabled look (the dimmed glyph) on a control that
-     *  still takes its press (a tap says why it is off). */
-    dimmed: Boolean = false,
-) {
-    CircleIconButton(
-        icon,
-        contentDescription,
-        onClick = onClick,
-        modifier = modifier,
-        tint = if (dimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary) else null,
-        enabled = enabled,
-        borderless = true,
-        size = Chats.Shell.ChatHeader.BUTTON.dp,
-        glyphSize = Chats.Shell.ChatHeader.GLYPH.dp,
-    )
-}
-
-/**
  * Session 58cb32df (chats.json TRANSCRIPT, phones): THE chat header — back ·
  * the lead disc · the title over its subtitle (S-3: no Stop pill) · the
  * chat's Merge pill ([action]) · NEW-69: the telephone ([call], an agent chat
  * only, left of `…`) · the `…` menu (the chat's own entries,
  * `chatMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
- * divider). #EXP-1688: one leading row, nothing centred, a ghost back
- * (`shell.chatHeader`), THE header circles trailing (header-actions.json). #FEED-239: no gear (settings = a `…` entry); THE
+ * divider). #EXP-1688: one leading row, nothing centred; #EXP-2168: THE
+ * round back leading, THE header circles trailing (header-actions.json). #FEED-239: no gear (settings = a `…` entry); THE
  * session screen's tabs ([SessionScreenTabs]) ride under it ([tabs]) on the
  * same band.
  */
@@ -136,11 +105,12 @@ fun ChatHeader(
                     .padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val gap = Chats.Shell.ChatHeader.GAP.dp
                 val actionGap = com.exponential.app.domain.HeaderActions.GAP.dp
                 if (onBack != null) {
-                    ChatHeaderButton(ExpIcons.uiBack, "Back", onClick = onBack)
-                    Spacer(Modifier.width(gap))
+                    // #EXP-2168: THE round back (header-actions.json `leading`).
+                    Spacer(Modifier.width(8.dp))
+                    com.exponential.app.ui.components.PageHeaderBack(onClick = onBack)
+                    Spacer(Modifier.width(actionGap))
                 } else {
                     // A tab's root (the Assistant's): the disc on the page's 16dp edge.
                     Spacer(Modifier.width(8.dp))
@@ -186,7 +156,7 @@ fun ChatHeader(
                     }
                 }
                 if (waiting != null) {
-                    Spacer(Modifier.width(gap))
+                    Spacer(Modifier.width(actionGap))
                     waiting()
                 }
                 // Draws its own leading gap (nothing while there is no action).

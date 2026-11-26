@@ -15,7 +15,6 @@ import {
   SegmentedControl,
   useIsMobile,
 } from "@exp/ui"
-import { HEADER_ACTION_CLASS } from "@/components/team/mobile-detail-header"
 import { BackStackButton } from "@/components/chat/session-body"
 import { cn } from "@/lib/utils"
 
@@ -306,7 +305,7 @@ export function SessionScreenFrame({
           menu={
             <span className="flex shrink-0 items-center gap-2">
               {trailing}
-              {menu?.(HEADER_ACTION_CLASS)}
+              {menu?.(``)}
             </span>
           }
           below={tabs && <div className="px-3 pb-2">{tabs}</div>}
@@ -321,7 +320,7 @@ export function SessionScreenFrame({
     <div className="flex h-full min-h-0 flex-col" data-testid={testId} data-layout={screen.layout}>
       <div className="shrink-0 border-b border-border px-6 py-3">
         <div className="flex items-center gap-3">
-          <BackStackButton onPop={onPop} className="-ml-2" />
+          <BackStackButton onPop={onPop} />
           {avatar}
           <div className="min-w-40 flex-1">
             <div className="flex min-w-0 items-center gap-2">
@@ -351,7 +350,7 @@ export function SessionScreenFrame({
           {tabs && <div className="shrink-0">{tabs}</div>}
           <span className="flex shrink-0 items-center gap-2">
             {trailing}
-            {menu?.(HEADER_ACTION_CLASS)}
+            {menu?.(``)}
           </span>
         </div>
       </div>

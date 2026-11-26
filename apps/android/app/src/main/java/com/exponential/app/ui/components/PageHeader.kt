@@ -76,11 +76,11 @@ fun PageHeader(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
                 .heightIn(min = circle)
                 .testTag(Chats.TestIds.PAGE_HEADER),
         ) {
-            TopBarBackButton(onClick = onBack)
+            PageHeaderBack(onClick = onBack)
             leading?.invoke()
             Text(
                 title,
@@ -118,21 +118,19 @@ fun PageHeader(
         )
         if (buttons) Chats.Shell.Header.BUTTONS.forEach { concept ->
             when (concept) {
-                "nav-search" -> BarCircle(
+                "nav-search" -> PageHeaderCircle(
+                    ExpIcons.navSearch,
+                    "Search",
                     onClick = { actions?.onSearch?.invoke() },
-                    size = circle,
-                    modifier = Modifier
-                        .testTag(Chats.TestIds.SEARCH_BUTTON)
-                        .semantics { contentDescription = "Search" },
-                ) { HeaderGlyph(ExpIcons.navSearch) }
+                    modifier = Modifier.testTag(Chats.TestIds.SEARCH_BUTTON),
+                )
                 "nav-inbox" -> Box {
-                    BarCircle(
+                    PageHeaderCircle(
+                        ExpIcons.navInbox,
+                        Chats.Copy.INBOX,
                         onClick = { actions?.onInbox?.invoke() },
-                        size = circle,
-                        modifier = Modifier
-                            .testTag(Chats.TestIds.INBOX_BUTTON)
-                            .semantics { contentDescription = Chats.Copy.INBOX },
-                    ) { HeaderGlyph(ExpIcons.navInbox) }
+                        modifier = Modifier.testTag(Chats.TestIds.INBOX_BUTTON),
+                    )
                     // #FEED-232: THE count badge, muted, on the circle's corner.
                     CountBadge(
                         actions?.inboxUnread ?: 0,
@@ -147,8 +145,27 @@ fun PageHeader(
     }
 }
 
-/** THE round header button (header-actions.json): every action of a header but
- *  its status and its one labelled verb. */
+/** #EXP-2168 (header-actions.json `leading`): THE back (or, [close], the
+ *  close of a bar replacing the header) of every header: [PageHeaderCircle]
+ *  at the left edge, the same round button as the trailing actions. */
+@Composable
+fun PageHeaderBack(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    close: Boolean = false,
+    description: String = if (close) "Close" else "Back",
+) {
+    PageHeaderCircle(
+        if (close) ExpIcons.uiClose else ExpIcons.uiBack,
+        description,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+/** THE round header button (header-actions.json): every control of a header
+ *  but its status and its one labelled verb, the back ([PageHeaderBack])
+ *  included. */
 @Composable
 fun PageHeaderCircle(
     icon: ImageVector,

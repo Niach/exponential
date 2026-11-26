@@ -124,13 +124,9 @@ struct OnboardingView: View {
                 }
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            invite = nil
-                        } label: {
-                            AppIcon(AppIcons.uiBack, size: AppIcon.Size.medium)
-                        }
-                        .accessibilityLabel("Back")
+                    // #EXP-2168: THE round back.
+                    HeaderToolbarItem(placement: .topBarLeading) {
+                        HeaderCircleButton(icon: AppIcons.uiBack, label: "Back") { invite = nil }
                     }
                 }
             }

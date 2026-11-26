@@ -122,7 +122,6 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.StatusIcon
-import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber

@@ -32,7 +32,7 @@ use gpui::{
     Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::coding_flow::LocalSessions;
 use crate::icons::registry;
@@ -223,40 +223,29 @@ fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
 }
 
 /// #FEED-191 (chats.json THE WAY BACK): the Back of a chat a session
-/// link opened: THE back link row naming the screen it left, popping the
-/// history (web `‹`).
+/// link opened: THE round back naming the screen it left (its tooltip),
+/// popping the history (web `‹`).
 pub(crate) fn session_link_back(window: &Window, cx: &App) -> Option<AnyElement> {
     let previous = crate::navigation::session_back_screen(window, cx)?;
     let title = crate::navigation::screen_title(&previous, cx).to_string();
     Some(back_link_row("chat-back-link", title, |window, cx| crate::navigation::go_back(window, cx), cx))
 }
 
-/// THE back link row's look (#EXP-1388: the Archived page's `← Chats` too); a
-/// name not synced yet reads `Back`, never a bare arrow.
+/// #EXP-2168 (header-actions.json `leading`): THE back of every header
+/// (#EXP-1388: the Archived page's `← Chats` too): THE round header button
+/// ([`crate::controls::header_button`]) at the title row's left, its tooltip
+/// `← <the screen it returns to>`; a name not synced yet reads `Back`.
 pub(crate) fn back_link_row(
     id: &'static str,
     title: String,
     on_click: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let hover = cx.theme().foreground;
-    let title = if title.is_empty() { "Back".to_string() } else { title };
-    h_flex()
-        .id(id)
-        .role(gpui::Role::Link)
-        .aria_label(SharedString::from(title.clone()))
+    let label = if title.is_empty() { "Back".to_string() } else { format!("← {title}") };
+    div()
+        .flex_shrink_0()
         .debug_selector(move || id.to_string())
-        .min_w_0()
-        .gap_1p5()
-        .items_center()
-        .cursor_pointer()
-        .text_sm()
-        .text_color(muted)
-        .hover(move |style| style.text_color(hover))
-        .child(Icon::new(registry::UI_BACK).small())
-        .child(div().min_w_0().truncate().child(SharedString::from(title)))
-        .on_click(move |_, window, cx| on_click(window, cx))
+        .child(crate::controls::header_button(id, registry::UI_BACK, label, cx).on_click(move |_, window, cx| on_click(window, cx)))
         .into_any_element()
 }
 
@@ -366,7 +355,7 @@ impl SessionScreenView {
         cx.notify();
     }
 
-    /// EXP-1294 — the header: the back link to the chat over the
+    /// EXP-1294 — the header: THE round back to the chat left of the
     /// session's title (the agent's mark beside it). S-3: no Stop pill (the
     /// composer's stop-turn is the one stop).
     fn render_header(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -413,7 +402,6 @@ impl SessionScreenView {
             .gap_1()
             .pt(px(crate::work_header::TITLE_PT))
             .pb(px(crate::work_header::TITLE_PB))
-            .children(back)
             .child(
                 h_flex()
                     .w_full()
@@ -421,6 +409,8 @@ impl SessionScreenView {
                     .gap_2()
                     .items_center()
                     .min_h(px(crate::work_header::BAR_H))
+                    // #EXP-2168: THE round back left of the title.
+                    .children(back)
                     .children(mark)
                     .child(title),
             )

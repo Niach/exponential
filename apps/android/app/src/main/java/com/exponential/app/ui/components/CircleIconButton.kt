@@ -40,7 +40,8 @@ import com.exponential.app.ui.theme.pressScale
  * Shared by the issue-list nav row (board switcher / filters) and EVERY top
  * bar's back / trailing icon button (EXP-568, EXP-577) — iOS 26 renders each
  * nav-bar item as exactly this circle, so Android's `TopAppBar` slots use it
- * instead of Material's bare `IconButton` (see [TopBarBackButton]).
+ * instead of Material's bare `IconButton`. #EXP-2168: never in a header: every
+ * header control is THE round `PageHeaderCircle` (back included, `PageHeaderBack`).
  *
  * [tint] overrides the secondary-emphasis glyph color (the red kill switch);
  * [enabled] dims the glyph to quaternary and drops the tap.
@@ -75,8 +76,7 @@ fun CircleIconButton(
     /** EXP-850 (S10) / EXP-862: the GHOST variant — no circle, no hairline,
      *  just the glyph at [TextEmphasis.Secondary] (0.7) with the ripple for
      *  feedback. Every SECONDARY icon control wears it — `⋯`, close, the
-     *  chevrons, trash/remove, the file list, the refresh class and every back
-     *  button ([TopBarBackButton]) — and the circle is left to the PRIMARY
+     *  chevrons, trash/remove, the file list, the refresh class — and the circle is left to the PRIMARY
      *  actions alone: play/start, send, the nav Search, the FAB, `+`. [active]
      *  then shows as a full-emphasis glyph instead of a fill. */
     borderless: Boolean = false,
@@ -138,30 +138,6 @@ fun CircleIconButton(
 }
 
 /**
- * The one back button for `TopAppBar.navigationIcon` slots: [CircleIconButton]
- * with the chevron and the 8dp leading inset that aligns it with the screen's
- * 16dp content gutter (the slot already contributes 8dp).
- *
- * EXP-862: GHOST on every client — a back chevron is the quietest control on
- * a screen, and the glass circle around it read as an action.
- */
-@Composable
-fun TopBarBackButton(
-    onClick: () -> Unit,
-    contentDescription: String = "Back",
-    enabled: Boolean = true,
-) {
-    CircleIconButton(
-        ExpIcons.uiBack,
-        contentDescription,
-        onClick = onClick,
-        modifier = Modifier.padding(start = 8.dp),
-        enabled = enabled,
-        borderless = true,
-    )
-}
-
-/**
  * The detail-header title type: web `MobileDetailHeader`'s `text-sm
  * font-medium` from the shared type scale (size/line height `sm`, weight
  * `medium`). M3 sets a top bar's title in `titleLarge` (22sp semibold),
@@ -182,29 +158,5 @@ fun TopBarTitle(text: String, modifier: Modifier = Modifier) {
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier,
-    )
-}
-
-/** Trailing twin of [TopBarBackButton] for `TopAppBar.actions` slots. */
-@Composable
-fun TopBarActionButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color? = null,
-    enabled: Boolean = true,
-    active: Boolean = false,
-    /** EXP-850 (S10): the ghost variant — see [CircleIconButton]. */
-    borderless: Boolean = false,
-) {
-    CircleIconButton(
-        icon,
-        contentDescription,
-        onClick = onClick,
-        modifier = Modifier.padding(end = 8.dp),
-        tint = tint,
-        enabled = enabled,
-        active = active,
-        borderless = borderless,
     )
 }
