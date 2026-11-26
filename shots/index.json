@@ -2320,6 +2320,22 @@
         "sha256": "c82b62338093210a10b9e79f537fcaaedaaa223c9c1e5c2de2f9ee3918980b7f"
       }
     },
+    "elicitation-card": {
+      "web": {
+        "file": "shots/elicitation-card/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 38968,
+        "sha256": "6a317044ad83bc5eca93239cfed1a15d1826272396d01ef400f2e1daf389ca00"
+      },
+      "web-mobile": {
+        "file": "shots/elicitation-card/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 27352,
+        "sha256": "5e486c4888989be41d40bf603a125049013a9f74fb2c57e0e75a235d169eb97f"
+      }
+    },
     "exponential-ui-accordion": {
       "android": {
         "file": "shots/exponential-ui-accordion/android.webp",
