@@ -180,6 +180,12 @@ impl Ctx {
         unreachable!()
     }
 
+    /// A connection of its own, for a call that waits on the person (the
+    /// screenshot's pick): the shared one stays free meanwhile.
+    pub fn connect_new(&self) -> Result<Client, Error> {
+        (self.connect)()
+    }
+
     pub(crate) fn pw_get(&self) -> Option<Arc<dyn Pipe>> {
         self.pw.lock().unwrap().clone()
     }

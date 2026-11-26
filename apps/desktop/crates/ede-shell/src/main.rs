@@ -101,6 +101,7 @@ mod settings_pages;
 mod share;
 mod sealed;
 mod spaces;
+mod screenshot;
 mod start_menu;
 mod system;
 mod team_chat;
@@ -3617,7 +3618,10 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
             Some(t) => person_launch(shell, t),
             None => tracing::warn!("no terminal emulator installed"),
         },
-        "screenshot" => screenshot(shell),
+        name if screenshot::from_hotkey(name).is_some() => {
+            let (what, clip) = screenshot::from_hotkey(name).unwrap_or((screenshot::What::Screen, false));
+            screenshot_key(shell, what, clip, cx);
+        }
         "popups.dismiss" => {
             let (names, menu_stays) = {
                 let s = shell.borrow();
@@ -3957,18 +3961,57 @@ fn osd_show(shell: &SharedShell, level: Option<system::Level>, cx: &mut App) {
     refresh(shell, cx);
 }
 
-/// Print: the first output to `~/Pictures/Screenshots`.
-fn screenshot(shell: &SharedShell) {
-    let path = system::screenshot_path();
-    let saved = with_ede(shell, |ede| {
-        let outputs = ede.outputs()?;
-        let Some(first) = outputs.iter().find(|o| o.is_persons()) else { return Ok(false) };
-        let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
-        Ok(thumbs::write_png(&path, &capture).is_ok())
-    });
-    if saved == Some(true) {
-        tracing::info!(path = %path.display(), "screenshot saved");
-    }
+/// A screenshot key (Cinnamon's six): off the main loop, since the
+/// area waits for the person's pick and a 7K picture takes a moment to
+/// encode. A Cinnamon custom keybinding on the key runs instead (a launch
+/// of the person's, so Flameshot's overlay takes the keyboard).
+fn screenshot_key(shell: &SharedShell, what: screenshot::What, clip: bool, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let action = cx.background_executor().spawn(async move { screenshot::cinnamon_action(what, clip) }).await;
+        match action {
+            screenshot::Action::Nothing => return,
+            screenshot::Action::Command(command) => {
+                cx.update(|_| person_launch(&shell, &command));
+                return;
+            }
+            screenshot::Action::Take => {}
+        }
+        let taken = cx
+            .background_executor()
+            .spawn(async move {
+                let mut ede = control::connect().map_err(|e| e.to_string())?;
+                screenshot::run(&mut ede, what, clip)
+            })
+            .await;
+        match taken {
+            Ok(Some(path)) => {
+                // gnome-screenshot's shutter, and a short toast as the
+                // flash: the file (its picture as the icon) or the clipboard.
+                screenshot::shutter();
+                let toast = match &path {
+                    Some(path) => {
+                        tracing::info!(path = %path.display(), "screenshot saved");
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        let mut toast = own_toast("Screenshot saved".into(), name, now_ms());
+                        toast.icon = format!("file://{}", path.display());
+                        toast
+                    }
+                    None => {
+                        tracing::info!("screenshot copied");
+                        own_toast("Screenshot copied".into(), String::new(), now_ms())
+                    }
+                };
+                cx.update(|cx| notification_push(&shell, toast, cx));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("screenshot: {e}");
+                cx.update(|cx| failed_action(&shell, "take", "the screenshot", &e, cx));
+            }
+        }
+    })
+    .detach();
 }
 
 /// Something on the session bus (#EDE-12).

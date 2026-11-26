@@ -33,13 +33,17 @@ use crate::{
 };
 
 /// What `output` shows, front to back: the lock surface while the session
-/// is locked, a fullscreen window alone, else the layers and windows.
+/// is locked, a fullscreen window alone, else the layers and windows. A
+/// screen pick's band ([`crate::screen_pick`]) sits above all of it, here
+/// only: the person's own monitors, never a capture ([`capture_elements`]).
 pub fn output_elements<R>(state: &mut Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
 {
-    scene(state, output, renderer, false)
+    let mut elements: Vec<OutputElements<R>> = state.screen_pick_elements(output).into_iter().map(OutputElements::Solid).collect();
+    elements.extend(scene(state, output, renderer, false));
+    elements
 }
 
 /// What anything outside the person's own monitors may see of `output`

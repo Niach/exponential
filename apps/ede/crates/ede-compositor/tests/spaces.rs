@@ -15,7 +15,7 @@ use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order (an
 /// input method also sees its two managers, #EDE-172, `tests/filter.rs`).
-const PERSONS_GLOBALS: [&str; 18] = [
+const PERSONS_GLOBALS: [&str; 21] = [
     "wl_compositor",
     "wl_subcompositor",
     "xdg_wm_base",
@@ -33,6 +33,9 @@ const PERSONS_GLOBALS: [&str; 18] = [
     "wp_viewporter",
     "zxdg_decoration_manager_v1",
     "xdg_activation_v1",
+    "ext_output_image_capture_source_manager_v1",
+    "ext_image_copy_capture_manager_v1",
+    "zwlr_screencopy_manager_v1",
     "wl_output",
 ];
 

@@ -1,12 +1,15 @@
 //! `org.freedesktop.impl.portal.Screenshot`: every output, composed at
-//! its layout position into one PNG.
+//! its layout position into one PNG; `interactive` lets the person drag the
+//! area first (the compositor's pick, the Shift+Print one: a click takes
+//! the window under the pointer, Escape cancels); PickColor takes the
+//! colour of the pixel the person clicks.
 
 use std::{path::PathBuf, sync::Arc};
 
-use ede_protocol::CaptureTarget;
+use ede_protocol::{shot, CaptureTarget, PickMode};
 use zbus::{interface, zvariant::OwnedObjectPath};
 
-use crate::{value, Ctx, PortalError, Vardict, ENDED, SUCCESS};
+use crate::{opt, screencast::blocking, value, Ctx, PortalError, Vardict, CANCELLED, ENDED, SUCCESS};
 
 pub struct Screenshot {
     pub ctx: Arc<Ctx>,
@@ -14,14 +17,27 @@ pub struct Screenshot {
 
 #[interface(name = "org.freedesktop.impl.portal.Screenshot")]
 impl Screenshot {
-    async fn screenshot(&self, _handle: OwnedObjectPath, _app_id: String, _parent_window: String, _options: Vardict) -> Result<(u32, Vardict), PortalError> {
-        // `interactive` (pick an area) waits for the shell (#NEW-108); the
-        // whole screen is what every caller can use meanwhile.
-        match take(&self.ctx) {
-            Ok(path) => {
+    async fn screenshot(&self, _handle: OwnedObjectPath, _app_id: String, _parent_window: String, options: Vardict) -> Result<(u32, Vardict), PortalError> {
+        let interactive = opt::<bool>(&options, "interactive").unwrap_or(false);
+        let ctx = self.ctx.clone();
+        let taken = blocking(move || {
+            let region = if interactive {
+                match pick(&ctx, PickMode::Area)? {
+                    Some(r) => Some(r),
+                    None => return Ok(None),
+                }
+            } else {
+                None
+            };
+            take(&ctx, region).map(Some)
+        })
+        .await;
+        match taken {
+            Ok(Some(path)) => {
                 let uri = format!("file://{}", path.display());
                 Ok((SUCCESS, [("uri".to_string(), value(uri))].into()))
             }
+            Ok(None) => Ok((CANCELLED, Vardict::new())),
             Err(e) => {
                 tracing::warn!("screenshot: {e}");
                 Ok((ENDED, Vardict::new()))
@@ -29,15 +45,50 @@ impl Screenshot {
         }
     }
 
-    /// Picking needs a crosshair from the shell (#NEW-108).
+    /// The colour under the person's click, as `(ddd)` from 0 to 1.
     async fn pick_color(&self, _handle: OwnedObjectPath, _app_id: String, _parent_window: String, _options: Vardict) -> Result<(u32, Vardict), PortalError> {
-        Ok((ENDED, Vardict::new()))
+        let ctx = self.ctx.clone();
+        match blocking(move || pick_color(&ctx)).await {
+            Ok(Some((r, g, b))) => Ok((SUCCESS, [("color".to_string(), value(zbus::zvariant::Structure::from((r, g, b))))].into())),
+            Ok(None) => Ok((CANCELLED, Vardict::new())),
+            Err(e) => {
+                tracing::warn!("pick color: {e}");
+                Ok((ENDED, Vardict::new()))
+            }
+        }
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "version")]
     fn version(&self) -> u32 {
         2
     }
+}
+
+/// The person's pick, on a connection of its own (the shared one stays
+/// free for the ScreenCast while the person drags). `None` = cancelled.
+fn pick(ctx: &Ctx, mode: PickMode) -> Result<Option<shot::Rect>, String> {
+    let mut ede = ctx.connect_new().map_err(|e| e.to_string())?;
+    let picked = ede.pick_region(mode).map_err(|e| e.to_string())?;
+    Ok(picked.map(|r| shot::Rect { x: r.x, y: r.y, width: r.width, height: r.height }))
+}
+
+/// The clicked pixel's colour (its output's capture, at that output's scale).
+pub fn pick_color(ctx: &Ctx) -> Result<Option<(f64, f64, f64)>, String> {
+    let Some(at) = pick(ctx, PickMode::Point)? else { return Ok(None) };
+    let outputs = ctx.ede(|c| c.outputs()).map_err(|e| e.to_string())?;
+    let Some(o) = outputs.iter().find(|o| o.is_persons() && at.x >= o.x && at.x < o.x + o.width && at.y >= o.y && at.y < o.y + o.height) else { return Ok(None) };
+    let capture = ctx.ede(|c| c.capture(CaptureTarget::Output { name: o.name.clone() })).map_err(|e| e.to_string())?;
+    Ok(Some(color_at(o, &capture, at.x, at.y)))
+}
+
+/// The capture's pixel under logical `(x, y)` as `(r, g, b)` from 0 to 1.
+fn color_at(o: &ede_protocol::OutputInfo, capture: &ede_protocol::Capture, x: i32, y: i32) -> (f64, f64, f64) {
+    let ratio = capture.info.width as f64 / o.width.max(1) as f64;
+    let px = (((x - o.x) as f64 + 0.5) * ratio) as i32;
+    let py = (((y - o.y) as f64 + 0.5) * ratio) as i32;
+    let p = capture.at(px.clamp(0, capture.info.width - 1), py.clamp(0, capture.info.height - 1));
+    let c = |v: u32| (v & 0xff) as f64 / 255.0;
+    (c(p >> 16), c(p >> 8), c(p))
 }
 
 /// xdg-desktop-portal asks the permission store before a non-interactive
@@ -70,9 +121,9 @@ pub async fn grant_host_screenshots(conn: &zbus::Connection) -> zbus::Result<boo
     Ok(true)
 }
 
-/// Captures every output and writes the PNG.
-pub fn take(ctx: &Ctx) -> Result<PathBuf, String> {
-    let outputs = ctx.ede(|c| c.outputs()).map_err(|e| e.to_string())?;
+/// Captures every output (or the outputs under `region`) and writes the PNG.
+pub fn take(ctx: &Ctx, region: Option<shot::Rect>) -> Result<PathBuf, String> {
+    let outputs: Vec<_> = ctx.ede(|c| c.outputs()).map_err(|e| e.to_string())?.into_iter().filter(|o| o.is_persons()).collect();
     if outputs.is_empty() {
         return Err("no outputs".into());
     }
@@ -80,7 +131,7 @@ pub fn take(ctx: &Ctx) -> Result<PathBuf, String> {
     for o in &outputs {
         shots.push(ctx.ede(|c| c.capture(CaptureTarget::Output { name: o.name.clone() })).map_err(|e| e.to_string())?);
     }
-    let (width, height, rgba) = compose(&outputs, &shots);
+    let (width, height, rgba) = shot::compose(&outputs, &shots, region).ok_or("nothing to take")?;
     let dir = ctx.config.lock().unwrap().screenshot_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = unique(&dir);
@@ -91,41 +142,6 @@ pub fn take(ctx: &Ctx) -> Result<PathBuf, String> {
     let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
     writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
     Ok(path)
-}
-
-/// The outputs' captures as one RGBA image. A capture is the output's mode
-/// in pixels while the layout is logical (#EDE-101): the image is drawn at
-/// the highest scale, each output at its logical position times that scale,
-/// a lower-scaled one stretched to its place.
-fn compose(outputs: &[ede_protocol::OutputInfo], shots: &[ede_protocol::Capture]) -> (usize, usize, Vec<u8>) {
-    let ratio = |o: &ede_protocol::OutputInfo, s: &ede_protocol::Capture| s.info.width as f64 / o.width.max(1) as f64;
-    let k = outputs.iter().zip(shots).map(|(o, s)| ratio(o, s)).fold(f64::MIN_POSITIVE, f64::max);
-    let x0 = outputs.iter().map(|o| o.x).min().unwrap_or(0);
-    let y0 = outputs.iter().map(|o| o.y).min().unwrap_or(0);
-    let places: Vec<(usize, usize, usize, usize)> = outputs
-        .iter()
-        .zip(shots)
-        .map(|(o, s)| {
-            let at = |v: i32| (v as f64 * k).round() as usize;
-            let size = if ratio(o, s) == k { (s.info.width as usize, s.info.height as usize) } else { (at(o.width), at(o.height)) };
-            (at(o.x - x0), at(o.y - y0), size.0, size.1)
-        })
-        .collect();
-    let width = places.iter().map(|(x, _, w, _)| x + w).max().unwrap_or(0);
-    let height = places.iter().map(|(_, y, _, h)| y + h).max().unwrap_or(0);
-    let mut rgba = vec![0u8; width * height * 4];
-    for ((x, y, w, h), shot) in places.iter().zip(shots) {
-        let (sw, sh) = (shot.info.width as usize, shot.info.height as usize);
-        for row in 0..*h {
-            let sy = (row * sh / h).min(sh.saturating_sub(1));
-            for col in 0..*w {
-                let p = shot.at(((col * sw / w).min(sw.saturating_sub(1))) as i32, sy as i32);
-                let i = ((y + row) * width + x + col) * 4;
-                rgba[i..i + 4].copy_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8, 0xff]);
-            }
-        }
-    }
-    (width, height, rgba)
 }
 
 /// `Screenshot 2026-11-01 14-03-07.png` (or `… (2).png`) in local time
@@ -152,6 +168,21 @@ fn unique(dir: &std::path::Path) -> PathBuf {
 mod tests {
     use super::*;
     use ede_compositor::backend::headless::Harness;
+
+    /// PickColor on a 1.25 screen to the right of another: the click's
+    /// logical point lands on that output's own pixel.
+    #[test]
+    fn a_picked_colour_is_the_pixel_under_the_click() {
+        let o = ede_protocol::OutputInfo { name: "DP-2".into(), x: 3840, y: 0, width: 2048, height: 1152, scale: 1.25, modes: vec![], make: String::new(), model: String::new(), physical_mm: [0, 0], space: None };
+        let (w, h) = (2560, 1440);
+        let mut pixels = vec![0u8; (w * h * 4) as usize];
+        let at = |x: i32, y: i32| ((y * w + x) * 4) as usize;
+        // B, G, R, A in memory: 0xff336699 at the pixel under logical (3940, 40).
+        pixels[at(125, 50)..at(125, 50) + 4].copy_from_slice(&[0x99, 0x66, 0x33, 0xff]);
+        let capture = ede_protocol::Capture { info: ede_protocol::CaptureInfo { width: w, height: h, stride: w * 4, format: "argb8888".into(), serial: 1, unchanged: false, notice: None }, pixels };
+        let (r, g, b) = color_at(&o, &capture, 3940, 40);
+        assert_eq!(((r * 255.0).round(), (g * 255.0).round(), (b * 255.0).round()), (51.0, 102.0, 153.0));
+    }
 
     #[test]
     fn unsandboxed_apps_are_granted_once_and_a_stored_answer_stays() {
@@ -184,7 +215,7 @@ mod tests {
         let left = ctx.ede(|c| c.capture(CaptureTarget::Output { name: "HEADLESS-1".into() })).unwrap();
         let right = ctx.ede(|c| c.capture(CaptureTarget::Output { name: "HEADLESS-2".into() })).unwrap();
 
-        let file = take(&ctx).unwrap();
+        let file = take(&ctx, None).unwrap();
         let mut reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(file).unwrap())).read_info().unwrap();
         let mut buf = vec![0; reader.output_buffer_size().unwrap()];
         let info = reader.next_frame(&mut buf).unwrap();
