@@ -70,12 +70,14 @@ export type ImageSourceVerdict = { kind: `load` } | { kind: `link`; href: string
 
 const LOAD: ImageSourceVerdict = { kind: `load` }
 const NO_MAP: ImageSourceVerdict = { kind: `text`, text: `` }
+/** A resolved map tile that is no picture: empty or still a `map:` src. */
+const unresolvedMap = (resolved: string) => !resolved || resolved.startsWith(`map:`)
 
 /** The host's verdict for one picture, `load` without the hook. */
 export function imageSourceOf(host: AnyHostPlugin, src: string, alt: string): ImageSourceVerdict {
   // genUI round 4 (catalog/host.json media.map): a `map:` src the host's
   // `resolveUrl` does not resolve paints nothing (MapPlaceholder's grid shows).
-  if (src.startsWith(`map:`) && (host.resolveUrl ? host.resolveUrl(src) : src).startsWith(`map:`)) return NO_MAP
+  if (src.startsWith(`map:`) && unresolvedMap(host.resolveUrl ? host.resolveUrl(src) : src)) return NO_MAP
   if (!src || !host.imageSource) return LOAD
   return host.imageSource(src, alt) ?? LOAD
 }

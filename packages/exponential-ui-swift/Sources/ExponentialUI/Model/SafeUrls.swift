@@ -53,7 +53,10 @@ extension SurfaceModel {
     public func imageSource(_ src: String, alt: String) -> ImageSource {
         // genUI round 4 (catalog/host.json media.map): a `map:` src the
         // host's `resolveUrl` does not resolve paints nothing.
-        if src.hasPrefix("map:"), host.resolveUrl(src).hasPrefix("map:") { return .text("") }
+        if src.hasPrefix("map:") {
+            let resolved = host.resolveUrl(src)
+            if resolved.isEmpty || resolved.hasPrefix("map:") { return .text("") }
+        }
         switch host.imageSource(src, alt: alt) {
         case nil, .load?: return .load
         case let .link(href, text)?: return linkHref(href) != nil ? .link(href: href, text: text) : .text(text)
