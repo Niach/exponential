@@ -25,6 +25,7 @@ import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
 import { css, type SolidStyle, type StyleInput } from "./style"
+import { createBackgroundImage } from "./media"
 
 /** What a painter receives: React's `NativeProps` as a Solid props object.
  *  EVERY field is a live getter: never destructure it (`props.props.label`
@@ -285,7 +286,19 @@ function BoundNode(props: { node: UiNode }): JSX.Element {
     }
     return out
   })
-  const rootProps = createRootProps(node, resolved, domId, recipeProps, dynamicStyle)
+  // genUI round 4: a `backgroundImage` loads like an Image (`--xui-bgi`).
+  const pictureSrc = createMemo(() => {
+    const b = props.node.style?.backgroundImage
+    if (b === undefined) return null
+    const v = resolveValue(b, rctx()) as { src?: unknown } | null
+    return typeof v?.src === `string` ? v.src : ``
+  })
+  const picture = createBackgroundImage(() => ctx.host, () => ctx.theme, pictureSrc)
+  const boxVars = createMemo(() => {
+    const p = picture()
+    return p ? ({ ...dynamicStyle(), ...p } as SolidStyle) : dynamicStyle()
+  })
+  const rootProps = createRootProps(node, resolved, domId, recipeProps, boxVars)
   const emit = createEmitter(node, scope, domId)
   const component = createMemo(() => props.node.component)
   const override = createMemo(() => extensionComponent(ctx.extensions, component()))
