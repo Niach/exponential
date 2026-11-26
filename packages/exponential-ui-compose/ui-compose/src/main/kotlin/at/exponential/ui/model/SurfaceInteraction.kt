@@ -282,6 +282,22 @@ internal fun SurfaceModel.swallowsListPress(): Boolean =
 /** EXP-1832: the dragged row (painted at `listDragStyle().dim`). */
 fun SurfaceModel.isListDragRow(index: Int): Boolean = listDragPaints.any { it.row.toInt() == index }
 
+/**
+ * genUI round 4 (fixtures/board-drop.json): a node on the path to the List
+ * a live drag paints over draws above its siblings, so a Board card lifted
+ * into one column is never covered by the next column.
+ */
+fun SurfaceModel.isListDragPath(index: Int): Boolean {
+    val list = listDragPaints.firstOrNull()?.listIndex?.toInt() ?: return false
+    var at: Int? = list
+    var guard = 0
+    while (at != null && guard++ < 4096) {
+        if (at == index) return true
+        at = node(at)?.parent
+    }
+    return false
+}
+
 /** FEED-200: the `content` part of a `swipeable` Tabs (its panels page by a horizontal touch swipe). */
 fun SurfaceModel.isSwipeableTabContent(index: Int): Boolean {
     val n = node(index) ?: return false

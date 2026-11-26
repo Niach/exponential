@@ -1642,6 +1642,35 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   // VAPP-162: the serif family token on a node style.
   Text: [{
+    // Round 4 (fixtures/text-runs.json): styled spans wrapping as one paragraph.
+    label: `runs · weight, tone, marks, link`,
+    node: {
+      id: `rich`,
+      component: `Text`,
+      style: { maxWidth: 320 },
+      props: {
+        runs: [
+          { text: `Release ` },
+          { text: `v2.4`, weight: `semibold` },
+          { text: ` shipped `, tone: `success` },
+          { text: `today`, mark: `highlight` },
+          { text: `. Run ` },
+          { text: `bun install`, mark: `code` },
+          { text: `, drop the ` },
+          { text: `old flag`, mark: `strike` },
+          { text: ` and read the ` },
+          { text: `release notes`, link: `https://exponential.at/changelog` },
+          { text: ` before ` },
+          { text: `Friday`, weight: `bold`, tone: `danger`, mark: `underline` },
+          { text: `.` },
+        ],
+      },
+    },
+  }, {
+    // Round 4: the first letter spans three lines, the text wraps beside it.
+    label: `dropCap · 3`,
+    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button.` } },
+  }, {
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
   }, {
@@ -1834,6 +1863,16 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   DayStrip: [{
     label: `no selection`,
     node: { id: `strip`, component: `DayStrip`, props: { days: [{ date: `2026-11-23`, tone: `success` }, { date: `2026-11-24` }, { date: `2026-11-25`, tone: `danger` }, { date: `2026-11-26` }, { date: `2026-11-27` }] } },
+  }],
+  // genUI round 4 (Board): a phone-wide board scrolls its 280 px columns sideways.
+  Board: [{
+    label: `phone width · columns scroll`,
+    node: { id: `board_narrow`, component: `Board`, props: { columns: [{ value: `todo`, title: `Todo`, cards: [{ label: `Write the brief`, value: `n1` }] }, { value: `doing`, title: `Doing`, cards: [{ label: `Draft the agenda`, value: `n2`, trailing: `2d` }] }] }, style: { width: 320 } },
+  }],
+  // genUI round 4 (MapPlaceholder): pins at 0..1 with labels; the label moves to a corner caption.
+  MapPlaceholder: [{
+    label: `markers`,
+    node: { id: `map_markers`, component: `MapPlaceholder`, props: { label: `Old town`, markers: [{ x: 0.3, y: 0.4, label: `Hotel` }, { x: 0.68, y: 0.62, label: `Venue` }, { x: 0.5, y: 0.25 }] }, style: { maxWidth: 480 } },
   }],
   AvatarGroup: [{
     label: `pictures, no overflow`,

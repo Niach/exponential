@@ -4728,6 +4728,40 @@
       "props": [
         "size"
       ]
+    },
+    {
+      "name": "Board",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "column",
+        "tint",
+        "header",
+        "title",
+        "count",
+        "cards",
+        "card"
+      ],
+      "props": []
+    },
+    {
+      "name": "MapPlaceholder",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "grid",
+        "column",
+        "row",
+        "center",
+        "pin",
+        "label",
+        "tile",
+        "marker",
+        "markerPin",
+        "markerLabel",
+        "caption"
+      ],
+      "props": []
     }
   ]
 }

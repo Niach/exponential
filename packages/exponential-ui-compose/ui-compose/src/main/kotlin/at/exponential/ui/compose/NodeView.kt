@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ffi.FfiFrame
 import at.exponential.ui.ffi.listDragStyle
+import at.exponential.ui.model.isListDragPath
 import at.exponential.ui.model.isListDragRow
 import at.exponential.ui.model.isReorderRow
 import at.exponential.ui.model.listDrag
@@ -377,7 +378,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
 
     Box(
         modifier
-            .then(if (pinned) Modifier.zIndex(1f) else Modifier)
+            .then(if (pinned || model.isListDragPath(index)) Modifier.zIndex(1f) else Modifier)
             .traversal(index)
             .nodeSemantics(node, model)
             .then(animated)

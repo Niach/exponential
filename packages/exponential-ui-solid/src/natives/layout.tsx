@@ -5,7 +5,7 @@
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -187,6 +187,14 @@ export function ListNative(props: NativeProps): JSX.Element {
   // EXP-1832 (fixtures/list-reorder.json, React's): a vertical
   // `reorderable` List's items carry the web controller's DOM contract.
   const reorderable = () => bool(props.props.reorderable) && !horizontal()
+  // genUI round 4 (fixtures/board-drop.json, React's): a Board column trades
+  // rows with its sibling columns; the TARGET column's List fires `move`.
+  const board = () => (reorderable() && typeof props.props.board === `string` && props.props.board ? (props.props.board as string) : undefined)
+  createEffect(() => {
+    const el = rootEl
+    if (!board() || !el) return
+    onCleanup(registerBoardList(el, (context) => void props.emit(`move`, context)))
+  })
   const reorderAttrs = (item: number): Record<string, unknown> => {
     const cc = childCount()
     if (item < cc) return { [REORDER_KEY_ATTR]: props.node.children[item].id, [REORDER_DEPTH_ATTR]: 0, [REORDER_INDENT_ATTR]: 0 }
@@ -207,7 +215,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     const start = listReorderStart(root, e.target)
     if (!start) return
     const maxDepth = Math.max(1, Math.floor(num(untrack(() => props.props.maxDepth), 1)))
-    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth }, { move: (context) => void props.emit(`move`, context) })
+    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth, board: untrack(board) ? root : undefined }, { move: (context) => void props.emit(`move`, context) })
   }
   const divider = (r: number) => {
     const before = dividerBefore(r)
@@ -221,7 +229,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     <Show
       when={windowed()}
       fallback={
-        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
+        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown} {...{ [REORDER_BOARD_ATTR]: board() }}>
           <For each={flatKeys()}>
             {(key) => {
               const r = createMemo<number>((prev) => flatIndex().get(key) ?? prev!)
@@ -241,7 +249,7 @@ export function ListNative(props: NativeProps): JSX.Element {
         </div>
       }
     >
-      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
+      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown} {...{ [REORDER_BOARD_ATTR]: board() }}>
         <WindowedList
           ref={(h) => (windowHandle = h)}
           count={rows().length}

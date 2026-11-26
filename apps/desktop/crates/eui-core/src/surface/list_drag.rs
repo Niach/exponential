@@ -15,12 +15,18 @@
 //! web's `startListDrag` takes any rows: the outside row counts as the last
 //! row, the drop and the release are the List's own, and the paint is only
 //! the drop (no dimmed row, no lifted copy: the host's drag carries its own).
+//!
+//! genUI round 4 (fixtures/board-drop.json): reorderable Lists sharing the
+//! internal prop `board` (a Board macro's columns) trade rows: the drop is
+//! [`board_drop_slot`] over all of them, the TARGET List fires `move {id,
+//! before | after}` (`{id}` for an empty column; the macro adds `column`),
+//! and the paint names the List under the pointer.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Frame, OutEvent, Surface};
-use crate::list_reorder::{list_drop_slot, list_move_context, ListDrop, ListDragState, ListDropPosition, ListExternalRow, ListReorderRow, LIST_DROP_LINE, LIST_DROP_RING, LIST_LIFT_OFFSET};
+use crate::list_reorder::{board_drop_slot, list_drop_slot, list_move_context, BoardColumn, BoardDrop, ListDrop, ListDragState, ListDropPosition, ListExternalRow, ListReorderRow, LIST_DROP_LINE, LIST_DROP_RING, LIST_LIFT_OFFSET};
 
 /// One drag input on a reorderable List (`x`, `y` = the pointer in the
 /// space of the layout's frames, which are UNSCROLLED: add the scroll
@@ -82,6 +88,11 @@ struct ListRows {
 
 fn reorderable(props: &crate::types::Props) -> bool {
     props.get("reorderable").and_then(Value::as_bool) == Some(true)
+}
+
+/// The Board a reorderable List is a column of (its internal `board` prop).
+fn board_of(props: &crate::types::Props) -> Option<&str> {
+    props.get("board").and_then(Value::as_str).filter(|b| !b.is_empty())
 }
 
 impl Surface {
@@ -172,8 +183,35 @@ impl Surface {
         }
         self.local.list_drags.clear();
         let external = Some(ListExternalRow { top: row.y, height: row.h, keys });
-        self.local.list_drags.insert(list.to_string(), ListDragState { key: key.to_string(), offset_y: y - row.y, x: *x, y: *y, drop: None, external });
+        self.local.list_drags.insert(list.to_string(), ListDragState { key: key.to_string(), offset_y: y - row.y, offset_x: x - row.x, x: *x, y: *y, external, ..Default::default() });
         vec![]
+    }
+
+    /// The reorderable Lists of the Board `board` (its columns), in order.
+    fn board_lists(&self, board: &str) -> Vec<u32> {
+        (0..self.nodes.len() as u32)
+            .filter(|&i| self.layout_node(i).is_some_and(|n| n.component == "List" && n.part.is_none() && reorderable(&n.props) && board_of(&n.props) == Some(board) && !self.is_inert(n)))
+            .collect()
+    }
+
+    /// A Board drag over its columns: the List under the pointer (the
+    /// nearer one) and the drop ([`board_drop_slot`]). None = the List is
+    /// no Board column.
+    fn board_drop(&self, list: u32, key: &str, x: f32, y: f32) -> Option<(Option<u32>, Option<BoardDrop>)> {
+        let board = board_of(&self.layout_node(list)?.props)?.to_string();
+        let lists = self.board_lists(&board);
+        let mut columns = vec![];
+        for &l in &lists {
+            let Some(rows) = self.reorder_list_rows(l) else { continue };
+            let frame = self.last_frame(l).unwrap_or_default();
+            columns.push(BoardColumn { key: rows.list, left: frame.x, width: frame.w, rows: rows.rows });
+        }
+        let over = columns.iter().enumerate().min_by(|(i, a), (j, b)| {
+            let gap = |c: &BoardColumn| if x < c.left { c.left - x } else if x >= c.left + c.width { x - c.left - c.width } else { 0.0 };
+            gap(a).total_cmp(&gap(b)).then(i.cmp(j))
+        });
+        let over = over.and_then(|(_, c)| self.index_of(&c.key));
+        Some((over, board_drop_slot(&columns, key, x, y)))
     }
 
     /// The List whose drag is live (by slot), if any.
@@ -199,8 +237,9 @@ impl Surface {
                 }
                 let key = rows.rows[i].key.clone();
                 let offset_y = y - rows.rows[i].top;
+                let offset_x = x - self.last_frame(row).unwrap_or_default().x;
                 self.local.list_drags.clear();
-                self.local.list_drags.insert(rows.list.clone(), ListDragState { key, offset_y, x: *x, y: *y, drop: None, external: None });
+                self.local.list_drags.insert(rows.list.clone(), ListDragState { key, offset_y, offset_x, x: *x, y: *y, ..Default::default() });
                 vec![]
             }
             ListDragInput::Move { x, y } => {
@@ -210,16 +249,37 @@ impl Surface {
                     self.local.list_drags.clear();
                     return vec![];
                 };
+                let board = match self.local.list_drags.get(&id) {
+                    Some(state) if state.external.is_none() => self.board_drop(list, &state.key, *x, *y),
+                    _ => None,
+                };
                 let Some(state) = self.local.list_drags.get_mut(&rows.list) else { return vec![] };
                 state.x = *x;
                 state.y = *y;
-                state.drop = list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth);
+                match board {
+                    Some((over, drop)) => {
+                        state.over = over;
+                        state.drop = drop.as_ref().and_then(|d| Some(ListDrop { key: d.key.clone()?, position: d.position? }));
+                        state.board = Some(drop);
+                    }
+                    None => state.drop = list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth),
+                }
                 vec![]
             }
-            ListDragInput::End { y, .. } => {
+            ListDragInput::End { x, y } => {
                 let Some(list) = self.live_list_drag() else { return vec![] };
                 let id = self.layout_node(list).map(|n| n.id.clone()).unwrap_or_default();
                 let Some(state) = self.local.list_drags.remove(&id) else { return vec![] };
+                if state.external.is_none() {
+                    if let Some((_, drop)) = self.board_drop(list, &state.key, *x, *y) {
+                        // The TARGET column's List fires; the macro adds `column`.
+                        return match drop {
+                            Some(BoardDrop { column, key: Some(key), position: Some(position) }) => self.fire(&column, "move", Some(list_move_context(&state.key, &ListDrop { key, position }))),
+                            Some(BoardDrop { column, .. }) => self.fire(&column, "move", Some(serde_json::json!({"id": state.key}))),
+                            None => vec![],
+                        };
+                    }
+                }
                 let Some(rows) = self.drag_rows(list, &state) else { return vec![] };
                 match list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth) {
                     Some(drop) => self.fire(&id, "move", Some(list_move_context(&state.key, &drop))),
@@ -253,10 +313,24 @@ impl Surface {
                 true => Frame::default(),
                 false => {
                     let frame = self.last_frame(row).unwrap_or_default();
-                    Frame { x: frame.x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h }
+                    // A Board card follows the pointer on both axes.
+                    let x = if state.board.is_some() { state.x - state.offset_x } else { frame.x };
+                    Frame { x: x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h }
                 }
             };
-            let mut paint = ListDragPaint { list: id.clone(), list_index: list, key: state.key.clone(), row, lift, drop: state.drop.clone(), drop_row: None, line: None, ring: None, into: None, external };
+            // A Board drag paints over the List under the pointer: its rows
+            // take the drop; an empty column's drop = the into highlight.
+            let (list, rows) = match state.over.filter(|&o| o != list) {
+                Some(over) => match self.reorder_list_rows(over) {
+                    Some(r) => (over, r),
+                    None => (list, rows),
+                },
+                None => (list, rows),
+            };
+            let mut paint = ListDragPaint { list: rows.list.clone(), list_index: list, key: state.key.clone(), row, lift, drop: state.drop.clone(), drop_row: None, line: None, ring: None, into: None, external };
+            if let Some(Some(BoardDrop { key: None, .. })) = &state.board {
+                paint.into = self.last_frame(list);
+            }
             if let Some(drop) = &state.drop {
                 if let Some(j) = rows.rows.iter().position(|r| r.key == drop.key) {
                     let target = self.last_frame(rows.slots[j]).unwrap_or_default();

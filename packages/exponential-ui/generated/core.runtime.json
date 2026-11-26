@@ -876,6 +876,73 @@
           "type": "string"
         }
       }
+    },
+    "boardColumn": {
+      "properties": {
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          }
+        }
+      }
+    },
+    "mapMarker": {
+      "properties": {
+        "x": {
+          "type": "number",
+          "required": true
+        },
+        "y": {
+          "type": "number",
+          "required": true
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "textRun": {
+      "properties": {
+        "text": {
+          "type": "string",
+          "required": true
+        },
+        "weight": {
+          "type": "enum",
+          "values": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold"
+          ]
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        },
+        "mark": {
+          "type": "enum",
+          "values": [
+            "highlight",
+            "code",
+            "strike",
+            "underline"
+          ]
+        },
+        "link": {
+          "type": "url"
+        }
+      }
     }
   },
   "functions": {
@@ -1830,7 +1897,14 @@
       "props": {
         "text": {
           "type": "string",
-          "required": true,
+          "bindable": true
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "textRun"
+          },
           "bindable": true
         },
         "variant": {
@@ -1855,6 +1929,9 @@
             "end",
             "middle"
           ]
+        },
+        "dropCap": {
+          "type": "number"
         },
         "tone": {
           "type": "enum",
@@ -5635,6 +5712,46 @@
           "type": "enum",
           "enum": "controlSize",
           "default": "default"
+        }
+      }
+    },
+    "Board": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "boardColumn"
+          },
+          "required": true,
+          "bindable": true
+        }
+      },
+      "events": [
+        "move"
+      ]
+    },
+    "MapPlaceholder": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "mapMarker"
+          }
         }
       }
     }
