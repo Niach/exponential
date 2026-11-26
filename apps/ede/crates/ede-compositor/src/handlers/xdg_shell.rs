@@ -299,6 +299,14 @@ impl Ede {
         })
     }
 
+    /// A popup of a layer surface, kept on that layer's output.
+    pub(crate) fn unconstrain_layer_popup(&self, popup: &PopupSurface) {
+        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
+        if let Some(target) = self.layer_popup_target(&root, popup) {
+            popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));
+        }
+    }
+
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         if let Some(id) = space_of_surface(popup.wl_surface()) {
             return self.space_unconstrain_popup(id, popup);

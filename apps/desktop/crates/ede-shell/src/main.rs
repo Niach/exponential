@@ -307,6 +307,15 @@ type HostedReport = (String, Vec<Layer>);
 
 /// The last of each surface's hosted-popup reports, in arrival order of
 /// those last ones.
+/// #EDE-237: the hover previews (`previews…` Popovers) open while a Menu
+/// of the same surface is: the ones to close.
+fn previews_under_a_menu(layers: &[eui_core::surface::Layer]) -> Vec<String> {
+    if !layers.iter().any(|l| l.hosted && l.kind == "Menu") {
+        return Vec::new();
+    }
+    layers.iter().filter(|l| l.hosted && l.kind == "Popover" && l.owner.starts_with("previews")).map(|l| l.owner.clone()).collect()
+}
+
 fn latest_reports(reports: impl IntoIterator<Item = HostedReport>) -> Vec<HostedReport> {
     let mut out: Vec<HostedReport> = Vec::new();
     for (document, layers) in reports {
@@ -4824,6 +4833,13 @@ fn main() {
                 // window opens at the second size instead of the first.
                 for (document, layers) in latest_reports(hosted_rx.try_iter()) {
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
+                    // #EDE-237: a menu opening closes the hover previews (Cinnamon's
+                    // right click hides the thumbnails); with the shell free (#EDE-75).
+                    let covered = previews_under_a_menu(&layers);
+                    if !covered.is_empty() {
+                        let hosted: Vec<_> = s.borrow().surfaces.hosted_layers().into_iter().filter(|(r, owner)| r.name == document && covered.contains(owner)).collect();
+                        cx.update(|cx| uicore_gpui::dismiss_hosted(hosted, cx));
+                    }
                 }
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
@@ -5751,6 +5767,15 @@ mod chat_as_drawn {
 #[cfg(test)]
 mod previews {
     use super::{popups_to_dismiss, previews_after};
+
+    /// #EDE-237: a menu of the taskbar opening closes the hover previews.
+    #[test]
+    fn a_menu_closes_the_hover_previews() {
+        let layer = |kind: &str, owner: &str| -> Layer { serde_json::from_value(json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };
+        let previews = layer("Popover", "previews.nemo");
+        assert!(previews_under_a_menu(&[previews.clone()]).is_empty(), "previews alone stay");
+        assert_eq!(previews_under_a_menu(&[previews, layer("Menu", "group.nemo"), layer("Popover", "agent_spaces")]), vec!["previews.nemo".to_string()]);
+    }
 
     /// #EDE-89: a press on Start while a preview is open: the compositor's
     /// `popups.dismiss` for that press reaches the shell after the press
