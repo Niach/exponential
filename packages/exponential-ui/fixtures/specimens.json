@@ -21483,6 +21483,223 @@
       }
     },
     {
+      "id": "exponential-ui-board",
+      "component": "Board",
+      "title": "Board",
+      "node": {
+        "id": "specimen_board",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_board_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_board_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_board",
+                "component": "Board",
+                "props": {
+                  "columns": [
+                    {
+                      "value": "todo",
+                      "title": "Todo",
+                      "cards": [
+                        {
+                          "label": "Write the brief",
+                          "value": "c1",
+                          "description": "Due Friday"
+                        },
+                        {
+                          "label": "Pick a venue",
+                          "value": "c2",
+                          "trailing": "3d"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "doing",
+                      "title": "Doing",
+                      "cards": [
+                        {
+                          "label": "Draft the agenda",
+                          "value": "c3",
+                          "icon": "pencil"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "done",
+                      "title": "Done",
+                      "cards": []
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_board_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_board_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "phone width · columns scroll",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_board_narrow",
+                "component": "Board",
+                "props": {
+                  "columns": [
+                    {
+                      "value": "todo",
+                      "title": "Todo",
+                      "cards": [
+                        {
+                          "label": "Write the brief",
+                          "value": "n1"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "doing",
+                      "title": "Doing",
+                      "cards": [
+                        {
+                          "label": "Draft the agenda",
+                          "value": "n2",
+                          "trailing": "2d"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 320
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-map-placeholder",
+      "component": "MapPlaceholder",
+      "title": "MapPlaceholder",
+      "node": {
+        "id": "specimen_map_placeholder",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_map_placeholder_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_map_placeholder_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_map_placeholder",
+                "component": "MapPlaceholder",
+                "props": {
+                  "label": "Vienna, Stephansplatz"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_map_placeholder_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_map_placeholder_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "markers",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_map_markers",
+                "component": "MapPlaceholder",
+                "props": {
+                  "label": "Old town",
+                  "markers": [
+                    {
+                      "x": 0.3,
+                      "y": 0.4,
+                      "label": "Hotel"
+                    },
+                    {
+                      "x": 0.68,
+                      "y": 0.62,
+                      "label": "Venue"
+                    },
+                    {
+                      "x": 0.5,
+                      "y": 0.25
+                    }
+                  ]
+                },
+                "style": {
+                  "maxWidth": 480
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-demo",
       "component": null,
       "title": "Demo",

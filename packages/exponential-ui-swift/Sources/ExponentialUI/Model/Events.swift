@@ -787,6 +787,21 @@ extension SurfaceModel {
         listDragPaints.contains { Int($0.row) == index }
     }
 
+    /// genUI round 4 (fixtures/board-drop.json): a node on the path to the
+    /// List a live drag paints over draws above its siblings, so a Board
+    /// card lifted into one column is never covered by the next column.
+    public func isListDragPath(_ index: Int) -> Bool {
+        guard let list = listDragPaints.first.map({ Int($0.listIndex) }) else { return false }
+        var cur: Int? = list
+        var guard_ = 0
+        while let c = cur, guard_ < 4096 {
+            if c == index { return true }
+            cur = node(c)?.parent
+            guard_ += 1
+        }
+        return false
+    }
+
     /// FEED-200: the `content` part of a `swipeable` Tabs (its panels page
     /// under a horizontal touch drag).
     public func isSwipeContent(_ index: Int) -> Bool {

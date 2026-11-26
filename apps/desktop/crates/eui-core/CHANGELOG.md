@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Board` and `MapPlaceholder` (genUI round 4): the macros + neutral recipes. `list_reorder::board_drop_slot` / `board_move_context` (fixtures/board-drop.json); `Surface::list_drag` spans reorderable Lists sharing a `board` prop: the drop is picked across their columns, the target List fires `move`, and `list_drag_paint` names the List under the pointer with the lifted copy following x and y (`ListDragState.offset_x`, `board`, `over`).
 - Text `runs` + `dropCap` (genUI round 4, fixtures/text-runs.json): `text_runs` replays the fixture; the layout tree hands painters the normal form (`runs`, `text` = the joined text, `dropCap` = lines), and FixedMeasure gives a drop cap its lines.
 - `backgroundImage` + radial `backgroundGradient` (genUI round 4, `box-backgrounds.json`): `Visual.background_image` (`BackgroundImage {src, fit, focal_x, focal_y, scrim}`), `Gradient.kind` / `centre`, `style::radial_radius`, `radial_t`, `picture_rect`; `style_check` validates both and refuses `backgroundImage` inside a condition block (`KeySpec.base_only`). The FFI visual gains `background_image_json`.
 - `NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup` and `Section.actionLabel` (genUI round 4): macros.json + the neutral recipes, replayed from `catalog-macros.json` as in TypeScript.

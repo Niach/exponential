@@ -102,7 +102,7 @@ describe(`components`, () => {
     // A corner badge on an avatar (nav-badges.json `teamMark`).
     const corner = [`AvatarBadge`]
     // genUI round 4 (34282bdc): site blocks, media and dates the blueprints hand-composed.
-    const round4 = [`NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup`]
+    const round4 = [`NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup`, `Board`, `MapPlaceholder`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
     for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion, ...canvas, ...records, ...settings, ...round7, ...frame, ...recorder, ...chord, ...embed, ...pickers, ...badge, ...delivery, ...corner, ...round4]) expect(coreCatalog.components[name], name).toBeDefined()
