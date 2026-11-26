@@ -81,11 +81,14 @@ impl SelectionHandler for Ede {
             if let Some(desk) = self.try_desk_mut(id) {
                 desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
                 self.xwm_selection(id, mimes);
+                self.clipboard_keep(id);
             }
             return;
         }
         self.desk.clipboard.changed(mimes.clone().map_or(crate::clipboard::Owner::Empty, crate::clipboard::Owner::Client));
         self.xwm_selection(crate::desk::DeskId::PERSON, mimes);
+        // Kept for when the client quits ("Copy error and quit").
+        self.clipboard_keep(crate::desk::DeskId::PERSON);
     }
 
     /// A Wayland client reads a compositor-side selection.

@@ -761,7 +761,8 @@ at a `hello` with the root token:
 | The compositor's own: the helpers it started (`[session] helpers = "compositor"`, a real session's default since eDE's flip), the lock, the consent prompt. They hold a channel at fd 3 and present no token at all. With `helpers = "units"`, eDE's root-owned `exponential-shell`, `exponential-sealed` and portal by file too | Root, no prompt. A genuine `/usr/bin/exponential-shell` that anything else started is refused |
 | A binary `/etc/exponential-desktop/control.toml` names (root-owned, writable by root only, or it is ignored) | Its principal, no prompt |
 | The root-owned `exponential-ctl` | The sealed consent for every ctl process; Allow = root for that process |
-| An executable named `exp-desktop` or `exponential` (the app inside its AppImage, the CLI) | The sealed consent at its first `hello` per login and content hash, naming its path, pid and parent; Allow = the `computer-use` principal for that binary until logout |
+| The genuine Exponential app: `exp-desktop` whose AppImage carries `usr/share/exponential/binaries.sha256` signed with the updater's minisign key (the build pins it, `EXP_UPDATE_PUBKEY`), its executable and every file it maps executable either root's or in that list, not traced, not started with `LD_PRELOAD`/`LD_AUDIT` (`crate::signed`, checked once per process) | The `computer-use` principal, no prompt |
+| An executable named `exp-desktop` or `exponential` (the app inside its AppImage, the CLI) that is not that | The sealed consent at its first `hello` per login and content hash, naming its path, pid and parent; Allow = the `computer-use` principal for that binary until logout |
 | Anything else | `unauthorized`, logged with its path, no prompt |
 
 The `computer-use` principal reads as root (all six capabilities) and is

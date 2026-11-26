@@ -44,6 +44,7 @@ pub mod recovery;
 pub mod scaling;
 pub mod sealed;
 pub mod services;
+pub mod signed;
 pub mod shortcuts;
 pub mod spaces;
 pub mod state;

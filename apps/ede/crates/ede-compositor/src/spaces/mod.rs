@@ -380,6 +380,7 @@ impl Ede {
             minimized: Vec::new(),
             workspaces: Default::default(),
             title_click: None,
+            tile_preview: Default::default(),
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
         self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, created: std::time::Instant::now(), busy_until: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None });

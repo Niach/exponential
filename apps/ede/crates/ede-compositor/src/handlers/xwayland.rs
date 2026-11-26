@@ -22,7 +22,7 @@ use smithay::{
     },
     input::{
         keyboard::KeyboardTarget,
-        pointer::{Focus, GrabStartData},
+        pointer::Focus,
     },
     utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
@@ -41,7 +41,7 @@ use smithay::{
 use crate::{
     desk::DeskId,
     spaces::x11::XwmDesk,
-    grabs::{MoveSurfaceGrab, ResizeEdge, ResizeSurfaceGrab, BTN_LEFT},
+    grabs::{MoveSurfaceGrab, ResizeEdge, ResizeSurfaceGrab},
     layout::Tile,
     state::{set_window_state, window_state, Ede},
 };
@@ -512,6 +512,7 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
             self.tile(&w, Tile::Maximized);
         }
     }
@@ -526,6 +527,10 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            // A double click's second press may have started a move: it
+            // would pull the restored window back to where the maximized
+            // one stood.
+            crate::grabs::end_grab_of(self, &w);
             self.untile(&w, None);
         }
     }
@@ -540,6 +545,7 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
             self.set_fullscreen(&w, true);
         }
     }
@@ -608,6 +614,11 @@ impl XwmHandler for Ede {
         }
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.desk.space.element_location(&window) else { return };
+        let pointer = self.desk.seat.get_pointer().unwrap();
+        // #EDE-222: only while the press is still held; one already
+        // released (a quick or double click on the client's title bar)
+        // would leave the window glued to the pointer.
+        let Some(start) = pointer.grab_start_data() else { return };
         // Resizing a tiled window makes it float at its new size; a
         // fullscreen one keeps the output.
         let mut st = window_state(&window);
@@ -629,10 +640,6 @@ impl XwmHandler for Ede {
             X11ResizeEdge::BottomLeft => ResizeEdge::BOTTOM_LEFT,
             X11ResizeEdge::BottomRight => ResizeEdge::BOTTOM_RIGHT,
         };
-        let pointer = self.desk.seat.get_pointer().unwrap();
-        let start = pointer
-            .grab_start_data()
-            .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
         let rect = Rectangle::new(loc, window.geometry().size);
         pointer.set_grab(self, ResizeSurfaceGrab::start(start, window, edges, rect), SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
@@ -649,10 +656,22 @@ impl XwmHandler for Ede {
         let Some(window) = self.x11_window(&surface) else { return };
         let Some(loc) = self.desk.space.element_location(&window) else { return };
         let pointer = self.desk.seat.get_pointer().unwrap();
-        let start = pointer
-            .grab_start_data()
-            .unwrap_or(GrabStartData { focus: None, button: BTN_LEFT, location: pointer.current_location() });
+        // As in a resize: only while the press is still held.
+        let Some(start) = pointer.grab_start_data() else { return };
         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), SERIAL_COUNTER.next_serial(), Focus::Clear);
+    }
+
+    /// `_NET_WM_MOVERESIZE_CANCEL`: the client's move or resize ends
+    /// where the window is (Muffin ends its grab the same way).
+    fn move_resize_cancel_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => return,
+            XwmDesk::Gone => return,
+        }
+        if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
+        }
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
@@ -696,6 +715,7 @@ impl XwmHandler for Ede {
         d.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
         let seat = d.seat.clone();
         set_data_device_selection(&self.display_handle, &seat, mime_types, crate::clipboard::Selection::X11);
+        self.clipboard_keep(desk);
     }
 
     fn cleared_selection(&mut self, xwm: XwmId, selection: SelectionTarget) {
@@ -703,9 +723,10 @@ impl XwmHandler for Ede {
         let Some(d) = self.try_desk_mut(desk) else { return };
         let x11 = matches!(current_data_device_selection_userdata(&d.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
-            d.clipboard.changed(crate::clipboard::Owner::Empty);
+            // Its owner quit (or let go): the kept copy takes its place.
             let seat = d.seat.clone();
             clear_data_device_selection(&self.display_handle, &seat);
+            self.clipboard_source_gone(desk);
         }
     }
 }
