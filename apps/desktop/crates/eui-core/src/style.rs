@@ -38,12 +38,86 @@ pub struct GradientStop {
     pub offset: f32,
 }
 
-/// A linear gradient painted OVER `background_color` (CSS angle: 0 = up,
-/// 90 = right).
+/// A gradient painted OVER `background_color`: linear (CSS angle: 0 = up,
+/// 90 = right) or, genUI round 4, `radial` = a circle about `centre`
+/// (fractions of the box) out to the farthest corner ([`radial_radius`]).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Gradient {
+    /// `linear` (default) | `radial`.
+    #[serde(default, skip_serializing_if = "is_linear")]
+    pub kind: String,
     pub angle: f32,
+    /// A radial gradient's centre `[x, y]` (0..1 of the box).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub centre: Option<[f32; 2]>,
     pub stops: Vec<GradientStop>,
+}
+
+fn is_linear(kind: &str) -> bool {
+    kind.is_empty() || kind == "linear"
+}
+
+impl Gradient {
+    pub fn is_radial(&self) -> bool {
+        self.kind == "radial"
+    }
+}
+
+/// genUI round 4: a radial gradient's 100% radius in a `w`×`h` box about
+/// the centre fractions `(cx, cy)`: the distance to the FARTHEST corner
+/// (CSS `circle farthest-corner`).
+pub fn radial_radius(w: f32, h: f32, cx: f32, cy: f32) -> f32 {
+    let (x, y) = (cx * w, cy * h);
+    let dx = x.max(w - x);
+    let dy = y.max(h - y);
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Where the point `(px, py)` sits on a radial gradient: |P − C| / R
+/// (0 at the centre, 1 at the farthest corner); 0 when R is 0.
+pub fn radial_t(w: f32, h: f32, cx: f32, cy: f32, px: f32, py: f32) -> f32 {
+    let r = radial_radius(w, h, cx, cy);
+    if r <= 0.0 {
+        return 0.0;
+    }
+    ((px - cx * w).powi(2) + (py - cy * h).powi(2)).sqrt() / r
+}
+
+/// genUI round 4: a Box's `backgroundImage`, resolved (the scrim colour a
+/// hex string).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundImage {
+    pub src: String,
+    /// `cover` (default) | `contain`.
+    pub fit: String,
+    pub focal_x: f32,
+    pub focal_y: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrim: Option<Scrim>,
+}
+
+/// The flat fill over a background picture.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Scrim {
+    pub color: String,
+    pub opacity: f32,
+}
+
+/// Where a picture of `image` size lands in a `box_` (w, h) for `fit`
+/// `cover` | `contain` and the focal fractions (CSS `background-position`
+/// with `background-size` cover|contain; Image's `focal_bounds`):
+/// `(x, y, w, h)` relative to the box.
+pub fn picture_rect(fit: &str, box_: (f32, f32), image: (f32, f32), focal: (f32, f32)) -> (f32, f32, f32, f32) {
+    let (w, h) = box_;
+    let (iw, ih) = image;
+    if iw <= 0.0 || ih <= 0.0 {
+        return (0.0, 0.0, w, h);
+    }
+    let scale = if fit == "contain" { (w / iw).min(h / ih) } else { (w / iw).max(h / ih) };
+    let (dw, dh) = (iw * scale, ih * scale);
+    let (fx, fy) = (focal.0.clamp(0.0, 1.0), focal.1.clamp(0.0, 1.0));
+    ((w - dw) * fx, (h - dh) * fy, dw, dh)
 }
 
 /// One paint-only transform function, in source order (applied around the
@@ -76,6 +150,9 @@ pub struct Visual {
     pub background_color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_gradient: Option<Gradient>,
+    /// genUI round 4: the picture behind the children (base style only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_image: Option<BackgroundImage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
     /// The uniform border width (`borderWidth`); per-side widths are in
@@ -629,7 +706,23 @@ fn gradient(v: &Value) -> Option<Gradient> {
         .iter()
         .filter_map(|s| Some(GradientStop { color: s.get("color")?.as_str()?.to_string(), offset: s.get("offset").and_then(num).unwrap_or(0.0) }))
         .collect::<Vec<_>>();
-    (stops.len() >= 2).then(|| Gradient { angle: o.get("angle").and_then(num).unwrap_or(180.0), stops })
+    let radial = o.get("kind").and_then(Value::as_str) == Some("radial");
+    let centre = radial.then(|| {
+        let c = o.get("centre");
+        let at = |k: &str| c.and_then(|c| c.get(k)).and_then(num).unwrap_or(0.5).clamp(0.0, 1.0);
+        [at("x"), at("y")]
+    });
+    (stops.len() >= 2).then(|| Gradient { kind: if radial { "radial".into() } else { String::new() }, angle: o.get("angle").and_then(num).unwrap_or(180.0), centre, stops })
+}
+
+/// genUI round 4: `backgroundImage` → its resolved paint (defaults filled).
+fn background_image(v: &Value) -> Option<BackgroundImage> {
+    let o = v.as_object()?;
+    let src = o.get("src")?.as_str()?.to_string();
+    let unit = |k: &str| o.get(k).and_then(num).unwrap_or(0.5).clamp(0.0, 1.0);
+    let scrim = o.get("scrim").and_then(Value::as_object).and_then(|s| Some(Scrim { color: s.get("color")?.as_str()?.to_string(), opacity: s.get("opacity").and_then(num).unwrap_or(0.0).clamp(0.0, 1.0) }));
+    let fit = if o.get("fit").and_then(Value::as_str) == Some("contain") { "contain" } else { "cover" };
+    Some(BackgroundImage { src, fit: fit.into(), focal_x: unit("focalX"), focal_y: unit("focalY"), scrim })
 }
 
 /// `translate(Xpx, Ypx) scale(N) rotate(Ndeg)` → the ops in order.
@@ -695,6 +788,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
     Visual {
         background_color: str_of("backgroundColor"),
         background_gradient: r.get("backgroundGradient").and_then(gradient),
+        background_image: r.get("backgroundImage").and_then(background_image),
         color: str_of("color"),
         border_width: uniform_border.or_else(|| r.get("borderWidth").and_then(num)),
         border_widths: borders.filter(|_| uniform_border.is_none()),

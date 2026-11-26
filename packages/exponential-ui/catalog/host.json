@@ -8,54 +8,185 @@
   },
   "messages": {
     "$comment": "Agent → renderer (docs/round-9-contract.md §1). The six A2UI 1.0 messages plus two HOST-INTERNAL kinds only a trusted route takes: `applyTemplate` (a registered declarative package's template expands into one createSurface + binds) and `bindDataModel` (a data model path follows a host `source`). A message is ONE object with `version` (required, equal to a2uiVersion) and exactly one kind key; the check order is §1.1.",
-    "a2ui": ["createSurface", "updateComponents", "updateDataModel", "deleteSurface", "callRendererFunction", "agentFunctionResponse"],
-    "host": ["applyTemplate", "bindDataModel"]
+    "a2ui": [
+      "createSurface",
+      "updateComponents",
+      "updateDataModel",
+      "deleteSurface",
+      "callRendererFunction",
+      "agentFunctionResponse"
+    ],
+    "host": [
+      "applyTemplate",
+      "bindDataModel"
+    ]
   },
   "ops": {
     "$comment": "What the router (`HostRouter.route`) turns a message into. A platform host performs them in order: create = a new EMPTY surface (a seen id never gets here: INTEGRITY_ERROR, §1.4), components = updateComponents on it (its entries passed the entry check, §5.2), data = updateDataModel (no `value` = remove the path), bind = subscribe the path to a source resolver, delete = drop the surface and every subscription, send = a renderer message back over the transport (errors, a refused call's rendererFunctionResponse), call = run a callRendererFunction whose checks passed (§6.9), respond = settle the pending call of an agentFunctionResponse.",
-    "kinds": ["create", "components", "data", "bind", "delete", "send", "call", "respond"]
+    "kinds": [
+      "create",
+      "components",
+      "data",
+      "bind",
+      "delete",
+      "send",
+      "call",
+      "respond"
+    ]
   },
   "clientMessages": {
     "$comment": "Renderer → agent, A2UI 1.0 (docs/round-9-contract.md §1.3, §7): `{version, action: {name, surfaceId, sourceComponentId, timestamp, context, userMessage?, metadata?}}`, `{version, callAgentFunction: {surfaceId, functionCallId, callFunction}}`, `{version, rendererFunctionResponse: {functionCallId, value | error}}` or `{version, error: {code, surfaceId | functionCallId, message, path?}}`. The validation codes (VALIDATION_FAILED, UNALLOWED_PARENT, UNALLOWED_CHILD) always carry surfaceId and path.",
-    "kinds": ["action", "callAgentFunction", "rendererFunctionResponse", "error"],
-    "errorCodes": ["VALIDATION_FAILED", "UNALLOWED_PARENT", "UNALLOWED_CHILD", "INTEGRITY_ERROR", "INVALID_FUNCTION_CALL", "EXPRESSION_ERROR", "EXECUTION_ERROR", "UNKNOWN_FUNCTION", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "SOURCE_DENIED", "RENDER_FAILED"]
+    "kinds": [
+      "action",
+      "callAgentFunction",
+      "rendererFunctionResponse",
+      "error"
+    ],
+    "errorCodes": [
+      "VALIDATION_FAILED",
+      "UNALLOWED_PARENT",
+      "UNALLOWED_CHILD",
+      "INTEGRITY_ERROR",
+      "INVALID_FUNCTION_CALL",
+      "EXPRESSION_ERROR",
+      "EXECUTION_ERROR",
+      "UNKNOWN_FUNCTION",
+      "INVALID_MESSAGE",
+      "UNSUPPORTED_CATALOG",
+      "SURFACE_NOT_FOUND",
+      "TEMPLATE_NOT_FOUND",
+      "SOURCE_DENIED",
+      "RENDER_FAILED"
+    ]
   },
   "functions": {
     "$comment": "An `on.<event>` action `{functionCall: {\"@call\", args}}` runs on the renderer (docs/round-9-contract.md §6). The catalog's functions are built in (the basic 14 + the core ones; `set`, `bind` and `openUrl` are rendererOnly, `openUrl` needs a user gesture and goes through the URL policy; `bind {path, source, params?}` (VAPP-122) re-follows `path` from an action: `source` with `params` appended as its query (sourceWithParams: keys sorted, percent-encoded, null skipped, objects as JSON) goes through the router like a trusted bindDataModel, so the surface's package `sources` allowlist applies (SOURCE_DENIED otherwise) and the host REPLACES its earlier subscription at that path). Any other name is a FLAT host name (`app_toast`, `exponential_issues_create`, `tools_<id>__<tool>`, §6.3) or an agent function; routing (§6.5): the policy is IN FRONT: decide(policy, name) → allow | ask | deny; `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card); allowed = run a registered function, else callAgentFunction when the surface has an agent, else UNKNOWN_FUNCTION. Patterns: an exact name or a prefix ending in `*` (`harness_*`). Order: deny wins, then allow, then ask, then `default`.",
-    "decisions": ["allow", "ask", "deny", "not_found"],
-    "defaultPolicy": { "allow": [], "ask": [], "deny": [], "default": "allow" }
+    "decisions": [
+      "allow",
+      "ask",
+      "deny",
+      "not_found"
+    ],
+    "defaultPolicy": {
+      "allow": [],
+      "ask": [],
+      "deny": [],
+      "default": "allow"
+    }
   },
   "urls": {
     "$comment": "EVERY href on every renderer goes through decideUrl(policy, url): openUrl, Link (external or not), Button.href, Row.href, markdown links, a host's text links, FileUpload file urls, a host's default opener. #EXP-1674: a `Button.href` or `Row.href` (its root `Box.href`) press opens the url through the same path as a `Link`, then fires `press`; a denied one opens nothing and the press still fires. A `hostLinks: true` Text (the `Row` subtitle) asks the host's optional `textLinks(text)` for segments `[{text, href?}]`: they must concatenate back to the text (else the text paints plain); a segment whose href the policy denies paints plain; an allowed one paints in the text's own colour, underlined, and a tap opens it through the same path and never presses the Row behind it. No hook, or null = the plain text. A `Markdown`'s text asks the same hook and paints what it links as a markdown link (`fixtures/markdown-text-links.json`: code, a link's label and a bare url never ask); #VAPP-258: a segment may carry a `chip` (`markdown`). eUI knows nothing of what the links mean. The scheme (lower-cased) must be in `schemes` (`[\"https\"]` = https only: drops http, mailto and tel) and, when `hosts` is set, an http(s) url's host must match one (exact or `*.example.com`). Relative urls resolve against `baseUrl` first; without one they are denied. A denied href is never navigated: the link paints as plain text. The defaults keep `mailto` and `tel`: they open the system mail or phone handler with the address visible, run nothing, and are not gated by `hosts`. #EXP-1674: `~/x` expands against the host's optional `linkBase` (a path or an absolute url, e.g. the Exponential app's `/t/<team>`) before anything else, the rest appended as written: `<linkBase>/x`. Without a `linkBase` it is denied (`invalid`), so it paints as text; so are `~//…` and a `.` or `..` path segment in any spelling the URL parser reads as one (`%2e`, `\\` for `/`, tab or newline inside). A media src has no `linkBase`: `~/x` loads nothing. VAPP-107 (decided by Danny): an http(s) url whose host is PRIVATE (`privateHosts`: localhost and *.localhost, *.local, the IPv4 blocks 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.168/16, IPv6 ::, ::1, fe80::/10, fc00::/7 and a private IPv4 inside an IPv4-mapped, IPv4-compatible, NAT64 or 6to4 address) is DENIED with reason `private` unless the host opts it back in with `allowPrivate` (exact names or addresses, `*.suffix`, or `*` for every private address); a `hosts` allowlist alone does not opt one in. LITERALS only: the policy never resolves a name (a public name that resolves to a private address is the host network's job: egress rules, a filtering resolver). The WHATWG parser normalizes an address before the check (`2130706433`, `0x7f.1`, `::ffff:127.0.0.1`). The Exponential app opts its own origin in only when that origin is private (the localhost dev setup); its cloud origin is public and needs nothing; the web renderers (React and Solid, through the shared web layer) do the same for the document's own host on top of the host's list (a dev server on localhost keeps its same-origin loads).",
-    "defaultSchemes": ["https", "http", "mailto", "tel"],
-    "privateHosts": ["localhost", "*.localhost", "*.local", "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::", "::1", "fe80::/10", "fc00::/7", "::ffff:<private IPv4>", "::<private IPv4>", "64:ff9b::<private IPv4>", "2002:<private IPv4>::/48"],
-    "reasons": ["invalid", "scheme", "host", "private"]
+    "defaultSchemes": [
+      "https",
+      "http",
+      "mailto",
+      "tel"
+    ],
+    "privateHosts": [
+      "localhost",
+      "*.localhost",
+      "*.local",
+      "0.0.0.0/8",
+      "10.0.0.0/8",
+      "127.0.0.0/8",
+      "169.254.0.0/16",
+      "172.16.0.0/12",
+      "192.168.0.0/16",
+      "100.64.0.0/10",
+      "::",
+      "::1",
+      "fe80::/10",
+      "fc00::/7",
+      "::ffff:<private IPv4>",
+      "::<private IPv4>",
+      "64:ff9b::<private IPv4>",
+      "2002:<private IPv4>::/48"
+    ],
+    "reasons": [
+      "invalid",
+      "scheme",
+      "host",
+      "private"
+    ]
   },
   "media": {
     "$comment": "EVERY src on every renderer (Image, Avatar, Video + poster, Audio, markdown images) goes through mediaRequest(url, {baseUrl, rules, schemes, hosts}) → {url, headers} | null. A relative url resolves against baseUrl; the absolute url must pass decideUrl with `schemes` (default `defaultSchemes`: no `file`, so no local file is ever read unless the host lists it; `[\"https\"]` = https only), `hosts` and `allowPrivate` (VAPP-107: a private, loopback or link-local host is denied unless opted in, like every href; a redirect hop passes the same rules; web: a direct element load's redirects are the browser's); null = denied, nothing loads. Every rule whose `prefix` the url starts with adds its headers (later rules win per header): how the Exponential app sends auth for /api/attachments. Every image loader enforces `limits`: `maxBytes` (Content-Length up front and the body as it streams), `timeoutMs` (the whole request), `maxPixels` (width × height read from the image header BEFORE decoding); a load over a limit fails like a 404 (the fallback paints). Video/Audio stream through the platform player: the policy applies, the byte limits do not (a poster is an image: they do); a web player cannot send headers, so a request WITH headers goes to the host's `mediaStreamUrl(request)` (a signed or cookie-authed url, re-checked by the policy) and without that hook is fetched whole into a blob url under `limits.maxBytes` and `limits.timeoutMs` for the WHOLE download (VAPP-107: past either it fails like a 404; a long video needs `mediaStreamUrl`).",
-    "ruleKeys": ["prefix", "headers"],
-    "optionKeys": ["baseUrl", "rules", "schemes", "hosts", "allowPrivate"],
-    "defaultSchemes": ["https", "http", "data"],
-    "limits": { "maxBytes": 20971520, "timeoutMs": 30000, "maxPixels": 33554432 },
+    "ruleKeys": [
+      "prefix",
+      "headers"
+    ],
+    "optionKeys": [
+      "baseUrl",
+      "rules",
+      "schemes",
+      "hosts",
+      "allowPrivate"
+    ],
+    "defaultSchemes": [
+      "https",
+      "http",
+      "data"
+    ],
+    "limits": {
+      "maxBytes": 20971520,
+      "timeoutMs": 30000,
+      "maxPixels": 33554432
+    },
     "appFile": {
       "$comment": "VAPP-271: ONE documented form for an app's own file as a src: `app-file:<fileId>` (`scheme`, the id = `idPattern`, what a capability answered as `fileId`: photos.pick, print.pdf, files.open). It is no URL scheme and no media scheme: the HOST resolves it from its BlobStore before the media policy (appFileId(src) → the id | null); the Engine's runners do (web: OPFS → a blob URL; desktop eui-gpui, SwiftUI and Compose: the bytes through the runner's glue) under the same image limits. A host without app files (Exponential's own hosts) leaves it unresolved: nothing loads, the missing-image fallback paints. fixtures/host-policy.json `appFiles`.",
       "scheme": "app-file",
       "idPattern": "^[A-Za-z0-9._-]{1,200}$"
+    },
+    "map": {
+      "$comment": "genUI round 4 (MapPlaceholder): the map tile is an Image (part `tile`, over the placeholder's grid and pin, under its markers) whose src is `map:<label>` (the label as written, not encoded). A host supplies tiles through its existing `resolveUrl` hook: it rewrites the `map:` src to a picture URL (a static map of that place), which then passes the media policy like any src. A `map:` src that `resolveUrl` leaves a `map:` src or empties (every host without a map, the default, and an offline host) paints NOTHING on every renderer (no fetch, no fallback, no stand-in): the placeholder shows (a muted grid of three lines each way at 25/50/75 %, a centred `map-pin` glyph over the label in caption; with `markers`, a primary `map-pin` at each x/y (0..1 of the box) beside its label, and the label as a corner caption).",
+      "scheme": "map:",
+      "hook": "resolveUrl"
     }
   },
   "markdown": {
     "$comment": "#VAPP-258: the host hooks a Markdown asks so the app's surfaces (issue descriptions, comments, chat, plans, results) paint on genUI's Markdown. ALL OPTIONAL: with no hook, or no answer, a Markdown paints exactly as without them. Locked by fixtures/markdown-host.json (a fake host's answers → the normal form of fixtures/markdown-render.json plus `chip`, `attachment` and image `width`/`height`), replayed by React and Solid (web/markdown.ts `hostMarkdown`), Swift, Compose and gpui. Every hook is asked with the RAW destination or text as written, by the measurer and the painter alike (a natives' measure = paint: answers must be pure for a given input). (1) CHIPS: a `textLinks` segment may carry `chip: {kind, label, icon?, ident?}` (`kind` in `chipKinds`, a non-empty `label`, `icon` an icon registry name, `ident` an identifier such as `ABC-1`; an empty one is none): when its href passes the URL policy the run paints as the catalog Chip's look, INLINE in the text run, and a tap opens the href like any link (never pressing a Row behind it). A chip with an unknown kind or an empty label is dropped (the link stays); a segment without an allowed href is plain text, chip or not. Where it applies is the text-link rule (fixtures/markdown-text-links.json: never code, a markdown link's label or a bare url); a `hostLinks` Text paints a chip segment as its plain link (chips are Markdown's). THE INLINE CHIP: the Chip `root` recipe's colours (backgroundColor, borderColor, borderWidth drawn inside the box) on a box of height min(`$control.badge`, the line's lineHeight), vertically centred in the line box, radius `$radius.full`, paddingHorizontal `$spacing.sm`; inside, the `icon` (when given) at `$control.iconSm` then `$spacing.xs`, then the `ident` (when given: the `Markdown/chipIdent` recipe's type, else the mono family at the label's size, the label colour) and `$spacing.xs`, then the `label` in the Text `caption` variant's style (what Chip/label paints: its colour = the Chip/label recipe's, else the Text's ink), one line. Width = 2 × paddingHorizontal + the label's shaped width (+ iconSm + gap) (+ the ident's shaped width + gap): a renderer that predicts heights MEASURES the label with the same font it paints, so a chip wraps like one unbreakable word (capped at the wrap width, the label truncating with an ellipsis), never mid-chip, and never grows a line. Its accessible name is the label (the ident first when given); `kind` is the host's meaning, every kind has the one look unless the theme restyles it: the `Markdown/chip`, `Markdown/chipLabel` and `Markdown/chipIdent` rules for the chip's `kind` (catalog/recipes.json, the `chip` prop) paint OVER Chip/root and Chip/label, their metrics included (paddingHorizontal, borderRadius, the label and ident type), on every renderer and its measurer alike. (2) `imageSize(src) → {width, height} | null`: a block image's box keeps that aspect ratio at its natural size, capped by the available width and `imageMaxHeight` (scale = min(1, available / width, imageMaxHeight / height); start-aligned), so a known attachment reserves its space before it loads; no answer, or a non-positive or non-finite one, = the fixed box (the available width × imageMaxHeight). The box is the same while loading, loaded or failed. (3) `onImagePress(src)`: a press on a block image calls it (a lightbox); without the hook a block image is not pressable. (4) `attachment(href) → {kind, name} | null`: a top-level paragraph that is exactly ONE markdown link (its label any inline content, nothing else in the paragraph; asked before the text links) whose href passes the URL policy and that the host classifies (`kind` in `attachmentKinds`, a non-empty `name`) paints as a media/file block instead of the paragraph: `video` = the Video native's look (no poster, its play button; box width min(available, layout `mediaIntrinsicWidth`), height = width / `mediaAspectRatio`), `audio` = the AudioPlayer native's look with `name` as its title (the available width), `file` = the FileUpload `file` row's look (fileIcon + fileName, no size, no remove; a press opens the href through the URL policy and the host's opener). Video and audio sources pass the media policy like the natives' (denied = their empty player). A list item, quote or table cell never becomes an attachment. (5) `lazyBlocks`: from this many blocks on, the gpui and Compose painters lay out and paint only the blocks that cross the visible clip (the app's desktop lazy_block.rs threshold); every block keeps its measured box, so the measured total height is exact either way. THE OVERRIDE: a host plugin's whole-component `Markdown` override (web `host.Markdown`, Swift `markdown(_:width:)`, Compose and gpui `markdown`) stays as the escape hatch for a host that brings its own renderer, but it gives up the measured height and every hook here; Exponential's own clients render all their read-only Markdown through this one (web, desktop, iOS, Android), so none of them overrides it.",
-    "hooks": ["textLinks", "imageSize", "onImagePress", "attachment"],
-    "chipKinds": ["issue", "mention", "entity"],
-    "attachmentKinds": ["video", "audio", "file"],
+    "hooks": [
+      "textLinks",
+      "imageSize",
+      "onImagePress",
+      "attachment"
+    ],
+    "chipKinds": [
+      "issue",
+      "mention",
+      "entity"
+    ],
+    "attachmentKinds": [
+      "video",
+      "audio",
+      "file"
+    ],
     "imageMaxHeight": 160,
     "options": {
       "$comment": "#VAPP-258 (step 5): HOST-level render options (never agent props: the app picks them per surface), every one optional, the defaults = what a Markdown painted before them. Locked by fixtures/markdown-render.json `optionCases` + `streamingCases`, replayed by React and Solid (web/markdown.ts `parseMarkdownWith`), Swift, Compose and gpui; the measurer reads the same options as the painter (a native's measured height = its painted height). `breaks`: `soft` = a single newline inside a paragraph, list item or quote is a space (a trailing backslash or two spaces still break), `hard` = EVERY newline there is a line break (a newline in the run; what chat text means). `density`: `document` = the Markdown recipes as they are, `chat` = the chat rhythm: the painter resolves every `Markdown/<part>` with `density: chat` as a painter-supplied recipe prop (catalog/recipes.json), so a theme's `when: {density: chat}` rules give the tighter block gap and the chat body / heading type (the shipped themes: the transcript's 14/22 body, an 8 px gap, headings one step down); `document` never matches a chat rule. `selectable`: whether the text can be selected and copied; unset = the renderer's own default (web and gpui select, Swift and Compose do not). `streaming`: the text is a PREFIX that keeps growing (an agent's answer): parsed as the stable blocks before the last blank line outside a fence plus the TAIL after it; only the tail reparses when new text extends the old (a per-text memo), so finished blocks never re-layout. In the tail, an open fence paints as an open code block and holds back its last line while that line is empty or only fence characters; the LAST block's plain text holds back what would flicker: an unfinished link `[label`, `[label]` or `[label](dest` at its end paints as its label, and every run of `*`, `_`, `~` or a backtick not preceded by an ASCII letter or digit and followed by a non-space (or ending the text) is dropped, so an unclosed emphasis, strike or code span paints as plain text. A finished document (`streaming` off) parses as before. `imageMaxHeight` (a positive number, or null): the block image box's height cap in px; unset or invalid = `markdown.imageMaxHeight` (160, what a Markdown painted before), so genUI surfaces never change; `null` = NO cap (a document's screenshots): the box is the available width at the image's `imageSize` aspect (4:3 when the host does not know it), and when that is taller than the renderer's viewport height it scales down to exactly that height at the same aspect (start-aligned; the web's viewport = `100vh`, a native's = its window or surface viewport, the measurer reading the same; none known = no limit). Locked by fixtures/markdown-host.json `imageBoxes` (`maxHeight`, `viewport`).",
-      "breaks": { "values": ["soft", "hard"], "default": "soft" },
-      "density": { "values": ["document", "chat"], "default": "document" },
-      "selectable": { "default": null },
-      "streaming": { "default": false },
-      "imageMaxHeight": { "default": 160 }
+      "breaks": {
+        "values": [
+          "soft",
+          "hard"
+        ],
+        "default": "soft"
+      },
+      "density": {
+        "values": [
+          "document",
+          "chat"
+        ],
+        "default": "document"
+      },
+      "selectable": {
+        "default": null
+      },
+      "streaming": {
+        "default": false
+      },
+      "imageMaxHeight": {
+        "default": 160
+      }
     },
     "lazyBlocks": 24
   },
@@ -66,9 +197,14 @@
   },
   "transport": {
     "$comment": "Adapters every SDK ships: in-memory, A2UI JSONL over a byte stream (one message per line; CRLF and blank lines tolerated; a bad line is an issue, never fatal), SSE (`data:` lines joined per event; an event's data is one message or JSONL; events named other than `message`/`a2ui` are ignored), WebSocket (one message or JSONL per frame), and the A2UI-over-MCP carrier (a tool result's `content[]` resources with one of `mcpMimeTypes`, text = JSONL / a JSON array / one message; or `structuredContent.a2ui` = an array). Renderer → agent messages (action, callAgentFunction, rendererFunctionResponse, error) over MCP = tools/call `mcpActionTool` with `{message, metadata?}` (metadata = `a2uiRendererDataModel` on a sendDataModel surface); the WebSocket and JSONL transports wrap `{message, metadata}` only when metadata is present.",
-    "mcpMimeTypes": ["application/a2ui+json"],
+    "mcpMimeTypes": [
+      "application/a2ui+json"
+    ],
     "mcpActionTool": "a2ui_event",
-    "sseEvents": ["message", "a2ui"]
+    "sseEvents": [
+      "message",
+      "a2ui"
+    ]
   },
   "negotiation": {
     "$comment": "supportedCatalogIds = the core, the core lite, the A2UI 1.0 basic catalog, then every registered extension id in registration order, de-duplicated; inline catalog ids join the AVAILABLE set. rendererCapabilities = {\"1.0\": {supportedCatalogIds, inlineCatalogs?}}. A createSurface whose catalogId is not available → UNSUPPORTED_CATALOG. The A2A constants: docs/round-9-contract.md §10.",
@@ -79,7 +215,10 @@
   },
   "inference": {
     "$comment": "#AXC-12 (VAPP-295): the INFERENCE FORMAT an agent writes: `json` (A2UI messages, the default) or `express` (a2ui-express, the compact notation compiled against the core catalog into the same A2UI 1.0 messages; a component the catalog lacks is a compile error). Every key of the marker lives HERE, plain, so it can move (e.g. under `x-exponential`) in one place. A STREAM carries ONE Express response per connection, read by ONE ExpressDecoder in wrapped mode (prose with `<a2ui>…</a2ui>` blocks; any chunking, a block may span chunks and a chunk may end mid-token): an HTTP body whose Content-Type (parameters and case ignored, `inferenceFormatOf`) is `express.mimeType`; SSE events named `express.sseEvent` (each event's data = the next chunk; `message`/`a2ui` events stay JSON on the same stream); WebSocket frames that are a JSON object with exactly the one string key `express.wsFrameKey` (`{\"express\": \"…\"}`: the next chunk; any other frame stays one message or JSONL). A whole DOCUMENT is one bare Express body (no tags), read by its own decoder: an MCP `content[]` resource whose mimeType is `express.mimeType`, and `structuredContent[express.structuredContentKey]` (a string). Statements before any `surface(\"…\")` line target the host's surface id, default `express.defaultSurfaceId`. The prose (`Decoded.text`: the pieces in order, a run after a block starts with a `\"\\n\\n\"` piece) goes to the host's `onText` hook; the SDK draws none. #VAPP-300: `Decoded.open` = the surfaces the still-OPEN block has written to (a state, absent = none; JSON events and frames between keep it): the host reduces them `streaming` (a child not streamed yet renders as nothing, no Unknown placeholder, no issue) and re-reduces each without it once its block closes (`fixtures/host-transport.json` `expressOpen`). A block that does not compile is an ISSUE, never fatal (`<category> error: <message>`; SSE: `event N: …`, MCP: `content[i]: …`), and the stream reads on past it. A renderer that can compile Express advertises it: `rendererCapabilities[\"1.0\"][capabilitiesKey] = formats` (absent = JSON only). Locked by fixtures/host-transport.json `express`.",
-    "formats": ["json", "express"],
+    "formats": [
+      "json",
+      "express"
+    ],
     "default": "json",
     "capabilitiesKey": "inferenceFormats",
     "express": {
@@ -92,23 +231,91 @@
   },
   "package": {
     "$comment": "A declarative app package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], sources?: [allowed sources], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny. VAPP-107: `sources` is the same allowlist for binding sources (`exp:devices`, or a prefix `exp:*`, matched against the URI's scheme:name without its query): unset = any registered scheme; set, a template binding outside it is an install issue and a later bindDataModel on one of the package's surfaces answers SOURCE_DENIED (the data model never follows it). VAPP-161 (docs/package-format.md, the prose spec): format version `formatVersion` (REQUIRED and exactly this version: newer = an install issue, older = an install issue too; eApps keeps no backwards compatibility): `records:` (the neutral binding source + write functions over a HOST-provided store), `tools` (MCP servers and scripts behind a consent card) and `extensions` (the extension catalogs a package needs, versioned). The package FILE (any JSON object holding the package under `package`, e.g. Exponential's export) may carry `author` + `signature` (`signature` below).",
-    "required": ["id", "name", "version", "catalogId", "templates"],
+    "required": [
+      "id",
+      "name",
+      "version",
+      "catalogId",
+      "templates"
+    ],
     "formatVersion": 6,
     "records": {
       "$comment": "VAPP-122: an app's own data. `records: {<kind>: {schema, title?, description?}}`: a kind's name follows `kindPattern`; `schema` is a JSON Schema SUBSET: {type: \"object\", properties: {<field>: {type: string|number|integer|boolean|array, enum? (strings), items? (arrays: {type, enum?}), maxLength? (characters, or items), minimum?, maximum?, format? (strings: date = YYYY-MM-DD, date-time = ISO 8601, time = HH:MM[:SS]), description?}}, required?: [fields], additionalProperties?: false by default}. The `reserved` keys ride on every row the host reads back and may not be declared. validateRecordSchema(schema, at) checks a kind at install (an issue = PACKAGE_INVALID), validateRecord(schema, data) a record before it is stored: a missing or null optional field passes, a required one does not, an undeclared key is refused unless additionalProperties. VAPP-161: READ = the binding `<scheme>:<kind>?query` (scheme `records.scheme`) → {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?}; `query`: mine=1, user, sort (default sortDefault), order (default orderDefault), limit (default limitDefault, capped at limitMax), sum, by + month (the month view), app (another app's rows, the host resolves them), any other key = a data-field filter (`<field>=v` equals as text, `<field>.gt|gte|lt|lte=v` numbers when both parse, else text); `query.reserved` keys never filter; ties sort by id. VAPP-189: ONE evaluator (src/host/query.ts, the Rust core's host::query, fixtures/records-query.json). VAPP-190: `<field>.in=a,b`, `<field>.between=lo,hi`, `before=<date>`, `q=<json>` = the JSON form (parseRecordsJson: where [[field, op, value…] | {or: [[cond…]…]}], group [field | author | {bucket, by: day|week|month|quarter|year}], aggregate {name: [sum|avg|min|max|count|countDistinct|first|last, field?]}, running {field: sum|count|avg|min|max}, before date | {field, date}, sort, limit, mine, user, app, sum, month) → value + groups?, totals?, before?; a package's `queries: {<name>: <JSON query>}` (names `queryNamePattern`, parsed clean, `from` a declared kind) are followed by a binding `?query=<name>&<params>` (the router expands it to `q=<canonical JSON>`, `${param}` templates filled from the binding's params; a binding naming no query = an install issue). A template binding to `records:<kind>` must name a declared kind (install issue `records:<kind> names no declared kind`). WRITE = `records.functions`: upsert {kind, data, id?} → {id} (create, or shallow-patch with id; the host validates the merged data with validateRecord BEFORE it stores it) and delete {id}; VAPP-194: batch {writes: [{op: upsert, kind, data, id?} | {op: delete, id}]} → {ids} = ONE unit (all land or none: a package action's writes); listed in `functions` like any host function, never behind a consent card. The host provides the store (TS: the RecordStore interface, MemoryRecordStore + recordsHost as the reference); Exponential = its synced store. VAPP-221 (eApps R7): format `attachment` (on a string field, or on a list's string `items`: `items.format` takes the same formats on string items) = a file: the value is the instance's attachment route `/api/attachments/<lowercase uuid>`, relative, nothing else; a FileUpload writes it (an app host uploads the picked bytes and writes each file's `url` into the entry of the same name at the FileUpload's bound `files` path), Image / Link / FileUpload show it under the host's media policy. `recordAttachmentIds` (Rust `record_attachment_ids`) lists the ids a record references; the server accepts only its own app's and team's.",
       "kindPattern": "^[a-z][a-z0-9_]{0,31}$",
-      "reserved": ["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"],
-      "types": ["string", "number", "integer", "boolean", "array"],
-      "formats": ["date", "date-time", "time", "attachment"],
+      "reserved": [
+        "id",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "authorId",
+        "author"
+      ],
+      "types": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "array"
+      ],
+      "formats": [
+        "date",
+        "date-time",
+        "time",
+        "attachment"
+      ],
       "scheme": "records",
-      "functions": ["records_upsert", "records_delete", "records_batch"],
-      "query": { "sortDefault": "createdAt", "orderDefault": "desc", "limitDefault": 100, "limitMax": 500, "queryNamePattern": "^[a-z][A-Za-z0-9_]{0,31}$", "reserved": ["app", "before", "by", "columns", "day", "expand", "lanes", "limit", "mine", "month", "order", "q", "query", "row", "scale", "sort", "start", "sum", "tone", "until", "user", "view"] }
+      "functions": [
+        "records_upsert",
+        "records_delete",
+        "records_batch"
+      ],
+      "query": {
+        "sortDefault": "createdAt",
+        "orderDefault": "desc",
+        "limitDefault": 100,
+        "limitMax": 500,
+        "queryNamePattern": "^[a-z][A-Za-z0-9_]{0,31}$",
+        "reserved": [
+          "app",
+          "before",
+          "by",
+          "columns",
+          "day",
+          "expand",
+          "lanes",
+          "limit",
+          "mine",
+          "month",
+          "order",
+          "q",
+          "query",
+          "row",
+          "scale",
+          "sort",
+          "start",
+          "sum",
+          "tone",
+          "until",
+          "user",
+          "view"
+        ]
+      }
     },
     "actions": {
       "$comment": "VAPP-194 (E1, src/host/actions.ts, fixtures/actions.json): `actions: {<name>: {params?, steps}}`, the only place a package writes; every expression elsewhere is pure (a write or host function in a binding is an install issue). `params` = a records schema subset; a step is ONE of `stepKinds`: {require: <expr>, message}, {\"records_upsert\": {kind, data: {<field>: <expr>}, id?: <expr>}}, {\"records_delete\": {id: <expr>}}, {set: {path: <pointer>, value: <expr>}}, {call: <host function>, args?: {<k>: <expr>}}; a JSON string in an expression slot is CEL, anything else a literal; the vars are params, data (the surface data), me and results. VAPP-271: a call step may carry `result: <name>` (`resultPattern`, once per action): it runs when the plan reaches it, BEFORE the commit (its policy and consent first; a refusal or a failure lands nothing), and the steps after it read its answer as `results.<name>`; runAction answers {pending: {step, name, args, result}} for the first unanswered one and the host runs the action again over the same snapshot with the answer added. Every Engine capability name (`photos_`, `files_`, `print_`, `share_`, …) is a host function. A surface runs one with the function call `callPrefix<name>` (args = params). runAction evaluates every step against ONE snapshot and returns the plan {writes, sets, calls} or the error that discards it whole (a false require = its message; else `step <i>: …`; `limits.maxSteps` evaluation steps per run). The host checks every call's policy and consent first, then commits the writes as ONE unit through `records_batch`, then applies the sets, then runs the calls; any refusal before the commit lands nothing.",
-      "limits": { "actions": 32, "steps": 64, "maxSteps": 100000 },
+      "limits": {
+        "actions": 32,
+        "steps": 64,
+        "maxSteps": 100000
+      },
       "namePattern": "^[a-z][A-Za-z0-9_]{0,31}$",
-      "stepKinds": ["require", "records_upsert", "records_delete", "set", "call"],
+      "stepKinds": [
+        "require",
+        "records_upsert",
+        "records_delete",
+        "set",
+        "call"
+      ],
       "callPrefix": "actions_",
       "batchFunction": "records_batch",
       "resultPattern": "^[a-z][A-Za-z0-9_]{0,31}$"
@@ -120,46 +327,131 @@
       "exposedDescriptionMax": 200,
       "navigateFunction": "app_navigate",
       "paramsKey": "params",
-      "widgetSizes": ["s", "m", "l"]
+      "widgetSizes": [
+        "s",
+        "m",
+        "l"
+      ]
     },
     "capabilities": {
       "$comment": "VAPP-260 (format version 5, src/host/capabilities.ts, fixtures/host-router.json `acme.capabilities` / `acme.badcapabilities`, spec docs/spec/apps.md §2.2.2 + §13.2): `capabilities: [{id, why, origins?}]` = the package's CAPABILITY MANIFEST, the ceiling of what its UI and its agents may reach through the Engine's broker and what a bundler maps onto platform permissions (packages/eengine fixtures/capabilities.json is the catalog with tools and consent; its non-host-only scope ids are exactly `scopes`). A list of at most `max` entries; `id` one of `scopes`, each at most once; `why` the author's line on the consent sheet, 1..`whyMax` characters; `origins` REQUIRED for an `origins` scope (a non-empty list of distinct `originPattern` origins: lowercase, no path) and refused on any other; no other key. Absent = no capabilities.",
       "max": 16,
       "whyMax": 200,
-      "scopes": ["camera.capture", "clipboard.read", "clipboard.write", "files.read", "files.write", "focus.window", "http.fetch", "launch.app", "location.read", "notifications.post", "photos.read", "print.pdf", "share.send", "windows.read"],
-      "origins": ["http.fetch"],
+      "scopes": [
+        "camera.capture",
+        "clipboard.read",
+        "clipboard.write",
+        "files.read",
+        "files.write",
+        "focus.window",
+        "http.fetch",
+        "launch.app",
+        "location.read",
+        "notifications.post",
+        "photos.read",
+        "print.pdf",
+        "share.send",
+        "windows.read"
+      ],
+      "origins": [
+        "http.fetch"
+      ],
       "originPattern": "^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$"
     },
     "share": {
       "$comment": "VAPP-241 (P1, src/host/share.ts, fixtures/package-share.json, spec docs/spec/apps.md §9.4): `share: [{name, mode, kind, fields?, query?, template?, expires?}]` = the public links an owner can turn on, at most `max`; `name` follows `namePattern`, unique; `mode` is one of `modes`; `kind` a declared kind; `fields` names of its fields, no file, and every required field for `submit`; `query` (view only) a package query of the kind; `template` (view only, VAPP-246) a package template a guest's host can run: it reads only `records:<kind>` (at most `?query=<the link's query>`), holds no RecordForm and only `editable: false` RecordTables, calls nothing but `set` and `openUrl`, uses no listed extension component and no `exp:` string, and its expressions check over the narrowed row with no query; `expires` whole days, 1..`expiresMax`. The links (tokens, caps, the guest pages) are the host's.",
       "max": 5,
       "namePattern": "^[a-z][a-z0-9_]{0,23}$",
-      "modes": ["submit", "view"],
+      "modes": [
+        "submit",
+        "view"
+      ],
       "expiresMax": 3650
     },
     "tests": {
       "$comment": "VAPP-196 (T1, src/host/tests.ts, fixtures/package-tests.json): `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most `limits.tests`), run by validatePackage on an otherwise valid package, each against its own in-memory store seeded with `records` ({<kind>: [rows]}, a row = the kind's data + optional `id`, `author`), at `now` (UTC, default `defaults.now`) as the member `as` (default `defaults.as`) with the team role `role` (`roles`, default `defaults.role`); eApps R3: the test reads only the rows its member may read and its action's writes are judged by each kind's `policy` (fixtures/record-policy.json), a refusal = {error: `write <i>: <copy>`}. `kinds`: expr {expr, vars?} (a var {source: records:…} = that binding over the store), query {name, params?} (a package query), action {name, params?, data?} (the plan applied: {records, sets, calls}) or {error}. `expect` matches by the keys an object names, a list item by item, else JSON equality. A failing test = the install issue `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at `limits.gotMax` code points).",
-      "limits": { "tests": 50, "gotMax": 300 },
-      "defaults": { "now": "2026-01-01T00:00:00.000Z", "as": "member", "role": "member" },
-      "roles": ["member", "owner"],
-      "kinds": ["expr", "query", "action"]
+      "limits": {
+        "tests": 50,
+        "gotMax": 300
+      },
+      "defaults": {
+        "now": "2026-01-01T00:00:00.000Z",
+        "as": "member",
+        "role": "member"
+      },
+      "roles": [
+        "member",
+        "owner"
+      ],
+      "kinds": [
+        "expr",
+        "query",
+        "action"
+      ]
     },
     "tools": {
       "$comment": "VAPP-161: `tools: {<id>: {kind, title, description?, url | command, args?, env?}}`, ids in `idPattern`, checked in sorted order. kind `mcp` = an MCP server: `url` (absolute http(s): Streamable HTTP) XOR `command` (+ args, a local stdio process); kind `script` = `command` (+ args) run once per call with the args as JSON on stdin, its stdout JSON the result. `env` = variable NAMES the host passes through (never values). Functions: `tools_<id>__<tool>` calls an MCP server's tool, `tools_<id>` a script; listed in `functions` like any other. CONSENT (the host MUST): before a tool's FIRST call the host shows the toolConsent row {id, kind, transport: http|stdio|script, title, description, target: the url or the command line (an arg that is empty or holds whitespace, a quote or a backslash JSON-quoted), env} and asks allow / deny; deny = INVALID_FUNCTION_CALL; an allow is remembered under toolConsentKey = `<packageId>/<toolId>:` + the tool's canonical JSON, so ANY change asks again; policy alone never allows a tool call; a host that cannot run a kind refuses its calls with UNKNOWN_FUNCTION and says so on the card.",
       "idPattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
-      "kinds": ["mcp", "script"],
-      "transports": ["http", "stdio", "script"],
+      "kinds": [
+        "mcp",
+        "script"
+      ],
+      "transports": [
+        "http",
+        "stdio",
+        "script"
+      ],
       "functionPrefix": "tools_"
     },
     "exposes": {
       "$comment": "VAPP-180 (the format half of the eMCP contract, packages/emcp fixtures/exposes.json in the Exponential repo): `exposes: [{name, title, description, input, access, run}]` = MCP tools a host's broker lists (as `<app>__<name>`) and runs as the CALLING person, data never code. `name` matches `limits.namePattern`, at most `limits.nameMax`, never holds `limits.separator`, unique; `title` (at most titleMax) and `description` (at most descriptionMax) non-blank; `input` = a JSON Schema `{type: \"object\", properties?}`; `access` read | write; at most `limits.maxTools` tools. `run` holds EXACTLY ONE of `runKinds`: `records: {op, kind, id?, where?, data?, limit?}` over the package's OWN kinds (op in `recordOps`; `readRecordOps` read, upsert writes; a delete is destructive and refused); `action` (+ `args`) = a host function name matching `actionPattern` (it reads when the last word of its name is a `readOpWords` word, else it writes); `upstream` (+ `tool`, `args`) = one of the package's `upstreams` (the MCP server names the HOST provides: Exponential = the team's MCP servers); `agent` (+ `prompt`, `device?`) hands the input to one of the host's agents by slug (matching `agent.slugPattern`, at most `agent.slugMax`, else `agent`): `prompt` non-blank, at most `agent.promptMax` characters (else `prompt`), `device` absent or one of `agent.devices` (else `run`); it always writes (Exponential: a team agent through `sessions_send`, #VAPP-236). Every string of `run` may hold `${input.<dotted path>}` templates whose first key is a declared input property. Destructive is never exposed: an action or upstream tool whose name holds a `destructiveWords` word (words = the `_`-separated words) is refused. A binding declared read whose run writes is refused; an upstream tool's level is its live annotations', checked by the host at call. Issues come in binding order with the eMCP error code (`exposeIssues`). What a run may reach on a given host (which actions exist and are grantable, destructive arguments, which upstreams the team has) is the host's own check on top.",
-      "limits": { "namePattern": "^[a-z][a-z0-9_]*$", "nameMax": 40, "titleMax": 80, "descriptionMax": 1024, "maxTools": 32, "separator": "__" },
-      "runKinds": ["records", "action", "upstream", "agent"],
-        "agent": { "slugPattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "slugMax": 64, "promptMax": 4000, "devices": ["default"] },
-      "recordOps": ["list", "get", "upsert"],
-      "readRecordOps": ["list", "get"],
-      "readOpWords": ["list", "get", "show", "catalog", "activity", "files"],
-      "destructiveWords": ["delete", "merge", "close", "end", "remove", "trash"],
+      "limits": {
+        "namePattern": "^[a-z][a-z0-9_]*$",
+        "nameMax": 40,
+        "titleMax": 80,
+        "descriptionMax": 1024,
+        "maxTools": 32,
+        "separator": "__"
+      },
+      "runKinds": [
+        "records",
+        "action",
+        "upstream",
+        "agent"
+      ],
+      "agent": {
+        "slugPattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "slugMax": 64,
+        "promptMax": 4000,
+        "devices": [
+          "default"
+        ]
+      },
+      "recordOps": [
+        "list",
+        "get",
+        "upsert"
+      ],
+      "readRecordOps": [
+        "list",
+        "get"
+      ],
+      "readOpWords": [
+        "list",
+        "get",
+        "show",
+        "catalog",
+        "activity",
+        "files"
+      ],
+      "destructiveWords": [
+        "delete",
+        "merge",
+        "close",
+        "end",
+        "remove",
+        "trash"
+      ],
       "actionPattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)+$"
     },
     "extensions": {
@@ -172,7 +464,11 @@
       "context": "exponential-ui/package-file/v1\n",
       "keyPrefix": "ed25519:",
       "nameMax": 80,
-      "statuses": ["unsigned", "valid", "invalid"]
+      "statuses": [
+        "unsigned",
+        "valid",
+        "invalid"
+      ]
     }
   },
   "paint": {
@@ -182,8 +478,29 @@
   },
   "surface": {
     "$comment": "Round 2 (docs/round-2-contract.md §3, §5): what a host hands each surface besides messages. `settings` = the SurfaceSettings keys (src/types.ts): `timeZone` = the IANA zone instants show in (default the platform's). `formatter` = the methods of the host-supplied Formatter that formats every number, currency, percent, date and relative time (TS: intlFormatter(locale, timeZone); Rust: the Formatter trait, default the English fallback at the host's UTC offset per instant; FFI: a foreign Formatter, else the core's). `commands` = what a host may ask of a live surface (catalog/a11y.json `commands`; `scrollToIndex` takes the DATA index). Round 4 (VAPP-103): an unusable theme (an unknown built-in id, a missing or other `$schema`, any theme issue) NEVER fails a host: it paints with the default theme and reports the issues (TS `themeOrDefault` + React `HostPlugin.onThemeIssues`, Rust `themes::theme_or_default`, Swift/Kotlin `ThemeHandle.loadOrDefault`); a server's unusable `createSurface.theme` answers VALIDATION_FAILED at `/createSurface/theme`. VAPP-200: `readOnly` (default off) = the viewer may read, not write (an app at app access `read`): every WRITING control paints as if its author had written `disabled: true` (a node with an `on.<event>` calling `records.*` or `actions.*`, a Form whose submit writes and so its fields, a form field with no action of its own); a field whose own actions are all pure or host calls (a `bind`, a `set`) stays live. Pure (TS `readOnlyTree`, Rust `read_only`), locked by fixtures/read-only.json.",
-    "settings": ["locale", "timeZone", "strings", "mode", "density", "contrast", "theme", "readOnly"],
-    "formatter": ["number", "currency", "percent", "date", "relativeTime", "plural"],
-    "commands": ["focus", "announce", "scrollIntoView", "scrollToIndex"]
+    "settings": [
+      "locale",
+      "timeZone",
+      "strings",
+      "mode",
+      "density",
+      "contrast",
+      "theme",
+      "readOnly"
+    ],
+    "formatter": [
+      "number",
+      "currency",
+      "percent",
+      "date",
+      "relativeTime",
+      "plural"
+    ],
+    "commands": [
+      "focus",
+      "announce",
+      "scrollIntoView",
+      "scrollToIndex"
+    ]
   }
 }

@@ -75,17 +75,68 @@ export function cssValue(key: string, value: unknown, fonts: Record<string, Font
   return String(value)
 }
 
-/** `backgroundGradient` `{angle, stops}` → `linear-gradient(…)`, token
- *  colours as variables (painted over `backgroundColor`, contract §2). */
+/** `backgroundGradient` `{kind?, angle, centre?, stops}` → `linear-gradient(…)`
+ *  or (genUI round 4) `radial-gradient(circle farthest-corner at x y, …)`,
+ *  token colours as variables (painted over `backgroundColor`, contract §2). */
 function gradientValue(value: unknown): string | null {
   if (typeof value !== `object` || value === null) return null
-  const g = value as { angle?: unknown; stops?: { color?: unknown; offset?: unknown }[] }
+  const g = value as { kind?: unknown; angle?: unknown; centre?: { x?: unknown; y?: unknown }; stops?: { color?: unknown; offset?: unknown }[] }
   if (!Array.isArray(g.stops) || g.stops.length < 2) return null
   const stops = g.stops.map((s) => {
     const color = typeof s.color === `string` && s.color.startsWith(`$`) ? (tokenVar(s.color) ?? s.color) : String(s.color)
-    return `${color} ${Math.round(Number(s.offset ?? 0) * 10000) / 100}%`
+    return `${color} ${pct(Number(s.offset ?? 0))}`
   })
+  if (g.kind === `radial`) return `radial-gradient(circle farthest-corner at ${pct(Number(g.centre?.x ?? 0.5))} ${pct(Number(g.centre?.y ?? 0.5))}, ${stops.join(`, `)})`
   return `linear-gradient(${Number(g.angle ?? 180)}deg, ${stops.join(`, `)})`
+}
+
+const pct = (fraction: number): string => `${Math.round(fraction * 10000) / 100}%`
+
+/** genUI round 4: the CSS variable a node with a `backgroundImage` sets on
+ *  its element (`url(…)` once the picture decoded, else the placeholder
+ *  fill); never inherited usefully: every such node sets its own. */
+export const BACKGROUND_IMAGE_VAR = `--xui-bgi`
+
+/** The `--xui-bgi` value of a picture that has not painted (loading,
+ *  failed, refused, no src): the `Image/fallback` fill, else muted. */
+export function backgroundPlaceholder(fill?: string | null): string {
+  const c = fill ?? tokenVar(`$color.muted`) ?? `transparent`
+  return `linear-gradient(${c}, ${c})`
+}
+
+/** The `--xui-bgi` value of a decoded picture. */
+export function backgroundPicture(url: string): string {
+  return `url(${JSON.stringify(url)})`
+}
+
+/** genUI round 4: the background LAYERS of a Box (top first): its
+ *  `backgroundGradient`, the `backgroundImage` scrim, the picture (the
+ *  `--xui-bgi` variable), all over `backgroundColor`. `style` = the block
+ *  being emitted, `base` = the node's base style (the picture is base-only,
+ *  so a block that changes only the gradient keeps it). */
+function backgroundDeclarations(style: Record<string, unknown>, base: Record<string, unknown> | undefined, fonts: Record<string, FontSpec>): [string, string][] {
+  const gradient = `backgroundGradient` in style ? style.backgroundGradient : base?.backgroundGradient
+  const picture = (base?.backgroundImage ?? style.backgroundImage) as { fit?: unknown; focalX?: unknown; focalY?: unknown; scrim?: { color?: unknown; opacity?: unknown } } | undefined
+  const g = gradient === undefined ? null : cssValue(`backgroundGradient`, gradient, fonts)
+  if (!picture || typeof picture !== `object`) return g === null ? [] : [[`background-image`, g]]
+  const images: string[] = []
+  const sizes: string[] = []
+  const positions: string[] = []
+  if (g !== null) images.push(g), sizes.push(`auto`), positions.push(`0 0`)
+  const scrim = picture.scrim
+  if (scrim && typeof scrim === `object`) {
+    const color = cssValue(`backgroundColor`, scrim.color, fonts)
+    const opacity = Math.max(0, Math.min(1, Number(scrim.opacity ?? 0)))
+    if (color) {
+      const tint = `color-mix(in srgb, ${color} ${pct(opacity)}, transparent)`
+      images.push(`linear-gradient(${tint}, ${tint})`), sizes.push(`auto`), positions.push(`0 0`)
+    }
+  }
+  images.push(`var(${BACKGROUND_IMAGE_VAR}, ${backgroundPlaceholder()})`)
+  sizes.push(picture.fit === `contain` ? `contain` : `cover`)
+  const unit = (v: unknown) => Math.max(0, Math.min(1, typeof v === `number` ? v : 0.5))
+  positions.push(`${pct(unit(picture.focalX))} ${pct(unit(picture.focalY))}`)
+  return [[`background-image`, images.join(`, `)], [`background-size`, sizes.join(`, `)], [`background-position`, positions.join(`, `)], [`background-repeat`, `no-repeat`]]
 }
 
 /** The logical/shorthand keys the Box whitelist has that CSS does not. */
@@ -94,7 +145,6 @@ const SHORTHANDS: Record<string, string[]> = {
   paddingVertical: [`padding-top`, `padding-bottom`],
   marginHorizontal: [`margin-left`, `margin-right`],
   marginVertical: [`margin-top`, `margin-bottom`],
-  backgroundGradient: [`background-image`],
   // `transition` = the duration of an `all` transition; the easing is its
   // own longhand so a state rule may change one without the other.
   transition: [`transition-property:all`, `transition-duration`],
@@ -114,12 +164,19 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
   const out: [string, string][] = []
   const animation = `animation` in style ? style.animation : base?.animation
   const multiply = typeof animation === `string` && animatesOpacity(animation) && (`animation` in style || `opacity` in style)
+  let layered = false
   for (const [key, value] of Object.entries(style)) {
     if (key === `native` || key.startsWith(`@`) || key.startsWith(`:`)) continue
-    if (typeof value === `object` && value !== null && !Array.isArray(value) && key !== `backgroundGradient`) continue
     // #EXP-1876: a glyph part's sheen is painted by the renderer (the glyph
     // as a mask over the gradient, `glyphGradient`), never as the box's background.
     if ((key === `backgroundGradient` || key === `backgroundClip`) && (`backgroundClip` in style ? style.backgroundClip : base?.backgroundClip) === `text`) continue
+    // genUI round 4: the gradient and the picture are background LAYERS (below).
+    if (key === `backgroundGradient` || key === `backgroundImage`) {
+      if (!layered) out.push(...backgroundDeclarations(style, base, fonts))
+      layered = true
+      continue
+    }
+    if (typeof value === `object` && value !== null && !Array.isArray(value)) continue
     // Round 2 §2: `backdropBlur` ($blur token), `animation` (a keyframe set
     // of style.json, timed by the motion tokens) + `animationDuration`.
     // #EXP-1876: `tail` paints through pseudo-elements (box-css `tailRules`).

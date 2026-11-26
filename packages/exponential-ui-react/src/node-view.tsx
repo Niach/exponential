@@ -24,6 +24,7 @@ import { absolutePath, ariaAttributes, getPointer, hasDynamic, isBubbleTail, res
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
+import { useBackgroundImage } from "./media"
 import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential_app/eui/web"
 import { MotionContext, motionAttributes, useMotionRoot, usePresence, wantsPresence, type PresenceItem } from "./presence"
 
@@ -244,12 +245,20 @@ const BoundNode = memo(function BoundNode({ node, scope, live }: { node: UiNode;
     }
     return out as CSSProperties
   }, [node.style, rctx, ctx.theme.fonts])
+  // genUI round 4: a `backgroundImage` loads like an Image (`--xui-bgi`).
+  const pictureSrc = useMemo(() => {
+    const b = node.style?.backgroundImage
+    if (b === undefined) return null
+    const v = resolveValue(b, rctx) as { src?: unknown } | null
+    return typeof v?.src === `string` ? v.src : ``
+  }, [node.style, rctx])
+  const picture = useBackgroundImage(ctx.host, ctx.theme, pictureSrc)
   // Round 4 motion: this node's root as its container paints it (the
   // stagger offset, or a ghost's exit).
   const motion = useMotionRoot()
   const motionRoot = useMemo(() => motionAttributes(motion, node), [motion, node])
-  const rootStyle = useMemo(() => (motionRoot.style ? ({ ...(dynamicStyle ?? {}), ...motionRoot.style } as CSSProperties) : dynamicStyle), [dynamicStyle, motionRoot])
-  const baseRoot = useRootProps(node, props, domId, recipeProps, rootStyle)
+  const boxVars = useMemo(() => (picture || motionRoot.style ? ({ ...dynamicStyle, ...picture, ...motionRoot.style } as CSSProperties) : dynamicStyle), [picture, dynamicStyle, motionRoot])
+  const baseRoot = useRootProps(node, props, domId, recipeProps, boxVars)
   const rootProps = useMemo(() => (motionRoot.attrs ? { ...baseRoot, ...motionRoot.attrs } : baseRoot), [baseRoot, motionRoot])
   const emit = useEmitter(node, scope, domId)
   const Override = extensionComponent(ctx.extensions, node.component)

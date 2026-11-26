@@ -90619,6 +90619,462 @@
       }
     },
     {
+      "component": "Board",
+      "part": "tint",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f3e8ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#3b2a63"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Board",
+      "part": "title",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#1f1235"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#f5f3ff"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Board",
+      "part": "count",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MapPlaceholder",
+      "part": "root",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626",
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a",
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f3e8ff",
+              "borderColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#3b2a63",
+              "borderColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a",
+              "borderColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MapPlaceholder",
+      "part": "column",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MapPlaceholder",
+      "part": "row",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MapPlaceholder",
+      "part": "pin",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "MapPlaceholder",
+      "part": "label",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626",
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a",
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f3e8ff",
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#3b2a63",
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5",
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a",
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Section",
       "part": "count",
       "props": {

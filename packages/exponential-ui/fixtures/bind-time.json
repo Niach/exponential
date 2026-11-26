@@ -119929,6 +119929,1148 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Board/bound:columns",
+      "input": {
+        "id": "board",
+        "component": "Board",
+        "props": {
+          "columns": {
+            "@path": "/columns"
+          }
+        }
+      },
+      "expanded": {
+        "id": "board",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "gap": "$spacing.md",
+          "overflowX": "auto",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Board",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        },
+        "template": {
+          "component": "board.column",
+          "path": "/columns",
+          "key": "value"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "columns": [
+              {
+                "value": "todo",
+                "title": "Todo",
+                "cards": [
+                  {
+                    "label": "Write the brief",
+                    "value": "c1",
+                    "description": "Due Friday"
+                  },
+                  {
+                    "label": "Pick a venue",
+                    "value": "c2",
+                    "trailing": "3d"
+                  }
+                ]
+              },
+              {
+                "value": "doing",
+                "title": "Doing",
+                "cards": [
+                  {
+                    "label": "Draft the agenda",
+                    "value": "c3",
+                    "icon": "pencil"
+                  }
+                ]
+              },
+              {
+                "value": "done",
+                "title": "Done",
+                "cards": []
+              }
+            ]
+          },
+          "bound": {
+            "id": "board",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "gap": "$spacing.md",
+              "overflowX": "auto",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "board.column",
+              "path": "/columns",
+              "key": "value"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "columns": []
+          },
+          "bound": {
+            "id": "board",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "gap": "$spacing.md",
+              "overflowX": "auto",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "board.column",
+              "path": "/columns",
+              "key": "value"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "board",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "gap": "$spacing.md",
+              "overflowX": "auto",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "template": {
+              "component": "board.column",
+              "path": "/columns",
+              "key": "value"
+            },
+            "recipe": {
+              "macro": "Board",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MapPlaceholder/bound:label",
+      "input": {
+        "id": "map_placeholder",
+        "component": "MapPlaceholder",
+        "props": {
+          "label": {
+            "@path": "/label"
+          }
+        }
+      },
+      "expanded": {
+        "id": "map_placeholder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "map_placeholder.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid.column.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.column.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "top": 0,
+                  "bottom": 0,
+                  "width": "$border.hairline",
+                  "left": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "column",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.0",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "25%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.1",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "50%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.grid.row.2",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "left": 0,
+                  "right": 0,
+                  "height": "$border.hairline",
+                  "top": "75%"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "row",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "grid",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.center",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.center.pin",
+                "component": "Icon",
+                "props": {
+                  "name": "map-pin",
+                  "size": "lg"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "pin",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center.label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/label"
+                  },
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "paddingHorizontal": "$spacing.xs",
+                  "borderRadius": "$radius.sm"
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "display": "flex",
+              "flexDirection": "column",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "center",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          },
+          {
+            "id": "map_placeholder.tile",
+            "component": "Image",
+            "props": {
+              "src": {
+                "@call": "concat",
+                "args": {
+                  "values": [
+                    "map:",
+                    {
+                      "@path": "/label"
+                    }
+                  ]
+                }
+              },
+              "alt": {
+                "@path": "/label"
+              },
+              "fit": "cover"
+            },
+            "children": [],
+            "style": {
+              "position": "absolute",
+              "inset": 0,
+              "width": "100%",
+              "height": "100%"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "tile",
+              "props": {}
+            },
+            "accessibility": {
+              "hidden": true
+            }
+          }
+        ],
+        "style": {
+          "position": "relative",
+          "overflow": "hidden",
+          "width": "100%",
+          "aspectRatio": 1.7778,
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline"
+        },
+        "recipe": {
+          "macro": "MapPlaceholder",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "img",
+          "label": {
+            "@path": "/label"
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "label": "Vienna, Stephansplatz"
+          },
+          "bound": {
+            "id": "map_placeholder",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.grid.column.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "grid",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.center.pin",
+                    "component": "Icon",
+                    "props": {
+                      "name": "map-pin",
+                      "size": "lg"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "pin",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.center.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "Vienna, Stephansplatz",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "label",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "gap": "$spacing.xs"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "center",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.tile",
+                "component": "Image",
+                "props": {
+                  "src": "map:Vienna, Stephansplatz",
+                  "alt": "Vienna, Stephansplatz",
+                  "fit": "cover"
+                },
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "width": "100%",
+                  "height": "100%"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "tile",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "relative",
+              "overflow": "hidden",
+              "width": "100%",
+              "aspectRatio": 1.7778,
+              "borderRadius": "$radius.lg",
+              "borderWidth": "$border.hairline"
+            },
+            "accessibility": {
+              "role": "img",
+              "label": "Vienna, Stephansplatz"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "label": ""
+          },
+          "bound": {
+            "id": "map_placeholder",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.grid.column.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "grid",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.center.pin",
+                    "component": "Icon",
+                    "props": {
+                      "name": "map-pin",
+                      "size": "lg"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "pin",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.center.label",
+                    "component": "Text",
+                    "props": {
+                      "text": "",
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "label",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "gap": "$spacing.xs"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "center",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.tile",
+                "component": "Image",
+                "props": {
+                  "src": "map:",
+                  "alt": "",
+                  "fit": "cover"
+                },
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "width": "100%",
+                  "height": "100%"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "tile",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "relative",
+              "overflow": "hidden",
+              "width": "100%",
+              "aspectRatio": 1.7778,
+              "borderRadius": "$radius.lg",
+              "borderWidth": "$border.hairline"
+            },
+            "accessibility": {
+              "role": "img",
+              "label": ""
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "map_placeholder",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "map_placeholder.grid",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.grid.column.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.column.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "top": 0,
+                      "bottom": 0,
+                      "width": "$border.hairline",
+                      "left": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "column",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "25%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "50%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.grid.row.2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "position": "absolute",
+                      "left": 0,
+                      "right": 0,
+                      "height": "$border.hairline",
+                      "top": "75%"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "row",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "grid",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.center",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "map_placeholder.center.pin",
+                    "component": "Icon",
+                    "props": {
+                      "name": "map-pin",
+                      "size": "lg"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "pin",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "map_placeholder.center.label",
+                    "component": "Text",
+                    "props": {
+                      "variant": "caption",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm"
+                    },
+                    "recipe": {
+                      "macro": "MapPlaceholder",
+                      "part": "label",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "gap": "$spacing.xs"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "center",
+                  "props": {}
+                }
+              },
+              {
+                "id": "map_placeholder.tile",
+                "component": "Image",
+                "props": {
+                  "src": "map:",
+                  "fit": "cover"
+                },
+                "children": [],
+                "style": {
+                  "position": "absolute",
+                  "inset": 0,
+                  "width": "100%",
+                  "height": "100%"
+                },
+                "accessibility": {
+                  "hidden": true
+                },
+                "recipe": {
+                  "macro": "MapPlaceholder",
+                  "part": "tile",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "position": "relative",
+              "overflow": "hidden",
+              "width": "100%",
+              "aspectRatio": 1.7778,
+              "borderRadius": "$radius.lg",
+              "borderWidth": "$border.hairline"
+            },
+            "accessibility": {
+              "role": "img"
+            },
+            "recipe": {
+              "macro": "MapPlaceholder",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
     }
   ],
   "extra": [

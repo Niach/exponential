@@ -165,6 +165,8 @@ private struct NodeBody: View {
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListReorderDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListDragOverlayModifier(node: node, model: model))
+        // genUI round 4: the path to the List a drag paints over stays on top.
+        .zIndex(model.isListDragPath(index) ? 1 : 0)
         .modifier(TabSwipeModifier(node: node, model: model, enabled: interactive))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
@@ -212,7 +214,7 @@ private struct NodeBody: View {
         .animation(animation) { box in
             box
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .paintedBox(style, size: size, group: node.component == "Button" || node.component == "Toggle", rtl: model.isRTL)
+                .paintedBox(style, size: size, group: node.component == "Button" || node.component == "Toggle", rtl: model.isRTL, picture: style.picture.map { AnyView(BackgroundPicture(paint: $0, model: model, size: size)) })
                 .modifier(BackdropBlurModifier(style: style, size: size))
                 .modifier(SkeletonPulse(on: node.component == "Skeleton" && node.isLeaf))
                 .modifier(ClipModifier(style: style, size: size))

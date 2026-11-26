@@ -1050,6 +1050,11 @@ impl<'a, 'b> Builder<'a, 'b> {
             n.hidden |= label.is_empty();
             props.insert("text".into(), Value::String(label));
         }
+        // Round 4 group B (fixtures/text-runs.json): `runs` in the normal
+        // form, `text` = their joined text, `dropCap` = its lines.
+        if node.component == "Text" {
+            crate::text_runs::normalise_text_props(&mut props);
+        }
         n.props = props;
         let index = self.push(n);
         // VAPP-162: a held `hold` Button carries `pressed` (the core's state).

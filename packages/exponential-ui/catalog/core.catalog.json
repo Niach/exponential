@@ -993,6 +993,87 @@
           "description": "Stable hue seed."
         }
       }
+    },
+    "boardColumn": {
+      "description": "One Board column.",
+      "properties": {
+        "value": {
+          "type": "string",
+          "required": true,
+          "description": "The `move` event's `column`."
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "Header."
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "description": "Rows: `label`, `description`, `trailing`, `icon`; `move` `id` = `value`."
+        }
+      }
+    },
+    "mapMarker": {
+      "description": "One MapPlaceholder pin.",
+      "properties": {
+        "x": {
+          "type": "number",
+          "required": true,
+          "description": "0..1 from the left."
+        },
+        "y": {
+          "type": "number",
+          "required": true,
+          "description": "0..1 from the top."
+        },
+        "label": {
+          "type": "string",
+          "description": "Beside the pin."
+        }
+      }
+    },
+    "textRun": {
+      "description": "One inline span of a Text.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "description": "Span text."
+        },
+        "weight": {
+          "type": "enum",
+          "values": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold"
+          ],
+          "description": "Font weight."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "description": "Colour tone."
+        },
+        "mark": {
+          "type": "enum",
+          "values": [
+            "highlight",
+            "code",
+            "strike",
+            "underline"
+          ],
+          "description": "Span mark."
+        },
+        "link": {
+          "type": "url",
+          "description": "Opens like Link `href`."
+        }
+      }
     }
   },
   "functions": {
@@ -1534,7 +1615,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "props": {
         "style": {
           "type": "style",
@@ -1685,7 +1766,7 @@
       "group": "layout",
       "lite": true,
       "children": "one",
-      "description": "Window frame: three-dot bar (`title` caption) over one child.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "props": {
         "title": {
           "type": "string",
@@ -1748,7 +1829,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -1763,7 +1844,7 @@
         "maxDepth": {
           "type": "number",
           "default": 1,
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         "style": {
           "type": "style",
@@ -1845,7 +1926,7 @@
         },
         "maxHeight": {
           "type": "number",
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         "style": {
           "type": "style",
@@ -2135,13 +2216,21 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "props": {
         "text": {
           "type": "string",
-          "required": true,
           "bindable": true,
           "description": "Text to show."
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "textRun"
+          },
+          "bindable": true,
+          "description": "Spans replacing `text`."
         },
         "variant": {
           "type": "enum",
@@ -2169,6 +2258,10 @@
             "middle"
           ],
           "description": "One line; `middle` = start…end."
+        },
+        "dropCap": {
+          "type": "number",
+          "description": "Lines the first letter spans (2-4)."
         },
         "tone": {
           "type": "enum",
@@ -2773,7 +2866,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "description": "Picture group with `+N`; press fires `select {index}`.",
       "props": {
         "pictures": {
           "type": "array",
@@ -2914,7 +3007,7 @@
           "type": "enum",
           "enum": "segmentedVariant",
           "default": "segmented",
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         "size": {
           "type": "enum",
@@ -3066,7 +3159,7 @@
         "status": {
           "type": "enum",
           "enum": "traceStatus",
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "running shimmers, error tints, done ticks, skipped strikes."
         },
         "size": {
           "type": "enum",
@@ -3587,7 +3680,7 @@
         "matchAnchorWidth": {
           "type": "boolean",
           "default": false,
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       },
       "events": [
@@ -3626,7 +3719,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
       "props": {
         "label": {
           "type": "string",
@@ -4112,7 +4205,7 @@
       "group": "feedback",
       "lite": false,
       "children": "one",
-      "description": "Live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional child.",
       "props": {
         "activity": {
           "type": "enum",
@@ -4424,7 +4517,7 @@
             "type": "string"
           },
           "bindable": true,
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         "series": {
           "type": "array",
@@ -4642,7 +4735,7 @@
           "type": "enum",
           "enum": "buttonVariant",
           "default": "default",
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "type": "enum",
@@ -4788,7 +4881,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "props": {
         "name": {
           "type": "string",
@@ -4937,7 +5030,7 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden."
         },
         "size": {
           "type": "enum",
@@ -5022,7 +5115,7 @@
           "type": "enum",
           "enum": "textareaVariant",
           "default": "field",
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         "disabled": {
           "type": "boolean",
@@ -5539,7 +5632,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron."
         },
         "triggerIcon": {
           "type": "boolean",
@@ -5750,7 +5843,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`), keys fire `key`; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -6070,7 +6163,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; fires `upload`, lists `files`.",
       "props": {
         "label": {
           "type": "string",
@@ -6174,7 +6267,7 @@
         "trailing",
         "above"
       ],
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -6193,7 +6286,7 @@
         "attachments": {
           "type": "boolean",
           "default": false,
-          "description": "Attach control firing `attach` (a pasted image too, {files})."
+          "description": "Attach control; fires `attach` {files}."
         },
         "busy": {
           "type": "boolean",
@@ -6213,7 +6306,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       },
       "events": [
@@ -6236,7 +6329,7 @@
         "leading",
         "trailing"
       ],
-      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
+      "description": "THE list row: lead, title, subtitle, trailing meta/value/slot; nests, folds.",
       "props": {
         "title": {
           "type": "string",
@@ -6433,7 +6526,7 @@
           "enum": "messageTail",
           "default": "none",
           "bindable": true,
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
+          "description": "start/end = top corner, down = bottom edge."
         },
         "time": {
           "type": "string",
@@ -6893,7 +6986,7 @@
       "group": "layout",
       "lite": false,
       "children": "none",
-      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "props": {
         "surface": {
           "type": "object",
@@ -6933,7 +7026,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "events": [
         "select",
         "open"
@@ -6978,7 +7071,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records over time: coloured bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "events": [
         "open"
       ],
@@ -7015,7 +7108,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form; submit saves.",
       "props": {
         "kind": {
           "type": "string",
@@ -7162,7 +7255,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -7443,7 +7536,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "Delivery mark: clock, check, double check (info), error (danger).",
+      "description": "Message delivery mark: clock, check, double check, error.",
       "props": {
         "status": {
           "type": "enum",
@@ -7673,7 +7766,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "props": {
         "days": {
           "type": "array",
@@ -7774,6 +7867,90 @@
             "seed": "user-mia"
           }
         ]
+      }
+    },
+    "Board": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "none",
+      "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
+      "props": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "boardColumn"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Bind it."
+        }
+      },
+      "events": [
+        "move"
+      ],
+      "example": {
+        "columns": [
+          {
+            "value": "todo",
+            "title": "Todo",
+            "cards": [
+              {
+                "label": "Write the brief",
+                "value": "c1",
+                "description": "Due Friday"
+              },
+              {
+                "label": "Pick a venue",
+                "value": "c2",
+                "trailing": "3d"
+              }
+            ]
+          },
+          {
+            "value": "doing",
+            "title": "Doing",
+            "cards": [
+              {
+                "label": "Draft the agenda",
+                "value": "c3",
+                "icon": "pencil"
+              }
+            ]
+          },
+          {
+            "value": "done",
+            "title": "Done",
+            "cards": []
+          }
+        ]
+      }
+    },
+    "MapPlaceholder": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "description": "Map: host `map:` tile, else grid + pin; `markers` at 0..1.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "Place name."
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "mapMarker"
+          },
+          "description": "Pins at x, y."
+        }
+      },
+      "example": {
+        "label": "Vienna, Stephansplatz"
       }
     }
   }

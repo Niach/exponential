@@ -91,6 +91,8 @@ enum BuiltinIcons {
         case "trace-reasoning", "brain": "brain"
         case "trace-read", "file-text": "file-text"
         case "trace-edit", "pencil": "pencil"
+        // genUI round 4: MapPlaceholder's pin (its placeholder paints without a registry).
+        case "map-pin": "map-pin"
         case "trace-fetch", "globe": "globe"
         case "trace-tool", "wrench": "wrench"
         case "trace-subagent", "bot": "bot"

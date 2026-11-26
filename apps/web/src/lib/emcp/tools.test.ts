@@ -3365,7 +3365,7 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
     ],
     [`an unanswerable question`, { questions: [{ id: `q`, prompt: `Q?`, custom: false, options: [] }] }, `cannot be answered`],
     [`a surface outside the core catalog`, { surface: { root: { id: `r`, component: `Nope` } } }, `unknown component Nope`],
-    [`a surface with invalid props`, { surface: { root: { id: `r`, component: `Text` } } }, `props.text: required`],
+    [`a surface with invalid props`, { surface: { root: { id: `r`, component: `Icon` } } }, `props.name: required`],
     [`a surface root that is no node`, { surface: { root: { kind: `x` } } }, `genUI node`],
     [`a malformed surface tree`, { surface: { root: { id: `r`, component: `Stack`, children: `x` } } }, `not a valid`],
     [

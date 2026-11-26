@@ -26,6 +26,7 @@ import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
 import { css, type SolidStyle, type StyleInput } from "./style"
+import { createBackgroundImage } from "./media"
 
 /** What a painter receives: React's `NativeProps` as a Solid props object.
  *  EVERY field is a live getter: never destructure it (`props.props.label`
@@ -286,16 +287,25 @@ function BoundNode(props: { node: UiNode }): JSX.Element {
     }
     return out
   })
+  // genUI round 4: a `backgroundImage` loads like an Image (`--xui-bgi`).
+  const pictureSrc = createMemo(() => {
+    const b = props.node.style?.backgroundImage
+    if (b === undefined) return null
+    const v = resolveValue(b, rctx()) as { src?: unknown } | null
+    return typeof v?.src === `string` ? v.src : ``
+  })
+  const picture = createBackgroundImage(() => ctx.host, () => ctx.theme, pictureSrc)
   // Round 4 motion: this node's root as its container paints it (the
   // stagger offset, or a ghost's exit); its descendants paint without it.
   const motion = useMotionRoot()
   const motionRoot = createMemo(() => motionAttributes(motion, props.node))
-  const rootStyle = createMemo(() => {
+  const boxVars = createMemo(() => {
+    const p = picture()
     const m = motionRoot().style
     const d = dynamicStyle()
-    return m ? { ...(d ?? {}), ...m } : d
+    return p || m ? ({ ...(d ?? {}), ...(p ?? {}), ...(m ?? {}) } as SolidStyle) : d
   })
-  const baseRoot = createRootProps(node, resolved, domId, recipeProps, rootStyle)
+  const baseRoot = createRootProps(node, resolved, domId, recipeProps, boxVars)
   const rootProps = createMemo(() => {
     const attrs = motionRoot().attrs
     return attrs ? { ...baseRoot(), ...attrs } : baseRoot()

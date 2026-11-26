@@ -449,6 +449,11 @@ pub fn decide_url(policy: Option<&UrlPolicy>, url: &str) -> UrlDecision {
 /// `app-file:<fileId>`. No URL scheme and no media scheme: a host with app
 /// files resolves it from its BlobStore BEFORE the media policy; any other
 /// host leaves it unresolved (nothing loads, the fallback paints).
+/// genUI round 4 (catalog/host.json media.map): MapPlaceholder's tile src
+/// scheme (`map:<label>`) and the host hook that resolves it; an unresolved
+/// `map:` src paints nothing.
+pub const MAP_SCHEME: &str = "map:";
+pub const MAP_HOOK: &str = "resolveUrl";
 pub const APP_FILE_SCHEME: &str = "app-file";
 /// The file id an `app-file:` src carries (checked by [`app_file_id`]).
 pub const APP_FILE_ID_PATTERN: &str = "^[A-Za-z0-9._-]{1,200}$";

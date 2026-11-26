@@ -85,6 +85,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Text"][data-xui-align="start"].xui-el{text-align:start}
 [data-xui-c="Text"][data-xui-align="center"].xui-el{text-align:center}
 [data-xui-c="Text"][data-xui-align="end"].xui-el{text-align:end}
+[data-xui-c="Text"][data-xui-dropcap].xui-el{display:flow-root}
 [data-xui-c="Button"].xui-el,[data-xui-c="Toggle"].xui-el,[data-xui-c="Link"].xui-el{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;cursor:pointer;user-select:none;flex-shrink:0;transition:background-color var(--xui-motion-fast) var(--xui-ease-standard,ease),color var(--xui-motion-fast) var(--xui-ease-standard,ease),opacity var(--xui-motion-fast) var(--xui-ease-standard,ease),border-color var(--xui-motion-fast) var(--xui-ease-standard,ease),scale var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 [data-xui-c="Button"].xui-el:disabled,[data-xui-c="Toggle"].xui-el:disabled{cursor:default;pointer-events:none}
 [data-xui-c="Link"].xui-el{text-decoration:underline;text-underline-offset:3px}

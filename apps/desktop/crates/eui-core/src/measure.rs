@@ -340,6 +340,11 @@ impl FixedMeasure {
             ),
             _ => (c.width.unwrap_or(0.0), c.height.unwrap_or(0.0)),
         };
+        // Round 4 (fixtures/text-runs.json): a drop cap spans its lines.
+        let h = match leaf.component {
+            "Text" => h.max(leaf.props.get("dropCap").and_then(Value::as_f64).unwrap_or(0.0) as f32 * FIXED_LINE_HEIGHT),
+            _ => h,
+        };
         (c.width.unwrap_or(w).max(c.min_width.unwrap_or(0.0)), c.height.unwrap_or(h).max(c.min_height.unwrap_or(0.0)))
     }
 

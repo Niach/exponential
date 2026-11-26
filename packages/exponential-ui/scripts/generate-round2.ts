@@ -337,6 +337,7 @@ const MACRO_TEMPLATE_CASES: { name: string; nested: NestedNode }[] = [
   { name: `macro-template-kbdgroup-bound`, nested: { id: `chord`, component: `KbdGroup`, props: { keys: { "@path": `/keys` } } } },
   { name: `macro-template-keyrecorder-bound`, nested: { id: `ptt`, component: `KeyRecorder`, props: { label: `Push to talk`, value: { "@path": `/ptt/value` }, pending: { "@path": `/ptt/pending` }, recording: { "@path": `/ptt/recording` } }, on: { start: { event: { name: `pause` } }, stop: { event: { name: `resume` } }, key: { event: { name: `key` } } } } },
   { name: `macro-template-meter-bound`, nested: { id: `disk`, component: `Meter`, props: { segments: { "@path": `/disk` }, max: 100, label: `Disk` } } },
+  { name: `macro-template-board-bound`, nested: { id: `board`, component: `Board`, props: { columns: { "@path": `/board` } }, on: { move: { event: { name: `move` } } } } },
   { name: `macro-template-timeline`, nested: { id: `tl`, component: `Timeline`, props: { source: `/road`, rowTitle: `Workstream`, showCount: true }, on: { open: { event: { name: `open` } } } } },
 ]
 
