@@ -37,6 +37,8 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
     // login keyring gnome-keyring keeps (PAM unlocks it at login,
     // exponential-keyring.service joins it), without claiming GNOME in
     // XDG_CURRENT_DESKTOP (autostart OnlyShowIn and portals.conf read that).
+    // Flameshot reads it too: without it, it refuses to capture on Wayland;
+    // with it, it takes the portal path.
     ("GNOME_DESKTOP_SESSION_ID", "this-is-deprecated"),
 ];
 
