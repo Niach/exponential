@@ -112,13 +112,13 @@ fn a_meter_with_bound_segments_paints_each_slice() {
     let mut m = fixed();
     let out = s.layout(&mut m);
     let nodes = s.nodes();
-    let track = frame(&s, &out, "m.track");
-    let slices: Vec<_> = nodes.iter().filter(|n| n.id.starts_with("m.track.segment")).map(|n| n.id.clone()).collect();
+    let track = frame(&s, &out, "m.bar.track");
+    let slices: Vec<_> = nodes.iter().filter(|n| n.id.starts_with("m.bar.track.segment")).map(|n| n.id.clone()).collect();
     assert_eq!(slices.len(), 2, "{slices:?}");
     let widths: Vec<f32> = slices.iter().map(|id| frame(&s, &out, id).w).collect();
     assert!((widths[0] - track.w * 0.34).abs() < 0.5, "{widths:?} of {}", track.w);
     assert!((widths[1] - track.w * 0.16).abs() < 0.5, "{widths:?} of {}", track.w);
-    let literal = frame(&s, &out, "l.track.segment.0");
+    let literal = frame(&s, &out, "l.bar.track.segment.0");
     assert!((literal.w - widths[0]).abs() < 0.5);
 }
 
