@@ -79,6 +79,11 @@ impl ResizeSurfaceGrab {
 }
 
 impl ResizeSurfaceGrab {
+    /// The window being resized.
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
     /// The client's minimum and maximum size (0 = none): xdg-shell's, or
     /// an X11 window's `WM_NORMAL_HINTS`.
     fn size_limits(&self) -> (Size<i32, Logical>, Size<i32, Logical>) {
@@ -107,6 +112,13 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
     ) {
         // While the grab is active, no client has pointer focus
         handle.motion(data, None, event);
+        // The button that drives the grab is up and its release never came
+        // here (a grab started after it, an input device gone): it ends
+        // now instead of dragging the window after the pointer (#EDE-222).
+        if !handle.current_pressed().contains(&self.start_data.button) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
 
         let mut delta = event.location - self.start_data.location;
 
