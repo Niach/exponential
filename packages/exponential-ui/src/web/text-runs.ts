@@ -45,6 +45,8 @@ function runCss(input: TextRunsInput, run: TextRun, link: boolean): [string, str
   if (run.mark === `highlight`) css.push([`background-color`, `var(--xui-color-match)`])
   const lines = [run.mark === `strike` ? `line-through` : ``, run.mark === `underline` || link ? `underline` : ``].filter(Boolean)
   if (lines.length) css.push([`text-decoration-line`, lines.join(` `)], [`text-decoration-thickness`, `1px`])
+  // Inline code is one unbreakable pill (the natives' code chip).
+  if (run.mark === `code`) css.push([`white-space`, `nowrap`])
   return css
 }
 
