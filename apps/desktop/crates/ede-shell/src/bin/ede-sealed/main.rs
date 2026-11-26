@@ -1,6 +1,6 @@
 //! `exponential-sealed` (#EDE-17, Tier B): the surfaces a document on disk must
 //! never be, compiled into this binary (`apps/ede/sealed/*.json`, never
-//! agent-editable; only the theme's accent is anyone's), each a
+//! agent-editable; painted in eDE's factory theme as it ships, #EDE-235), each a
 //! full-screen overlay layer surface with the keyboard to itself:
 //!
 //! - `exponential-sealed lock`: the lock screen, one surface per output
@@ -126,7 +126,9 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
             base.insert(k.clone(), v.clone());
         }
     }
-    let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+    // #EDE-235: eDE's factory theme as it ships, compiled in: never the
+    // person's editable copy (a theme could hide a prompt's words).
+    let theme = uicore_docs::factory_theme();
     let host: Rc<dyn HostPlugin> = Rc::new(Host { acts });
     let kind = WindowKind::LayerShell(LayerShellOptions {
         namespace: "exponential-sealed".into(),
@@ -873,7 +875,7 @@ mod tests {
     /// over nothing let the window under the prompt show through its words.
     #[test]
     fn every_sealed_card_lies_on_an_opaque_colour() {
-        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        let theme = uicore_docs::factory_theme();
         for (name, doc) in [("lock", LOCK), ("polkit", POLKIT), ("consent", CONSENT), ("share", SHARE)] {
             let parsed: Value = serde_json::from_str(doc).expect(name);
             let path = path_to(&parsed["root"], "card").unwrap_or_else(|| panic!("{name} has a card"));

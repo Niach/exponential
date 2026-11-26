@@ -17,7 +17,7 @@
 //     the caller's.
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+import type { CallToolResult } from "@modelcontextprotocol/server"
 import { db } from "@/db/connection"
 import { apikeys } from "@/db/auth-schema"
 import { agents, boards, devices, sessions, teamMembers, teams } from "@/db/schema"

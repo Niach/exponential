@@ -1126,3 +1126,55 @@ struct PrChecksSpecimens: View {
         .background(GlassSheetTokens.background, in: RoundedRectangle(cornerRadius: GlassSheetTokens.cornerRadius))
     }
 }
+
+/// #NEW-146: THE elicitation card specimen (`sg_elicitation-card`, web
+/// `ElicitationCardSpecimen`, elicitation-card.json ×4): the fixture's
+/// device-built cards (`ElicitationCard.Specimen`, locked to `cardCases`)
+/// through the REAL row model and `ChatAskCard`: the waiting form, the clean
+/// url review, the warned one and the form answered.
+struct ElicitationCardSpecimens: View {
+    private static func row(_ id: String, _ json: String, answered: Bool = false) -> SessionChatRow? {
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
+        if answered {
+            let defaults = ((object["surface"] as? [String: Any])?["data"] as? [String: Any])?["form"] as? [String: Any] ?? [:]
+            let stamped = defaults.merging(ElicitationCard.Specimen.answeredData.mapValues(\.any)) { _, person in person }
+            object["answer"] = ElicitationCard.Copy.submit
+            object["answers"] = [ElicitationCard.Copy.submit]
+            object["surfaceData"] = [ElicitationCard.formKey: stamped]
+        }
+        return SessionChatRow.askCard(TreeMessage(
+            id: id,
+            sessionId: "s-1",
+            authorKind: "agent",
+            authorId: nil,
+            body: "",
+            card: TreeMessageCard(object: object),
+            answeredAt: answered ? "2026-11-26T12:00:00.000Z" : nil,
+            consumedAt: nil,
+            createdAt: "2026-11-26T11:59:00.000Z",
+            authorSessionId: nil
+        ))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            section(ElicitationCard.Copy.Specimen.form, Self.row("e1", ElicitationCard.Specimen.form))
+            section(ElicitationCard.Copy.Specimen.url, Self.row("e2", ElicitationCard.Specimen.url))
+            section(ElicitationCard.Copy.Specimen.warned, Self.row("e3", ElicitationCard.Specimen.warned))
+            section(ElicitationCard.Copy.Specimen.answered, Self.row("e4", ElicitationCard.Specimen.form, answered: true))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("elicitation-card-specimen")
+    }
+
+    private func section(_ title: String, _ row: SessionChatRow?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if let row {
+                ChatAskCard(row: row)
+            }
+        }
+    }
+}

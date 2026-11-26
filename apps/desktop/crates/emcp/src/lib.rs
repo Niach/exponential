@@ -14,6 +14,10 @@
 //!   and in-process providers) behind ONE loopback endpoint, each run
 //!   granted a level per server and every call written as an `mcp_calls`
 //!   audit row (`packages/emcp/fixtures/hub.json`).
+//!   #NEW-148: the hub is also the MCP 2026-07-28 CLIENT of the team
+//!   servers mounted on it for ONE run (MRTR elicitation through its
+//!   [`hub::HubHost`], tasks polled and persisted, 401 refresh, skills
+//!   fetched and verified; `packages/emcp/fixtures/hub-client.json`).
 //! - `codemode` (feature `codemode`): code mode, `exec` + `describe` over
 //!   a run's other MCP servers (moved in from `crates/codemode`).
 //! - [`contract`]: the eMCP contract of `packages/emcp` (exposes, access,
@@ -37,5 +41,5 @@ pub mod server;
 /// through emcp and needs no second pin.
 pub use ecore;
 pub use ecore::{DeliveryVerdict, ErrorCode, Failure, SessionId, Token};
-pub use client::{Client, ClientError, StdioUpstream, Upstream};
+pub use client::{CallOutcome, Client, ClientError, StdioUpstream, Upstream};
 pub use server::{Caller, RawRequest, RawResponse, RawRoute, Refusal, Server, ServerInfo, ToolProvider};

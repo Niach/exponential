@@ -1,7 +1,7 @@
 {
   "name": "@exp/emcp",
   "version": "0.0.0",
-  "description": "MCP Proxy's contract: app tool bindings (exposes), tool naming, the access rule, grants, the mcp_calls audit, the vault format and the upstream OAuth states (fixtures + TypeScript references)",
+  "description": "MCP Proxy's contract: app tool bindings (exposes), tool naming, the access rule, grants, the mcp_calls audit, the vault format, the upstream OAuth states and the MCP 2026-07-28 extensions (skills, elicitation, tasks, files) (fixtures + TypeScript references)",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@exp/domain-contract": "workspace:*"
+    "@exp/domain-contract": "workspace:*",
+    "@noble/hashes": "^2.2.0"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -23,6 +24,13 @@
     "./automations": "./src/automations.ts",
     "./webhooks": "./src/webhooks.ts",
     "./deletes": "./src/deletes.ts",
+    "./protocol": "./src/protocol.ts",
+    "./skills": "./src/skills.ts",
+    "./elicitation": "./src/elicitation.ts",
+    "./tasks": "./src/tasks.ts",
+    "./files": "./src/files.ts",
+    "./hub-client": "./src/hub-client.ts",
+    "./request-state": "./src/request-state.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

@@ -387,7 +387,7 @@ pub(crate) fn member_body(text: &str) -> std::borrow::Cow<'_, str> {
 
 /// A conversation card's measure: its whole row (an answer, a decision, a
 /// draft-free state change re-measures it).
-fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatRow>) -> u64 {
+pub(crate) fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatRow>) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
     serde_json::to_string(&row).unwrap_or_default().hash(&mut hasher);
@@ -899,6 +899,10 @@ pub(crate) struct SteerSessionView {
     /// web's `renderToolCards(unanchored, 'head')` (`conv_unanchored`, see
     /// [`Self::conv_head`] / [`Self::conv_tail`]).
     conv_cards: Vec<domain::session_tree::SessionChatRow>,
+    /// #NEW-146 (elicitation-card.json LIVE): this session's engine-posted
+    /// elicitation cards; a question frame of the same `questionId` draws
+    /// THE posted card instead ([`Self::elicitation_row`]). Main tab only.
+    elicitation_cards: Option<Rc<crate::session_data::ElicitationCards>>,
     /// #LOGS-10: each conversation card's fingerprint, derived when the
     /// cards change (never per frame).
     conv_prints: Vec<u64>,
@@ -1241,6 +1245,7 @@ impl SteerSessionView {
             row_layout_at: HashMap::new(),
             transcript_origin: None,
             conv_cards: Vec::new(),
+            elicitation_cards: None,
             conv_prints: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
@@ -3726,7 +3731,13 @@ impl SteerSessionView {
             .items()
             .iter()
             .rev()
-            .find(|item| self.active.contains(&item.id) && !self.is_answer_locked(item))
+            .find(|item| {
+                self.active.contains(&item.id)
+                    && !self.is_answer_locked(item)
+                    // #NEW-146: a frame drawn as the posted elicitation card
+                    // answers only through it (never a bare digit Submit).
+                    && !item.question().is_some_and(|card| self.elicitation_row(card).is_some())
+            })
             .map(|item| item.id)
     }
 
@@ -4143,6 +4154,9 @@ impl SteerSessionView {
     /// duplicated). Never on a root's host (its chat paints the tree) nor
     /// on a subagent tab.
     fn refresh_conversation_cards(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
+        // #NEW-146: the posted elicitation cards (memoised per change of
+        // the session's messages).
+        self.elicitation_cards = main.then(|| crate::session_data::elicitation_cards(&self.session_id, cx));
         if !main {
             self.conv_cards.clear();
             self.conv_prints.clear();
@@ -4259,6 +4273,29 @@ impl SteerSessionView {
         tail.extend(self.conv_open.iter().copied());
         tail.extend(self.conv_trailing.iter().copied());
         tail
+    }
+
+    /// #NEW-146 (elicitation-card.json LIVE, `feedCardCases`): the posted
+    /// elicitation card a question frame draws as (its chat row and
+    /// measure), `None` = the frame stays.
+    fn elicitation_row(&self, card: &steer::feed::QuestionCard) -> Option<&(domain::session_tree::SessionChatRow, u64)> {
+        let cards = self.elicitation_cards.as_ref()?;
+        if cards.messages.is_empty() {
+            return None;
+        }
+        let id = domain::elicitation_card::elicitation_feed_card(&cards.messages, &card.question_id, card.resolved)?;
+        cards.rows.get(&id)
+    }
+
+    /// #NEW-146: a frame drawn as THE posted elicitation card (its form or
+    /// URL review, answered via `sessions.answer`, × = cancel), painted by
+    /// the chat's own row painter like the conversation cards.
+    fn render_elicitation_frame(&self, card: &steer::feed::QuestionCard, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let (row, _) = self.elicitation_row(card)?;
+        let row = row.clone();
+        let team_id = self.ref_team_id(cx);
+        let text = crate::session_chat::ChatText::team(team_id.as_deref()).answering(self.may_message);
+        crate::session_chat::card_row(&row, &self.session_id, std::slice::from_ref(&row), &text, &self.images, window, cx)
     }
 
     /// The conversation cards at `indices`, painted by the chat screen's
@@ -4425,6 +4462,10 @@ impl SteerSessionView {
                 if steer::exp_tool_row(name) == Some(COMMENTS_CREATE_ROW) {
                     self.comment_call_body_len(item, cx).hash(&mut hasher);
                 }
+            }
+            // #NEW-146: the posted elicitation card a frame draws as.
+            if let Some((_, print)) = item.question().and_then(|card| self.elicitation_row(card)) {
+                print.hash(&mut hasher);
             }
             // Session 58cb32df: the conversation cards after this call.
             if let Some(cards) = self.conv_anchors.get(&item.id) {
@@ -8859,6 +8900,12 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        // #NEW-146: a one-step ask of an elicitation = THE posted card.
+        if let [item] = items {
+            if let Some(card) = item.question().and_then(|card| self.render_elicitation_frame(card, window, cx)) {
+                return card;
+            }
+        }
         let muted = cx.theme().muted_foreground;
         let complete = ask_complete(items);
         // The re-opened step, if it is one of THIS ask's rows.
@@ -9113,6 +9160,11 @@ impl SteerSessionView {
         let Some(card) = item.question() else {
             return div().into_any_element();
         };
+        // #NEW-146: a third-party MCP server's elicitation draws THE posted
+        // card, never the frame's bare options.
+        if let Some(posted) = self.render_elicitation_frame(card, window, cx) {
+            return posted;
+        }
         let heading = if card.plan_mode {
             Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone()))
         } else {

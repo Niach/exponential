@@ -119,6 +119,7 @@ import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/git
 import { Route as ApiWebhooksSesRouteImport } from './routes/api/webhooks/ses'
 import { Route as ApiWidgetConfigRouteImport } from './routes/api/widget/config'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
+import { Route as McpElicitIdRouteImport } from './routes/mcp/elicit/$id'
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as TTeamSlugAgentRouteImport } from './routes/t/$teamSlug/agent'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
@@ -137,6 +138,7 @@ import { Route as ApiDownloadDesktopOsRouteImport } from './routes/api/download/
 import { Route as ApiEcodeGitOpRouteImport } from './routes/api/ecode/git/$op'
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
+import { Route as ApiMcpUploadsTokenRouteImport } from './routes/api/mcp_/uploads/$token'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
 import { Route as ApiTeamsTeamIdIconRouteImport } from './routes/api/teams/$teamId/icon'
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
@@ -757,6 +759,11 @@ const ApiWidgetSubmitRoute = ApiWidgetSubmitRouteImport.update({
   path: '/api/widget/submit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const McpElicitIdRoute = McpElicitIdRouteImport.update({
+  id: '/mcp/elicit/$id',
+  path: '/mcp/elicit/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TTeamSlugIndexRoute = TTeamSlugIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -852,6 +859,11 @@ const ApiIssueDraftsDraftIdFilesRoute =
 const ApiIssuesIssueIdFilesRoute = ApiIssuesIssueIdFilesRouteImport.update({
   id: '/api/issues/$issueId/files',
   path: '/api/issues/$issueId/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpUploadsTokenRoute = ApiMcpUploadsTokenRouteImport.update({
+  id: '/api/mcp_/uploads/$token',
+  path: '/api/mcp/uploads/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSessionsSessionIdFilesRoute =
@@ -1270,6 +1282,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1290,6 +1303,7 @@ export interface FileRoutesByFullPath {
   '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/mcp/uploads/$token': typeof ApiMcpUploadsTokenRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -1449,6 +1463,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1469,6 +1484,7 @@ export interface FileRoutesByTo {
   '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/mcp/uploads/$token': typeof ApiMcpUploadsTokenRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -1635,6 +1651,7 @@ export interface FileRoutesById {
   '/api/webhooks/ses': typeof ApiWebhooksSesRoute
   '/api/widget/config': typeof ApiWidgetConfigRoute
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
+  '/mcp/elicit/$id': typeof McpElicitIdRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
@@ -1655,6 +1672,7 @@ export interface FileRoutesById {
   '/api/ecode/git/$op': typeof ApiEcodeGitOpRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
+  '/api/mcp_/uploads/$token': typeof ApiMcpUploadsTokenRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
@@ -1820,6 +1838,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -1840,6 +1859,7 @@ export interface FileRouteTypes {
     | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
+    | '/api/mcp/uploads/$token'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
@@ -1999,6 +2019,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -2019,6 +2040,7 @@ export interface FileRouteTypes {
     | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
+    | '/api/mcp/uploads/$token'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
@@ -2184,6 +2206,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/ses'
     | '/api/widget/config'
     | '/api/widget/submit'
+    | '/mcp/elicit/$id'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
@@ -2204,6 +2227,7 @@ export interface FileRouteTypes {
     | '/api/ecode/git/$op'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
+    | '/api/mcp_/uploads/$token'
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
@@ -2347,6 +2371,7 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  McpElicitIdRoute: typeof McpElicitIdRoute
   ApiMonitoringIndexRoute: typeof ApiMonitoringIndexRoute
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   ApiAgentsAgentIdVoiceClipRoute: typeof ApiAgentsAgentIdVoiceClipRoute
@@ -2356,6 +2381,7 @@ export interface RootRouteChildren {
   ApiEcodeGitOpRoute: typeof ApiEcodeGitOpRoute
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
+  ApiMcpUploadsTokenRoute: typeof ApiMcpUploadsTokenRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
   ApiTeamsTeamIdIconRoute: typeof ApiTeamsTeamIdIconRoute
   ApiTeamsTeamIdSessionFilesRoute: typeof ApiTeamsTeamIdSessionFilesRoute
@@ -3135,6 +3161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWidgetSubmitRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mcp/elicit/$id': {
+      id: '/mcp/elicit/$id'
+      path: '/mcp/elicit/$id'
+      fullPath: '/mcp/elicit/$id'
+      preLoaderRoute: typeof McpElicitIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/t/$teamSlug/': {
       id: '/t/$teamSlug/'
       path: '/'
@@ -3259,6 +3292,13 @@ declare module '@tanstack/react-router' {
       path: '/api/issues/$issueId/files'
       fullPath: '/api/issues/$issueId/files'
       preLoaderRoute: typeof ApiIssuesIssueIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp_/uploads/$token': {
+      id: '/api/mcp_/uploads/$token'
+      path: '/api/mcp/uploads/$token'
+      fullPath: '/api/mcp/uploads/$token'
+      preLoaderRoute: typeof ApiMcpUploadsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/sessions/$sessionId/files': {
@@ -3982,6 +4022,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  McpElicitIdRoute: McpElicitIdRoute,
   ApiMonitoringIndexRoute: ApiMonitoringIndexRoute,
   Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute:
     Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute,
@@ -3992,6 +4033,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiEcodeGitOpRoute: ApiEcodeGitOpRoute,
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
+  ApiMcpUploadsTokenRoute: ApiMcpUploadsTokenRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,
   ApiTeamsTeamIdIconRoute: ApiTeamsTeamIdIconRoute,
   ApiTeamsTeamIdSessionFilesRoute: ApiTeamsTeamIdSessionFilesRoute,
@@ -4002,13 +4044,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.tsx'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

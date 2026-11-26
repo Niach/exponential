@@ -1,0 +1,62 @@
+{
+  "$comment": "Exponential Desktop's factory theme (#EDE-235): the Rerusted palette (rerusted design/tokens.json, #RUST-5/#RUST-15; generated, never transcribed) over the built-in exponential theme, dark, and the eDE spacing scale (Cinnamon / Mint-Y as the reference). eUI's `accent` is the hover surface, so it takes Rerusted's muted; the rust is on ring, strokeActive and chart1: fills and icons, never body text. People and agents edit their copy in ~/.config/exponential-desktop/ui; Version history undoes an edit.",
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
+  "id": "ede-rerusted",
+  "name": "Exponential Desktop",
+  "extends": "exponential",
+  "modes": {
+    "dark": {
+      "color": {
+        "background": "#0f0807",
+        "foreground": "#fcf9f7",
+        "card": "#1e1512",
+        "cardForeground": "#fcf9f7",
+        "popover": "#1e1512",
+        "popoverForeground": "#fcf9f7",
+        "primary": "#eae4e1",
+        "primaryForeground": "#1e1512",
+        "secondary": "#2f2320",
+        "secondaryForeground": "#fcf9f7",
+        "muted": "#2f2320",
+        "mutedForeground": "#b29b93",
+        "accent": "#2f2320",
+        "accentForeground": "#fcf9f7",
+        "ghostHover": "#2f2320",
+        "border": "#61463e",
+        "borderStrong": "#61463e",
+        "input": "#61463e",
+        "ring": "#ba4f1f",
+        "strokeActive": "#ba4f1f",
+        "chart1": "#ba4f1f",
+        "destructive": "#ff6467",
+        "link": "#e0875a",
+        "bubbleOwn": "#3b2018"
+      }
+    }
+  },
+  "tokens": {
+    "spacing": {
+      "xxs": 2,
+      "xs": 6,
+      "sm": 10,
+      "md": 16,
+      "lg": 20,
+      "xl": 24,
+      "xl2": 32,
+      "xl3": 48
+    },
+    "control": {
+      "buttonSm": 28,
+      "buttonMd": 34,
+      "buttonLg": 40,
+      "buttonIcon": 34,
+      "input": 38,
+      "row": 40,
+      "rowCompact": 36,
+      "pill": 26,
+      "badge": 20,
+      "chip": 28,
+      "toggle": 34
+    }
+  }
+}

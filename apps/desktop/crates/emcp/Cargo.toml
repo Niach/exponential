@@ -27,13 +27,17 @@ ecore = { path = "../ecore" }
 # The MCP protocol, server and client: the official Rust SDK. Stateless
 # Streamable HTTP with JSON responses on the server, the reqwest transport
 # and OAuth (`auth`: discovery, DCR, PKCE, refresh) on the client.
-rmcp = { version = "3.8", default-features = false, features = [
+rmcp = { version = "3.11", default-features = false, features = [
     "server",
     "client",
     "transport-streamable-http-server",
     "transport-streamable-http-client-reqwest",
     "reqwest-tls-no-provider",
     "auth",
+    # #NEW-148: the hub is the MCP client of team servers and declares
+    # elicitation (form + url) on its calls; skills (`skills/list|get`,
+    # SEP-2640) need rmcp >= 3.9.
+    "elicitation",
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }

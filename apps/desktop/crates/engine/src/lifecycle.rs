@@ -482,6 +482,10 @@ impl Attached {
         coding::codemode::revoke(&ctx.session_id);
         // NEW-58: and its screen-memory grant (the voice conversation's).
         coding::screen::revoke(&ctx.session_id);
+        // #NEW-148: and its team-hub token and mounts; a KILLED session
+        // (ended, deleted) also cancels its third-party MCP tasks (a release
+        // or a lost run keeps them: its next run polls them again).
+        coding::team_hub::run_ended(&ctx.session_id, !ctx.replay && outcome == coding::pickup::KILL_OUTCOME);
         // 2. `bye {outcome}` and stop reconnecting.
         if let Some(publisher) = &self.publisher {
             publisher.shutdown(Some(outcome.to_string()));
