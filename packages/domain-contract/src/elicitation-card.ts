@@ -341,3 +341,27 @@ export function elicitationContent(
   }
   return out
 }
+
+/** The live feed's view of THE card: an engine ask reaches a live session
+ *  view twice, as the relay's question frame (question, options, header:
+ *  no surface, no sidecar) and as the posted `messages.card`. The frame
+ *  alone draws a plain question whose Submit carries no form data, so a
+ *  live view draws the POSTED card (its form or URL review, answered via
+ *  `sessions.answer`) for a frame of the same `questionId`. `null` = the
+ *  frame stays: no elicitation card carries that id, or the frame already
+ *  resolved while the card never got an answer (withdrawn: the frame
+ *  names it Dismissed). */
+export function elicitationFeedCard(
+  messages: readonly { id: string; answeredAt: string | null; card: unknown }[],
+  questionId: string,
+  resolved: boolean
+): string | null {
+  for (const message of messages) {
+    const card = message.card as { kind?: unknown; questionId?: unknown; elicitation?: unknown } | null
+    if (!card || typeof card !== `object` || card.kind !== `question`) continue
+    if (card.questionId !== questionId || !card.elicitation || typeof card.elicitation !== `object`) continue
+    if (resolved && message.answeredAt === null) return null
+    return message.id
+  }
+  return null
+}
