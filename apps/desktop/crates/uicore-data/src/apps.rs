@@ -76,8 +76,32 @@ pub fn data_dirs() -> Vec<PathBuf> {
 
 /// Every entry shown in eDE, sorted by name.
 pub fn scan() -> Vec<App> {
+    scan_in(&data_dirs(), false).apps
+}
+
+/// #EDE-227: the app id of eDE's component (`exponential-app`), the one
+/// Exponential the desk shows while the component runs.
+pub const COMPONENT_APP_ID: &str = "at.exponential";
+
+/// What [`scan_in`] found.
+#[derive(Debug, Default)]
+pub struct Scan {
+    /// The entries shown, sorted by name.
+    pub apps: Vec<App>,
+    /// #EDE-227: the ids (no `.desktop`) of the person's own app entries
+    /// left out for the component ([`is_standalone_app`]), sorted.
+    pub standalone: Vec<String>,
+}
+
+/// The entries of `dirs` (each with an `applications` folder, the first
+/// file of an id wins). `component` = eDE's component runs as the
+/// session's helper (#EDE-227): the person's own app entries (the
+/// AppImage's, `exp-desktop`'s) are hidden then, so the start menu, its
+/// search and favourites show one Exponential, not two.
+pub fn scan_in(dirs: &[PathBuf], component: bool) -> Scan {
     let mut seen: HashMap<String, App> = HashMap::new();
-    for dir in data_dirs() {
+    let mut standalone = Vec::new();
+    for dir in dirs {
         let Ok(entries) = fs::read_dir(dir.join("applications")) else { continue };
         let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "desktop")).collect();
         files.sort();
@@ -87,8 +111,14 @@ pub fn scan() -> Vec<App> {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&file) else { continue };
+            let parsed = if component && is_standalone_app(&text) {
+                standalone.push(id.trim_end_matches(".desktop").to_string());
+                Parsed::Hidden
+            } else {
+                parse(&id, &text, "Exponential")
+            };
             // A hidden entry in a higher-priority directory hides the id entirely.
-            match parse(&id, &text, "Exponential") {
+            match parsed {
                 Parsed::Shown(app) => {
                     seen.insert(id, app);
                 }
@@ -101,7 +131,74 @@ pub fn scan() -> Vec<App> {
     }
     let mut apps: Vec<App> = seen.into_values().filter(|a| !a.id.is_empty()).collect();
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    apps
+    standalone.sort();
+    Scan { apps, standalone }
+}
+
+/// #EDE-227: whether a desktop file is the person's own Exponential app,
+/// as its launcher integrations write it: `Exec` runs an AppImage (the
+/// app's `desktop_integration`, AppImageLauncher's copy of the AppImage's
+/// entry) or `exp-desktop` (the package template), and `StartupWMClass`
+/// is the component's app id (its windows' app id; a staging build's
+/// `at.exponential.staging` is another app and stays).
+pub fn is_standalone_app(text: &str) -> bool {
+    let (mut section, mut exec, mut class) = ("", None, None);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            section = &line[1..line.len() - 1];
+            continue;
+        }
+        if section != "Desktop Entry" || line.starts_with('#') {
+            continue;
+        }
+        match line.split_once('=').map(|(k, v)| (k.trim(), v.trim())) {
+            Some(("Exec", v)) if exec.is_none() => exec = Some(v),
+            Some(("StartupWMClass", v)) if class.is_none() => class = Some(v),
+            _ => {}
+        }
+    }
+    if !class.is_some_and(|c| c.eq_ignore_ascii_case(COMPONENT_APP_ID)) {
+        return false;
+    }
+    let Some(program) = exec.map(exec_program) else { return false };
+    let name = Path::new(&program).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    name == "exp-desktop" || name.to_lowercase().ends_with(".appimage")
+}
+
+/// The program of a raw `Exec` value: its first argument, unquoted as the
+/// Desktop Entry spec says (the key-file layer's `\\` first, then a
+/// double-quoted argument's `\"` `\`` `\$` `\\` escapes).
+fn exec_program(exec: &str) -> String {
+    let mut unescaped = String::with_capacity(exec.len());
+    let mut chars = exec.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('s') => unescaped.push(' '),
+                Some('n') => unescaped.push('\n'),
+                Some('t') => unescaped.push('\t'),
+                Some('r') => unescaped.push('\r'),
+                Some(other) => unescaped.push(other),
+                None => {}
+            }
+        } else {
+            unescaped.push(c);
+        }
+    }
+    let Some(quoted) = unescaped.strip_prefix('"') else {
+        return unescaped.split_whitespace().next().unwrap_or_default().to_string();
+    };
+    let mut program = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => break,
+            '\\' => program.extend(chars.next()),
+            c => program.push(c),
+        }
+    }
+    program
 }
 
 /// Fixed sample entries for the goldens (`EDE_SHELL_DEMO=1`): no icons, so
@@ -353,5 +450,55 @@ mod tests {
         assert_eq!(filter(&apps, "calc math").len(), 1);
         assert_eq!(filter(&apps, "calc music").len(), 0);
         assert_eq!(filter(&apps, "CALC")[0]["exec"], "gnome-calculator");
+    }
+
+    /// #EDE-227: what the app's launcher integration writes (its
+    /// `desktop_integration`), for an AppImage at a path with a space.
+    fn integration_entry(exec: &str, class: &str) -> String {
+        format!("[Desktop Entry]\nType=Application\nName=Exponential\nComment=Exponential desktop IDE\nExec={exec} %U\nIcon={class}\nTerminal=false\nCategories=Development;\nMimeType=x-scheme-handler/exponential;\nStartupWMClass={class}\n")
+    }
+
+    #[test]
+    fn the_persons_own_app_entries_are_recognised_by_exec_and_class() {
+        assert!(is_standalone_app(&integration_entry("/home/u/Apps/Exponential-0.14.150-x86_64.AppImage", "at.exponential")));
+        assert!(is_standalone_app(&integration_entry("\"/home/u/My Apps/Exponential.AppImage\"", "at.exponential")), "a quoted path with a space");
+        assert!(is_standalone_app(&integration_entry("\"/home/u/a\\\\$b/exp.appimage\"", "at.exponential")), "the spec's double escapes");
+        // The package template (apps/desktop/assets/packaging/exponential.desktop).
+        let template = include_str!("../../../assets/packaging/exponential.desktop");
+        assert!(is_standalone_app(template), "exp-desktop %U");
+        assert!(is_standalone_app(&integration_entry("/usr/bin/exp-desktop", "at.exponential")));
+        // Not the person's app: another AppImage, a staging build, eDE's own component, a name alike.
+        assert!(!is_standalone_app(&integration_entry("/home/u/Apps/Obsidian.AppImage", "obsidian")));
+        assert!(!is_standalone_app(&integration_entry("/home/u/Apps/Exponential-staging.AppImage", "at.exponential.staging")));
+        assert!(!is_standalone_app(&integration_entry("/usr/bin/exponential-app", "at.exponential")));
+        assert!(!is_standalone_app(&integration_entry("/usr/bin/exponential", "at.exponential")));
+        assert!(!is_standalone_app("[Desktop Entry]\nType=Application\nName=Exponential\nExec=/home/u/Exponential.AppImage\n"), "no class: a name guess");
+    }
+
+    #[test]
+    fn with_the_component_the_persons_app_entry_is_left_out() {
+        let home = tempfile::tempdir().unwrap();
+        let system = tempfile::tempdir().unwrap();
+        let write = |root: &Path, id: &str, text: &str| {
+            fs::create_dir_all(root.join("applications")).unwrap();
+            fs::write(root.join("applications").join(id), text).unwrap();
+        };
+        // The person's AppImage entry shadows eDE's own (hidden) one of the same id.
+        write(home.path(), "at.exponential.desktop", &integration_entry("/home/u/Exponential.AppImage", "at.exponential"));
+        write(home.path(), "appimagekit_1234-Exponential.desktop", &integration_entry("/home/u/Exponential.AppImage", "at.exponential"));
+        write(system.path(), "at.exponential.desktop", "[Desktop Entry]\nType=Application\nName=Exponential\nExec=/usr/bin/exponential-app\nNoDisplay=true\nOnlyShowIn=Exponential;\nStartupWMClass=at.exponential\n");
+        write(system.path(), "exponential.desktop", include_str!("../../../assets/packaging/exponential.desktop"));
+        write(system.path(), "org.gnome.Calculator.desktop", CALC);
+        let dirs = [home.path().to_path_buf(), system.path().to_path_buf()];
+        let ids = |scan: &Scan| scan.apps.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+
+        let without = scan_in(&dirs, false);
+        assert_eq!(ids(&without).len(), 4, "without the component every entry shows");
+        assert!(without.standalone.is_empty());
+
+        let with = scan_in(&dirs, true);
+        assert_eq!(ids(&with), ["org.gnome.Calculator.desktop"], "one Exponential: the component's, which has no entry of its own");
+        assert_eq!(with.standalone, ["appimagekit_1234-Exponential", "at.exponential", "exponential"]);
+        assert!(filter(&with.apps, "exponential").is_empty(), "nor in the search");
     }
 }

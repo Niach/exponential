@@ -1737,6 +1737,21 @@ fn ide_command(app: &apps::App, link: Option<&str>) -> String {
     }
 }
 
+/// #EDE-227: eDE's component runs as the session's helper: the package
+/// ships `exponential-app` beside this shell (the compositor, else
+/// exponential-device.service, starts it).
+fn component_runs() -> bool {
+    std::env::current_exe().ok().and_then(|me| me.parent().map(|dir| dir.join("exponential-app"))).is_some_and(|app| app.is_file())
+}
+
+/// #EDE-227: a saved pin of the person's own app entry (`standalone`) is
+/// the component's: its windows group under the component's app id, so
+/// the pin and they are one taskbar button.
+fn pinned_as(app: &str, standalone: &[String]) -> String {
+    let id = app.trim_end_matches(".desktop");
+    if standalone.iter().any(|s| s == id) { apps::COMPONENT_APP_ID.to_string() } else { app.to_string() }
+}
+
 /// The Exponential app's ids: one IDE per person, a hand-off target.
 const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
 
@@ -4370,7 +4385,13 @@ fn main() {
             });
         })
         .expect("the events thread");
-    let mut installed = if demo { apps::demo() } else { apps::scan() };
+    // #EDE-227: while eDE's component runs as the session's helper, the
+    // person's own app entries (the AppImage's, exp-desktop's) stay out of
+    // the start menu, its search, the favourites and the pins: one Exponential.
+    let scanned = if demo { apps::Scan { apps: apps::demo(), standalone: Vec::new() } } else { apps::scan_in(&apps::data_dirs(), component_runs()) };
+    let standalone = scanned.standalone;
+    tracing::info!(?standalone, "the person's own app entries left out for the component");
+    let mut installed = scanned.apps;
     installed.extend(builtin_apps(demo));
     // #VAPP-273: the apps on the Engine: the factory ones, then the person's (the goldens only with EDE_APPS_DIR).
     let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan_installed(&engine::factory_apps_dir(), &engine::apps_dir()) };
@@ -4555,7 +4576,7 @@ fn main() {
         let mut model = ShellState::default();
         let saved = if demo { json!({"pinned": ["firefox", "nemo", "org.gnome.Calculator"]}) } else { settings::shell_json() };
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-            model = reduce(&model, &ShellEvent::TaskbarPin { app: app.into() });
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(app, &standalone) });
         }
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
@@ -5843,6 +5864,28 @@ mod ide_launch {
         assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
         let no_urls = apps::App { exec_url: None, ..app };
         assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
+    }
+
+    /// #EDE-227: with the component, saved pins of the person's own app
+    /// entries become the component's, and a standalone app's window (app
+    /// id `at.exponential`) groups with them: one Exponential button.
+    #[test]
+    fn the_persons_app_pins_and_windows_are_the_components_one_button() {
+        let standalone = vec!["appimagekit_1234-Exponential".to_string(), "at.exponential".to_string(), "exponential".to_string()];
+        let mut model = ShellState::default();
+        for pin in ["firefox", "exponential", "appimagekit_1234-Exponential.desktop", "at.exponential", "nemo"] {
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(pin, &standalone) });
+        }
+        assert_eq!(model.taskbar.pinned, ["firefox", "at.exponential", "nemo"]);
+        model = reduce(&model, &ShellEvent::WindowOpened { id: "w1".into(), app: "at.exponential".into(), title: "Exponential".into(), workspace: 0 });
+        let buttons = uicore_model::taskbar_buttons(&model);
+        assert_eq!(buttons.iter().map(|b| (b.app.as_str(), b.windows.clone())).collect::<Vec<_>>(), [("firefox", vec![]), ("at.exponential", vec!["w1".to_string()]), ("nemo", vec![])]);
+        assert_eq!(pinned_as("firefox.desktop", &standalone), "firefox.desktop", "another app's pin stays");
+        // Not in the favourites either: the start menu lists no entry of it.
+        let apps = [uicore_model::StartMenuApp { id: "firefox".into(), name: "Firefox".into(), comment: String::new(), categories: vec![], keywords: String::new() }];
+        let mut menu = model.clone();
+        menu.start_menu.category = "favourites".into();
+        assert_eq!(uicore_model::start_menu_apps(&menu, &apps, &model.taskbar.pinned).into_iter().map(|a| a.id).collect::<Vec<_>>(), ["firefox"]);
     }
 }
 

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-ede-app-built-in`,
+    date: `2026-11-26`,
+    title: `Exponential Desktop brings the app with it`,
+    summary: `Exponential Desktop now ships the Exponential app itself: no AppImage to download, no prompt about an unknown program at login.`,
+    body: `- **No AppImage needed**: Exponential Desktop starts the Exponential app with your session, already signed in with your desktop's account. Its windows wear the desktop's frame and come to the front from any link in the shell.
+- **One Exponential**: an AppImage you installed before hands over to it and closes, keeps the same data, and its own start menu entry stays out of the menu, search, favourites and pins while the built-in app runs.
+- **Updates**: the app updates with the Exponential Desktop package.`,
+  },
+  {
     id: `2026-11-26-confirm-its-you`,
     date: `2026-11-26`,
     title: `Confirm it's you instead of signing in again`,
