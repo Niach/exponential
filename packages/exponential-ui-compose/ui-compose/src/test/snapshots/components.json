@@ -19827,6 +19827,16 @@
         "id" : "meter.header.value"
       },
       {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "meter.bar"
+      },
+      {
         "bg" : "#ffffff0a",
         "component" : "Box",
         "frame" : [
@@ -19835,7 +19845,7 @@
           390,
           8
         ],
-        "id" : "meter.track",
+        "id" : "meter.bar.track",
         "radius" : 9999
       },
       {
@@ -19847,7 +19857,7 @@
           156,
           8
         ],
-        "id" : "meter.track.segment.0"
+        "id" : "meter.bar.track.segment.0"
       },
       {
         "bg" : "#facc15",
@@ -19858,7 +19868,7 @@
           97.5,
           8
         ],
-        "id" : "meter.track.segment.1"
+        "id" : "meter.bar.track.segment.1"
       }
     ]
   },
