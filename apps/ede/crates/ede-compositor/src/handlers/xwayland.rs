@@ -512,6 +512,10 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            // A double click's second press may have started a move: it
+            // would pull the restored window back to where the maximized
+            // one stood.
+            crate::grabs::end_grab_of(self, &w);
             self.untile(&w, None);
         }
     }
@@ -640,6 +644,19 @@ impl XwmHandler for Ede {
         // As in a resize: only while the press is still held.
         let Some(start) = pointer.grab_start_data() else { return };
         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), SERIAL_COUNTER.next_serial(), Focus::Clear);
+    }
+
+    /// `_NET_WM_MOVERESIZE_CANCEL`: the client's move or resize ends
+    /// where the window is (Muffin ends its grab the same way).
+    fn move_resize_cancel_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => return,
+            XwmDesk::Gone => return,
+        }
+        if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
+        }
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
