@@ -4615,6 +4615,10 @@ internal fun AskCard(
     onDismiss: (() -> Unit)? = null,
     /** #EXP-1562: a header chip scrolled here: the focus ring, fading out. */
     highlighted: Boolean = false,
+    /** #NEW-146 (elicitation-card.json): a glyph before [heading] (the
+     *  asking server's `icons.server`), in the heading's tint. */
+    headingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    headingTestTag: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // N-12: inside THE Dock's sheet the header is the sheet's own; the card
@@ -4666,7 +4670,26 @@ internal fun AskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (heading != null) {
+                    if (heading != null && headingIcon != null) {
+                        Row(
+                            modifier = Modifier.weight(1f, fill = trailing != null)
+                                .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(headingIcon, contentDescription = null, modifier = Modifier.size(12.dp), tint = tint)
+                            Text(
+                                heading,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = tint,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else if (heading != null) {
                         Text(
                             heading,
                             // A trailing link sits at the line's end.
