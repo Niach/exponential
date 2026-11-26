@@ -132,6 +132,8 @@
         "@sentry/bun": "11.10.0",
         "@sentry/core": "11.10.0",
         "@sentry/react": "11.10.0",
+        "@simplewebauthn/browser": "13.3.0",
+        "@simplewebauthn/server": "13.3.3",
         "@tailwindcss/vite": "^4.0.6",
         "@tanstack/electric-db-collection": "0.3.3",
         "@tanstack/react-db": "0.1.83",

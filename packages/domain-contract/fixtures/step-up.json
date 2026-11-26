@@ -1,0 +1,178 @@
+{
+  "$comment": "#EXP-2143 follow-up (Danny, 2026-11-26): NO 'SIGN IN AGAIN' ERROR. An action behind Better Auth's fresh-session gate (`session.freshAge`, default one day since the session's `createdAt`) that is refused with SESSION_NOT_FRESH opens ONE step-up sheet, 'Confirm it's you', in place: the person proves it is them with a way in the account already has, the server marks the SAME session fresh, and the refused action runs again by itself. Never a sign-out, never a new session, never a lost draft (the sheet sits over the form; the form's state is untouched). GATES (`gates`): the only fresh-gated endpoints a client calls are the passkey registration pair; removals and unlinks ride tRPC without the gate (users.ts), `/list-sessions` and `/delete-user` have no client. SERVER (`server`, a Better Auth plugin, lib/auth/step-up.ts): every endpoint needs a real session (an `expu_` key is refused like the identity paths) and never mints a session: on proof it sets the CURRENT session's `createdAt` to now (the value the gate reads) and rewrites the cookie cache. `methods` answers the account's ways in, in this order: `passkey` (the account has one and passkeys are on), `email` (a code to the account's own address; the instance sends mail), `password` (a credential row with a password and passwords are on); empty = nothing to prove with (a provider-only account on an instance without mail): the action fails with `copy.notFresh` as before. PROOF: passkey = the plugin's own `generate-authenticate-options` (its challenge cookie, allowCredentials = the account's passkeys) then `POST /step-up/passkey {response}`: the assertion must verify against a passkey OF THE SESSION'S USER (another account's passkey is refused); email = `POST /step-up/email/send` mails a 6-digit code (hashed at rest, 10 minutes, 5 tries, bound to the session) and `POST /step-up/email/verify {code}`; password = `POST /step-up/password {password}`. Errors carry a code (`errors`). CLIENTS x4 (web lib/step-up + StepUpDialog, desktop domain::step_up, iOS ExpCore StepUp + StepUpSheet, Android domain/StepUp + StepUpSheet): the pure reducer `stepUpReduce(state, event)` replays `flows`. Events: `refused {code, methods}` (the action came back refused; the client reads `methods` once at that moment), `choose {method}`, `submit` (the proof is in flight), `proved`, `rejected {code}` (`CANCELLED` = the person dismissed the system passkey prompt: no error, the sheet stays), `cancel` (the sheet is closed: the action is dropped quietly, no toast, the draft stays), `done` (the resumed action finished). A second SESSION_NOT_FRESH after a proof is never a loop: the action fails with `copy.notFresh`. The sheet opens on `methods[0]`; choosing `email` mails a code at once (a client effect, again on `copy.resend`). Layout x4: the platform's sheet/dialog (web Dialog, iOS sheet, Android ModalBottomSheet), title, the method's one-line description, the method's field (none for passkey), the inline error under it, the other methods as link buttons (`copy.switch`, plus `copy.resend` on the email method), then the one primary button (`copy.confirm`, or `copy.passkey` for the passkey method), pending while `sheet` = busy. Cancel = the platform's own dismissal (web Dialog: Cancel button + Esc/outside; phones: swipe down or back, as on every sheet) = event `cancel`.",
+  "gates": [
+    { "path": "/passkey/generate-register-options", "action": "passkey.add" },
+    { "path": "/passkey/verify-registration", "action": "passkey.add" }
+  ],
+  "server": {
+    "methods": "GET /api/auth/step-up/methods -> {methods: (\"passkey\"|\"email\"|\"password\")[], email: string}",
+    "passkey": "POST /api/auth/step-up/passkey {response} -> {fresh: true}",
+    "emailSend": "POST /api/auth/step-up/email/send {} -> {sent: true}",
+    "emailVerify": "POST /api/auth/step-up/email/verify {code} -> {fresh: true}",
+    "password": "POST /api/auth/step-up/password {password} -> {fresh: true}"
+  },
+  "copy": {
+    "title": "Confirm it's you",
+    "description": {
+      "passkey": "Use your passkey to continue.",
+      "email": "Enter the code we sent to {email}.",
+      "password": "Enter your password to continue."
+    },
+    "field": { "email": "Code", "password": "Password" },
+    "switch": { "passkey": "Use a passkey", "email": "Email me a code", "password": "Use my password" },
+    "passkey": "Use passkey",
+    "confirm": "Continue",
+    "resend": "Send a new code",
+    "notFresh": "Sign in again to do this (your current session is older than a day)."
+  },
+  "errors": {
+    "INVALID_OTP": "That code is not right. Check the email and try again.",
+    "OTP_EXPIRED": "That code expired. Request a new one.",
+    "TOO_MANY_ATTEMPTS": "Too many attempts. Request a new code.",
+    "INVALID_PASSWORD": "That password is not right.",
+    "PASSKEY_FAILED": "Couldn't confirm it with that passkey.",
+    "default": "Couldn't confirm it's you. Try again."
+  },
+  "initial": { "sheet": "closed", "method": null, "methods": [], "error": null, "action": "idle", "retried": false },
+  "methodCases": [
+    { "name": "a passkey comes first", "account": { "passkeys": 1, "password": true }, "instance": { "passkey": true, "email": true, "password": true }, "methods": ["passkey", "email", "password"] },
+    { "name": "no passkey starts with the code", "account": { "passkeys": 0, "password": false }, "instance": { "passkey": true, "email": true, "password": true }, "methods": ["email"] },
+    { "name": "passkeys off hides the account's passkeys", "account": { "passkeys": 2, "password": false }, "instance": { "passkey": false, "email": true, "password": true }, "methods": ["email"] },
+    { "name": "no mail offers the password", "account": { "passkeys": 0, "password": true }, "instance": { "passkey": true, "email": false, "password": true }, "methods": ["password"] },
+    { "name": "passwords off hides a stored one", "account": { "passkeys": 0, "password": true }, "instance": { "passkey": true, "email": false, "password": false }, "methods": [] },
+    { "name": "a provider-only account without mail has nothing", "account": { "passkeys": 0, "password": false }, "instance": { "passkey": true, "email": false, "password": true }, "methods": [] }
+  ],
+  "flows": [
+    {
+      "name": "web: add passkey, code by email, the add resumes",
+      "platform": "web",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email", "password"] },
+        { "on": "submit" },
+        { "on": "proved" }
+      ],
+      "expect": { "sheet": "closed", "method": "email", "methods": ["email", "password"], "error": null, "action": "resume", "retried": true }
+    },
+    {
+      "name": "android: add passkey, a wrong code, then the right one, the add resumes",
+      "platform": "android",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "submit" },
+        { "on": "rejected", "code": "INVALID_OTP" },
+        { "on": "submit" },
+        { "on": "proved" }
+      ],
+      "expect": { "sheet": "closed", "method": "email", "methods": ["email"], "error": null, "action": "resume", "retried": true }
+    },
+    {
+      "name": "ios: add passkey, confirmed with the existing passkey, the add resumes and finishes",
+      "platform": "ios",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["passkey", "email"] },
+        { "on": "submit" },
+        { "on": "proved" },
+        { "on": "done" }
+      ],
+      "expect": { "sheet": "closed", "method": "passkey", "methods": ["passkey", "email"], "error": null, "action": "idle", "retried": false }
+    },
+    {
+      "name": "desktop: switch from the passkey to the password, the action resumes",
+      "platform": "desktop",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["passkey", "password"] },
+        { "on": "choose", "method": "password" },
+        { "on": "submit" },
+        { "on": "proved" }
+      ],
+      "expect": { "sheet": "closed", "method": "password", "methods": ["passkey", "password"], "error": null, "action": "resume", "retried": true }
+    },
+    {
+      "name": "a wrong password stays open with the error",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["password"] },
+        { "on": "submit" },
+        { "on": "rejected", "code": "INVALID_PASSWORD" }
+      ],
+      "expect": { "sheet": "open", "method": "password", "methods": ["password"], "error": "That password is not right.", "action": "waiting", "retried": false }
+    },
+    {
+      "name": "a dismissed passkey prompt is no error",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["passkey"] },
+        { "on": "submit" },
+        { "on": "rejected", "code": "CANCELLED" }
+      ],
+      "expect": { "sheet": "open", "method": "passkey", "methods": ["passkey"], "error": null, "action": "waiting", "retried": false }
+    },
+    {
+      "name": "an unknown failure reads the default",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "submit" },
+        { "on": "rejected", "code": "INTERNAL" }
+      ],
+      "expect": { "sheet": "open", "method": "email", "methods": ["email"], "error": "Couldn't confirm it's you. Try again.", "action": "waiting", "retried": false }
+    },
+    {
+      "name": "choosing another method clears the error",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email", "password"] },
+        { "on": "submit" },
+        { "on": "rejected", "code": "INVALID_OTP" },
+        { "on": "choose", "method": "password" }
+      ],
+      "expect": { "sheet": "open", "method": "password", "methods": ["email", "password"], "error": null, "action": "waiting", "retried": false }
+    },
+    {
+      "name": "a method the account lacks is ignored",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "choose", "method": "passkey" }
+      ],
+      "expect": { "sheet": "open", "method": "email", "methods": ["email"], "error": null, "action": "waiting", "retried": false }
+    },
+    {
+      "name": "cancel drops the action quietly",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "cancel" }
+      ],
+      "expect": { "sheet": "closed", "method": "email", "methods": ["email"], "error": null, "action": "dropped", "retried": false }
+    },
+    {
+      "name": "nothing to prove with fails the action as before",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": [] }
+      ],
+      "expect": { "sheet": "closed", "method": null, "methods": [], "error": "Sign in again to do this (your current session is older than a day).", "action": "failed", "retried": false }
+    },
+    {
+      "name": "a second refusal after a proof never loops",
+      "events": [
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "submit" },
+        { "on": "proved" },
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] }
+      ],
+      "expect": { "sheet": "closed", "method": "email", "methods": ["email"], "error": "Sign in again to do this (your current session is older than a day).", "action": "failed", "retried": true }
+    },
+    {
+      "name": "another refusal is the action's own failure",
+      "events": [
+        { "on": "refused", "code": "CHALLENGE_NOT_FOUND", "methods": ["email"] }
+      ],
+      "expect": { "sheet": "closed", "method": null, "methods": [], "error": null, "action": "failed", "retried": false }
+    },
+    {
+      "name": "a submit while busy or closed changes nothing",
+      "events": [
+        { "on": "submit" },
+        { "on": "refused", "code": "SESSION_NOT_FRESH", "methods": ["email"] },
+        { "on": "submit" },
+        { "on": "submit" }
+      ],
+      "expect": { "sheet": "busy", "method": "email", "methods": ["email"], "error": null, "action": "waiting", "retried": false }
+    }
+  ]
+}

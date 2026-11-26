@@ -394,10 +394,12 @@ export function isRefusedSocialSignIn(
   return provider === `github` && !config.githubLoginEnabled
 }
 
-/** Pure: is `path` an identity-changing endpoint (`/passkey/*` included)? */
+/** Pure: is `path` an identity-changing endpoint (`/passkey/*` included)?
+ *  The step-up family (#EXP-2143 follow-up, lib/auth/step-up.ts) counts too:
+ *  a key must never make a session fresh. */
 export function isIdentityPath(path: string | undefined): boolean {
   if (!path) return false
-  return IDENTITY_PATHS.has(path) || path.startsWith(`/passkey/`)
+  return IDENTITY_PATHS.has(path) || path.startsWith(`/passkey/`) || path.startsWith(`/step-up/`)
 }
 
 /** Pure: is `path` one an `expu_` key is refused on — an identity endpoint

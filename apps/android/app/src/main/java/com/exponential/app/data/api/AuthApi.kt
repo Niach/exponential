@@ -26,8 +26,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import com.exponential.app.domain.StepUp
 
 @Serializable
 data class SignInRequest(val email: String, val password: String)
@@ -320,6 +324,7 @@ class AuthApi @Inject constructor(
             }
             if (!response.status.isSuccess()) {
                 val body = response.bodyAsText()
+                if (authErrorCode(body) == StepUp.NOT_FRESH) return Result.failure(SessionNotFreshException())
                 val message = AuthWire.passkeyRegisterErrorMessage(authErrorCode(body), authErrorMessage(body))
                     ?: "Couldn't start adding the passkey (HTTP ${response.status.value})"
                 return Result.failure(IllegalStateException(message))
@@ -354,6 +359,7 @@ class AuthApi @Inject constructor(
             }
             if (!response.status.isSuccess()) {
                 val body = response.bodyAsText()
+                if (authErrorCode(body) == StepUp.NOT_FRESH) return Result.failure(SessionNotFreshException())
                 val message = AuthWire.passkeyRegisterErrorMessage(authErrorCode(body), authErrorMessage(body))
                 return Result.failure(IllegalStateException(message ?: "Couldn't add the passkey (HTTP ${response.status.value})"))
             }
@@ -361,6 +367,98 @@ class AuthApi @Inject constructor(
         } catch (e: Exception) {
             Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
         }
+    }
+
+    /**
+     * #EXP-2143 follow-up: "Confirm it's you" (fixtures/step-up.json). The
+     * account's ways to prove it is them, in the server's order, and its
+     * address (the code goes there).
+     */
+    suspend fun stepUpMethods(baseUrl: String, token: String): Result<StepUpMethods> = try {
+        val response = client.get("${baseUrl.trimEnd('/')}/api/auth/step-up/methods") {
+            header("Authorization", "Bearer $token")
+        }
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            Result.failure(StepUpRefusedException(authErrorCode(text) ?: "HTTP_${response.status.value}"))
+        } else {
+            val obj = json.parseToJsonElement(text).jsonObject
+            Result.success(
+                StepUpMethods(
+                    methods = obj["methods"]?.jsonArray.orEmpty()
+                        .mapNotNull { StepUp.Method.fromWire(it.jsonPrimitive.content) },
+                    email = obj["email"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                ),
+            )
+        }
+    } catch (e: Exception) {
+        Result.failure(StepUpRefusedException("NETWORK"))
+    }
+
+    /** Mail a step-up code to the account's own address. */
+    suspend fun stepUpSendCode(baseUrl: String, token: String): Result<Unit> =
+        stepUpPost(baseUrl, token, "email/send", buildJsonObject { })
+
+    /** Prove it with the mailed code: THIS session becomes fresh. */
+    suspend fun stepUpVerifyCode(baseUrl: String, token: String, code: String): Result<Unit> =
+        stepUpPost(baseUrl, token, "email/verify", buildJsonObject { put("code", JsonPrimitive(code)) })
+
+    /** Prove it with the account's password: THIS session becomes fresh. */
+    suspend fun stepUpPassword(baseUrl: String, token: String, password: String): Result<Unit> =
+        stepUpPost(baseUrl, token, "password", buildJsonObject { put("password", JsonPrimitive(password)) })
+
+    /**
+     * Step 1 of a passkey proof: the authentication options for THIS account
+     * (signed in, so `allowCredentials` lists its passkeys) + the challenge
+     * cookie pairs, replayed on [stepUpPasskey].
+     */
+    suspend fun stepUpPasskeyOptions(baseUrl: String, token: String): Result<PasskeyOptions> = try {
+        val response = client.get("${baseUrl.trimEnd('/')}/api/auth/passkey/generate-authenticate-options") {
+            header("Authorization", "Bearer $token")
+        }
+        if (!response.status.isSuccess()) {
+            Result.failure(StepUpRefusedException("PASSKEY_FAILED"))
+        } else {
+            Result.success(
+                PasskeyOptions(
+                    requestJson = response.bodyAsText(),
+                    cookies = AuthWire.setCookiePairs(response.headers.getAll("set-cookie").orEmpty()),
+                ),
+            )
+        }
+    } catch (e: Exception) {
+        Result.failure(StepUpRefusedException("NETWORK"))
+    }
+
+    /** Step 2: the assertion Credential Manager produced; THIS session becomes fresh. */
+    suspend fun stepUpPasskey(baseUrl: String, token: String, cookies: List<String>, responseJson: String): Result<Unit> =
+        try {
+            stepUpPost(baseUrl, token, "passkey", AuthWire.passkeyVerifyBody(json, responseJson), cookies)
+        } catch (e: Exception) {
+            Result.failure(StepUpRefusedException("PASSKEY_FAILED"))
+        }
+
+    private suspend fun stepUpPost(
+        baseUrl: String,
+        token: String,
+        path: String,
+        body: JsonObject,
+        cookies: List<String> = emptyList(),
+    ): Result<Unit> = try {
+        val response = client.post("${baseUrl.trimEnd('/')}/api/auth/step-up/$path") {
+            contentType(ContentType.Application.Json)
+            header("Origin", baseUrl.trimEnd('/'))
+            header("Authorization", "Bearer $token")
+            if (cookies.isNotEmpty()) header("Cookie", AuthWire.cookieHeader(cookies))
+            setBody(body)
+        }
+        if (response.status.isSuccess()) {
+            Result.success(Unit)
+        } else {
+            Result.failure(StepUpRefusedException(authErrorCode(response.bodyAsText()) ?: "HTTP_${response.status.value}"))
+        }
+    } catch (e: Exception) {
+        Result.failure(StepUpRefusedException("NETWORK"))
     }
 
     /**
@@ -652,3 +750,12 @@ class AuthApi @Inject constructor(
         private const val SIGN_OUT_TIMEOUT_MS = 3_000L
     }
 }
+
+/** #EXP-2143 follow-up: the fresh-session gate refused (SESSION_NOT_FRESH); the step-up sheet answers it. */
+class SessionNotFreshException : IllegalStateException(StepUp.NOT_FRESH)
+
+/** A refused step-up call; [code] is the server's (fixtures/step-up.json `errors`). */
+class StepUpRefusedException(val code: String) : IllegalStateException(code)
+
+/** The account's ways to prove it is them, in the server's order. */
+data class StepUpMethods(val methods: List<StepUp.Method>, val email: String)
