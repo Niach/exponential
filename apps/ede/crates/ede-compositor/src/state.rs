@@ -41,6 +41,8 @@ use crate::{
 
 pub struct Ede {
     pub start_time: Instant,
+    /// [`CLIENTS_GONE`] as this compositor last saw it.
+    clients_gone: u64,
     pub display_handle: DisplayHandle,
     pub loop_handle: LoopHandle<'static, Ede>,
     pub loop_signal: LoopSignal,
@@ -221,6 +223,12 @@ impl Ede {
             .insert_source(Generic::new(display, Interest::READ, Mode::Level), |_, display, state| {
                 // Safety: the display is never dropped while the source lives.
                 unsafe { display.get_mut().dispatch_clients(state).expect("dispatch clients") };
+                // A client that quit may have held the clipboard ([`crate::clipboard`]).
+                let gone = CLIENTS_GONE.load(std::sync::atomic::Ordering::Relaxed);
+                if gone != state.clients_gone {
+                    state.clients_gone = gone;
+                    state.clipboard_clients_gone();
+                }
                 Ok(PostAction::Continue)
             })
             .expect("insert the display source");
@@ -233,6 +241,7 @@ impl Ede {
 
         Self {
             start_time: Instant::now(),
+            clients_gone: CLIENTS_GONE.load(std::sync::atomic::Ordering::Relaxed),
             display_handle: dh.clone(),
             loop_handle,
             loop_signal,
@@ -1010,7 +1019,13 @@ pub fn client_pid(dh: &DisplayHandle, client: &smithay::reexports::wayland_serve
     }
 }
 
+/// Clients that went away, in this process (every compositor of a test
+/// binary counts here: each compares with the count it saw last).
+static CLIENTS_GONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {
+        CLIENTS_GONE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }

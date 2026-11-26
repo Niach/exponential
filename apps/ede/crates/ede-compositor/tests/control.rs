@@ -62,7 +62,8 @@ fn a_snapshot_whose_owner_is_gone_answers() {
     }
     let device = app.data_device();
     let before = ipc.clipboard_serial().unwrap();
-    let _source = app.set_selection(&device, &[("text/plain;charset=utf-8", Some(b"copied".as_slice()))]);
+    // A type the compositor does not keep (tests/clipboard_keep.rs keeps text).
+    let _source = app.set_selection(&device, &[("application/x-copied", Some(b"copied".as_slice()))]);
     assert!(ipc.clipboard_serial().unwrap() > before);
     drop((device, _source, t, app));
     while !ipc.windows().unwrap().is_empty() {
