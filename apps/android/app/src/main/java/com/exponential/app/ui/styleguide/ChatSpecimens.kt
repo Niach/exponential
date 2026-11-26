@@ -82,7 +82,6 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.chat.AgentGlyph
 import com.exponential.app.ui.chat.ChatHeader
-import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatRowMeta
 import com.exponential.app.ui.chat.ChatAgent
@@ -483,7 +482,7 @@ fun ChatHeaderSpecimenScreen() {
             modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 24.dp).testTag(ChatHeaderSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Caption("A chat that needs you (${Chats.Shell.ChatHeader.ROW}px, ghost buttons, always leading)")
+            Caption("A chat that needs you (${Chats.Shell.ChatHeader.ROW}px, round buttons, always leading)")
             ChatHeader(
                 title = "Reduce cold start",
                 subtitle = "${SessionTree.ChatRowWord.NeedsInput.text} · Alex's MacBook",

@@ -1,10 +1,11 @@
 {
-  "$comment": "#EXP-2109 (owner 2026-11-25) THE HEADER ACTIONS: ONE rule for the trailing side of every page's header ×5 (iOS, Android, web-mobile, web md+, the desktop IDE). LEFT: the back control (pushed pages), the leading glyph, the title, never centred. RIGHT: `order`, headerActions(page): status (what the page reports: the waiting chips, the issue graph), primary (the page's ONE labelled verb: Create, Publish, Start, the Merge pill; the only text a header holds), call, page (the page's own icon: the inbox's mark read, a device's settings), search, inbox, add, more; a page lists only what it has (`pages`, phone and wide; null = the page has no header there). Every action but status and primary is THE ROUND ICON BUTTON, one look everywhere: `circle` px on phones (the filled circle of the page header: web FabButton, Android BarCircle, iOS the native toolbar circle), `wideCircle` px on web md+ and the IDE (the same filled circle); the glyph `glyph` / `wideGlyph`. ADD = concept `icons.add`, always its OWN button, never an entry of the `…`; it runs the page's one create verb at once (`adds`), or opens the create menu where there are several. MORE = concept `icons.more`, always LAST, only secondary verbs: headerMenu(entries) = the page's menu without `menuDrops` (what the + does, Open on the page itself, Move to folder: the tree's), separators tidied; an empty one = no button. ROWS that carry the pair (a team's row in the tree, `rows`) wear the same + then …. A row's long-press / right-click keeps its WHOLE menu (sidebar-menus.json). A settings list's own New pill in its section band is not a header.",
+  "$comment": "#EXP-2109 (owner 2026-11-25), #EXP-2168 (owner 2026-11-26: ONE header concept on EVERY page, detail pages included) THE HEADER: ONE rule for every page's header ×5 (iOS, Android, web-mobile, web md+, the desktop IDE), top-level and detail alike (issue, chat/session, agent, app, device, call view, settings subpages, repo, CI run, the find bar replacing a chat's header). LEFT: the back control (a pushed page) or the close control (a bar that replaces the header) = THE ROUND ICON BUTTON too (`leading`: concept per control), then the leading glyph, the title, LEFT-aligned, never centred. RIGHT: `order`, headerActions(page): status (what the page reports: the waiting chips, the issue graph), primary (the page's ONE labelled verb: Create, Publish, Start, the Merge pill; the only text a header holds), call, page (the page's own icon: the inbox's mark read, a device's settings, the find bar's previous / next), search, inbox, add, more; a page lists only what it has (`pages`, phone and wide; null = the page has no header there). Every control but status and primary is THE ROUND ICON BUTTON, one look everywhere: `circle` px on phones (the filled circle: web `HeaderAction`, Android `PageHeaderCircle`, iOS `HeaderCircleButton`), `wideCircle` px on web md+ and the IDE (the same filled circle, desktop `header_button`); the glyph `glyph` / `wideGlyph`; never a ghost glyph, never a hand-rolled circle. ADD = concept `icons.add`, always its OWN button, never an entry of the `…`; it runs the page's one create verb at once (`adds`), or opens the create menu where there are several. MORE = concept `icons.more`, always LAST, only secondary verbs: headerMenu(entries) = the page's menu without `menuDrops` (what the + does, Open on the page itself, Move to folder: the tree's), separators tidied; an empty one = no button. ROWS that carry the pair (a team's row in the tree, `rows`) wear the same + then …. A row's long-press / right-click keeps its WHOLE menu (sidebar-menus.json). A settings list's own New pill in its section band is not a header. GUARD (`guard`, replayed by apps/web `header-guard.test.ts` over every client's sources on every PR): per client the shared round control (`round`) and the header hosts (`hosts`); no host's call may hold a `banned` control, and the `gone` names (the old ghost / hand-rolled header buttons) exist nowhere.",
   "circle": 44,
   "glyph": 20,
   "wideCircle": 32,
   "wideGlyph": 16,
   "gap": 8,
+  "leading": {"back": "ui-back", "close": "ui-close"},
   "order": ["status", "primary", "call", "page", "search", "inbox", "add", "more"],
   "icons": {"call": "voice-call", "search": "nav-search", "inbox": "nav-inbox", "add": "ui-add", "more": "ui-more"},
   "adds": {"teams": "teamsMenu", "team": "newKinds", "board": "new-issue", "agent-chat": "new-conversation"},
@@ -30,7 +31,19 @@
     "device": {"phone": ["page"], "wide": ["page"]},
     "home": {"phone": [], "wide": null},
     "repo": {"phone": [], "wide": []},
-    "ci-run": {"phone": [], "wide": []}
+    "ci-run": {"phone": [], "wide": []},
+    "agent": {"phone": ["call", "add", "more"], "wide": ["call", "add", "more"]},
+    "call-view": {"phone": [], "wide": null},
+    "plan": {"phone": [], "wide": []},
+    "find": {"phone": ["page"], "wide": ["page"]},
+    "device-settings": {"phone": [], "wide": []},
+    "review": {"phone": null, "wide": []}
+  },
+  "guard": {
+    "android": {"roots": ["apps/android/app/src/main/java"], "ext": ".kt", "round": "PageHeaderCircle", "hosts": ["PageHeader", "ChatHeader", "WorkTopBar", "FindInChatHeader"], "banned": ["CircleIconButton", "IconButton", "BarCircle", "GlassIconButton", "TopAppBar"], "gone": ["TopBarBackButton", "TopBarActionButton", "ChatHeaderButton"], "shared": []},
+    "ios": {"roots": ["apps/ios/Exponential/UI"], "ext": ".swift", "round": "HeaderCircleButton", "hosts": ["ChatHeader", ".toolbar"], "banned": ["ChatHeaderGhostButton", "GlassMenuBarButton", "CircleIconButton", "PageHeaderGlyph", "HeaderCircleFace"], "gone": ["ChatHeaderGhostButton"], "shared": ["apps/ios/Exponential/UI/Navigation/PageHeader.swift", "apps/ios/Exponential/UI/Chat/ChatHeader.swift"]},
+    "web": {"roots": ["apps/web/src", "packages/ui/src"], "ext": ".tsx", "round": "HeaderAction", "hosts": ["<MobileDetailHeader", "<PageHeader", "<ChatsHeader", "<WorkHeader"], "banned": ["<FabButton", "variant=\"ghost\"", "size=\"icon"], "gone": ["HEADER_BUTTON_CLASS", "HEADER_ACTION_CLASS"], "shared": ["packages/ui/src/header-action.tsx"]},
+    "desktop": {"roots": ["apps/desktop/crates/ui/src"], "ext": ".rs", "round": "header_button", "hosts": ["ScreenHeader", "header_cluster"], "banned": ["ghost_icon_button", "glass_icon_button", "Button::new"], "gone": [], "shared": ["apps/desktop/crates/ui/src/controls.rs"]}
   },
   "orderCases": [
     {"name": "an agent chat", "actions": ["more", "add", "call", "status"], "expected": ["status", "call", "add", "more"]},

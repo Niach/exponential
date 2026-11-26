@@ -2657,14 +2657,14 @@ pub(crate) struct ScreenHeader {
     pub(crate) trailing: Vec<AnyElement>,
     /// THE `…` ([`crate::chat_actions::screen_menu_button`]; #FEED-239: no gear).
     pub(crate) menu: Option<AnyElement>,
-    /// A session link's Back over the row (chats.json THE WAY BACK).
+    /// A session link's Back, THE round back leading the row (chats.json THE WAY BACK).
     pub(crate) back: Option<AnyElement>,
     /// THE Segmented ([`screen_tabs`]); `None` = no strip (#FEED-271: an
     /// agent, the Assistant).
     pub(crate) tabs: Option<AnyElement>,
 }
 
-/// THE session screen header: the Back (a link opened it), the avatar, the
+/// THE session screen header: THE round Back (a link opened it), the avatar, the
 /// title over its subtitle, THE Segmented (#EXP-1762: ON the title row,
 /// web `session-screen-frame.tsx`), the trailing slot, the `…`; the
 /// hairline spans the content card.
@@ -2695,13 +2695,14 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                 // #EXP-1762: ONE header line (web `py-3`).
                 .py_3()
                 .gap_3()
-                .children(header.back)
                 .child(
                     h_flex()
                         .w_full()
                         .min_w_0()
                         .gap_3()
                         .items_center()
+                        // #EXP-2168: THE round back left of the title row.
+                        .children(header.back)
                         .child(div().flex_shrink_0().child(header.avatar))
                         // Web `min-w-40 flex-1`: the title keeps 160 px; the
                         // waiting chips (#EXP-1785) give way before it.
