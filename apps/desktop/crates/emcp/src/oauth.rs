@@ -9,7 +9,7 @@
 //! opens [`Authorization::url`]), [`Authorization::finish`] = `callbackOk` /
 //! `callbackError`, [`connect`] calls through stored credentials (refreshed
 //! before they expire), a refused token = `unauthorized` (an
-//! [`ClientError::Http`] 401), [`disconnect`] deletes the credential.
+//! [`ClientError::Unauthorized`]), [`disconnect`] deletes the credential.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -118,7 +118,7 @@ pub struct OAuthConfig {
 
 fn auth_error(error: AuthError) -> ClientError {
     match error {
-        AuthError::AuthorizationRequired => ClientError::Http(401),
+        AuthError::AuthorizationRequired => ClientError::Unauthorized,
         other => ClientError::Transport(format!("oauth: {other}")),
     }
 }
@@ -177,13 +177,13 @@ pub fn connected(vault: &dyn Vault, key: &str) -> bool {
 }
 
 /// Connect to `url` with the credentials under `key`, refreshing an expired
-/// access token first. No credential = [`ClientError::Http`] 401.
+/// access token first. No credential = [`ClientError::Unauthorized`].
 pub fn connect(url: &str, vault: Arc<dyn Vault>, key: &str, client_name: &str, timeout: Duration) -> Result<Client, ClientError> {
     let (owned_url, key_owned) = (url.to_string(), key.to_string());
     let manager = block_on(async move {
         let mut manager = manager(&owned_url, vault, &key_owned).await?;
         if !manager.initialize_from_store().await.map_err(auth_error)? {
-            return Err(ClientError::Http(401));
+            return Err(ClientError::Unauthorized);
         }
         Ok(manager)
     })?;
@@ -193,7 +193,7 @@ pub fn connect(url: &str, vault: Arc<dyn Vault>, key: &str, client_name: &str, t
         .map_err(|err| ClientError::Transport(format!("{url}: {err}")))?;
     let config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
     let transport = move || StreamableHttpClientTransport::with_client(AuthClient::new(http, manager), config);
-    Client::start(url, client_name, transport, timeout)
+    Client::start(url, client_name, None, transport, timeout)
 }
 
 /// `disconnect`: the credential is deleted.

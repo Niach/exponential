@@ -31,6 +31,11 @@
     "$comment": "#NEW-49 (wakeups.json WATCH EVENTS): a session waits on at most maxPerSession things at once, its watched sessions and its event watches together; one more refuses with eCore `limit` (copy.tooManyWatches) and changes nothing.",
     "maxPerSession": 20
   },
+  "watcher": {
+    "$comment": "#NEW-145 (#NEW-143 D4, Danny 2026-11-26): ONE watch system, TWO kinds of WATCHER on `session_watches` (wakeups.json WATCH EVENTS). `session` (every watch before #NEW-145): the watcher is a live session; a firing or a watched session's transition is a WAKE MESSAGE into it (bus.json, wakeups.json). `mcp_task`: the watcher is an MCP task (packages/emcp fixtures/tasks.json) that an EXTERNAL caller (one not inside a session of its own) which declared the tasks extension got back from `sessions_send` (a start, a message or a wakeOn): the row names the task instead of a session, the SAME events drive it (a watched session's transitions, its ask/plan cards and its end report; `pr_checks`, `pr_closed`, `issue_status`, `at` firing, `gone` included) and map to task statuses instead of lines; it never posts, nudges or wakes anything, and the watched session never hears of it. Our own agents (every caller inside a session of its own) always get `session` watchers, i.e. wake messages. `maxPerSession` counts a session's own watches only; a task watcher is gone when its task turns terminal, is cancelled or expires. The hub core replays `session` watchers; `mcp_task` is the server's (emcp tasks.json is its spec).",
+    "kinds": ["session", "mcp_task"],
+    "default": "session"
+  },
   "report": {
     "$comment": "#FEED-251/#FEED-253: a device that ENDS a run itself says why (`device.report` data `endReason`); the report then carries that reason instead of the agent's last reply or the fallback, so the parent never reads a bare \"Ended without a summary.\" for a run that died. `stalled` = the engine's stall watchdog (no output mid-turn, an interrupt changed nothing).",
     "max": 4000,

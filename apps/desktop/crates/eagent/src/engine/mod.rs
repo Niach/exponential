@@ -20,6 +20,7 @@ pub mod child_exit;
 pub mod compaction;
 pub mod context_layout;
 pub mod exp_tool_refs;
+pub mod external;
 pub mod host;
 pub mod host_tools;
 pub mod launch;

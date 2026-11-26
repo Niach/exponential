@@ -434,7 +434,7 @@ mod tests {
         let server = serve(hub.clone()).unwrap();
         hub.admit("s1", "EXP-1", Vec::new(), Vec::new());
         let token = server.grant(&id("s1"), "EXP-1");
-        assert!(matches!(connect(&server, "nope"), Err(ClientError::Http(401))));
+        assert!(matches!(connect(&server, "nope"), Err(ClientError::Unauthorized)));
         let client = connect(&server, token.as_str()).unwrap();
         let tools = client.list_tools(Duration::from_secs(10)).unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -445,7 +445,7 @@ mod tests {
         assert!(reply["_meta"][META_COUNT_KEY].is_u64(), "the call log's _meta survives the transport: {reply}");
         server.revoke(&id("s1"));
         assert!(hub.run("s1").is_none());
-        assert!(matches!(connect(&server, token.as_str()), Err(ClientError::Http(401))));
+        assert!(matches!(connect(&server, token.as_str()), Err(ClientError::Unauthorized)));
     }
 
     #[test]

@@ -55,8 +55,8 @@ pub(crate) mod tests {
         let server = serve(Arc::new(|name: &str, _: &Value| json!({ "content": [{ "type": "text", "text": name }] }))).unwrap();
         let old = server.grant(&id("s1"), "s1");
         let token = server.grant(&id("s1"), "s1");
-        assert!(matches!(client(server.url(), "nope"), Err(emcp::ClientError::Http(401))));
-        assert!(matches!(client(server.url(), old.as_str()), Err(emcp::ClientError::Http(401))));
+        assert!(matches!(client(server.url(), "nope"), Err(emcp::ClientError::Unauthorized)));
+        assert!(matches!(client(server.url(), old.as_str()), Err(emcp::ClientError::Unauthorized)));
         let live = client(server.url(), token.as_str()).unwrap();
         let names: Vec<String> =
             live.list_tools(Duration::from_secs(10)).unwrap().iter().map(|tool| tool["name"].as_str().unwrap().to_string()).collect();
@@ -64,6 +64,6 @@ pub(crate) mod tests {
         let result = live.call("get_screenshots", json!({}), Duration::from_secs(10)).unwrap();
         assert_eq!(result["content"][0]["text"], "get_screenshots");
         server.revoke(&id("s1"));
-        assert!(matches!(client(server.url(), token.as_str()), Err(emcp::ClientError::Http(401))));
+        assert!(matches!(client(server.url(), token.as_str()), Err(emcp::ClientError::Unauthorized)));
     }
 }

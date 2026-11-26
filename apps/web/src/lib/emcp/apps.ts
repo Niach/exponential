@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 
 // EXP-1183 — MCP Apps (the stable `io.modelcontextprotocol/ui` extension):
 // three tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that

@@ -16,8 +16,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { randomUUID } from "node:crypto"
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
+import { McpServer, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server"
 import { z } from "zod"
 import { inlineShowResult } from "../src/genui/result"
 import { compactViewResult } from "../../../apps/web/src/lib/emcp/view-results"
@@ -170,7 +169,7 @@ function server(): McpServer {
   s.registerResource(`exponential-genui-view`, `ui://exponential/genui`, { title: `Exponential`, mimeType: `text/html;profile=mcp-app` }, async () => ({
     contents: [{ uri: `ui://exponential/genui`, mimeType: `text/html;profile=mcp-app`, text: genuiHtml(), _meta: { ui: { prefersBorder: true, csp: { resourceDomains: [ORIGIN, `https://fonts.googleapis.com`, `https://fonts.gstatic.com`] } } } }],
   }))
-  s.registerTool(`exponential_show`, { description: `ONE card in your chat (outside a session: drawn inline).`, inputSchema: { surface: z.any().optional(), title: z.string().optional() }, _meta: GENUI }, async ({ surface, title }) =>
+  s.registerTool(`exponential_show`, { description: `ONE card in your chat (outside a session: drawn inline).`, inputSchema: z.object({ surface: z.any().optional(), title: z.string().optional() }), _meta: GENUI }, async ({ surface, title }) =>
     surface ? ok(inlineShowResult({ kind: `surface`, surface, title: title ?? null })) : err(`Pass surface.`)
   )
   s.registerTool(`exponential_apps`, { description: `Exponential apps: list, get, records_list, records_upsert, records_delete.`, inputSchema: z.object(noun).passthrough(), _meta: GENUI }, async (args: Record<string, unknown>) => {
