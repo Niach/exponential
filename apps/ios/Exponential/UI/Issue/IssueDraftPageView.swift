@@ -83,8 +83,18 @@ struct IssueDraftPageView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         // The page owns its Back: leaving runs the draft's final write.
         .navigationBarBackButtonHidden(true)
-        // The back arrow: bare (web-mobile), no iOS 26 shared glass.
-        .ownChromeToolbarItem(placement: .topBarLeading) { backButton }
+        // #EXP-2168: THE round back, the title LEFT after it, in one item
+        // (no iOS 26 shared glass: the face draws its own circle).
+        .ownChromeToolbarItem(placement: .topBarLeading) {
+            HStack(spacing: CGFloat(HeaderActions.gap)) {
+                backButton
+                WorkTitle(
+                    text: IssueDraftPage.header,
+                    issueTitle: vm.trimmedTitle.isEmpty ? IssueDraftPage.untitled : vm.trimmedTitle,
+                    collapsed: titleScrolledAway
+                )
+            }
+        }
         .toolbar { toolbarContent }
         // Lifecycle on the always-present root (never an empty Group).
         .onAppear {
@@ -190,7 +200,7 @@ struct IssueDraftPageView: View {
     }
 
     private var backButton: some View {
-        Button {
+        HeaderCircleButton(icon: AppIcons.uiBack, label: "Back", identifier: "BackButton") {
             let held = IssueDraftLeaveGuard.Held(
                 proceed: {
                     vm.leave()
@@ -199,29 +209,15 @@ struct IssueDraftPageView: View {
                 dropped: {}
             )
             if !hold(held) { held.proceed() }
-        } label: {
-            AppIcon(AppIcons.uiBack, size: AppIcon.Size.medium, weight: .medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
         }
-        .buttonStyle(.plain)
         // A close mid-create would race the draft against the issue; a
         // second Back during a Create/Keep answer would close the page
         // under the in-flight save (EXP-1272: a failed save = lost edit).
         .disabled(vm.creating || leaveAnswerInFlight)
-        .accessibilityLabel("Back")
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            WorkTitle(
-                text: IssueDraftPage.header,
-                issueTitle: vm.trimmedTitle.isEmpty ? IssueDraftPage.untitled : vm.trimmedTitle,
-                collapsed: titleScrolledAway
-            )
-        }
         ToolbarItem(placement: .topBarTrailing) {
             Button(IssueDraftPage.create) {
                 Task {

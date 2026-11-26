@@ -3920,25 +3920,36 @@ export function registerExponentialTools(
     }
   )
 
+  // #EXP-2170 (Phase 0 dogfood): `provider: "exponential"` creates a hosted
+  // repo (eCode's own git, `repositories.create`, owners) so an agent can
+  // start one; without it, the GitHub connect as before.
   server.registerTool(
     `exponential_repositories_add`,
     {
-      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. Any member; the repo must be one YOUR GitHub connection grants (team settings → Repositories) — connecting shares it with the team.`,
+      description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it: any member, the repo must be one YOUR GitHub connection grants. provider "exponential" = a new empty repository hosted on Exponential (fullName = its name; owners; mirrorUrl = an optional https GitHub mirror).`,
       inputSchema: strictInput({
         teamId: uuidString,
-        fullName: z
-          .string()
-          .min(1)
-          .max(255)
-          .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`),
+        fullName: z.string().min(1).max(255),
+        provider: z.enum([`github`, `exponential`]).optional(),
         defaultBranch: z.string().min(1).max(255).optional(),
         private: z.boolean().optional(),
         installationId: z.number().int().optional(),
+        mirrorUrl: z.string().max(400).optional(),
       }),
     },
-    async (input) => {
+    async ({ provider, mirrorUrl, ...input }) => {
       try {
         assertTeamFullyGranted(access, input.teamId)
+        if (provider === `exponential`) {
+          const result = await caller(user, request).repositories.create({
+            teamId: input.teamId,
+            name: input.fullName,
+            ...(input.defaultBranch ? { defaultBranch: input.defaultBranch } : {}),
+            mirrorUrl: mirrorUrl ?? null,
+          })
+          return ok(result.repository)
+        }
+        if (!/^[^/\s]+\/[^/\s]+$/.test(input.fullName)) throw new Error(`Expected "owner/name"`)
         const result = await caller(user, request).repositories.add(input)
         return ok(result.repository)
       } catch (e) {

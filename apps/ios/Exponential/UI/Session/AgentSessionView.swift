@@ -383,7 +383,7 @@ struct AgentSessionView: View {
 
     // MARK: - Header
 
-    /// The nav bar: the system back button, a two-line title (EXP-1310, web
+    /// The nav bar: THE round back, a two-line title, LEFT (EXP-1310, web
     /// `session-header`, Android `SessionHeaderBar`): the back row naming
     /// the CHAT over the session's name (S-3: no Stop).
     @ViewBuilder
@@ -399,13 +399,12 @@ struct AgentSessionView: View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) { headerTitle }
-            }
+            // #EXP-2168: the title LEFT, after THE round back.
+            .detailHeaderTitle("\(model?.chatTitle ?? "")|\(model?.title ?? session.title ?? "")") { headerTitle }
     }
 
     private var headerTitle: some View {
-        VStack(spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             // The way back to the chat (a chat already on the stack is
             // popped back to — `pushRoute`'s rule).
             if let chatTitle = model?.chatTitle, !chatTitle.isEmpty {

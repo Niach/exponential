@@ -7,17 +7,18 @@ Code is git and CI in one library. One set of traits covers where objects go (`R
 
 ## Status
 
-The spec is built: one contract plus fixtures, replayed in TypeScript and Rust. The providers come next.
+The spec, the server seam, our own git and our own CI are built and ship in Exponential. Our own git and CI are still being proven on real work (#EXP-2170): use them beside GitHub, not yet as a team's only copy of its code. The library has no release tag yet.
 
 | Part | Where | State |
 |---|---|---|
 | **Contract + fixtures** | `@exp/ecode` (private): forge, checks, pipeline, runner, remote | built |
 | **Pure core** | `ecode-core` (Rust; serde only, no I/O) | built |
 | **Swift / Kotlin** | generated into ExpCore (`ECode`) and the Android app (`com.exponential.app.ecode`) | built |
-| **Server seam** | GitHub behind one `Forge` interface in Exponential | planned (#EXP-1614) |
-| **Device crate** | `ecode`: the traits, local repos on gix, the providers | planned (#EXP-1615) |
-| **Own git** | refs on the host, packs in the team bucket, `git-remote-exp` | planned (#EXP-1616) |
-| **Own CI** | `.exponential/ci.json`, a runner in the daemon, logs in the bucket | planned (#EXP-1617) |
+| **Server seam** | GitHub and our own git behind one `Forge` interface in Exponential | built (#EXP-1614) |
+| **Device crate** | `ecode`: the traits, local repos on gix, the providers | built (#EXP-1615) |
+| **Own git** | `exp://<team>/<name>`: refs on the host, packs in the team bucket, `git-remote-exp` in the CLI and the desktop app; bundle backups, restore, an optional GitHub mirror | built, in dogfood (#EXP-1616) |
+| **Own CI** | `.exponential/ci.json`, else a subset of `.github/workflows`; a runner in the daemon on your team's devices; logs in the bucket; results as check rows | built, in dogfood (#EXP-1617) |
+| **Plain `git clone` over HTTPS** | stock git with no Exponential software | planned (#EXP-2177) |
 | **Release** | the `ecode-v*` tag | planned |
 
 ## What the spec covers
