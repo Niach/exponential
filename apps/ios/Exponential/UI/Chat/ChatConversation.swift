@@ -392,7 +392,7 @@ struct ChatAskCard: View {
                     surface: surface, handle: draft.surface, editable: editable && !busy,
                     data: card.answered ? card.surfaceData : nil,
                     caption: false,
-                    onData: { elicitationData = $0 }
+                    onData: { if elicitationData != $0 { elicitationData = $0 } }
                 )
                 .padding(.bottom, PlanCard.Card.blockGap - Self.answerGap)
             }
