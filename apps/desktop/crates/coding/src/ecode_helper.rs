@@ -36,14 +36,20 @@ pub fn install_git_helper(data_dir: &Path) {
     }
 }
 
+/// #EXP-2187: the data dir the helper signs in from: the app's, as the
+/// launcher passed it to a session whose own XDG dirs hide it, else this
+/// process's default.
+fn helper_data_dir(passed: Option<std::ffi::OsString>) -> std::path::PathBuf {
+    passed.filter(|dir| !dir.is_empty()).map(std::path::PathBuf::from).unwrap_or_else(api::default_data_dir)
+}
+
 /// The helper's credential when this binary runs AS `git-remote-exp`: the
 /// signed-in account mints a repo token for the URL.
 pub fn helper_auth(url: &str) -> Result<git_remote_exp::Auth, String> {
     if let Ok(auth) = git_remote_exp::auth_from_env(url) {
         return Ok(auth);
     }
-    let data_dir = api::default_data_dir();
-    let store = api::accounts::AuthStore::load(data_dir);
+    let store = api::accounts::AuthStore::load(helper_data_dir(std::env::var_os(crate::session_env::GIT_DATA_DIR_VAR)));
     let accounts = store.signed_in_accounts();
     let selector = std::env::var("EXP_ACCOUNT").ok().filter(|v| !v.is_empty());
     let account = match selector {
@@ -54,4 +60,16 @@ pub fn helper_auth(url: &str) -> Result<git_remote_exp::Auth, String> {
     .ok_or("not signed in to exactly one Exponential account: run `exponential login` (or set EXP_ACCOUNT)")?;
     let bearer = store.token(&account.id).ok_or("the Exponential account has no session: run `exponential login`")?;
     git_remote_exp::auth_from_session(&account.instance_url, &bearer, url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_helper_signs_in_from_the_dir_the_launcher_passed() {
+        assert_eq!(helper_data_dir(Some("/real/exponential".into())), std::path::PathBuf::from("/real/exponential"));
+        assert_eq!(helper_data_dir(Some("".into())), api::default_data_dir());
+        assert_eq!(helper_data_dir(None), api::default_data_dir());
+    }
 }
