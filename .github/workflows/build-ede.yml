@@ -85,6 +85,9 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
           CARGO_PROFILE_RELEASE_STRIP: none
+          # The updater's minisign key: the app's signed binaries list
+          # (first-party screen consent, ede-compositor's signed.rs).
+          EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
         run: apps/ede/packaging/stage.sh "$RUNNER_TEMP/stage"
       - name: Split the debug info
         run: apps/ede/packaging/split-debug.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/debug"
