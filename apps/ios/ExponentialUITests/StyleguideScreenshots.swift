@@ -28,7 +28,7 @@ import XCTest
 ///   sg_teams · sg_team · sg_assistant-tab ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
-///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
+///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card · sg_elicitation-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
@@ -1311,7 +1311,7 @@ final class StyleguideScreenshots: XCTestCase {
         "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
-        "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states",
+        "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states", "elicitation-card",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
     ]
 
@@ -1367,6 +1367,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "record-form-field-states": snapshot("sg_record-form-field-states", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
+            // #NEW-146: THE elicitation card (elicitation-card.json specimen).
+            case "elicitation-card": snapshot("sg_elicitation-card", settle: 2)
             // #FEED-191: THE entry row + THE list, THE Results tab body.
             case "needs-you": snapshot("sg_needs-you", settle: 2)
             case "results-tab": snapshot("sg_results-tab", settle: 2)

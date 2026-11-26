@@ -105,4 +105,35 @@ final class ElicitationCardTests: XCTestCase {
             XCTAssertFalse(question.custom, name)
         }
     }
+
+    /// iOS's Open link: OAuth = ASWebAuthenticationSession, else Safari;
+    /// only absolute http(s) URLs open.
+    func testOpenTarget() throws {
+        let github = "https://github.com/login/oauth/authorize?client_id=abc&state=xyz"
+        XCTAssertEqual(ElicitationCard.openTarget(github), .oauth(try XCTUnwrap(URL(string: github))))
+        let google = "https://accounts.example.com/o/oauth2/auth?x=1"
+        XCTAssertEqual(ElicitationCard.openTarget(google), .oauth(try XCTUnwrap(URL(string: google))))
+        let query = "https://id.example.com/authorize?response_type=code&client_id=a"
+        XCTAssertEqual(ElicitationCard.openTarget(query), .oauth(try XCTUnwrap(URL(string: query))))
+        let pay = "http://pay.xn--pple-43d.co.uk/invoice/42"
+        XCTAssertEqual(ElicitationCard.openTarget(pay), .safari(try XCTUnwrap(URL(string: pay))))
+        XCTAssertNil(ElicitationCard.openTarget("javascript:alert(1)"))
+        XCTAssertNil(ElicitationCard.openTarget("/relative"))
+        XCTAssertNil(ElicitationCard.openTarget(nil))
+    }
+
+    /// The specimen's cards ARE the fixture's (whole values).
+    func testSpecimenCardsAreTheFixtures() throws {
+        let cards = try cases("cardCases")
+        func expected(_ prefix: String) throws -> NSDictionary {
+            let entry = try XCTUnwrap(cards.first { ($0["name"] as? String)?.hasPrefix(prefix) == true }, prefix)
+            return try XCTUnwrap(entry["expected"] as? NSDictionary, prefix)
+        }
+        func parsed(_ json: String) throws -> NSDictionary {
+            try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? NSDictionary)
+        }
+        XCTAssertEqual(try parsed(ElicitationCard.Specimen.form), try expected("a form with every field kind"))
+        XCTAssertEqual(try parsed(ElicitationCard.Specimen.url), try expected("a url: the domain"))
+        XCTAssertEqual(try parsed(ElicitationCard.Specimen.warned), try expected("a url on http"))
+    }
 }
