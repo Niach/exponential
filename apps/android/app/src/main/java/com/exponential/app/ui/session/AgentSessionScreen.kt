@@ -6207,6 +6207,8 @@ internal fun SessionComposer(
     val slashMatches by viewModel.slashCandidates.collectAsStateWithLifecycle()
     val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
+    val sendFailure by viewModel.sendFailure.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(sendFailure, onShown = viewModel::clearSendFailure)
     val acceptSlash: (com.exponential.app.domain.SlashCandidate) -> Unit = { candidate ->
         when (candidate) {
             is com.exponential.app.domain.SlashCandidate.Command -> {

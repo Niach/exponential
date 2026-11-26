@@ -245,6 +245,57 @@ describe(`fixtures/interactions-round1.json select`, () => {
   }
 })
 
+// #EXP-2161 selectSections: the unsectioned options first, then each
+// section's run under its `sectionHeading` (never an option), first-seen
+// order; the search keeps a heading over its shown options only; a heading
+// splits a `multiple` block.
+interface SelectSectionsCase {
+  name: string
+  options: Record<string, unknown>[]
+  value: string
+  multiple?: boolean
+  searchable?: boolean
+  query?: string
+  rows: ({ heading: string } | { option: string; joinTop?: boolean; joinBottom?: boolean })[]
+  press: string
+  changes: string[]
+}
+
+describe(`fixtures/interactions-round1.json selectSections`, () => {
+  for (const c of (fixture as unknown as { selectSections: SelectSectionsCase[] }).selectSections) {
+    it(`selectSections: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const props: Record<string, unknown> = { label: `Device`, name: `s`, options: c.options, value: c.value }
+      if (c.multiple !== undefined) props.multiple = c.multiple
+      if (c.searchable !== undefined) props.searchable = c.searchable
+      const { container } = render(<ExponentialSurface root={tree({ id: `s`, component: `Select`, props, on: { change: { event: { name: `change` } } } } as unknown as NestedNode)} theme="neutral" id="ss" host={{ onAction: (e) => void actions.push(e) }} />)
+      // ArrowDown opens either popup (Radix's and the combobox's).
+      act(() => void fireEvent.keyDown(container.querySelector(`[data-xui-id="s.trigger"]`)!, { key: `ArrowDown` }))
+      const content = () => document.querySelector(`[data-xui-overlay="Select"]`)!
+      if (c.query !== undefined) act(() => void fireEvent.change(content().querySelector(`input`)!, { target: { value: c.query } }))
+      const els = Array.from(content().querySelectorAll(`.xui-Select-item, .xui-Select-sectionHeading`))
+      // The DOM shows labels (`build` sits under two sections): the
+      // fixture's option values read as their labels, in order.
+      const labelOf = (value: string) => String(c.options.find((o) => o.value === value)?.label)
+      const rows = els.map((el) => {
+        if (el.classList.contains(`xui-Select-sectionHeading`)) {
+          expect(el.getAttribute(`role`)).not.toBe(`option`)
+          return { heading: el.textContent }
+        }
+        const row: Record<string, unknown> = { option: el.textContent }
+        if (el.getAttribute(`data-r-join-top`) === `true`) row.joinTop = true
+        if (el.getAttribute(`data-r-join-bottom`) === `true`) row.joinBottom = true
+        return row
+      })
+      const want = c.rows.map((r) => (`option` in r ? { ...r, option: labelOf(r.option) } : r))
+      expect(rows).toEqual(want)
+      const at = c.rows.filter((r) => `option` in r).findIndex((r) => (r as { option: string }).option === c.press)
+      fireEvent.click(els.filter((el) => !el.classList.contains(`xui-Select-sectionHeading`))[at]!)
+      expect(actions.filter((a) => a.name === `change` && a.context.value !== undefined).map((a) => a.context.value)).toEqual(c.changes)
+    })
+  }
+})
+
 interface HoldStep {
   do: string
   x?: number

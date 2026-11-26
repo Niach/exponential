@@ -1004,3 +1004,23 @@ fn a_space_itself_waits_and_never_claims() {
     let again = TrustKeeper::open_space(path, &id, text(&s["userId"]), "install-S".into(), v.liar.clone(), TRUST_MODE);
     assert!(again.store().space);
 }
+
+/// End-to-end finding (#EXP-2161): a new Assistant conversation this install
+/// started itself (its seal adopted before its row synced) still counts, and
+/// its key is wrapped for the approved space once its row says so.
+#[test]
+fn a_root_this_install_made_counts_once_its_row_says_so() {
+    let v = victim(TRUST_MODE);
+    let sight = Arc::new(Mutex::new(RootSight::Unknown));
+    let seen = Arc::clone(&sight);
+    v.keeper.set_own_assistant(Arc::new(move |_| *lock(&seen)));
+    let root = "bbbbbbbb-89ab-4def-8123-456789abcdef";
+    let seal = v.holder.new_root_seal(Vec::new()).unwrap();
+    v.holder.adopt(root, &seal);
+    // The holder's next pass must not take it for a key from before.
+    v.keeper.record_legacy(&[(root.to_string(), 1)]);
+    assert_eq!(v.keeper.store().record(root, 1), Some(KeyRecord::Verified));
+    *lock(&sight) = RootSight::Assistant;
+    let mut store = v.keeper.store();
+    assert!(store.own_assistant(root, RootSight::Assistant, false));
+}

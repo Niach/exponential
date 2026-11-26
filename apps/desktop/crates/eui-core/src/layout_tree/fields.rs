@@ -506,19 +506,37 @@ impl Builder<'_, '_> {
             return;
         }
         let needle = query.to_lowercase();
-        // The SHOWN options (the search keeps those whose label holds it).
-        let shown: Vec<(usize, &Value)> = options.iter().enumerate().filter(|(_, o)| needle.is_empty() || o.get("label").map(js).unwrap_or_default().to_lowercase().contains(&needle)).collect();
+        // The SHOWN options (the search keeps those whose label holds it),
+        // #EXP-2161: in section order (the unsectioned first).
+        let shown: Vec<(usize, &Value)> = section_order(&options).into_iter().filter(|(_, o)| needle.is_empty() || o.get("label").map(js).unwrap_or_default().to_lowercase().contains(&needle)).collect();
         let picked: Vec<bool> = shown.iter().map(|(_, o)| chosen.contains(&o.get("value").map(js).unwrap_or_default())).collect();
+        // #EXP-2161: the heading over each shown run of a section (web's
+        // picker group heading): text only, never pressable.
+        let headed: Vec<Option<String>> = shown.iter().enumerate().map(|(position, (_, o))| {
+            let section = option_section(o);
+            (!section.is_empty() && (position == 0 || option_section(shown[position - 1].1) != section)).then_some(section)
+        }).collect();
         let shown_any = !shown.is_empty();
+        let mut heading_count = 0;
         for (position, &(i, option)) in shown.iter().enumerate() {
+            if let Some(section) = &headed[position] {
+                let mut style = json!({"flexShrink": 0});
+                if position > 0 {
+                    style["marginTop"] = json!(crate::layout::SELECT_SECTION_GAP);
+                }
+                let heading = self.part_in(list, &owner, "sectionHeading", "Text", NodeKind::Leaf, style, json!({"text": section, "lines": 1}), &format!(".{heading_count}"));
+                self.nodes[heading as usize].pressable = false;
+                heading_count += 1;
+            }
             let label = option.get("label").map(js).unwrap_or_default();
             let v = option.get("value").map(js).unwrap_or_default();
             let selected = picked[position];
             // A `multiple` run of adjacent picked SHOWN rows is ONE block
             // (web's Picker, the IDE's `multi_row_edges`): a picked row
-            // `joinTop` under a picked row, `joinBottom` over one.
-            let join_top = multiple && selected && position > 0 && picked[position - 1];
-            let join_bottom = multiple && selected && picked.get(position + 1).copied().unwrap_or(false);
+            // `joinTop` under a picked row, `joinBottom` over one; #EXP-2161:
+            // a section heading between them splits it.
+            let join_top = multiple && selected && position > 0 && picked[position - 1] && headed[position].is_none();
+            let join_bottom = multiple && selected && picked.get(position + 1).copied().unwrap_or(false) && headed.get(position + 1).is_some_and(Option::is_none);
             let disabled = option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
             // #EXP-1629: an option's `trailing` reads on after its label in
             // the item's own style (the IDE branch picker's `main · default`);
@@ -1385,4 +1403,29 @@ mod tests {
         assert_eq!(format_bytes(2048.0), "2 kB");
         assert_eq!(format_bytes(500.0), "500 byte");
     }
+}
+
+/// #EXP-2161: an option's `section` ("" = none).
+fn option_section(option: &Value) -> String {
+    option.get("section").filter(|s| !s.is_null()).map(js).unwrap_or_default()
+}
+
+/// #EXP-2161 (web's Picker sections): the options without a `section`
+/// first, unheaded, then one run per distinct section in first-seen order,
+/// each keeping its options' order; with the option's index.
+fn section_order(options: &[Value]) -> Vec<(usize, &Value)> {
+    let mut plain = Vec::new();
+    let mut runs: Vec<(String, Vec<(usize, &Value)>)> = Vec::new();
+    for (i, option) in options.iter().enumerate() {
+        let section = option_section(option);
+        if section.is_empty() {
+            plain.push((i, option));
+        } else if let Some(run) = runs.iter_mut().find(|(s, _)| *s == section) {
+            run.1.push((i, option));
+        } else {
+            runs.push((section, vec![(i, option)]));
+        }
+    }
+    plain.extend(runs.into_iter().flat_map(|(_, run)| run));
+    plain
 }

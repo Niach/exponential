@@ -283,6 +283,9 @@ data class SteerDevice(
      * live in the device-settings sheet here as well as on the web.
      */
     @SerialName("sharedTeamIds") val sharedTeamIds: List<String> = emptyList(),
+    /** #EXP-2161 (member-space.json): the teams whose members may run their
+     *  Assistant here. Only the DeviceEntity → SteerDevice mapping stamps it. */
+    @kotlinx.serialization.Transient val assistantTeamIds: List<String> = emptyList(),
     /** Set only on a TEAMMATE's shared machine — never on the caller's own. */
     @SerialName("owner") val owner: DeviceOwner? = null,
     /**

@@ -969,3 +969,104 @@ fn shell_sidebar_tree_pages() {
     std::mem::forget(root);
 }
 
+
+/// #EXP-2161 (member-space.json UI ×4): the whole IDE window over a seeded
+/// account: Device settings › Sharing of the member's own server with
+/// `copy.optIn` under each shared team and `copy.members`; the opt-in
+/// confirm; a team owner's off switch on a teammate's server; the pick
+/// confirm; Needs you's space approval row (`EXP_DEV_INSTALL_TRUST=install-space`).
+/// The instance URL is a closed local port: nothing reaches a server.
+#[test]
+#[ignore]
+fn shell_member_spaces() {
+    use crate::navigation::Screen;
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    std::env::set_var("EXP_SKIP_ONBOARDING", "1");
+    let dir = PathBuf::from(dir);
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "http://127.0.0.1:9", "userId": "u1", "email": "demo@exponential.at", "name": "Alex Carter", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    let now = chrono::Utc::now().to_rfc3339();
+    let doctor = json!({"checkedAt": now, "items": [{"key": "member_space", "group": "storage", "state": "ok", "detail": "Ready"}]});
+    crate::member_spaces::SHOT_MEMBERS.with(|members| {
+        *members.borrow_mut() = vec![
+            api::member_spaces::SpaceMember { space_id: "sp1".into(), user_id: "u2".into(), name: "Mira Jensen".into(), team_id: Some("t1".into()) },
+            api::member_spaces::SpaceMember { space_id: "sp2".into(), user_id: "u3".into(), name: "Sam Okafor".into(), team_id: Some("t1".into()) },
+        ]
+    });
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Acme", "slug": "acme"}, {"id": "t2", "name": "Side project", "slug": "side"}]), cx);
+        seed(&c.team_members, json!([{"id": "m1", "team_id": "t1", "user_id": "u1", "role": "owner"}, {"id": "m2", "team_id": "t2", "user_id": "u1", "role": "member"}]), cx);
+        seed(&c.users, json!([{"id": "u1", "name": "Alex Carter"}, {"id": "u2", "name": "Mira Jensen"}, {"id": "u3", "name": "Sam Okafor"}]), cx);
+        seed(&c.agents, json!([{"id": "as1", "team_id": "t1", "name": "Assistant", "role": "assistant", "owner_id": "u1"}]), cx);
+        seed(&c.devices, json!([
+            {"id": "d1", "user_id": "u1", "device_id": "dev-1", "label": "Alex's MacBook Pro", "kind": "desktop", "platform": "macos", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
+            {"id": "d4", "user_id": "u1", "device_id": "dev-4", "label": "homelab", "kind": "server", "platform": "linux", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{t1,t2}", "assistant_team_ids": "{t1}", "doctor": doctor},
+            {"id": "d5", "user_id": "u2", "device_id": "dev-5", "label": "unraid", "kind": "server", "platform": "linux", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{t1}", "assistant_team_ids": "{t1}"},
+            {"id": "d6", "user_id": "u1", "device_id": "space-1", "label": "unraid", "kind": "server", "last_seen_at": now, "space_host_id": "d5", "space_team_id": "t1"}
+        ]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let settle = |cx: &mut HeadlessAppContext| {
+        for _ in 0..14 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            cx.advance_clock(std::time::Duration::from_millis(50));
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    };
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(dir.join(name)).expect("the PNG");
+    };
+    let go = |cx: &mut HeadlessAppContext, screen: Screen| {
+        cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, screen)).unwrap();
+    };
+    let escape = |cx: &mut HeadlessAppContext| {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(gpui::PlatformInput::KeyDown(gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse("escape").unwrap(), is_held: false, prefer_character_input: false }), cx);
+        })
+        .unwrap();
+    };
+    go(&mut cx, Screen::DeviceSettings { device_id: "d4".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-device-sharing.png");
+    cx.update_window(window, |_, window, cx| crate::member_spaces::confirm_opt_in(|_| {}, window, cx)).unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-opt-in-confirm.png");
+    escape(&mut cx);
+    settle(&mut cx);
+    go(&mut cx, Screen::Device { device_id: "d5".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-team-owner-switch.png");
+    cx.update_window(window, |_, window, cx| {
+        crate::native_dialog::open_alert(window, cx, crate::member_spaces::pick_alert("unraid", "Mira Jensen", |_| {}))
+    })
+    .unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-pick-confirm.png");
+    escape(&mut cx);
+    settle(&mut cx);
+    std::env::set_var("EXP_DEV_INSTALL_TRUST", "install-space");
+    go(&mut cx, Screen::NeedsYou);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-needs-you-space.png");
+    std::env::remove_var("EXP_DEV_INSTALL_TRUST");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}

@@ -23,6 +23,10 @@ data class DevicePickerDevice(
     /** A muted reason under the name (`Offline`, `Update to run workflows`). */
     val description: String? = null,
     val disabled: Boolean = false,
+    /** #EXP-2161: the heading of its run of rows (a team's name). */
+    val section: String? = null,
+    /** #EXP-2161: the picked device's other row (it is listed under two teams). */
+    val checked: Boolean = false,
 )
 
 fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String>> =
@@ -35,6 +39,8 @@ fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String
             // `deviceIcon` always resolves — a machine that never picked one
             // still draws its kind's default.
             icon = deviceIcon(device.icon, isServer = device.isServer),
+            section = device.section,
+            checked = if (device.checked) PickerChecked.All else null,
         )
     }
 

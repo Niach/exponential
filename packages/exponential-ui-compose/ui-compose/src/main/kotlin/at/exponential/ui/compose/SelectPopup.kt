@@ -52,6 +52,8 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -88,17 +90,19 @@ private const val POPUP_MARGIN = 8f
  * One shown Select option. #EXP-1765: a [mono] option's label is set in the
  * mono type and its [trailing] is its own muted sans run (null otherwise:
  * a plain option's trailing reads on inside [text]). #EXP-1629: a
- * [description] = the muted second line under its label.
+ * [description] = the muted second line under its label. #EXP-2161: a
+ * [section] = the heading its run of options sits under.
  */
-internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null, val iconColor: String? = null, val hint: String? = null)
+internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null, val iconColor: String? = null, val hint: String? = null, val section: String? = null)
 
 /**
  * A Select's OBJECT options whose label contains [query] (lowercase; empty
  * = all); #EXP-1629: an option's `trailing` reads on after its label (the
  * core's item text), #EXP-1765: except on a `mono` option, where it stays
- * its own run. The search matches the label alone.
+ * its own run. The search matches the label alone. #EXP-2161: in section
+ * order ([selectSectionOrder]).
  */
-internal fun selectOptions(owner: Props, query: String): List<SelectOption> = owner.list("options").mapNotNull { o ->
+internal fun selectOptions(owner: Props, query: String): List<SelectOption> = selectSectionOrder(owner.list("options").mapNotNull { o ->
     if (o !is JsonValue.Obj) return@mapNotNull null
     val v = o["value"] ?: JsonValue.Null
     val label = o["label"]?.displayText ?: v.displayText
@@ -106,7 +110,25 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     val trailing = o["trailing"]?.displayText.orEmpty()
     val mono = o["mono"]?.bool == true
     val text = if (trailing.isEmpty() || mono) label else "$label $trailing"
-    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() }, o["iconColor"]?.string, o["hint"]?.displayText?.takeIf { it.isNotEmpty() })
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() }, o["iconColor"]?.string, o["hint"]?.displayText?.takeIf { it.isNotEmpty() }, o["section"]?.takeIf { it !is JsonValue.Null }?.displayText?.takeIf { it.isNotEmpty() })
+})
+
+/**
+ * #EXP-2161 (web's Picker sections): the options without a `section`
+ * first, unheaded, then one run per distinct section in first-seen order,
+ * each keeping its options' order.
+ */
+internal fun selectSectionOrder(options: List<SelectOption>): List<SelectOption> {
+    if (options.none { it.section != null }) return options
+    val runs = LinkedHashMap<String, MutableList<SelectOption>>()
+    for (o in options) o.section?.let { runs.getOrPut(it) { mutableListOf() }.add(o) }
+    return options.filter { it.section == null } + runs.values.flatten()
+}
+
+/** #EXP-2161: the `sectionHeading` over option [index] of a [selectSectionOrder]ed list: its section where the row above has another (or none). */
+internal fun selectSectionHeading(options: List<SelectOption>, index: Int): String? {
+    val section = options.getOrNull(index)?.section ?: return null
+    return section.takeIf { index == 0 || options[index - 1].section != it }
 }
 
 /** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */
@@ -161,9 +183,20 @@ internal fun selectMoreBelow(offset: Int, max: Int): Boolean = max > 0 && offset
  * block (web's Picker, the IDE's `multi_row_edges`): row [index]'s
  * `joinTop` (the row above is picked too) and `joinBottom` (the row below).
  */
-internal fun selectItemJoins(multiple: Boolean, picked: List<Boolean>, index: Int): Pair<Boolean, Boolean> {
+internal fun selectItemJoins(multiple: Boolean, picked: List<Boolean>, index: Int, headed: (Int) -> Boolean = { false }): Pair<Boolean, Boolean> {
     if (!multiple || picked.getOrNull(index) != true) return false to false
-    return (index > 0 && picked[index - 1]) to (picked.getOrNull(index + 1) == true)
+    // #EXP-2161: a section heading between two picked rows splits the block.
+    return (index > 0 && picked[index - 1] && !headed(index)) to (picked.getOrNull(index + 1) == true && !headed(index + 1))
+}
+
+/** #EXP-2161: the top of option [index] in the list (dp): the rows above it, [itemH] each, and each section heading above or over it, [headingH] plus [gap] when a row precedes it. */
+internal fun selectRowTop(options: List<SelectOption>, index: Int, itemH: Float, headingH: Float, gap: Float): Float {
+    var top = 0f
+    for (i in 0..index.coerceAtMost(options.size - 1)) {
+        if (selectSectionHeading(options, i) != null) top += headingH + if (i > 0) gap else 0f
+        if (i < index) top += itemH
+    }
+    return top
 }
 
 /** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
@@ -284,12 +317,16 @@ internal fun SelectPopup(cx: LeafContext) {
         if (!multiple) close()
     }
     // Keeps option [i] in the list's view (nearest edge).
+    // #EXP-2161: a section heading's height (its recipe's line + padding).
+    val headingPart = cx.part("Select", "sectionHeading")
+    val headingH = (headingPart.style.lineHeight ?: popupTs.lineHeight) + 2 * (headingPart.px("paddingVertical") ?: 0f)
     fun reveal(i: Int) {
         if (i < 0) return
         scope.launch {
             val view = snapshotFlow { scroll.viewportSize }.first { it > 0 }
-            val top = with(density) { (i * itemH).dp.toPx() }
-            val bottom = with(density) { ((i + 1) * itemH).dp.toPx() }
+            val rowTop = selectRowTop(options, i, itemH, headingH, CatalogConstants.SELECT_SECTION_GAP)
+            val top = with(density) { rowTop.dp.toPx() }
+            val bottom = with(density) { (rowTop + itemH).dp.toPx() }
             val y = when {
                 top < scroll.value -> top
                 bottom > scroll.value + view -> bottom - view
@@ -357,7 +394,8 @@ internal fun SelectPopup(cx: LeafContext) {
                     if (loading) SelectSkeletonRows(cx)
                     val picked = options.map { chosen.contains(it.value.displayText) }
                     for ((i, o) in options.withIndex()) {
-                        SelectOptionRow(cx, o, i == cursor, picked[i], selectItemJoins(multiple, picked, i), itemH, popupTs, popupInk, checkOnChosenOnly = button, onHover = {
+                        selectSectionHeading(options, i)?.let { SelectSectionHeading(cx, it, afterRow = i > 0, popupTs, popupInk) }
+                        SelectOptionRow(cx, o, i == cursor, picked[i], selectItemJoins(multiple, picked, i) { selectSectionHeading(options, it) != null }, itemH, popupTs, popupInk, checkOnChosenOnly = button, onHover = {
                             cursorless = false
                             cursor = i
                         }, onPick = { pick(o) })
@@ -517,6 +555,29 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             if (chosen) IconOrGlyph(builtinIcon("Select.check", "ui-check"), Glyph.Check, checkSize, cx, check.color ?: ink)
         }
     }
+}
+
+/**
+ * #EXP-2161: an option section's heading (web's picker group heading): the
+ * `sectionHeading` recipe's type, weight, muted ink and padding, never
+ * pickable; [afterRow] = a row sits above it (`selectSectionGap` under it).
+ */
+@Composable
+private fun SelectSectionHeading(cx: LeafContext, text: String, afterRow: Boolean, base: ResolvedTextStyle, popupInk: Color) {
+    val hp = cx.part("Select", "sectionHeading")
+    val s = hp.style
+    val ts = cx.composeTextStyle(ts = base.copy(fontSize = s.fontSize ?: base.fontSize, lineHeight = s.lineHeight ?: base.lineHeight, fontWeight = s.fontWeight ?: base.fontWeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: popupInk)
+    BasicText(
+        text,
+        Modifier
+            .fillMaxWidth()
+            .padding(top = (if (afterRow) CatalogConstants.SELECT_SECTION_GAP else 0f).dp)
+            .padding(horizontal = (hp.px("paddingHorizontal") ?: s.paddingHorizontal).dp, vertical = (hp.px("paddingVertical") ?: 0f).dp)
+            .semantics { heading() },
+        style = ts,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** #EXP-1765: the gap between a mono option's label and its `trailing` (the item recipe's, at least 4; the measurer's rule). */

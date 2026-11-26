@@ -666,7 +666,7 @@ impl McpServerDialogView {
         if let Some(store) = sync::Store::try_global(cx) {
             for row in store.collections().devices.read(cx).iter() {
                 let kind = row.kind.as_deref().unwrap_or("desktop");
-                if me.is_none() || row.user_id != me || (kind != "desktop" && kind != "server") {
+                if me.is_none() || row.user_id != me || row.is_space() || (kind != "desktop" && kind != "server") {
                     continue;
                 }
                 rows.push(DevicePickerDevice {

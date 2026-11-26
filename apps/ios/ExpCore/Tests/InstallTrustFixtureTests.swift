@@ -258,10 +258,6 @@ final class InstallTrustFixtureTests: XCTestCase {
     private func store(_ spec: Object, _ keys: TrustFixture.Keys) throws -> TrustStore { try fx.store(spec) }
     private func namedStore(_ name: String) throws -> (store: TrustStore, identity: Data, installSecret: Data) { try fx.namedStore(name) }
 
-    private func at(_ c: Object, _ mode: TrustMode) throws -> Object {
-        try Self.object(c, mode == .record ? "now" : "mandatory")
-    }
-
     /// #EXP-2161: a server that stops serving a space (or its registration)
     /// does not make it an unpinned ordinary install.
     func testOnceASpaceAlwaysASpace() throws {
@@ -312,6 +308,10 @@ final class InstallTrustFixtureTests: XCTestCase {
             InstallTrust.wrapTarget(try fx.served(bare), store: gone, mode: .record, crypto: crypto, rootIsOwnAssistant: true),
             .refuse(.unapproved)
         )
+    }
+
+    private func at(_ c: Object, _ mode: TrustMode) throws -> Object {
+        try Self.object(c, mode == .record ? "now" : "mandatory")
     }
 
     // MARK: the keys

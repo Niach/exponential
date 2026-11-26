@@ -130,7 +130,7 @@ pub(crate) fn row_title(row: &TrustRow, name_of: &dyn Fn(&str) -> Option<String>
 
 /// DEV-ONLY: which specimen `EXP_DEV_INSTALL_TRUST` asks for.
 fn dev_specimen() -> Option<String> {
-    std::env::var("EXP_DEV_INSTALL_TRUST").ok().filter(|value| value == "install-approval" || value == "install-waiting")
+    std::env::var("EXP_DEV_INSTALL_TRUST").ok().filter(|value| value == "install-approval" || value == "install-waiting" || value == "install-space")
 }
 
 const INSTALL_TRUST_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/install-trust.json");
@@ -150,9 +150,30 @@ fn fixture_row(key: &str, kind: RowKind) -> TrustRow {
     }
 }
 
+/// #EXP-2161 (member-space.json UI ×4): the member's own space's install
+/// (install-trust.json `space.keys.S`) as Needs you lists it: a new install
+/// whose label is its HOST's label.
+fn space_row(host_label: &str) -> TrustRow {
+    let fixture: Value = serde_json::from_str(INSTALL_TRUST_JSON).expect("install-trust.json parses");
+    let entry = &fixture["space"]["keys"]["S"];
+    let endpoint_id = entry["endpointId"].as_str().unwrap_or_default().to_string();
+    TrustRow {
+        kind: RowKind::NewInstall,
+        install_id: "install-S".into(),
+        code: install_code(&endpoint_id).unwrap_or_default(),
+        endpoint_id,
+        user_id: entry["userId"].as_str().unwrap_or_default().to_string(),
+        label: Some(host_label.to_string()),
+    }
+}
+
 /// The specimen's snapshot (`install-approval`: N + T3, as web's picture;
-/// `install-waiting`: N waiting).
+/// `install-waiting`: N waiting; `install-space`: a member space waiting
+/// for approval, labelled by its host).
 pub(crate) fn specimen_snapshot(id: &str) -> TrustSnapshot {
+    if id == "install-space" {
+        return TrustSnapshot { state: TrustState::Trusted, rows: vec![space_row("unraid")], code: None };
+    }
     let n = fixture_row("N", RowKind::NewInstall);
     if id == "install-waiting" {
         return TrustSnapshot { state: TrustState::Waiting, rows: Vec::new(), code: Some(n.code) };
@@ -394,6 +415,18 @@ mod tests {
         assert_eq!(counted(Some(&specimen_snapshot("install-approval"))), 2);
         assert_eq!(counted(Some(&specimen_snapshot("install-waiting"))), 0);
         assert_eq!(counted(None), 0);
+    }
+
+    /// #EXP-2161: a member space's approval row is a new install named by
+    /// its host's label, with its own code.
+    #[test]
+    fn the_space_row_is_its_hosts() {
+        let snapshot = specimen_snapshot("install-space");
+        let row = &snapshot.rows[0];
+        assert_eq!((row.kind, row.label.as_deref()), (RowKind::NewInstall, Some("unraid")));
+        assert!(!row.code.is_empty());
+        assert_eq!(row_title(row, &|_| None), "unraid");
+        assert_eq!(counted(Some(&snapshot)), 1);
     }
 
     /// A reset leads with the team-mate's name; a new install is its label.

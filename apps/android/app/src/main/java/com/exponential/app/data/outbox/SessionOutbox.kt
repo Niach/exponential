@@ -58,6 +58,8 @@ class SessionOutbox @Inject constructor(
     class Builder(
         val input: (text: String, attachmentIds: List<String>) -> SessionsSendInput,
         val onSent: (SessionsSendResult) -> Unit = {},
+        /** #EXP-2161: the send was refused (the bubble fails either way). */
+        val onFailed: (Throwable) -> Unit = {},
     )
 
     private val scope = CoroutineScope(
@@ -193,6 +195,7 @@ class SessionOutbox @Inject constructor(
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             dao.setState(clientId, MessageDelivery.Local.Failed.wire)
+            builders[clientId]?.onFailed?.invoke(t)
         } finally {
             inFlight.remove(clientId)
         }
