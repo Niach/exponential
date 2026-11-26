@@ -140,7 +140,10 @@ def _work_accent(job: tuple[str, str, int, int]) -> None:
 def main() -> None:
     mode = sys.argv[1]
     jobs: list = []
+    only = [prefix for prefix in os.environ.get("STAGED_SPLITS", "").split(",") if prefix]
     for split, first, half in SPLITS:
+        if only and not any(split.startswith(prefix) for prefix in only):
+            continue
         if mode == "accent":
             jobs += [(sys.argv[2], split, i, min(i + 250, first + half)) for i in range(first, first + half, 250)]
         else:

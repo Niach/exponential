@@ -88,7 +88,13 @@ def _generate_jobs(path: str) -> list[tuple[str, str, int, int]]:
         size = 2500
         jobs += [(path, split, first, min(first + size, total)) for first in range(0, total, size)]
     jobs += [(path, "background_train", 0, config.n_background_samples), (path, "background_test", 0, config.n_background_samples_val)]
-    return jobs
+    return [job for job in jobs if _wanted(job[1])]
+
+
+def _wanted(split: str) -> bool:
+    """STAGED_SPLITS=negative (a prefix list) limits every stage to those splits: a rerun of the negatives keeps the rest."""
+    only = os.environ.get("STAGED_SPLITS", "")
+    return not only or any(split.startswith(prefix) for prefix in only.split(","))
 
 
 def _augment(job: tuple[str, str]) -> None:
@@ -332,10 +338,10 @@ def main() -> None:
             workers.map(_generate, _generate_jobs(path), chunksize=1)
     elif stage == "augment-clips":
         with pool(WORKERS) as workers:
-            workers.map(_augment, [(path, split) for split, _ in SPLITS], chunksize=1)
+            workers.map(_augment, [(path, split) for split, _ in SPLITS if _wanted(split)], chunksize=1)
     elif stage == "features":
         with pool(WORKERS) as workers:
-            workers.map(_features, [(path, split, filename) for split, filename in SPLITS], chunksize=1)
+            workers.map(_features, [(path, split, filename) for split, filename in SPLITS if _wanted(split)], chunksize=1)
     elif stage == "train-resume":
         _train(path)
     else:
