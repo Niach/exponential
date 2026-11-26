@@ -73,6 +73,8 @@ declare global {
     __xuiMount?: (tree: NestedNode, options?: MountOptions) => Promise<void>
     __xuiBenchSuite?: BenchSuiteApi
     __xuiVList?: (c: VListCase) => Promise<VListProbe>
+    /** Round 4 motion: one animations.json `presence` scenario, painted after every step. */
+    __xuiPresence?: (c: PresenceScenario) => Promise<PresencePainted[][]>
   }
 }
 window.__xuiLog = []
@@ -463,6 +465,30 @@ function Mount() {
       const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
       remount(<ExponentialSurface id="m" root={root} templates={templates} data={options.data} theme={theme} mode="light" width={options.width ?? `100%`} direction={options.dir} readOnly={options.readOnly} handleRef={handle} host={{ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, context: e.context }) }} />)
       await frames(3)
+    }
+    window.__xuiPresence = async (c) => {
+      let update: ((s: { components: FlatComponent[]; data: Record<string, unknown> }) => void) | null = null
+      function Presence() {
+        const [s, set] = useState({ components: c.components, data: c.data })
+        update = set
+        const r = reduceSurface(s.components, { catalogId: CORE_CATALOG_ID })
+        return <ExponentialSurface id="m" root={r.root} templates={r.templates} data={s.data} theme="neutral" mode="light" width={c.viewport?.width ?? 400} host={{ icons: harnessIcons }} />
+      }
+      const el = remount(<Presence />)
+      await frames(3)
+      let components = c.components
+      let data = c.data
+      const out: PresencePainted[][] = []
+      for (const step of c.steps) {
+        if (step.data) data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
+        if (step.components) components = step.components
+        if (step.data || step.components) flushSync(() => update!({ components, data }))
+        // The painter ends an exit itself (its timer): wait it out.
+        if (step.finishExit) await new Promise((r) => setTimeout(r, 400))
+        await frames(2)
+        out.push(readPresence(el, c.container, c.first))
+      }
+      return out
     }
     window.__xuiVList = async (c) => {
       const horizontal = c.axis === `horizontal`

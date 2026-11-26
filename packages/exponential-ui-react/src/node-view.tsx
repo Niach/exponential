@@ -25,6 +25,7 @@ import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
 import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential_app/eui/web"
+import { MotionContext, motionAttributes, useMotionRoot, usePresence, wantsPresence, type PresenceItem } from "./presence"
 
 export interface NativeProps extends ExtensionComponentProps {
   /** The data scope (template item) this node renders under. */
@@ -243,7 +244,13 @@ const BoundNode = memo(function BoundNode({ node, scope, live }: { node: UiNode;
     }
     return out as CSSProperties
   }, [node.style, rctx, ctx.theme.fonts])
-  const rootProps = useRootProps(node, props, domId, recipeProps, dynamicStyle)
+  // Round 4 motion: this node's root as its container paints it (the
+  // stagger offset, or a ghost's exit).
+  const motion = useMotionRoot()
+  const motionRoot = useMemo(() => motionAttributes(motion, node), [motion, node])
+  const rootStyle = useMemo(() => (motionRoot.style ? ({ ...(dynamicStyle ?? {}), ...motionRoot.style } as CSSProperties) : dynamicStyle), [dynamicStyle, motionRoot])
+  const baseRoot = useRootProps(node, props, domId, recipeProps, rootStyle)
+  const rootProps = useMemo(() => (motionRoot.attrs ? { ...baseRoot, ...motionRoot.attrs } : baseRoot), [baseRoot, motionRoot])
   const emit = useEmitter(node, scope, domId)
   const Override = extensionComponent(ctx.extensions, node.component)
   const Native = NATIVES[node.component]
@@ -267,24 +274,21 @@ const BoundNode = memo(function BoundNode({ node, scope, live }: { node: UiNode;
     }
   }
 
-  const children: ReactNode = (
-    <>
-      {node.children.map((child) => (
-        <NodeView key={child.id} node={child} />
-      ))}
-      {node.template ? <TemplateChildren node={node} scope={scope} /> : null}
-    </>
-  )
+  const children: ReactNode = <ContainerChildren node={node} scope={scope} />
   const slots: Record<string, ReactNode> = {}
   for (const [name, slot] of Object.entries(node.slots ?? {})) slots[name] = <NodeView key={slot.id} node={slot} />
 
   const painterProps: NativeProps = { node, props, theme: ctx.theme, mode: ctx.mode, tokens: ctx.theme.tokens, children, slots, emit, rootProps, scope, domId }
-  if (UNGUARDED.has(node.component) && !Override) return <Painter {...painterProps} />
-  return (
-    <PaintBoundary node={node} domId={domId}>
+  const painted =
+    UNGUARDED.has(node.component) && !Override ? (
       <Painter {...painterProps} />
-    </PaintBoundary>
-  )
+    ) : (
+      <PaintBoundary node={node} domId={domId}>
+        <Painter {...painterProps} />
+      </PaintBoundary>
+    )
+  // The root's motion is its own: its descendants paint without it.
+  return motion ? <MotionContext.Provider value={null}>{painted}</MotionContext.Provider> : painted
 })
 
 /** A failed node's identity for the once-per-props rule. */
@@ -399,6 +403,50 @@ export function TemplateItemView({ tpl, item }: { tpl: UiNode; item: TemplateIte
       </InstanceContext.Provider>
     </ScopeContext.Provider>
   )
+}
+
+/** A container's children: static ones then the template's items. Round 4
+ *  motion: through `usePresence` (ghosts, stagger) when the container
+ *  staggers or a child has an exit; else as they are. */
+function ContainerChildren({ node, scope }: { node: UiNode; scope: string }) {
+  const ctx = useSurfaceContext()
+  const tplNode = node.template ? ctx.templateNode(node.template.component) : undefined
+  const stagger = (node.style as Record<string, unknown> | undefined)?.animationStagger
+  const motion = wantsPresence(stagger, node.children.map((c) => ({ key: c.id, node: c, render: () => null }))) || (tplNode?.style as Record<string, unknown> | undefined)?.exitAnimation !== undefined
+  const tracked = useRef(false)
+  if (motion) tracked.current = true
+  if (!tracked.current) {
+    return (
+      <>
+        {node.children.map((child) => (
+          <NodeView key={child.id} node={child} />
+        ))}
+        {node.template ? <TemplateChildren node={node} scope={scope} /> : null}
+      </>
+    )
+  }
+  return <PresenceChildren node={node} scope={scope} stagger={stagger} />
+}
+
+/** The presence pass over the static children (visible ones) and the
+ *  template items (visible under their scope). */
+function PresenceChildren({ node, scope, stagger }: { node: UiNode; scope: string; stagger: unknown }) {
+  const ctx = useSurfaceContext()
+  const rctx = resolveContextOf(ctx, scope)
+  const items: PresenceItem[] = []
+  for (const child of node.children) {
+    if (child.visible !== undefined && !resolveVisible(child.visible, rctx)) continue
+    items.push({ key: child.id, node: child, render: () => <NodeView key={child.id} node={child} /> })
+  }
+  const t = templateItems(ctx, node, scope)
+  if (t) {
+    for (const item of t.items) {
+      if (t.tpl.visible !== undefined && !resolveVisible(t.tpl.visible, resolveContextOf(ctx, item.path))) continue
+      items.push({ key: `t:${item.key}`, node: t.tpl, render: () => <TemplateItemView key={`t:${item.key}`} tpl={t.tpl} item={item} /> })
+    }
+  }
+  const painted = usePresence(items, stagger)
+  return <>{painted.map((p) => <Fragment key={p.key}>{p.node}</Fragment>)}</>
 }
 
 /** VAPP-140: a template whose items share NO key with the last render's

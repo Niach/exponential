@@ -146,6 +146,8 @@ pub struct PaintStyle {
     pub backdrop_blur: Option<f32>,
     /// Round 2: a keyframe `animation` with its resolved timing.
     pub animation: Option<eui_core::style::VisualAnimation>,
+    /// Round 4 motion: the `exitAnimation` a leaving ghost plays.
+    pub exit: Option<eui_core::style::VisualAnimation>,
     /// Round 2: `position: sticky` (pinned by the core's sticky offsets).
     pub sticky: bool,
     /// #EXP-1876: the speech-bubble tail (`tail::paint`); its sideways
@@ -254,6 +256,7 @@ impl PaintStyle {
             rtl: v.direction.as_deref().map(|d| d == "rtl"),
             backdrop_blur: v.backdrop_blur.filter(|b| *b > 0.0),
             animation: v.animation.clone(),
+            exit: v.exit.clone(),
             sticky: v.sticky,
             tail,
         }

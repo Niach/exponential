@@ -312,6 +312,12 @@ public final class SurfaceModel {
         if surface.setStreaming(on: on) { invalidate(structure: true) }
     }
 
+    /// Round 4 motion: the exit of ghost `id` ran to its end: it leaves and
+    /// layout closes its gap.
+    public func finishExit(_ id: String) {
+        if surface.finishExit(id: id) { invalidate(structure: true) }
+    }
+
     /// Write at a JSON pointer (nil removes).
     public func setData(path: String, value: JSONValue?) {
         let json = value?.wireJSON

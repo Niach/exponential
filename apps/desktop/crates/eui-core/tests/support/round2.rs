@@ -530,7 +530,7 @@ fn presence_case(c: &Value) -> Result<(), String> {
             .iter()
             .map(|&k| {
                 let n = &nodes[k as usize];
-                let delay = s.visual(k).and_then(|v| v.animation.as_ref()).map(|a| a.timing.delay_ms).unwrap_or(0.0);
+                let delay = if n.exiting { 0.0 } else { s.visual(k).and_then(|v| v.animation.as_ref()).map(|a| a.timing.delay_ms).unwrap_or(0.0) };
                 json!({"id": n.id, "exiting": n.exiting, "delayMs": delay})
             })
             .collect();

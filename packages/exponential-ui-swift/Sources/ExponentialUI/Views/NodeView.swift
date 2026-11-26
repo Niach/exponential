@@ -171,7 +171,9 @@ private struct NodeBody: View {
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
         // Round 2: keyframe animations from the core's frames, outside the
         // node's own transform; reduced motion = the rest frame.
-        .modifier(KeyframeAnimationModifier(animation: style.animation, reducedMotion: model.reducedMotion, size: size, bandColor: style.background ?? model.color("muted")))
+        .modifier(KeyframeAnimationModifier(animation: node.exiting ? nil : style.animation, reducedMotion: model.reducedMotion, size: size, bandColor: style.background ?? model.color("muted")))
+        // Round 4 motion: a leaving ghost plays its exit instead.
+        .modifier(ExitAnimationModifier(id: node.id, exit: style.exit, exiting: node.exiting, model: model))
         .environment(\.xuiGlyphMirrored, mirrorIcon)
         .transformEnvironment(\.xuiTextPaint) { $0 = $0.merged(style) }
     }

@@ -503,14 +503,22 @@ impl Surface {
             self.engine.set_children(*slot, &children);
         }
         // The ghost slots of this pass (a subtree pass keeps the others').
+        let was_roots = if pinned.is_none() { std::mem::take(&mut self.ghost_roots) } else { self.ghost_roots.clone() };
         if pinned.is_none() {
             self.ghosts.clear();
-            self.ghost_roots.clear();
         }
         for &t in &ghost_temps {
             self.ghosts.insert(map[t]);
             if self.exits.contains(&self.nodes[map[t] as usize].id) {
                 self.ghost_roots.insert(map[t]);
+            }
+        }
+        // A node turning into a ghost (`exiting`, `pressable` off) is a
+        // changed node for the painters' caches.
+        for &t in &ghost_temps {
+            let slot = map[t];
+            if (!was_roots.contains(&slot) || self.ghost_roots.contains(&slot) != was_roots.contains(&slot)) && !self.delta_added.contains(&slot) {
+                self.delta_changed.insert(slot);
             }
         }
         (map, structure_changed)

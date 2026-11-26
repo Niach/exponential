@@ -366,7 +366,7 @@ describe(`animations.json (§2)`, () => {
           out.entering.forEach((key, at) => delays.set(key, enterDelay(present.find((p) => p.id === key)?.delay, c.windowed && i > 0 ? null : at, c.stagger ?? 0, c.reducedMotion)))
           entries = out.entries
         }
-        const painted = entries.map((e) => ({ id: e.key, exiting: e.exiting, delayMs: delays.get(e.key) ?? 0 }))
+        const painted = entries.map((e) => ({ id: e.key, exiting: e.exiting, delayMs: e.exiting ? 0 : (delays.get(e.key) ?? 0) }))
         expect(c.first ? painted.slice(0, c.first) : painted, `${c.name} step ${i}`).toEqual(step.expect as never)
       })
     }

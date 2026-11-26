@@ -607,7 +607,7 @@
     },
     "Window": {
       "type": "object",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: three-dot bar (`title` caption) over one child.",
       "properties": {
         "component": {
           "const": "Window"
@@ -10028,7 +10028,7 @@
     },
     "Motion": {
       "type": "object",
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation (loaders, states, explainers).",
       "properties": {
         "component": {
           "const": "Motion"
@@ -10188,7 +10188,7 @@
     },
     "Canvas": {
       "type": "object",
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "properties": {
         "component": {
           "const": "Canvas"
@@ -10476,7 +10476,7 @@
     },
     "MessageStatus": {
       "type": "object",
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "Delivery mark: clock, check, double check (info), error (danger).",
       "properties": {
         "component": {
           "const": "MessageStatus"

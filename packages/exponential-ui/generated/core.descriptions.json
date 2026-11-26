@@ -97,7 +97,7 @@
           "description": "Extra Box styles merged over the window's own."
         }
       },
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: three-dot bar (`title` caption) over one child.",
       "example": {
         "title": "exponential.at"
       }
@@ -2479,7 +2479,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key` {type, key, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`), keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2991,7 +2991,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation (loaders, states, explainers).",
       "example": {
         "size": [
           48,
@@ -3062,7 +3062,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "example": {
         "size": [
           160,
@@ -3568,7 +3568,7 @@
           "description": "Delivery state."
         }
       },
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "Delivery mark: clock, check, double check (info), error (danger).",
       "example": {
         "status": "read"
       }

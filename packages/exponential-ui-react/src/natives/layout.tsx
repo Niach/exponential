@@ -3,10 +3,11 @@
 // reordering keeps each item's state), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
-import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
-import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
+import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, resolveContextOf, useSurfaceContext } from "../context"
+import { MotionContext, usePresence } from "../presence"
+import { getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
@@ -177,7 +178,27 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
       }),
     [ctx, domId, rowOfIndex, windowed, horizontal]
   )
-  const renderRow = (r: number) => <ListRowView row={rows[r]} node={node} tpl={tpl} sections={sections} childCount={childCount} part={part} />
+  // Round 4 motion: a windowed List staggers the rows of its FIRST window
+  // only (kept on re-renders); a flat one runs the presence pass (ghosts).
+  const stagger = (node.style as Record<string, unknown> | undefined)?.animationStagger
+  const firstWindow = useRef<Map<string, number> | null>(null)
+  const firstRender = useRef(true)
+  useEffect(() => {
+    firstRender.current = false
+  })
+  const rowNode = (r: number): UiNode | undefined => {
+    const row = rows[r]
+    return `header` in row ? undefined : row.item < childCount ? node.children[row.item] : tpl?.tpl
+  }
+  const renderRow = (r: number) => {
+    const view = <ListRowView row={rows[r]} node={node} tpl={tpl} sections={sections} childCount={childCount} part={part} />
+    if (!windowed || ctx.reducedMotion || enterDelay(0, 1, stagger) <= 0) return view
+    const key = keyOf(r)
+    const map = (firstWindow.current ??= new Map())
+    if (firstRender.current && !map.has(key)) map.set(key, enterDelay((rowNode(r)?.style as Record<string, unknown> | undefined)?.animationDelay, map.size, stagger))
+    const delayMs = map.get(key) ?? 0
+    return delayMs > 0 ? <MotionContext.Provider value={{ delayMs }}>{view}</MotionContext.Provider> : view
+  }
   // Round 3: a Section body with `tree` asks for role `tree` ($a11y); its
   // items are then treeitems (a tree owns treeitems only).
   const listRole = (rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`
@@ -214,6 +235,16 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
     const before = dividerBefore(r)
     return before === null ? null : <div {...(part.at(`divider`, before) as Record<string, string>)} role="separator" />
   }
+  // A row whose node has an exit and is hidden (`visible` false) leaves
+  // through its exit (its slot as a ghost).
+  const hiddenExit = (r: number): boolean => {
+    const n = rowNode(r)
+    if (n?.visible === undefined || (n.style as Record<string, unknown> | undefined)?.exitAnimation === undefined) return false
+    const row = rows[r]
+    const at = `item` in row && row.item >= childCount ? tpl!.items[row.item - childCount].path : scope
+    return !resolveVisible(n.visible, resolveContextOf(ctx, at))
+  }
+  const flat = usePresence(windowed ? [] : rows.flatMap((_, r) => (hiddenExit(r) ? [] : [{ key: keyOf(r), node: rowNode(r), render: () => flatRow(r) }])), windowed ? 0 : stagger)
   if (windowed) {
     const headerRows = sticky ? rows.flatMap((row, r) => (`header` in row ? [r] : [])) : undefined
     return (
@@ -238,10 +269,9 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
   // role is dropped by some engines) stretching its node as the List would;
   // the divider sits centred in the gap before it, as WindowedList draws it.
   const axis = horizontal ? `horizontal` : `vertical`
-  const out: ReactNode[] = []
-  for (let r = 0; r < rows.length; r++) {
+  const flatRow = (r: number) => {
     const line = divider(r)
-    out.push(
+    return (
       <div key={keyOf(r)} className="xui-list-row" data-axis={axis} data-xui-row={r} {...itemAttrs(r)}>
         {line ? (
           <div className="xui-list-gap" aria-hidden="true" data-axis={axis} style={horizontal ? { [rtl ? `right` : `left`]: -(step / 2) } : { top: -(step / 2) }}>
@@ -252,6 +282,8 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
       </div>
     )
   }
+  const out: ReactNode[] = []
+  for (const p of flat) out.push(<Fragment key={p.key}>{p.node}</Fragment>)
   return (
     <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown}>
       {out}
