@@ -1144,6 +1144,8 @@ private fun RunFaceContent(
     // after the call that posted it (the rest at the head); a waiting one
     // ALSO sits in the Dock (FEED-140).
     val sessionCards by viewModel.sessionCards.collectAsStateWithLifecycle()
+    // #NEW-146: the posted elicitation cards, drawn for their live frames.
+    val elicitationCards by viewModel.elicitationCards.collectAsStateWithLifecycle()
     val cardSlots = remember(feed, sessionCards) {
         val anchors = AskDock.anchorSessionCards(AskDock.feedCalls(feed), sessionCards.map { it.first })
         SessionCardSlots(anchors, sessionCards.associate { it.first.id to it.second })
@@ -1619,6 +1621,7 @@ private fun RunFaceContent(
                     },
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
+                    elicitationCards = elicitationCards,
                     calls = feedCalls,
                     ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
@@ -2145,6 +2148,9 @@ private fun ActivityFeed(
     /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
     sessionCards: SessionCardSlots = SessionCardSlots.None,
     renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
+    /** #NEW-146: the posted elicitation cards a question frame draws as
+     *  ([renderCard]) instead of its bare options. */
+    elicitationCards: ElicitationFeedCards = ElicitationFeedCards.None,
     /** #EXP-1736: who sent each row (null = no grouping: every row full). */
     senders: FeedSenders? = null,
     /** #FEED-237: the viewer's own pending bubbles at the very bottom
@@ -2407,7 +2413,9 @@ private fun ActivityFeed(
     }
     // EXP-1175: the card inputs, shared with the chat's pending cards.
     // EXP-1521: one instance per input change, so the card rows can skip.
-    val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp) {
+    // #NEW-146: read through a state, so a fresh card lambda never re-keys the cards.
+    val elicitationRender = rememberUpdatedState(ringCard)
+    val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp, elicitationCards) {
         AnswerCards(
             answered = answered,
             activeQuestionIds = activeQuestionIds,
@@ -2416,6 +2424,8 @@ private fun ActivityFeed(
             answerLabels = answerLabels,
             onAnswer = onAnswer,
             onPlanFollowUp = onPlanFollowUp,
+            elicitationCards = elicitationCards,
+            renderCard = { card -> elicitationRender.value(card) },
         )
     }
 
@@ -3373,6 +3383,24 @@ internal class SessionCardSlots(
     }
 }
 
+/** #NEW-146 (elicitation-card.json LIVE): this session's engine-posted
+ *  elicitation cards (opened) and their rows by message id. */
+data class ElicitationFeedCards(
+    val messages: List<SessionTree.Message>,
+    val rows: Map<String, SessionTree.SessionChatRow>,
+) {
+    /** THE card a question frame draws as ([ElicitationCard.feedCard]);
+     *  null = the frame stays. */
+    fun rowFor(questionId: String, resolved: Boolean): SessionTree.SessionChatRow? {
+        if (messages.isEmpty()) return null
+        return com.exponential.app.domain.ElicitationCard.feedCard(messages, questionId, resolved)?.let(rows::get)
+    }
+
+    companion object {
+        val None = ElicitationFeedCards(emptyList(), emptyMap())
+    }
+}
+
 /** One session card in the transcript, the block gap above it. */
 @Composable
 private fun SessionCardRow(row: SessionTree.SessionChatRow, render: @Composable (SessionTree.SessionChatRow) -> Unit) {
@@ -3395,6 +3423,9 @@ private class AnswerCards(
     val answerLabels: Map<String, String>,
     val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
     val onPlanFollowUp: (AgentFeedItem.Question, String, String) -> Unit,
+    /** #NEW-146: the posted elicitation cards and how a card row draws. */
+    val elicitationCards: ElicitationFeedCards = ElicitationFeedCards.None,
+    val renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
 )
 
 /** EXP-1175: one card row — an ask's stepper or a single question/plan card;
@@ -3408,6 +3439,20 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
 
 @Composable
 private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
+    // #NEW-146 (elicitation-card.json LIVE): a third-party MCP server's
+    // elicitation draws THE posted card (its form or URL review, answered
+    // via `sessions.answer`, the × = cancel), never the frame's bare options:
+    // a lone question frame or a one-step ask.
+    val lone = when (row) {
+        is AgentFeedRow.QuestionStepper -> row.steps.singleOrNull()
+        is AgentFeedRow.Single -> row.item as? AgentFeedItem.Question
+        else -> null
+    }
+    val elicitation = lone?.let { cards.elicitationCards.rowFor(it.wireId, it.resolved) }
+    if (elicitation != null) {
+        cards.renderCard(elicitation)
+        return
+    }
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,
@@ -4641,6 +4686,10 @@ internal fun AskCard(
     onDismiss: (() -> Unit)? = null,
     /** #EXP-1562: a header chip scrolled here: the focus ring, fading out. */
     highlighted: Boolean = false,
+    /** #NEW-146 (elicitation-card.json): a glyph before [heading] (the
+     *  asking server's `icons.server`), in the heading's tint. */
+    headingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    headingTestTag: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // N-12: inside THE Dock's sheet the header is the sheet's own; the card
@@ -4692,7 +4741,26 @@ internal fun AskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (heading != null) {
+                    if (heading != null && headingIcon != null) {
+                        Row(
+                            modifier = Modifier.weight(1f, fill = trailing != null)
+                                .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(headingIcon, contentDescription = null, modifier = Modifier.size(12.dp), tint = tint)
+                            Text(
+                                heading,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = tint,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else if (heading != null) {
                         Text(
                             heading,
                             // A trailing link sits at the line's end.

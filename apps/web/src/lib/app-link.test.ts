@@ -59,7 +59,8 @@ describe(`isRoutedAppPath`, () => {
   const routeTree = readFileSync(join(import.meta.dirname, `../routeTree.gen.ts`), `utf8`)
   const fullPaths = [...new Set([...routeTree.matchAll(/fullPath: '([^']*)'/g)].map((m) => m[1]!))]
   const resources = (path: string) =>
-    path.startsWith(`/api/`) || path.startsWith(`/.well-known/`) || path === `/robots.txt`
+    // #NEW-147: `/mcp/elicit/<id>` is a server handler (it redirects), never a screen.
+    path.startsWith(`/api/`) || path.startsWith(`/mcp/`) || path.startsWith(`/.well-known/`) || path === `/robots.txt`
 
   it(`reads every screen of the route tree as routed`, () => {
     expect(fullPaths.length).toBeGreaterThan(20)

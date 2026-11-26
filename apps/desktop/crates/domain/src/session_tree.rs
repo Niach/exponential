@@ -1486,6 +1486,7 @@ pub fn ask_card_row(message: &MessageRow) -> Option<SessionChatRow> {
             surface_data: card.get("surfaceData").filter(|data| data.is_object()).cloned(),
             answered: message.answered_at.is_some(),
             dismissed: (card.get("dismissed").and_then(Value::as_bool) == Some(true)).then_some(true),
+            elicitation: crate::elicitation_card::elicitation_sidecar(card.get("elicitation")),
         },
         Some(MESSAGE_CARD_KIND_PLAN) => SessionChatRow::Plan {
             id: message.id.clone(),
@@ -1631,6 +1632,10 @@ pub enum SessionChatRow {
         /// only when true.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dismissed: Option<bool>,
+        /// #NEW-146 (elicitation-card.json): a third-party MCP server's
+        /// elicitation; present only on such a card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        elicitation: Option<crate::elicitation_card::ElicitationSidecar>,
     },
     Plan {
         id: String,

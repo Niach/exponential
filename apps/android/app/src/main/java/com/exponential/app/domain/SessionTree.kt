@@ -1041,6 +1041,9 @@ object SessionTree {
             val surfaceData: JsonObject? = null,
             /** #EXP-1561 (waiting-cards.json): a person dismissed it; true or null (absent). */
             val dismissed: Boolean? = null,
+            /** #NEW-146 (elicitation-card.json): a third-party MCP server's
+             *  elicitation; present only on such a card. */
+            val elicitation: ElicitationCard.Sidecar? = null,
         ) : SessionChatRow
 
         /** One choice of a question card: the answer is the [label] (EXP-1322);
@@ -1194,6 +1197,7 @@ object SessionTree {
                 answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
                 surfaceData = card["surfaceData"] as? JsonObject,
                 dismissed = if (card.isTrue("dismissed")) true else null,
+                elicitation = ElicitationCard.sidecar(card["elicitation"]),
             )
             DomainContract.messageCardKindPlan -> SessionChatRow.Plan(
                 id = message.id,

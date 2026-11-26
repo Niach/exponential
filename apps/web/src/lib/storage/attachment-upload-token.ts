@@ -32,6 +32,7 @@ export interface AttachmentUploadTokenPayload {
   f: string // sanitized filename
   c: string // canonical content type
   m?: string // optional comment id the row attaches to
+  s?: number // #NEW-149: an MCP file upload's declared size, the most the PUT may carry
   exp: number // unix ms expiry
 }
 
@@ -45,6 +46,10 @@ export interface AttachmentUploadTokenInput {
   filename: string
   contentType: string
   commentId?: string
+  /** #NEW-149: the most bytes the PUT may carry (an MCP file's declared size). */
+  maxBytes?: number
+  /** #NEW-149: the MCP staging window (files.json `staging.ttlMs`); default 10 minutes. */
+  ttlMs?: number
 }
 
 function secret(): string | null {
@@ -78,7 +83,8 @@ export function mintAttachmentUploadToken(
     f: input.filename,
     c: input.contentType,
     ...(input.commentId ? { m: input.commentId } : {}),
-    exp: now + ATTACHMENT_UPLOAD_TOKEN_TTL_MS,
+    ...(input.maxBytes !== undefined ? { s: input.maxBytes } : {}),
+    exp: now + (input.ttlMs ?? ATTACHMENT_UPLOAD_TOKEN_TTL_MS),
   }
   const body = Buffer.from(JSON.stringify(payload)).toString(`base64url`)
   return {
@@ -118,6 +124,7 @@ export function verifyAttachmentUploadToken(
       typeof payload?.f !== `string` ||
       typeof payload?.c !== `string` ||
       (payload.m !== undefined && typeof payload.m !== `string`) ||
+      (payload.s !== undefined && (typeof payload.s !== `number` || !Number.isInteger(payload.s) || payload.s < 0)) ||
       typeof payload?.exp !== `number`
     ) {
       return null

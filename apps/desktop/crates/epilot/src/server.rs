@@ -186,10 +186,10 @@ mod tests {
         let server = serve(host.clone()).unwrap();
         let old = server.grant(&id("s1"), "EXP-1");
         let new = server.grant(&id("s1"), "EXP-1");
-        assert!(matches!(client(&server, old.as_str()), Err(emcp::ClientError::Http(401))));
+        assert!(matches!(client(&server, old.as_str()), Err(emcp::ClientError::Unauthorized)));
         assert!(client(&server, new.as_str()).is_ok());
         server.revoke(&id("s1"));
-        assert!(matches!(client(&server, new.as_str()), Err(emcp::ClientError::Http(401))));
+        assert!(matches!(client(&server, new.as_str()), Err(emcp::ClientError::Unauthorized)));
         assert_eq!(host.ended.lock().unwrap().as_slice(), ["s1"]);
     }
 }

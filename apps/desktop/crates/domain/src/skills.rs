@@ -195,7 +195,7 @@ pub fn agent_skills_value(names: &[&str]) -> String {
 
 /// #VAPP-213: the built-in skills (`builtin`): names, the app editor's
 /// delivery order, the list pill.
-pub const BUILTIN_NAMES: [&str; 3] = ["exponential-apps", "exponential-genui", "exponential-motion"];
+pub const BUILTIN_NAMES: [&str; 4] = ["exponential-apps", "exponential-genui", "exponential-motion", "exponential-workflow"];
 pub const EDITOR_DELIVERY: [&str; 3] = ["exponential-apps", "exponential-genui", "exponential-motion"];
 pub const BUILTIN_PILL: &str = "Built-in";
 
