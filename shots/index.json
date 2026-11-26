@@ -2190,8 +2190,8 @@
         "file": "shots/ede-chat/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 24558,
-        "sha256": "6548e45d0b16c82005d0e4337dc9a6a207a4a50c9d9a3f49cbfa75c11f627d04"
+        "bytes": 24612,
+        "sha256": "d4a2f3af1c9fda103d64692f6ade2c12dd7ff9700110b5b4fdbe492f2957b001"
       }
     },
     "ede-connect": {
@@ -2271,8 +2271,8 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 24632,
-        "sha256": "49d2c42d739dc1ddae57331c68c6441d5979b038b1cfc65fa34a0dea6be8c199"
+        "bytes": 24682,
+        "sha256": "41693b090b63ac0e42c171e38ffa3a41c7c854299657300fbc46289a75ce26ec"
       }
     },
     "ede-scale": {
@@ -2289,8 +2289,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21418,
-        "sha256": "a0b1d260830e510d11a4ab9fec0eb5095790145f610a099ebcc7fd81919a9c59"
+        "bytes": 21628,
+        "sha256": "25f463f5a0ae695c036ed4e8edd7d3487d5125517bc307aeaa4a892ef4ba8a74"
       }
     },
     "ede-settings-share": {
