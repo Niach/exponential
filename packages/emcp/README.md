@@ -16,5 +16,9 @@ import fixture from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 | `upstream.json` | one member's upstream connection: states, transitions, callable, the consent page's missing upstreams; `binding` = `upstream:<server>/<tool>` read bindings (parse, declare, read-only, cache key, value, banners) |
 | `deletes.json` | the destructive ops: one explicit id, the delete burst guard + its team event, the audit `target`, tool tests refusing prod |
 | `hub.json` | the device's local hub (#EXP-1507): server names, a run's tool list under its grant (a level per server), routing, the `mcp_calls` row per call |
+| `skills.json` | Skills over MCP (#NEW-145): `skill://<team-slug>/<name>/SKILL.md` + the built-ins at `skill://exponential/…`, complete manifests, `sha256:` digests over the served bytes, `ttlMs` / `cacheScope`, `skills/list`, `skills/get`, `resources/read`, `resources/directory/read`, -32602 cases |
+| `elicitation.json` | form confirms on every delete and session stop, team and device picks, URL mode only to `/mcp/elicit/<id>`, the no-secret rule, decline / cancel / no capability, the MRTR `requestState` (exact vectors; shared with files) |
+| `tasks.json` | MCP tasks as the second watcher kind on `session_watches` (eagent rules.json `watcher`): who gets one, the status mapping from transitions, cards, reports and event firings, tasks/get, update (card-answer), cancel (stop), TTL, principals, rate limit |
+| `files.json` | file uploads behind `MCP_FILES_EXTENSION`: inline up to 1 MiB, `upload_required` to staging, the retry's state, argument and byte checks |
 
 Licence: Apache-2.0

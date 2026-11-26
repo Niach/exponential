@@ -1,0 +1,1331 @@
+{
+  "$comment": "#NEW-145 / #NEW-143 D6 (Danny 2026-11-26): ELICITATION on Exponential's MCP server (`/api/mcp`, protocol 2026-07-28: modelcontextprotocol.io/specification/2026-07-28/client/elicitation and basic/patterns/mrtr). Server-initiated requests are gone in 2026-07-28: the server answers a `tools/call` with an MRTR `InputRequiredResult` (`resultType` \"input_required\", `inputRequests` = key -> an `elicitation/create` request, plus `requestState`) and the client RETRIES the call with a new JSON-RPC id, `params.inputResponses` (key -> `ElicitResult`) and the exact `requestState`, both siblings of `params.name` / `params.arguments`. CAPABILITY (`modes`, `modeCases`): read PER REQUEST from `params._meta[\"io.modelcontextprotocol/clientCapabilities\"].elicitation`: absent = none, `{}` = form only, `form` / `url` sub-objects = those modes. A mode the client did not declare is NEVER sent; a client without the needed mode gets TODAY'S behaviour (`legacy`), never an error: a confirm is skipped (the deletes.json guard rails still apply), a pick fails with today's error naming the choices, a URL flow returns its link as text. WHAT ASKS (`gateCases`, first match wins): (1) CONFIRM (form): every destructive op of deletes.json `destructiveOps` (on whichever wire tool carries it, `destructiveCall`) and a session STOP (`exponential_sessions_send` with `stop: true` and a `sessionId`) asks ONE boolean (`confirm.schema`, message `confirm.messages[<op>]` with `{noun}` from `confirm.nouns` and `{id}` the id as sent, cut to 80 chars) BEFORE the handler runs, after the single-id check (a refused id never asks). Accept with `confirm: true` runs the op; accept with `confirm: false` and decline = `declined`; cancel = `cancelled`; both answer the tool result `results.<outcome>` with `isError: true` and run nothing (the burst guard counts only admitted calls). (2) TEAM PICK (form, `teamPick`): a call whose team neither its arguments nor the caller's session name (`teamPick.tools`: an op + the arguments whose absence means it) when the grant reaches SEVERAL teams it may write to (`resolveTeamAccess`): one property `teamId`, `oneOf` [{const: id, title: name}] sorted by name (code point), titled `teamPick.title`. One team = used silently, none = today's error. (3) DEVICE PICK (form, `devicePick`): `exponential_sessions_send` starting a new root (none of `sessionId`, `agentId`, `parentId`, `appId`) without `deviceId`: one property `deviceId`, `oneOf` over the ONLINE devices the caller may start on, sorted by name; one = used silently, none = today's error. A pick's accepted value must be one of the offered consts, else `invalid` (-32602); decline / cancel = `results.noPick`. URL MODE (`url`): ONLY to `${APP_URL}/mcp/elicit/<id>` (`url.path`, id = 32 random bytes base64url, `url.idPattern`), never another origin or path, never a query or fragment, never a pre-authenticated link (`urlCases`): the id is opaque and names a server-side row (purpose, principal, expiry); the page signs the opener in and refuses a different user than the one who started the call. Purposes (`url.purposes`): upstream OAuth (an upstream MCP server needs a connection), install approval (an app or an MCP server install a person must approve), the GitHub App (install or reauthorize) and billing checkout. A URL `accept` means only consent; the outcome is read on the retry (still pending = the same `input_required` again, same id, new requestState). FORM FIELDS NEVER LOOK LIKE A SECRET (`secret`, `secretCases`): no property whose name, title or description matches `secret.pattern` (case-insensitive) and no `format: password`; such a request is a URL flow or nothing. Every schema this server builds passes the check (tested). RETRY (`retryCases`): `inputResponses` missing a required key = the same `input_required` again (MRTR), never an error; unknown extra keys are ignored; a response that is not an `ElicitResult` = -32602. REQUEST STATE (`requestState`, shared with files.json): `rs1.<payload>.<mac>`, payload = base64url of canonical JSON (audit.json's canonicalJson) of {a: argsDigest(arguments) (sha256 hex of their canonical JSON), e: expiry unix ms (issue time + `ttlMs`), k: kind (`elicit` | `upload`), n: nonce (random, 16 bytes base64url), p: principal (`user:<userId>|client:<oauth client id or token prefix>`), s: the keys it waits on (input request keys, or staged file ids), t: the tool name}; mac = base64url HMAC-SHA256 over `rs1.<payload>` with the server's key (derived from BETTER_AUTH_SECRET, never sent). Verify in order: malformed (not a string, over `maxLength`, not three dot parts, wrong prefix, payload not JSON) -> tampered (mac mismatch) -> expired (now >= e) -> foreign (another principal) -> mismatch (another tool, or arguments whose digest differs) -> replayed (its nonce already consumed); each refusal = JSON-RPC `errorCode` -32602 with `errors.<reason>` and runs nothing. A verified state is CONSUMED (its nonce kept until e) when the call runs or re-asks, so a state is single-use. `vectors` are exact.",
+  "capabilityKey": "io.modelcontextprotocol/clientCapabilities",
+  "modeCases": [
+    {
+      "name": "no elicitation capability",
+      "capabilities": {},
+      "expected": {
+        "form": false,
+        "url": false
+      }
+    },
+    {
+      "name": "no capabilities at all",
+      "capabilities": null,
+      "expected": {
+        "form": false,
+        "url": false
+      }
+    },
+    {
+      "name": "empty object = form only",
+      "capabilities": {
+        "elicitation": {}
+      },
+      "expected": {
+        "form": true,
+        "url": false
+      }
+    },
+    {
+      "name": "form",
+      "capabilities": {
+        "elicitation": {
+          "form": {}
+        }
+      },
+      "expected": {
+        "form": true,
+        "url": false
+      }
+    },
+    {
+      "name": "url only",
+      "capabilities": {
+        "elicitation": {
+          "url": {}
+        }
+      },
+      "expected": {
+        "form": false,
+        "url": true
+      }
+    },
+    {
+      "name": "both",
+      "capabilities": {
+        "elicitation": {
+          "form": {},
+          "url": {}
+        }
+      },
+      "expected": {
+        "form": true,
+        "url": true
+      }
+    }
+  ],
+  "confirm": {
+    "key": "confirm",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "confirm": {
+          "type": "boolean",
+          "title": "Confirm",
+          "default": false
+        }
+      },
+      "required": [
+        "confirm"
+      ]
+    },
+    "messages": {
+      "delete": "Delete {noun} {id}?",
+      "invites_revoke": "Revoke {noun} {id}?",
+      "records_delete": "Delete {noun} {id}?",
+      "stop": "Stop {noun} {id}? Its current turn is interrupted."
+    },
+    "nouns": {
+      "issues": "issue",
+      "comments": "comment",
+      "boards": "board",
+      "labels": "label",
+      "statuses": "status",
+      "attachments": "attachment",
+      "people": "invite",
+      "agents": "agent",
+      "prompts": "prompt",
+      "skills": "skill",
+      "mcp_servers": "MCP server",
+      "apps": "app",
+      "apps.records_delete": "record",
+      "sessions": "session"
+    },
+    "idMax": 80
+  },
+  "teamPick": {
+    "key": "team",
+    "property": "teamId",
+    "title": "Team",
+    "message": "Which team?",
+    "tools": [
+      {
+        "tool": "exponential_attachments_write",
+        "op": "upload",
+        "absent": [
+          "issueId",
+          "attachmentId"
+        ]
+      },
+      {
+        "tool": "exponential_sessions_send",
+        "op": null,
+        "absent": [
+          "sessionId",
+          "agentId",
+          "parentId",
+          "appId",
+          "teamId"
+        ]
+      }
+    ]
+  },
+  "devicePick": {
+    "key": "device",
+    "property": "deviceId",
+    "title": "Device",
+    "message": "Which device runs the session?",
+    "tool": "exponential_sessions_send",
+    "absent": [
+      "sessionId",
+      "agentId",
+      "parentId",
+      "appId",
+      "deviceId"
+    ]
+  },
+  "results": {
+    "declined": "Not done: the user declined.",
+    "cancelled": "Not done: the user dismissed the question.",
+    "noPick": "Not done: nothing was picked."
+  },
+  "gateCases": [
+    {
+      "name": "issue delete asks",
+      "tool": "exponential_issues_write",
+      "args": {
+        "op": "delete",
+        "id": "EXP-12"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Delete issue EXP-12?"
+      }
+    },
+    {
+      "name": "legacy issue delete name asks too",
+      "tool": "exponential_issues",
+      "args": {
+        "op": "delete",
+        "id": "EXP-12"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Delete issue EXP-12?"
+      }
+    },
+    {
+      "name": "invite revoke asks",
+      "tool": "exponential_people_write",
+      "args": {
+        "op": "invites_revoke",
+        "id": "0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Revoke invite 0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?"
+      }
+    },
+    {
+      "name": "app record delete asks",
+      "tool": "exponential_apps_write",
+      "args": {
+        "op": "records_delete",
+        "slug": "standup",
+        "id": "r-1"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Delete record r-1?"
+      }
+    },
+    {
+      "name": "app delete asks by slug",
+      "tool": "exponential_apps_write",
+      "args": {
+        "op": "delete",
+        "slug": "standup"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Delete app standup?"
+      }
+    },
+    {
+      "name": "MCP server delete asks",
+      "tool": "exponential_mcp_servers_write",
+      "args": {
+        "op": "delete",
+        "id": "linear"
+      },
+      "modes": {
+        "form": true,
+        "url": true
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Delete MCP server linear?"
+      }
+    },
+    {
+      "name": "session stop asks",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "sessionId": "2e035d84-4f50-474f-a970-638c3b543823",
+        "stop": true
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": "Stop session 2e035d84-4f50-474f-a970-638c3b543823? Its current turn is interrupted."
+      }
+    },
+    {
+      "name": "a long id is cut to 80",
+      "tool": "exponential_labels_write",
+      "args": {
+        "op": "delete",
+        "id": {
+          "repeat": "a",
+          "times": 120
+        }
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "confirm",
+        "message": {
+          "concat": [
+            "Delete label ",
+            {
+              "repeat": "a",
+              "times": 80
+            },
+            "?"
+          ]
+        }
+      }
+    },
+    {
+      "name": "update never asks",
+      "tool": "exponential_issues_write",
+      "args": {
+        "op": "update",
+        "id": "EXP-12"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "a message without stop never asks",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "sessionId": "2e035d84-4f50-474f-a970-638c3b543823",
+        "text": "hi"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "stop without a session never asks",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "stop": true
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "a refused id never asks",
+      "tool": "exponential_issues_write",
+      "args": {
+        "op": "delete",
+        "id": [
+          "EXP-1",
+          "EXP-2"
+        ]
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "url-only client: delete runs as today",
+      "tool": "exponential_issues_write",
+      "args": {
+        "op": "delete",
+        "id": "EXP-12"
+      },
+      "modes": {
+        "form": false,
+        "url": true
+      },
+      "expected": {
+        "kind": "legacy"
+      }
+    },
+    {
+      "name": "no capability: delete runs as today",
+      "tool": "exponential_issues_write",
+      "args": {
+        "op": "delete",
+        "id": "EXP-12"
+      },
+      "modes": {
+        "form": false,
+        "url": false
+      },
+      "expected": {
+        "kind": "legacy"
+      }
+    },
+    {
+      "name": "app tools are not ours",
+      "tool": "standup__delete",
+      "args": {
+        "op": "delete",
+        "id": "x"
+      },
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "none"
+      }
+    }
+  ],
+  "confirmOutcomeCases": [
+    {
+      "name": "accept + true runs",
+      "response": {
+        "action": "accept",
+        "content": {
+          "confirm": true
+        }
+      },
+      "expected": "run"
+    },
+    {
+      "name": "accept + false = declined",
+      "response": {
+        "action": "accept",
+        "content": {
+          "confirm": false
+        }
+      },
+      "expected": "declined"
+    },
+    {
+      "name": "accept without content = declined",
+      "response": {
+        "action": "accept"
+      },
+      "expected": "declined"
+    },
+    {
+      "name": "accept + a string is not a yes",
+      "response": {
+        "action": "accept",
+        "content": {
+          "confirm": "true"
+        }
+      },
+      "expected": "declined"
+    },
+    {
+      "name": "decline",
+      "response": {
+        "action": "decline"
+      },
+      "expected": "declined"
+    },
+    {
+      "name": "cancel",
+      "response": {
+        "action": "cancel"
+      },
+      "expected": "cancelled"
+    },
+    {
+      "name": "missing = ask again",
+      "response": null,
+      "expected": "reask"
+    },
+    {
+      "name": "unknown action",
+      "response": {
+        "action": "maybe"
+      },
+      "expected": "invalid"
+    },
+    {
+      "name": "not an object",
+      "response": "yes",
+      "expected": "invalid"
+    }
+  ],
+  "pickCases": [
+    {
+      "name": "several teams: oneOf by name",
+      "pick": "team",
+      "choices": [
+        {
+          "id": "t2",
+          "name": "Website"
+        },
+        {
+          "id": "t1",
+          "name": "Mobile"
+        },
+        {
+          "id": "t3",
+          "name": "Backend"
+        }
+      ],
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "ask",
+        "request": {
+          "method": "elicitation/create",
+          "params": {
+            "mode": "form",
+            "message": "Which team?",
+            "requestedSchema": {
+              "type": "object",
+              "properties": {
+                "teamId": {
+                  "type": "string",
+                  "title": "Team",
+                  "oneOf": [
+                    {
+                      "const": "t3",
+                      "title": "Backend"
+                    },
+                    {
+                      "const": "t1",
+                      "title": "Mobile"
+                    },
+                    {
+                      "const": "t2",
+                      "title": "Website"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "teamId"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "one team is used",
+      "pick": "team",
+      "choices": [
+        {
+          "id": "t1",
+          "name": "Mobile"
+        }
+      ],
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "use",
+        "id": "t1"
+      }
+    },
+    {
+      "name": "no team: today's error",
+      "pick": "team",
+      "choices": [],
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "legacy"
+      }
+    },
+    {
+      "name": "several teams, no form: today's error",
+      "pick": "team",
+      "choices": [
+        {
+          "id": "t2",
+          "name": "Website"
+        },
+        {
+          "id": "t1",
+          "name": "Mobile"
+        }
+      ],
+      "modes": {
+        "form": false,
+        "url": true
+      },
+      "expected": {
+        "kind": "legacy"
+      }
+    },
+    {
+      "name": "several devices",
+      "pick": "device",
+      "choices": [
+        {
+          "id": "d2",
+          "name": "mint"
+        },
+        {
+          "id": "d1",
+          "name": "macbook"
+        }
+      ],
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "ask",
+        "request": {
+          "method": "elicitation/create",
+          "params": {
+            "mode": "form",
+            "message": "Which device runs the session?",
+            "requestedSchema": {
+              "type": "object",
+              "properties": {
+                "deviceId": {
+                  "type": "string",
+                  "title": "Device",
+                  "oneOf": [
+                    {
+                      "const": "d1",
+                      "title": "macbook"
+                    },
+                    {
+                      "const": "d2",
+                      "title": "mint"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "deviceId"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "one online device is used",
+      "pick": "device",
+      "choices": [
+        {
+          "id": "d1",
+          "name": "macbook"
+        }
+      ],
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "expected": {
+        "kind": "use",
+        "id": "d1"
+      }
+    }
+  ],
+  "pickNeededCases": [
+    {
+      "name": "loose upload",
+      "pick": "team",
+      "tool": "exponential_attachments_write",
+      "args": {
+        "op": "upload",
+        "filename": "a.png"
+      },
+      "expected": true
+    },
+    {
+      "name": "upload onto an issue",
+      "pick": "team",
+      "tool": "exponential_attachments_write",
+      "args": {
+        "op": "upload",
+        "issueId": "EXP-12"
+      },
+      "expected": false
+    },
+    {
+      "name": "finalize a signed upload",
+      "pick": "team",
+      "tool": "exponential_attachments_write",
+      "args": {
+        "op": "upload",
+        "attachmentId": "a1"
+      },
+      "expected": false
+    },
+    {
+      "name": "new root without team",
+      "pick": "team",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "text": "go"
+      },
+      "expected": true
+    },
+    {
+      "name": "message to a session",
+      "pick": "team",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "sessionId": "s1",
+        "text": "go"
+      },
+      "expected": false
+    },
+    {
+      "name": "new root without device",
+      "pick": "device",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "text": "go"
+      },
+      "expected": true
+    },
+    {
+      "name": "new root on a device",
+      "pick": "device",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "text": "go",
+        "deviceId": "d1"
+      },
+      "expected": false
+    },
+    {
+      "name": "a child inherits",
+      "pick": "device",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "parentId": "s1",
+        "text": "go"
+      },
+      "expected": false
+    },
+    {
+      "name": "an agent message",
+      "pick": "device",
+      "tool": "exponential_sessions_send",
+      "args": {
+        "agentId": "a1",
+        "text": "go"
+      },
+      "expected": false
+    }
+  ],
+  "pickOutcomeCases": [
+    {
+      "name": "an offered team",
+      "property": "teamId",
+      "offered": [
+        "t1",
+        "t2"
+      ],
+      "response": {
+        "action": "accept",
+        "content": {
+          "teamId": "t2"
+        }
+      },
+      "expected": {
+        "kind": "use",
+        "id": "t2"
+      }
+    },
+    {
+      "name": "a forged team",
+      "property": "teamId",
+      "offered": [
+        "t1",
+        "t2"
+      ],
+      "response": {
+        "action": "accept",
+        "content": {
+          "teamId": "t9"
+        }
+      },
+      "expected": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "name": "decline",
+      "property": "teamId",
+      "offered": [
+        "t1",
+        "t2"
+      ],
+      "response": {
+        "action": "decline"
+      },
+      "expected": {
+        "kind": "noPick"
+      }
+    },
+    {
+      "name": "cancel",
+      "property": "deviceId",
+      "offered": [
+        "d1",
+        "d2"
+      ],
+      "response": {
+        "action": "cancel"
+      },
+      "expected": {
+        "kind": "noPick"
+      }
+    },
+    {
+      "name": "missing = ask again",
+      "property": "deviceId",
+      "offered": [
+        "d1",
+        "d2"
+      ],
+      "response": null,
+      "expected": {
+        "kind": "reask"
+      }
+    }
+  ],
+  "url": {
+    "path": "/mcp/elicit/",
+    "idPattern": "^[A-Za-z0-9_-]{43}$",
+    "purposes": {
+      "upstream_oauth": "Connect {name} to continue.",
+      "install_approval": "Approve installing {name} to continue.",
+      "github_app": "Install or reauthorize the Exponential GitHub App to continue.",
+      "billing_checkout": "Upgrade the team's plan to continue."
+    }
+  },
+  "urlCases": [
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": true
+    },
+    {
+      "appUrl": "https://app.exponential.at/",
+      "url": "https://app.exponential.at/mcp/elicit/q3Zx_-0123456789abcdefghijklmnopqrstuvwxyzA",
+      "expected": true
+    },
+    {
+      "appUrl": "http://localhost:3000",
+      "url": "http://localhost:3000/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": true
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA?token=x",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#x",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/mcp/elicit/short",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/x",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at/settings/billing",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://github.com/apps/exponential/installations/new",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://app.exponential.at.evil.test/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "http://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "https://user:pw@app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": false
+    },
+    {
+      "appUrl": "https://app.exponential.at",
+      "url": "not a url",
+      "expected": false
+    }
+  ],
+  "urlRequestCases": [
+    {
+      "name": "upstream OAuth",
+      "purpose": "upstream_oauth",
+      "subject": "Linear",
+      "modes": {
+        "form": true,
+        "url": true
+      },
+      "appUrl": "https://app.exponential.at",
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": {
+        "kind": "ask",
+        "request": {
+          "method": "elicitation/create",
+          "params": {
+            "mode": "url",
+            "message": "Connect Linear to continue.",
+            "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        }
+      }
+    },
+    {
+      "name": "billing, form-only client: today's link as text",
+      "purpose": "billing_checkout",
+      "subject": null,
+      "modes": {
+        "form": true,
+        "url": false
+      },
+      "appUrl": "https://app.exponential.at",
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": {
+        "kind": "legacy"
+      }
+    },
+    {
+      "name": "GitHub App",
+      "purpose": "github_app",
+      "subject": null,
+      "modes": {
+        "form": false,
+        "url": true
+      },
+      "appUrl": "https://app.exponential.at/",
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": {
+        "kind": "ask",
+        "request": {
+          "method": "elicitation/create",
+          "params": {
+            "mode": "url",
+            "message": "Install or reauthorize the Exponential GitHub App to continue.",
+            "url": "https://app.exponential.at/mcp/elicit/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        }
+      }
+    },
+    {
+      "name": "an unknown purpose never asks",
+      "purpose": "release_runbook",
+      "subject": null,
+      "modes": {
+        "form": true,
+        "url": true
+      },
+      "appUrl": "https://app.exponential.at",
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": {
+        "kind": "refused"
+      }
+    }
+  ],
+  "secret": {
+    "pattern": "\\bpass(word|phrase|code)?\\b|passwd|secret|token|api[-_ ]?key|credential|private[-_ ]?key|card[-_ ]?(number|no)\\b|\\bcvv\\b|\\bcvc\\b|\\bpin\\b|\\botp\\b|one[-_ ]?time|\\b2fa\\b|\\bmfa\\b|\\bssn\\b|\\biban\\b"
+  },
+  "secretCases": [
+    {
+      "name": "the confirm",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "a team pick",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string",
+            "title": "Team",
+            "oneOf": [
+              {
+                "const": "t1",
+                "title": "Mobile"
+              }
+            ]
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "a password field",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "expected": [
+        "password"
+      ]
+    },
+    {
+      "name": "an API key by title",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Linear API key"
+          }
+        }
+      },
+      "expected": [
+        "value"
+      ]
+    },
+    {
+      "name": "a token by description",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "description": "Paste your access token"
+          }
+        }
+      },
+      "expected": [
+        "x"
+      ]
+    },
+    {
+      "name": "format password",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "format": "password"
+          }
+        }
+      },
+      "expected": [
+        "x"
+      ]
+    },
+    {
+      "name": "a PIN",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string"
+          }
+        }
+      },
+      "expected": [
+        "pin"
+      ]
+    },
+    {
+      "name": "a pinned flag is fine",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "two fields, one bad",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "type": "string"
+          }
+        }
+      },
+      "expected": [
+        "clientSecret"
+      ]
+    },
+    {
+      "name": "a footprint is not an OTP",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "footprint": {
+            "type": "string",
+            "title": "Footprint"
+          }
+        }
+      },
+      "expected": []
+    }
+  ],
+  "requestState": {
+    "prefix": "rs1",
+    "ttlMs": 600000,
+    "maxLength": 4096,
+    "errorCode": -32602,
+    "errors": {
+      "malformed": "Invalid requestState.",
+      "tampered": "Invalid requestState.",
+      "expired": "This request expired; call the tool again.",
+      "foreign": "Invalid requestState.",
+      "mismatch": "The retry must repeat the same tool and arguments.",
+      "replayed": "This request was already answered; call the tool again."
+    },
+    "vectors": {
+      "key": "test-request-state-key-0123456789",
+      "payload": {
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "args": "0ee0674d91797fdc5d63e1361665753adcd70b1f79f43705a42f6c399e9c53ad",
+        "kind": "elicit",
+        "keys": [
+          "confirm"
+        ],
+        "exp": 1764158400000,
+        "nonce": "AAECAwQFBgcICQoLDA0ODw"
+      },
+      "arguments": {
+        "op": "delete",
+        "id": "EXP-12"
+      },
+      "argsDigest": "0ee0674d91797fdc5d63e1361665753adcd70b1f79f43705a42f6c399e9c53ad",
+      "token": "rs1.eyJhIjoiMGVlMDY3NGQ5MTc5N2ZkYzVkNjNlMTM2MTY2NTc1M2FkY2Q3MGIxZjc5ZjQzNzA1YTQyZjZjMzk5ZTljNTNhZCIsImUiOjE3NjQxNTg0MDAwMDAsImsiOiJlbGljaXQiLCJuIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EdyIsInAiOiJ1c2VyOnUxfGNsaWVudDpjMSIsInMiOlsiY29uZmlybSJdLCJ0IjoiZXhwb25lbnRpYWxfaXNzdWVzX3dyaXRlIn0.WqjVoFedy6qLNxJWzE3phNnsH4GcMfplKUfC_ixn698"
+    },
+    "verifyCases": [
+      {
+        "name": "fresh",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": null
+      },
+      {
+        "name": "argument order does not matter",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "id": "EXP-12",
+          "op": "delete"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": null
+      },
+      {
+        "name": "not a string",
+        "token": 12,
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "malformed"
+      },
+      {
+        "name": "wrong prefix",
+        "token": "rs0.e30.AAAA",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "malformed"
+      },
+      {
+        "name": "two parts",
+        "token": "rs1.e30",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "malformed"
+      },
+      {
+        "name": "tampered payload",
+        "token": "vector:payload",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "tampered"
+      },
+      {
+        "name": "tampered mac",
+        "token": "vector:mac",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "tampered"
+      },
+      {
+        "name": "expired",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158400000,
+        "consumed": [],
+        "expected": "expired"
+      },
+      {
+        "name": "another user",
+        "token": "vector",
+        "principal": "user:u2|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "foreign"
+      },
+      {
+        "name": "same user, another client",
+        "token": "vector",
+        "principal": "user:u1|client:c2",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "foreign"
+      },
+      {
+        "name": "changed arguments",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-13"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "mismatch"
+      },
+      {
+        "name": "another tool",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_labels_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [],
+        "expected": "mismatch"
+      },
+      {
+        "name": "replayed",
+        "token": "vector",
+        "principal": "user:u1|client:c1",
+        "tool": "exponential_issues_write",
+        "arguments": {
+          "op": "delete",
+          "id": "EXP-12"
+        },
+        "now": 1764158000000,
+        "consumed": [
+          "AAECAwQFBgcICQoLDA0ODw"
+        ],
+        "expected": "replayed"
+      }
+    ]
+  }
+}
