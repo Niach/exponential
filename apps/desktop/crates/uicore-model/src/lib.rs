@@ -476,19 +476,189 @@ pub enum TaskbarPress {
     Launch,
     Minimize { id: String },
     Focus { id: String },
-    Previews,
 }
 
-/// Mint's click on a button: launch, minimize the focused single window,
-/// focus it otherwise, or open the previews of a group.
-pub fn taskbar_press(state: &ShellState, app: &str) -> TaskbarPress {
+/// #EDE-254: the group's last focused window: of the app's
+/// active-workspace windows the one earliest in the mru, else the first.
+pub fn last_focused<'a>(state: &'a ShellState, app: &str) -> Option<&'a ShellWindow> {
     let ws: Vec<&ShellWindow> = on_active(state).into_iter().filter(|w| w.app == app).collect();
-    match ws.as_slice() {
-        [] => TaskbarPress::Launch,
-        [w] if w.focused && !w.minimized => TaskbarPress::Minimize { id: w.id.clone() },
-        [w] => TaskbarPress::Focus { id: w.id.clone() },
-        _ => TaskbarPress::Previews,
+    state.mru.iter().find_map(|id| ws.iter().find(|w| &w.id == id).copied()).or(ws.first().copied())
+}
+
+/// Mint's click on a button (grouped-window-list's left-click-action 2):
+/// launch, else toggle the group's last focused window (minimize it while
+/// it has the focus, focus it otherwise). Previews show on hover only.
+pub fn taskbar_press(state: &ShellState, app: &str) -> TaskbarPress {
+    match last_focused(state, app) {
+        None => TaskbarPress::Launch,
+        Some(w) if w.focused && !w.minimized => TaskbarPress::Minimize { id: w.id.clone() },
+        Some(w) => TaskbarPress::Focus { id: w.id.clone() },
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "lowercase")]
+pub enum TaskbarMiddle {
+    Close { id: String },
+}
+
+/// #EDE-254: the middle button (middle-click-action 3): the group's last
+/// focused window closes; `None` without a window.
+pub fn taskbar_middle(state: &ShellState, app: &str) -> Option<TaskbarMiddle> {
+    last_focused(state, app).map(|w| TaskbarMiddle::Close { id: w.id.clone() })
+}
+
+/// One row of a genUI Menu's `items` (a separator, a submenu, a checkbox
+/// row or an item).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct MenuRow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<MenuRow>>,
+}
+
+impl MenuRow {
+    pub fn item(label: impl Into<String>, value: impl Into<String>, icon: Option<&str>) -> Self {
+        Self { label: Some(label.into()), value: Some(value.into()), icon: icon.map(String::from), ..Self::default() }
+    }
+
+    pub fn separator() -> Self {
+        Self { kind: Some("separator".into()), ..Self::default() }
+    }
+
+    pub fn submenu(label: impl Into<String>, items: Vec<MenuRow>) -> Self {
+        Self { kind: Some("submenu".into()), label: Some(label.into()), items: Some(items), ..Self::default() }
+    }
+
+    fn is_separator(&self) -> bool {
+        self.kind.as_deref() == Some("separator")
+    }
+}
+
+/// What [`taskbar_menu`] knows beyond the model (every key optional).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskbarMenuContext {
+    #[serde(default = "one")]
+    pub outputs: usize,
+    #[serde(default)]
+    pub windows: std::collections::BTreeMap<String, WindowFacts>,
+    #[serde(default)]
+    pub recent: Vec<RecentFile>,
+    #[serde(default)]
+    pub actions: Vec<DesktopAction>,
+    #[serde(default = "yes")]
+    pub entry: bool,
+}
+
+fn one() -> usize {
+    1
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for TaskbarMenuContext {
+    fn default() -> Self {
+        Self { outputs: 1, windows: Default::default(), recent: Vec::new(), actions: Vec::new(), entry: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WindowFacts {
+    #[serde(default)]
+    pub output: usize,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentFile {
+    pub name: String,
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopAction {
+    pub id: String,
+    pub name: String,
+}
+
+/// The Recent submenu's length (menus.js).
+pub const TASKBAR_RECENT_MAX: usize = 10;
+
+/// #EDE-254: a group's right-click menu, grouped-window-list's menus.js in
+/// its order (shell.json's `$comment`).
+pub fn taskbar_menu(state: &ShellState, app: &str, context: &TaskbarMenuContext) -> Vec<MenuRow> {
+    let count = on_active(state).into_iter().filter(|w| w.app == app).count();
+    let w = last_focused(state, app);
+    let facts = w.and_then(|w| context.windows.get(&w.id)).cloned().unwrap_or_default();
+    let mut rows = Vec::new();
+    if let Some(w) = w {
+        if context.outputs >= 2 {
+            for i in (0..context.outputs).filter(|i| *i != facts.output) {
+                let label = if context.outputs == 2 { "Move to the other monitor".to_string() } else { format!("Move to monitor {}", i + 1) };
+                rows.push(MenuRow::item(label, format!("monitor:{i}"), None));
+            }
+        }
+        if state.workspaces.count >= 2 {
+            let items = (0..state.workspaces.count)
+                .map(|i| MenuRow { disabled: (i == w.workspace).then_some(true), ..MenuRow::item(format!("Workspace {}", i + 1), format!("workspace:{i}"), None) })
+                .collect();
+            rows.push(MenuRow::submenu("Move to another workspace", items));
+        }
+        rows.push(MenuRow::separator());
+    }
+    rows.push(MenuRow::submenu("Applet preferences", vec![MenuRow::item("About...", "about", Some("ui-help")), MenuRow::item("Configure...", "configure", Some("nav-settings"))]));
+    rows.push(MenuRow::separator());
+    if !context.recent.is_empty() {
+        let items = context.recent.iter().take(TASKBAR_RECENT_MAX).map(|r| MenuRow::item(r.name.clone(), format!("recent:{}", r.uri), Some("ui-add"))).collect();
+        rows.push(MenuRow::submenu("Recent", items));
+        rows.push(MenuRow::separator());
+    }
+    if context.entry {
+        rows.push(MenuRow::separator());
+        rows.extend(context.actions.iter().map(|a| MenuRow::item(a.name.clone(), format!("action:{}", a.id), Some("nav-apps"))));
+        rows.push(MenuRow::separator());
+        rows.push(MenuRow { kind: Some("checkbox".into()), checked: Some(state.taskbar.pinned.iter().any(|p| p == app)), ..MenuRow::item("Pinned to the taskbar", "pin", Some("ui-pin")) });
+    } else {
+        rows.push(MenuRow::separator());
+    }
+    rows.push(MenuRow::separator());
+    if let Some(w) = w {
+        rows.push(if w.minimized { MenuRow::item("Restore", "restore", Some("ui-redock")) } else { MenuRow::item("Minimize", "minimize", Some("ui-minimize")) });
+        rows.push(if facts.maximized { MenuRow::item("Unmaximize", "unmaximize", Some("ui-fullscreen-exit")) } else { MenuRow::item("Maximize", "maximize", Some("ui-maximize")) });
+        if count > 1 {
+            rows.push(MenuRow::item("Close others", "close-others", Some("ui-close")));
+            rows.push(MenuRow::item("Close all", "close-all", Some("nav-sign-out")));
+        } else {
+            rows.push(MenuRow::item("Close", "close", Some("ui-close")));
+        }
+        rows.push(MenuRow::separator());
+    }
+    // Cinnamon's PopupMenu hides a leading, a trailing and a doubled separator.
+    let mut out: Vec<MenuRow> = Vec::new();
+    for r in rows {
+        if r.is_separator() && out.last().is_none_or(MenuRow::is_separator) {
+            continue;
+        }
+        out.push(r);
+    }
+    while out.last().is_some_and(MenuRow::is_separator) {
+        out.pop();
+    }
+    out
 }
 
 /// Mint's scroll on a button: cycles the group's windows from the focused

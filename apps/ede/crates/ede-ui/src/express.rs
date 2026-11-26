@@ -76,6 +76,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_start_menu", &["activate", "ask", "category", "open", "toggle"]),
     ("ede_switcher", &["account", "action", "id", "kind"]),
     ("ede_taskbar", &["app"]),
+    ("ede_taskbar_input", &["app", "button"]),
     ("ede_taskbar_menu", &["app", "value"]),
     ("ede_taskbar_scroll", &["app", "direction"]),
     ("ede_tray", &["refresh", "service"]),
