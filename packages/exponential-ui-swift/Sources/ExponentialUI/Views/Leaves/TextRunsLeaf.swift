@@ -7,7 +7,7 @@ import ExponentialUIPrimitives
 /// weight, tone colour, the `highlight` fill, inline code's `Markdown/code`
 /// box, strike, underline, policed links) on the lines `TextRunsLayout`
 /// broke, the measurer's: the first `dropCap` rows beside the cap's box,
-/// then the full width. `lines` / `truncate` clamp the paragraph (the last
+/// then the full width, start-aligned. `lines` / `truncate` clamp the paragraph (the last
 /// line ellipsized); search marks run over the joined text.
 struct TextRunsLeaf: View {
     let cx: LeafContext
@@ -17,7 +17,8 @@ struct TextRunsLeaf: View {
     static func look(_ cx: LeafContext) -> TextRunsLook {
         let model = cx.model
         var look = TextRunsLook(style: cx.textStyle)
-        look.align = alignment(cx.style.textAlign ?? cx.props["align"]?.string)
+        // Runs and a drop cap paint START-aligned (`align` / `textAlign`
+        // apply to plain text only).
         look.mono = model.theme?.monoFamily
         look.chip = MarkdownPainter.styles(theme: model.theme, mode: model.mode, body: cx.textStyle, props: [:], fontScale: model.textScale).chip
         look.codeBackground = model.part("Markdown", "code", props: [:]).style.background.map(HighlightPainter.platform)
@@ -33,16 +34,6 @@ struct TextRunsLeaf: View {
         look.match = HighlightPainter.platform(HighlightPainter.colors(model).match)
         look.gap = model.spacing("xs")
         return look
-    }
-
-    static func alignment(_ align: String?) -> NSTextAlignment {
-        switch align {
-        case "center": .center
-        case "right", "end": .right
-        case "left": .left
-        case "justify": .justified
-        default: .natural
-        }
     }
 
     var body: some View {
@@ -178,7 +169,7 @@ private struct TextRunsLinks: ViewModifier {
             content
                 .contentShape(Rectangle())
                 .onTapGesture(coordinateSpace: .local) { point in
-                    if let href = layout.link(at: point, rtl: rtl, flush: TextRunsLeaf.flush(TextRunsLeaf.alignment(cx.style.textAlign ?? cx.props["align"]?.string), rtl: rtl)) {
+                    if let href = layout.link(at: point, rtl: rtl, flush: rtl ? 1 : 0) {
                         _ = cx.model.openLink(href)
                         return
                     }
