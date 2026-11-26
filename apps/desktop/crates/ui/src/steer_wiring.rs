@@ -277,6 +277,10 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 control_api,
                 on_check_in,
                 on_call_ring,
+                {
+                    let account_id = account_id.clone();
+                    Arc::new(move |session_id| steer::held_gone::notice(&account_id, session_id))
+                },
             );
 
             let channels = ControlChannels::global(cx);

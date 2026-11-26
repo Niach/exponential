@@ -60,7 +60,7 @@ class A11yStatesTest {
                 val rows = case["data"]?.get("rows")?.array.orEmpty()
                 val key = id.substringAfter('.', "")
                 return rows.firstOrNull { it["key"]?.string == key }?.get("label")?.string
-                    ?: case["tree"]!!["children"]!!.array!!.first { it["id"]?.string == id }["accessibility"]!!["label"]!!.string!!
+                    ?: case["tree"]!!["children"]!!.array!!.first { it["id"]?.string == id }["@accessibility"]!!["label"]!!.string!!
             }
             for ((id, states) in case["expect"]!!.obj!!) {
                 val c = config(labelOf(id))

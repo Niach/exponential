@@ -273,7 +273,7 @@ describe(`<exponential-surface>`, () => {
 describe(`round 9 on the element`, () => {
   it(`paints aria-live, aria-hidden and the inline profile`, async () => {
     const el = await mount()
-    fixture(el, { id: `root`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Saved`, live: `polite` }, accessibility: { live: `assertive`, hidden: { "@path": `/h` } } }, { id: `m`, component: `Markdown`, props: { text: `## Two\n\nplain`, profile: `inline`, variant: `caption` } }] } as NestedNode, { h: `true` })
+    fixture(el, { id: `root`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Saved`, live: `polite` }, "@accessibility": { live: `assertive`, hidden: { "@path": `/h` } } }, { id: `m`, component: `Markdown`, props: { text: `## Two\n\nplain`, profile: `inline`, variant: `caption` } }] } as NestedNode, { h: `true` })
     await tick()
     const t = surfaceOf(el)!.querySelector(`[data-xui-id="t"]`)!
     expect(t.getAttribute(`aria-live`)).toBe(`assertive`)

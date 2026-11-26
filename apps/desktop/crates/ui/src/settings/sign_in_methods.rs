@@ -674,7 +674,7 @@ fn outline_button(ink: &Ink, chrome: &Chrome, id: &str) -> [Value; 2] {
             "children": [label(&chrome.danger, "_danger", path("danger")), faded_label(plain, "", not(path("danger")))]});
         if !dim {
             button["props"] = json!({"pressable": true});
-            button["accessibility"] = json!({"label": path("action")});
+            button["@accessibility"] = json!({"label": path("action")});
             button["on"] = json!({"press": {"event": {"name": "row", "context": {"key": path("key"), "kind": path("kind")}}}});
             button["style"]["cursor"] = json!("pointer");
             button["style"][":hover"] = json!({"backgroundColor": chrome.button_hover});

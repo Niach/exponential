@@ -290,6 +290,8 @@ export interface LaunchComposerModel {
   /** S-3: the agent row over the card (composer-home.json `agentRow`);
    *  null = the host draws none: Temporary session. */
   agentRow: ComposerAgentRowState<ComposerAgent> | null
+  /** #EXP-2136: a team by id, for the agent row's team marks. */
+  teamOf: (teamId: string) => { id: string; name: string; iconUrl: string | null } | null
   /** The picked agent (null = Temporary session: today's launch). */
   recipient: ComposerAgent | null
   /** A circle's tap (an agent id or `TEMPORARY_PICK`). */
@@ -411,6 +413,7 @@ export function useLaunchComposer({
     () => myTeams.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl ?? null })),
     [myTeams]
   )
+  const teamOf = useCallback((id: string) => pickTeams.find((team) => team.id === id) ?? null, [pickTeams])
   const [teamsPicked, setTeamsPicked] = useState<string[] | null>(null)
   const toAssistant = recipient !== null && recipient.role === `assistant` && recipient.ownerId === me
   // #EXP-2027 (sidebar-tree.json HOME): a plain chat (Temporary session)
@@ -435,11 +438,12 @@ export function useLaunchComposer({
   const effectiveTeamRef = useRef(effectiveTeamId)
   effectiveTeamRef.current = effectiveTeamId
   const teams: ComposerTeamsBinding | null = toAssistant
-    ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked }
+    ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked, owner: { kind: `assistant` } }
     : homeTeams && recipient === null
       ? {
           teams: homePickTeams,
           picked: plainTeamIds,
+          owner: { kind: `home` },
           // Every team checked again (null) = every team, still a list.
           onChange: (next) => setPlainPicked(next ?? homeTeamIds),
         }
@@ -837,6 +841,7 @@ export function useLaunchComposer({
     pickPrompt,
     clearPrompt,
     agentRow,
+    teamOf,
     recipient,
     pickRecipient,
     teams,

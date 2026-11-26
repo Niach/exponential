@@ -160,7 +160,7 @@
     }
   ],
   "agentRow": {
-    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. SEEDED (`seedCases`): a page opened WITH a subject (a start circle / Start chipping an issue, a prompt run, a device seed) starts on Temporary session, so the send is a normal launch with that subject, never a message to the Assistant. EXP-1451: the start-coding DIALOG (web at every width, the IDE's composer dialog) IS this composer with this row, the subject headline over it: a play button's seed starts it on Temporary session (`seedCases`). SUBJECT SWITCH (`subjectCases`): picking an issue or a prompt afterwards moves the row to Temporary session; any other subject change keeps the pick; tapping an agent afterwards picks it (the last tap wins). PICK KEEPS THE SUBJECT (`pickCases`, EXP-1450): a tap on the row NEVER drops the issue chips (a picked agent gets them forwarded as the send's `issueIds`; Temporary session launches on them); only a PROMPT subject is dropped by an agent pick (a prompt starts a new root). CONTROLS KEEP THE SUBJECT (`controlCases`, EXP-1450): switching device, runner agent, account, model, effort, repository, a work toggle or an MCP server never touches the subject (issue chips stay up): every client's composer state keeps its subject apart from its launch options, so no control re-inits it. Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds, issueIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
+    "$comment": "S-3 (owner 2026-10-28): THE AGENT ROW on the New-chat composer ×4 (web agent home + New session tab, IDE Agent page, iOS + Android Agent tab), styleguide entry `composer-agent-row` (Exponential-specific: NOT an Exponential UI primitive). It stands directly ABOVE the composer card, `rowToCard` px over it, with the LABEL line `labelToRow` px over the circles (left-aligned with the card, the muted small text: `copy.to` with the picked agent's name, or `copy.temporary`). The circles = SINGLE SELECT, left to right: the viewer's Assistant (agent-settings.json `orderedAgents`: first, the brand mark), then the team agents they see (agent icon in its colour), then ONE dotted circle (concept `temporaryIcon`, the muted foreground; NEVER status-backlog) = Temporary session, a normal session. Each circle = the chats.json agent BUBBLE at `size` px (the same disc on bg muted, the same `ringGap` background gap; no name under it, the name is the label and the tooltip / accessibility label); the SELECTED circle wears the foreground ring (`ringWidth`), the others the glass-stroke hairline. SAME-NAMED AGENTS (#EXP-2136, `teamMarks` over the row's agents, `teamMarkCases`): an agent whose name another TEAM's agent in the row also has (trimmed, case-insensitive; never the Assistant, never for two agents of one team) wears its team's mark on its circle (nav-badges.json `teamMark`, `teamMarkOf(size)`, the page's ground), and its accessibility label / tooltip reads `<name>, <team>`; the other circles and the label line stay as they are. A tap selects (tapping the selected circle keeps it: it is never empty); the row scrolls horizontally when it overflows. DEFAULT (`defaultPick`): the Assistant when the viewer has one, else Temporary session; a page mount starts on it again. SEEDED (`seedCases`): a page opened WITH a subject (a start circle / Start chipping an issue, a prompt run, a device seed) starts on Temporary session, so the send is a normal launch with that subject, never a message to the Assistant. EXP-1451: the start-coding DIALOG (web at every width, the IDE's composer dialog) IS this composer with this row, the subject headline over it: a play button's seed starts it on Temporary session (`seedCases`). SUBJECT SWITCH (`subjectCases`): picking an issue or a prompt afterwards moves the row to Temporary session; any other subject change keeps the pick; tapping an agent afterwards picks it (the last tap wins). PICK KEEPS THE SUBJECT (`pickCases`, EXP-1450): a tap on the row NEVER drops the issue chips (a picked agent gets them forwarded as the send's `issueIds`; Temporary session launches on them); only a PROMPT subject is dropped by an agent pick (a prompt starts a new root). CONTROLS KEEP THE SUBJECT (`controlCases`, EXP-1450): switching device, runner agent, account, model, effort, repository, a work toggle or an MCP server never touches the subject (issue chips stay up): every client's composer state keeps its subject apart from its launch options, so no control re-inits it. Picking an agent hides the + menu's runner and work rows (composer-menu.json: `temporary` false) and the send = `sessions.send({agentId, text, attachmentIds, issueIds})` into the viewer's conversation with that agent, which the client then opens (its chat, chats.json chat mode); Temporary session = today's launch (device, account, model, repository, work picks in the +).",
     "size": 40,
     "ringWidth": 2,
     "ringGap": 3,
@@ -393,6 +393,123 @@
           "selected": "temporary",
           "label": "Temporary session"
         }
+      }
+    ],
+    "teamMarkCases": [
+      {
+        "name": "two teams' agents of one name: both",
+        "agents": [
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "name": "Assistant",
+            "teamId": "t-p"
+          },
+          {
+            "id": "g-1",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-2",
+            "role": "agent",
+            "name": "Designer",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-3",
+            "role": "agent",
+            "name": " triage ",
+            "teamId": "t-2"
+          }
+        ],
+        "expected": [
+          "g-1",
+          "g-3"
+        ]
+      },
+      {
+        "name": "one team's agents of one name: none",
+        "agents": [
+          {
+            "id": "g-1",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-2",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          }
+        ],
+        "expected": []
+      },
+      {
+        "name": "two in one team and one in another: all three",
+        "agents": [
+          {
+            "id": "g-1",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-2",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-3",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-2"
+          }
+        ],
+        "expected": [
+          "g-1",
+          "g-2",
+          "g-3"
+        ]
+      },
+      {
+        "name": "the Assistant never counts",
+        "agents": [
+          {
+            "id": "g-me",
+            "role": "assistant",
+            "name": "Assistant",
+            "teamId": "t-p"
+          },
+          {
+            "id": "g-1",
+            "role": "agent",
+            "name": "Assistant",
+            "teamId": "t-1"
+          }
+        ],
+        "expected": []
+      },
+      {
+        "name": "different names: none",
+        "agents": [
+          {
+            "id": "g-1",
+            "role": "agent",
+            "name": "Triage",
+            "teamId": "t-1"
+          },
+          {
+            "id": "g-2",
+            "role": "agent",
+            "name": "Designer",
+            "teamId": "t-2"
+          }
+        ],
+        "expected": []
       }
     ],
     "seedCases": [

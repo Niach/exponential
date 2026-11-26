@@ -1211,7 +1211,7 @@ fn delete_document(ink: &Ink, chrome: &DeleteChrome) -> Value {
     name["style"]["flexGrow"] = json!(1);
     name["style"]["flexShrink"] = json!(1);
     name["style"]["minWidth"] = json!(0);
-    let row = json!({"id": "target_row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "selected": path("selected")},
+    let row = json!({"id": "target_row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("label"), "selected": path("selected")},
         "on": {"press": {"event": {"name": "target", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "backgroundColor": path("fill"), "cursor": "pointer", ":hover": {"backgroundColor": chrome.accent}},
         "children": [glyph, name]});

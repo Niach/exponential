@@ -506,7 +506,62 @@ impl X11 {
     }
 }
 
+/// The screensaver services that say whether the screen is covered: bus
+/// name (and interface) and object path. Logind's `LockedHint` is not
+/// enough: Cinnamon never sets it (#FEED-313).
+const SCREENSAVERS: [(&str, &str); 5] = [
+    ("org.cinnamon.ScreenSaver", "/org/cinnamon/ScreenSaver"),
+    ("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver"),
+    ("org.mate.ScreenSaver", "/org/mate/ScreenSaver"),
+    ("org.xfce.ScreenSaver", "/org/xfce/ScreenSaver"),
+    ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
+];
+
+/// Whether a RUNNING screensaver service of this X display covers it (none
+/// is started for the question; another display's on the same bus is not ours).
+fn screensaver_active() -> zbus::Result<bool> {
+    let bus = zbus::blocking::connection::Builder::session()?.method_timeout(Duration::from_millis(300)).build()?;
+    let dbus = zbus::blocking::fdo::DBusProxy::new(&bus)?;
+    let ours = std::env::var("DISPLAY").unwrap_or_default();
+    for (name, path) in SCREENSAVERS {
+        let bus_name = zbus::names::BusName::try_from(name)?;
+        let Ok(pid) = dbus.get_connection_unix_process_id(bus_name) else { continue };
+        let theirs = std::fs::read(format!("/proc/{pid}/environ")).unwrap_or_default();
+        if !same_display(&theirs, &ours) {
+            continue;
+        }
+        let active = bus
+            .call_method(Some(name), path, Some(name), "GetActive", &())
+            .and_then(|reply| reply.body().deserialize::<bool>());
+        if active.unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether a process' `environ` names `ours` as its display (a process that
+/// names none is taken as ours).
+fn same_display(environ: &[u8], ours: &str) -> bool {
+    let bare = |display: &str| display.split_once('.').map_or(display, |(server, _)| server).to_string();
+    let theirs = environ.split(|byte| *byte == 0).find_map(|entry| entry.strip_prefix(b"DISPLAY="));
+    theirs.is_none_or(|theirs| bare(&String::from_utf8_lossy(theirs)) == bare(ours))
+}
+
 impl Backend for X11 {
+    fn screen_locked(&self) -> bool {
+        // On a thread of its own: blocking zbus must not run inside a tokio
+        // worker.
+        std::thread::spawn(|| {
+            screensaver_active().unwrap_or_else(|err| {
+                log::debug!("[computer] no screensaver reading ({err})");
+                false
+            })
+        })
+        .join()
+        .unwrap_or(false)
+    }
+
     fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
         let monitors = match reply("monitors", self.conn.randr_get_monitors(self.root, true)) {
             Ok(monitors) => monitors.monitors,
@@ -990,6 +1045,16 @@ impl Grabs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #FEED-313: a screensaver on the same bus but another display (a rig's
+    /// private Xvfb) says nothing about ours.
+    #[test]
+    fn a_screensaver_of_another_display_is_not_ours() {
+        assert!(same_display(b"HOME=/h\0DISPLAY=:0\0", ":0.0"));
+        assert!(!same_display(b"DISPLAY=:0\0", ":99"));
+        assert!(same_display(b"XDISPLAY=:7\0", ":0"));
+        assert!(same_display(b"", ":0"));
+    }
 
     fn device(kind: xinput::DeviceType, enabled: bool, name: &str) -> xinput::XIDeviceInfo {
         xinput::XIDeviceInfo { deviceid: 1, type_: kind, attachment: 0, enabled, name: name.as_bytes().to_vec(), classes: Vec::new() }

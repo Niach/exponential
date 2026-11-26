@@ -170,7 +170,10 @@ struct TextLeaf: View {
 
     var body: some View {
         // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
-        if cx.props.flag("hostLinks"), let segments = cx.model.textLinkSegments(cx.props.text("text")) {
+        if TextRuns.paintsRich(cx.props) {
+            // Round 4 (fixtures/text-runs.json): runs and a drop cap.
+            TextRunsLeaf(cx: cx)
+        } else if cx.props.flag("hostLinks"), cx.props["runs"] == nil, let segments = cx.model.textLinkSegments(cx.props.text("text")) {
             linked(segments)
                 .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
                 .clipped()
@@ -437,14 +440,15 @@ struct ButtonLeaf: View {
     }
 }
 
-/// A Link: an underlined label, centred when the leaf is wider. An href
-/// the URL policy denies paints as plain text (pressing it opens nothing).
+/// A Link: an underlined label (also without an href), centred when the leaf
+/// is wider. An href the URL policy denies paints as plain text (pressing it opens nothing).
 struct LinkLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let label = cx.props.str("label").isEmpty ? cx.props.str("href") : cx.props.str("label")
-        let allowed = cx.model.linkHref(cx.props.str("href")) != nil
+        // Round 4: a press-only Link (no href) is underlined too, as on web and Compose.
+        let allowed = cx.props.str("href").isEmpty || cx.model.linkHref(cx.props.str("href")) != nil
         MeasuredLabel(text: label, ts: cx.textStyle, color: cx.ink, underline: allowed)
             .frame(width: cx.inner.width, height: cx.inner.height)
             .offset(x: cx.inner.minX, y: cx.inner.minY)

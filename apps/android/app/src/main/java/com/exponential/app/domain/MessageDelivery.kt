@@ -306,6 +306,39 @@ object MessageDelivery {
         return kept
     }
 
+    /**
+     * ECHOED PENDING (#EXP-2129, `echoedPendingCases`, TS `echoedPending`):
+     * the not-consumed person rows, every person's, whose line the transcript
+     * holds already (a woken run echoes its input seconds before the device
+     * stamps it consumed): the echo draws them, never a pending bubble too.
+     */
+    fun echoedPending(rows: List<Row>, echoes: List<Echo>): List<String> {
+        val people = rows
+            .filter { it.authorKind == DomainContract.messageAuthorKindUser && !it.authorId.isNullOrEmpty() && !it.hasCard && it.body.isNotBlank() }
+            .sortedWith(compareBy<Row>({ ms(it.createdAt) }, { it.id }))
+        val oldest = people.firstOrNull { it.consumedAt.isNullOrEmpty() } ?: return emptyList()
+        if (echoes.isEmpty()) return emptyList()
+        val since = ms(oldest.createdAt) - MATCH_WINDOW_MS
+        val taken = BooleanArray(echoes.size)
+        val echoed = ArrayList<String>()
+        for (row in people) {
+            val pending = row.consumedAt.isNullOrEmpty()
+            if (!pending && ms(row.consumedAt!!) < since) continue
+            val body = row.body.trim()
+            val from = ms(row.createdAt) - MATCH_WINDOW_MS
+            val echo = echoes.indices.firstOrNull { i ->
+                !taken[i] && echoes[i].at.let { it != null && it >= from } && echoMatches(echoes[i].text, body, row.authorId)
+            } ?: continue
+            taken[echo] = true
+            if (pending) echoed += row.id
+        }
+        return echoed
+    }
+
+    /** #EXP-2129: the transcript's bottom without the pending bubbles it echoes already ([echoed]). */
+    fun withoutEchoed(bubbles: List<Bubble>, echoed: Collection<String>): List<Bubble> =
+        if (echoed.isEmpty()) bubbles else bubbles.filterNot { it.messageId != null && it.messageId in echoed }
+
     /** When [ownHandoff] must run again without any input changing: the
      *  newest kept row's consumedAt + [HANDOFF_MAX_MS] (null = never). */
     fun handoffExpiry(kept: List<String>, rows: List<Row>): Long? {

@@ -131,6 +131,27 @@ pub fn revoke(trpc: &TrpcClient, install_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// A sign-out from ANOTHER process than the install's own (the CLI's
+/// `logout`, eDE's shell): revokes the install whose identity is stored at
+/// `path` and forgets it. Never mints. BLOCKING.
+pub fn revoke_stored(trpc: &TrpcClient, path: &std::path::Path) {
+    let Some(endpoint) = crate::device_identity::stored_endpoint_id(path) else { return };
+    match mine(trpc) {
+        Ok(rows) => {
+            for row in rows.iter().filter(|row| row.endpoint_id == endpoint && row.revoked_at.is_none()) {
+                if let Err(err) = revoke(trpc, &row.install_id) {
+                    log::warn!("enet: installs.revoke failed: {err}");
+                }
+            }
+        }
+        Err(err) => log::warn!("enet: installs.mine failed: {err}"),
+    }
+    match std::fs::remove_file(path) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => log::warn!("enet: removing {} failed: {err}", path.display()),
+        _ => {}
+    }
+}
+
 // ── #EXP-1950 install approval (fixtures/install-trust.json) ───────────
 // The answers are read by `enet_core::install_trust` (generic here: this
 // crate does not depend on eNet).

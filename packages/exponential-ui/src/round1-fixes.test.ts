@@ -81,7 +81,7 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
 
   test(`bind-time.json extra cases replay, rowSlots included`, () => {
     const extra = bindFixture.extra as unknown as { name: string; input: NestedNode; expanded: UiNode; issues: unknown[]; datasets: { data: unknown; bound: UiNode | null; presses: { id: string; outcome: unknown }[]; rowSlots?: { id: string; rows: { index: number; slots: Record<string, UiNode | null> }[] }[] }[] }[]
-    expect(extra.map((c) => c.name)).toEqual([`Table/slot-cell:bound-rows`, `Table/slot-cell:literal-rows`, `Text/accessibility:bound-label`, `Section/set:author-function`, `Row/fold:bound`, `Row/fold:bound-plain`, `Tree/bound`, `Pagination/page:string-data`, `Text/expressions:bound`, `Sidebar/rail:bound-collapsed`, `Stepper/collapse-always:bound-current`, `Progress/bound:valueText+detail`, `Tooltip/bound:content`, `MessageBubble/href:bound-resolves`, `MessageBubble/href:literal`, `MessageBubble/press:no-href`, `MessageBubble/press:bound-href`, `Row/href:bound-resolves`])
+    expect(extra.map((c) => c.name)).toEqual([`Table/slot-cell:bound-rows`, `Table/slot-cell:literal-rows`, `Text/formatString:calls`, `Text/accessibility:bound-label`, `Section/set:author-function`, `Row/fold:bound`, `Row/fold:bound-plain`, `Tree/bound`, `Pagination/page:string-data`, `Text/expressions:bound`, `Sidebar/rail:bound-collapsed`, `Stepper/collapse-always:bound-current`, `Progress/bound:valueText+detail`, `Tooltip/bound:content`, `MessageBubble/href:bound-resolves`, `MessageBubble/href:literal`, `MessageBubble/press:no-href`, `MessageBubble/press:bound-href`, `Row/href:bound-resolves`])
     for (const c of extra) {
       const { root, issues } = reduce(c.input)
       expect(canon(root), c.name).toBe(canon(c.expanded))
@@ -124,7 +124,7 @@ describe(`DATA props are copied verbatim (§1, review minor)`, () => {
 
 describe(`accessibility channel (§6, review majors)`, () => {
   test(`bindTree resolves a bound accessible name and $string copy in accessibility`, () => {
-    const root = expand({ id: `x`, component: `Text`, props: { text: `hi` }, accessibility: { label: { "@path": `/l` }, description: `$string.close` } })
+    const root = expand({ id: `x`, component: `Text`, props: { text: `hi` }, "@accessibility": { label: { "@path": `/l` }, description: `$string.close` } })
     expect(bindTree(root, { l: `Hello` }, STRINGS)!.accessibility).toEqual({ label: `Hello`, description: `Close` })
     expect(bindTree(root, {}, STRINGS)!.accessibility).toEqual({ description: `Close` })
   })
@@ -201,7 +201,7 @@ describe(`accessibility channel (§6, review majors)`, () => {
     expect([byId(shell, `sb.sidebar`)!.accessibility, byId(shell, `sb.main`)!.accessibility]).toEqual([{ role: `navigation` }, { role: `main` }])
 
     // The author's label wins over a root's $a11y label.
-    expect(expand({ id: `g`, component: `Group`, props: { title: `Prefs` }, accessibility: { label: `Settings` } }).accessibility).toEqual({ role: `group`, label: `Settings` })
+    expect(expand({ id: `g`, component: `Group`, props: { title: `Prefs` }, "@accessibility": { label: `Settings` } }).accessibility).toEqual({ role: `group`, label: `Settings` })
   })
 
   test(`the expanded kitchen sink carries only vocabulary roles`, () => {
@@ -270,6 +270,8 @@ describe(`the bind function table (§1, review minor)`, () => {
     })
     called.delete(`set`)
     called.delete(`openUrl`)
+    // Authored, not emitted (bind-time.json `Text/formatString:calls`); the evaluator runs it itself.
+    called.delete(`formatString`)
     for (const name of called) expect(BIND_FUNCTIONS[name], name).toBeDefined()
     for (const name of [`not`, `fill`, `clamp`]) expect(called.has(name), name).toBe(true)
     expect(BIND_FUNCTION_NAMES).toEqual(expect.arrayContaining([`not`, `and`, `or`, `required`, ...Object.keys(CORE_FUNCTIONS)]))

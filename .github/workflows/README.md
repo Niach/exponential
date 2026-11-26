@@ -60,8 +60,8 @@ route to it and the Hetzner firewall stays unchanged. Ways in:
   annotations; backfill with Actions → `glitchtip-symbols` (product + tag):
   it rebuilds the tag, uploads only the binaries whose build-id matches the
   published asset (the job fails naming the others), and publishes nothing.
-  The Linux desktop leg must run on the runner that built the release (its
-  checkout path is in the debug info). eDE's `exponential-shell` and
+  Linux desktop releases up to 0.14.183 were built on the Mint (another
+  checkout path in the debug info), so they cannot be backfilled any more. eDE's `exponential-shell` and
   `exponential-sealed` do not rebuild reproducibly, so for them only the
   release's own upload counts.
 - Event ingest never crosses Cloudflare: clients post to our backend's
@@ -163,6 +163,28 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 | by hand | `exponential-ui-fuzz.yml`, `record-compose-fixtures.yml`, `bump-versions.yml` | fuzzing, re-recording the Compose fixtures, the version-bump PR |
 
 Bench timings never fail (warnings only); counts and bytes still gate.
+
+## Release trust boundary (#EXP-2151)
+
+What ships never reads what a pull request job wrote.
+
+| | Pull requests, trains, branches | Releases (tags, master, `release-suite`) |
+|---|---|---|
+| Machines | GitHub-hosted + `exp-linux` (Mint), `exp-mac` (MacBook) | GitHub-hosted only: a fresh VM per job |
+| Caches | sccache, `~/.cargo`, `~/.rustup`, Gradle on the machines' disks; Actions caches of their own ref + master | builds: none, every release compiles cold. `release-suite` tests: Actions caches of their own ref + master |
+| Secrets | `RUNNER_STATUS_TOKEN` (Administration: read) | the `release` environment |
+
+- **Release builds** (`build-{desktop,cli,android,ios,ede}.yml`, `desktop-build.yml`, `release-e*.yml`, `glitchtip-symbols.yml`) name hosted images and never call `pick-runner.yml`. That includes every signed macOS and iOS build (`macos-26`, `xcode-27`): no signed job runs on the MacBook, so it needs no release runner.
+- **`pick-runner.yml`** hands out a self-hosted machine only for pull requests and branches. A tag, master (a master job can write the master caches every ref reads) and `release-suite` always get GitHub-hosted.
+- **Actions caches** are scoped by GitHub: a pull request's entry is readable by that pull request only, and master entries are written by hosted jobs on merged code.
+- **Secrets**: every job that reads a release secret declares `environment: release` (train.yml: `train`), also for dispatches; the environment's deployment policy admits master and the release tags (`train`: master). On another ref the expression is empty, so the job runs unsigned. Release secrets belong in these environments ONLY (`gh secret set NAME --env release`): a secret left at repository level is readable by any pull request that edits a workflow. Since 2026-11-26 the environments hold every release secret (`release` 31, `train` MERGE_TRAIN_TOKEN); the repository copies stay until a release has used each one and a person confirmed KeePass holds it (#EXP-2151).
+- **Release tags** (`refs/tags/*-v*`, `refs/tags/v*`) are created, moved and deleted only by repo admins (ruleset "release tags"): neither a job's `GITHUB_TOKEN` nor a session's `git push` (the Exponential App's token) can mint one and start a release with the `release` secrets. The release shepherd tags as the admin login: `gh api repos/Niach/exponential/git/refs -f ref=refs/tags/<tag> -f sha=<commit>` (side commits too). No other session creates a release tag with Danny's gh login: an instruction, not a lock, since sessions on his machines can use it.
+- **The gate**: `.github/scripts/release-trust.sh`, in test.yml's `actionlint` job.
+- **What is left**: anything with push access as an admin or the App (a person, a session's merge) is inside the boundary, and master itself is guarded by the `gate` check only. The self-hosted machines hold no release secret; treat them as writable by any pull request.
+
+Adding a release workflow: hosted `runs-on`, no cache, `cargo-fetch` with `restore: 'false'`, `environment` on each job with a secret, its file in release-trust.sh and its tag covered by the environment's policy.
+
+Build time, measured 2026-11-25 (cold, hosted; before = the releases up to 0.14.183): desktop Linux 5-24 → 23 min, macOS 83-96 → 83, Windows 30-39 → 36 (a desktop release still waits on macOS); Android 30-50 → 51; CLI 27 (x86_64), 19 (arm64), 36 (macOS), unchanged. `release-suite`'s iOS leg: 20 min on the MacBook, over 60 hosted.
 
 ## Release secrets and variables (EXP-1430)
 

@@ -155,6 +155,36 @@ fi
 if [ -z "$own_target" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
   lane_sweep "$CARGO_TARGET_DIR"
 fi
+# #EXP-2150: a private target this job creates goes with its session (the
+# daemon deletes what the manifest lists). Only one that is not there yet:
+# an existing dir is someone else's until they list it.
+if [ -n "${CARGO_TARGET_DIR:-}" ] && [ ! -e "$CARGO_TARGET_DIR" ]; then
+  case "$CARGO_TARGET_DIR" in
+    "$HOME"/.cache/exp-*/* | "${TMPDIR:-/tmp}"/* | /tmp/* | */apps/*/target)
+      session_manifest_add dir "$CARGO_TARGET_DIR" 2>/dev/null ;;
+  esac
+fi
+# #EXP-2150: no heavy or emulator job on a nearly full disk: a cold build takes
+# 15-20 GB, and a full disk takes every session and the desktop with it.
+# LANE_MIN_FREE_GB: 30 on Linux, 0 (= no refusal) elsewhere.
+lane_free_gb() {
+  if [ -n "${LANE_FREE_GB:-}" ]; then echo "$LANE_FREE_GB"; return; fi
+  df_dir=${CARGO_TARGET_DIR:-$PWD}
+  while [ ! -d "$df_dir" ] && [ "$df_dir" != / ] && [ "$df_dir" != . ]; do df_dir=$(dirname "$df_dir"); done
+  df -Pk "$df_dir" 2>/dev/null | awk 'NR == 2 { printf "%d", $4 / 1048576 }'
+}
+min_free=${LANE_MIN_FREE_GB:-}
+if [ -z "$min_free" ]; then
+  if [ "$(uname -s)" = Linux ]; then min_free=30; else min_free=0; fi
+fi
+if [ "$lane" != ios ] && [ "$min_free" -gt 0 ] 2>/dev/null; then
+  free=$(lane_free_gb)
+  if [ -n "$free" ] && [ "$free" -lt "$min_free" ]; then
+    echo "lane.sh: $lane: REFUSED: $free GB free, below $min_free GB (LANE_MIN_FREE_GB). Delete the targets this session no longer needs, then run again." >&2
+    lane_log "$dir" "refused-disk owner=$owner session=$(lane_session) free=${free}GB"
+    exit 75
+  fi
+fi
 # PERF-4: a lane's build is the machine's background work: nice 19 and, on
 # Linux, idle IO, so the desktop keeps its cores and disk while it runs
 # (.github/runners/README.md "Desktop first"). Not exec'd: the lock holder

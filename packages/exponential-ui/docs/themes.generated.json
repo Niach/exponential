@@ -3097,6 +3097,7 @@
         "loading",
         "count",
         "spacer",
+        "action",
         "rule",
         "body"
       ],
@@ -4625,6 +4626,106 @@
       ],
       "props": [
         "status"
+      ]
+    },
+    {
+      "name": "AvatarBadge",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "anchor",
+        "tile",
+        "mark"
+      ],
+      "props": [
+        "size"
+      ]
+    },
+    {
+      "name": "NavBar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "brand",
+        "logo",
+        "title",
+        "links",
+        "link",
+        "icon",
+        "label",
+        "actions"
+      ],
+      "props": [
+        "active"
+      ]
+    },
+    {
+      "name": "Footer",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "links",
+        "link",
+        "caption"
+      ],
+      "props": []
+    },
+    {
+      "name": "Hero",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "eyebrow",
+        "title",
+        "subtitle",
+        "actions"
+      ],
+      "props": [
+        "align"
+      ]
+    },
+    {
+      "name": "MediaCard",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "card",
+        "image",
+        "info",
+        "title",
+        "subtitle",
+        "meta",
+        "actions"
+      ],
+      "props": []
+    },
+    {
+      "name": "DayStrip",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "day",
+        "weekday",
+        "date",
+        "dot"
+      ],
+      "props": [
+        "selected",
+        "tone"
+      ]
+    },
+    {
+      "name": "AvatarGroup",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "item",
+        "avatar",
+        "more",
+        "moreLabel"
+      ],
+      "props": [
+        "size"
       ]
     }
   ]

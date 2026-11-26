@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { createFileRoute } from "@tanstack/react-router"
+import { keepReadImage } from "@/lib/swept-images"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import { errorToResponse } from "@/lib/http-errors"
 import { getObject, toResponseBody } from "@/lib/storage"
@@ -159,6 +160,9 @@ async function getAttachment({
       throw new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
     }
   }
+
+  // #EXP-2115: a swept image somebody still reads is kept.
+  if (`sweptAt` in attachment && attachment.sweptAt) await keepReadImage(attachment.attachmentId)
 
   // EXP-824: `?poster=1` serves the video row's poster frame — a second blob
   // on the same row, same membership decision, always an accepted image

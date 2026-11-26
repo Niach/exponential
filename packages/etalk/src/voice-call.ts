@@ -767,10 +767,208 @@ export function callerStep(state: CallerState, input: CallerInput): CallerSteppe
   }
 }
 
+// EXP-2111 (`log`): the caller's own log lines and its one failure event.
+
+/** What only the caller's driver sees. */
+export type CallLogNote =
+  | { n: `ticket`; callId?: string; fallback: boolean; sealed: boolean }
+  | { n: `socketOpen` }
+  | { n: `up` }
+  | { n: `down` }
+  | { n: `silent`; ms: number }
+  | { n: `dialFailed` }
+  | { n: `noSeal` }
+  | { n: `audioFailed` }
+
+/** A call that ended any other way than `quiet`: the one event. */
+export interface CallLogEnd {
+  tag: string
+  by: `here` | `far` | `host` | `relay` | `link` | `server`
+  reason: string
+  stage: CallerStage
+  phase: string
+  answered: boolean
+  sealed: boolean
+  lastedMs: number
+  upFrames: number
+  downFrames: number
+  /** Before the end; null = the host was never heard. */
+  lastDownMs: number | null
+}
+
+export const VOICE_CALL_LOG = { message: fixture.log.message, quiet: fixture.log.quiet }
+
+const CALL_LOG_CODE = new RegExp(fixture.log.codePattern)
+
+function callLogCode(code: string | null | undefined): string {
+  if (!code) return fixture.hangUpRules.failedCode
+  return CALL_LOG_CODE.test(code) ? code : `other`
+}
+
+/** Who ended the call and why, from the input that did. */
+function callLogEnd(input: CallerInput): { by: CallLogEnd[`by`]; reason: string } {
+  const hungUp = (reason: string | null | undefined) => ({ by: `far` as const, reason: reason === null || reason === undefined ? `hung_up` : callLogCode(reason) })
+  switch (input.t) {
+    case `held`:
+    case `failed`:
+      return { by: `here`, reason: callLogCode(input.code) }
+    case `refused`:
+      return { by: `server`, reason: `refused` }
+    case `closed`:
+      return { by: `link`, reason: `socket_closed` }
+    case `ringTimeout`:
+      return { by: `here`, reason: `unavailable` }
+    case `frame`: {
+      const frame = callerFrame(input.frame)
+      if (frame.t === `end`) return hungUp(frame.reason)
+      if (frame.t === `error`) return { by: `relay`, reason: callLogCode(frame.code) }
+      if (frame.t === `bye`) return { by: `relay`, reason: callLogCode(frame.outcome) }
+      if (frame.t === `event` && frame.event?.t === `failed`) return { by: `host`, reason: callLogCode(frame.event.code) }
+      return hungUp(frame.t === `event` && frame.event?.t === `hungUp` ? frame.event.reason : null)
+    }
+    default:
+      return { by: `here`, reason: `hung_up` }
+  }
+}
+
+/** One call's log (`log.cases`): `line` gets every line, `ended` the end of a
+ *  call that is an event. */
+export class CallLog {
+  private tag = `-`
+  private startedAt = 0
+  private answered = false
+  private over = false
+  private upFrames = 0
+  private downFrames = 0
+  private lastDownAt = 0
+
+  constructor(
+    private readonly now: () => number,
+    private readonly line: (line: string) => void,
+    private readonly ended: (end: CallLogEnd) => void
+  ) {}
+
+  private say(text: string) {
+    this.line(`call ${this.tag}: ${text}`)
+  }
+
+  private since(): number {
+    return this.now() - this.startedAt
+  }
+
+  /** One input of the machine, with the state before it and its answer. */
+  input(input: CallerInput, before: CallerState, stepped: CallerStepped) {
+    if (this.over || (stepped.effects.length === 0 && JSON.stringify(stepped.state) === JSON.stringify(before))) return
+    if (input.t === `start`) {
+      this.startedAt = this.now()
+      return this.say(`started (fallback ${input.fallback ?? false})`)
+    }
+    if (stepped.effects.some((effect) => effect.do === `release`)) return this.end(input, before)
+    const note = this.stage(input)
+    if (note) this.say(note)
+    if (!this.answered && before.call.phase === `ringing` && stepped.state.call.phase !== `ringing`) {
+      this.answered = true
+      this.say(`answered after ${this.since()} ms`)
+    }
+  }
+
+  private stage(input: CallerInput): string | null {
+    if (input.t === `held`) return `the microphone is held`
+    if (input.t !== `frame`) return null
+    const frame = callerFrame(input.frame)
+    if (frame.t === `ready`) return `call_ready: the host joined after ${this.since()} ms`
+    if (frame.t !== `event`) return null
+    switch (frame.event?.t) {
+      case `rang`:
+        return `the host rang`
+      case `ready`:
+        return `the host's voice is ready`
+      case `noSound`:
+        return `the host hears no sound from this microphone`
+      default:
+        return null
+    }
+  }
+
+  private end(input: CallerInput, before: CallerState) {
+    this.over = true
+    const { by, reason } = callLogEnd(input)
+    const lastDownMs = this.downFrames === 0 ? null : this.now() - this.lastDownAt
+    const end: CallLogEnd = {
+      tag: this.tag,
+      by,
+      reason,
+      stage: before.stage,
+      phase: before.call.phase,
+      answered: this.answered,
+      sealed: before.sealed,
+      lastedMs: this.since(),
+      upFrames: this.upFrames,
+      downFrames: this.downFrames,
+      lastDownMs,
+    }
+    this.say(
+      `ended by=${by} reason=${reason} stage=${end.stage} phase=${end.phase} answered=${end.answered} lasted=${end.lastedMs} ms sealed=${end.sealed} up=${end.upFrames} down=${end.downFrames} last_down=${lastDownMs === null ? `never` : `${lastDownMs} ms ago`}`
+    )
+    if (!fixture.log.quiet.includes(reason)) this.ended(end)
+  }
+
+  note(note: CallLogNote) {
+    if (this.over) return
+    switch (note.n) {
+      case `ticket`:
+        if (note.callId) this.tag = note.callId.slice(0, 8).toLowerCase()
+        return this.say(`ticket after ${this.since()} ms (fallback ${note.fallback}, sealed ${note.sealed})`)
+      case `socketOpen`:
+        return this.say(`the relay socket is open after ${this.since()} ms`)
+      case `up`:
+        this.upFrames += 1
+        if (this.upFrames === 1) this.say(`the first microphone frame went out after ${this.since()} ms`)
+        return
+      case `down`:
+        this.downFrames += 1
+        this.lastDownAt = this.now()
+        if (this.downFrames === 1) this.say(`the host's first audio frame came after ${this.since()} ms`)
+        return
+      case `silent`:
+        return this.say(`the path went silent: nothing from the relay for ${note.ms} ms`)
+      case `dialFailed`:
+        return this.say(`the dial failed`)
+      case `noSeal`:
+        return this.say(`the call cannot be sealed here`)
+      case `audioFailed`:
+        return this.say(`the call audio did not start`)
+    }
+  }
+}
+
 // EXP-1961 (`callSession`): a call runs in its own call session, a child of
 // the chat. Pure parts the server (pick, duration) and the Rust hosts
 // (opening) replay.
 export const VOICE_CALL_SESSION = fixture.callSession
+
+/** EXP-2110 (`record`): the durable call record's constants. */
+export const VOICE_CALL_RECORD = fixture.record
+
+export interface CallRecordCloseInput {
+  /** Since the mint. */
+  ageMs: number
+  /** The relay reported it ringing. */
+  rang: boolean
+  /** What the relay says now; null = it did not answer. */
+  relay: { live: boolean; startedAfterMint: boolean; sameBoot: boolean } | null
+}
+
+/** `closeCases`: why an open record is closed without an end report (null =
+ *  it stays open). */
+export function callRecordClose(input: CallRecordCloseInput): `relay_restarted` | `not_dialled` | `no_report` | null {
+  const { closeAfterMs, noReportAfterMs } = fixture.record
+  if (input.ageMs < closeAfterMs) return null
+  if (input.relay === null) return input.ageMs < noReportAfterMs ? null : `no_report`
+  if (input.relay.live) return null
+  if (input.relay.startedAfterMint && !input.relay.sameBoot) return `relay_restarted`
+  return input.rang ? `no_report` : `not_dialled`
+}
 
 export type CallSessionPick = `start` | `resume` | `replace`
 

@@ -363,12 +363,12 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
     // lit fill, the hover wash; the `xsmall` glyph, the truncated label,
     // the fold chevron (`size_3`, muted).
     let chevron = json!({"id": "nav_fold", "component": "Box", "visible": not(eq(path("fold"), json!("none"))), "props": {"pressable": true},
-        "accessibility": {"label": path("foldLabel"), "expanded": path("foldOpen")},
+        "@accessibility": {"label": path("foldLabel"), "expanded": path("foldOpen")},
         "on": {"press": {"event": {"name": "pick", "context": {"key": path("foldKey")}}}},
         "style": {"display": "flex", "flexShrink": 0, "cursor": "pointer"},
         "children": [{"id": "nav_fold_icon", "component": "Icon", "props": {"name": path("chevron")}, "style": {"width": glyph, "height": glyph, "color": p.muted, "flexShrink": 0}}]});
     let row = json!({"id": "nav_row", "component": "Box", "visible": kind("row"), "props": {"pressable": true},
-        "accessibility": {"label": path("label"), "selected": path("lit")},
+        "@accessibility": {"label": path("label"), "selected": path("lit")},
         "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": r(0.5), "paddingLeft": path("indent"), "paddingRight": r(0.5), "paddingVertical": r(0.25),
             "borderRadius": p.radius, "backgroundColor": path("fill"), "cursor": "pointer", ":hover": {"backgroundColor": p.fill_row}},
@@ -380,7 +380,7 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
     let item = json!({"id": "nav_item", "component": "Box",
         "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "marginTop": path("gap")}, "children": [label, row]});
     json!({"id": "nav", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "padding": r(0.5)},
-        "children": [{"id": "nav_list", "component": "List", "accessibility": {"label": "Settings"}, "props": {"gap": "none"},
+        "children": [{"id": "nav_list", "component": "List", "@accessibility": {"label": "Settings"}, "props": {"gap": "none"},
             "template": {"component": "nav_item", "path": "/nav/items", "key": "key"}, "children": [item]}]})
 }
 
@@ -399,7 +399,7 @@ pub(crate) fn back_document(p: &NavPaint) -> Value {
     let side = 16.;
     json!({"id": "back_root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [
-            {"id": "back", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Back"},
+            {"id": "back", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Back"},
                 "on": {"press": {"event": {"name": "back"}}},
                 "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "height": 40, "marginHorizontal": r(0.5), "marginTop": r(0.25), "paddingHorizontal": r(0.5), "gap": r(0.5),
                     "borderRadius": p.radius, "cursor": "pointer", ":hover": {"backgroundColor": p.fill_row}},

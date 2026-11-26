@@ -3,6 +3,8 @@ package com.exponential.app.domain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -199,5 +201,45 @@ class IssueDraftPageTest {
         assertEquals(created, IssueDraftPage.fate(seen = true, present = false, createdIssueId = "issue-1"))
         assertEquals(created, IssueDraftPage.fate(seen = true, present = true, createdIssueId = "issue-1"))
         assertEquals(created, IssueDraftPage.fate(seen = false, present = false, createdIssueId = "issue-1"))
+    }
+
+    // ── #EXP-2125 the board picker ──────────────────────────────────────────
+
+    private fun JsonObject.str(key: String): String? = (getValue(key) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+
+    @Test
+    fun `boards match the fixture`() {
+        for (case in fixture().getValue("boards").jsonArray.map { it.jsonObject }) {
+            val result = IssueDraftPage.boards(
+                teams = case.getValue("teams").jsonArray.map { it.jsonObject }.map { SidebarTree.Team(it.str("id")!!, it.str("name")!!, it.str("kind")!!) },
+                boards = case.getValue("boards").jsonArray.map { it.jsonObject }.map {
+                    IssueDraftPage.Board(it.str("id")!!, it.str("teamId")!!, it.getValue("sortOrder").jsonPrimitive.doubleOrNull)
+                },
+                only = case.str("only"),
+            )
+            val expected = case.getValue("expected").jsonObject
+            assertEquals(case.str("case"), expected.getValue("boards").jsonArray.map { it.jsonPrimitive.content }, result.boards.map { it.id })
+            assertEquals(case.str("case"), expected.getValue("showTeam").jsonPrimitive.boolean, result.showTeam)
+        }
+    }
+
+    @Test
+    fun `picks match the fixture`() {
+        fun fields(row: JsonObject) = IssueDraftPage.PickFields(
+            teamId = row.str("teamId")!!,
+            boardId = row.str("boardId")!!,
+            statusId = row.str("statusId"),
+            labelIds = row.getValue("labelIds").jsonArray.map { it.jsonPrimitive.content },
+            assigneeId = row.str("assigneeId"),
+            assigneeAgentId = row.str("assigneeAgentId"),
+        )
+        for (case in fixture().getValue("picks").jsonArray.map { it.jsonObject }) {
+            val board = case.getValue("board").jsonObject
+            assertEquals(
+                case.str("case"),
+                fields(case.getValue("expected").jsonObject),
+                IssueDraftPage.pick(fields(case.getValue("draft").jsonObject), board.str("id")!!, board.str("teamId")!!, case.str("soleMemberId")),
+            )
+        }
     }
 }

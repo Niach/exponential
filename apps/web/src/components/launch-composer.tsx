@@ -186,6 +186,7 @@ export function LaunchComposer({
         <ComposerAgentRow
           row={model.agentRow}
           onPick={model.pickRecipient}
+          teamOf={model.teamOf}
           disabled={busy}
           className="mb-1"
         />

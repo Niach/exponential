@@ -201,3 +201,31 @@ export function pendingRows(input: { viewerId: string | null; rows: readonly Pen
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((row) => ({ id: row.id, own: input.viewerId !== null && row.authorId === input.viewerId }))
 }
+
+/** ECHOED PENDING (#EXP-2129, `echoedPendingCases`): the not-consumed person
+ *  rows, every person's, whose line the transcript holds already (a woken run
+ *  echoes its input seconds before the device stamps it consumed): the echo
+ *  draws them, never a pending bubble too. */
+export function echoedPending(input: { rows: readonly HandoffRow[]; echoes: readonly HandoffEcho[] }): string[] {
+  const people = input.rows
+    .filter((row) => row.authorKind === `user` && row.authorId != null && row.card == null && row.body.trim() !== ``)
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const oldest = people.find((row) => row.consumedAt == null)
+  if (!oldest || input.echoes.length === 0) return []
+  const since = Date.parse(oldest.createdAt) - MESSAGE_DELIVERY_MATCH_WINDOW_MS
+  const taken = new Set<number>()
+  const echoed: string[] = []
+  for (const row of people) {
+    if (row.consumedAt != null && Date.parse(row.consumedAt) < since) continue
+    const body = row.body.trim()
+    const from = Date.parse(row.createdAt) - MESSAGE_DELIVERY_MATCH_WINDOW_MS
+    const echo = input.echoes.findIndex(
+      (candidate, index) =>
+        !taken.has(index) && candidate.at != null && candidate.at >= from && echoMatches(candidate.text, body, row.authorId!)
+    )
+    if (echo < 0) continue
+    taken.add(echo)
+    if (row.consumedAt == null) echoed.push(row.id)
+  }
+  return echoed
+}

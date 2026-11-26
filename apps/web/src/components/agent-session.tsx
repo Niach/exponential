@@ -224,7 +224,7 @@ import {
   useSessionOutbox,
   type WebOutboxEntry,
 } from "@/hooks/use-session-outbox"
-import { sessionOwnHandoff } from "@/lib/own-handoff"
+import { pendingChatRows, sessionEchoedPending, sessionOwnHandoff } from "@/lib/own-handoff"
 import {
   MESSAGE_DELIVERY_COPY,
   bubbleActions,
@@ -285,6 +285,7 @@ import {
   steerNoFeedInputs,
   steerNoFeedState,
   steerOfflineLine,
+  steerTailUnreachable,
 } from "@exp/domain-contract/steer-enet"
 import { syncedTailMessages } from "@/lib/steer-synced-tail"
 
@@ -641,9 +642,11 @@ export function AgentSessionView({
       }),
     [chatRows, handoff.order]
   )
+  // #EXP-2129 (ECHOED PENDING): what a restarted run echoed already.
+  const echoedIds = useMemo(() => sessionEchoedPending({ rows: handoffInput, feed }), [handoffInput, feed])
   const queuedRows = useMemo(
-    () => chatRows.filter((row) => row.type === `message` && !sentInputIds.has(row.id) && !handoff.ids.has(row.id)),
-    [chatRows, sentInputIds, handoff.ids]
+    () => pendingChatRows(chatRows, { sent: sentInputIds, held: handoff.ids, echoed: echoedIds }),
+    [chatRows, sentInputIds, handoff.ids, echoedIds]
   )
   const sentRows = useMemo(() => chatRows.filter((row) => sentInputIds.has(row.id)), [chatRows, sentInputIds])
   // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
@@ -891,8 +894,12 @@ export function AgentSessionView({
         messages: sessionMessages.map(toTreeMessage),
         max: Number.POSITIVE_INFINITY,
         // An EMPTY feed takes it only while the live transcript cannot be
-        // loaded (the OFFLINE LINE's condition).
-        unreachable: sessionEnded ? deviceOffline && phase.kind === `ended` : device.online === false,
+        // loaded (#EXP-2138: the last dial said NO FEED, whatever the row).
+        unreachable: steerTailUnreachable({
+          ended: sessionEnded,
+          noFeed: phase.kind === `starting` || (deviceOffline && phase.kind === `ended`),
+          deviceOffline: device.online === false,
+        }),
       })
         .map((message) => message.id)
         .filter((id) => !handoff.ids.has(id)),

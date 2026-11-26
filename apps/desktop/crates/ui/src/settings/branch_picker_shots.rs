@@ -64,7 +64,7 @@ fn document(state: PickerState) -> serde_json::Value {
     json!({"id": "branch", "component": "Select",
         "props": {"triggerVariant": "pill", "name": "branch", "value": "main", "searchable": true, "searchPlaceholder": "Search branches...",
             "emptyText": "No branches found.", "loading": state == PickerState::Loading, "disabled": state == PickerState::Disabled,
-            "accessibility": {"label": "Default branch for acme/web"}, "options": options},
+            "@accessibility": {"label": "Default branch for acme/web"}, "options": options},
         "on": {"open": {"event": {"name": "branches"}}}})
 }
 

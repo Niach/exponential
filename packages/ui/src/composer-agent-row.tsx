@@ -4,8 +4,10 @@ import { agentGlyph } from "./board-icons"
 import { cn } from "./cn"
 import { ExponentialLogo } from "./exponential-logo"
 import { conceptIcon } from "./icons.generated"
+import { TeamCorner, type RowTeam } from "./team-avatar"
 import {
   COMPOSER_AGENT_ROW,
+  composerAgentTeamMarks,
   TEMPORARY_PICK,
   type ComposerAgentRowState,
 } from "@exp/domain-contract/composer-agent-row"
@@ -35,6 +37,7 @@ export interface ComposerAgentRowAgent {
   sortOrder: number
   role?: string | null
   ownerId: string
+  teamId?: string | null
 }
 
 export function composerAgentOptionTestId(id: string): string {
@@ -44,14 +47,19 @@ export function composerAgentOptionTestId(id: string): string {
 export function ComposerAgentRow<T extends ComposerAgentRowAgent>({
   row,
   onPick,
+  teamOf,
   disabled,
   className,
 }: {
   row: ComposerAgentRowState<T>
   onPick: (id: string) => void
+  /** #EXP-2136: the team of an agent, its mark on the circles another team's
+   *  agent shares the name of (`agentRow.teamMarkCases`). */
+  teamOf?: (teamId: string) => RowTeam | null | undefined
   disabled?: boolean
   className?: string
 }) {
+  const marked = composerAgentTeamMarks(row.agents.map((agent) => ({ ...agent, teamId: agent.teamId ?? `` })))
   return (
     <div data-testid={testIds.row} className={cn(`flex min-w-0 flex-col`, className)} style={{ gap: labelToRow }}>
       <span data-testid={testIds.label} className="px-1 text-xs text-muted-foreground">
@@ -60,7 +68,11 @@ export function ComposerAgentRow<T extends ComposerAgentRowAgent>({
       <div
         role="radiogroup"
         aria-label={row.label}
-        className="flex min-w-0 items-center overflow-x-auto px-1 py-[3px] [scrollbar-width:none]"
+        className={cn(
+          `flex min-w-0 items-center overflow-x-auto px-1 py-[3px] [scrollbar-width:none]`,
+          // The marks hang 4 px out of their circles.
+          marked.length > 0 && `pb-1`
+        )}
         style={{ gap }}
       >
         {row.agents.map((agent) => (
@@ -68,6 +80,7 @@ export function ComposerAgentRow<T extends ComposerAgentRowAgent>({
             key={agent.id}
             id={agent.id}
             name={agent.name}
+            team={marked.includes(agent.id) && agent.teamId ? teamOf?.(agent.teamId) : null}
             selected={row.selected === agent.id}
             disabled={disabled}
             onPick={onPick}
@@ -100,6 +113,7 @@ export function ComposerAgentRow<T extends ComposerAgentRowAgent>({
 export function AgentCircle({
   id,
   name,
+  team,
   selected,
   disabled,
   onPick,
@@ -107,6 +121,8 @@ export function AgentCircle({
 }: {
   id: string
   name: string
+  /** Its team's mark, bottom right (nav-badges.json `teamMark`). */
+  team?: RowTeam | null
   selected: boolean
   disabled?: boolean
   onPick: (id: string) => void
@@ -117,8 +133,8 @@ export function AgentCircle({
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-label={name}
-      title={name}
+      aria-label={team ? `${name}, ${team.name}` : name}
+      title={team ? `${name}, ${team.name}` : name}
       disabled={disabled}
       data-testid={composerAgentOptionTestId(id)}
       data-selected={selected || undefined}
@@ -134,6 +150,7 @@ export function AgentCircle({
         <span aria-hidden className="pointer-events-none absolute -inset-px rounded-full border border-glass-stroke" />
       )}
       <span className="flex size-full items-center justify-center rounded-full bg-muted">{children}</span>
+      {team && <TeamCorner team={team} lead={size} />}
     </button>
   )
 }

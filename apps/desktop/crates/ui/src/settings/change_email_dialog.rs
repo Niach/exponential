@@ -469,7 +469,7 @@ struct Chrome {
 fn sm_button(ink: &Ink, id: &str, glyph: Option<Value>, label: Value, fill: &str, stroke: Option<&str>, fg: &str, event: &str, radius: f32) -> Value {
     let size = ink.r(SM);
     let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}});
-    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
         "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
     if let Some(stroke) = stroke {
@@ -495,7 +495,7 @@ fn field(ink: &Ink, id: &str, label: &str, placeholder: &str, visible: Value) ->
 fn text_link(ink: &Ink, id: &str, label: &str, event: &str) -> Value {
     let mut text = ink.text(&format!("{id}_text"), json!(label), XS, &ink.muted);
     text["style"][":hover"] = json!({"textDecoration": "underline"});
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}}, "style": {"cursor": "pointer"}, "children": [text]})
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}}, "style": {"cursor": "pointer"}, "children": [text]})
 }
 
 /// The dialog's tree (`gap_4`): the body (`gap_3`: the step's description,

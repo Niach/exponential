@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `FfiVisual.background_image_json` (genUI round 4): the resolved `backgroundImage`; `background_gradient_json` carries `kind: radial` + `centre [x, y]`.
+- **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): every component and nested JSON writes `@catalogId`, `@accessibility`, `@metadata`, `@checks`.
+- `answer_renderer_call_json(op_json, data_json, available_catalog_ids)` (#VAPP-289): the `rendererFunctionResponse` of a router `call` op.
 - #VAPP-300: `Surface.set_streaming(on) -> changed` + `Surface.streaming()` (an Express block is still streaming the surface: a child not streamed yet renders as nothing), `reduce_surface_streaming_json(…, streaming)`; the decoders' JSON carries `open` (the surfaces whose block is still open). The facade, Swift and Kotlin suites replay `expressOpen` and the `streaming-*` reduce cases. Bindings regenerated.
 - Express (#AXC-12, #VAPP-297; eui-core `express` always on): `ExpressDecoder(wrapped, surface_id)` (push / end → `{messages, issues, text?}`, the prose in `text`), `SseDecoder.with_surface(surface_id)` (`a2ui-express` events = one Express response), `FrameDecoder(surface_id)` (`{"express": …}` WebSocket frames), `messages_from_mcp_result_with_json(result, surface_id)`, `inference_format_of(content_type)`, `express_frame_chunk(frame)`, `renderer_capabilities_with_json(…, inference_formats)`, `compile_express_json` / `decompile_express_json`, `express_prompt()` (plain text; `Invalid` without `descriptions`). The facade, Swift and Kotlin suites replay `express-roundtrip.json` and `host-transport.json` `express*`. Bindings regenerated.
 - `Surface.set_forced_states(forced: {id: [state]}) -> [dropped]` and `Surface.forced_states_of(id)` (#EXP-1781): the host's forced interaction states, paint only (`dropped` sorted by id). Bindings regenerated.

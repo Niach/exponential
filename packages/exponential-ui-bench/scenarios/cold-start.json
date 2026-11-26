@@ -589,21 +589,21 @@
                 "value": {
                   "@path": "/draft/title"
                 },
-                "checks": [
-                  {
-                    "condition": {
-                      "@call": "required",
-                      "args": {
-                        "value": {
-                          "@path": "/draft/title"
-                        }
-                      }
-                    },
-                    "message": "A title is required"
-                  }
-                ],
                 "validateOn": "blur"
-              }
+              },
+              "@checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/draft/title"
+                      }
+                    }
+                  },
+                  "message": "A title is required"
+                }
+              ]
             },
             {
               "id": "form_body",
@@ -2860,23 +2860,23 @@
                 },
                 "min": 1,
                 "max": 50,
-                "unit": "seats",
-                "checks": [
-                  {
-                    "condition": {
-                      "@call": "numeric",
-                      "args": {
-                        "value": {
-                          "@path": "/form/seats"
-                        },
-                        "min": 1,
-                        "max": 50
-                      }
-                    },
-                    "message": "Between 1 and 50"
-                  }
-                ]
-              }
+                "unit": "seats"
+              },
+              "@checks": [
+                {
+                  "condition": {
+                    "@call": "numeric",
+                    "args": {
+                      "value": {
+                        "@path": "/form/seats"
+                      },
+                      "min": 1,
+                      "max": 50
+                    }
+                  },
+                  "message": "Between 1 and 50"
+                }
+              ]
             },
             {
               "id": "nf_stack",

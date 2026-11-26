@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/session-brief.json" with { type: "json" }
-import { agentForwardText, composeBrief, composeIssueBrief, withIssueBrief } from "./session-brief"
+import { agentForwardText, briefAwaitsMessage, composeBrief, composeIssueBrief, withIssueBrief } from "./session-brief"
 
 describe(`session brief fixture (EXP-1291)`, () => {
   for (const entry of fixture.callCases) {
@@ -14,6 +14,12 @@ describe(`session brief fixture (EXP-1291)`, () => {
       expect(composeBrief(entry.input as never)).toBe(entry.expected)
     })
   }
+  for (const entry of fixture.awaitsCases) {
+    test(`awaits (#EXP-2142): ${entry.name}`, () => {
+      expect(briefAwaitsMessage(entry.input as never, { conversation: entry.conversation, sealedText: entry.sealedText })).toBe(entry.expected)
+    })
+  }
+
   for (const entry of fixture.issueBriefCases) {
     test(`issue brief: ${entry.name}`, () => {
       expect(composeIssueBrief(entry.input as never)).toBe(entry.expected)

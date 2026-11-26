@@ -646,12 +646,14 @@ pub fn linked_text(cx: &LeafCx, segments: Vec<eui_core::host::TextLink>, host: R
 
 /// A Link: underlined label (`letterSpacing` painted per glyph, as
 /// measured).
-/// A `Link`: underlined when the URL policy allows its href; a denied one
+/// A `Link`: underlined unless the URL policy denies its href (no href =
+/// a press-only link, underlined too); a denied one
 /// paints as plain text (the press opens nothing: `HostPlugin::open_url`).
 pub fn link(cx: &LeafCx) -> AnyElement {
     let label = if cx.str("label").is_empty() { cx.str("href") } else { cx.str("label") };
     let shown = crate::text::transform(label, cx.style.text_transform.as_deref()).into_owned();
-    let allowed = eui_core::host::safe_href(cx.host.url_policy().as_ref(), cx.str("href")).is_some();
+    // Round 4: a press-only Link (no href) is a link too: underlined, as on web and Compose.
+    let allowed = cx.str("href").is_empty() || eui_core::host::safe_href(cx.host.url_policy().as_ref(), cx.str("href")).is_some();
     if !allowed {
         return cx.row(cx.content()).items_center().justify_center().whitespace_nowrap().child(SharedString::from(shown)).into_any_element();
     }

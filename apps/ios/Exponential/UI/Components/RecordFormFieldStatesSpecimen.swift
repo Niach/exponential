@@ -20,7 +20,7 @@ struct RecordFormFieldStatesSpecimen: View {
 
     private static func make() -> SurfaceModel? {
         let inputs = fields.map { id, label, value, path in
-            #"{"id":"\#(id)","component":"Input","props":{"label":"\#(label)","name":"\#(id)","value":"\#(value)","validateOn":"blur","checks":[{"condition":{"@path":"\#(path)"}}]}}"#
+            #"{"id":"\#(id)","component":"Input","props":{"label":"\#(label)","name":"\#(id)","value":"\#(value)","validateOn":"blur"}, "@checks": [{"condition":{"@path":"\#(path)"}}]}"#
         }
         let json = #"{"id":"field-states","component":"Stack","props":{"gap":"md"},"children":[\#(inputs.joined(separator: ","))]}"#
         guard let m = try? SurfaceModel(id: "sg-field-states", options: SurfaceOptions(theme: ThemeHandle.builtin("exponential"), mode: .dark), host: NoHost()) else { return nil }

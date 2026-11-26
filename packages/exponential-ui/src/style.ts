@@ -19,6 +19,8 @@ interface KeySpec {
   group?: string
   rootOnly?: boolean
   layoutEffect?: boolean
+  /** Refused inside a condition block (`backgroundImage`). */
+  baseOnly?: boolean
 }
 
 const LAYOUT = styleJson.layout as Record<string, KeySpec>
@@ -54,10 +56,19 @@ type Distribute = Align | `space-between` | `space-around` | `space-evenly`
 type Overflow = `visible` | `hidden` | `clip` | `scroll` | `auto`
 
 /** A gradient painted over `backgroundColor`: CSS angle (0 = up, 90 = right)
- *  and colour stops at 0..1 offsets. */
-export interface Gradient {
-  angle: number
-  stops: { color: Color; offset: number }[]
+ *  and colour stops at 0..1 offsets; `kind: radial` = a circle about
+ *  `centre` (fractions of the box) out to the farthest corner. */
+export type Gradient =
+  | { kind?: `linear`; angle: number; stops: { color: Color; offset: number }[] }
+  | { kind: `radial`; angle?: number; centre?: { x: number; y: number }; stops: { color: Color; offset: number }[] }
+
+/** genUI round 4: a picture behind the children (base style only). */
+export interface BackgroundImage {
+  src: string
+  fit?: `cover` | `contain`
+  focalX?: number
+  focalY?: number
+  scrim?: { color: Color; opacity: number }
 }
 
 /** Typed keys = editor autocomplete + a compile error for anything else. */
@@ -125,6 +136,7 @@ export interface StyleProps {
   gridRow?: string
   backgroundColor?: Color
   backgroundGradient?: Gradient
+  backgroundImage?: BackgroundImage
   color?: Color
   borderWidth?: number | `$border.${string}`
   borderTopWidth?: number | `$border.${string}`
@@ -202,19 +214,57 @@ function colorOk(value: unknown): boolean {
   return tokenOk(value, new Set([`color`]))
 }
 
+const unit = (v: unknown): boolean => typeof v === `number` && Number.isFinite(v) && v >= 0 && v <= 1
+const onlyKeys = (o: Record<string, unknown>, keys: readonly string[]): boolean => Object.keys(o).every((k) => keys.includes(k))
+
 function gradientError(key: string, value: unknown): string | null {
   const bad = `${key}: expected {angle, stops: [{color, offset 0..1}, …]} with two or more stops`
   if (typeof value !== `object` || value === null || Array.isArray(value)) return bad
   const g = value as Record<string, unknown>
-  if (typeof g.angle !== `number` || !Number.isFinite(g.angle)) return bad
-  if (!Array.isArray(g.stops) || g.stops.length < 2) return bad
-  for (const stop of g.stops) {
-    if (typeof stop !== `object` || stop === null) return bad
-    const s = stop as Record<string, unknown>
-    if (!colorOk(s.color)) return bad
-    if (typeof s.offset !== `number` || s.offset < 0 || s.offset > 1) return bad
+  const radial = g.kind === `radial`
+  if (radial) {
+    const badRadial = `${key}: expected {kind: radial, centre?: {x, y 0..1}, stops: [{color, offset 0..1}, …]} with two or more stops`
+    if (g.angle !== undefined && (typeof g.angle !== `number` || !Number.isFinite(g.angle))) return badRadial
+    if (g.centre !== undefined) {
+      const c = g.centre
+      if (typeof c !== `object` || c === null || Array.isArray(c)) return badRadial
+      const o = c as Record<string, unknown>
+      if (!unit(o.x) || !unit(o.y) || !onlyKeys(o, [`x`, `y`])) return badRadial
+    }
+    if (!onlyKeys(g, [`kind`, `angle`, `centre`, `stops`])) return badRadial
+    return stopsOk(g.stops) ? null : badRadial
   }
-  for (const k of Object.keys(g)) if (k !== `angle` && k !== `stops`) return bad
+  if (g.kind !== undefined && g.kind !== `linear`) return `${key}: kind expected one of linear|radial`
+  if (typeof g.angle !== `number` || !Number.isFinite(g.angle)) return bad
+  if (!stopsOk(g.stops)) return bad
+  if (!onlyKeys(g, [`kind`, `angle`, `stops`])) return bad
+  return null
+}
+
+function stopsOk(stops: unknown): boolean {
+  if (!Array.isArray(stops) || stops.length < 2) return false
+  return stops.every((stop) => {
+    if (typeof stop !== `object` || stop === null) return false
+    const s = stop as Record<string, unknown>
+    return colorOk(s.color) && typeof s.offset === `number` && s.offset >= 0 && s.offset <= 1
+  })
+}
+
+/** genUI round 4: `backgroundImage` {src, fit?, focalX?, focalY?, scrim?}. */
+function backgroundImageError(key: string, value: unknown): string | null {
+  const bad = `${key}: expected {src, fit?: cover|contain, focalX?/focalY? 0..1, scrim?: {color: $color.<name>, opacity 0..1}}`
+  if (typeof value !== `object` || value === null || Array.isArray(value)) return bad
+  const b = value as Record<string, unknown>
+  if (typeof b.src !== `string` || b.src.length === 0) return bad
+  if (b.fit !== undefined && b.fit !== `cover` && b.fit !== `contain`) return bad
+  if ((b.focalX !== undefined && !unit(b.focalX)) || (b.focalY !== undefined && !unit(b.focalY))) return bad
+  if (b.scrim !== undefined) {
+    const sc = b.scrim
+    if (typeof sc !== `object` || sc === null || Array.isArray(sc)) return bad
+    const o = sc as Record<string, unknown>
+    if (!colorOk(o.color) || !unit(o.opacity) || !onlyKeys(o, [`color`, `opacity`])) return bad
+  }
+  if (!onlyKeys(b, [`src`, `fit`, `focalX`, `focalY`, `scrim`])) return bad
   return null
 }
 
@@ -241,6 +291,8 @@ function valueError(key: string, value: unknown): string | null {
       return `${key}: expected $color.<name>`
     case `gradient`:
       return gradientError(key, value)
+    case `backgroundImage`:
+      return backgroundImageError(key, value)
     case `token`:
       if (tokenOk(value, new Set([spec.group ?? ``]))) return null
       return `${key}: expected $${spec.group}.<name>`
@@ -309,6 +361,10 @@ export function validateStyle(
       }
       if (SPEC[key].rootOnly && options.root === false)
         issues.push({ path: `${at}.${key}`, message: `allowed on the root only` })
+      if (SPEC[key].baseOnly && nested) {
+        issues.push({ path: `${at}.${key}`, message: `${key}: base style only, never in a condition block` })
+        continue
+      }
       const error = valueError(key, value)
       if (error) issues.push({ path: `${at}.${key}`, message: error })
     }

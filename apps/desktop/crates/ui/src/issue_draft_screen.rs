@@ -1469,6 +1469,24 @@ impl IssueDraftView {
         vec![create.into_any_element()]
     }
 
+    /// The board chip's pick; the draft it moved.
+    fn pick_board(&mut self, board_id: String, cx: &mut gpui::Context<Self>) -> Option<String> {
+        let parts = self.parts.as_mut()?;
+        parts.target.board_id = board_id.clone();
+        let draft_id = parts.target.draft_id.clone();
+        // #EXP-2125: a board of another team moves the draft there, in place.
+        let team_id = Store::global(cx).collections().boards.read(cx).get(&board_id).map(|board| board.team_id.clone());
+        if let Some(team_id) = team_id.filter(|team_id| *team_id != parts.target.team_id) {
+            parts.target.team_id = team_id.clone();
+            let (description, props) = (parts.description.clone(), parts.props.clone());
+            description.update(cx, |description, cx| description.set_team(team_id.clone(), cx));
+            props.update(cx, |props, cx| props.move_team(team_id, cx));
+        }
+        self.save_now(cx);
+        cx.notify();
+        Some(draft_id)
+    }
+
     /// The property tray: the [`IssueDraft`] chips plus the board chip.
     fn tray(&self, parts: &DraftParts, cx: &mut gpui::Context<Self>) -> AnyElement {
         let mut chips = parts.props.update(cx, |props, cx| props.chips("draft", cx));
@@ -1482,23 +1500,13 @@ impl IssueDraftView {
             let view = cx.entity().downgrade();
             let on_pick: Rc<dyn Fn(String, &mut Window, &mut App)> =
                 Rc::new(move |board_id, window, cx| {
-                    let draft_id = view
-                        .update(cx, |this, cx| {
-                            let parts = this.parts.as_mut()?;
-                            parts.target.board_id = board_id.clone();
-                            let draft_id = parts.target.draft_id.clone();
-                            this.save_now(cx);
-                            cx.notify();
-                            Some(draft_id)
-                        })
-                        .ok()
-                        .flatten();
+                    let draft_id = view.update(cx, |this, cx| this.pick_board(board_id.clone(), cx)).ok().flatten();
                     // The screen follows the pick, so `active_board_id` does.
                     if let Some(draft_id) = draft_id {
                         crate::navigation::set_draft_board(window, cx, &draft_id, &board_id);
                     }
                 });
-            chips.extend(IssueDraft::board_chip("draft", &board, on_pick, cx));
+            chips.extend(IssueDraft::board_chip("draft", &board, parts.target.chat_id.is_some().then(|| board.team_id.clone()), on_pick, cx));
         }
         // EXP-1284: the chat this issue files into, "In <chat>".
         if let Some(chat_id) = parts.target.chat_id.as_deref() {
@@ -1763,5 +1771,107 @@ mod tests {
         let specimen = leave_alert(|_, _| true, |_, _| true, |_, _| true);
         assert!(!specimen.is_ok_disabled());
         assert_eq!(specimen.enter_answer(), AlertEnter::Ok);
+    }
+
+    fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(collection: &Entity<sync::Collection<T>>, rows: serde_json::Value, cx: &mut App) {
+        collection.update(cx, |c, cx| {
+            for row in rows.as_array().unwrap() {
+                let row: T = serde_json::from_value(row.clone()).unwrap();
+                c.seed(row.key(), row);
+            }
+            cx.notify();
+        });
+    }
+
+    /// #EXP-2125 (issue-draft.json `picks`): a board of ANOTHER team keeps
+    /// the draft (id, title, description, priority, due date), drops what
+    /// belongs to the old team (status, labels, assignee), and the upsert
+    /// names the new team; a board of the same team moves the board alone.
+    #[gpui::test]
+    fn another_teams_board_moves_the_draft_there(cx: &mut gpui::TestAppContext) {
+        use serde_json::json;
+        const DRAFT: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("accounts.json"),
+            // A closed port: a write fails at once and never leaves the machine.
+            json!({"accounts": [{"id": "acc", "instanceUrl": "http://127.0.0.1:9", "userId": "u1", "email": "me@example.test", "name": "Me"}]}).to_string(),
+        )
+        .unwrap();
+        let db = dir.path().join("local.sqlite");
+        let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+        let data = dir.path().to_path_buf();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            crate::init(cx);
+            cx.set_global(crate::AuthContext { auth: api::AuthStore::load(data.clone()), client: std::sync::Arc::new(api::AuthClient::new()), data_dir: data });
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            Store::global(cx).clone().connect_local("acc", &db, rx, cx).unwrap();
+            let c = Store::global(cx).collections().clone();
+            seed(&c.teams, json!([{"id": "t1", "name": "One", "slug": "one"}, {"id": "t2", "name": "Two", "slug": "two"}]), cx);
+            seed(&c.boards, json!([
+                {"id": "b1", "team_id": "t1", "name": "App", "slug": "app", "prefix": "APP", "sort_order": 1},
+                {"id": "b1b", "team_id": "t1", "name": "Site", "slug": "site", "prefix": "SITE", "sort_order": 2},
+                {"id": "b2", "team_id": "t2", "name": "Ops", "slug": "ops", "prefix": "OPS", "sort_order": 1},
+            ]), cx);
+            seed(&c.users, json!([{"id": "u1", "name": "Me"}, {"id": "u2", "name": "Other"}]), cx);
+            seed(&c.team_members, json!([
+                {"id": "m1", "team_id": "t1", "user_id": "u1"}, {"id": "m2", "team_id": "t1", "user_id": "u2"},
+                {"id": "m3", "team_id": "t2", "user_id": "u1"}, {"id": "m4", "team_id": "t2", "user_id": "u2"},
+            ]), cx);
+            seed(&c.issue_statuses, json!([
+                {"id": "s1-todo", "team_id": "t1", "category": "unstarted", "name": "Next", "sort_order": 2},
+                {"id": "s2-backlog", "team_id": "t2", "category": "backlog", "name": "Backlog", "sort_order": 1, "builtin_key": "backlog"},
+            ]), cx);
+            seed(&c.labels, json!([{"id": "l1", "team_id": "t1", "name": "Bug"}]), cx);
+            seed(&c.issue_drafts, json!([{
+                "id": DRAFT, "user_id": "u1", "team_id": "t1", "board_id": "b1", "title": "Keep me", "description": "The body",
+                "status_id": "s1-todo", "priority": "high", "assignee_id": "u2", "label_ids": ["l1"], "due_date": "2026-12-01",
+            }]), cx);
+        });
+        cx.run_until_parked();
+        let slot = Rc::new(RefCell::new(None));
+        let (_root, vcx) = cx.add_window_view({
+            let slot = slot.clone();
+            move |window, cx| {
+                let view = cx.new(|cx| IssueDraftView::new(window, cx));
+                *slot.borrow_mut() = Some(view.clone());
+                gpui_component::Root::new(view, window, cx)
+            }
+        });
+        let view = slot.borrow().clone().expect("the view was built");
+        vcx.update(|window, cx| view.update(cx, |view, cx| view.set_draft(DRAFT.into(), "b1".into(), None, window, cx)));
+        vcx.run_until_parked();
+        let before = view.read_with(vcx, |view, cx| view.snapshot(cx).expect("the draft is up"));
+        assert_eq!((before.team_id.as_str(), before.status_id.as_deref(), before.assignee_id.as_deref()), ("t1", Some("s1-todo"), Some("u2")));
+        assert_eq!(before.label_ids, ["l1"]);
+
+        // The same team's other board: the board alone.
+        let pick = |board: &str, vcx: &mut gpui::VisualTestContext| {
+            let sent = vcx.update(|_, cx| {
+                assert_eq!(view.update(cx, |view, cx| view.pick_board(board.into(), cx)).as_deref(), Some(DRAFT));
+                view.read(cx).parts.as_ref().unwrap().editor.read(cx).sent_for_test().expect("an upsert went out").to_input()
+            });
+            vcx.run_until_parked();
+            sent
+        };
+        let same = pick("b1b", vcx);
+        assert_eq!((same.team_id.as_str(), same.board_id.as_str()), ("t1", "b1b"));
+        assert_eq!((same.status_id.as_deref(), same.assignee_id.as_deref()), (Some("s1-todo"), Some("u2")));
+        assert_eq!(same.label_ids, ["l1"]);
+
+        // Another team's: the draft moves there, in place.
+        let moved = pick("b2", vcx);
+        assert_eq!((moved.id.as_str(), moved.team_id.as_str(), moved.board_id.as_str()), (DRAFT, "t2", "b2"));
+        assert_eq!((moved.title.as_str(), moved.description.trim()), ("Keep me", "The body"));
+        assert_eq!((moved.priority, moved.due_date.as_deref()), (Some(domain::IssuePriority::High), Some("2026-12-01")));
+        assert_eq!((moved.status_id.as_deref(), moved.assignee_id.as_deref(), moved.assignee_agent_id.as_deref()), (Some("s2-backlog"), None, None));
+        assert_eq!(moved.label_ids, Vec::<String>::new());
+        // What the page shows is what went out.
+        let after = view.read_with(vcx, |view, cx| view.snapshot(cx).expect("the draft stays up"));
+        assert_eq!((after.id.as_str(), after.team_id.as_str(), after.title.as_str()), (DRAFT, "t2", "Keep me"));
+        view.read_with(vcx, |view, cx| assert_eq!(view.parts.as_ref().unwrap().props.read(cx).team_id, "t2"));
     }
 }

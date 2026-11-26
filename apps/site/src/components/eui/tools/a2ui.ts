@@ -14,7 +14,10 @@ export interface Nested {
   props?: Record<string, unknown>
   style?: Record<string, unknown>
   on?: Record<string, unknown>
-  accessibility?: Record<string, unknown>
+  "@catalogId"?: string
+  "@accessibility"?: Record<string, unknown>
+  "@metadata"?: Record<string, unknown>
+  "@checks"?: unknown
   children?: Nested[]
   slots?: Record<string, Nested>
   template?: { component: string; path: string }
@@ -50,7 +53,7 @@ export function flatten(tree: Nested, rootId = `root`): Flat[] {
     if (n.slots && Object.keys(n.slots).length) flat.slots = Object.fromEntries(Object.entries(n.slots).map(([k, v]) => [k, v.id]))
     if (n.on) flat.on = n.on
     if (n.style) flat.style = n.style
-    if (n.accessibility) flat.accessibility = n.accessibility
+    for (const key of [`@catalogId`, `@accessibility`, `@metadata`, `@checks`] as const) if (n[key] !== undefined) flat[key] = n[key]
     out.push(flat)
     if (!n.template) for (const c of n.children ?? []) walk(c, c.id)
     for (const s of Object.values(n.slots ?? {})) walk(s, s.id)

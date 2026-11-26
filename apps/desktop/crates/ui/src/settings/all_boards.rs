@@ -556,7 +556,7 @@ fn board_row(ink: &Ink, list: &str, put_away: Option<&str>, purge: Option<&str>)
         "children": children});
     if put_away.is_none() {
         row["props"] = json!({"pressable": true});
-        row["accessibility"] = json!({"label": path("name")});
+        row["@accessibility"] = json!({"label": path("name")});
         row["on"] = json!({"press": {"event": {"name": "open", "context": {"key": path("key")}}}});
         row["style"]["cursor"] = json!("pointer");
     }

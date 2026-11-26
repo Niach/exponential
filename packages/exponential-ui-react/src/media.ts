@@ -6,7 +6,8 @@
 // as is, a denied one is a failed load.
 
 import { useEffect, useState } from "react"
-import { openMediaSource, type MediaKind } from "@exponential_app/eui/web"
+import { backgroundImageVar, decodePicture, imageSourceOf, openMediaSource, type MediaKind } from "@exponential_app/eui/web"
+import type { ResolvedTheme } from "@exponential_app/eui"
 import type { HostPlugin } from "./host"
 
 export { clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, MEDIA_CACHE_IDLE_MAX } from "@exponential_app/eui/web"
@@ -44,4 +45,28 @@ export function useMediaSource(host: HostPlugin, src: string, kind: MediaKind = 
  *  (or after it failed). */
 export function useMediaSrc(host: HostPlugin, src: string, kind: MediaKind = `image`): string | undefined {
   return useMediaSource(host, src, kind).url
+}
+
+/** genUI round 4: a Box's `backgroundImage` (theme-css paints the layers):
+ *  the `--xui-bgi` variable for its element, the placeholder fill until
+ *  the picture decoded (loading, failed, refused by the host's image-source
+ *  rule, no src), then its url; undefined = the node has no picture. */
+export function useBackgroundImage(host: HostPlugin, theme: ResolvedTheme, src: string | null): Record<string, string> | undefined {
+  const allowed = src !== null && src !== `` && imageSourceOf(host, src, ``).kind === `load`
+  const media = useMediaSource(host, allowed ? src : ``)
+  const url = allowed && !media.error ? media.url : undefined
+  const [decoded, setDecoded] = useState<string | null>(null)
+  useEffect(() => {
+    if (!url) return
+    let live = true
+    decodePicture(url).then(
+      () => live && setDecoded(url),
+      () => live && setDecoded(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [url])
+  if (src === null) return undefined
+  return backgroundImageVar(url, decoded === url && url !== undefined, theme)
 }

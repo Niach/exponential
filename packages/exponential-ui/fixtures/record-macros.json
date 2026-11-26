@@ -2154,7 +2154,7 @@
             "icon": "ui-delete",
             "variant": "ghost",
             "size": "icon",
-            "accessibility": {
+            "@accessibility": {
               "label": "$string.delete"
             },
             "on": {

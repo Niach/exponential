@@ -946,7 +946,7 @@ pub(super) fn outline_button(ink: &Ink, chrome: &Chrome, id: &str, label: &str, 
     // Disabled: the face at half (one layer at half opacity: a `#rrggbbaa`
     // alpha byte can't say the half of a faint fill).
     let (fill, stroke, fg) = if off { ("#00000000", "#00000000", &chrome.outline_fg_off) } else { (chrome.outline_fill.as_str(), chrome.outline_stroke.as_str(), &chrome.outline_fg) };
-    let mut button = json!({"id": id, "component": "Box", "accessibility": {"label": label},
+    let mut button = json!({"id": id, "component": "Box", "@accessibility": {"label": label},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": stroke, "backgroundColor": fill},
         "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": label}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}}]});
     if off {
@@ -1054,7 +1054,7 @@ fn top_document(ink: &Ink, _chrome: &Chrome) -> Value {
 /// 28 px `glass_input` frame with the glyph inside and the clear once there
 /// is text; Box, Icon and a `bare` Input.
 pub(super) fn filter_field(ink: &Ink, chrome: &Chrome) -> Value {
-    let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
+    let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": ink.r(1.25), "height": ink.r(1.25), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.ghost_hover}},
         "children": [glyph("clear_icon", json!("ui-clear"), ink.r(0.75), &ink.muted)]});
     let clear = json!({"id": "clear_tip", "component": "Tooltip", "visible": path("/pane/builtin/hasFilter"), "props": {"content": "Clear search"}, "children": [clear_box]});
@@ -1070,7 +1070,7 @@ pub(super) fn filter_field(ink: &Ink, chrome: &Chrome) -> Value {
     // The open Exponential row's FIRST line: the box at the tools' indent,
     // never inside a list (the ONE field keeps its focus while the bands
     // under it filter).
-    json!({"id": "filter_box", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": BUILTIN_FILTER}, "on": {"press": {"event": {"name": "focusFilter"}}},
+    json!({"id": "filter_box", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": BUILTIN_FILTER}, "on": {"press": {"event": {"name": "focusFilter"}}},
         "style": {"position": "relative", "display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "width": FILTER_W, "height": eui_gpui::controls::SEARCH_FIELD_SM_H, "paddingHorizontal": 9, "gap": 4},
         "children": [
             frame("filter_frame", &chrome.field_stroke, path("/pane/builtin/filterIdle")),
@@ -1213,7 +1213,7 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     activity_label["style"]["minWidth"] = json!(0);
     let mut activity_style = row_style(ink);
     activity_style["cursor"] = json!("pointer");
-    let activity = json!({"id": "activity", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": SETTINGS_MCP.activity}, "on": {"press": {"event": {"name": "activity"}}},
+    let activity = json!({"id": "activity", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": SETTINGS_MCP.activity}, "on": {"press": {"event": {"name": "activity"}}},
         "style": activity_style, "children": [activity_label, glyph("activity_chevron", json!("ui-chevron-right"), glyph16, &ink.muted)]});
     let groups = json!({"id": "access_groups", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "width": "100%", "minWidth": 0},
         "children": [list("access_rows", json!(true), "/pane/access/rows", access_row), activity]});

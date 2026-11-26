@@ -178,18 +178,16 @@ function stripComments(value: unknown): unknown {
  *  with zero diffs, and the reduced tree keeps its node count. */
 /** A nested fixture → the A2UI wire list (the nested form's `template`
  *  becomes `children: {componentId, path, key?}`, its node stays where it is
- *  listed: the reducer lifts it; `checks` rides as `@checks`). */
+ *  listed: the reducer lifts it). */
 function nestedToFlat(tree: NestedNode): FlatComponent[] {
   const out: FlatComponent[] = []
   const walk = (n: NestedNode): string => {
-    const { checks, ...props } = (n.props ?? {}) as Record<string, unknown>
-    const flat: FlatComponent = { id: n.id, component: n.component, ...props, ...(checks !== undefined ? { "@checks": checks } : {}) }
-    if (n.catalogId) flat.catalogId = n.catalogId
-    if (n.metadata) flat.metadata = n.metadata
+    const flat: FlatComponent = { id: n.id, component: n.component, ...(n.props ?? {}) }
+    for (const key of [`@catalogId`, `@metadata`, `@checks`] as const) if (n[key] !== undefined) (flat as Record<string, unknown>)[key] = n[key]
     if (n.style) flat.style = n.style
     if (n.on) flat.on = n.on
     if (n.visible !== undefined) flat.visible = n.visible
-    if (n.accessibility) flat.accessibility = n.accessibility
+    if (n[`@accessibility`]) flat[`@accessibility`] = n[`@accessibility`]
     out.push(flat)
     const ids = (n.children ?? []).map(walk)
     if (n.template) flat.children = { componentId: n.template.component, path: n.template.path, ...(n.template.key ? { key: n.template.key } : {}) }
@@ -211,7 +209,7 @@ const EXPRESS_EXTRAS: NestedNode = {
   children: [
     { id: `rows`, component: `List`, props: { divided: true }, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
     { id: `row`, component: `Row`, props: { title: { "@path": `title` }, subtitle: { "@path": `owner` } } },
-    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] } },
+    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` } }, "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] },
     { id: `clear`, component: `Button`, props: { label: `Clear`, variant: `outline` }, on: { press: { functionCall: { "@call": `set`, args: { path: `/form/name`, value: `` } } } } },
     { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { "@path": `/form/name` } } } } } },
   ],
@@ -833,7 +831,7 @@ function componentCases(): ComponentCase[] {
 const INLINE_SPECIMENS = new Set([
   `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
   `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`, `QrCode`,
-  `CountBadge`, `MessageStatus`,
+  `CountBadge`, `MessageStatus`, `AvatarBadge`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
 const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
@@ -973,6 +971,14 @@ function treeCases(): ComponentCase[] {
   ]
 }
 
+/** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
+/** genUI round 4: a 120×80 landscape for the box-background specimens. */
+const BOX_PHOTO = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABQCAMAAADlRUG7AAAAkFBMVEX/1oyrjnKfiHSZhHWWgnaSgHeNfXiJe3iHenmEeHmCd3p/dnp9dHt6c3t4cnx1cHxzb31wbX1ubH5ra35paX9maH9kZ4BgZYFcYoFaYYJXYIJVXoNSXYNQXIRNWoRLWYVIV4VGVoZDVYZBU4c+Uoc8UYg5T4g3Tok0TIkyS4ovSootSIsqR4soRow0ME4cHjA/KnmaAAAB60lEQVR42u3SWVuTMRCG4Re7I24sKqAiKDtO/v+/Q7pAlpkkk6adk96HyWSer9dV/DOCJyN4NIIHI7g3gjsjuDWCGyO4NoK/RvDHCK6M4NIIfhvBxSZgITvyqz+8yQz97A4+eepHbwiJY+edISbNnfWFlDB42hcTFga/dwUOP/mtKzbMT5qFv3bFhvnJk67YMD953BUb5iePumLD/ORhX0xXGPzSFxMWBj+vhZKTpCu8xKd1EFFyFnWlp/i4BnqRnAZd8S0+tKOF5Nzryo9x0IxW0qtlNvca71vRm5bn2GfRfpEXrphOYMb5v2tWQIGZGqaM+a5pFkWmWpiklrsmGZSYKGGcWu0ai4gx1kFuq6arLWMU83eNWCQYaSC/VdPVlTEMxbuGCcoYyuI7DALprsGgNJGb9p+FB8UwabpSmbnDOx+7qzggTsev/DNUrFWFSe4Gl6jZqukmZeESVb9G043K0iX2VrK7yhPJtLR1eYGq7nycSF3OXNaGSdNdLc9dorKrld3pham70n8G+a6jDVmExeyLDZUhd92rrYZdYCPhYrUh7SrCVVlVu2oc1dm6dPU8FNliWjMPVTazSzsPbZZd1fCt0GejTY0fi4aqt6n1a5dhtzVB2G3Va9htn1l43jYKO7cL78K7cDfPYAywHr9+5gIAAAAASUVORK5CYII=`
+const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
+/** nav-badges.json `teamMark`: a row's lead with its team's mark on the corner. */
+const avatarBadge = (size: string, lead: NestedNode, badge: NestedNode): NestedNode => ({ id: `avatar_badge`, component: `AvatarBadge`, props: { size }, children: [lead], slots: { badge } })
+const teamGlyph = (): NestedNode => ({ id: `team`, component: `Icon`, props: { name: `ui-team`, label: `Acme` } })
+
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
@@ -1049,6 +1055,13 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `tail · end`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `Ship it once CI is green.`, side: `out`, time: `22:44`, status: `read`, tail: `end` }, style: { width: 360 }, slots: { avatar: { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia` } } } } },
     { label: `tail · down`, node: { id: `bubble`, component: `MessageBubble`, props: { text: `A plan is ready for you.`, side: `out`, tail: `down` }, style: { width: 360, paddingBottom: 10 } } },
   ],
+  // The nav-badges.json `teamMark` sizes, each on its lead: an avatar, then an icon disc and an image mark.
+  AvatarBadge: [
+    ...([[`sm`, `sm`], [`default`, `default`], [`lg`, `lg`]] as const).map(([size, avatar]) => ({ label: `size · ${size}`, node: avatarBadge(size, { id: `avatar`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada`, size: avatar } }, teamGlyph()) })),
+    { label: `disc`, node: avatarBadge(`default`, { id: `disc`, component: `Box`, style: { display: `flex`, alignItems: `center`, justifyContent: `center`, width: 32, height: 32, borderRadius: `$radius.full`, backgroundColor: `$color.muted` }, children: [{ id: `glyph`, component: `Icon`, props: { name: `nav-chats` } }] }, teamGlyph()) },
+    { label: `badge · image`, node: avatarBadge(`lg`, { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia`, size: `lg` } }, { id: `team`, component: `Image`, props: { alt: `Acme`, src: AVATAR_PICTURE } }) },
+    { label: `badge · avatar`, node: avatarBadge(`lg`, { id: `avatar`, component: `Avatar`, props: { name: `Mia Berger`, seed: `user-mia`, size: `lg` } }, { id: `other`, component: `Avatar`, props: { name: `Bob`, seed: `demo-bob` } }) },
+  ],
   // #FEED-237: the four delivery marks (packages/domain-contract/fixtures/message-delivery.json `marks`).
   MessageStatus: [`sending`, `sent`, `read`, `failed`].map((status) => ({ label: `status · ${status}`, node: { id: `status`, component: `MessageStatus`, props: { status } } })),
   CallSurface: [
@@ -1083,8 +1096,6 @@ const foldChildren = (selected?: string): NestedNode[] => [
 ]
 const FOLD_ON = { press: { event: { name: `select`, context: { page: `issues` } } }, change: { event: { name: `fold` } } }
 const foldRow = (open: unknown, extra: Partial<NestedNode> = {}): NestedNode => ({ id: `issues`, component: `Row`, props: { title: `Issues`, icon: `settings-issues`, density: `compact`, open }, on: FOLD_ON, children: foldChildren(`statuses`), ...extra })
-/** #EXP-1629: the Avatar specimen's picture (a 64 px person mark, PNG). */
-const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC`
 /** VAPP-163: cases a specimen shows AFTER its generated ones (past the cap),
  *  each pinning a cross-renderer drift the spezl drafts found: a styled
  *  Heading on a band (the author's style beats the Heading recipe), the
@@ -1613,6 +1624,35 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   // VAPP-162: the serif family token on a node style.
   Text: [{
+    // Round 4 (fixtures/text-runs.json): styled spans wrapping as one paragraph.
+    label: `runs · weight, tone, marks, link`,
+    node: {
+      id: `rich`,
+      component: `Text`,
+      style: { maxWidth: 320 },
+      props: {
+        runs: [
+          { text: `Release ` },
+          { text: `v2.4`, weight: `semibold` },
+          { text: ` shipped `, tone: `success` },
+          { text: `today`, mark: `highlight` },
+          { text: `. Run ` },
+          { text: `bun install`, mark: `code` },
+          { text: `, drop the ` },
+          { text: `old flag`, mark: `strike` },
+          { text: ` and read the ` },
+          { text: `release notes`, link: `https://exponential.at/changelog` },
+          { text: ` before ` },
+          { text: `Friday`, weight: `bold`, tone: `danger`, mark: `underline` },
+          { text: `.` },
+        ],
+      },
+    },
+  }, {
+    // Round 4: the first letter spans three lines, the text wraps beside it.
+    label: `dropCap · 3`,
+    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button.` } },
+  }, {
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
   }, {
@@ -1748,6 +1788,71 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `body`, component: `Textarea`, props: { label: `SKILL.md`, name: `body`, variant: `code`, rows: 4, value: `---\nname: review\n---\nRun the checks, then summarise the diff.` } },
       ],
     },
+  }],
+  // genUI round 4 (34282bdc): the site blocks with their slots and children.
+  // genUI round 4: the box backgrounds (style.json `backgroundImage`, radial `backgroundGradient`): text over a photo under a scrim, a contained picture's letterbox, a radial glow.
+  Box: [
+    {
+      label: `backgroundImage · cover + scrim`,
+      node: {
+        id: `photo`,
+        component: `Box`,
+        style: { height: 160, padding: `$spacing.lg`, borderRadius: `$radius.lg`, flexDirection: `column`, justifyContent: `flex-end`, gap: `$spacing.xs`, backgroundImage: { src: BOX_PHOTO, focalY: 1, scrim: { color: `$color.background`, opacity: 0.35 } } },
+        children: [
+          { id: `photo_title`, component: `Text`, props: { text: `Alpine weekend`, variant: `title` } },
+          { id: `photo_meta`, component: `Text`, props: { text: `Three huts, two passes` } },
+        ],
+      },
+    },
+    {
+      label: `backgroundImage · contain, focalX 0`,
+      node: { id: `letterbox`, component: `Box`, style: { height: 96, borderRadius: `$radius.md`, backgroundColor: `$color.card`, borderWidth: 1, borderColor: `$color.border`, backgroundImage: { src: BOX_PHOTO, fit: `contain`, focalX: 0 } } },
+    },
+    {
+      label: `backgroundGradient · radial`,
+      node: {
+        id: `glow`,
+        component: `Box`,
+        style: { height: 120, padding: `$spacing.lg`, borderRadius: `$radius.lg`, alignItems: `center`, justifyContent: `center`, backgroundGradient: { kind: `radial`, centre: { x: 0.3, y: 0.35 }, stops: [{ color: `$color.primary`, offset: 0 }, { color: `$color.background`, offset: 1 }] } },
+        children: [{ id: `glow_text`, component: `Text`, props: { text: `Radial, farthest corner` } }],
+      },
+    },
+  ],
+  // A press-only Link (no href, `on.press`): underlined on every renderer, as one with an allowed href.
+  Link: [{ label: `press only (no href)`, node: { id: `press_link`, component: `Link`, props: { label: `View all` } } }],
+  NavBar: [{
+    label: `logo + trailing action`,
+    node: { id: `nav`, component: `NavBar`, props: { title: `Acme`, logo: AVATAR_PICTURE, value: `docs`, items: [{ label: `Product`, value: `product` }, { label: `Pricing`, value: `pricing` }, { label: `Docs`, value: `docs` }] }, slots: { trailing: { id: `signup`, component: `Button`, props: { label: `Sign up`, size: `sm` } } } },
+  }],
+  Footer: [{
+    label: `columns + links + fine print`,
+    node: {
+      id: `footer`, component: `Footer`, props: { caption: `\u00a9 2026 Acme Inc.`, items: [{ label: `Privacy`, value: `privacy` }, { label: `Terms`, value: `terms` }] },
+      children: [{ id: `cols`, component: `Grid`, props: { columns: { base: 2 }, gap: `md` }, children: [
+        { id: `col_product`, component: `Stack`, props: { gap: `xs`, align: `start` }, children: [{ id: `col_product_title`, component: `Text`, props: { text: `Product`, variant: `label` } }, { id: `col_product_a`, component: `Link`, props: { label: `Features` } }, { id: `col_product_b`, component: `Link`, props: { label: `Pricing` } }] },
+        { id: `col_company`, component: `Stack`, props: { gap: `xs`, align: `start` }, children: [{ id: `col_company_title`, component: `Text`, props: { text: `Company`, variant: `label` } }, { id: `col_company_a`, component: `Link`, props: { label: `About` } }, { id: `col_company_b`, component: `Link`, props: { label: `Careers` } }] },
+      ] }],
+    },
+  }],
+  Hero: [{
+    label: `actions`,
+    node: { id: `hero`, component: `Hero`, props: { eyebrow: `New`, title: `Ship faster together`, subtitle: `Plan, build and review in one place.` }, children: [{ id: `start`, component: `Button`, props: { label: `Get started` } }, { id: `demo`, component: `Button`, props: { label: `Book a demo`, variant: `outline` } }] },
+  }],
+  MediaCard: [{
+    label: `picture + action`,
+    node: { id: `card`, component: `MediaCard`, props: { src: AVATAR_PICTURE, alt: `Portrait`, title: `Mia Berger`, subtitle: `Product designer`, meta: `Vienna`, aspectRatio: 2 }, style: { maxWidth: 320 }, children: [{ id: `follow`, component: `Button`, props: { label: `Follow`, size: `sm`, variant: `outline` } }] },
+  }],
+  DayStrip: [{
+    label: `no selection`,
+    node: { id: `strip`, component: `DayStrip`, props: { days: [{ date: `2026-11-23`, tone: `success` }, { date: `2026-11-24` }, { date: `2026-11-25`, tone: `danger` }, { date: `2026-11-26` }, { date: `2026-11-27` }] } },
+  }],
+  AvatarGroup: [{
+    label: `pictures, no overflow`,
+    node: { id: `group`, component: `AvatarGroup`, props: { size: `lg`, people: [{ name: `Mia Berger`, seed: `user-mia`, src: AVATAR_PICTURE }, { name: `Ada Lovelace`, seed: `demo-ada` }, { name: `Bob`, seed: `demo-bob` }] } },
+  }],
+  Section: [{
+    label: `actionLabel`,
+    node: { id: `popular`, component: `Section`, props: { title: `Popular`, actionLabel: `View all` }, children: [{ id: `popular_row`, component: `Row`, props: { title: `Lakeside cabin`, meta: `\u20ac120` } }] },
   }],
 }
 
@@ -2195,8 +2300,21 @@ function messageBubbleCases(): ComponentCase[] {
   ]
 }
 
+/** Every AvatarBadge size × a badge of every kind its `$pass` sizes (an
+ *  author's own style wins), and one it only clips. */
+function avatarBadgeCases(): ComponentCase[] {
+  const lead: NestedNode = { id: `avatar`, component: `Avatar`, props: { name: `Ada Lovelace`, seed: `demo-ada` } }
+  const badges: Record<string, NestedNode> = {
+    icon: teamGlyph(),
+    image: { id: `team`, component: `Image`, props: { alt: `Acme` } },
+    avatar: { id: `other`, component: `Avatar`, props: { name: `Bob`, seed: `demo-bob` }, style: { opacity: 0.5, width: 12 } },
+    box: { id: `dot`, component: `Box`, style: { width: 8, height: 8 } },
+  }
+  return [`sm`, `default`, `lg`].flatMap((size) => Object.entries(badges).map(([kind, badge]) => ({ name: `AvatarBadge/${size}+${kind}`, node: avatarBadge(size, lead, badge) })))
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
+  return [...all, ...boundMacroCases(), ...avatarBadgeCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -2347,8 +2465,14 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     datasets: [{ etc: { hosts: `PWNED` }, suffix: `today` }, {}],
   },
   {
+    // Round 9 §5.5: `${fn()}` resolves against the enclosing call's catalog.
+    name: `Text/formatString:calls`,
+    input: { id: `text`, component: `Text`, props: { text: { "@call": `formatString`, args: { value: `\${add(a: \${/n}, b: 1)} of \${/total}` } } }, "@accessibility": { label: { "@call": `formatString`, catalogId: A2UI_BASIC_CATALOG_ID, args: { value: `\${add(a: 1, b: 1)}` } }, description: { "@call": `formatString`, catalogId: A2UI_BASIC_CATALOG_ID, args: { value: `\${formatNumber(value: \${/n}, decimals: 1)}` } } } },
+    datasets: [{ n: 2, total: 5 }, {}],
+  },
+  {
     name: `Text/accessibility:bound-label`,
-    input: { id: `text`, component: `Text`, props: { text: `hi` }, accessibility: { label: { "@path": `/l` }, description: `$string.close` } },
+    input: { id: `text`, component: `Text`, props: { text: `hi` }, "@accessibility": { label: { "@path": `/l` }, description: `$string.close` } },
     datasets: [{ l: `Hello` }, {}],
   },
   {
@@ -2390,7 +2514,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
       id: `text`,
       component: `Text`,
       props: { text: { "@call": `formatDuration`, args: { hours: { "@call": `expr`, args: { expr: `round(minutes / 60, 2)`, vars: { minutes: { "@path": `/minutes` } } } }, format: `h:mm` } } },
-      accessibility: { label: { "@call": `dateAdd`, args: { date: { "@path": `/day` }, n: 1, unit: `month` } } },
+      "@accessibility": { label: { "@call": `dateAdd`, args: { date: { "@path": `/day` }, n: 1, unit: `month` } } },
       visible: { "@call": `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { "@path": `/day` }, minutes: { "@path": `/minutes` } } } },
     },
     datasets: [{ minutes: 450, day: `2026-01-31` }, { minutes: 600, day: `2026-02-02` }, { minutes: 450, day: `2026-02-02` }, { minutes: `x`, day: `nope` }, {}],

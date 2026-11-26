@@ -126,3 +126,40 @@ internal object StaleTree {
             null
         }
 }
+
+/** #EXP-2141 (sealed-content.json `dedupedSend`): what becomes of a new tree's key a send carried inline. */
+internal enum class DedupedSendStep { Adopt, Fetch }
+
+/**
+ * [keyed] = the send carried a `clientMessageId`; [server] = the answered
+ * root's current key (null = keyless or no answer). [DedupedSendStep.Fetch] =
+ * another send made the tree: this key is dropped, the tree's asked for.
+ */
+internal fun dedupedSendStep(keyed: Boolean, own: PublicTreeKey, server: PublicTreeKey?): DedupedSendStep =
+    if (keyed && server != null && server.epoch == own.epoch && server.publicKey != own.publicKey) DedupedSendStep.Fetch else DedupedSendStep.Adopt
+
+/**
+ * #EXP-2141: a send that carried the new tree's key [own] inline was answered
+ * with [rootId]: kept ([adopt]), unless the server says another send made the
+ * tree (then [fetch]). Only a keyed send asks ([publicKey]).
+ */
+internal suspend fun settleNewRoot(
+    keyed: Boolean,
+    rootId: String,
+    own: PublicTreeKey,
+    publicKey: suspend (rootId: String) -> PublicTreeKey?,
+    adopt: () -> Unit,
+    fetch: () -> Unit,
+) {
+    val server = if (!keyed) null else try {
+        publicKey(rootId)
+    } catch (err: CancellationException) {
+        throw err
+    } catch (_: Throwable) {
+        null
+    }
+    when (dedupedSendStep(keyed, own, server)) {
+        DedupedSendStep.Adopt -> adopt()
+        DedupedSendStep.Fetch -> fetch()
+    }
+}

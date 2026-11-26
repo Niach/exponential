@@ -1310,7 +1310,7 @@ impl ChatScreenView {
     /// #EXP-1715: the picked teams as the strip's chips (a subset only).
     fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if self.plain_chat(cx) {
-            let picked = self.plain_picked().filter(|picked| picked.len() > 1)?;
+            let picked = self.plain_picked()?;
             let teams = crate::teams_pick::pick_teams(cx);
             let view = cx.entity().downgrade();
             let on_change: crate::teams_pick::OnTeamsPick = Rc::new(move |next, window, cx| {
@@ -1318,7 +1318,7 @@ impl ChatScreenView {
                     view.update(cx, |this, cx| this.set_plain_pick(next, window, cx));
                 }
             });
-            return crate::teams_pick::chips_row("chat-chip", &teams, Some(&picked), self.sending, on_change, cx);
+            return crate::teams_pick::chips_row("chat-chip", &teams, Some(&picked), crate::teams_pick::PickOwner::Home, self.sending, on_change, cx);
         }
         if !self.to_assistant(cx) {
             return None;
@@ -1333,7 +1333,7 @@ impl ChatScreenView {
                 });
             }
         });
-        crate::teams_pick::chips_row("chat-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
+        crate::teams_pick::chips_row("chat-chip", &teams, self.teams_picked.as_deref(), crate::teams_pick::PickOwner::Assistant, self.sending, on_change, cx)
     }
 
     /// A tap on the agent row (tapping the selected circle keeps it).
@@ -2611,8 +2611,10 @@ impl ChatScreenView {
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let state = domain::composer_agent_row::composer_agent_row(&defs, me.as_deref(), self.agent_pick.as_deref());
         let view = cx.entity().downgrade();
+        let marks = crate::chats_view::team_marks(cx);
         crate::chat_list::composer_agent_row(
             &state,
+            &marks,
             std::rc::Rc::new(move |pick: String, _: &mut Window, cx: &mut App| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |this, cx| this.pick_agent(pick, cx));
@@ -3176,7 +3178,8 @@ impl ComposerMenuRow {
             | Self::Model => {
                 &[Launch, Session, Agent]
             }
-            Self::Teams => &[Launch, Agent],
+            // #EXP-2122: a plain root picks its teams too.
+            Self::Teams => &[Launch, Session, Agent],
             // #EXP-1793: an agent chat picks its conversation's servers too.
             Self::McpServers => &[Launch, Agent],
             _ => &[Launch],

@@ -54,6 +54,8 @@ pub const SESSIONS_TOOL: &str = "exponential_sessions";
 /// the read tool still takes them from a first-party caller, so both seal.
 pub const SESSIONS_WRITE_TOOL: &str = "exponential_sessions_write";
 pub const SELF_TOOL: &str = "exponential_session_self";
+/// The server's bound on `sessions end {summary}`, sealed or not.
+const END_SUMMARY_MAX: usize = 4000;
 
 /// The transform of ONE launched session (the caller of every call).
 pub struct SealingTransform {
@@ -483,7 +485,21 @@ impl SealingTransform {
         Ok(out)
     }
 
+    /// #FEED-313: a run that ends without a word although computer use could
+    /// not run says why: the last refusal is its summary.
+    fn end_words(&self, mut args: Value) -> Value {
+        let silent = args.get("summary").and_then(Value::as_str).is_none_or(|summary| summary.trim().is_empty());
+        let own = args.get("id").and_then(Value::as_str).is_none_or(|id| id == self.session_id);
+        if let (true, true, Some(reason)) = (silent, own, epilot::cannot_run(&self.session_id)) {
+            if let Some(obj) = args.as_object_mut() {
+                obj.insert("summary".to_string(), json!(format!("Computer use could not run: {reason}")));
+            }
+        }
+        args
+    }
+
     fn seal_end(&self, args: Value) -> Result<Value, String> {
+        let args = self.end_words(args);
         let Some(summary) = args.get("summary").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
             return Ok(args);
         };
@@ -522,10 +538,37 @@ impl SealingTransform {
             })
             .collect();
         let mut out = json!({ "op": "end", "sealedReport": sealed, "copies": copies });
+        // #FEED-313: the report reaches the listeners; the session's own chat
+        // gets the same words as its closing message, sealed as a body.
+        if let Some(body) = self.closing_body(&root, summary) {
+            out["summary"] = json!(body);
+        }
         if let Some(id) = args.get("id") {
             out["id"] = id.clone();
         }
         Ok(out)
+    }
+
+    /// `summary` sealed for the chat it closes, cut where its envelope would
+    /// pass the server's bound on a summary (the report carries it whole).
+    fn closing_body(&self, root: &str, summary: &str) -> Option<String> {
+        let mut text = summary.to_string();
+        loop {
+            match self.seal_text(root, &text) {
+                Ok(body) if body.len() <= END_SUMMARY_MAX => return Some(body),
+                Ok(_) => {
+                    let keep = text.chars().count() * 3 / 4;
+                    if keep == 0 {
+                        return None;
+                    }
+                    text = text.chars().take(keep).chain(['…']).collect();
+                }
+                Err(err) => {
+                    log::warn!("gateway: the end's closing message for {root} could not be sealed ({err}); its report goes alone");
+                    return None;
+                }
+            }
+        }
     }
 
     /// tRPC `sessions.listeners {sessionId}`: the wake_on listener trees.
@@ -2054,7 +2097,10 @@ mod tests {
         // end: a sealed report + a copy for the listener's tree.
         call(&grant, SESSIONS_TOOL, json!({ "op": "end", "summary": "Merged it" }));
         let sent = calls_of(&server, SESSIONS_TOOL).pop().unwrap();
-        assert!(sent.get("summary").is_none() && !sent.to_string().contains("Merged it"), "{sent}");
+        assert!(!sent.to_string().contains("Merged it"), "{sent}");
+        // #FEED-313: the own chat's closing message, the same words.
+        let closing = sealing::open_body_text("root-1", sent["summary"].as_str().expect("the closing message")).unwrap();
+        assert_eq!(closing, "Merged it");
         let report = sealing::open_card("root-1", &sent["sealedReport"]).card;
         assert_eq!(report, json!({ "kind": "report", "sessionId": "child-1", "status": "ended", "final": true, "summary": "Merged it" }));
         let copy = &sent["copies"][0];
@@ -2065,8 +2111,23 @@ mod tests {
         // #VAPP-293: the write twin's end seals the same way.
         call(&grant, SESSIONS_WRITE_TOOL, json!({ "op": "end", "summary": "Twin end" }));
         let sent = calls_of(&server, SESSIONS_WRITE_TOOL).pop().unwrap();
-        assert!(sent.get("summary").is_none() && !sent.to_string().contains("Twin end"), "{sent}");
+        assert!(!sent.to_string().contains("Twin end"), "{sent}");
         assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], "Twin end");
+
+        // #FEED-313: a long summary's closing message stays within the
+        // server's bound; the report carries it whole.
+        let long = "x".repeat(3900);
+        call(&grant, SESSIONS_TOOL, json!({ "op": "end", "summary": long }));
+        let sent = calls_of(&server, SESSIONS_TOOL).pop().unwrap();
+        assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], long);
+        assert!(sent["summary"].as_str().unwrap().len() <= 4000);
+
+        // #FEED-313: a silent end after computer use could not run says why.
+        epilot::note_cannot_run("child-1", Some("The person's screen is locked."));
+        call(&grant, SESSIONS_WRITE_TOOL, json!({ "op": "end" }));
+        let sent = calls_of(&server, SESSIONS_WRITE_TOOL).pop().unwrap();
+        assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], "Computer use could not run: The person's screen is locked.");
+        epilot::note_cannot_run("child-1", None);
 
         // suggest: one card envelope per card.
         call(&grant, SELF_TOOL, json!({ "op": "suggest", "replies": ["Ship it"], "tasks": [{ "title": "Tests", "text": "Cover it" }] }));

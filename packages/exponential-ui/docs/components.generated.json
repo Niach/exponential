@@ -21,7 +21,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-box",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style; macros expand into it.",
       "children": "many",
       "slots": [],
       "events": [
@@ -281,7 +281,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-window",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "children": "one",
       "slots": [],
       "events": [],
@@ -403,7 +403,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         {
           "name": "stickyHeaders",
@@ -430,7 +430,7 @@
           "bindable": false,
           "responsive": false,
           "default": 1,
-          "description": "With `reorderable`: nesting levels; 2 = a row dropped on a row nests. Items: `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         {
           "name": "style",
@@ -561,7 +561,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         {
           "name": "style",
@@ -684,7 +684,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+          "description": "Phones: the detail replaces the list; bind it."
         },
         {
           "name": "width",
@@ -885,7 +885,8 @@
         "trailing"
       ],
       "events": [
-        "change"
+        "change",
+        "action"
       ],
       "basic": [],
       "props": [
@@ -964,7 +965,15 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "Refetch is running: a small spinner before the count. The first load is a Skeleton instead."
+          "description": "Refetch spinner (first load: Skeleton)."
+        },
+        {
+          "name": "actionLabel",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Header-end link firing `action`."
         },
         {
           "name": "style",
@@ -1037,7 +1046,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-text",
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1046,10 +1055,18 @@
         {
           "name": "text",
           "type": "string",
-          "required": true,
+          "required": false,
           "bindable": true,
           "responsive": false,
           "description": "Text to show."
+        },
+        {
+          "name": "runs",
+          "type": "[textRun]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Spans replacing `text`."
         },
         {
           "name": "variant",
@@ -1074,7 +1091,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Truncates to this many lines with an ellipsis."
+          "description": "Max lines (ellipsis)."
         },
         {
           "name": "truncate",
@@ -1082,7 +1099,15 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "One line; `middle` keeps the start and end (start…end)."
+          "description": "One line; `middle` = start…end."
+        },
+        {
+          "name": "dropCap",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Lines the first letter spans (2-4)."
         },
         {
           "name": "tone",
@@ -1214,7 +1239,7 @@
           "bindable": false,
           "responsive": false,
           "default": "document",
-          "description": "`inline` = a text run (no outer gap, `variant` paragraphs); `document` = full prose."
+          "description": "`inline` = a text run; `document` = full prose."
         },
         {
           "name": "variant",
@@ -1351,7 +1376,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Sticks to the bottom while the code grows (a live log)."
+          "description": "Sticks to the bottom as it grows (a live log)."
         },
         {
           "name": "variant",
@@ -1571,7 +1596,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Width over height (16:9 when unset and no height); the box never waits for the picture."
+          "description": "Width / height (16:9 when unset and no height)."
         },
         {
           "name": "fallback",
@@ -2354,7 +2379,7 @@
           "bindable": false,
           "responsive": false,
           "default": "segmented",
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         {
           "name": "size",
@@ -2607,7 +2632,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "running shimmers, error tints, done ticks, skipped strikes."
         },
         {
           "name": "size",
@@ -3129,7 +3154,7 @@
           "bindable": false,
           "responsive": true,
           "default": "bottom",
-          "description": "Edge it slides from; `{base: \"bottom\", md: \"right\"}` turns the phone sheet into a side panel on wide surfaces."
+          "description": "Edge; responsive (`{base: \"bottom\", md: \"right\"}`)."
         },
         {
           "name": "dismissible",
@@ -3399,7 +3424,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
+          "description": "Open-at node it toggles; a text field = typeahead (keeps focus)."
         },
         {
           "name": "openOn",
@@ -3417,7 +3442,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       ],
       "accessibility": {
@@ -3486,7 +3511,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
       "children": "one",
       "slots": [],
       "events": [
@@ -3912,7 +3937,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-empty-state",
-      "description": "Empty screen or list: `page` = icon disc, title, sentence, action; `list` = one muted line.",
+      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
       "children": "none",
       "slots": [],
       "events": [
@@ -3959,7 +3984,7 @@
           "bindable": false,
           "responsive": false,
           "default": "page",
-          "description": "page = a whole screen's empty state with disc, sentence and action; list = one muted line under a bare glyph, no description, no action."
+          "description": "page = a whole screen; list = one muted line."
         }
       ],
       "accessibility": {
@@ -4764,7 +4789,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         {
           "name": "series",
@@ -4805,7 +4830,7 @@
           "bindable": false,
           "responsive": false,
           "default": 200,
-          "description": "Whole chart's height in px (title, legend, axes inside); the width is the box's."
+          "description": "Height in px, title, legend and axes inside."
         },
         {
           "name": "xLabel",
@@ -5064,7 +5089,7 @@
       "group": "action",
       "lite": true,
       "specimenId": "exponential-ui-button",
-      "description": "Press target: label + optional icon, or one custom child. A stretch column (Section rows, a vertical Stack) stretches it; a row, `align: start` or a trigger slot keeps its own width.",
+      "description": "Press target: label + optional icon, or one custom child.",
       "children": "one",
       "slots": [],
       "events": [
@@ -5108,7 +5133,7 @@
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet, `fab` = a floating round icon-only button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         {
           "name": "size",
@@ -5117,7 +5142,7 @@
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+          "description": "`icon` = square icon-only, `icon-xs` = small round."
         },
         {
           "name": "tone",
@@ -5143,7 +5168,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Validation rules: a failing `error` disables it (warning and info never do)."
+          "description": "Rules; a failing `error` disables it."
         },
         {
           "name": "loading",
@@ -5609,7 +5634,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row (label, value); `bare` = chromeless, label hidden; `code` = mono `bare`; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden."
         },
         {
           "name": "size",
@@ -5747,7 +5772,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         {
           "name": "disabled",
@@ -6582,7 +6607,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron."
         },
         {
           "name": "triggerIcon",
@@ -6615,7 +6640,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Px: fits its options, at least this (instead of `popupWidth`)."
+          "description": "Px floor; fits its options."
         },
         {
           "name": "loading",
@@ -6900,7 +6925,7 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-key-recorder",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys then fire `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -7677,7 +7702,7 @@
           "bindable": false,
           "responsive": false,
           "default": "stacked",
-          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+          "description": "stacked = field over controls; flat = one row."
         },
         {
           "name": "menuKeys",
@@ -7686,7 +7711,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       ],
       "accessibility": {
@@ -7710,7 +7735,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-row",
-      "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
+      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
       "children": "many",
       "slots": [
         "leading",
@@ -7821,7 +7846,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
+          "description": "Fires `press`."
         },
         {
           "name": "href",
@@ -8009,7 +8034,7 @@
           "bindable": true,
           "responsive": false,
           "default": "none",
-          "description": "Speech tail: start/end = top corner sideways (a group's first bubble), down = bottom edge near the end."
+          "description": "start/end = top corner, down = bottom edge."
         },
         {
           "name": "time",
@@ -8102,7 +8127,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset}, repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate."
         },
         {
           "name": "size",
@@ -8385,7 +8410,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "Motion's shapes (no keys) + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
+          "description": "Motion's shapes (no keys) + upright text {text, position, size, weight, align, baseline, font sans|mono, color}."
         },
         {
           "name": "fit",
@@ -8556,7 +8581,7 @@
       "group": "layout",
       "lite": false,
       "specimenId": "exponential-ui-embed",
-      "description": "Sandboxed nested surface (own data and ids); its `event` actions fire `action` {name, context}; bad = an error box.",
+      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8954,7 +8979,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-record-table",
-      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -9333,6 +9358,473 @@
         "status": "read"
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MessageStatus/<part>."
+    },
+    {
+      "name": "AvatarBadge",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-avatar-badge",
+      "description": "`badge` on its child's bottom-right corner.",
+      "children": "one",
+      "slots": [
+        "badge"
+      ],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "size",
+          "type": "sm | default | lg",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "Badge size."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "none (layout only); the badge names itself",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "AvatarBadge",
+        "size": "default"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AvatarBadge/<part>."
+    },
+    {
+      "name": "NavBar",
+      "kind": "macro",
+      "group": "navigation",
+      "lite": false,
+      "specimenId": "exponential-ui-nav-bar",
+      "description": "Site top bar: brand, links (one current) firing `select`, trailing slot.",
+      "children": "none",
+      "slots": [
+        "trailing"
+      ],
+      "events": [
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Brand name."
+        },
+        {
+          "name": "logo",
+          "type": "url",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Brand mark."
+        },
+        {
+          "name": "items",
+          "type": "[option]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "Links."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Current link's value."
+        }
+      ],
+      "accessibility": {
+        "role": "navigation",
+        "notes": "navigation labelled by the brand; links are links, the current one aria-current=page",
+        "keys": [
+          "Tab through the links; Enter: select"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "NavBar",
+        "title": "Acme",
+        "value": "pricing",
+        "items": [
+          {
+            "label": "Product",
+            "value": "product"
+          },
+          {
+            "label": "Pricing",
+            "value": "pricing"
+          },
+          {
+            "label": "Docs",
+            "value": "docs"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe NavBar/<part>."
+    },
+    {
+      "name": "Footer",
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "specimenId": "exponential-ui-footer",
+      "description": "Page foot: children (columns), links firing `select`, fine print.",
+      "children": "many",
+      "slots": [],
+      "events": [
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "items",
+          "type": "[option]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Links."
+        },
+        {
+          "name": "caption",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Fine print."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group; the links are links",
+        "keys": [
+          "Tab through the links; Enter: select"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Footer",
+        "caption": "© 2026 Acme Inc.",
+        "items": [
+          {
+            "label": "Privacy",
+            "value": "privacy"
+          },
+          {
+            "label": "Terms",
+            "value": "terms"
+          },
+          {
+            "label": "Contact",
+            "value": "contact"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Footer/<part>."
+    },
+    {
+      "name": "Hero",
+      "kind": "macro",
+      "group": "layout",
+      "lite": false,
+      "specimenId": "exponential-ui-hero",
+      "description": "Page-top band: eyebrow, big title, lead, children (buttons) in a row.",
+      "children": "many",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Headline."
+        },
+        {
+          "name": "eyebrow",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Line above."
+        },
+        {
+          "name": "subtitle",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Lead sentence."
+        },
+        {
+          "name": "align",
+          "type": "start | center | end",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "center",
+          "description": "Text alignment."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by the title; the title a heading (level 1)",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "Hero",
+        "eyebrow": "New",
+        "title": "Ship faster together",
+        "subtitle": "Plan, build and review in one place."
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Hero/<part>."
+    },
+    {
+      "name": "MediaCard",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-media-card",
+      "description": "Card: picture on top, title, subtitle, meta, children.",
+      "children": "many",
+      "slots": [],
+      "events": [
+        "press"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "src",
+          "type": "url",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picture URL."
+        },
+        {
+          "name": "alt",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picture description."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Title."
+        },
+        {
+          "name": "subtitle",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Second line."
+        },
+        {
+          "name": "meta",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Muted line (price)."
+        },
+        {
+          "name": "aspectRatio",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 1.6,
+          "description": "Picture width / height."
+        },
+        {
+          "name": "pressable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Press target firing `press`."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by the title; the picture an img with `alt`; a pressable card a button",
+        "keys": [
+          "Enter, Space: press when pressable"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "MediaCard",
+        "src": "https://example.com/cabin.jpg",
+        "alt": "Cabin by a lake",
+        "title": "Lakeside cabin",
+        "subtitle": "Sleeps 4 · Wi-Fi",
+        "meta": "€120 / night"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MediaCard/<part>."
+    },
+    {
+      "name": "DayStrip",
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "specimenId": "exponential-ui-day-strip",
+      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "days",
+          "type": "[dateMark]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "`tone` = event dot."
+        },
+        {
+          "name": "value",
+          "type": "date",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Selected day; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "radiogroup",
+        "notes": "radiogroup; each day a radio named by its full date, checked when selected",
+        "keys": [
+          "Tab to a day; Enter, Space: select"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "DayStrip",
+        "value": "2026-11-25",
+        "days": [
+          {
+            "date": "2026-11-23"
+          },
+          {
+            "date": "2026-11-24",
+            "tone": "primary"
+          },
+          {
+            "date": "2026-11-25"
+          },
+          {
+            "date": "2026-11-26"
+          },
+          {
+            "date": "2026-11-27",
+            "tone": "warning"
+          },
+          {
+            "date": "2026-11-28"
+          },
+          {
+            "date": "2026-11-29"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe DayStrip/<part>."
+    },
+    {
+      "name": "AvatarGroup",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-avatar-group",
+      "description": "Overlapping avatars: the first `max`, then `+N`.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "people",
+          "type": "[person]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "In order."
+        },
+        {
+          "name": "max",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 4,
+          "description": "Shown before `+N`."
+        },
+        {
+          "name": "size",
+          "type": "sm | default | lg",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "Avatar size."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group; each avatar an img named by the person, the `+N` disc labelled by its count",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "AvatarGroup",
+        "max": 3,
+        "people": [
+          {
+            "name": "Ada Lovelace",
+            "seed": "demo-ada"
+          },
+          {
+            "name": "Alan Turing",
+            "seed": "demo-alan"
+          },
+          {
+            "name": "Grace Hopper",
+            "seed": "demo-grace"
+          },
+          {
+            "name": "Bob",
+            "seed": "demo-bob"
+          },
+          {
+            "name": "Mia Berger",
+            "seed": "user-mia"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AvatarGroup/<part>."
     }
   ]
 }

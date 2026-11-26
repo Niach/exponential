@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -69,6 +72,7 @@ import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
 import com.exponential.app.data.ShellState
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
@@ -140,6 +144,8 @@ import com.exponential.app.ui.settings.SecuritySettingsScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.TeamSettingsRootScreen
 import com.exponential.app.ui.teams.TeamsScreen
+import com.exponential.app.ui.teams.TeamsViewModel
+import com.exponential.app.ui.teams.leafBadges
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
@@ -622,10 +628,21 @@ private fun AuthenticatedNav(
     // provided to the whole NavHost; the chrome below reads it directly.
     val barSuppression = remember { BottomBarSuppression() }
     // The keyboard takes the bar's place (the Assistant's composer).
-    val barShown = barVisible && !barSuppression.suppressed && !WindowInsets.isImeVisible
+    val imeVisible = WindowInsets.isImeVisible
+    val barShown = barVisible && !barSuppression.suppressed && !imeVisible
+    // #EXP-2136: the notice stack's height: the page ends above it, so it
+    // never covers a composer. Under the keyboard there is no stack to clear.
+    var noticesHeight by remember { mutableStateOf(0.dp) }
+    val noticesInset = when {
+        imeVisible || noticesHeight == 0.dp -> 0.dp
+        // The Assistant's composer ends 8 under the tabs' inset, the stack on it.
+        barVisible -> noticesHeight + 8.dp
+        else -> noticesHeight
+    }
 
     // #FEED-232: the Chats tab's count badge (`chatsBadge`), over every team.
     val chatsVm: ChatsViewModel = hiltViewModel()
+    val teamsVm: TeamsViewModel = hiltViewModel()
     val chatsBadge by chatsVm.chatsBadge.collectAsStateWithLifecycle()
     // EXP-825: every launcher entry point is NAVIGATION onto the composer page
     // with a preselection seed — every play button with what it acts on.
@@ -711,6 +728,10 @@ private fun AuthenticatedNav(
     ) {
     NavHost(
         navController = navController,
+        modifier = Modifier
+            .padding(bottom = noticesInset)
+            // Off the dock the stack's height holds the system bar's inset.
+            .then(if (barVisible) Modifier else Modifier.consumeWindowInsets(PaddingValues(bottom = noticesInset))),
         // Chats is the stack ROOT (where the app lands); every other tab is
         // one entry above it, so Back from a tab returns to Chats.
         startDestination = if (needsOnboarding) "onboarding" else MainTabs.CHATS,
@@ -767,6 +788,7 @@ private fun AuthenticatedNav(
                 },
                 onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                 chats = chatsVm,
+                viewModel = teamsVm,
             )
         }
         composable(Routes.TEAM_SETTINGS_ROOT_PATTERN) {
@@ -1387,17 +1409,22 @@ private fun AuthenticatedNav(
     // here would cover or reflow every screen's own header. Never during
     // onboarding, which has no cached data to explain.
     val showsOfflineBanner = syncHealth == SyncHealth.Offline && !needsOnboarding
-    if (showsGatedBanner || showsOfflineBanner) {
+    if (!showsGatedBanner && !showsOfflineBanner) {
+        LaunchedEffect(Unit) { noticesHeight = 0.dp }
+    } else {
+        val density = LocalDensity.current
         // One stack, so the two never overlap. The gated banner stays last —
         // its position is unchanged from when it was the only one.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
+                .then(if (barVisible) Modifier.navigationBarsPadding() else Modifier)
                 // Route-level, NOT barShown: while a selection suppresses
                 // the nav bar, the screen's own 52dp bar is standing in that
                 // exact slot — dropping to 0 would land the banner on it.
-                .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
+                .padding(bottom = if (barVisible) BottomBarInset else 0.dp)
+                .onSizeChanged { size -> noticesHeight = with(density) { size.height.toDp() } }
+                .then(if (barVisible) Modifier else Modifier.navigationBarsPadding()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (showsOfflineBanner) OfflineBanner(onRetry = onRetrySync)
@@ -1444,7 +1471,7 @@ private fun AuthenticatedNav(
         PhoneDock(
             selected = lit.value,
             newOpen = newOpen,
-            chatsBadge = chatsBadge,
+            badges = dockBadges(chatsVm, teamsVm, assistant, chatsBadge),
             onSelect = { tab ->
                 if (tab == "new") {
                     newOpen = !newOpen
@@ -1458,6 +1485,29 @@ private fun AuthenticatedNav(
         )
     }
     }
+}
+
+/** The dock's badges by tab; read only while the bar shows. */
+@Composable
+private fun dockBadges(
+    chats: ChatsViewModel,
+    teams: TeamsViewModel,
+    assistant: kotlinx.coroutines.flow.StateFlow<AssistantRef?>,
+    chatsBadge: NavBadges.Badge,
+): Map<String, NavBadges.Badge> {
+    val ref by assistant.collectAsStateWithLifecycle()
+    val rows by chats.rowBadges.collectAsStateWithLifecycle()
+    val needsYou by chats.needsYou.collectAsStateWithLifecycle()
+    val conversations by chats.conversations.collectAsStateWithLifecycle()
+    val tree by teams.state.collectAsStateWithLifecycle()
+    val teamsBadge = remember(tree, needsYou, rows, conversations) {
+        tree.tabBadge(needsYou.counts(installs = 0).teams, leafBadges(rows, conversations))
+    }
+    return mapOf(
+        "chats" to chatsBadge,
+        "teams" to teamsBadge,
+        "assistant" to (rows[ref?.sessionId] ?: NavBadges.NONE),
+    )
 }
 
 /** A page the docked bar stands on, its content kept above the bar. */

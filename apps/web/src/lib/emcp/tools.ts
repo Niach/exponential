@@ -2752,6 +2752,7 @@ export function registerExponentialTools(
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         id: uuidString.optional(),
+        // With `sealedReport`: the summary sealed as a body (#FEED-313).
         summary: z.string().trim().min(1).max(4000).optional(),
         // EXP-1458: the device's sealed report card + one per listening tree.
         sealedReport: sealedCardEnvelope.optional(),
@@ -3313,7 +3314,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Queue an open PR in the merge train now and report where it stands (mergeQueue: state, position, testingWith). It lands by itself once tested and pr_merge wakes you, so end your turn; never poll. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. A stack member queues with its stack. Merging your own PR never ends your session. force: true from a team owner or a team agent = Merge now: next, alone, untested, past any session wait (only when a person says so).`,
+      description: `Queue an open PR in the merge train now and report where it stands (mergeQueue: state, position, testingWith). It lands by itself once tested and pr_merge wakes you, so end your turn; never poll. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. Queues that PR only; stack: true = its whole stack. Merging your own PR never ends your session. force: true from a team owner or a team agent = Merge now: next, alone, untested, past any session wait (only when a person says so).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
@@ -3322,19 +3323,18 @@ export function registerExponentialTools(
       }),
     },
     async ({ stack, force, ...selector }) => {
-      void stack // old callers: a stack member always queues with its stack
       try {
         const { pr } = await selectPr(selector)
         const checks = await prChecks(pr.id)
-        // EXP-1709: the merge train (the only merge) queues it, its stack
-        // with it, and reports the position; nothing merges here.
+        // EXP-1709: the merge train (the only merge) queues it (#FEED-307:
+        // its stack only on `stack: true`) and reports the position.
         const train = await import(`@/lib/merge-train/worker`)
         // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
         // or a team agent = Merge now: next, alone, past any session wait.
         // #FEED-293: past its own red checks, recorded (who, which red); a
         // draft or a person's Hold is refused with its reason, never queued.
         if (force && (await mayMergeNow(pr.teamId))) {
-          const now = await train.mergeNowPullRequest(pr.id, { keepPersonHolds: true, by: user.id })
+          const now = await train.mergeNowPullRequest(pr.id, { keepPersonHolds: true, by: user.id, stack: stack === true })
           if (now.refused) {
             return ok({ ...prRef(pr), merged: false, queued: false, mergeNow: false, refused: now.refused, mergeQueue: await train.queueReport(pr.id), checks })
           }
@@ -3343,7 +3343,7 @@ export function registerExponentialTools(
           const note = mergeNowQueuedText(pr.number, now.red, mergeQueue?.behind ?? [])
           return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, note, mergeQueue, checks })
         }
-        await train.queuePullRequest(pr.id)
+        await train.queuePullRequest(pr.id, { stack: stack === true })
         await train.runRepository(pr.repositoryId)
         return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })
       } catch (e) {

@@ -358,7 +358,7 @@ describe(`reducer and schema additions`, () => {
       { id: `root`, component: `Stack`, children: [`list`, `t`, `x`] },
       { id: `list`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` }, visible: { "@path": `/show` } },
       { id: `row`, component: `Row`, title: { "@path": `name` } },
-      { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, accessibility: { label: `Members` } },
+      { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, "@accessibility": { label: `Members` } },
       { id: `cell`, component: `Badge`, text: { "@path": `s` } },
       { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell2` } },
       { id: `cell2`, component: `Badge`, text: `x` },

@@ -33,7 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /** A send ready to go: [input] (sealed when it could be), [onSent] keeps a new root's key. */
-class PreparedSend(val input: SessionsSendInput, val onSent: (SessionsSendResult) -> Unit = {})
+class PreparedSend(val input: SessionsSendInput, val onSent: suspend (SessionsSendResult) -> Unit = {})
 
 /** #EXP-1958: a replies / suggestions card as a tap reads it ([SealedWriter.cardTap]). */
 class CardTap(val sealed: Boolean, val opened: JsonObject?, val sessionId: String?)
@@ -181,7 +181,7 @@ class SealedWriter @Inject constructor(
                         seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps),
                         actionCard = sealedActionCard(withMentions.actionCard, key.publicKey, FIRST_EPOCH),
                     ),
-                ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
+                ) { result -> settleSeal(accountId, input.clientMessageId != null, result.sessionId, key, targets, wraps) }
             }
         }
     }
@@ -220,7 +220,7 @@ class SealedWriter @Inject constructor(
         val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
         return PreparedSend(
             withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
-        ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
+        ) { result -> settleSeal(accountId, input.clientMessageId != null, result.sessionId, key, targets, wraps) }
     }
 
     /** #EXP-1960 + #EXP-2123: a keyless root keyed by this install (joined), else by its devices. */
@@ -505,6 +505,17 @@ class SealedWriter @Inject constructor(
         }
         return wraps.takeIf { it.firstOrNull()?.installId == targets.firstOrNull()?.installId }
     }
+
+    /** #EXP-2141 (`dedupedSend`): [keepSeal], unless another send's row answered this one: its tree's key is fetched. */
+    private suspend fun settleSeal(accountId: String, keyed: Boolean, rootId: String, key: TreeKey, targets: List<WrapTarget>, wraps: List<TreeKeyWrap>) =
+        settleNewRoot(
+            keyed = keyed,
+            rootId = rootId,
+            own = PublicTreeKey(key.publicKey, FIRST_EPOCH),
+            publicKey = { publicKey(accountId, it) },
+            adopt = { keepSeal(accountId, rootId, key, targets, wraps) },
+            fetch = { nodes.get().wakeHolders() },
+        )
 
     /** A new root's key once the send created [rootId]; #EXP-1950: its unsigned seal is signed again by the holder. */
     private fun keepSeal(accountId: String, rootId: String, key: TreeKey, targets: List<WrapTarget>, wraps: List<TreeKeyWrap>) {

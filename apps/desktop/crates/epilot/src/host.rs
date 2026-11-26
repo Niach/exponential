@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::backend::{self, LockGuard, Target};
 use crate::server::ToolHost;
@@ -98,6 +98,9 @@ impl Drop for Running<'_> {
         self.0.returned.notify_all();
     }
 }
+
+/// The lead of a refused lock's answer.
+const LOCK_REFUSED: &str = "Could not lock the person's input";
 
 #[derive(Default)]
 struct Run {
@@ -468,7 +471,7 @@ impl Host {
                 Refused::Aborted => tools::ABORTED.to_string(),
                 Refused::Ended => ENDED.to_string(),
                 Refused::Os(reason) => {
-                    format!("Could not lock the person's input ({reason}); nothing was done. Tell them and try again.")
+                    format!("{LOCK_REFUSED} ({reason}); nothing was done. Tell them and try again.")
                 }
             })?;
             leased.set(Some(seq));
@@ -541,7 +544,11 @@ impl ToolHost for Host {
         }
         let backend = match backend::open(self.target, Some(session_id)) {
             Ok(backend) => backend,
-            Err(reason) => return tools::error(reason),
+            Err(reason) => {
+                let mut answer = tools::error(reason);
+                answer["structuredContent"] = json!({ "refusal": "unavailable" });
+                return answer;
+            }
         };
         self.call_on(&*backend, session_id, label, name, arguments)
     }
@@ -654,6 +661,22 @@ impl Hosts {
     }
 }
 
+/// #FEED-313: the run's last try at the screen, for its end's words: a
+/// refusal of the screen itself (never a bad argument), or a call that worked.
+fn note_reply(session_id: &str, name: &str, reply: &Value) {
+    if reply["isError"] != true {
+        if name != "wait" {
+            crate::note_cannot_run(session_id, None);
+        }
+        return;
+    }
+    let text = reply["content"][0]["text"].as_str().unwrap_or_default();
+    let refused = reply["structuredContent"]["refusal"].is_string() || text == tools::ABORTED || text.starts_with(LOCK_REFUSED);
+    if refused {
+        crate::note_cannot_run(session_id, Some(text));
+    }
+}
+
 impl ToolHost for Hosts {
     fn tools(&self) -> Result<Value, String> {
         Ok(tools::list())
@@ -669,7 +692,11 @@ impl ToolHost for Hosts {
 
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
         match self.of(session_id) {
-            Some(host) => host.call(session_id, label, name, arguments),
+            Some(host) => {
+                let reply = host.call(session_id, label, name, arguments);
+                note_reply(session_id, name, &reply);
+                reply
+            }
             None => tools::error(ENDED),
         }
     }
@@ -690,7 +717,22 @@ impl ToolHost for Hosts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+
+    /// #FEED-313: what a run's end says when its agent says nothing.
+    #[test]
+    fn the_last_refusal_of_the_screen_is_kept_until_a_call_works() {
+        let session = "feed-313";
+        let refusal = |kind: &str, text: &str| json!({ "content": [{ "type": "text", "text": text }], "isError": true, "structuredContent": { "refusal": "wrong_display", "kind": kind } });
+        note_reply(session, "screenshot", &refusal("screenLocked", "The person's screen is locked."));
+        note_reply(session, "wait", &json!({ "content": [] }));
+        note_reply(session, "left_click", &tools::error("`x` is missing."));
+        assert_eq!(crate::cannot_run(session).as_deref(), Some("The person's screen is locked."));
+        note_reply(session, "screenshot", &json!({ "content": [] }));
+        assert_eq!(crate::cannot_run(session), None);
+        note_reply(session, "left_click", &tools::error(format!("{LOCK_REFUSED} (grabbed); nothing was done.")));
+        assert!(crate::cannot_run(session).is_some());
+        crate::note_cannot_run(session, None);
+    }
 
     #[test]
     fn esc_aborts_every_user_of_the_lock_until_their_next_turn() {

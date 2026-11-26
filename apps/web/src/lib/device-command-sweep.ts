@@ -18,6 +18,7 @@ import { db } from "@/db/connection"
 import { deviceCommands } from "@/db/schema"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { runConnStatsRetention } from "@/lib/steer-conn-stats"
+import { runCallRecordRetention } from "@/lib/voice-call-records"
 
 // The states devices.completeCommand can leave behind — the only ones a
 // device will never act on again. Keep in lockstep with that mutation.
@@ -99,10 +100,12 @@ async function sweep(): Promise<void> {
     // EXP-1530: the same hourly pass expires P2P connection analytics rows
     // past `connStats.retentionDays`.
     const stats = await runConnStatsRetention()
+    // EXP-2110: and voice call records past `record.retentionDays`.
+    const calls = await runCallRecordRetention()
     reportSchedulerRun(`device-command-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.commandsDeleted} deleted, ${stats.connEventsDeleted} conn events expired`,
+      detail: `${result.commandsDeleted} deleted, ${stats.connEventsDeleted} conn events expired, ${calls.callRecordsDeleted} call records expired`,
     })
     if (result.commandsDeleted > 0) {
       console.log(

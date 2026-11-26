@@ -105,7 +105,7 @@ final class Round1ModelTests: XCTestCase {
                 "id": "f", "component": "Form", "props": obj(["name": "f"]),
                 "on": obj(["submit": obj(["event": obj(["name": "submit"])]), "invalid": obj(["event": obj(["name": "invalid"])])]),
                 "children": [
-                    obj(["id": "agree", "component": "Checkbox", "props": obj(["label": "I agree", "name": "agree", "checked": obj(["@path": "/agreed"]), "checks": c["checks"]?.any ?? [Any]()])]),
+                    obj(["id": "agree", "component": "Checkbox", "props": obj(["label": "I agree", "name": "agree", "checked": obj(["@path": "/agreed"])]), "@checks": c["checks"]?.any ?? [Any]()]),
                     obj(["id": "go", "component": "Button", "props": obj(["label": "Send", "submit": true])]),
                 ],
             ])

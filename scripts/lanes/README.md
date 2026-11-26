@@ -60,6 +60,14 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   `lane.sh: NOT sweeping …` and names the binary that is too old: install a
   current CLI (`curl -fsSL https://exponential.at/install.sh | sh`).
 
+- **Full disk (#EXP-2150):** after that sweep a heavy or android job is
+  refused (exit 75, logged `refused-disk`) with less than `LANE_MIN_FREE_GB`
+  free: 30 on Linux, 0 = never elsewhere. A cold debug target is 15-20 GB.
+- **A private target goes with its session (#EXP-2150):** a `CARGO_TARGET_DIR`
+  (or `--own-target`) that does not exist yet, under `~/.cache/exp-*/`, a temp
+  dir or a checkout's `apps/*/target`, is listed in the session manifest. Name
+  it `~/.cache/exp-<first 8 of the session id>/target`.
+
 ## Screen captures: `capture.sh` only (#EXP-2022)
 
 A Linux screen capture goes through `capture.sh`, never a bare `import`,
@@ -131,7 +139,9 @@ The manifest lives at `~/.local/state/exponential/session-manifests/<session>`.
 When the session ends, the daemon deletes exactly what it lists and nothing
 else. That covers `simctl delete`, `avdmanager delete avd`, `rm -rf`, and
 `docker compose -p … down --volumes`. A `dir` must sit under a temp dir,
-Xcode's DerivedData, fastlane's caches or the session's worktree. If the daemon
+Xcode's DerivedData, fastlane's caches, the session's worktree or
+`~/.cache/exp-*` (#EXP-2150: refused until then, so every private target there
+outlived its session), and never hold a path another session lists. If the daemon
 crashed, its sweep reaps the manifest the same way. This works the same on
 macOS and Linux.
 

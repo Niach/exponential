@@ -207,7 +207,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
 
 /// [`start`] for a run the pickup relaunched with a note (#EXP-2085).
 fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>) -> Harness {
-    start_parts(scenario, seed, start_note, None, None)
+    start_parts(scenario, seed, start_note, None, None, None)
 }
 
 /// [`start_noted`], optionally as the RELAUNCH of a recorded conversation
@@ -219,6 +219,8 @@ fn start_parts(
     start_note: Option<String>,
     transcript: Option<&str>,
     conversation: Option<Arc<RecordingConversation>>,
+    // EXP-2099: the wall reset an earlier process of this session waited for.
+    wall: Option<i64>,
 ) -> Harness {
     let work = std::env::temp_dir().join(format!(
         "exp-claude-engine-{scenario}-{}",
@@ -227,6 +229,7 @@ fn start_parts(
     std::fs::create_dir_all(&work).expect("a scratch worktree");
     let hold = coding::launch_gate::hold(&work);
     let session_id = format!("sess-{scenario}");
+    coding::wall_resume::set(&work, &session_id, wall);
     let runtime = steer::SteerRuntime::new().expect("a steer runtime");
     let sink = RecordingSink::new();
     let child_exit = ChildExitLink::new();
@@ -871,6 +874,60 @@ fn a_start_on_an_exhausted_login_walls_the_run() {
     assert!(prose.is_empty(), "the notice is state, never prose: {prose:?} / {:?}", harness.sink.snapshot().iter().filter_map(|e| serde_json::to_value(e).ok()).map(|e| e.to_string()).collect::<Vec<_>>());
 }
 
+/// The reset in the `usage-wall-start` scenario (2100-01-01, unix ms).
+const WALL_RESET_MS: i64 = 4_102_444_800_000;
+
+/// What a run that met the wall leaves the next process: the CLI wrote the
+/// input, then its notice.
+const WALLED_TRANSCRIPT: &str = concat!(
+    r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Fix the failing test."}]},"uuid":"u-1","sessionId":"s"}"#,
+    "\n",
+);
+
+/// EXP-2099: the input that hit the wall was lost behind it. A turn the wall
+/// ended keeps its reset on disk until a newer turn or a Stop takes it.
+#[test]
+fn a_walled_turn_keeps_the_reset_its_continuation_waits_for_until_a_stop() {
+    let _session = one_session_at_a_time();
+    let harness = start("usage-wall-start", Some("Fix the failing test.".to_string()));
+    let kept = || coding::wall_resume::get(&harness.work, "sess-usage-wall-start");
+    until("the reset to be kept", || kept() == Some(WALL_RESET_MS));
+    // A newer input that meets the same wall waits for it again.
+    harness.session.send_prompt("And the other one.".to_string());
+    until("the second turn to end", || ended_turns(&harness.sink) >= 2);
+    until("the reset to be kept again", || kept() == Some(WALL_RESET_MS));
+    harness.session.cancel_turn();
+    until("the Stop to drop it", || kept().is_none());
+    assert_eq!(user_lines(&harness.work).len(), 2, "nothing is sent before the reset");
+}
+
+/// EXP-2099: the daemon restarted during the wall. The next process of the
+/// session sends the continuation once the reset has passed, exactly once.
+#[test]
+fn a_passed_wall_reset_continues_a_relaunched_run_exactly_once() {
+    let _session = one_session_at_a_time();
+    let passed = steer::now_unix_millis() - 120_000;
+    let harness = start_parts("basic", None, None, Some(WALLED_TRANSCRIPT), None, Some(passed));
+    until("the continuation", || !user_lines(&harness.work).is_empty());
+    until("its turn to end", || ended_turns(&harness.sink) >= 1);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(user_lines(&harness.work), vec![engine::wall_resume::WALL_RESUME_PROMPT.to_string()]);
+    assert_eq!(coding::wall_resume::get(&harness.work, "sess-basic"), None);
+}
+
+/// EXP-2099: a rotation's switch prompt (any seed) IS the continuation.
+#[test]
+fn a_seeded_relaunch_takes_the_wall_continuation() {
+    let _session = one_session_at_a_time();
+    let passed = steer::now_unix_millis() - 120_000;
+    let seed = Some("Exponential moved this session.".to_string());
+    let harness = start_parts("basic", seed, None, Some(WALLED_TRANSCRIPT), None, Some(passed));
+    until("the seed turn to end", || ended_turns(&harness.sink) >= 1);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(user_lines(&harness.work), vec!["Exponential moved this session.".to_string()]);
+    assert_eq!(coding::wall_resume::get(&harness.work, "sess-basic"), None);
+}
+
 /// #EXP-2100: a relaunch (a daemon restart, an app quit) reopens the recorded
 /// conversation through `session/load`, which streams the transcript back
 /// through the mapper. On this device the publisher drops that replay up to
@@ -892,7 +949,7 @@ fn a_relaunch_replays_its_last_reply_before_the_seed_never_as_a_live_row() {
         "\n",
     );
     let conversation = Arc::new(RecordingConversation::default());
-    let harness = start_parts("basic", None, None, Some(transcript), Some(conversation.clone()));
+    let harness = start_parts("basic", None, None, Some(transcript), Some(conversation.clone()), None);
     until("the host seeds the turn slot", || !events_of(&harness.sink, "turn").is_empty());
     // Past the coalescers' idle flush (250 ms, on a 250 ms tick).
     std::thread::sleep(Duration::from_millis(1200));

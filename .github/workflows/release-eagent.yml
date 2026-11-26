@@ -30,10 +30,6 @@ env:
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -52,16 +48,14 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: [version, pick]
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    needs: version
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: ./.github/actions/apt-mirror
-        if: runner.environment == 'github-hosted'
       - name: Linux system deps
-        if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
@@ -69,12 +63,9 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
             libasound2-dev libopus-dev cmake
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Cargo tests (eAgent + the shim)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p eagent -p exponential-agent-runtime

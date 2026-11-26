@@ -77,6 +77,18 @@ public enum ComposerAgentRow {
         return State(agents: ordered, options: options, selected: selected, agent: agent, label: label)
     }
 
+    /// #EXP-2136 (`agentRow.teamMarkCases`): the row's agents that wear their
+    /// team's mark: another team's agent has the same name. Ids in row order.
+    public static func teamMarks<Agent: AgentTeamScoped>(_ agents: [Agent]) -> [String] {
+        func key(_ agent: Agent) -> String {
+            agent.agentName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        let team = agents.filter { !AgentOrdering.isAssistant(role: $0.agentRole) }
+        return team
+            .filter { agent in team.contains { $0.agentTeamId != agent.agentTeamId && key($0) == key(agent) } }
+            .map(\.agentId)
+    }
+
     /// The pick a page opened WITH a subject starts on (`agentRow.seedCases`):
     /// issues, a prompt run or a device seed = a launch, so Temporary
     /// session; nil = the default.

@@ -2164,12 +2164,16 @@ async function startRoot(
       caller && caller.teamId === teamId ? { sessionId: caller.id, asSession: viaMcp } : null
     )
     if (raised) await logComputerUseStart(tx, root, caller!)
-    if (caller && caller.teamId === teamId) {
-      // NEW-1: a root started from inside a session is WATCHED by its
-      // starter: the bus delivers its transitions there (an agent's spawned
-      // chats report back into its conversation). The card names it.
-      await watchSessions(tx, caller.id, [root.id])
-      await postSystemCard(tx, caller, { kind: `thread_started`, sessionId: root.id })
+    // NEW-1: a root started from inside a session is WATCHED by its
+    // starter: the bus delivers its transitions there (an agent's spawned
+    // chats report back into its conversation). The card names it.
+    // #FEED-313: across teams too, for the member's own PRIVATE conversation
+    // (the Assistant in the personal team): it alone reads what is delivered.
+    if (caller && (caller.teamId === teamId || (!caller.shared && caller.userId === userId))) {
+      const watched = await watchSessions(tx, caller.id, [root.id])
+      if (watched.length > 0 || caller.teamId === teamId) {
+        await postSystemCard(tx, caller, { kind: `thread_started`, sessionId: root.id })
+      }
     }
     await applyWakeOn(tx, caller, input)
     return {

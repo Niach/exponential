@@ -3299,6 +3299,7 @@
                   "value": {
                     "@path": "/draft/title"
                   },
+                  "validateOn": "blur",
                   "checks": [
                     {
                       "condition": {
@@ -3311,8 +3312,7 @@
                       },
                       "message": "A title is required"
                     }
-                  ],
-                  "validateOn": "blur"
+                  ]
                 },
                 "children": []
               },

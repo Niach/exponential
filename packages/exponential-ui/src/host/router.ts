@@ -12,7 +12,7 @@
 // a malformed entry is dropped with ONE INVALID_MESSAGE, the rest applies),
 // `callRendererFunction` (§6.9) and `agentFunctionResponse`.
 
-import { checkArgs, allowedCallers, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "../functions"
+import { agentCallRefusal, checkArgs, declaredFunction, INDEX_FUNCTION, nestedCallRefusal } from "../functions"
 import { ACCEPT_V09, A2UI_VERSION } from "../catalog"
 import { checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "../entry"
 import type { ExtensionDef } from "../types"
@@ -312,9 +312,11 @@ export class HostRouter {
     if (name === INDEX_FUNCTION) return answer(`EXECUTION_ERROR`, `@index outside a template`)
     const signature = declaredFunction(catalogId, name)
     if (!signature) return answer(`INVALID_FUNCTION_CALL`, `unknown function ${name}`)
-    if (allowedCallers(name) === `rendererOnly`) return answer(`INVALID_FUNCTION_CALL`, `${name} cannot be called by the agent`)
-    if (requiresUserActivation(name)) return answer(`INVALID_FUNCTION_CALL`, `${name} needs a user gesture`)
+    const refused = agentCallRefusal(name)
+    if (refused !== undefined) return answer(`INVALID_FUNCTION_CALL`, refused)
     const args = isObject(call.args) ? call.args : {}
+    const nested = nestedCallRefusal(args)
+    if (nested) return answer(nested.code, nested.message)
     const issue = checkArgs(signature, args)
     if (issue !== undefined) return answer(`INVALID_FUNCTION_CALL`, `args: ${issue}`)
     return [{ op: `call`, functionCallId: id, ...(surfaceId === undefined ? {} : { surfaceId }), catalogId, name, args }]

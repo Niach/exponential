@@ -8,7 +8,7 @@ import {
   conceptIcon,
   menuProps,
   BoardGlyph,
-  TeamAvatar,
+  TeamLead,
 } from "@exp/ui"
 import type { MenuSessionProps } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -135,10 +135,12 @@ export function DraftsList({
               )
             }
           >
-            <IssueStatusIcon
-              issue={{ status: `backlog`, statusId: entry.draft.statusId }}
-              className="size-4 shrink-0"
-            />
+            <TeamLead team={team} lead={16}>
+              <IssueStatusIcon
+                issue={{ status: `backlog`, statusId: entry.draft.statusId }}
+                className="size-4 shrink-0"
+              />
+            </TeamLead>
             <span
               className={`min-w-0 flex-1 truncate text-sm ${
                 entry.untitled ? `text-muted-foreground italic` : ``
@@ -150,12 +152,6 @@ export function DraftsList({
               <BoardGlyph board={entry.board} className="size-3 shrink-0" />
               <span className="truncate">{entry.board.name}</span>
             </span>
-            {team && (
-              // #EXP-2027: the row's team mark.
-              <span title={team.name} className="flex shrink-0 items-center">
-                <TeamAvatar iconUrl={team.iconUrl} size={16} />
-              </span>
-            )}
             <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
               {compactRelativeTime(entry.draft.updatedAt)}
             </span>

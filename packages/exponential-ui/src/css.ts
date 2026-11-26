@@ -32,12 +32,19 @@ const FOLDED = new Set([`transitionEasing`, `native`, `animationDuration`])
 const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 
 interface GradientValue {
-  angle: number
+  kind?: `linear` | `radial`
+  angle?: number
+  centre?: { x: number; y: number }
   stops: { color: string; offset: number }[]
 }
 
+const pct = (fraction: number): string => `${Math.round(fraction * 10000) / 100}%`
+
+/** genUI round 4: `kind: radial` = `circle farthest-corner at centre`. */
 export function gradientCss(gradient: GradientValue): string {
-  return `linear-gradient(${gradient.angle}deg, ${gradient.stops.map((s) => `${s.color} ${Math.round(s.offset * 10000) / 100}%`).join(`, `)})`
+  const stops = gradient.stops.map((s) => `${s.color} ${pct(s.offset)}`).join(`, `)
+  if (gradient.kind === `radial`) return `radial-gradient(circle farthest-corner at ${pct(gradient.centre?.x ?? 0.5)} ${pct(gradient.centre?.y ?? 0.5)}, ${stops})`
+  return `linear-gradient(${gradient.angle ?? 180}deg, ${stops})`
 }
 
 /** A CSS string literal: backslashes and quotes escaped, so a family name

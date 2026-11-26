@@ -409,6 +409,7 @@ fn foreground_pass(
     let views = deps.live.live_views();
     let in_flight = std::collections::HashSet::new();
     let revive_held = deps.live.revive_held();
+    let wall_due = deps.live.wall_due(&deps.coding.data_dir);
     // EXP-1542: the move records, once that shape synced (else empty).
     let moves = crate::commands::daemon::read_move_records(store);
     let actions = coding::pickup::plan(coding::pickup::PickupInput {
@@ -418,6 +419,7 @@ fn foreground_pass(
         live: &views,
         in_flight: &in_flight,
         revive_held: &revive_held,
+        wall_due: &wall_due,
         moves: &moves,
         // #EXP-1990: a foreground session is never an agent's group chat
         // (this store syncs no `agents`).

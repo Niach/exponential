@@ -723,6 +723,7 @@ fn open_files() -> Option<Vec<PathBuf>> {
             continue;
         }
         out.extend(fs::read_link(pid.join("exe")));
+        out.extend(fs::read_link(pid.join("cwd")));
         if let Ok(fds) = fs::read_dir(pid.join("fd")) {
             out.extend(fds.flatten().filter_map(|fd| fs::read_link(fd.path()).ok()));
         }

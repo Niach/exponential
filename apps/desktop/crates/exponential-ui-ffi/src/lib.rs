@@ -413,7 +413,8 @@ pub struct FfiVisual {
     pub native: bool,
     pub overflow_hidden: bool,
     pub overflow_scroll: bool,
-    /// `{angle, stops: [{color, offset}]}`, painted over the background.
+    /// `{kind?: radial, angle, centre?: [x, y], stops: [{color, offset}]}`,
+    /// painted over the background.
     pub background_gradient_json: Option<String>,
     /// `[top, right, bottom, left]` when a side differs.
     pub border_widths: Option<Vec<f32>>,
@@ -468,6 +469,11 @@ pub struct FfiVisual {
     /// (a recipe's `backgroundClip`); `None` = under it (`border-box`).
     #[uniffi(default = None)]
     pub background_clip: Option<String>,
+    /// genUI round 4: `{src, fit: cover|contain, focalX, focalY, scrim?:
+    /// {color, opacity}}` (defaults filled, the scrim colour resolved): the
+    /// picture behind the children (style.json `backgroundImage`).
+    #[uniffi(default = None)]
+    pub background_image_json: Option<String>,
 }
 
 /// What a host sets per surface. `strings_json` = `{id: text}` overrides;
@@ -729,6 +735,7 @@ fn visual(v: &eui_core::style::Visual) -> FfiVisual {
         animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
         sticky: v.sticky,
         background_clip: v.background_clip.clone(),
+        background_image_json: v.background_image.as_ref().map(|b| serde_json::to_string(b).unwrap_or_default()),
     }
 }
 
@@ -3263,6 +3270,14 @@ pub fn parse_source_json(uri: String) -> Option<String> {
     shield("parse_source_json", || None, || {
         h::parse_source(&uri).map(|s| json_string(&s))
     })
+}
+
+/// Round 9 §6.9: the `rendererFunctionResponse` of a router `call` op,
+/// evaluated at the agent position. `data_json` = the surface's data (`{}`
+/// without one), `available_catalog_ids` = the router's.
+#[uniffi::export]
+pub fn answer_renderer_call_json(op_json: String, data_json: String, available_catalog_ids: Option<Vec<String>>) -> Result<String, UiError> {
+    guarded("answer_renderer_call_json", || Ok(h::answer_renderer_call(&parse(&op_json)?, &parse(&data_json)?, available_catalog_ids.as_deref()).to_string()))
 }
 
 /// The core, the core lite, the basic catalog, then the extension ids.

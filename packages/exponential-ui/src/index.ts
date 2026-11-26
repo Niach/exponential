@@ -44,7 +44,7 @@ export {
   styleKeyEnum,
   styleKeyType,
 } from "./style"
-export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition, FormFactor } from "./style"
+export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, BackgroundImage, ConditionContext, MediaCondition, FormFactor } from "./style"
 export { validateProps, validateNode, isCallableName, isKnownFunctionName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, present, coerceBoolean, binding, bindingPath, callName, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
@@ -58,9 +58,12 @@ export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } f
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
 export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES, EFFECT_FUNCTIONS, USER_ACTIVATION_FUNCTIONS, RENDERER_ONLY_FUNCTIONS, VALIDATOR_FUNCTIONS, FunctionFailure, catalogFunctionNames, checkResult, evaluateCall, evaluateCheck, fieldChecks, isHostFunctionName, resolveWithFailure, shownResult } from "./dynamic"
 export { describeSurface, type DescribeOptions, type SurfaceDescription } from "./describe"
-export { allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
+export { agentCallRefusal, nestedCallRefusal, allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
 export type { AllowedCallers } from "./functions"
+export { MALFORMED_TEMPLATE, parseTemplate } from "./format-template"
+export type { TemplatePart } from "./format-template"
 export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { MIXIN_NAMES, bareMixin, declaresBare, isCheckMixin, isCheckable } from "./mixins"
 export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatCompact, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
@@ -106,6 +109,8 @@ export { FORCED_STATE_NAMES, forcedStatesOf, normalizeForcedStates, type ForcedS
 export { listDropSlot, listMoveContext, LIST_DROP_EDGE, type ListDrop, type ListDropPosition, type ListMoveContext, type ListReorderRow } from "./list-reorder"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
 export { MIDDLE_MIN_KEPT, middleTruncateWidth } from "./text-truncate"
+export { DROP_CAP, RUN_MARKS, RUN_WEIGHTS, dropCapLines, dropCapSize, dropCapSplit, runsText, textRuns, textSpans } from "./text-runs"
+export type { RunMark, RunWeight, TextRun } from "./text-runs"
 export { HIGHLIGHT_BARRIER, highlightCount, highlightLocalCurrent, highlightRanges, highlightSpec } from "./highlight"
 export type { HighlightRange, HighlightSpec } from "./highlight"
 export { TABLE_WORD_CAP, fitTableColumns, type TableFitColumn } from "./table-fit"
@@ -118,7 +123,7 @@ export { readOnlyTree, readOnlyTemplates, readOnlyDisables, readOnlyDisabledIds,
 export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
-export type { DataScope, FieldChecks, ResolveOptions, ActionOutcome, Failure, FunctionTable, PointerWrite, RouteAnswer, RoutedCall, ValidationResult } from "./dynamic"
+export type { CallPosition, DataScope, FieldChecks, ResolveOptions, ActionOutcome, Failure, FunctionTable, PointerWrite, RouteAnswer, RoutedCall, ValidationResult } from "./dynamic"
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"
@@ -184,6 +189,7 @@ export {
 export type { ThemeOptions, GlyphGradient } from "./theme"
 export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, orangeTheme, builtinTheme, builtinThemes, themeOrDefault } from "./themes"
 export { styleToCss, styleAttribute, gradientCss } from "./css"
+export { pictureRect, radialRadius, radialT } from "./background"
 export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
 export type { ThemeImport } from "./builder"
 export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"

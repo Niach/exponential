@@ -166,6 +166,18 @@ pub fn subject_after_pick(subject: Option<ComposerSubjectValue>, pick: &str) -> 
     subject.filter(|subject| pick_keeps_subject(subject.kind(), pick))
 }
 
+/// The row's agents that wear their team's mark (`agentRow.teamMarkCases`,
+/// #EXP-2136, TS `composerAgentTeamMarks`): another team's agent has the same
+/// name. Ids in row order.
+pub fn composer_agent_team_marks<'a>(agents: &[&'a AgentDefRow]) -> Vec<&'a str> {
+    let key = |agent: &AgentDefRow| agent.name.as_deref().unwrap_or_default().trim().to_lowercase();
+    let team: Vec<&AgentDefRow> = agents.iter().copied().filter(|agent| !agent.is_assistant()).collect();
+    team.iter()
+        .filter(|agent| team.iter().any(|other| other.team_id != agent.team_id && key(other) == key(agent)))
+        .map(|agent| agent.id.as_str())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +215,28 @@ mod tests {
             assert_eq!(state.selected, expected["selected"].as_str().unwrap(), "{}", case["name"]);
             assert_eq!(state.label, expected["label"].as_str().unwrap(), "{}", case["name"]);
             assert_eq!(state.temporary(), state.selected == "temporary");
+        }
+    }
+
+    #[test]
+    fn agent_row_team_mark_cases_match_the_fixture() {
+        let fixture: Value = serde_json::from_str(COMPOSER_HOME_JSON).unwrap();
+        let cases = fixture["agentRow"]["teamMarkCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<AgentDefRow> = case["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": agent["id"], "role": agent["role"], "name": agent["name"], "team_id": agent["teamId"],
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            let refs: Vec<&AgentDefRow> = rows.iter().collect();
+            assert_eq!(serde_json::json!(composer_agent_team_marks(&refs)), case["expected"], "{}", case["name"]);
         }
     }
 

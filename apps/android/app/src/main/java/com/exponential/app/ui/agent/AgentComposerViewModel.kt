@@ -247,7 +247,7 @@ class AgentComposerViewModel @Inject constructor(
     val recipient: StateFlow<String?> = _recipient
 
     /** The member teams in THE team order (sidebar-tree.json `teams`). */
-    private val memberTeams: StateFlow<List<com.exponential.app.data.db.TeamEntity>> =
+    val memberTeams: StateFlow<List<com.exponential.app.data.db.TeamEntity>> =
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() }
             .map(::crossTeamOrder)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

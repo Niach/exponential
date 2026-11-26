@@ -219,6 +219,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             if let teams = controls?.teams {
                 TeamsPickChips(binding: teams, disabled: draft.steerSending)
                     .padding(.horizontal, 12)
+                    .padding(.top, 8)
                     .padding(.bottom, 4)
             }
             if draft.hasPendingAttachments {

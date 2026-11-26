@@ -79,11 +79,12 @@ export function newTabMenu(input: { assistant: boolean; teams: readonly { id: st
 export const SIDEBAR_PHONE_DROPS = fixture.phone.drops as readonly SidebarMenuEntryId[]
 
 /** #EXP-2109: a row's long-press menu on a phone: the same table, minus
- *  `phone.drops`. */
+ *  `phone.drops`; Open alone = no menu. */
 export function sidebarPhoneMenu(kind: SidebarMenuKind, input: SidebarMenuInput = {}): SidebarMenuEntryId[] {
-  return sidebarItemMenu(kind, input)
+  const menu = sidebarItemMenu(kind, input)
     .filter((id) => !SIDEBAR_PHONE_DROPS.includes(id))
     .filter((id, index, all) => id !== `separator` || (index > 0 && index < all.length - 1 && all[index - 1] !== `separator`))
+  return menu.length === 1 && menu[0] === `open` ? [] : menu
 }
 
 export interface SidebarMoveTargets {

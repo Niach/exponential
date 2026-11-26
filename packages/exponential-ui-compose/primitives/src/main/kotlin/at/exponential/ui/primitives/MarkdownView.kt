@@ -134,6 +134,10 @@ data class MarkdownColors(
     val headerCellBackground: Color = Color.Transparent,
     /** #VAPP-258: a theme's `Markdown/chip*` colours per chip kind (over the chip* fields above). */
     val chipLooks: Map<String, MarkdownChipLook> = emptyMap(),
+    /** Round 4 (fixtures/text-runs.json): a Text run's tone colours (Text/root under each `tone`). */
+    val tones: Map<String, Color> = emptyMap(),
+    /** Round 4: a Text run's `highlight` mark fill (`$color.match`). */
+    val markFill: Color = Color.Unspecified,
 ) {
     /** Factories over the tokens. */
     companion object {
@@ -223,6 +227,8 @@ class MarkdownComposeText(
         code: MarkdownCodeStyle? = null,
         highlight: MarkdownHighlight? = null,
         marks: List<HighlightMark> = emptyList(),
+        tones: Map<String, Color> = emptyMap(),
+        markFill: Color = Color.Unspecified,
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
         var chips = 0
@@ -240,12 +246,14 @@ class MarkdownComposeText(
             var weight = spec.weight
             if (span.bold) weight = maxOf(weight, 600)
             if (boldFloor != null) weight = maxOf(weight, boldFloor)
+            // Round 4: a Text run's own weight and tone.
+            span.weight?.let { weight = it }
             val decorations = buildList {
                 if (span.strike) add(TextDecoration.LineThrough)
-                if (span.link != null) add(TextDecoration.Underline)
+                if (span.link != null || span.underline) add(TextDecoration.Underline)
             }
             val style = SpanStyle(
-                color = if (span.link != null) link else ink,
+                color = span.tone?.let { tones[it] } ?: if (span.link != null) link else ink,
                 fontWeight = FontWeight(weight),
                 fontStyle = if (span.italic) FontStyle.Italic else null,
                 fontSize = if (span.code && code != null) code.size(spec).sp else TextUnit.Unspecified,
@@ -270,6 +278,8 @@ class MarkdownComposeText(
             } else {
                 withStyle(style) { append(span.text) }
             }
+            // Round 4: a Text run's `highlight` mark, under the search marks.
+            if (span.fill && markFill.isSpecified) addStringAnnotation(HIGHLIGHT_MARK_TAG, highlightMarkValue(markFill, code = span.code), at, at + span.text.length)
             // #EDE-95: this span's part of each mark, filled in its glyph box by
             // [MarkdownPills] (never a span background: that is the line height).
             if (highlight != null) {
@@ -364,6 +374,14 @@ class MarkdownComposeText(
     override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float {
         val words = Markdown.plain(inlines).split(Regex("\\s+")).filter { it.isNotEmpty() }
         return words.maxOfOrNull { width(listOf(MarkdownInline(text = it)), spec) } ?: 0f
+    }
+
+    /** Round 4 (a drop cap): the painted lines of [inlines] at [width], per line its first char (of the inlines' text) and its width. */
+    override fun lineStarts(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float, chips: MarkdownChipStyle): List<Pair<Int, Float>> {
+        if (inlines.all { it.text.isEmpty() }) return listOf(0 to 0f)
+        val pills = inlines.any { it.chip != null || it.code }
+        val r = layout(inlines, spec, width, if (pills) placeholders(inlines, spec, chips, width) else emptyList(), if (pills) chips.code else null)
+        return (0 until r.lineCount).map { markdownInlineOffset(inlines, r.getLineStart(it), pills && chips.code != null) to (r.getLineRight(it) - r.getLineLeft(it)) / density }
     }
 
     /** #VAPP-258: a chip label's (or ident's) width shaped in [spec], the painted font. */
@@ -549,9 +567,11 @@ fun MarkdownView(
     highlight: MarkdownHighlight? = null,
     /** #EXP-1926: the host's source rule for block images ([MarkdownHooks.imageSource]); null = none. */
     imageSource: ((src: String, alt: String) -> ImageSource)? = null,
+    /** Round 4 (fixtures/text-runs.json): ready blocks instead of [text] (a Text's runs as one paragraph); never parsed. */
+    ready: List<MarkdownBlock>? = null,
 ) {
-    val prepared = remember(text, linkPolicy, imagePolicy, imageSource, attachments, imageSize, options.hardBreaks, options.streaming) {
-        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options, imageSource = imageSource))
+    val prepared = remember(text, ready, linkPolicy, imagePolicy, imageSource, attachments, imageSize, options.hardBreaks, options.streaming) {
+        ready ?: Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize, options = options, imageSource = imageSource))
     }
     // #VAPP-258: an image the host could not size takes its decoded size
     // once it loaded (the media cache; this read recomposes when one lands).
@@ -632,6 +652,35 @@ fun MarkdownView(
     }
 }
 
+/**
+ * Round 4: the offset in [inlines]' own text of char [index] of their
+ * annotated string (a chip = its label; with [codePills] a code span sits
+ * between two [MARKDOWN_CODE_PAD]s): what a line start maps back to.
+ */
+fun markdownInlineOffset(inlines: List<MarkdownInline>, index: Int, codePills: Boolean): Int {
+    var a = 0
+    var i = 0
+    for (span in inlines) {
+        if (span.text.isEmpty()) continue
+        val chip = span.chip
+        if (chip != null) {
+            if (index < a + chip.label.length) return i
+            a += chip.label.length
+            i += span.text.length
+            continue
+        }
+        val pad = if (span.code && codePills) MARKDOWN_CODE_PAD.length else 0
+        if (index < a + pad) return i
+        a += pad
+        if (index < a + span.text.length) return i + (index - a)
+        a += span.text.length
+        i += span.text.length
+        if (index < a + pad) return i
+        a += pad
+    }
+    return i
+}
+
 /** #VAPP-258: a [MarkdownView]'s laid-out document (dp). */
 class MarkdownLaidOut(val blocks: List<MarkdownBlock>, val layout: MarkdownLayout, val styles: MarkdownStyles) {
     /** The tallest height at most [limit] that ends on a whole line ([Markdown.foldHeight]). */
@@ -673,7 +722,7 @@ private fun MarkdownBlockView(
     val uri = LocalUriHandler.current
     val open: (String) -> Unit = { href -> if (onLink != null) onLink(href) else runCatching { uri.openUri(href) } }
     fun runs(inlines: List<MarkdownInline>, ink: Color, boldFloor: Int? = null, group: Int = 0) =
-        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code, highlight = highlight, marks = marks.getOrNull(group).orEmpty())
+        shaper.annotated(inlines, spec, ink = ink, link = colors.link, boldFloor = boldFloor, onLink = onLink, code = styles.chip.code, highlight = highlight, marks = marks.getOrNull(group).orEmpty(), tones = colors.tones, markFill = colors.markFill)
     // #VAPP-258: the chips of a run list wrapped at [cap] (the width its layout used).
     fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
         markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)

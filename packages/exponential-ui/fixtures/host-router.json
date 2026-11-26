@@ -571,7 +571,7 @@
             {
               "id": "gantt",
               "component": "Gantt",
-              "catalogId": "https://acme.example/catalogs/charts/v1",
+              "@catalogId": "https://acme.example/catalogs/charts/v1",
               "rows": {
                 "@path": "/rows"
               }
@@ -4539,10 +4539,6 @@
         {
           "path": "/templates/main/components/1",
           "message": "unknown component NoSuchThing"
-        },
-        {
-          "path": "/templates/main/components/2",
-          "message": "props.text: required"
         },
         {
           "path": "/templates/main/components/3",

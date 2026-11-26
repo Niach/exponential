@@ -13,16 +13,9 @@ on:
           - production
           - staging
 
+# #EXP-2151: every leg runs GitHub-hosted on a cold cache (README, Release trust
+# boundary); the .app is signed and notarized there, never on a laptop.
 jobs:
-  # EXP-1364: the Linux legs build on the Mint when it is up (its runner image
-  # is Ubuntu 24.04 too, the same glibc floor). macOS + Windows stay on GitHub:
-  # the .app is signed and notarized there, never on a beta-macOS laptop.
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-    with:
-      linux-fallback: ubuntu-24.04
-
   # Compute the build matrix. EXP-1364: a tag push builds PRODUCTION only
   # (staging is artifacts nobody downloads from a release); a dispatch builds
   # the channels it asks for (default both). Windows is its own matrix: the
@@ -131,12 +124,11 @@ jobs:
           command: check licenses
 
   build:
-    needs: [codegen-drift, license-audit, setup, pick]
+    needs: [codegen-drift, license-audit, setup]
     uses: ./.github/workflows/desktop-build.yml
     secrets: inherit
     with:
       matrix: ${{ needs.setup.outputs.matrix }}
-      linux-runner: ${{ needs.pick.outputs.linux }}
 
   build-windows:
     needs: [codegen-drift, license-audit, setup]
@@ -158,6 +150,7 @@ jobs:
     # and self-update the fleet to a build we deliberately killed.
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/desktop-v') }}
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     permissions:
       contents: write
     steps:
@@ -232,6 +225,7 @@ jobs:
     needs: [build-windows, release]
     if: ${{ !cancelled() && needs.release.result == 'success' && startsWith(github.ref, 'refs/tags/desktop-v') }}
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     permissions:
       contents: write
     steps:

@@ -469,9 +469,6 @@ fn is_directive09(value: &Value) -> bool {
 }
 
 fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool, rekey: &mut Rekey, ctx: &Ctx) -> Value {
-    if key == "checks" {
-        return upgrade_checks(value, ctx);
-    }
     if key == "on" {
         return match value.as_object() {
             Some(o) => Value::Object(o.iter().map(|(event, action)| (event.clone(), upgrade_action(action, ctx))).collect()),
@@ -509,6 +506,13 @@ fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool
     dyn_(value, ctx)
 }
 
+const WIRE_CHECKS: &str = crate::reducer::WIRE_CHECKS;
+
+/// Round 9 §5.1: the envelope mixins ride under `@` in 1.0.
+fn wire_key(key: &str) -> String {
+    if crate::types::MIXIN_NAMES.contains(&key) { format!("@{key}") } else { key.to_string() }
+}
+
 fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut Rekey, ctx: &Ctx) -> Value {
     let Some(raw) = raw.as_object() else { return raw.clone() };
     let basic = is_basic_id(if raw.contains_key("catalogId") { raw.get("catalogId") } else { surface_catalog });
@@ -520,6 +524,7 @@ fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut 
             "id" => rekey.reference(v),
             "component" | "style" | "metadata" => v.clone(),
             "catalogId" => upgrade_catalog_id(v),
+            "checks" => upgrade_checks(v, ctx),
             "children" => rekey_children(v, rekey),
             "slots" => rekey_slots(v, rekey),
             "template" => rekey_template(v, rekey),
@@ -527,13 +532,13 @@ fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut 
             "accessibility" => upgrade_accessibility(v, ctx),
             _ => upgrade_prop(k, v, component, basic, rekey, ctx),
         };
-        out.insert(k.clone(), value);
+        out.insert(wire_key(k), value);
     }
     if let Some(check) = extra_check {
-        match out.get_mut("checks") {
+        match out.get_mut(WIRE_CHECKS) {
             Some(Value::Array(checks)) => checks.push(check),
             _ => {
-                out.insert("checks".into(), Value::Array(vec![check]));
+                out.insert(WIRE_CHECKS.into(), Value::Array(vec![check]));
             }
         }
     }
@@ -748,11 +753,18 @@ fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
         let component = n.get("component");
         let mut out = Obj::new();
         for (k, v) in n {
+            let mut checks = None;
             let value = match (k.as_str(), v) {
                 ("id", _) => rekey.reference(v),
                 ("props", Value::Object(props)) => {
                     let mut p = Obj::new();
                     for (pk, pv) in props {
+                        // Round 9 §13: the check mixin sits at NODE level,
+                        // right after `props`.
+                        if pk == "checks" {
+                            checks = Some(upgrade_checks(pv, ctx));
+                            continue;
+                        }
                         let value = upgrade_prop(pk, pv, component, false, rekey, ctx);
                         p.insert(pk.clone(), value);
                     }
@@ -773,7 +785,10 @@ fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
                 ("on", _) => upgrade_prop(k, v, component, false, rekey, ctx),
                 _ => v.clone(),
             };
-            out.insert(k.clone(), value);
+            out.insert(if k == "checks" { k.clone() } else { wire_key(k) }, value);
+            if let Some(checks) = checks {
+                out.insert(WIRE_CHECKS.into(), checks);
+            }
         }
         Value::Object(out)
     })
@@ -1277,7 +1292,7 @@ mod tests {
         assert_eq!(out[3]["visible"], c(json!({"@path": "/x"})));
         assert_eq!(out[4]["visible"], json!({"@call": "eq", "args": {"a": 1, "b": 1}}));
         assert_eq!(out[5]["visible"], c(json!({"@call": "len", "args": {"value": [1]}})));
-        let checks = &out[6]["checks"];
+        let checks = &out[6]["@checks"];
         assert_eq!(checks[0]["condition"], c(json!(true)));
         assert_eq!(checks[1]["condition"], c(json!("x")));
         assert_eq!(checks[2]["condition"], c(json!({"@path": "/v"})));
@@ -1294,7 +1309,7 @@ mod tests {
     #[test]
     fn accessibility_label_and_description() {
         let (out, _) = components(json!([{"id": "a", "component": "Text", "accessibility": {"label": {"path": "/l"}, "description": "d", "live": "polite"}}]));
-        assert_eq!(out[0]["accessibility"], json!({"label": {"@path": "/l"}, "description": "d", "live": "polite"}));
+        assert_eq!(out[0]["@accessibility"], json!({"label": {"@path": "/l"}, "description": "d", "live": "polite"}));
     }
 
     #[test]
@@ -1361,11 +1376,11 @@ mod tests {
         assert_eq!(
             out[0],
             json!({"id": "f_1", "component": "TextField", "label": "A", "value": {"@path": "/a"},
-                "checks": [{"condition": {"@call": "regex", "args": {"value": {"@path": "/a"}, "pattern": "^a$"}}, "message": "Invalid value"}]})
+                "@checks": [{"condition": {"@call": "regex", "args": {"value": {"@path": "/a"}, "pattern": "^a$"}}, "message": "Invalid value"}]})
         );
-        assert_eq!(keys(&out[0]), ["id", "component", "label", "value", "checks"]);
-        assert_eq!(out[1]["checks"][1], json!({"condition": {"@call": "regex", "args": {"value": {"@path": "f-2"}, "pattern": "^b$"}}, "message": "Invalid value"}));
-        assert_eq!(keys(&out[1]), ["id", "component", "label", "checks", "value"]);
+        assert_eq!(keys(&out[0]), ["id", "component", "label", "value", "@checks"]);
+        assert_eq!(out[1]["@checks"][1], json!({"condition": {"@call": "regex", "args": {"value": {"@path": "f-2"}, "pattern": "^b$"}}, "message": "Invalid value"}));
+        assert_eq!(keys(&out[1]), ["id", "component", "label", "@checks", "value"]);
         assert_eq!(out[1]["value"], "");
         assert_eq!(keys(&out[2]), ["id", "component", "label", "value"]);
     }

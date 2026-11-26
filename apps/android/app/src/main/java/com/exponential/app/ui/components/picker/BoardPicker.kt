@@ -25,6 +25,9 @@ data class BoardPickerBoard(
     val colorHex: String? = null,
     /** #EXP-1832: the board's team (the member's folders are per team); null = no folders. */
     val teamId: String? = null,
+    /** #EXP-2125: the team's name, the row's muted description (a search finds
+     *  it); set only while the list spans more than one team. */
+    val teamName: String? = null,
 )
 
 fun boardPickerItems(boards: List<BoardPickerBoard>): List<PickerItem<String>> =
@@ -36,6 +39,8 @@ fun boardPickerItems(boards: List<BoardPickerBoard>): List<PickerItem<String>> =
             // fallback rule); this only looks the name up in the registry.
             icon = board.icon?.let { ExpIcons.byName(it) },
             color = board.colorHex?.takeIf { it.isNotBlank() }?.let(::parseColor),
+            description = board.teamName,
+            keywords = board.teamName?.let { listOf(board.name, it) }.orEmpty(),
         )
     }
 

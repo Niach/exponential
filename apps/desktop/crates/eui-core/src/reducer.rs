@@ -13,13 +13,13 @@ use crate::basic_map::map_basic_component;
 use crate::limits;
 use crate::catalog::{CatalogView, SURFACE_COMPONENT, UNKNOWN_COMPONENT};
 use crate::macros::expand_macros_with_templates;
-use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode};
+use crate::types::{bare_mixin, ComponentDef, FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode, MIXIN_NAMES};
 use crate::validate::validate_props;
 
 /// The keys of a flat component that are not props: round 9 §5.3, the
-/// `ComponentCommon` envelope (`children`, `slots`, `on`, `style`,
-/// `visible`, `checks` are declared props of the core components now).
-pub const RESERVED_KEYS: &[&str] = &["id", "component", "catalogId", "accessibility", "metadata"];
+/// `ComponentCommon` envelope + `@checks` (`children`, `slots`, `on`,
+/// `style`, `visible` are declared props of the core components now).
+pub const RESERVED_KEYS: &[&str] = &["id", "component", "@catalogId", "@accessibility", "@metadata", WIRE_CHECKS];
 /// Round 9 §5.1: the closed `accessibility` object.
 pub const ACCESSIBILITY_KEYS: &[&str] = &["label", "description", "live", "hidden", "selected", "expanded"];
 
@@ -96,21 +96,21 @@ pub fn allows_children(def: &crate::types::ComponentDef) -> bool {
 /// dropped).
 fn accessibility_of(value: &Value, id: &str, issues: &mut Vec<ReduceIssue>) -> Option<Value> {
     let Some(o) = value.as_object() else {
-        issues.push(ReduceIssue::at(id, "accessibility: expected an object", "/accessibility", VALIDATION_FAILED));
+        issues.push(ReduceIssue::at(id, "accessibility: expected an object", "/@accessibility", VALIDATION_FAILED));
         return None;
     };
     let mut out = serde_json::Map::new();
     for (k, v) in o {
         if !ACCESSIBILITY_KEYS.contains(&k.as_str()) {
-            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: unknown key"), &format!("/accessibility/{}", escape_token(k)), VALIDATION_FAILED));
+            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: unknown key"), &format!("/@accessibility/{}", escape_token(k)), VALIDATION_FAILED));
             continue;
         }
         if k == "live" && !v.as_str().is_some_and(|l| LIVE_VALUES.contains(&l)) {
-            issues.push(ReduceIssue::at(id, format!("accessibility.live: expected one of {}", LIVE_VALUES.join("|")), "/accessibility/live", VALIDATION_FAILED));
+            issues.push(ReduceIssue::at(id, format!("accessibility.live: expected one of {}", LIVE_VALUES.join("|")), "/@accessibility/live", VALIDATION_FAILED));
             continue;
         }
         if ACCESSIBILITY_STATES.contains(&k.as_str()) && !v.is_boolean() && !crate::expr::is_dynamic(v) {
-            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: expected a boolean"), &format!("/accessibility/{k}"), VALIDATION_FAILED));
+            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: expected a boolean"), &format!("/@accessibility/{k}"), VALIDATION_FAILED));
             continue;
         }
         out.insert(k.clone(), v.clone());
@@ -121,7 +121,7 @@ fn accessibility_of(value: &Value, id: &str, issues: &mut Vec<ReduceIssue>) -> O
 #[derive(Debug, Clone)]
 pub struct ReduceOptions {
     /// The surface's DEFAULT catalog (round 9 §5.5: a component's own
-    /// `catalogId` wins): the core, the lite subset, the basic catalog or
+    /// `@catalogId` wins): the core, the lite subset, the basic catalog or
     /// an extension's id; `""` = none (a component without its own catalog
     /// is the Unknown placeholder).
     pub catalog_id: String,
@@ -382,18 +382,49 @@ fn unknown(id: &str, component: &str, catalog_id: &str) -> UiNode {
     node
 }
 
-/// #AXC-19: A2UI 1.0 writes the check mixin as `@checks` (what the Express
-/// compiler emits); the legacy bare `checks` is still read. Inside, the prop
-/// is `checks` (catalog, nodes, painters); `@checks` wins when both are set.
+/// Round 9 §5.1: the check mixin's wire key; in a NORMALIZED node (catalog
+/// source, painters) the prop stays `checks`.
 pub const WIRE_CHECKS: &str = "@checks";
 
-fn own_props(flat: &FlatComponent) -> Props {
-    let wire = flat.rest.contains_key(WIRE_CHECKS);
-    flat.rest
-        .iter()
-        .filter(|(k, _)| !RESERVED_KEYS.contains(&k.as_str()) && !(wire && k.as_str() == "checks"))
-        .map(|(k, v)| (if k == WIRE_CHECKS { "checks".to_string() } else { k.clone() }, v.clone()))
-        .collect()
+/// Round 9 §5.1: what a direct caller's node holds beyond the router's entry
+/// check: a bare mixin name the component does not declare (dropped, an issue
+/// naming the `@` key) and `@checks` on a component that takes none. `outer`
+/// = the bare names at a nested node's own level ([`MIXIN_NAMES`] order).
+#[inline(never)]
+fn lift_mixins(props: &mut Props, checks: Option<&Value>, outer: [bool; 4], def: &ComponentDef, id: &str, issues: &mut Vec<ReduceIssue>) {
+    for (name, outer) in MIXIN_NAMES.iter().zip(outer) {
+        let in_props = props.contains_key(*name) && !def.declares_bare(name);
+        if in_props {
+            props.shift_remove(*name);
+        }
+        if in_props || outer {
+            issues.push(ReduceIssue::at(id, bare_mixin(name), &format!("/{name}"), "INVALID_MESSAGE"));
+        }
+    }
+    if let Some(checks) = checks {
+        if def.is_checkable() {
+            props.insert("checks".into(), checks.clone());
+        } else {
+            issues.push(ReduceIssue::at(id, "takes no @checks", "/@checks", VALIDATION_FAILED));
+        }
+    }
+}
+
+#[inline(never)]
+fn own_props(flat: &FlatComponent, def: &ComponentDef, issues: &mut Vec<ReduceIssue>) -> Props {
+    let mut props: Props = flat.rest.iter().filter(|(k, _)| !RESERVED_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    lift_mixins(&mut props, flat.rest.get(WIRE_CHECKS), [false; 4], def, &flat.id, issues);
+    props
+}
+
+/// Round 9 §5.1: a basic component declares no mixin name.
+#[inline(never)]
+fn bare_issues(flat: &FlatComponent, issues: &mut Vec<ReduceIssue>) {
+    for name in MIXIN_NAMES {
+        if flat.rest.contains_key(*name) {
+            issues.push(ReduceIssue::at(flat.id.clone(), bare_mixin(name), &format!("/{name}"), "INVALID_MESSAGE"));
+        }
+    }
 }
 
 /// `metadata` is kept when it is an object (the entry check refused the rest).
@@ -410,8 +441,13 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
         return;
     }
     let Some(def) = options.view.components.get(&node.component) else { return };
+    // §5.1: the mixin's wire key is `@checks`.
+    let pointer = |path: &str| match path.strip_prefix("props.checks") {
+        Some(rest) if def.is_checkable() && !rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') => issue_pointer(path).replacen("/checks", "/@checks", 1),
+        _ => issue_pointer(path),
+    };
     for issue in validate_props(def, &node.props, "props", &options.view) {
-        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &issue_pointer(&issue.path), VALIDATION_FAILED));
+        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &pointer(&issue.path), VALIDATION_FAILED));
     }
     if !allows_children(def) && !node.children.is_empty() {
         issues.push(ReduceIssue::at(id, format!("{} takes no children", node.component), "/children", UNALLOWED_CHILD));
@@ -422,7 +458,7 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
         }
     }
     for issue in crate::validate::validate_node_in(node, &options.view) {
-        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &issue_pointer(&issue.path), VALIDATION_FAILED));
+        issues.push(ReduceIssue::at(id, format!("{}: {}", issue.path, issue.message), &pointer(&issue.path), VALIDATION_FAILED));
     }
 }
 
@@ -665,17 +701,15 @@ impl Builder<'_> {
                             node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), child);
                         }
                     }
+                    bare_issues(flat, &mut self.issues);
                     for (prop, message) in mapped.issues {
                         self.issues.push(ReduceIssue::at(id, message, &format!("/{}", escape_token(&prop)), VALIDATION_FAILED));
                     }
                 }
             }
-        } else if self.options.view.catalog_component(catalog, &flat.component).is_none() {
-            self.issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
-            node = unknown(id, &flat.component, catalog);
-        } else {
+        } else if let Some(def) = self.options.view.catalog_component(catalog, &flat.component) {
             node = UiNode::new(id, flat.component.clone());
-            node.props = own_props(flat);
+            node.props = own_props(flat, def, &mut self.issues);
             match &flat.children {
                 Some(FlatChildren::Ids(ids)) => node.children = ids.iter().filter_map(|c| self.build(c, depth + 1)).collect(),
                 Some(t @ FlatChildren::Template { .. }) => node.template = t.template(),
@@ -688,11 +722,14 @@ impl Builder<'_> {
                     node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), child);
                 }
             }
+        } else {
+            self.issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
+            node = unknown(id, &flat.component, catalog);
         }
         for c in node.children.iter().chain(node.slots.iter().flat_map(|s| s.values())) {
             self.parents.insert(c.id.clone(), flat.component.clone());
         }
-        // `visible`, `accessibility` and `metadata` hold on EVERY component, basic or core.
+        // `visible`, `@accessibility` and `@metadata` hold on EVERY component, basic or core.
         if let Some(visible) = &flat.visible {
             if valid_visible(visible) {
                 node.visible = Some(visible.clone());
@@ -743,17 +780,19 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
                 for (slot, child_id) in &mapped.slots {
                     node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), stub(child_id));
                 }
+                bare_issues(flat, &mut issues);
                 for (prop, message) in mapped.issues {
                     issues.push(ReduceIssue::at(id, message, &format!("/{}", escape_token(&prop)), VALIDATION_FAILED));
                 }
             }
         }
-    } else if options.view.catalog_component(catalog, &flat.component).is_none() {
-        issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
-        return issues;
     } else {
+        let Some(def) = options.view.catalog_component(catalog, &flat.component) else {
+            issues.push(ReduceIssue::at(id, format!("unknown component {}", flat.component), "/component", VALIDATION_FAILED));
+            return issues;
+        };
         node = UiNode::new(id, flat.component.clone());
-        node.props = own_props(flat);
+        node.props = own_props(flat, def, &mut issues);
         match &flat.children {
             Some(FlatChildren::Ids(ids)) => node.children = ids.iter().map(|c| stub(c)).collect(),
             Some(t @ FlatChildren::Template { .. }) => node.template = t.template(),
@@ -868,13 +907,14 @@ fn walk_nested_node(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<Re
         issues.push(issue);
         return Some(unknown(&n.id, &n.component, catalog));
     }
-    if options.view.catalog_component(catalog, &n.component).is_none() {
+    let Some(def) = options.view.catalog_component(catalog, &n.component) else {
         issues.push(ReduceIssue::at(n.id.clone(), format!("unknown component {}", n.component), "/component", VALIDATION_FAILED));
         return Some(unknown(&n.id, &n.component, catalog));
-    }
+    };
     let mut node = UiNode::new(n.id.clone(), n.component.clone());
     node.props = n.props.clone().unwrap_or_default();
     node.children = n.children.iter().flatten().filter_map(|c| walk_nested(c, options, issues, budget, parents, depth + 1)).collect();
+    lift_mixins(&mut node.props, n.checks.as_ref(), [n.bare_catalog_id, n.bare_accessibility, n.bare_metadata, n.bare_checks], def, &n.id, issues);
     for c in &node.children {
         parents.insert(c.id.clone(), n.component.clone());
     }
@@ -938,11 +978,17 @@ pub fn card_problems(root: &Value) -> Vec<String> {
         if let Some(props) = o.get("props").and_then(Value::as_object) {
             entry.extend(props.clone());
         }
-        if let Some((at, message)) = crate::host::check_entry(&Value::Object(entry), Some(crate::catalog::CORE_CATALOG_ID), &CatalogView::core()) {
+        // The mixins sit at NODE level: an `@` key inside `props` is no prop.
+        let stray = o.get("props").and_then(Value::as_object).and_then(|p| p.keys().find(|k| k.starts_with('@')));
+        let failure = match stray {
+            Some(k) => Some((format!("/props/{}", escape_token(k)), format!("{k} sits next to props"))),
+            None => crate::host::check_entry(&Value::Object(entry), Some(crate::catalog::CORE_CATALOG_ID), &CatalogView::core()),
+        };
+        if let Some((at, message)) = failure {
             let id = o.get("id").map(crate::json::to_js_string).unwrap_or_else(|| "undefined".into());
             out.push(format!("{id}: {} {message}", if at.is_empty() { "/" } else { at.as_str() }));
         }
-        for k in ["props", "on", "visible", "accessibility"] {
+        for k in ["props", "on", "visible", "@accessibility", "@checks"] {
             if let Some(v) = o.get(k) {
                 known(v, out);
             }

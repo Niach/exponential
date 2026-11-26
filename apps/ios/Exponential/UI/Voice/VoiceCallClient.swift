@@ -2,6 +2,7 @@ import AVFoundation
 import ExpCore
 import ExpUI
 import Foundation
+import os
 import UIKit
 
 /// NEW-69 (voice V5): THE phone's call with an agent, streamed to the
@@ -226,6 +227,25 @@ private final class PhoneCallPlatform: CallPlatform {
     func keepAwake(_ awake: Bool) {
         UIApplication.shared.isIdleTimerDisabled = awake
     }
+
+    let logSink: CallLogSink = DiagnosticsCallLog()
+}
+
+/// EXP-2111: the unified log and, while Send diagnostics is on, the
+/// breadcrumbs and the one event.
+private struct DiagnosticsCallLog: CallLogSink {
+    private static let logger = Logger(subsystem: "at.exponential", category: "voice-call")
+
+    func nowMs() -> Int { Int(ProcessInfo.processInfo.systemUptime * 1000) }
+
+    func line(_ line: String) {
+        Self.logger.info("\(line, privacy: .public)")
+        Observability.callLine(line)
+    }
+
+    func failed(_ end: VoiceCall.CallLog.End) {
+        Observability.callFailed(end)
+    }
 }
 
 private struct TaskTimer: CallTimer {
@@ -273,6 +293,7 @@ private final class WebSocketCall: CallSocket, @unchecked Sendable {
     }
 
     func resume(_ inbound: CallInbound) {
+        task.delegate = OpenWatch { inbound.opened() }
         task.resume()
         Self.pump(task, inbound)
     }
@@ -296,6 +317,19 @@ private final class WebSocketCall: CallSocket, @unchecked Sendable {
             }
             pump(task, inbound)
         }
+    }
+}
+
+/// Says when the call's socket connected (the task holds it).
+private final class OpenWatch: NSObject, URLSessionWebSocketDelegate, Sendable {
+    private let onOpen: @Sendable () -> Void
+
+    init(_ onOpen: @escaping @Sendable () -> Void) {
+        self.onOpen = onOpen
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        onOpen()
     }
 }
 
