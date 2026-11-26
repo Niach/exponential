@@ -110,8 +110,9 @@ export function PhoneDockTab({
   )
 }
 
-/** The middle cell: the white Exponential mark on its raised disc. */
-export function PhoneDockAssistant({ selected, ...props }: CellProps) {
+/** The middle cell: the white Exponential mark on its raised disc, THE count
+ *  badge on the disc's corner (as on the FAB). */
+export function PhoneDockAssistant({ selected, badge, ...props }: CellProps & { badge?: CountBadgeValue | null }) {
   return (
     <Cell
       label={CHATS_COPY.tabs.assistant}
@@ -120,7 +121,7 @@ export function PhoneDockAssistant({ selected, ...props }: CellProps) {
       body={
         <span
           data-slot="phone-dock-disc"
-          className="flex shrink-0 items-center justify-center rounded-full border border-glass-stroke-card bg-card text-foreground"
+          className="flex shrink-0 items-center justify-center relative rounded-full border border-glass-stroke-card bg-card text-foreground"
           style={{
             width: DOCK.disc,
             height: DOCK.disc,
@@ -132,6 +133,14 @@ export function PhoneDockAssistant({ selected, ...props }: CellProps) {
           }}
         >
           <ExponentialLogo variant="light" size={DOCK.mark} />
+          {badge && (
+            <Badge
+              count={badge.count}
+              tone={badge.tone}
+              data-slot="phone-dock-badge"
+              className="absolute -top-0.5 -right-0.5"
+            />
+          )}
         </span>
       }
       {...props}

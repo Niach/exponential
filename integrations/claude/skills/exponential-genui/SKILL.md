@@ -27,7 +27,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 - layout: Box, Stack, Grid, Card, Window, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar, Embed
 - list: Section, Group, Trace, TraceItem, Plan, Row, Tree, MessageBubble, MessageStatus
 - text: Text, Heading, Markdown, CodeBlock, Kbd, KbdGroup, Label
-- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas
+- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas, AvatarBadge
 - navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper
 - overlay: Dialog, Drawer, DockCard, AlertDialog, Popover, Tooltip, Menu, Toast
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave, CountBadge

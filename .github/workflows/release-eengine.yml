@@ -39,10 +39,6 @@ env:
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -60,19 +56,16 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: [version, pick]
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    needs: version
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Cargo tests (the Engine, every feature)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p eengine -p eengine-ffi --features eengine/sqlite,eengine/hub,eengine-ffi/hub
@@ -91,30 +84,23 @@ jobs:
       - name: Kotlin binding suite (the committed binding vs the host .so)
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
-          # The self-hosted runner's HOME is read-only: the kotlinc + JNA jars cache in the job's temp.
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
         run: bash apps/desktop/crates/eengine-ffi/run-binding-tests.sh kotlin
 
   swift:
-    needs: [version, pick]
-    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    needs: version
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Disk guard (self-hosted Mac, EXP-1396)
-        if: runner.environment == 'self-hosted'
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
       - name: Select Xcode 27
         run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Swift binding suite (the committed binding vs the host dylib)
         run: bash apps/desktop/crates/eengine-ffi/run-binding-tests.sh swift
       - name: Build the xcframework
@@ -136,12 +122,15 @@ jobs:
   maven:
     needs: version
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -185,6 +174,7 @@ jobs:
   npm:
     needs: version
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -247,12 +237,9 @@ jobs:
         # (rust-toolchain.toml), not on `stable` at the repo root.
         working-directory: apps/desktop
         run: for t in ${{ matrix.targets }}; do rustup target add "$t"; done
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
-          key: runner-${{ matrix.os }}
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Tests (the glue and the dependency gate)
         shell: bash
         working-directory: apps/desktop
@@ -332,6 +319,7 @@ jobs:
     # (a `git push --dry-run`, which still needs the token's write access).
     needs: [version, release]
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/download-artifact@v4
         with:

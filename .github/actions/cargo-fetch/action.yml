@@ -9,7 +9,7 @@ inputs:
     description: The directory of the Cargo.lock to fetch. Empty = only set the network settings.
     default: apps/desktop
   restore:
-    description: Restore the crates seed-cargo-registry.yml saves on master (#EXP-1692). Only a hosted Linux job can use them.
+    description: Restore (a release build says false, EXP-2151) the crates seed-cargo-registry.yml saves on master (#EXP-1692). Only a hosted Linux job can use them.
     default: 'true'
 
 runs:

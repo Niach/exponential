@@ -48,6 +48,23 @@ final class ComposerAgentRowTests: XCTestCase {
         }
     }
 
+    /// #EXP-2136: same-named agents of two teams wear their team's mark.
+    func testReplaysEveryTeamMarkCase() throws {
+        let cases = try XCTUnwrap(try block()["teamMarkCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: String]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(row["id"]), teamId: try XCTUnwrap(row["teamId"]), name: try XCTUnwrap(row["name"]),
+                    icon: nil, color: nil, sortOrder: 0, role: row["role"], ownerId: nil
+                )
+            }
+            XCTAssertEqual(
+                ComposerAgentRow.teamMarks(agents), testCase["expected"] as? [String], testCase["name"] as? String ?? ""
+            )
+        }
+    }
+
     func testReplaysEverySeedCase() throws {
         let cases = try XCTUnwrap(try block()["seedCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

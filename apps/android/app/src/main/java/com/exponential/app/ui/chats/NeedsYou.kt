@@ -59,6 +59,8 @@ import com.exponential.app.ui.work.NeedsApprovalConfirm
 import com.exponential.app.ui.components.ChatEntryRow
 import com.exponential.app.ui.components.CountBadge
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.TeamMarkedLead
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PinnedHeaderColumn
@@ -119,6 +121,8 @@ fun NeedsYouRowItem(
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
     /** #FEED-298 (needs-you.json DISMISS): a plan's or question's Dismiss. */
     onDismiss: (NeedsYou.Row) -> Unit = {},
+    /** The row's team: its mark on the glyph; null = none (the Assistant's). */
+    team: TeamEntity? = null,
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Row(
@@ -131,12 +135,14 @@ fun NeedsYouRowItem(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            row.glyph,
-            contentDescription = null,
-            tint = DesignTokens.Semantic.Yellow,
-            modifier = Modifier.padding(top = 2.dp).size(16.dp),
-        )
+        TeamMarkedLead(team, size = 16.dp, modifier = Modifier.padding(top = 2.dp)) {
+            Icon(
+                row.glyph,
+                contentDescription = null,
+                tint = DesignTokens.Semantic.Yellow,
+                modifier = Modifier.size(16.dp),
+            )
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -216,6 +222,7 @@ fun LazyListScope.needsYouList(
     onOpen: (NeedsYou.Row) -> Unit,
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
     onDismiss: (NeedsYou.Row) -> Unit = {},
+    teamOf: (NeedsYou.Row) -> TeamEntity? = { null },
 ) {
     if (rows.isEmpty()) {
         item(key = "__empty__") {
@@ -231,6 +238,7 @@ fun LazyListScope.needsYouList(
                 modifier = Modifier.padding(horizontal = 8.dp),
                 onAction = onAction,
                 onDismiss = onDismiss,
+                team = teamOf(row),
             )
         }
     }
@@ -253,6 +261,7 @@ fun NeedsYouPageContent(
     waitingCode: String? = null,
     pendingInstalls: Int = 0,
     onDismiss: (NeedsYou.Row) -> Unit = {},
+    teamOf: (NeedsYou.Row) -> TeamEntity? = { null },
     band: @Composable () -> Unit = {},
 ) {
     PinnedHeaderColumn(
@@ -264,7 +273,7 @@ fun NeedsYouPageContent(
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
         when {
-            rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction, onDismiss)
+            rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction, onDismiss, teamOf)
             else -> {
                 if (waitingCode != null) {
                     item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 16.dp)) }
@@ -274,14 +283,14 @@ fun NeedsYouPageContent(
                 if (rows.isNotEmpty() && (waitingCode != null || pendingInstalls > 0)) {
                     item(key = "__install_gap__") { Spacer(Modifier.height(InstallApprovalView.Waiting.LIST_GAP.dp)) }
                 }
-                if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction, onDismiss)
+                if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction, onDismiss, teamOf)
             }
         }
     }
     }
 }
 
-/** #FEED-191: the pushed page (needs-you.json THE LIST), the ACTIVE team's rows. */
+/** #FEED-191: the pushed page (needs-you.json THE LIST), every member team's rows. */
 @Composable
 fun NeedsYouPage(
     onBack: () -> Unit,
@@ -291,7 +300,9 @@ fun NeedsYouPage(
     viewModel: ChatsViewModel = hiltViewModel(),
     trustViewModel: InstallTrustViewModel = hiltViewModel(),
 ) {
-    val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    val needsYou by viewModel.needsYou.collectAsStateWithLifecycle()
+    val rows = needsYou.rows
+    val teams by viewModel.teams.collectAsStateWithLifecycle()
     // #EXP-1950: the installs waiting for this install's approval sit on top;
     // this install waiting itself shows its code.
     val trust by trustViewModel.snapshot.collectAsStateWithLifecycle()
@@ -330,7 +341,8 @@ fun NeedsYouPage(
             },
             onDismiss = { row -> viewModel.dismissNeedsYou(row.messageId) },
             waitingCode = trust.code?.takeIf { trust.waiting },
-            pendingInstalls = trust.rows.size,
+            pendingInstalls = trust.installs,
+            teamOf = { row -> teams.firstOrNull { it.id == needsYou.teamOf[row.messageId] } },
             band = { LivePendingInstalls(viewModel = trustViewModel) },
         )
     }

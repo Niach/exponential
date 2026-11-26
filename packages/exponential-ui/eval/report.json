@@ -470,7 +470,8 @@
       "Timeline",
       "RecordForm",
       "RecordTable",
-      "MessageStatus"
+      "MessageStatus",
+      "AvatarBadge"
     ]
   },
   "rows": [

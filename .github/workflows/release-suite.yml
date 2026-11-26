@@ -69,7 +69,8 @@ jobs:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true'
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   web:
     needs: dedupe
@@ -104,7 +105,8 @@ jobs:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios')
     uses: ./.github/workflows/test-ios.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # The ExpCore fixture replay + GRDB pin check (informational on PRs since
   # 2026-11-01): here it blocks the release, like everything in this suite.
@@ -112,20 +114,23 @@ jobs:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios-core')
     uses: ./.github/workflows/ios-core.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   # #VAPP-268: the iOS runner + the Swift capabilities (informational on PRs).
   ios-runner:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ios-runner')
     uses: ./.github/workflows/ios-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   exponential-ui:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'exponential-ui')
     uses: ./.github/workflows/exponential-ui.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   push-relay-image:
     needs: [dedupe, pick]
