@@ -50,6 +50,7 @@
     "./transcript-grouping": "./src/transcript-grouping.ts",
     "./session-kind": "./src/session-kind.ts",
     "./held-gone": "./src/held-gone.ts",
+    "./step-up": "./src/step-up.ts",
     "./inbox-route": "./src/inbox-route.ts",
     "./chat-row-action": "./src/chat-row-action.ts",
     "./message-conversation": "./src/message-conversation.ts",

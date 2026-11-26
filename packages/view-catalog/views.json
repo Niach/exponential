@@ -9298,27 +9298,6 @@
       }
     },
     {
-      "id": "ede-tray-menu",
-      "group": "ede",
-      "title": "Exponential Desktop · tray menu",
-      "blurb": "The factory tray menu (apps/ede/ui/tray-menu.express): a StatusNotifierItem's dbusmenu as a popup above the taskbar's tray (a sample item in the golden).",
-      "order": 7,
-      "ede": {
-        "size": "1280x720",
-        "popup": [
-          "tray-menu"
-        ],
-        "settleMs": 2500
-      },
-      "notes": {
-        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
-        "web-mobile": "Exponential Desktop only.",
-        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
-        "ios": "Exponential Desktop only.",
-        "android": "Exponential Desktop only."
-      }
-    },
-    {
       "id": "ede-settings",
       "group": "ede",
       "title": "Exponential Desktop · settings",

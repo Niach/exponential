@@ -5,6 +5,8 @@ import { Empty } from "@/components/empty"
 import { promptActions, removePasskeyPrompt } from "@/lib/prompts"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { STEP_UP_NOT_FRESH, useStepUp } from "@/lib/step-up"
+import { StepUpDialog } from "@/components/account/step-up-dialog"
 import {
   Button,
   SkeletonRows,
@@ -51,10 +53,6 @@ function suggestedPasskeyName(): string {
   if (/Linux/.test(ua)) return `Linux`
   return `Passkey`
 }
-
-// Better Auth's fresh-session guard on passkey registration answers this code;
-// the only cure is a new sign-in.
-const NOT_FRESH_CODE = `SESSION_NOT_FRESH`
 
 // Account-level passkey management (EXP-857): the registration side of
 // "Login with passkey". A passkey is bound to this instance's hostname, so
@@ -110,19 +108,22 @@ export function PasskeysSection({
     setAddOpen(false)
   }
 
-  const handleAdd = async () => {
-    if (adding) return
-    setAdding(true)
+  // #EXP-2143 follow-up: a session older than a day is refused by Better
+  // Auth's fresh-session gate; "Confirm it's you" proves it in place and the
+  // add runs again by itself (the dialog and its name stay as typed).
+  const stepUp = useStepUp((message) =>
+    failedAction(`add`, `the passkey`, undefined, { description: message })
+  )
+
+  const addOnce = async (): Promise<`not-fresh` | void> => {
     try {
       const { error } = await authClient.passkey.addPasskey({
         name: name.trim() || suggestedPasskeyName(),
       })
       if (error) {
+        if ((error as { code?: string }).code === STEP_UP_NOT_FRESH) return `not-fresh`
         failedAction(`add`, `the passkey`, error, {
-          description:
-            (error as { code?: string }).code === NOT_FRESH_CODE
-              ? `Sign in again to add a passkey (your current session is older than a day).`
-              : authErrorMessage(error, ``) || undefined,
+          description: authErrorMessage(error, ``) || undefined,
         })
         return
       }
@@ -131,6 +132,21 @@ export function PasskeysSection({
       onChanged?.()
     } catch (err) {
       failedAction(`add`, `the passkey`, err)
+    }
+  }
+
+  const handleAdd = async () => {
+    if (adding) return
+    setAdding(true)
+    try {
+      await stepUp.run(async () => {
+        setAdding(true)
+        try {
+          return await addOnce()
+        } finally {
+          setAdding(false)
+        }
+      })
     } finally {
       setAdding(false)
     }
@@ -252,6 +268,8 @@ export function PasskeysSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StepUpDialog stepUp={stepUp} />
 
       <Prompt
         open={removeTarget !== null}

@@ -59,6 +59,37 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_370: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-app-screen-without-asking",
+    date: "2026-11-26",
+    title: "Exponential Desktop lets the Exponential app use the screen without asking",
+    summary: "On Exponential Desktop, the genuine Exponential app no longer asks for your screen at login. Other programs still ask.",
+    body: r##"- **No prompt for the app**: Exponential Desktop checks the app's signature and lets it use your screen at login without the Allow Exponential to use your screen question. A copy that was changed, or another program, is still asked. Needs the next desktop release and eDE 0.2.39."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_369: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-confirm-its-you",
+    date: "2026-11-26",
+    title: "Confirm it's you instead of signing in again",
+    summary: "Adding a passkey on a sign-in older than a day now asks you to confirm it's you, then carries on.",
+    body: r##"- **Confirm it's you**: when an action needs a recent sign-in, such as adding a passkey, a sheet asks you to confirm with your passkey, a code to your email or your password. Then the action finishes by itself, without signing you out and without losing what you typed."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_368: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-quiet-schedule-ticks",
+    date: "2026-11-26",
+    title: "Quiet schedule ticks fold into one line",
+    summary: "A run of schedule ticks the agent answered quietly is one Schedule line with the count and time range, opening to each tick.",
+    body: r##"- **One line per run**: consecutive schedule ticks the agent ended quietly draw as one line, such as Schedule ×5 · 11:15–12:15, instead of a Schedule line and an Ended turn quietly line each. Open it to see every tick.
+- **Answers stay**: a tick the agent answered still shows Schedule above its message."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_367: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-assistant-on-team-device",
     date: "2026-11-26",

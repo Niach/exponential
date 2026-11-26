@@ -44,6 +44,8 @@
     "@sentry/bun": "11.10.0",
     "@sentry/core": "11.10.0",
     "@sentry/react": "11.10.0",
+    "@simplewebauthn/browser": "13.3.0",
+    "@simplewebauthn/server": "13.3.3",
     "@better-auth/passkey": "1.7.15",
     "@better-auth/cimd": "1.7.15",
     "@better-auth/mcp": "1.7.15",

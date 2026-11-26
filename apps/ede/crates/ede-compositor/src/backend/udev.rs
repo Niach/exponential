@@ -819,7 +819,13 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let scale = output.current_scale().fractional_scale();
     let mut elements: Vec<OutputElements<UdevRenderer<'_>>> = Vec::new();
     if output_geo.to_f64().contains(pointer) {
-        let image = u.cursor.image(super::cursor_buffer_scale(scale), state.start_time.elapsed());
+        // A named icon the compositor shows itself (the screen pick's
+        // crosshair), else the arrow.
+        let icon = match &state.desk.cursor_status {
+            smithay::input::pointer::CursorImageStatus::Named(icon) => *icon,
+            _ => smithay::input::pointer::CursorIcon::Default,
+        };
+        let image = u.cursor.named_image(icon, super::cursor_buffer_scale(scale), state.start_time.elapsed());
         let buffer_scale = u.cursor.buffer_scale(&image);
         let buffer = match u.cursor_buffers.iter().find(|(i, _)| *i == image) {
             Some((_, b)) => b.clone(),

@@ -13,13 +13,17 @@ use ede_compositor::{
 use smithay::output::{Output, PhysicalProperties, Subpixel};
 
 /// What only a client of the person's desk is told about.
-const PERSONS: [&str; 6] = [
+const PERSONS: [&str; 9] = [
     "wl_seat",
     "wl_output",
     "zwlr_layer_shell_v1",
     "exponential_popup_namespace_v1",
     "zxdg_decoration_manager_v1",
     "ext_session_lock_manager_v1",
+    // The screen copy globals: the person's unsandboxed clients only.
+    "ext_output_image_capture_source_manager_v1",
+    "ext_image_copy_capture_manager_v1",
+    "zwlr_screencopy_manager_v1",
 ];
 
 /// What only an input method of the person's desk is told about (#EDE-172).

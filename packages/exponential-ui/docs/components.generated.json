@@ -3548,7 +3548,7 @@
           "name": "items",
           "type": "[menuItem]",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "In order."
         },

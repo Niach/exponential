@@ -43,7 +43,7 @@ describe(`transcript grouping (EXP-1736)`, () => {
     })
   }
   for (const entry of fixture.checkInLabelCases) {
-    test(`check-in label: ${entry.name}`, () => expect(checkInLabel(entry.count, entry.time)).toBe(entry.expected))
+    test(`check-in label: ${entry.name}`, () => expect(checkInLabel(entry.count, entry.first, entry.last)).toBe(entry.expected))
   }
   for (const entry of fixture.blankCases) {
     test(`blank: ${entry.name}`, () => expect(isBlankText(entry.text)).toBe(entry.expected))

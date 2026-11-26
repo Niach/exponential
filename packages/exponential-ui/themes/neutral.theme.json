@@ -4164,6 +4164,13 @@
       ]
     },
     "DatePicker": {
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "trigger": [
         {
           "style": {
@@ -6654,6 +6661,13 @@
       ]
     },
     "DateRangePicker": {
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "label": [
         {
           "style": {

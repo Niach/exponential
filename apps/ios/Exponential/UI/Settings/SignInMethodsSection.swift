@@ -13,7 +13,9 @@ import SwiftUI
 /// - "Passkeys": list + confirmed Remove, and (EXP-1596, web + Android
 ///   parity) the band's trailing "Add passkey" while the instance offers
 ///   passkeys: the platform authenticator registers one
-///   (`PasskeyRegistrationCeremony`).
+///   (`PasskeyRegistrationCeremony`). A session older than a day is no
+///   error (#EXP-2143 follow-up): "Confirm it's you" (`StepUpSheet`) opens in
+///   place and the add resumes after the proof.
 ///
 /// Every call takes the SCREEN's `accountId` — Settings can show a
 /// non-active account.
@@ -33,6 +35,7 @@ struct SignInMethodsSection: View {
     // EXP-1596: an Add passkey ceremony in flight; the band's pill spins.
     @State private var addingPasskey = false
     @State private var passkeyCeremony = PasskeyRegistrationCeremony()
+    @State private var stepUp = StepUpModel()
 
     /// Web's name for a passkey made on an iPhone (`suggestedPasskeyName`).
     private static let passkeyName = "iPhone"
@@ -87,6 +90,12 @@ struct SignInMethodsSection: View {
                 toaster.success("Your email is now \(email).")
                 Task { await load() }
             }
+        }
+        .sheet(
+            isPresented: Binding(get: { stepUp.isPresented }, set: { if !$0 { stepUp.cancel() } }),
+            onDismiss: { Task { await stepUp.dismissed() } }
+        ) {
+            StepUpSheet(model: stepUp)
         }
         // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
         .glassAlert(item: $confirm) { target in
@@ -345,13 +354,25 @@ struct SignInMethodsSection: View {
     /// `addPasskey`): the creation options for this account's session, the
     /// platform authenticator signs them, the attestation goes back, the list
     /// reloads. A dismissed system sheet is silent; every other failure is the
-    /// failed-action toast (FEED-79), the server's message (a stale session)
-    /// as its description. Options for any rp but this instance are refused,
-    /// the login path's guard (`relyingPartyMatchesInstance`).
+    /// failed-action toast (FEED-79), the server's message as its
+    /// description. The fresh-session gate's refusal runs "Confirm it's you"
+    /// (`StepUpModel`), which runs the add again after the proof. Options for
+    /// any rp but this instance are refused, the login path's guard
+    /// (`relyingPartyMatchesInstance`).
     private func addPasskey() async {
-        guard !addingPasskey,
-              let account = deps.auth.accounts.first(where: { $0.id == accountId }),
-              let token = account.token else { return }
+        guard !addingPasskey else { return }
+        let failedTitle = FeedbackStates.Errors.title(verb: "add", thing: "the passkey")
+        await stepUp.run(
+            deps: deps,
+            accountId: accountId,
+            onFailed: { message in toaster.error(failedTitle, description: message) },
+            action: { await addPasskeyOnce() }
+        )
+    }
+
+    private func addPasskeyOnce() async -> StepUpModel.Gated {
+        guard let account = deps.auth.accounts.first(where: { $0.id == accountId }),
+              let token = account.token else { return .handled }
         let instanceUrl = account.instanceUrl
         addingPasskey = true
         defer { addingPasskey = false }
@@ -362,37 +383,42 @@ struct SignInMethodsSection: View {
             instanceUrl: instanceUrl, token: token, name: Self.passkeyName
         ) {
         case let .success(served): options = served
+        case .notFresh: return .notFresh
         case let .failure(message):
             toaster.error(failedTitle, description: message.isEmpty ? nil : message)
-            return
+            return .handled
         }
         guard PasskeyWire.relyingPartyMatchesInstance(rpId: options.rpId, instanceUrl: instanceUrl) else {
             toaster.error(failedTitle)
-            return
+            return .handled
         }
 
         let attestation: PasskeyAttestation
         switch await passkeyCeremony.register(options) {
         case let .created(created): attestation = created
-        case .cancelled: return
+        case .cancelled: return .handled
         case .failed:
             // The system error's text is framework jargon; Android's toast
             // carries no description here either.
             toaster.error(failedTitle)
-            return
+            return .handled
         }
 
-        if let message = await deps.authApi.verifyPasskeyRegistration(
+        switch await deps.authApi.verifyPasskeyRegistration(
             instanceUrl: instanceUrl,
             token: token,
             cookieHeader: options.cookieHeader,
             attestation: attestation,
             name: Self.passkeyName
         ) {
+        case nil: break
+        case .notFresh: return .notFresh
+        case let .message(message):
             toaster.error(failedTitle, description: message.isEmpty ? nil : message)
-            return
+            return .handled
         }
         await load()
+        return .handled
     }
 
     /// Mint a ticket, then run the link-mode handoff in the in-app browser.

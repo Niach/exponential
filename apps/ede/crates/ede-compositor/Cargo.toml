@@ -58,6 +58,9 @@ libc = "0.2"
 # #EDE-172 (P5'): an executable's content hash, what the person's yes is
 # remembered by (the version the workspace already resolves).
 sha2 = "0.10"
+# First-party screen consent: the app's signed binaries list, checked with the
+# self-updater's pinned minisign key (the version apps/desktop's updater uses).
+minisign-verify = "0.3"
 
 [dev-dependencies]
 wayland-client = "0.31.10"
@@ -72,6 +75,8 @@ x11rb = "0.13"
 # #EDE-127: polkitd's side of the real polkit agent in `tests/sealed_client.rs`
 # (the version ede-services already resolves).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# First-party screen consent: a throwaway key signs the tests' binaries lists.
+minisign = "0.10"
 
 # The installed name (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

@@ -72,6 +72,7 @@ import { Check, X } from "lucide-react"
 import {
   AskCard,
   TranscriptMarker,
+  ScheduleRunRow,
   DockSheetBody,
   markDockOpen,
   AskPrompt,
@@ -1184,9 +1185,18 @@ export function AgentSessionView({
         if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
         // #EXP-1772: a system input (a firing, a PR or session line) is
         // THE inline marker (`shownFeedRows` kept it: a reply follows).
-        // #EXP-1873: a quiet check-in (or a run of them) = ONE marker line.
+        // #EXP-1873 + #FEED-317: a quiet schedule tick (or a run of them)
+        // = ONE tool-group line, opening to each tick.
         if (item.checkIns) {
-          return wrap(<TranscriptMarker label={checkInLabel(item.checkIns, item.at ? userMessageTime(item.at) : null)} />)
+          const times = (item.checkInTimes ?? [item.at ?? null]).map((at) => (at ? userMessageTime(at) : null))
+          const first = times[0] ?? null
+          const last = times[times.length - 1] ?? null
+          return wrap(
+            <ScheduleRunRow
+              title={checkInLabel(item.checkIns, first, last)}
+              ticks={item.checkIns > 1 ? times.map((time) => checkInLabel(1, time, time)) : []}
+            />
+          )
         }
         // #EXP-1943: a call's report = its ONE card, at its first report.
         const callId = callIds.size > 0 ? feedCallSession(item.text, callIds) : null
@@ -2175,7 +2185,7 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
 
 /** The feed item ids a transcript row draws. */
 /** A raw feed row as the transcript sees it (#EXP-1736). */
-type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; name?: string; workflowId?: string | null } }
+type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; name?: string; workflowId?: string | null; checkIns?: number } }
 
 /** The key a feed row's layout is stored under. */
 function feedRowKey(row: FeedRowLike): string {
@@ -2294,6 +2304,8 @@ export function feedTranscriptLayout(
       case `user_message`: {
         if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
         if (options.callIds?.size && feedCallSession(item.text ?? ``, options.callIds)) return { id, kind: `full` }
+        // #FEED-317: the schedule line is the agent's own trace line.
+        if (item.checkIns) return { id, kind: `trace` }
         const cross = feedInput(item.text ?? ``)
         if (cross?.kind === `marker`) return { id, kind: `full` }
         // #EXP-1990: a member's line in a team agent's group chat: theirs

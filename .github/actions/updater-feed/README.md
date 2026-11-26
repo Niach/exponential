@@ -14,7 +14,7 @@ Without it, whoever can publish a release asset can swap a binary AND its sums.
 ```
 
 Linux runners only; minisign 0.12 is downloaded from the upstream release and
-sha256-pinned in `feed.sh` (apt's 0.9 on 22.04 writes legacy signatures).
+sha256-pinned in `minisign.sh` (shared with `apps/desktop/scripts/sign-binaries.sh`) (apt's 0.9 on 22.04 writes legacy signatures).
 
 ## Key
 

@@ -90,7 +90,40 @@ public enum PasskeyOptionsResult: Sendable {
 /// are none (the message is the failed-action toast's description).
 public enum PasskeyRegistrationOptionsResult: Sendable {
     case success(PasskeyRegistrationOptions)
+    /// #EXP-2143 follow-up: the fresh-session gate refused (SESSION_NOT_FRESH,
+    /// a session older than a day): the caller opens "Confirm it's you".
+    case notFresh
     case failure(message: String)
+}
+
+/// EXP-1596 Add passkey, step 2's refusal: the fresh-session gate (the
+/// step-up sheet's cue) or any other failure's message.
+public enum PasskeyRegistrationFailure: Equatable, Sendable {
+    case notFresh
+    case message(String)
+}
+
+/// #EXP-2143 follow-up: a refused step-up call, carrying the server's `code`
+/// (`INVALID_OTP`, `INVALID_PASSWORD`, `PASSKEY_FAILED`, …; `NETWORK` and
+/// `HTTP_<status>` when there is none) — `StepUp.errorCopy` reads it.
+public struct StepUpRefused: Error, Equatable, Sendable {
+    public let code: String
+
+    public init(code: String) {
+        self.code = code
+    }
+}
+
+/// `GET /api/auth/step-up/methods`: the account's ways in (in the fixture's
+/// order) and the address a code goes to.
+public struct StepUpMethods: Equatable, Sendable {
+    public let methods: [StepUp.Method]
+    public let email: String
+
+    public init(methods: [StepUp.Method], email: String) {
+        self.methods = methods
+        self.email = email
+    }
 }
 
 /// What a `get-session` read established. `invalidated` is the only DEFINITIVE
@@ -339,8 +372,11 @@ public final class AuthApi: Sendable {
         do {
             let (data, response) = try await httpClient.get(url, bearerToken: token)
             guard (200...299).contains(response.statusCode) else {
-                return .failure(message: Self.passkeyRegistrationErrorMessage(from: data)
-                    ?? "Couldn't start adding the passkey (HTTP \(response.statusCode))")
+                switch Self.passkeyRegistrationFailure(from: data) {
+                case .notFresh: return .notFresh
+                case let .message(message): return .failure(message: message)
+                case nil: return .failure(message: "Couldn't start adding the passkey (HTTP \(response.statusCode))")
+                }
             }
             let cookieHeader = PasskeyWire.cookieHeaderValue(
                 fromSetCookieHeader: response.value(forHTTPHeaderField: "Set-Cookie")
@@ -355,35 +391,138 @@ public final class AuthApi: Sendable {
     }
 
     /// Step 2: post the platform authenticator's attestation (bearer + Origin
-    /// + the challenge cookies). Returns nil on success, else the message.
+    /// + the challenge cookies). Returns nil on success, else the refusal.
     public func verifyPasskeyRegistration(
         instanceUrl: String, token: String, cookieHeader: String, attestation: PasskeyAttestation, name: String
-    ) async -> String? {
+    ) async -> PasskeyRegistrationFailure? {
         guard let url = URL(string: "\(instanceUrl)/api/auth/passkey/verify-registration") else {
-            return "Invalid instance URL"
+            return .message("Invalid instance URL")
         }
         do {
             let body = try PasskeyWire.registerRequestBody(attestation, name: name)
             let headers = cookieHeader.isEmpty ? [:] : ["Cookie": cookieHeader]
             let (data, response) = try await httpClient.post(url, body: body, bearerToken: token, headers: headers)
             guard (200...299).contains(response.statusCode) else {
-                return Self.passkeyRegistrationErrorMessage(from: data)
-                    ?? "Couldn't add the passkey (HTTP \(response.statusCode))"
+                return Self.passkeyRegistrationFailure(from: data)
+                    ?? .message("Couldn't add the passkey (HTTP \(response.statusCode))")
             }
             return nil
         } catch {
-            return error.userFacingMessage
+            return .message(error.userFacingMessage)
         }
     }
 
-    /// Web `PasskeysSection` copy: Better Auth's fresh-session guard
-    /// (SESSION_NOT_FRESH, a session older than a day) gets the sentence that
-    /// says what to do; anything else is the server's own message.
-    static func passkeyRegistrationErrorMessage(from data: Data) -> String? {
-        if authErrorCode(from: data) == "SESSION_NOT_FRESH" {
-            return "Sign in again to add a passkey (your current session is older than a day)."
+    /// #EXP-2143 follow-up: Better Auth's fresh-session guard
+    /// (SESSION_NOT_FRESH, a session older than a day) is no sentence but the
+    /// step-up sheet's cue; anything else is the server's own message.
+    static func passkeyRegistrationFailure(from data: Data) -> PasskeyRegistrationFailure? {
+        if authErrorCode(from: data) == StepUp.notFresh { return .notFresh }
+        return authErrorMessage(from: data).map(PasskeyRegistrationFailure.message)
+    }
+
+    // MARK: - Confirm it's you (#EXP-2143 follow-up, fixtures/step-up.json)
+
+    /// The account's ways in, read once when the gate refuses.
+    public func stepUpMethods(instanceUrl: String, token: String) async -> Result<StepUpMethods, StepUpRefused> {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/step-up/methods") else {
+            return .failure(StepUpRefused(code: "INVALID_URL"))
         }
-        return authErrorMessage(from: data)
+        do {
+            let (data, response) = try await httpClient.get(url, bearerToken: token)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(Self.stepUpRefusal(data, response))
+            }
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure(StepUpRefused(code: "INTERNAL"))
+            }
+            let methods = (root["methods"] as? [String] ?? []).compactMap(StepUp.Method.init(rawValue:))
+            return .success(StepUpMethods(methods: methods, email: root["email"] as? String ?? ""))
+        } catch {
+            return .failure(StepUpRefused(code: "NETWORK"))
+        }
+    }
+
+    /// Mails a 6-digit code to the account's own address.
+    public func stepUpSendCode(instanceUrl: String, token: String) async -> Result<Void, StepUpRefused> {
+        await stepUpPost(instanceUrl: instanceUrl, token: token, path: "email/send", body: [:])
+    }
+
+    public func stepUpVerifyCode(instanceUrl: String, token: String, code: String) async -> Result<Void, StepUpRefused> {
+        await stepUpPost(instanceUrl: instanceUrl, token: token, path: "email/verify", body: ["code": code])
+    }
+
+    public func stepUpPassword(instanceUrl: String, token: String, password: String) async -> Result<Void, StepUpRefused> {
+        await stepUpPost(instanceUrl: instanceUrl, token: token, path: "password", body: ["password": password])
+    }
+
+    /// The passkey proof, step 1: the passkey plugin's own assertion options
+    /// WITH the bearer (allowCredentials = this account's passkeys) and the
+    /// challenge cookie, replayed on `stepUpPasskey`.
+    public func stepUpPasskeyOptions(
+        instanceUrl: String, token: String
+    ) async -> Result<PasskeyAuthenticationOptions, StepUpRefused> {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/passkey/generate-authenticate-options") else {
+            return .failure(StepUpRefused(code: "INVALID_URL"))
+        }
+        do {
+            let (data, response) = try await httpClient.get(url, bearerToken: token)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(StepUpRefused(code: "PASSKEY_FAILED"))
+            }
+            let cookieHeader = PasskeyWire.cookieHeaderValue(
+                fromSetCookieHeader: response.value(forHTTPHeaderField: "Set-Cookie")
+            )
+            guard let options = PasskeyWire.parseAuthenticationOptions(data, cookieHeader: cookieHeader) else {
+                return .failure(StepUpRefused(code: "PASSKEY_FAILED"))
+            }
+            return .success(options)
+        } catch {
+            return .failure(StepUpRefused(code: "NETWORK"))
+        }
+    }
+
+    /// Step 2: the assertion (the login's verify-authentication body) proves
+    /// it with a passkey of THIS account.
+    public func stepUpPasskey(
+        instanceUrl: String, token: String, cookieHeader: String, assertion: PasskeyAssertion
+    ) async -> Result<Void, StepUpRefused> {
+        guard let body = try? PasskeyWire.verifyRequestBody(assertion) else {
+            return .failure(StepUpRefused(code: "PASSKEY_FAILED"))
+        }
+        return await stepUpPost(
+            instanceUrl: instanceUrl, token: token, path: "passkey", body: body, cookieHeader: cookieHeader
+        )
+    }
+
+    private func stepUpPost(
+        instanceUrl: String, token: String, path: String, body: [String: String]
+    ) async -> Result<Void, StepUpRefused> {
+        guard let data = try? JSONEncoder().encode(body) else { return .failure(StepUpRefused(code: "INTERNAL")) }
+        return await stepUpPost(instanceUrl: instanceUrl, token: token, path: path, body: data)
+    }
+
+    /// Bearer + Origin POST to `/api/auth/step-up/<path>`; a refusal carries
+    /// the server's `code`.
+    private func stepUpPost(
+        instanceUrl: String, token: String, path: String, body: Data, cookieHeader: String = ""
+    ) async -> Result<Void, StepUpRefused> {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/step-up/\(path)") else {
+            return .failure(StepUpRefused(code: "INVALID_URL"))
+        }
+        do {
+            let headers = cookieHeader.isEmpty ? [:] : ["Cookie": cookieHeader]
+            let (data, response) = try await httpClient.post(url, body: body, bearerToken: token, headers: headers)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(Self.stepUpRefusal(data, response))
+            }
+            return .success(())
+        } catch {
+            return .failure(StepUpRefused(code: "NETWORK"))
+        }
+    }
+
+    private static func stepUpRefusal(_ data: Data, _ response: HTTPURLResponse) -> StepUpRefused {
+        StepUpRefused(code: authErrorCode(from: data) ?? "HTTP_\(response.statusCode)")
     }
 
     /// Best-effort push of the user's name to Better Auth's core update-user

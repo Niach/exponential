@@ -201,7 +201,6 @@
     { "id": "ede-agent-spaces", "class": "expressible", "with": "already a genUI document (apps/ede/ui/taskbar.express): Button + Popover (hosted) + Heading + ScrollArea + List + Row + Image + Button over the shell's /spaces, the taskbar's Agent spaces list" },
     { "id": "ede-space-view", "class": "expressible", "with": "already a genUI document (apps/ede/ui/space-view.express): Box + Stack + Text + Button + Image over the shell's /spaceView, an on-demand top layer with the space's capture as a picture" },
     { "id": "ede-notification-center", "class": "expressible", "with": "already a genUI document (apps/ede/ui/notification-center.express): Box + Heading + ScrollArea + List + Row + Image + Button, the panel's bell popup" },
-    { "id": "ede-tray-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/tray-menu.express): Box + Text + ScrollArea + List + Row + Separator over a dbusmenu layout, the panel's tray popup" },
     { "id": "ede-settings", "class": "expressible", "with": "already a genUI document (apps/ede/ui/settings.express): Sidebar + Section + Row + SettingsRow + Select + ChoiceTiles + Switch + Slider + DatePicker + Meter + Alert + List over ede-services' snapshots and the shell's pages, an on-demand window with the IDE's settings nav" },
     { "id": "ede-settings-team", "class": "expressible", "with": "already a genUI document (apps/ede/ui/settings.express): the Team group headed by the shell's switcher row with its entries as a hosted Popover; General, Agents and Apps for a Local desktop" }
   ]
