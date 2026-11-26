@@ -1450,6 +1450,44 @@ fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
     }
 }
 
+/// #EDE-247 `boxPointer` (eDE's tray): the middle button pressed, the right
+/// one released, wheel notches (gpui's lines: 3 to a notch, positive up /
+/// left) over a Box fire its `auxPress {button}` / `scroll {direction}`.
+#[gpui::test]
+fn a_box_fires_aux_presses_and_wheel_steps(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["boxPointer"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["surface"].clone()]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        for step in c["steps"].as_array().unwrap() {
+            let (kind, id) = step.as_object().unwrap().iter().next().unwrap();
+            let b = view.read_with(vcx, |v, _| v.painted_bounds(id.as_str().unwrap())).unwrap_or_else(|| panic!("{name}: {id} painted"));
+            match kind.as_str() {
+                "aux" => {
+                    let button = if step["button"] == "middle" { MouseButton::Middle } else { MouseButton::Right };
+                    vcx.simulate_mouse_down(b.center(), button, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), button, Modifiers::default());
+                }
+                "wheel" => {
+                    let lines = step["notches"].as_f64().unwrap() as f32 * 3.0;
+                    let delta = if step["axis"] == "x" { gpui::point(lines, 0.0) } else { gpui::point(0.0, lines) };
+                    vcx.simulate_event(ScrollEvent { position: b.center(), delta: ScrollDelta::Lines(delta), ..Default::default() });
+                }
+                _ => {
+                    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+                }
+            }
+            draw(vcx);
+        }
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}");
+    }
+}
+
 /// #EXP-1629 (interactions-round1.json keyRecorder): every case with real
 /// input: a click on the field, key downs/ups through the window (the
 /// interceptor beats Tab and Escape), modifier changes, mouse buttons over
