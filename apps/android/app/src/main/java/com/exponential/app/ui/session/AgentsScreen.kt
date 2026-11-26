@@ -72,6 +72,8 @@ import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.DevicesList
+import com.exponential.app.domain.MemberSpace
+import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
@@ -366,6 +368,11 @@ fun AgentsScreen(
                                 onMenu = { menuTarget = device },
                                 onRemoveShare = { dropShareTarget = device }
                                     .takeIf { device.rowId != null && device.sharedTeamIds.any { it in ownedTeamIds } },
+                                // #EXP-2161: a team owner's members' Assistants off switch, beside it.
+                                onAssistantsOff = {
+                                    device.assistantTeamIds.filter { it in ownedTeamIds }
+                                        .forEach { teamId -> viewModel.dropAssistantTeam(device, teamId) }
+                                }.takeIf { device.rowId != null && device.assistantTeamIds.any { it in ownedTeamIds } },
                             )
                         }
                         if (onlineTeam.isNotEmpty()) {
@@ -732,6 +739,8 @@ internal fun DeviceCard(
     onUpdate: () -> Unit,
     /** FEED-149: a team owner's Remove on a teammate's shared card; null = none. */
     onRemoveShare: (() -> Unit)? = null,
+    /** #EXP-2161: a team owner switches members' Assistants off here; null = none. */
+    onAssistantsOff: (() -> Unit)? = null,
     /** #EXP-2126: the long-press menu. */
     onMenu: (() -> Unit)? = null,
     /** Set = the name is in edit, in place. */
@@ -778,7 +787,7 @@ internal fun DeviceCard(
         it.kind == DevicesList.Kind.Update || it.kind == DevicesList.Kind.UpdateQueued
     }
     val canSettings = mine && device.registered
-    val hasMenu = if (mine) updateItem != null || canSettings else onRemoveShare != null
+    val hasMenu = if (mine) updateItem != null || canSettings else onRemoveShare != null || onAssistantsOff != null
     // Only what the row draws can be open: a machine that never reported has
     // no icons yet.
     val shownLogins = logins?.takeIf { device.agentAccounts != null }.orEmpty()
@@ -911,6 +920,7 @@ internal fun DeviceCard(
                     onUpdate = onUpdate,
                     onOpenSettings = onOpenSettings.takeIf { canSettings },
                     onRemoveShare = onRemoveShare.takeIf { !mine },
+                    onAssistantsOff = onAssistantsOff.takeIf { !mine },
                 )
             }
         }
@@ -1021,6 +1031,7 @@ private fun DeviceActionsMenu(
     onUpdate: () -> Unit,
     onOpenSettings: (() -> Unit)?,
     onRemoveShare: (() -> Unit)?,
+    onAssistantsOff: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     // The web `⋯` hangs 4 into the card's padding, level with its corner.
@@ -1068,6 +1079,19 @@ private fun DeviceActionsMenu(
                     },
                 )
             }
+        }
+        // #EXP-2161: the team owner's toggle entry, above Remove from this
+        // team: on, and off is one press (it only switches off).
+        onAssistantsOff?.let { off ->
+            SwitchRow(
+                title = MemberSpace.Copy.OPT_IN,
+                checked = true,
+                onCheckedChange = {
+                    open = false
+                    off()
+                },
+                modifier = Modifier.padding(horizontal = 4.dp).testTag("device-assistants-off"),
+            )
         }
         onRemoveShare?.let { remove ->
             val destructive = MaterialTheme.colorScheme.error
