@@ -212,7 +212,11 @@ private struct DetailHeaderTitle<Title: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         if columnRoot {
-            content.ownChromeToolbarItem(placement: .topBarLeading) { title }
+            content.ownChromeToolbarItem(placement: .topBarLeading) {
+                title
+                    .frame(minWidth: 0, idealWidth: PageHeaderDetailTitle.customWidth, maxWidth: PageHeaderDetailTitle.customWidth, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         } else {
             content.modifier(PushedTitle(
                 title: PushedTitleKey.Title(text: key, custom: .init(key: key, view: AnyView(title))),
@@ -246,10 +250,17 @@ private struct PushedTitle: ViewModifier {
 /// The detail header's leading part after the back arrow.
 struct PageHeaderDetailTitle: View {
     let title: PushedTitleKey.Title
+    /// A custom title's width (the phone's bar between THE round back and
+    /// one trailing circle).
+    static let customWidth: CGFloat = 240
 
     var body: some View {
         if let custom = title.custom {
+            // A bar item proposes no width to a flexible title: it takes
+            // its own, capped so a long one truncates.
             custom.view
+                .frame(minWidth: 0, idealWidth: Self.customWidth, maxWidth: Self.customWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
         } else {
             plain
         }
