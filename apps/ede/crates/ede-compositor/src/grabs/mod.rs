@@ -31,3 +31,38 @@ pub fn end_grab_of(data: &mut Ede, window: &Window) {
         pointer.unset_grab(data, SERIAL_COUNTER.next_serial(), smithay::backend::input::InputTime::now());
     }
 }
+
+/// Muffin's tile preview: while a move hovers a screen edge, the tile a
+/// release there would fill, drawn under the moving window.
+pub struct TilePreview {
+    /// The window being moved and the tile's rectangle (title bar included).
+    pub shown: Option<(Window, crate::layout::Rect)>,
+    /// The fill and its four border lines: the same ids from frame to frame,
+    /// so only a changed rectangle is damage.
+    pub ids: [smithay::backend::renderer::element::Id; 5],
+}
+
+impl Default for TilePreview {
+    fn default() -> Self {
+        Self { shown: None, ids: std::array::from_fn(|_| smithay::backend::renderer::element::Id::new()) }
+    }
+}
+
+impl TilePreview {
+    /// Shows `rect` for `window` (`None` = hides it, if it is `window`'s).
+    pub fn show(&mut self, window: &Window, rect: Option<crate::layout::Rect>) {
+        match rect {
+            Some(r) => self.shown = Some((window.clone(), r)),
+            None => {
+                if self.shown.as_ref().is_some_and(|(w, _)| w == window) {
+                    self.shown = None;
+                }
+            }
+        }
+    }
+
+    /// The preview drawn under `window`, if it is the one being moved.
+    pub fn of(&self, window: &Window) -> Option<crate::layout::Rect> {
+        self.shown.as_ref().filter(|(w, _)| w == window).map(|(_, r)| *r)
+    }
+}

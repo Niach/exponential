@@ -96,9 +96,10 @@ shell documents' commits with Undo and Reset to factory, on demand),
 opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
 workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
 thumbnails, #EDE-49), `osd.express`, `notifications.express` (the toasts, top-right, on
-demand), `notification-center.express` (the bell's popup) and `tray-menu.express`
-(a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it. A layer document's root is opaque (`$color.background`
+demand) and `notification-center.express` (the bell's popup). The panel's menus
+(an app's, Start's, the clock's, a tray item's dbusmenu) are genUI `Menu`s in
+`taskbar.express`, opening above the panel (#EDE-252). A click outside an open
+popup, or Escape in it, closes it. A layer document's root is opaque (`$color.background`
 for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
 the OSD and the switcher): `$color.card` is a white
 glaze at 6% in the dark theme, right inside a window, see-through for a
@@ -728,6 +729,7 @@ first; each op needs the Core capability it names:
 | `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`; #EDE-91: a window, an output and their events may name a `space`, absent = the person's desk, which is all the shell, ePilot and screen memory read; nothing sets it yet) | any grant |
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
+| `pick_region {mode: "area" \| "point"}` (the person picks with a crosshair: a dragged band, a click = the window under it (frame included, `window` = its id) or on bare desktop the output; `point` = one pixel. The reply waits for them: `{x, y, width, height, window?}` in global logical coordinates, `null` = Escape or the right button. The person's desk only (never an agent's grant, computer use or a space), refused while locked, one pick at a time (`conflict`); the band is drawn on their monitors, never into a capture) | `capture` |
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
@@ -761,7 +763,8 @@ at a `hello` with the root token:
 | The compositor's own: the helpers it started (`[session] helpers = "compositor"`, a real session's default since eDE's flip), the lock, the consent prompt. They hold a channel at fd 3 and present no token at all. With `helpers = "units"`, eDE's root-owned `exponential-shell`, `exponential-sealed` and portal by file too | Root, no prompt. A genuine `/usr/bin/exponential-shell` that anything else started is refused |
 | A binary `/etc/exponential-desktop/control.toml` names (root-owned, writable by root only, or it is ignored) | Its principal, no prompt |
 | The root-owned `exponential-ctl` | The sealed consent for every ctl process; Allow = root for that process |
-| An executable named `exp-desktop` or `exponential` (the app inside its AppImage, the CLI) | The sealed consent at its first `hello` per login and content hash, naming its path, pid and parent; Allow = the `computer-use` principal for that binary until logout |
+| The genuine Exponential app: `exp-desktop` whose AppImage carries `usr/share/exponential/binaries.sha256` signed with the updater's minisign key (the build pins it, `EXP_UPDATE_PUBKEY`), its executable and every file it maps executable either root's or in that list, not traced, not started with `LD_PRELOAD`/`LD_AUDIT` (`crate::signed`, checked once per process) | The `computer-use` principal, no prompt |
+| An executable named `exp-desktop` or `exponential` (the app inside its AppImage, the CLI) that is not that | The sealed consent at its first `hello` per login and content hash, naming its path, pid and parent; Allow = the `computer-use` principal for that binary until logout |
 | Anything else | `unauthorized`, logged with its path, no prompt |
 
 The `computer-use` principal reads as root (all six capabilities) and is
