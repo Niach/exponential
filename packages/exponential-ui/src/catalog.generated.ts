@@ -228,6 +228,7 @@ export interface Shapes {
   treeItem: { id: string; title: string; icon?: IconName; meta?: string; children?: Shapes["treeItem"][]; hasChildren?: boolean }
   highlight: { query: string; current?: number; before?: string }
   person: { name: string; src?: string; seed?: string }
+  textRun: { text: string; weight?: "regular" | "medium" | "semibold" | "bold"; tone?: ToneValue; mark?: "highlight" | "code" | "strike" | "underline"; link?: string }
 }
 /** Every component's props, by name. */
 export interface ComponentProps {
@@ -247,7 +248,7 @@ export interface ComponentProps {
   Toolbar: { gap?: GapValue }
   Section: { title?: string | Dynamic; caption?: string | Dynamic; count?: number | Dynamic; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean | Dynamic; actionLabel?: string | Dynamic; style?: Style }
   Group: { title?: string; footer?: string }
-  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; highlight?: Shapes["highlight"] | Dynamic; style?: Style }
+  Text: { text?: string | Dynamic; runs?: Shapes["textRun"][] | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; dropCap?: number; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; highlight?: Shapes["highlight"] | Dynamic; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
   Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; highlight?: Shapes["highlight"] | Dynamic; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; follow?: boolean; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }

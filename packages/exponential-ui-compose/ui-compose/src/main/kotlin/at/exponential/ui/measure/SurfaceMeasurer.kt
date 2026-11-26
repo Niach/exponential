@@ -389,9 +389,30 @@ class SurfaceMeasurer(
         return Answer(box, b)
     }
 
+    /** Round 4 (fixtures/text-runs.json): a Text's runs and drop cap, as [at.exponential.ui.compose.RichTextLeaf] paints them ([at.exponential.ui.paint.RichText.flow]). */
+    private fun richText(leaf: LeafRequest, spans: RichSpans, ts: ResolvedTextStyle, inner: Float?): Content {
+        val styles = MarkdownPainter.styles(theme, mode, ts, emptyMap(), fontScale)
+        val md = MarkdownShaper(shaper, theme?.monoFamily)
+        val inlines = at.exponential.ui.paint.RichText.inlines(spans.runs)
+        val cap = spans.cap?.let { c ->
+            val size = TextRuns.dropCapSize(ts.fontSize, ts.lineHeight, spans.lines)
+            line(c.text, ts.copy(fontSize = size, lineHeight = size, fontWeight = c.fontWeight ?: ts.fontWeight)) + spacing(TextRuns.GAP_TOKEN) to spans.lines
+        }
+        val rtl = false
+        val (w, h) = when {
+            inner == null -> at.exponential.ui.paint.RichText.intrinsic(inlines, styles, cap, false, md).let { it to at.exponential.ui.paint.RichText.flow(inlines, styles, it, cap, rtl, md).height }
+            inner <= 0f -> at.exponential.ui.paint.RichText.intrinsic(inlines, styles, cap, true, md).let { it to at.exponential.ui.paint.RichText.flow(inlines, styles, it, cap, rtl, md).height }
+            else -> inner to at.exponential.ui.paint.RichText.flow(inlines, styles, inner, cap, rtl, md).height
+        }
+        val clamp = leaf.lines?.takeIf { it > 0 }
+        val shown = if (clamp != null) min(h, clamp * ts.lineHeight) else h
+        return Content(w, max(shown, ts.lineHeight), baseline(ts))
+    }
+
     /** Any `Text` leaf: a part's chrome beside one line, typed Table cells, else a paragraph. */
     private fun text(leaf: LeafRequest, ts: ResolvedTextStyle, inner: Float?): Content {
         val props = leaf.props
+        if (leaf.part == null) richSpans(props) { shown(it, leaf) }?.let { return richText(leaf, it, ts, inner) }
         val raw = shown(props.shownText("text"), leaf)
         // #EXP-1765: a mono Select option's `trailing` (the surface's sans type) counts like a count.
         val countW = props["count"]?.displayText?.takeIf { it.isNotEmpty() }?.let { line(it, ts) }

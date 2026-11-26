@@ -14,6 +14,7 @@ public final class ThemeHandle: @unchecked Sendable {
     private var rawColors: [String: String?] = [:]
     private var motionTokens: [String: Double]?
     private var scaleTokens: [String: Double]?
+    private var weightTokens: [String: Int]?
     private let lock = NSLock()
 
     public init(_ theme: Theme) {
@@ -139,6 +140,22 @@ public final class ThemeHandle: @unchecked Sendable {
         }
         defer { lock.unlock() }
         return scaleTokens?[name]
+    }
+
+    /// Round 4 (fixtures/text-runs.json): a `$type.weight.<name>` token
+    /// (`regular`, `medium`, `semibold`, `bold`).
+    public func fontWeight(_ name: String) -> Int? {
+        lock.lock()
+        if weightTokens == nil {
+            lock.unlock()
+            let parsed = JSONValue.parse(theme.resolvedJson())["tokens"]?["type"]?["weight"]?.object ?? [:]
+            var m: [String: Int] = [:]
+            for (k, v) in parsed { if let n = v.number { m[k] = Int(n) } }
+            lock.lock()
+            weightTokens = m
+        }
+        defer { lock.unlock() }
+        return weightTokens?[name]
     }
 
     /// An `ease` token (`[x1, y1, x2, y2]`).

@@ -4541,10 +4541,6 @@
           "message": "unknown component NoSuchThing"
         },
         {
-          "path": "/templates/main/components/2",
-          "message": "props.text: required"
-        },
-        {
           "path": "/templates/main/components/3",
           "message": "props.text: expected a string"
         },

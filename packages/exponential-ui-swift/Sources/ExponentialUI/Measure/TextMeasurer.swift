@@ -585,9 +585,13 @@ public enum TextShaper {
     /// clear text attachment for TextKit, the same width, so it breaks like
     /// one unbreakable word and never grows the line; the painter draws the
     /// chip over it (`chipRects`).
-    public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural, chip chipStyle: MarkdownChipStyle? = nil, wrap: CGFloat? = nil) -> NSAttributedString {
+    /// Round 4 (fixtures/text-runs.json): `looks` = a Text run's own paint
+    /// per inline (aligned with `inlines`): its weight, colour (a link's
+    /// too), underline and highlight fill.
+    public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural, chip chipStyle: MarkdownChipStyle? = nil, wrap: CGFloat? = nil, looks: [TextRunLook]? = nil, base baseStyle: TextStyle? = nil) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        let base = TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family)
+        let base = baseStyle ?? TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family)
+        let looks = looks.map { l in zip(inlines, l).filter { !$0.0.text.isEmpty }.map(\.1) }
         // #EXP-1882: a chip's object replacement character breaks before and
         // after itself (UAX #14 CB): a word joiner glues it to the text it
         // touches, and a capped chip leaves that text room on its line, so
@@ -597,6 +601,8 @@ public enum TextShaper {
         let joiner = attributes(base, italic: false, family: spec.family, align: align)
         for (i, span) in spans.enumerated() {
             var ts = base
+            let look = looks.flatMap { i < $0.count ? $0[i] : nil }
+            if let w = look?.weight { ts.fontWeight = w }
             if span.bold { ts.fontWeight = max(ts.fontWeight, 600) }
             let family = span.code ? (mono ?? "ui-monospace") : spec.family
             var attrs = attributes(ts, italic: span.italic, family: family, align: align)
@@ -620,12 +626,13 @@ public enum TextShaper {
                 let font = attrs[.font] as? PlatformFont
                 let run = MarkdownCodeRun(fill: codeBackground, radius: chipStyle.code.radius, ascent: (font?.ascender ?? spec.size) + chipStyle.code.paddingV, descent: -(font?.descender ?? 0) + chipStyle.code.paddingV)
                 let pad = codePad(chipStyle.code.paddingH(spec), lineHeight: spec.lineHeight, run: run, attrs: body)
-                attrs[.foregroundColor] = span.link != nil ? link : ink
+                attrs[.foregroundColor] = look?.color ?? (span.link != nil ? link : ink)
                 if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
                 if let href = span.link {
                     attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
                     attrs[Self.linkKey] = href
                 }
+                look?.apply(&attrs)
                 attrs[codeKey] = run
                 // The word joiners keep the padding on the span's line.
                 var glue = body
@@ -637,13 +644,14 @@ public enum TextShaper {
                 out.append(NSAttributedString(string: "\u{FFFC}", attributes: pad))
                 continue
             }
-            attrs[.foregroundColor] = span.link != nil ? link : ink
+            attrs[.foregroundColor] = look?.color ?? (span.link != nil ? link : ink)
             if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let href = span.link {
                 attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 attrs[Self.linkKey] = href
             }
             if span.code, let codeBackground { attrs[.backgroundColor] = codeBackground }
+            look?.apply(&attrs)
             out.append(NSAttributedString(string: span.text, attributes: attrs))
         }
         return out

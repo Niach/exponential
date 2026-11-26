@@ -170,7 +170,10 @@ struct TextLeaf: View {
 
     var body: some View {
         // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
-        if cx.props.flag("hostLinks"), let segments = cx.model.textLinkSegments(cx.props.text("text")) {
+        if TextRuns.paintsRich(cx.props) {
+            // Round 4 (fixtures/text-runs.json): runs and a drop cap.
+            TextRunsLeaf(cx: cx)
+        } else if cx.props.flag("hostLinks"), cx.props["runs"] == nil, let segments = cx.model.textLinkSegments(cx.props.text("text")) {
             linked(segments)
                 .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
                 .clipped()

@@ -993,6 +993,45 @@
           "description": "Stable hue seed."
         }
       }
+    },
+    "textRun": {
+      "description": "One inline span of a Text.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "description": "Span text."
+        },
+        "weight": {
+          "type": "enum",
+          "values": [
+            "regular",
+            "medium",
+            "semibold",
+            "bold"
+          ],
+          "description": "Font weight."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "description": "Colour tone."
+        },
+        "mark": {
+          "type": "enum",
+          "values": [
+            "highlight",
+            "code",
+            "strike",
+            "underline"
+          ],
+          "description": "Span mark."
+        },
+        "link": {
+          "type": "url",
+          "description": "Opens like Link `href`."
+        }
+      }
     }
   },
   "functions": {
@@ -1748,7 +1787,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -1763,7 +1802,7 @@
         "maxDepth": {
           "type": "number",
           "default": 1,
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         "style": {
           "type": "style",
@@ -1845,7 +1884,7 @@
         },
         "maxHeight": {
           "type": "number",
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         "style": {
           "type": "style",
@@ -2135,13 +2174,21 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "props": {
         "text": {
           "type": "string",
-          "required": true,
           "bindable": true,
           "description": "Text to show."
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "textRun"
+          },
+          "bindable": true,
+          "description": "Spans replacing `text`."
         },
         "variant": {
           "type": "enum",
@@ -2169,6 +2216,10 @@
             "middle"
           ],
           "description": "One line; `middle` = start…end."
+        },
+        "dropCap": {
+          "type": "number",
+          "description": "Lines the first letter spans (2-4)."
         },
         "tone": {
           "type": "enum",
@@ -2914,7 +2965,7 @@
           "type": "enum",
           "enum": "segmentedVariant",
           "default": "segmented",
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         "size": {
           "type": "enum",
@@ -3066,7 +3117,7 @@
         "status": {
           "type": "enum",
           "enum": "traceStatus",
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "running shimmers, error tints, done ticks, skipped strikes."
         },
         "size": {
           "type": "enum",
@@ -3587,7 +3638,7 @@
         "matchAnchorWidth": {
           "type": "boolean",
           "default": false,
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       },
       "events": [
@@ -4424,7 +4475,7 @@
             "type": "string"
           },
           "bindable": true,
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         "series": {
           "type": "array",
@@ -4642,7 +4693,7 @@
           "type": "enum",
           "enum": "buttonVariant",
           "default": "default",
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "type": "enum",
@@ -4937,7 +4988,7 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare` = chromeless; `code` = mono; `box` = label hidden."
         },
         "size": {
           "type": "enum",
@@ -5022,7 +5073,7 @@
           "type": "enum",
           "enum": "textareaVariant",
           "default": "field",
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         "disabled": {
           "type": "boolean",
@@ -5539,7 +5590,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `button` = outline; `inline` = text + chevron."
         },
         "triggerIcon": {
           "type": "boolean",
@@ -6213,7 +6264,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       },
       "events": [
@@ -6433,7 +6484,7 @@
           "enum": "messageTail",
           "default": "none",
           "bindable": true,
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
+          "description": "start/end = top corner, down = bottom edge."
         },
         "time": {
           "type": "string",
