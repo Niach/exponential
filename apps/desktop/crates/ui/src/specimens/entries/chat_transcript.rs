@@ -9,8 +9,8 @@
 //! collapsed to `copy.superseded`, and a WAITING plan stays inline with its
 //! decision (FEED-140). #EXP-1864: the agent's bubbles wear their `HH:mm`,
 //! and the agent's quiet turn is THE inline marker on its own line. #EXP-1873:
-//! on top `checkInSpecimen` through `feed_rows` (quiet check-ins = ONE line
-//! per run, the one that answered keeps its marker). Every row goes through the chat screen's own
+//! on top `checkInSpecimen` through `feed_rows` (#FEED-317: a quiet run = THE
+//! tool-group row, the one that answered keeps its marker). Every row goes through the chat screen's own
 //! painters ([`crate::session_chat::card_row`]). Last, the surface card's
 //! ENTER frame a third of the way in (fade + rise + the primary hairline).
 
@@ -209,22 +209,59 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
     }
 }
 
-/// #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent chat's
-/// check-ins through `feed_rows`: quiet runs = ONE line each, the one that
-/// answered keeps its marker above the agent's bubble.
-fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
-    use domain::transcript_grouping::{check_in_label, check_in_specimen, copy, feed_rows, trace_notice, FeedRowRole, FeedRowShown};
+/// #EXP-1873 + #FEED-317 (transcript-grouping.json `checkInSpecimen`): an
+/// agent chat's ticks through `feed_rows`: a quiet run = THE tool-group row
+/// (`Schedule ×5 · 11:15–12:15`, closed; its work folded, never drawn) beside
+/// the agent's avatar, the one that answered keeps its marker above the
+/// agent's bubble.
+fn check_in_rows(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Vec<AnyElement> {
+    use domain::transcript_grouping::{check_in_label, check_in_specimen, check_in_ticks, copy, feed_rows, trace_notice, FeedRowRole, FeedRowShown};
     let rows = check_in_specimen();
     let agent = domain::transcript_grouping::check_in_specimen_agent();
     let kinds: Vec<FeedRowRole> = rows.iter().map(|row| FeedRowRole::parse(&row.kind).unwrap_or(FeedRowRole::Other)).collect();
     let text = ChatText::default();
+    let sizes = crate::session_chat::transcript_sizes();
+    // The agent's own avatar column (`sender_row`'s): its trace lines and
+    // its bubbles sit beside it.
+    let beside_avatar = |content: AnyElement, cx: &mut App| {
+        let avatar = crate::user_avatar::agent_avatar(
+            agent.icon.as_deref(),
+            agent.color.as_deref(),
+            gpui_component::Size::Size(px(sizes.avatar)),
+            cx,
+        );
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .items_start()
+            .gap(px(sizes.avatar_gap))
+            .child(div().flex_shrink_0().w(px(sizes.avatar)).child(avatar))
+            .child(v_flex().flex_1().min_w_0().child(content))
+            .into_any_element()
+    };
     let mut out = Vec::new();
     for (index, (row, drawn)) in rows.iter().zip(feed_rows(&kinds)).enumerate() {
         let id = SharedString::from(format!("sg-chat-check-in-{index}"));
         let marker = |label: &str, cx: &mut App| crate::surface_card::transcript_marker(id.clone(), label, None, cx);
         out.push(match (drawn, kinds[index]) {
             (FeedRowShown::Hidden, _) => continue,
-            (FeedRowShown::CheckIn(count), _) => marker(&check_in_label(count, row.time.as_deref()), cx),
+            (FeedRowShown::CheckIn(count), _) => {
+                let ticks = check_in_ticks(&kinds, index, count);
+                let first = ticks.first().and_then(|&at| rows[at].time.as_deref());
+                let last = ticks.last().and_then(|&at| rows[at].time.as_deref());
+                let line = crate::trace::TraceLine::new(
+                    id.clone(),
+                    gpui_component::Icon::new(crate::icons::registry::TRIGGER_SCHEDULE),
+                    check_in_label(count, first, last),
+                );
+                // THE tool-group row: closed by default; one tick never opens.
+                let element = if count > 1 {
+                    crate::trace::trace_collapsible(line, false, |_, _| {}, None, window, cx)
+                } else {
+                    crate::trace::trace_line(line, window, cx)
+                };
+                beside_avatar(element, cx)
+            }
             (_, FeedRowRole::Schedule) => marker(copy().markers.get("schedule").map_or("", String::as_str), cx),
             (_, FeedRowRole::Quiet) => marker(trace_notice(NOTICE_TOOL).unwrap_or_default(), cx),
             _ => {
@@ -246,22 +283,7 @@ fn check_in_rows(images: &Entity<ImageCache>, cx: &mut App) -> Vec<AnyElement> {
                     },
                     cx,
                 );
-                // ... under the agent's own avatar (`sender_row`'s column).
-                let sizes = crate::session_chat::transcript_sizes();
-                let avatar = crate::user_avatar::agent_avatar(
-                    agent.icon.as_deref(),
-                    agent.color.as_deref(),
-                    gpui_component::Size::Size(px(sizes.avatar)),
-                    cx,
-                );
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_start()
-                    .gap(px(sizes.avatar_gap))
-                    .child(div().flex_shrink_0().w(px(sizes.avatar)).child(avatar))
-                    .child(v_flex().flex_1().min_w_0().child(bubble))
-                    .into_any_element()
+                beside_avatar(bubble, cx)
             }
         });
     }
@@ -407,10 +429,10 @@ fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
-    // #EXP-1873: the check-ins lead the specimen (web's order), in frame.
-    // #EXP-1943: the call cards and the call view lead it.
-    let mut rows: Vec<AnyElement> = call_rows(&images, window, cx);
-    rows.extend(check_in_rows(&images, cx));
+    // #EXP-1873 + #FEED-317: the schedule ticks lead the specimen (web's
+    // order), in frame; #EXP-1943: the call cards and the call view next.
+    let mut rows: Vec<AnyElement> = check_in_rows(&images, window, cx);
+    rows.extend(call_rows(&images, window, cx));
     for (row, time) in rows_list() {
         rows.push(paint(&row, time, &images, window, cx));
         if matches!(&row, SessionChatRow::Message { id, .. } if id == OWN_AFTER) {
@@ -482,16 +504,30 @@ mod tests {
         assert!(rows().iter().any(|(row, _)| matches!(row, SessionChatRow::Surface { id, .. } if id == NOTICE_AFTER)));
     }
 
-    /// #EXP-1873: the specimen draws two check-in runs and the answered one.
+    /// #EXP-1873 + #FEED-317: the specimen draws two tick runs (the work of
+    /// one folded in) and the answered one.
     #[test]
     fn the_check_in_specimen_draws_two_lines_and_the_answer() {
-        use domain::transcript_grouping::{check_in_specimen, feed_rows, FeedRowRole, FeedRowShown};
-        let kinds: Vec<FeedRowRole> = check_in_specimen().iter().map(|row| FeedRowRole::parse(&row.kind).unwrap()).collect();
-        let drawn: Vec<FeedRowShown> = feed_rows(&kinds).into_iter().filter(|shown| *shown != FeedRowShown::Hidden).collect();
+        use domain::transcript_grouping::{check_in_label, check_in_specimen, check_in_ticks, feed_rows, FeedRowRole, FeedRowShown};
+        let rows = check_in_specimen();
+        let kinds: Vec<FeedRowRole> = rows.iter().map(|row| FeedRowRole::parse(&row.kind).unwrap()).collect();
+        let shown = feed_rows(&kinds);
+        let drawn: Vec<FeedRowShown> = shown.iter().copied().filter(|shown| *shown != FeedRowShown::Hidden).collect();
         assert_eq!(
             drawn,
-            vec![FeedRowShown::CheckIn(4), FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::CheckIn(2)]
+            vec![FeedRowShown::CheckIn(5), FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::Row, FeedRowShown::CheckIn(2)]
         );
+        let (index, count) = shown
+            .iter()
+            .enumerate()
+            .find_map(|(index, shown)| match shown {
+                FeedRowShown::CheckIn(count) => Some((index, *count)),
+                _ => None,
+            })
+            .unwrap();
+        let ticks = check_in_ticks(&kinds, index, count);
+        let label = check_in_label(count, rows[ticks[0]].time.as_deref(), rows[*ticks.last().unwrap()].time.as_deref());
+        assert_eq!(label, "Schedule ×5 · 11:15–12:15");
     }
 
     /// #FEED-237: m1 (an own, consumed row = `read`) is followed by one
