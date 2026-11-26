@@ -595,6 +595,9 @@ fn recorded_native_session_id(ctx: &SessionCtx) -> Option<String> {
 pub(crate) enum AskOutcome {
     Permission(String),
     Elicitation(serde_json::Value),
+    /// #NEW-146: THE elicitation card's answer, whole (accept with its
+    /// content, decline, cancel).
+    Elicited(super::elicitation_card::ElicitationReply),
     /// `session/cancel`, a kill, or the connection going away: the ACP
     /// contract requires the pending request to be answered, not dropped.
     Cancelled,
@@ -2194,6 +2197,15 @@ where
         .on_receive_request(
             async move |request: CreateElicitationRequest, responder, cx| {
                 let ask_id = elicitation_id(&request);
+                // #NEW-146: an elicitation the card cannot draw honestly (a
+                // url that is not http(s)) is declined at once, unposted.
+                if super::elicitation_card::undrawable(&request) {
+                    log::debug!("engine: elicitation {ask_id} declined (undrawable)");
+                    if let Err(err) = responder.respond(CreateElicitationResponse::new(ElicitationAction::Decline)) {
+                        log::warn!("engine: elicitation response failed: {err}");
+                    }
+                    return Ok(());
+                }
                 let mut out = MapOut::default();
                 let key = elicit_ctx
                     .with_mapper(|mapper| mapper.on_elicitation(&ask_id, &request, &mut out));
@@ -2204,6 +2216,7 @@ where
                         Ok(AskOutcome::Elicitation(fields)) => ElicitationAction::Accept(
                             ElicitationAcceptAction::new().content(elicitation_content(&fields)),
                         ),
+                        Ok(AskOutcome::Elicited(reply)) => elicited_action(reply),
                         _ => ElicitationAction::Cancel,
                     };
                     if let Err(err) = responder.respond(CreateElicitationResponse::new(action)) {
@@ -2626,6 +2639,15 @@ fn handle_command(
             gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id), author)
         }
         EngineCommand::AnswerCard { question_id, card } => {
+            // #NEW-146: THE elicitation card answers whole: accept (with its
+            // validated content), decline, or cancel (Cancel, the ×).
+            let mut out = MapOut::default();
+            let elicited = ctx.with_mapper(|mapper| mapper.answer_elicitation_card(&question_id, &card, &mut out));
+            if let Some((key, reply)) = elicited {
+                ctx.dispatch(out);
+                ctx.asks.resolve(&key, AskOutcome::Elicited(reply));
+                return true;
+            }
             // #EXP-1561: a dismissed card whose elicitation step takes no
             // free text declines the ask whole (the #NEW-79 withdraw path),
             // so the agent never waits on it.
@@ -3021,6 +3043,9 @@ fn resolve_ask(ctx: &Arc<SessionCtx>, answer: wire::RemoteAnswer) {
         } => ctx
             .asks
             .resolve(key.responder_key(), AskOutcome::Elicitation(fields)),
+        AnswerDecision::ElicitationCard(reply) => ctx
+            .asks
+            .resolve(key.responder_key(), AskOutcome::Elicited(reply)),
         // A mid-stepper answer published the next step and resolves
         // nothing; a re-tap re-acked; an unknown id was dropped.
         _ => {}
@@ -3539,6 +3564,19 @@ fn blocks_text(blocks: &[ContentBlock]) -> String {
 /// `<id>#<n>` stepper stays correlatable with the tool card it belongs to.
 /// A session scope with no tool call has nothing to name and falls
 /// through to the synthetic id.
+/// #NEW-146: THE elicitation card's reply as the ACP action.
+fn elicited_action(reply: super::elicitation_card::ElicitationReply) -> ElicitationAction {
+    use super::elicitation_card::ElicitationReply;
+    match reply {
+        ElicitationReply::Accept(Some(content)) => {
+            ElicitationAction::Accept(ElicitationAcceptAction::new().content(elicitation_content(&serde_json::Value::Object(content))))
+        }
+        ElicitationReply::Accept(None) => ElicitationAction::Accept(ElicitationAcceptAction::new()),
+        ElicitationReply::Decline => ElicitationAction::Decline,
+        ElicitationReply::Cancel => ElicitationAction::Cancel,
+    }
+}
+
 fn elicitation_id(request: &CreateElicitationRequest) -> String {
     use agent_client_protocol::v1::schema::{ElicitationMode, ElicitationScope};
     let scope = match &request.mode {

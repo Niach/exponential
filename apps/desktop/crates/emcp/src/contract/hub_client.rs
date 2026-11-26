@@ -15,6 +15,9 @@ pub const ENTRY_NAME: &str = "team";
 pub const TOKEN_ENV: &str = "EXP_TEAM_MCP_TOKEN";
 /// elicitation-card.json's `serverMetaKey` (domain-contract): the `_meta`
 /// key naming the asking server, so the ACP elicitation becomes THE card.
+/// eMCP cannot depend on eAgent, so this mirrors eagent's ONE definition
+/// (`engine::elicitation_card::SERVER_META_KEY`); both are gated against the
+/// fixture.
 pub const SERVER_META_KEY: &str = "exponential.at/mcpServer";
 
 /// `mrtr.maxRounds`: input rounds one call may take.
@@ -316,4 +319,17 @@ pub fn relative_path_ok(path: &str) -> bool {
         && !path.contains('\\')
         && !path.contains('\0')
         && path.split('/').all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+#[cfg(test)]
+mod elicitation_meta_key {
+    /// #NEW-146: the key is THE fixture's (eagent gates its copy the same way).
+    #[test]
+    fn server_meta_key_is_the_elicitation_card_fixtures() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/elicitation-card.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["serverMetaKey"], super::SERVER_META_KEY);
+    }
 }

@@ -91,6 +91,7 @@
     "./wrap-signature": "./src/wrap-signature.ts",
     "./install-trust": "./src/install-trust.ts",
     "./question-push": "./src/question-push.ts",
+    "./elicitation-card": "./src/elicitation-card.ts",
     "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*",
     "./team-image": "./src/team-image.ts",

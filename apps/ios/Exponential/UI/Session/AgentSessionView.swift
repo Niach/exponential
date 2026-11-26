@@ -3999,6 +3999,9 @@ struct QuestionCard: View {
     /// #EXP-1464 (chat-row-action.json): trailing the label line (a
     /// conversation row's expanded card: `Open chat`).
     var headerTrailing: AnyView? = nil
+    /// #NEW-146 (elicitation-card.json): a glyph leading the heading's
+    /// words in the tint (the asking MCP server's plug).
+    var headerIcon: String? = nil
 
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
@@ -4095,11 +4098,17 @@ struct QuestionCard: View {
                 if hasHeader {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if let headerText {
-                            Text(headerText)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(tint)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            HStack(spacing: 4) {
+                                if let headerIcon {
+                                    AppIcon(headerIcon, size: 12)
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                }
+                                Text(headerText)
+                                    .font(.caption.weight(.medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .foregroundStyle(tint)
                         }
                         if let stepLabel {
                             Text(stepLabel)

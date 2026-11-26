@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { imageSource, imageSourceAllowed } from "@exp/domain-contract/image-actions"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, cardV10, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
@@ -192,6 +192,8 @@ export function PlanCardSurface({
   disabled = false,
   dataRef,
   testKey,
+  caption = true,
+  onData,
 }: {
   surface: CardSurface
   /** The data model to show (an answered card's stored `surfaceData`). */
@@ -199,6 +201,12 @@ export function PlanCardSurface({
   disabled?: boolean
   dataRef?: { current: Record<string, unknown> | null }
   testKey: string
+  /** The `copy.surface` caption above the frame (#NEW-146: an elicitation's
+   *  form has none: it IS the question). */
+  caption?: boolean
+  /** #NEW-146: every change of the data model (an elicitation's Submit
+   *  waits for its required fields). */
+  onData?: (data: Record<string, unknown>) => void
 }) {
   const painted = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
@@ -208,6 +216,11 @@ export function PlanCardSurface({
     data: { ...(painted.data ?? {}), ...(data ?? {}) },
   })
   if (dataRef) dataRef.current = state.data as Record<string, unknown>
+  const latestOnData = useRef(onData)
+  latestOnData.current = onData
+  useEffect(() => {
+    latestOnData.current?.(state.data as Record<string, unknown>)
+  }, [state.data])
   const links = useCardLinks()
   const host = useMemo(() => planCardHost(undefined, links), [links])
   return (
@@ -216,7 +229,7 @@ export function PlanCardSurface({
       data-disabled={disabled || undefined}
       className="mt-3 flex flex-col gap-1.5"
     >
-      <div className="text-[0.6875rem] font-medium text-muted-foreground">{PLAN_CARD_COPY.surface}</div>
+      {caption && <div className="text-[0.6875rem] font-medium text-muted-foreground">{PLAN_CARD_COPY.surface}</div>}
       <div
         // `inert`: an answered card's surface takes no input at all.
         inert={disabled || undefined}

@@ -183,6 +183,8 @@ mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;
 mod plan_card;
+// #NEW-146: THE elicitation card (a third-party MCP server asks).
+mod elicitation_card;
 mod plan_page;
 // #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).
 mod outline;

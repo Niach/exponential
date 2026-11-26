@@ -2862,6 +2862,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.23",
+ "url",
  "uuid",
  "wait-timeout",
 ]

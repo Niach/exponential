@@ -170,6 +170,8 @@ pub mod diff_tree;
 // N-12: THE Dock (the cards over the composer, the pile, auto-open), fixture-locked ×4.
 pub mod dock;
 pub mod edit_card;
+// #NEW-146: THE elicitation card (a third-party MCP server asks), fixture-locked ×4.
+pub mod elicitation_card;
 pub mod entity_preview;
 pub mod enums;
 pub mod guide_viewer;
