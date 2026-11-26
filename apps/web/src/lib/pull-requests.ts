@@ -100,6 +100,8 @@ async function forgeOf(repo: Repo, token: string): Promise<{ forge: Forge; at: F
 }
 
 async function repoToken(repo: Repo): Promise<string> {
+  // #EXP-2170: eCode's own forge (a hosted repo) takes no GitHub token.
+  if (repo.provider === `ecode`) return ``
   const token = await resolveGatedRepoToken(repo)
   if (!token) {
     return fail(
@@ -382,7 +384,7 @@ export async function openPullRequest(args: {
     prBodyFromPictures({
       title: args.title,
       issues: linked.map((issue) => ({ identifier: issue.identifier, title: issue.title })),
-      commits: await compareCommitMessages({ repo: repo.fullName, base, head: head!, token }),
+      commits: repo.provider === `ecode` ? [] : await compareCommitMessages({ repo: repo.fullName, base, head: head!, token }),
       pictures,
       notRun,
       resultsUrl: chatUrl,
@@ -452,7 +454,8 @@ export async function openPullRequest(args: {
         stopBranches: stackStopBranches(defaults),
       })
     ).base
-  if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, pictures, notRun })
+  // The UI guard compares on GitHub; a hosted repo skips it (no compare API yet, #EXP-2173).
+  if (root && repo.provider !== `ecode`) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, pictures, notRun })
   const body = await withAbsoluteLinks(repo.teamId, args.body ?? (root ? await pictureBody(base) : ``))
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
