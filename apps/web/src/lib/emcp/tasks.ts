@@ -280,8 +280,10 @@ const looseParams = z.looseObject({})
 /** Serves tasks/get, tasks/update and tasks/cancel on this request's server. */
 export function registerTasks(server: McpServer, ctx: EmcpContext): void {
   for (const method of [`tasks/get`, `tasks/update`, `tasks/cancel`] as const) {
-    server.server.setRequestHandler(method, { params: looseParams }, async (params: Record<string, unknown>) =>
-      handleTaskRequest(method, params, ctx)
-    )
+    // The SDK lifts `inputResponses` off the params into `ctx.mcpReq` (MRTR).
+    server.server.setRequestHandler(method, { params: looseParams }, async (params: Record<string, unknown>, sdk: unknown) => {
+      const lifted = (sdk as { mcpReq?: { inputResponses?: unknown } } | undefined)?.mcpReq?.inputResponses
+      return handleTaskRequest(method, lifted !== undefined && params.inputResponses === undefined ? { ...params, inputResponses: lifted } : params, ctx)
+    })
   }
 }
