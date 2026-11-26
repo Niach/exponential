@@ -7,7 +7,11 @@
 // the server's CAS.
 //
 // Which device: an online one of the team that advertises the `ecode-jobs`
-// cap: a server shared with the team first, then any member's daemon. The
+// cap AND whose owner turned its runner on (`devices.runner.enabled`, the
+// same opt-in as our CI): a server shared with the team first, then any
+// other member's runner. #EXP-2170: every daemon advertises the cap, so
+// without the opt-in a member's daemon set up for something else (another
+// team's machine, a lab box) got the team's code and a job token. The
 // payload carries a short-lived JOB token (`repo-token.ts`, scope `job`) for
 // `/api/ecode/git/*`: the device needs no other credential.
 import { and, arrayContains, desc, eq, gt, isNull, sql } from "drizzle-orm"
@@ -55,7 +59,14 @@ export async function pickJobDevice(teamId: string, now = new Date()): Promise<J
     .select({ rowId: devices.id, deviceId: devices.deviceId, ownerId: devices.userId })
     .from(devices)
     .innerJoin(teamMembers, and(eq(teamMembers.userId, devices.userId), eq(teamMembers.teamId, teamId)))
-    .where(and(isNull(devices.spaceHostId), gt(devices.lastSeenAt, new Date(now.getTime() - ONLINE_MS)), sql`${devices.caps} @> ${JSON.stringify([ECODE_JOBS_CAP])}::jsonb`))
+    .where(
+      and(
+        isNull(devices.spaceHostId),
+        gt(devices.lastSeenAt, new Date(now.getTime() - ONLINE_MS)),
+        sql`${devices.caps} @> ${JSON.stringify([ECODE_JOBS_CAP])}::jsonb`,
+        sql`(${devices.runner}->>'enabled')::boolean IS TRUE`
+      )
+    )
     .orderBy(desc(sql`coalesce(${arrayContains(devices.sharedTeamIds, [teamId])}, false)`), desc(devices.lastSeenAt))
     .limit(1)
   return row ?? null
@@ -101,7 +112,7 @@ export async function runJob<K extends EcodeJob[`op`]>(
   job: Extract<EcodeJob, { op: K }>
 ): Promise<EcodeJobOutcome<K>> {
   const device = await pickJobDevice(repo.teamId)
-  if (!device) throw new ForgeError(503, `No team device with eCode jobs is online to run ${job.op}`, `runner`)
+  if (!device) throw new ForgeError(503, `No CI runner of the team is online to run ${job.op} (a device runs repository jobs once its runner is on)`, `runner`)
   const id = await queueJob(repo, device, job)
   const { awaitDeviceCommand } = await import(`@/lib/trpc/devices`)
   const outcome = await awaitDeviceCommand(db, id, WAIT_MS[job.op])
