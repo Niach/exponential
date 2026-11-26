@@ -7720,6 +7720,36 @@
       }
     },
     {
+      "id": "elicitation-card",
+      "group": "coding",
+      "title": "Elicitation card",
+      "blurb": "#NEW-146 THE elicitation card ×4 (elicitation-card.json): a third-party MCP server asks the person something. The card names the server, the form fields map to genUI (Input, DatePicker, NumberField, Switch, Select) with the defaults prefilled, Submit · Decline · Cancel; url mode reviews the full URL with its registrable domain in bold and warnings, Open link · I'm done · Decline.",
+      "order": 105,
+      "web": {
+        "route": "/home?dev=elicitation-card",
+        "anchor": {
+          "testId": "elicitation-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/home?dev=elicitation-card",
+        "anchor": {
+          "testId": "elicitation-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=elicitation-card` on the Agent route (never parsed in a production build): `@exp/ui` `ElicitationCardSpecimen`, the fixture's device-built cards through the real ChatConversation (the waiting form, the clean url, the warned url, an answered form).",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "ios": "#NEW-146: the port follows the approved web draft.",
+        "android": "#NEW-146: the port follows the approved web draft.",
+        "desktop": "#NEW-146: the port follows the approved web draft."
+      }
+    },
+    {
       "id": "plan-page",
       "group": "coding",
       "title": "Plan page",

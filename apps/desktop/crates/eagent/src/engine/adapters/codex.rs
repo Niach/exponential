@@ -2439,12 +2439,10 @@ async fn on_server_request(shared: &Arc<Shared>, cx: &ConnectionTo<Client>, requ
             return;
         }
         "mcpServer/elicitation/request" => {
-            // An MCP server asking the user something. Exponential's own MCP
-            // server never elicits, and answering with a made-up shape is
-            // worse than declining, so this one is declined with a log line
-            // until a server that needs it exists.
-            log::debug!("engine: codex mcp elicitation declined (unsupported)");
-            answer(shared, &key, &request, codex_wire::cancel_result(&request.method));
+            // #NEW-146: a third-party MCP server asking the person something
+            // (elicitation-card.json): THE ACP elicitation, so it reaches
+            // the elicitation card like any other ask, never a blanket cancel.
+            mcp_elicitation(shared, cx, &key, &request).await;
             return;
         }
         // An approval kind we do not know cannot be answered honestly.
@@ -2669,6 +2667,44 @@ async fn question(
         answers.insert(id, json!({ "answers": [value] }));
     }
     answer(shared, key, request, json!({ "answers": answers }));
+}
+
+/// #NEW-146 (elicitation-card.json): `mcpServer/elicitation/request` as ONE
+/// ACP elicitation, form or url, naming the requesting server (codex's
+/// `serverName` = the name Exponential configured it under) in the
+/// request's `_meta` ([`crate::engine::adapters::MCP_SERVER_META`]). The
+/// person's action goes back as MCP's own: accept (with the content), decline
+/// or cancel. Never auto-accepted; a request we cannot render (an unknown
+/// mode, a schema ACP cannot carry) is declined, not guessed at.
+async fn mcp_elicitation(
+    shared: &Arc<Shared>,
+    cx: &ConnectionTo<Client>,
+    key: &str,
+    request: &ServerRequest,
+) {
+    let Some(session_id) = shared.session_id() else {
+        answer(shared, key, request, codex_wire::cancel_result(&request.method));
+        return;
+    };
+    let Some(elicitation) = codex_wire::mcp_elicitation_request(&request.params, session_id) else {
+        log::debug!("engine: codex mcp elicitation declined (unrenderable)");
+        answer(shared, key, request, json!({ "action": "decline" }));
+        return;
+    };
+    // EXP-758: inside the cancel fence, like every other ask.
+    if let Ok(mut in_flight) = shared.in_flight.lock() {
+        in_flight.insert(key.to_string(), request.clone());
+    }
+    let response = cx.send_request(elicitation).block_task().await;
+    forget(shared, key);
+    let result = match response {
+        Ok(response) => codex_wire::mcp_elicitation_result(&response.action),
+        Err(error) => {
+            log::debug!("engine: codex mcp elicitation not answered: {error}");
+            codex_wire::cancel_result(&request.method)
+        }
+    };
+    answer(shared, key, request, result);
 }
 
 /// EXP-758: take a server request back off the cancel fence's books. Called
