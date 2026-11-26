@@ -54,7 +54,7 @@ import {
   SKILL_NAME_MAX,
   SKILL_NAME_PATTERN,
 } from "@exp/db-schema/domain"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import {
   and,
   asc,
