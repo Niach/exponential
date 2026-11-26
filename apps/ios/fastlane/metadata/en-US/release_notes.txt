@@ -1,3 +1,12 @@
+- Teams is one tree of your teams with their folders, boards, agents, apps and chats; headers stay pinned
+- Every page shows its actions as the same round buttons, with + and … last
+- Badges count the same way on every platform: up to 99+, yellow when something waits on you
+- Every plan and question row in Needs you has a Dismiss button
+- New issue offers the boards of every team you are in
+- Long-press a navigation row for its menu
+- A plain chat's Teams pick is in every chat's composer
+- Two teams' agents with the same name show their team's mark in New chat
+- Small iPhone and iPad fixes, and fixes for encrypted chats
 - New layout: a docked bar with Teams, the Assistant in the centre, New and Settings; no active team to switch
 - A team agent's settings page has a Wake word switch: your voice device listens for that agent's own phrase
 - Search also finds issues by meaning, and similar:NEW-12 lists an issue's likely duplicates
@@ -41,12 +50,3 @@
 - Computer use follows the device's switch in the + menu
 - Large accounts stay responsive: screens that read a whole list share one read
 - A chat whose device is offline shows the messages synced so far and ends with the offline line
-- A session that hit a wall says so instead of "needs input"
-- Blank agent turns no longer show as empty messages
-- A waiting session says what it is waiting on
-- An issue reference in a chat message keeps the full stop or comma right after it on the same line
-- A quiet check-in by a scheduled agent shows as one line, "Checked in, nothing to do", and consecutive ones group together
-- Tapping the greyed call button says why you can't call
-- Chat bubbles get a tail on the first message of each group, yours on the right
-- A call to an agent on a server with a GPU is answered there; otherwise the call says why and hands over
-- Calls ring the agent's own desktop, or show "Voice on" the desktop that answers
