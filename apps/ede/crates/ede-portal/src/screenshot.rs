@@ -40,6 +40,36 @@ impl Screenshot {
     }
 }
 
+/// xdg-desktop-portal asks the permission store before a non-interactive
+/// screenshot and, with no entry, shows its Access dialog. For unsandboxed
+/// apps (app id `""`) that dialog stands between Flameshot and every
+/// capture, and it opens behind the focused window (#EDE-82): the call
+/// times out. Cinnamon lets every X11 app take screenshots unasked, so eDE
+/// grants unsandboxed apps once, at start, unless the person said no.
+/// Sandboxed apps (their own app id) still ask.
+pub const PERMISSION_TABLE: &str = "screenshot";
+
+/// Whether the store's `screenshot` entry still needs the host apps' yes.
+pub fn host_grant_needed(entry: Option<&std::collections::HashMap<String, Vec<String>>>) -> bool {
+    entry.is_none_or(|apps| !apps.contains_key(""))
+}
+
+/// [`PERMISSION_TABLE`]: grants unsandboxed apps unless an answer is stored.
+pub async fn grant_host_screenshots(conn: &zbus::Connection) -> zbus::Result<bool> {
+    const STORE: &str = "org.freedesktop.impl.portal.PermissionStore";
+    const STORE_PATH: &str = "/org/freedesktop/impl/portal/PermissionStore";
+    let entry = match conn.call_method(Some(STORE), STORE_PATH, Some(STORE), "Lookup", &(PERMISSION_TABLE, PERMISSION_TABLE)).await {
+        Ok(reply) => Some(reply.body().deserialize::<(std::collections::HashMap<String, Vec<String>>, zbus::zvariant::OwnedValue)>()?.0),
+        Err(zbus::Error::MethodError(name, _, _)) if name.as_str() == "org.freedesktop.portal.Error.NotFound" => None,
+        Err(e) => return Err(e),
+    };
+    if !host_grant_needed(entry.as_ref()) {
+        return Ok(false);
+    }
+    conn.call_method(Some(STORE), STORE_PATH, Some(STORE), "SetPermission", &(PERMISSION_TABLE, true, PERMISSION_TABLE, "", vec!["yes"])).await?;
+    Ok(true)
+}
+
 /// Captures every output and writes the PNG.
 pub fn take(ctx: &Ctx) -> Result<PathBuf, String> {
     let outputs = ctx.ede(|c| c.outputs()).map_err(|e| e.to_string())?;
@@ -122,6 +152,15 @@ fn unique(dir: &std::path::Path) -> PathBuf {
 mod tests {
     use super::*;
     use ede_compositor::backend::headless::Harness;
+
+    #[test]
+    fn unsandboxed_apps_are_granted_once_and_a_stored_answer_stays() {
+        let entry = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), vec![v.to_string()])).collect::<std::collections::HashMap<_, _>>();
+        assert!(host_grant_needed(None), "no table yet");
+        assert!(host_grant_needed(Some(&entry(&[("org.example.App", "no")]))), "a sandboxed app's answer is its own");
+        assert!(!host_grant_needed(Some(&entry(&[("", "no")]))), "the person said no");
+        assert!(!host_grant_needed(Some(&entry(&[("", "yes")]))));
+    }
 
     /// #EDE-101: a scale-2 output beside a scale-1 one. Captures are mode
     /// pixels, the layout is logical: the PNG is drawn at the highest scale

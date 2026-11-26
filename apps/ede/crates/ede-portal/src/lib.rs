@@ -23,7 +23,7 @@ pub mod config;
 mod pick;
 mod remote_desktop;
 mod screencast;
-mod screenshot;
+pub mod screenshot;
 mod session;
 mod settings;
 mod shortcuts;
