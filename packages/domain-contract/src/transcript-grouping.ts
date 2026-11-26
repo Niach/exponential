@@ -235,20 +235,24 @@ export function markersShown(kinds: readonly FeedRowKind[]): boolean[] {
 }
 
 /** #EXP-1873: a feed row as `feedRows` reads it: `schedule` = a schedule
- *  firing (a check-in), `marker` = every other marker, `quiet` = the quiet
- *  notice, `blank` = an agent turn with blank text. */
-export type FeedRowRole = FeedRowKind | `schedule` | `quiet` | `blank`
+ *  firing (a tick), `marker` = every other marker, `quiet` = the quiet
+ *  notice, `blank` = an agent turn with blank text, `work` (#FEED-317) = the
+ *  agent's work (a tool line or run, a thought, a subagent line; never a
+ *  notice or a `show` call), `other` = everything else drawn (cards). */
+export type FeedRowRole = FeedRowKind | `schedule` | `quiet` | `blank` | `work`
 
 /** Per row: `false` = not drawn, `true` = drawn as itself, a number n = THE
- *  check-in line covering n quiet check-ins. */
+ *  schedule line covering n quiet ticks (the last n `schedule` rows). */
 export type FeedRowShown = boolean | number
 
-/** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
- *  turn only called quiet, nothing else) is one line;
- *  consecutive ones collapse onto the last. */
+/** #EXP-1873 + #FEED-317 (`checkInCases`): a quiet tick (a schedule firing
+ *  whose turn called quiet and said nothing visible: work folds in) is one
+ *  line; consecutive ones collapse onto the last. */
 export function feedRows(kinds: readonly FeedRowRole[]): FeedRowShown[] {
   const shown: FeedRowShown[] = markersShown(
-    kinds.map((kind) => (kind === `schedule` ? `marker` : kind === `quiet` || kind === `blank` ? `other` : kind))
+    kinds.map((kind) =>
+      kind === `schedule` ? `marker` : kind === `quiet` || kind === `blank` || kind === `work` ? `other` : kind
+    )
   ).map((drawn, index) => drawn && kinds[index] !== `blank`)
   kinds.forEach((kind, start) => {
     if (kind !== `schedule`) return
@@ -279,9 +283,23 @@ export function feedRows(kinds: readonly FeedRowRole[]): FeedRowShown[] {
   return shown
 }
 
-/** #EXP-1873 (`checkInLabelCases`): the check-in line's text. */
-export function checkInLabel(count: number, time: string | null): string {
+/** #FEED-317: the rows a schedule line at `index` covers (`feedRows` gave it
+ *  `count`): the last `count` schedule rows up to and including it, oldest
+ *  first. */
+export function checkInTicks(kinds: readonly FeedRowRole[], index: number, count: number): number[] {
+  const ticks: number[] = []
+  for (let at = index; at >= 0 && ticks.length < count; at -= 1) {
+    if (kinds[at] === `schedule`) ticks.unshift(at)
+  }
+  return ticks
+}
+
+/** #EXP-1873 + #FEED-317 (`checkInLabelCases`): the schedule line's text,
+ *  `Schedule ×5 · 11:15–12:15`. */
+export function checkInLabel(count: number, first: string | null, last: string | null): string {
   const label = count === 1 ? fixture.copy.checkIn : fixture.copy.checkIns.replace(`{count}`, String(count))
+  const time =
+    first && last && first !== last ? `${first}${fixture.copy.checkInTimeRange}${last}` : (last ?? first)
   return time ? `${label}${fixture.copy.checkInTimeSeparator}${time}` : label
 }
 
