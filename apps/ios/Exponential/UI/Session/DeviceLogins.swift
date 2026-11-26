@@ -488,6 +488,9 @@ struct DeviceCardMenu: View {
     let onSettings: (() -> Void)?
     /// A team owner on a teammate's device shared into the current team.
     let onRemoveFromTeam: (() -> Void)?
+    /// #EXP-2161: that team owner switches members' Assistants off here
+    /// (`copy.optIn`, on; a press turns it off), above Remove from this team.
+    var onAssistantsOff: (() -> Void)? = nil
     /// Capture only: the specimen that photographs the sheet.
     var startsOpen = false
 
@@ -551,6 +554,15 @@ struct DeviceCardMenu: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("machine-settings")
+            }
+            if let onAssistantsOff {
+                GlassToggleRow(
+                    MemberSpace.Copy.optIn,
+                    isOn: Binding(get: { true }, set: { if !$0 { pick(onAssistantsOff) } })
+                )
+                .padding(.horizontal, GlassMenuTokens.itemHPadding)
+                .frame(minHeight: GlassMenuTokens.itemMinHeight)
+                .accessibilityIdentifier("device-assistants-off")
             }
             if let onRemoveFromTeam {
                 Button { pick(onRemoveFromTeam) } label: {

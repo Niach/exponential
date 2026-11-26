@@ -184,6 +184,20 @@ struct AgentsView: View {
         }?.id
     }
 
+    /// #EXP-2161: a team owner switches members' Assistants off on a
+    /// teammate's device; a refusal is the failed-action toast.
+    private func dropAssistants(rowId: String, teamId: String) {
+        let api = deps.devicesApi
+        let account = accountId
+        Task {
+            do {
+                try await api.dropAssistantTeam(accountId: account, id: rowId, teamId: teamId)
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "update", thing: "sharing"), description: error.userFacingMessage)
+            }
+        }
+    }
+
     private func dropShare(_ target: DropShareTarget) {
         let api = deps.devicesApi
         let account = accountId
@@ -547,6 +561,13 @@ struct AgentsView: View {
                                         rowId: rowId, teamId: teamId, name: deviceName(device)
                                     )
                                 }
+                            }
+                        },
+                        // #EXP-2161: the same team owner's off switch for
+                        // members' Assistants, while that team is opted in.
+                        onAssistantsOff: dropShareTeamId.flatMap { teamId in
+                            device.rowId.flatMap { rowId in
+                                device.assistantTeamIds.contains(teamId) ? { dropAssistants(rowId: rowId, teamId: teamId) } : nil
                             }
                         }
                     )

@@ -109,10 +109,8 @@ final class InstallTrustFixtureTests: XCTestCase {
         for c in try Self.cases(f, "pinCases") {
             let name = try Self.text(c, "name")
             let pin = try (c["pin"] as? String).map { try XCTUnwrap(InstallClass(rawValue: $0)) }
-            XCTAssertEqual(
-                pinCovers(pin, rootIsOwnAssistant: try XCTUnwrap(c["rootIsOwnAssistant"] as? Bool)),
-                try XCTUnwrap(c["expected"] as? Bool), name
-            )
+            let own = try XCTUnwrap(c["rootIsOwnAssistant"] as? Bool)
+            XCTAssertEqual(pinCovers(pin, rootIsOwnAssistant: own), try XCTUnwrap(c["expected"] as? Bool), name)
         }
     }
 

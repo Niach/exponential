@@ -3181,6 +3181,14 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
     /// deduped server-side; empty = private). Stored as JSON text like
     /// `agents`/`caps`; decoded from the wire's `{a,b}` literal too.
     public let sharedTeamIds: [String]
+    /// #EXP-2161 (member-space.json): the teams whose members may run their
+    /// Assistant here (`uuid[]`, like `sharedTeamIds`).
+    public let assistantTeamIds: [String]
+    /// #EXP-2161: set = a member space (the HOST's devices row id): never
+    /// listed as a device (`listed`); `spaceTeamId` = the team it was picked
+    /// through.
+    public let spaceHostId: String?
+    public let spaceTeamId: String?
     /// EXP-622: the ROW OWNER's default machine — the one every device picker
     /// prefills. Honoured only when `userId` is the signed-in user: a
     /// teammate's shared server carries THEIR preference, not ours.
@@ -3212,6 +3220,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamIds: [String] = [],
+        assistantTeamIds: [String] = [],
+        spaceHostId: String? = nil,
+        spaceTeamId: String? = nil,
         isDefault: Bool = false,
         updateRequestedAt: String? = nil,
         createdAt: String? = nil,
@@ -3239,6 +3250,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamIds = sharedTeamIds
+        self.assistantTeamIds = assistantTeamIds
+        self.spaceHostId = spaceHostId
+        self.spaceTeamId = spaceTeamId
         self.isDefault = isDefault
         self.updateRequestedAt = updateRequestedAt
         self.createdAt = createdAt
@@ -3259,6 +3273,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Eq
         case activeSessions = "active_sessions"
         case lastSeenAt = "last_seen_at"
         case sharedTeamIds = "shared_team_ids"
+        case assistantTeamIds = "assistant_team_ids"
+        case spaceHostId = "space_host_id"
+        case spaceTeamId = "space_team_id"
         case isDefault = "is_default"
         case updateRequestedAt = "update_requested_at"
         case createdAt = "created_at"
@@ -3310,6 +3327,10 @@ extension DeviceEntity: Codable {
         // partial update stores the raw literal, a full row the JSON form) —
         // both parse; absent on a pre-FEED-33 server = private.
         sharedTeamIds = c.decodeWireStringList(forKey: .sharedTeamIds)
+        // #EXP-2161: absent on an older server = none / not a space.
+        assistantTeamIds = c.decodeWireStringList(forKey: .assistantTeamIds)
+        spaceHostId = try c.decodeIfPresent(String.self, forKey: .spaceHostId)
+        spaceTeamId = try c.decodeIfPresent(String.self, forKey: .spaceTeamId)
         isDefault = c.decodeWireBool(forKey: .isDefault, default: false)
         updateRequestedAt = try c.decodeIfPresent(String.self, forKey: .updateRequestedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
