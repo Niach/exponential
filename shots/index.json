@@ -2466,8 +2466,8 @@
         "file": "shots/exponential-ui-audio-player/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 7566,
-        "sha256": "d43c2c3783c68e4311384648aad2751148e419d691f23980ea793fc0fe769538"
+        "bytes": 11916,
+        "sha256": "605e3f535351ad77f9e56400ba1d520767c8193eb6b8478711c3ffe5c99a6653"
       },
       "web": {
         "file": "shots/exponential-ui-audio-player/web.webp",
@@ -4025,8 +4025,8 @@
         "file": "shots/exponential-ui-meter/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 7470,
-        "sha256": "69933bb083cf40e896f5ac7cea3a8427567bb32744344ef57c2d66f13db499cf"
+        "bytes": 10938,
+        "sha256": "d8750469947d71a419e396785d185287e97548ff1f53ca24ce5411cf2e495ee9"
       },
       "web": {
         "file": "shots/exponential-ui-meter/web.webp",
@@ -4489,8 +4489,8 @@
         "file": "shots/exponential-ui-ring/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14646,
-        "sha256": "d59418333f0a7c9940f4d8ddc7754b86d6e8bbe15488abc7aa9e973bcf9e954f"
+        "bytes": 18932,
+        "sha256": "c3ab52462daf7bebd297cf7e4bb86b83c951d4aa3962ee1f4aaab61007f6388e"
       },
       "web": {
         "file": "shots/exponential-ui-ring/web.webp",

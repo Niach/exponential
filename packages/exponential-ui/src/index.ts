@@ -136,6 +136,8 @@ export { voiceWave, voiceWavePath, voiceWavePhase, voiceWaveChildSize, voiceWave
 export type { VoiceWave, VoiceWaveActivity, VoiceWaveChildBox, VoiceWaveInput, VoiceWaveRing, VoiceWaveRingName } from "./voice-wave"
 export { voiceWaveBars, voiceWaveBarsBox, voiceWaveVariant, VOICE_WAVE_BARS, VOICE_WAVE_SIZES, VOICE_WAVE_VARIANTS } from "./voice-wave"
 export type { VoiceWaveBar, VoiceWaveBars, VoiceWaveBarsInput, VoiceWaveSizeName, VoiceWaveVariant } from "./voice-wave"
+export { arcPath, ringArcs, waveformBars, seekFraction, WAVEFORM } from "./data-viz"
+export type { RingArc, RingArcs, RingInput, WaveBar } from "./data-viz"
 export { qrMatrix, qrLayout, qrLevel, qrVersion, QR_CODE, QR_LEVELS } from "./qr-code"
 export type { QrLevel, QrMatrix } from "./qr-code"
 export { countBadgeLabel, countBadgeTone, COUNT_BADGE_MAX, COUNT_BADGE_TONES } from "./count-badge"

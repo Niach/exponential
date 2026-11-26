@@ -2761,56 +2761,72 @@
                         }
                       },
                       {
-                        "id": "main_meter.track",
+                        "id": "main_meter.bar",
                         "component": "Box",
                         "props": {},
                         "children": [
                           {
-                            "id": "main_meter.track.segment.0",
+                            "id": "main_meter.bar.track",
                             "component": "Box",
                             "props": {},
-                            "children": [],
+                            "children": [
+                              {
+                                "id": "main_meter.bar.track.segment.0",
+                                "component": "Box",
+                                "props": {},
+                                "children": [],
+                                "style": {
+                                  "height": "100%",
+                                  "width": "40%"
+                                },
+                                "recipe": {
+                                  "macro": "Meter",
+                                  "part": "segment",
+                                  "props": {
+                                    "tone": "primary"
+                                  }
+                                }
+                              },
+                              {
+                                "id": "main_meter.bar.track.segment.1",
+                                "component": "Box",
+                                "props": {},
+                                "children": [],
+                                "style": {
+                                  "height": "100%",
+                                  "width": "25%"
+                                },
+                                "recipe": {
+                                  "macro": "Meter",
+                                  "part": "segment",
+                                  "props": {
+                                    "tone": "warning"
+                                  }
+                                }
+                              }
+                            ],
                             "style": {
-                              "height": "100%",
-                              "width": "40%"
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "height": "$control.meter",
+                              "borderRadius": "$radius.full",
+                              "overflow": "hidden",
+                              "width": "100%"
                             },
                             "recipe": {
                               "macro": "Meter",
-                              "part": "segment",
-                              "props": {
-                                "tone": "primary"
-                              }
-                            }
-                          },
-                          {
-                            "id": "main_meter.track.segment.1",
-                            "component": "Box",
-                            "props": {},
-                            "children": [],
-                            "style": {
-                              "height": "100%",
-                              "width": "25%"
-                            },
-                            "recipe": {
-                              "macro": "Meter",
-                              "part": "segment",
-                              "props": {
-                                "tone": "warning"
-                              }
+                              "part": "track",
+                              "props": {}
                             }
                           }
                         ],
                         "style": {
-                          "display": "flex",
-                          "flexDirection": "row",
-                          "height": "$control.meter",
-                          "borderRadius": "$radius.full",
-                          "overflow": "hidden",
+                          "position": "relative",
                           "width": "100%"
                         },
                         "recipe": {
                           "macro": "Meter",
-                          "part": "track",
+                          "part": "bar",
                           "props": {}
                         }
                       }

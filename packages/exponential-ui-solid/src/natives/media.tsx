@@ -6,7 +6,8 @@
 // paint its own attributes.
 
 import { For, Show, createComputed, createRenderEffect, createEffect, createMemo, createSignal, on, onCleanup, type Component, type JSX } from "solid-js"
-import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
+import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH, seekFraction, waveformBars, WAVEFORM } from "@exponential_app/eui"
+import { createElementSize } from "../platform"
 import type { UiNode } from "@exponential_app/eui"
 import { imageSourceOf, mediaClock, type ImageSourceVerdict } from "@exponential_app/eui/web"
 import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
@@ -165,6 +166,37 @@ export function VideoNative(props: NativeProps): JSX.Element {
   )
 }
 
+/** Group D (fixtures/data-viz.json, React's): the `peaks` waveform in
+ *  place of the progress track; a press or drag seeks to x / width. */
+function AudioWave(props: { peaks: unknown[]; progress: number; onSeek: (fraction: number) => void }): JSX.Element {
+  const [el, setEl] = createSignal<HTMLSpanElement>()
+  const size = createElementSize(el)
+  const seek = (e: PointerEvent & { currentTarget: HTMLSpanElement }) => {
+    const box = e.currentTarget.getBoundingClientRect()
+    props.onSeek(seekFraction(getComputedStyle(e.currentTarget).direction === `rtl` ? box.right - e.clientX : e.clientX - box.left, box.width))
+  }
+  return (
+    <span
+      ref={setEl}
+      class="xui-audio-wave"
+      aria-hidden="true"
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+        seek(e)
+      }}
+      onPointerMove={(e) => {
+        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) seek(e)
+      }}
+    >
+      <svg width={size().width} height={WAVEFORM.height} viewBox={`0 0 ${size().width} ${WAVEFORM.height}`}>
+        <For each={waveformBars({ width: size().width, peaks: props.peaks, progress: props.progress })}>
+          {(b) => <rect x={b.x} y={b.y} width={b.width} height={b.height} rx={b.width / 2} data-played={b.played ? `` : undefined} />}
+        </For>
+      </svg>
+    </span>
+  )
+}
+
 /** AudioPlayer (×4 since EXP-1556, React's): the title over a bar of the
  *  round play/pause button, the progress track and `position / duration`;
  *  a hidden `<audio>` plays. */
@@ -192,9 +224,18 @@ export function AudioPlayerNative(props: NativeProps): JSX.Element {
         <button type="button" class="xui-media-play" data-size="sm" aria-label={ctx.t(playing() ? `pause` : `play`)} disabled={!url()} onClick={toggle}>
           <PaintIcon icon={playing() ? CHROME.pause : CHROME.play} aria-hidden="true" />
         </button>
-        <span class="xui-audio-progress" aria-hidden="true">
-          <span style={{ width: `${durationMs() > 0 ? Math.min(100, (position() / durationMs()) * 100) : 0}%` }} />
-        </span>
+        <Show
+          when={Array.isArray(props.props.peaks) && (props.props.peaks as unknown[]).length > 0}
+          fallback={
+            <span class="xui-audio-progress" aria-hidden="true">
+              <span style={{ width: `${durationMs() > 0 ? Math.min(100, (position() / durationMs()) * 100) : 0}%` }} />
+            </span>
+          }
+        >
+          <AudioWave peaks={props.props.peaks as unknown[]} progress={durationMs() > 0 ? position() / durationMs() : 0} onSeek={(f) => {
+            if (audio && durationMs() > 0) audio.currentTime = (f * durationMs()) / 1000
+          }} />
+        </Show>
         <span class="xui-audio-clock">{`${mediaClock(position())} / ${mediaClock(durationMs())}`}</span>
       </div>
       <audio

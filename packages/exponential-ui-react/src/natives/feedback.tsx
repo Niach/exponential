@@ -1,7 +1,7 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx); #FEED-232: CountBadge.
 
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { countBadgeLabel, resolveRecipe, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
+import { arcPath, countBadgeLabel, resolveRecipe, ringArcs, nativeRecipeProps, treeGuideDepth, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web/motion"
 import { useSurfaceContext } from "../context"
@@ -19,18 +19,25 @@ export function RingNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const size = sizeOf(ctx, `Ring`, `root`, props, 32)
-  const value = Math.max(0, Math.min(1, num(props.value, 0)))
-  const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: nativeRecipeProps(`Ring`, props) }, ctx.mode)
-  const fillStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: nativeRecipeProps(`Ring`, props) }, ctx.mode)
+  const recipeProps = nativeRecipeProps(`Ring`, props)
+  const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: recipeProps }, ctx.mode)
   const stroke = typeof trackStyle.borderWidth === `number` ? trackStyle.borderWidth : 2
-  const r = size / 2 - stroke / 2
-  const c = 2 * Math.PI * r
+  // Group D (fixtures/data-viz.json): `sweep` + `rings`, round caps, no fill dot at 0.
+  const arcs = ringArcs({ size, stroke, value: props.value, tone: props.tone, sweep: props.sweep, rings: props.rings })
+  const c = size / 2
   const label = str(props.label)
   return (
-    <span {...(rootProps as Record<string, unknown>)} role="progressbar" aria-valuemin={0} aria-valuemax={1} aria-valuenow={value} aria-label={label || undefined} style={mergeStyle(rootProps, { width: size, height: size })}>
+    <span {...(rootProps as Record<string, unknown>)} role="progressbar" aria-valuemin={0} aria-valuemax={1} aria-valuenow={arcs.rings[0]?.fraction ?? 0} aria-label={label || undefined} style={mergeStyle(rootProps, { width: size, height: size })}>
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
-        <circle {...(part(`track`) as Record<string, string>)} cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={stroke} style={{ color: String(trackStyle.color ?? `currentColor`) }} />
-        <circle {...(part(`fill`) as Record<string, string>)} cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={typeof fillStyle.borderWidth === `number` ? fillStyle.borderWidth : stroke} strokeDasharray={`${c * value} ${c}`} strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ color: String(fillStyle.color ?? `currentColor`) }} />
+        {arcs.rings.map((ring, i) => {
+          const fillStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: { ...recipeProps, tone: ring.tone } }, ctx.mode)
+          return (
+            <g key={i}>
+              <path {...(part(`track`) as Record<string, string>)} d={arcPath(c, ring.r, arcs.start, arcs.sweep)} fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" style={{ color: String(trackStyle.color ?? `currentColor`) }} />
+              {ring.fraction > 0 ? <path {...(part(`fill`) as Record<string, string>)} d={arcPath(c, ring.r, arcs.start, arcs.sweep * ring.fraction)} fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" style={{ color: String(fillStyle.color ?? `currentColor`) }} /> : null}
+            </g>
+          )
+        })}
       </svg>
       {label ? <span {...(part(`label`) as Record<string, string>)}>{label}</span> : null}
     </span>

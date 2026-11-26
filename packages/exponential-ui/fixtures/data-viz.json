@@ -1,0 +1,432 @@
+{
+  "$comment": "Group D (genUI round 4): src/data-viz.ts. `rings` = ringArcs (Ring `sweep` + `rings`): size = the root recipe's px edge, stroke = Ring/track borderWidth; start/sweep in degrees clockwise from 12 o'clock (sweep 360 starts at the top, under 360 the arc is centred on the top, open at the bottom; RTL mirrors), per ring (outermost first) its centre-line radius (ring i = size/2 - stroke/2 - i*2*stroke: the gap = the stroke; under the stroke it is dropped), the filled fraction (value / max, max default 1, clamped; 0 = no fill drawn) and the tone (the ring's, else the Ring's, else primary). Every arc (track and fill) has round caps; the label stays centred over the innermost; the accessibility value = the first ring's fraction. `waveform` = the locked bar geometry and `bars` = waveformBars (AudioPlayer `peaks`): width = the track's px width, bars in a waveform.height box centred in the controls row, x/y from its top-left; RTL mirrors x; the played ones take the progress colour (the plain track's fill), the rest its track colour. `seek` = seekFraction: a press or drag at x on the waveform seeks to x / width of the length (the plain track's semantics). Every painter draws within 0.5 px of these.",
+  "waveform": {
+    "barWidth": 2,
+    "gap": 2,
+    "minHeight": 2,
+    "height": 24
+  },
+  "rings": [
+    {
+      "name": "full ring (today)",
+      "input": {
+        "size": 32,
+        "stroke": 2,
+        "value": 0.62
+      },
+      "expected": {
+        "start": 0,
+        "sweep": 360,
+        "rings": [
+          {
+            "r": 15,
+            "fraction": 0.62,
+            "tone": "primary"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gauge 270",
+      "input": {
+        "size": 40,
+        "stroke": 2,
+        "value": 0.5,
+        "sweep": 270,
+        "tone": "success"
+      },
+      "expected": {
+        "start": 225,
+        "sweep": 270,
+        "rings": [
+          {
+            "r": 19,
+            "fraction": 0.5,
+            "tone": "success"
+          }
+        ]
+      }
+    },
+    {
+      "name": "half gauge",
+      "input": {
+        "size": 24,
+        "stroke": 2,
+        "value": 1,
+        "sweep": 180
+      },
+      "expected": {
+        "start": 270,
+        "sweep": 180,
+        "rings": [
+          {
+            "r": 11,
+            "fraction": 1,
+            "tone": "primary"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value clamps, zero",
+      "input": {
+        "size": 32,
+        "stroke": 2,
+        "value": -3
+      },
+      "expected": {
+        "start": 0,
+        "sweep": 360,
+        "rings": [
+          {
+            "r": 15,
+            "fraction": 0,
+            "tone": "primary"
+          }
+        ]
+      }
+    },
+    {
+      "name": "three rings",
+      "input": {
+        "size": 40,
+        "stroke": 2,
+        "rings": [
+          {
+            "value": 0.8,
+            "tone": "danger"
+          },
+          {
+            "value": 30,
+            "max": 60,
+            "tone": "success"
+          },
+          {
+            "value": 2,
+            "max": 4
+          }
+        ],
+        "tone": "info"
+      },
+      "expected": {
+        "start": 0,
+        "sweep": 360,
+        "rings": [
+          {
+            "r": 19,
+            "fraction": 0.8,
+            "tone": "danger"
+          },
+          {
+            "r": 15,
+            "fraction": 0.5,
+            "tone": "success"
+          },
+          {
+            "r": 11,
+            "fraction": 0.5,
+            "tone": "info"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rings past the centre drop",
+      "input": {
+        "size": 24,
+        "stroke": 3,
+        "rings": [
+          {
+            "value": 1
+          },
+          {
+            "value": 0.5
+          },
+          {
+            "value": 0.25
+          },
+          {
+            "value": 0.1
+          }
+        ]
+      },
+      "expected": {
+        "start": 0,
+        "sweep": 360,
+        "rings": [
+          {
+            "r": 10.5,
+            "fraction": 1,
+            "tone": "primary"
+          },
+          {
+            "r": 4.5,
+            "fraction": 0.5,
+            "tone": "primary"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rings in a gauge",
+      "input": {
+        "size": 40,
+        "stroke": 2,
+        "sweep": 240,
+        "rings": [
+          {
+            "value": 0.3
+          },
+          {
+            "value": 2,
+            "max": 0
+          }
+        ]
+      },
+      "expected": {
+        "start": 240,
+        "sweep": 240,
+        "rings": [
+          {
+            "r": 19,
+            "fraction": 0.3,
+            "tone": "primary"
+          },
+          {
+            "r": 15,
+            "fraction": 0,
+            "tone": "primary"
+          }
+        ]
+      }
+    }
+  ],
+  "bars": [
+    {
+      "name": "fewer peaks than bars (nearest)",
+      "input": {
+        "width": 30,
+        "peaks": [
+          0.2,
+          1,
+          0.5
+        ],
+        "progress": 0.5
+      },
+      "expected": [
+        {
+          "x": 0,
+          "y": 9.6,
+          "width": 2,
+          "height": 4.8,
+          "played": true
+        },
+        {
+          "x": 4,
+          "y": 9.6,
+          "width": 2,
+          "height": 4.8,
+          "played": true
+        },
+        {
+          "x": 8,
+          "y": 9.6,
+          "width": 2,
+          "height": 4.8,
+          "played": true
+        },
+        {
+          "x": 12,
+          "y": 0,
+          "width": 2,
+          "height": 24,
+          "played": true
+        },
+        {
+          "x": 16,
+          "y": 0,
+          "width": 2,
+          "height": 24,
+          "played": false
+        },
+        {
+          "x": 20,
+          "y": 0,
+          "width": 2,
+          "height": 24,
+          "played": false
+        },
+        {
+          "x": 24,
+          "y": 6,
+          "width": 2,
+          "height": 12,
+          "played": false
+        },
+        {
+          "x": 28,
+          "y": 6,
+          "width": 2,
+          "height": 12,
+          "played": false
+        }
+      ]
+    },
+    {
+      "name": "more peaks than bars (bucket max)",
+      "input": {
+        "width": 14,
+        "peaks": [
+          0.1,
+          0.9,
+          0.3,
+          0.3,
+          0.5,
+          0,
+          0,
+          0.05,
+          1,
+          0.2
+        ],
+        "progress": 0
+      },
+      "expected": [
+        {
+          "x": 0,
+          "y": 1.2,
+          "width": 2,
+          "height": 21.6,
+          "played": false
+        },
+        {
+          "x": 4,
+          "y": 6,
+          "width": 2,
+          "height": 12,
+          "played": false
+        },
+        {
+          "x": 8,
+          "y": 11,
+          "width": 2,
+          "height": 2,
+          "played": false
+        },
+        {
+          "x": 12,
+          "y": 0,
+          "width": 2,
+          "height": 24,
+          "played": false
+        }
+      ]
+    },
+    {
+      "name": "odd width centres, clamps",
+      "input": {
+        "width": 21,
+        "peaks": [
+          -1,
+          2,
+          0.5,
+          "x"
+        ],
+        "progress": 1
+      },
+      "expected": [
+        {
+          "x": 1.5,
+          "y": 11,
+          "width": 2,
+          "height": 2,
+          "played": true
+        },
+        {
+          "x": 5.5,
+          "y": 11,
+          "width": 2,
+          "height": 2,
+          "played": true
+        },
+        {
+          "x": 9.5,
+          "y": 0,
+          "width": 2,
+          "height": 24,
+          "played": true
+        },
+        {
+          "x": 13.5,
+          "y": 6,
+          "width": 2,
+          "height": 12,
+          "played": true
+        },
+        {
+          "x": 17.5,
+          "y": 11,
+          "width": 2,
+          "height": 2,
+          "played": true
+        }
+      ]
+    },
+    {
+      "name": "no peaks",
+      "input": {
+        "width": 200,
+        "peaks": [],
+        "progress": 0.3
+      },
+      "expected": []
+    },
+    {
+      "name": "no progress",
+      "input": {
+        "width": 9,
+        "peaks": [
+          0.4,
+          0.6
+        ]
+      },
+      "expected": [
+        {
+          "x": 1.5,
+          "y": 7.2,
+          "width": 2,
+          "height": 9.6,
+          "played": false
+        },
+        {
+          "x": 5.5,
+          "y": 4.8,
+          "width": 2,
+          "height": 14.4,
+          "played": false
+        }
+      ]
+    }
+  ],
+  "seek": [
+    {
+      "x": 50,
+      "width": 200,
+      "expected": 0.25
+    },
+    {
+      "x": -4,
+      "width": 200,
+      "expected": 0
+    },
+    {
+      "x": 260,
+      "width": 200,
+      "expected": 1
+    },
+    {
+      "x": 3,
+      "width": 0,
+      "expected": 0
+    }
+  ]
+}
