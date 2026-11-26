@@ -800,9 +800,10 @@ final class AgentSessionModel {
 
     /// The WHOLE loaded feed's rows as the transcript draws them (find in
     /// chat counts every loaded row, not just the painted window).
-    func findFeedRows() -> [(row: AgentFeedRow, checkIns: Int?)] {
+    func findFeedRows() -> [(row: AgentFeedRow, checkIns: [Int?]?)] {
         let shown = syncedTail.isEmpty ? feed : feed + syncedTail
-        return TranscriptEntry.shownRows(AgentFeed.rows(shown, from: 0, workflowIds: Set(workflows.map(\.id))))
+        let workflowIds = Set(workflows.map(\.id))
+        return TranscriptEntry.shownRows(AgentFeed.rows(shown, from: 0, workflowIds: workflowIds), workflowIds: workflowIds)
     }
 
     /// The wire seq of feed item `id` (nil = not numbered: a synced tail
@@ -1005,7 +1006,7 @@ final class AgentSessionModel {
         let nextRows = AgentFeed.rows(shown, from: start, workflowIds: workflowIds)
         if nextRows != rows {
             rows = nextRows
-            transcript = TranscriptEntry.entries(TranscriptEntry.shownRows(nextRows), previous: transcript)
+            transcript = TranscriptEntry.entries(TranscriptEntry.shownRows(nextRows, workflowIds: workflowIds), previous: transcript)
         }
         if shown.count != feedCount { feedCount = shown.count }
         let openTool = AgentFeed.liveToolRowId(feed)
@@ -3992,11 +3993,12 @@ final class TranscriptEntry: Identifiable, Equatable {
     let id: Int
     let row: AgentFeedRow
     let gap: AgentTranscriptGap
-    /// #EXP-1873: THE check-in line covering this many quiet check-ins (the
-    /// row is the last one's schedule firing), else nil.
-    let checkIns: Int?
+    /// #EXP-1873 + #FEED-317: THE schedule line covering these quiet ticks
+    /// (each one's `at`, epoch ms, oldest first; the row is the last one's
+    /// schedule firing), else nil.
+    let checkIns: [Int?]?
 
-    init(row: AgentFeedRow, gap: AgentTranscriptGap, checkIns: Int? = nil) {
+    init(row: AgentFeedRow, gap: AgentTranscriptGap, checkIns: [Int?]? = nil) {
         self.id = row.id
         self.row = row
         self.gap = gap
@@ -4010,10 +4012,17 @@ final class TranscriptEntry: Identifiable, Equatable {
     /// #EXP-1772 (transcript-grouping.json `markersShown`): a system input's
     /// marker stays only above the agent's reply to it, and a blank agent
     /// turn draws nothing; both leave before the transcript layout.
-    /// #EXP-1873 (`feedRows`): a quiet check-in (a schedule firing answered
-    /// only with quiet) is ONE line, consecutive ones collapse onto the last.
-    static func shownRows(_ rows: [AgentFeedRow]) -> [(row: AgentFeedRow, checkIns: Int?)] {
+    /// #EXP-1873 + #FEED-317 (`feedRows`): a quiet tick (a schedule firing
+    /// whose turn called quiet and said nothing visible; its work folds in)
+    /// is ONE line, consecutive ones collapse onto the last.
+    static func shownRows(_ rows: [AgentFeedRow], workflowIds: Set<String> = []) -> [(row: AgentFeedRow, checkIns: [Int?]?)] {
         let kinds: [TranscriptGrouping.FeedRowRole] = rows.map { row in
+            switch row {
+            // #FEED-317: the agent's work (a tool run, an Exponential tool run, a subagent line).
+            case .toolRun, .expRun, .subagentRun: return .work
+            case .edits, .ask: return .other
+            case .single: break
+            }
             guard case let .single(item) = row else { return .other }
             switch item {
             case let .userMessage(_, text, _, _):
@@ -4033,22 +4042,35 @@ final class TranscriptEntry: Identifiable, Equatable {
                 return TranscriptGrouping.isBlankText(text) ? .blank : .reply
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) where TranscriptGrouping.traceNotice(name) != nil:
                 return .quiet
+            // #FEED-317: a `show` call stays (its card draws after it); a
+            // Workflow call = its Work card.
+            case let .tool(_, name, _, _, callId, _, _, _, _, _, _, _, _):
+                if ExpToolDisplay.resolve(toolName: name)?.row == AskDock.showCardCall { return .other }
+                if let callId, workflowIds.contains(callId) { return .other }
+                return .work
+            case .thought, .subagent:
+                return .work
             default:
                 return .other
             }
         }
-        return zip(rows, TranscriptGrouping.feedRows(kinds)).compactMap { row, shown in
+        return zip(rows.indices, TranscriptGrouping.feedRows(kinds)).compactMap { index, shown in
             switch shown {
             case .hidden: return nil
-            case .row: return (row, nil)
-            case .checkIn(let count): return (row, count)
+            case .row: return (rows[index], nil)
+            case .checkIn(let count):
+                let ticks = TranscriptGrouping.checkInTicks(kinds, index: index, count: count).map { at in
+                    if case let .single(.userMessage(_, _, _, at)) = rows[at] { return at }
+                    return nil
+                }
+                return (rows[index], ticks)
             }
         }
     }
 
     /// The entries for `rows`, reusing `previous`'s instance for every row
     /// that did not move (a diffed update: a live append rebuilds one).
-    static func entries(_ rows: [(row: AgentFeedRow, checkIns: Int?)], previous: [TranscriptEntry]) -> [TranscriptEntry] {
+    static func entries(_ rows: [(row: AgentFeedRow, checkIns: [Int?]?)], previous: [TranscriptEntry]) -> [TranscriptEntry] {
         var old: [Int: TranscriptEntry] = [:]
         old.reserveCapacity(previous.count)
         for entry in previous { old[entry.id] = entry }

@@ -42,10 +42,11 @@ public enum TranscriptGrouping {
             "pr_checks": "CI",
             "session": "Session update",
         ]
-        /// #EXP-1873: the quiet check-in line.
-        public static let checkIn = "Checked in, nothing to do"
-        public static let checkIns = "Checked in {count} times, nothing to do"
+        /// #EXP-1873 + #FEED-317: the quiet schedule line.
+        public static let checkIn = "Schedule"
+        public static let checkIns = "Schedule ×{count}"
         public static let checkInTimeSeparator = " · "
+        public static let checkInTimeRange = "–"
     }
 
     public enum ItemKind: String, Equatable, Sendable {
@@ -496,8 +497,10 @@ public enum TranscriptGrouping {
     }
 
     /// #EXP-1873: a feed row as `feedRows` reads it: `schedule` = a schedule
-    /// firing (a check-in), `marker` = every other marker, `quiet` = the quiet
-    /// notice, `blank` = an agent turn with blank text.
+    /// firing (a tick), `marker` = every other marker, `quiet` = the quiet
+    /// notice, `blank` = an agent turn with blank text, `work` (#FEED-317) =
+    /// the agent's work (a tool line or run, a thought, a subagent line; never
+    /// a notice or a `show` call), `other` = everything else drawn (cards).
     public enum FeedRowRole: String, Equatable, Sendable {
         case schedule
         case marker
@@ -505,27 +508,28 @@ public enum TranscriptGrouping {
         case reply
         case quiet
         case blank
+        case work
         case other
     }
 
-    /// Per row: hidden, drawn as itself, or THE check-in line covering n
-    /// quiet check-ins.
+    /// Per row: hidden, drawn as itself, or THE schedule line covering n
+    /// quiet ticks (the last n `schedule` rows).
     public enum FeedRowShown: Equatable, Sendable {
         case hidden
         case row
         case checkIn(Int)
     }
 
-    /// #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-    /// turn only called quiet, nothing else) is one line;
-    /// consecutive ones collapse onto the last.
+    /// #EXP-1873 + #FEED-317 (`checkInCases`): a quiet tick (a schedule
+    /// firing whose turn called quiet and said nothing visible: work folds
+    /// in) is one line; consecutive ones collapse onto the last.
     public static func feedRows(_ kinds: [FeedRowRole]) -> [FeedRowShown] {
         let base = markersShown(kinds.map { kind -> FeedRowKind in
             switch kind {
             case .schedule, .marker: return .marker
             case .input: return .input
             case .reply: return .reply
-            case .quiet, .blank, .other: return .other
+            case .quiet, .blank, .work, .other: return .other
             }
         })
         var shown: [FeedRowShown] = base.enumerated().map { index, drawn in
@@ -562,10 +566,32 @@ public enum TranscriptGrouping {
         return shown
     }
 
-    /// #EXP-1873 (`checkInLabelCases`): the check-in line's text.
-    public static func checkInLabel(count: Int, time: String?) -> String {
+    /// #FEED-317: the rows a schedule line at `index` covers (`feedRows`
+    /// gave it `count`): the last `count` schedule rows up to and including
+    /// it, oldest first.
+    public static func checkInTicks(_ kinds: [FeedRowRole], index: Int, count: Int) -> [Int] {
+        var ticks: [Int] = []
+        var at = min(index, kinds.count - 1)
+        while at >= 0, ticks.count < count {
+            if kinds[at] == .schedule { ticks.insert(at, at: 0) }
+            at -= 1
+        }
+        return ticks
+    }
+
+    /// #EXP-1873 + #FEED-317 (`checkInLabelCases`): the schedule line's
+    /// text, `Schedule ×5 · 11:15–12:15`.
+    public static func checkInLabel(count: Int, first: String?, last: String?) -> String {
         let label = count == 1 ? Copy.checkIn : Copy.checkIns.replacingOccurrences(of: "{count}", with: String(count))
-        guard let time, !time.isEmpty else { return label }
+        let first = first?.isEmpty == false ? first : nil
+        let last = last?.isEmpty == false ? last : nil
+        let time: String?
+        if let first, let last, first != last {
+            time = "\(first)\(Copy.checkInTimeRange)\(last)"
+        } else {
+            time = last ?? first
+        }
+        guard let time else { return label }
         return "\(label)\(Copy.checkInTimeSeparator)\(time)"
     }
 
@@ -636,20 +662,23 @@ public enum TranscriptGrouping {
     public static let checkInSpecimenAgent = CheckInSpecimenAgent(name: "Assistant", icon: "bot", color: "#6366f1")
 
     public static let checkInSpecimen: [CheckInSpecimenRow] = [
-        CheckInSpecimenRow(kind: .schedule, time: "16:30", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "11:15", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "16:45", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "11:30", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "17:00", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "11:45", text: nil),
+        CheckInSpecimenRow(kind: .work, time: nil, text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "17:15", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "12:00", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "17:30", text: nil),
-        CheckInSpecimenRow(kind: .reply, time: "17:31", text: "Two PRs landed overnight: #412 and #415, both green."),
+        CheckInSpecimenRow(kind: .schedule, time: "12:15", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "17:45", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "12:30", text: nil),
+        CheckInSpecimenRow(kind: .reply, time: "12:31", text: "Two PRs landed: #412 and #415, both green."),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
-        CheckInSpecimenRow(kind: .schedule, time: "18:00", text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "12:45", text: nil),
+        CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
+        CheckInSpecimenRow(kind: .schedule, time: "13:00", text: nil),
         CheckInSpecimenRow(kind: .quiet, time: nil, text: nil),
     ]
 }
