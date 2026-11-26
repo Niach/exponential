@@ -1160,7 +1160,7 @@ struct AgentSessionView: View {
                                     TranscriptRowSlot(key: rowKey(entry, isLast: isLast, layout: layout, model: model)) {
                                         if let ticks = entry.checkIns {
                                             // #EXP-1873 + #FEED-317: a quiet tick (or a run) = THE tool-group line.
-                                            ScheduleTicksRow(times: ticks.map(Self.checkInTime))
+                                            ScheduleRunRow(times: ticks.map(Self.checkInTime))
                                         } else {
                                             feedRow(entry.row, isLast: isLast, layout: layout)
                                         }
@@ -5088,7 +5088,7 @@ private struct ToolGroupRow: View {
 /// draws): the schedule glyph + `checkInLabel(n, first, last)`; n > 1 opens
 /// (closed by default) to one line per tick, oldest first; n = 1 never opens.
 /// `times` = each tick's `HH:mm` (nil = unknown), oldest first.
-struct ScheduleTicksRow: View {
+struct ScheduleRunRow: View {
     let times: [String?]
 
     private var icon: some View {
@@ -5104,7 +5104,7 @@ struct ScheduleTicksRow: View {
             count: times.count, first: times.first ?? nil, last: times.last ?? nil
         )
         if times.count > 1 {
-            TraceCollapsible(size: .sm, accessibilityId: "agent-schedule-group") {
+            TraceCollapsible(size: .sm, accessibilityId: "session-schedule-run") {
                 line(label)
             } content: {
                 ForEach(Array(times.enumerated()), id: \.offset) { _, time in
@@ -5113,7 +5113,7 @@ struct ScheduleTicksRow: View {
             }
         } else {
             line(label)
-                .accessibilityIdentifier("agent-schedule-line")
+                .accessibilityIdentifier("session-schedule-run")
         }
     }
 }

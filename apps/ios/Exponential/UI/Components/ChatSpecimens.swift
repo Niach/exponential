@@ -621,17 +621,20 @@ struct ChatTranscriptSpecimens: View {
         let kinds = rows.map(\.kind)
         let shown = TranscriptGrouping.feedRows(kinds)
         let agent = TranscriptGrouping.checkInSpecimenAgent
+        let avatar = SenderAvatarModel.agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
+        // The agent's group: a run line or the bubble after a full row opens it.
+        let opens = Self.checkInGroupOpens(rows, shown: shown)
         return VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 switch shown[index] {
                 case .hidden:
                     EmptyView()
+                case .row where row.kind == .work:
+                    // #FEED-317: the agent's work is never drawn here.
+                    EmptyView()
                 case let .checkIn(count):
-                    TranscriptRow(
-                        side: .other, gap: 0,
-                        avatar: .agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
-                    ) {
-                        ScheduleTicksRow(
+                    TranscriptRow(side: .other, gap: 0, avatar: opens.contains(index) ? avatar : nil) {
+                        ScheduleRunRow(
                             times: TranscriptGrouping.checkInTicks(kinds, index: index, count: count).map { rows[$0].time }
                         )
                     }
@@ -642,10 +645,7 @@ struct ChatTranscriptSpecimens: View {
                         TranscriptMarkerRow(label: TranscriptGrouping.traceNotice("exponential_session_self_quiet") ?? "")
                     } else {
                         // A real agent bubble: its avatar, name and tail.
-                        TranscriptRow(
-                            side: .other, gap: 0,
-                            avatar: .agent(UserAvatarAgent(icon: agent.icon, color: agent.color))
-                        ) {
+                        TranscriptRow(side: .other, gap: 0, avatar: avatar) {
                             MessageBubble(side: .other, author: agent.name, time: row.time, tail: true) {
                                 AgentMarkdownText(text: row.text ?? "", context: context, hugsWidth: true)
                             }
@@ -657,6 +657,31 @@ struct ChatTranscriptSpecimens: View {
         .padding(.bottom, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-check-in-specimen")
+    }
+
+    /// The specimen rows that open the agent's group (wear its avatar): a
+    /// run line or a bubble after a full row (a marker, a notice).
+    private static func checkInGroupOpens(
+        _ rows: [TranscriptGrouping.CheckInSpecimenRow], shown: [TranscriptGrouping.FeedRowShown]
+    ) -> Set<Int> {
+        var opens: Set<Int> = []
+        var open = false
+        for (index, row) in rows.enumerated() where row.kind != .work {
+            switch shown[index] {
+            case .hidden: continue
+            case .checkIn:
+                if !open { opens.insert(index) }
+                open = true
+            case .row:
+                if row.kind == .schedule || row.kind == .quiet {
+                    open = false
+                } else {
+                    opens.insert(index)
+                    open = true
+                }
+            }
+        }
+        return opens
     }
 
     /// #EXP-2074 (chat-express.json, the ×4 sample): a subagent tab's
