@@ -254,6 +254,8 @@ impl SurfaceView {
         // transform; opacity multiplies; a leaf scales about its centre; a
         // rotation turns an Icon's glyph (gpui rotates no other box).
         let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window, cx) };
+        // Round 4 motion: a leaving ghost plays its exit instead.
+        let anim = if n.exiting && !self.ghosting.get() { self.exit_frame(index, &style, window, cx).or(anim) } else { anim };
         if let Some(a) = &anim {
             style.opacity = Some(style.opacity.unwrap_or(1.0) * a.opacity as f32);
             style.transform.tx += a.translate_x as f32;
@@ -502,11 +504,26 @@ impl SurfaceView {
         let reduced = a.reduced || self.surface.settings().reduced_motion;
         let now = self.now();
         let id = self.cache.ids.get(index as usize)?.clone();
-        let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+        let start = *self.anim_start.borrow_mut().entry(id.clone()).or_insert(now);
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
         let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, reduced)?;
-        let total = a.timing.duration_ms * a.timing.iterations.count();
-        if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
+        let total = eui_core::animation::total_ms(&a.timing);
+        if !reduced && a.timing.delay_ms > 0.0 && elapsed < a.timing.delay_ms {
+            // Round 4 motion: the enter waits (stagger + animationDelay) on
+            // its first keyframe: one timer for its start, no frames.
+            if self.delay_armed.borrow_mut().insert(id.clone()) {
+                let wait = std::time::Duration::from_secs_f64((a.timing.delay_ms - elapsed).max(1.0) / 1000.0);
+                let armed = id.clone();
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |v, cx| {
+                        v.delay_armed.borrow_mut().remove(&armed);
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        } else if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
             // #LOGS-3: a LOOP (a spinner's `spin`, a `pulse`) lives as long
             // as what it marks: on the shared stepped grid, not every frame.
             // A finite run (an entrance) keeps every frame.
@@ -515,6 +532,28 @@ impl SurfaceView {
                 crate::controls::repaint_on_next_step(&self.loop_armed_until, crate::controls::SMOOTH_STEP, window, cx);
             } else {
                 window.request_animation_frame();
+            }
+        }
+        Some(frame)
+    }
+
+    /// Round 4 motion: the exit frame of a leaving ghost (from when it began
+    /// leaving); frames while it runs, then `Surface::finish_exit` on the
+    /// next pass (its end frame holds until then).
+    fn exit_frame(&self, index: u32, _style: &PaintStyle, window: &mut Window, cx: &mut Context<Self>) -> Option<eui_core::animation::AnimationFrame> {
+        let a = self.styles.get(index as usize)?.exit.clone()?;
+        let now = self.now();
+        let id = self.cache.ids.get(index as usize)?.clone();
+        let start = *self.exit_start.borrow_mut().entry(id.clone()).or_insert(now);
+        let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, false)?;
+        if elapsed < eui_core::animation::total_ms(&a.timing) {
+            window.request_animation_frame();
+        } else {
+            let mut done = self.exits_done.borrow_mut();
+            if !done.iter().any(|d| d == id.as_ref()) {
+                done.push(id.to_string());
+                cx.notify();
             }
         }
         Some(frame)

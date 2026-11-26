@@ -20,7 +20,7 @@ import { MAX_DEPTH } from "../src/limits"
 import { tableRowKeys, templateInstances, templateItemKeys, itemExtents, itemOffsets, listSections, scrollOffsetForIndex, scrollOffsetForItem, sectionRows, stickyHeader, virtualWindow, type ScrollAlign } from "../src/list"
 import { dragDelta, keyboardResize, normalizeSizes, panelExtents, resizePanels, type PanelLimits } from "../src/resizable"
 import { nodeDirections, nodeTextAlign, type Direction } from "../src/direction"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animationFrame, animationTiming, keyframesCss, paintedOpacity } from "../src/animation"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, animationFrame, animationTiming, enterDelay, exitTiming, finishExit, keyframesCss, paintedOpacity, presence, type PresenceEntry } from "../src/animation"
 import { styleToCss } from "../src/css"
 import { builtinTheme, BUILTIN_THEME_IDS } from "../src/themes"
 import type { ChildTemplate, FlatComponent, NestedNode, UiNode } from "../src/types"
@@ -587,6 +587,143 @@ const OPACITY_CASES: { name: string; own: number; animation: string; at: number 
   { name: `spin-leaves-opacity`, own: 0.4, animation: `spin`, at: 0.25 },
 ]
 
+// Round 4 motion: `animationDelay` shifts the enter (the first keyframe held).
+const DELAY_CASES: { name: string; animation: string; delay: number }[] = [
+  { name: `fade-in-120`, animation: `fade-in`, delay: 120 },
+  { name: `slide-in-up-40`, animation: `slide-in-up`, delay: 40 },
+  { name: `spin-loop-200`, animation: `spin`, delay: 200 },
+]
+
+type Present = { id: string; exit?: boolean; delay?: number }
+type Step = { data?: { path: string; value: unknown }; components?: FlatComponent[]; finishExit?: string; present?: Present[] }
+type Scenario = { name: string; container: string; stagger?: number; reducedMotion?: boolean; windowed?: boolean; first?: number; components: FlatComponent[]; data: Record<string, unknown>; steps: Step[] }
+
+const fade = { animation: `fade-in` }
+const row = (id: string, style: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): FlatComponent => ({ id, component: `Box`, style: { height: 20, ...fade, ...style }, ...extra }) as FlatComponent
+const items = (...ids: string[]) => ids.map((id) => ({ id }))
+const PRESENCE: Scenario[] = [
+  {
+    name: `stagger-batches`,
+    container: `root`,
+    stagger: 40,
+    components: [{ id: `root`, component: `Box`, style: { animationStagger: 40 }, children: { componentId: `item`, path: `/items`, key: `id` } } as FlatComponent, row(`item`)],
+    data: { items: items(`a`, `b`, `c`) },
+    steps: [
+      { present: [{ id: `item.a` }, { id: `item.b` }, { id: `item.c` }] },
+      { data: { path: `/items`, value: items(`a`, `b`, `c`, `d`, `e`) }, present: [{ id: `item.a` }, { id: `item.b` }, { id: `item.c` }, { id: `item.d` }, { id: `item.e` }] },
+      { data: { path: `/items`, value: items(`x`, `a`) }, present: [{ id: `item.x` }, { id: `item.a` }] },
+    ],
+  },
+  {
+    name: `delay-adds-to-stagger`,
+    container: `root`,
+    stagger: 50,
+    components: [{ id: `root`, component: `Box`, style: { animationStagger: 50 }, children: [`c1`, `c2`, `c3`] } as FlatComponent, row(`c1`, { animationDelay: 100 }), row(`c2`, { animation: `slide-in-up` }), row(`c3`, { animationDelay: 10 })],
+    data: {},
+    steps: [{ present: [{ id: `c1`, delay: 100 }, { id: `c2` }, { id: `c3`, delay: 10 }] }],
+  },
+  {
+    name: `exit-visible-false`,
+    container: `root`,
+    components: [{ id: `root`, component: `Box`, children: [`a`, `b`, `c`] } as FlatComponent, row(`a`), row(`b`, { exitAnimation: `fade-out` }, { visible: { "@path": `/showB` } }), row(`c`)],
+    data: { showB: true },
+    steps: [
+      { present: [{ id: `a` }, { id: `b`, exit: true }, { id: `c` }] },
+      { data: { path: `/showB`, value: false }, present: [{ id: `a` }, { id: `c` }] },
+      { finishExit: `b` },
+    ],
+  },
+  {
+    name: `exit-back-mid-exit`,
+    container: `root`,
+    stagger: 30,
+    components: [{ id: `root`, component: `Box`, style: { animationStagger: 30 }, children: [`a`, `b`, `c`] } as FlatComponent, row(`a`), row(`b`, { exitAnimation: `slide-out-up` }, { visible: { "@path": `/showB` } }), row(`c`)],
+    data: { showB: true },
+    steps: [
+      { present: [{ id: `a` }, { id: `b`, exit: true }, { id: `c` }] },
+      { data: { path: `/showB`, value: false }, present: [{ id: `a` }, { id: `c` }] },
+      { data: { path: `/showB`, value: true }, present: [{ id: `a` }, { id: `b`, exit: true }, { id: `c` }] },
+    ],
+  },
+  {
+    name: `exit-template-items`,
+    container: `root`,
+    components: [{ id: `root`, component: `Box`, children: { componentId: `item`, path: `/items`, key: `id` } } as FlatComponent, row(`item`, { exitAnimation: `slide-out-left` })],
+    data: { items: items(`a`, `b`, `c`) },
+    steps: [
+      { present: [{ id: `item.a`, exit: true }, { id: `item.b`, exit: true }, { id: `item.c`, exit: true }] },
+      { data: { path: `/items`, value: items(`a`, `c`) }, present: [{ id: `item.a`, exit: true }, { id: `item.c`, exit: true }] },
+      { data: { path: `/items`, value: items(`c`) }, present: [{ id: `item.c`, exit: true }] },
+      { finishExit: `item.b` },
+      { finishExit: `item.a` },
+    ],
+  },
+  {
+    name: `exit-dropped-by-update`,
+    container: `root`,
+    components: [{ id: `root`, component: `Box`, children: [`a`, `b`] } as FlatComponent, row(`a`), row(`b`, { exitAnimation: `fade-out` })],
+    data: {},
+    steps: [
+      { present: [{ id: `a` }, { id: `b`, exit: true }] },
+      { components: [{ id: `root`, component: `Box`, children: [`a`] } as FlatComponent, row(`a`)], present: [{ id: `a` }] },
+      { finishExit: `b` },
+    ],
+  },
+  {
+    name: `no-exit-leaves-at-once`,
+    container: `root`,
+    components: [{ id: `root`, component: `Box`, children: [`a`, `b`] } as FlatComponent, row(`a`), row(`b`, {}, { visible: { "@path": `/showB` } })],
+    data: { showB: true },
+    steps: [{ present: [{ id: `a` }, { id: `b` }] }, { data: { path: `/showB`, value: false }, present: [{ id: `a` }] }],
+  },
+  {
+    name: `reduced-motion`,
+    container: `root`,
+    stagger: 40,
+    reducedMotion: true,
+    components: [{ id: `root`, component: `Box`, style: { animationStagger: 40 }, children: [`a`, `b`, `c`] } as FlatComponent, row(`a`, { animationDelay: 100 }), row(`b`, { exitAnimation: `fade-out` }, { visible: { "@path": `/showB` } }), row(`c`)],
+    data: { showB: true },
+    steps: [{ present: [{ id: `a`, delay: 100 }, { id: `b`, exit: true }, { id: `c` }] }, { data: { path: `/showB`, value: false }, present: [{ id: `a`, delay: 100 }, { id: `c` }] }],
+  },
+  {
+    name: `windowed-list`,
+    container: `root`,
+    stagger: 10,
+    windowed: true,
+    first: 4,
+    components: [{ id: `root`, component: `List`, style: { animationStagger: 10, height: 400 }, children: { componentId: `item`, path: `/items`, key: `id` } } as FlatComponent, row(`item`, { exitAnimation: `fade-out` })],
+    data: { items: Array.from({ length: 60 }, (_, i) => ({ id: `r${i}` })) },
+    steps: [
+      { present: Array.from({ length: 60 }, (_, i) => ({ id: `item.r${i}`, exit: true })) },
+      { data: { path: `/items`, value: [{ id: `n0` }, ...Array.from({ length: 60 }, (_, i) => ({ id: `r${i}` })).filter((r) => r.id !== `r1`)] }, present: [{ id: `item.n0`, exit: true }, ...Array.from({ length: 60 }, (_, i) => ({ id: `item.r${i}`, exit: true })).filter((r) => r.id !== `item.r1`)] },
+    ],
+  },
+]
+
+/** The reference replay of one presence scenario (what `expect` locks):
+ *  the container's painted children after each step, ghosts marked, each
+ *  with the enter delay it entered with. A windowed List keeps no ghost and
+ *  staggers only its first pass. */
+function replayPresence(c: Scenario): { id: string; exiting: boolean; delayMs: number }[][] {
+  let entries: PresenceEntry<Present>[] = []
+  const delays = new Map<string, number>()
+  let last: Present[] = []
+  return c.steps.map((step, i) => {
+    if (step.finishExit) entries = finishExit(entries, step.finishExit)
+    else {
+      last = step.present ?? last
+      const out = presence(entries, last.map((p) => ({ key: p.id, value: p, exitMs: p.exit && !c.windowed ? 1 : 0 })), c.reducedMotion ?? false)
+      out.entering.forEach((key, at) => {
+        const p = last.find((x) => x.id === key)!
+        delays.set(key, enterDelay(p.delay, c.windowed && i > 0 ? null : at, c.stagger ?? 0, c.reducedMotion ?? false))
+      })
+      entries = out.entries
+    }
+    const painted = entries.map((e) => ({ id: e.key, exiting: e.exiting, delayMs: e.exiting ? 0 : (delays.get(e.key) ?? 0) }))
+    return c.first ? painted.slice(0, c.first) : painted
+  })
+}
+
 function animationsFixture() {
   const themes: Record<string, unknown> = {}
   for (const id of BUILTIN_THEME_IDS) {
@@ -605,11 +742,44 @@ function animationsFixture() {
     themes[id] = entries
   }
   const neutral = builtinTheme(`neutral`)
+  const exits: Record<string, unknown> = {}
+  for (const id of BUILTIN_THEME_IDS) {
+    const theme = builtinTheme(id)
+    const entries: Record<string, unknown> = {}
+    for (const name of EXIT_ANIMATION_NAMES) {
+      const timing = exitTiming(name, theme)!
+      const d = timing.durationMs
+      entries[name] = { timing, frames: [0, d * 0.25, d * 0.5, d * 0.75, d, d * 1.5].map((t) => ({ t, frame: animationFrame(name, t, theme) })) }
+    }
+    exits[id] = entries
+  }
   return {
-    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §2, animation): per built-in theme and keyframe set (catalog/style.json \`animations\`) the TIMING (the duration token's ms × factor, the easing: a \`$ease\` curve or linear, the iterations) and the FRAME at t ms after the node entered the tree (0, ¼, ½, ¾, 1 and 1½ durations; per-segment easing, cubic-bezier solved by bisection; finished animations hold the last keyframe), plus the reduced-motion frame (the \`rest\` keyframe, no band). Channels: opacity, translateX/Y px, rotate deg, scale, band (shimmer, -1..1; null = none). Compare within 1e-3. \`override\` = \`animationDuration: $motion.fast\`. \`css\` = the @keyframes rule a CSS renderer emits (opacity moves \`--xui-a-opacity\`), \`properties\` = the @property rules it registers once. \`opacity\`: the painted opacity = the node's own × the frame's (never replaced; a finished fade-in keeps the author's opacity); \`css\` = styleToCss of \`{opacity: own, animation}\`.`,
+    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §2, animation): per built-in theme and keyframe set (catalog/style.json \`animations\`) the TIMING (the duration token's ms × factor, the easing: a \`$ease\` curve or linear, the iterations) and the FRAME at t ms after the node entered the tree (0, ¼, ½, ¾, 1 and 1½ durations; per-segment easing, cubic-bezier solved by bisection; finished animations hold the last keyframe), plus the reduced-motion frame (the \`rest\` keyframe, no band). Channels: opacity, translateX/Y px, rotate deg, scale, band (shimmer, -1..1; null = none). Compare within 1e-3. \`override\` = \`animationDuration: $motion.fast\`. \`css\` = the @keyframes rule a CSS renderer emits (opacity moves \`--xui-a-opacity\`), \`properties\` = the @property rules it registers once. \`opacity\`: the painted opacity = the node's own × the frame's (never replaced; a finished fade-in keeps the author's opacity); \`css\` = styleToCss of \`{opacity: own, animation}\`. Round 4 motion (style.json \`animations\` \$comment): \`exits\` = the \`exitAnimation\` sets per theme (the timing a node with \`exitAnimation: <name>\` carries on its visual, frames from the moment it began leaving); \`delay\` = \`animationDelay\` (the visual's timing gains \`delayMs\`; before it the FIRST keyframe holds, then the run is shifted by it); \`presence\` = surface scenarios: load \`components\` (flat, A2UI 1.0) + \`data\` into a surface of \`viewport\` (reduced motion when \`reducedMotion\`), lay out, then per step apply its \`data\` write (setData), its \`components\` (the whole new set, as updateComponents leaves it) or \`finishExit\` (the painter's end of that exit), lay out, and compare the \`container\`'s painted children (\`first\` = only the first N) to \`expect\`: ids in paint order, \`exiting\` = a ghost (still in layout, no hit-testing), \`delayMs\` = its visual's enter \`timing.delayMs\` (absent = 0; a ghost's = 0: its exit starts at once). \`present\` = the bound children after the step (\`exit\` = it has an exitAnimation, \`delay\` its animationDelay): the TS reference (\`presence\` + \`enterDelay\`, scripts/generate-round2.ts replayPresence) replays those.`,
     themes,
     override: { theme: `neutral`, name: `fade-in`, durationToken: `$motion.fast`, timing: animationTiming(`fade-in`, neutral, `$motion.fast`), frame: animationFrame(`fade-in`, 60, neutral, { durationToken: `$motion.fast` }) },
-    css: Object.fromEntries(ANIMATION_NAMES.map((n) => [n, keyframesCss(n)])),
+    css: Object.fromEntries([...ANIMATION_NAMES, ...EXIT_ANIMATION_NAMES].map((n) => [n, keyframesCss(n)])),
+    exits,
+    delay: DELAY_CASES.map((c) => {
+      const base = animationTiming(c.animation, neutral)!
+      const timing = { ...base, delayMs: c.delay }
+      const d = base.durationMs
+      return { ...c, theme: `neutral`, style: { animation: c.animation, animationDelay: c.delay }, timing, frames: [0, c.delay / 2, c.delay, c.delay + d / 2, c.delay + d].map((t) => ({ t, frame: animationFrame(c.animation, t, neutral, { delayMs: c.delay }) })) }
+    }),
+    presence: PRESENCE.map((c) => {
+      const painted = replayPresence(c)
+      return {
+        name: c.name,
+        container: c.container,
+        ...(c.reducedMotion ? { reducedMotion: true } : {}),
+        ...(c.windowed ? { windowed: true } : {}),
+        ...(c.stagger ? { stagger: c.stagger } : {}),
+        ...(c.first ? { first: c.first } : {}),
+        viewport: { width: 400, height: 400 },
+        components: c.components,
+        data: c.data,
+        steps: c.steps.map((st, i) => ({ ...(st.data ? { data: st.data } : {}), ...(st.components ? { components: st.components } : {}), ...(st.finishExit ? { finishExit: st.finishExit } : {}), ...(st.present ? { present: st.present } : {}), expect: painted[i] })),
+      }
+    }),
     properties: ANIMATION_PROPERTIES_CSS,
     opacity: OPACITY_CASES.map((c) => {
       const timing = animationTiming(c.animation, neutral)!

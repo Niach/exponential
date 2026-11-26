@@ -56,6 +56,9 @@ pub struct AnimationDef {
     pub iterations: Value,
     /// The reduced-motion keyframe offset (0 = first, 1 = last).
     pub rest: f64,
+    /// Round 4 motion: an `exitAnimation` set (played when the node leaves).
+    #[serde(default)]
+    pub exit: bool,
     pub keyframes: Vec<Keyframe>,
     #[serde(default)]
     pub band: Option<Band>,
@@ -72,6 +75,9 @@ pub static ANIMATIONS: LazyLock<IndexMap<String, AnimationDef>> = LazyLock::new(
 
 /// The names (`pulse spin fade-in slide-in-up/down/left/right shimmer`).
 pub const ANIMATION_NAMES: &[&str] = g::ANIMATION_NAMES;
+
+/// Round 4 motion: the `exitAnimation` sets (style.json `animations` marked `exit`).
+pub const EXIT_ANIMATION_NAMES: &[&str] = g::EXIT_ANIMATION_NAMES;
 
 /// An easing: a cubic bezier `[x1, y1, x2, y2]` or linear.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +130,14 @@ pub struct AnimationTiming {
     pub duration_ms: f64,
     pub easing: AnimationEasing,
     pub iterations: Iterations,
+    /// Round 4 motion: ms before the run starts (the stagger offset + the
+    /// node's `animationDelay`); the node holds the first keyframe meanwhile.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub delay_ms: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// One frame: every channel at its value (`band` `None` = no shimmer band).
@@ -160,7 +174,7 @@ pub fn animation_timing(name: &str, theme: &ResolvedTheme, duration_token: Optio
         Value::Number(n) => Iterations::Count(n.as_f64().unwrap_or(1.0)),
         _ => Iterations::INFINITE,
     };
-    Some(AnimationTiming { duration_ms: ms, easing, iterations })
+    Some(AnimationTiming { duration_ms: ms, easing, iterations, delay_ms: 0.0 })
 }
 
 /// [`animation_timing`] with the node's `animationDuration` already
@@ -182,10 +196,14 @@ pub fn frame_with_timing(name: &str, timing: &AnimationTiming, elapsed_ms: f64, 
         return Some(AnimationFrame { band: None, ..frame_at(def, def.rest, &AnimationEasing::LINEAR) });
     }
     let d = timing.duration_ms;
+    let delay = timing.delay_ms.max(0.0);
+    if delay > 0.0 && elapsed_ms < delay {
+        return Some(frame_at(def, 0.0, &timing.easing));
+    }
     if d <= 0.0 {
         return Some(frame_at(def, 1.0, &AnimationEasing::LINEAR));
     }
-    let t = elapsed_ms.max(0.0);
+    let t = (elapsed_ms - delay).max(0.0);
     if t >= d * timing.iterations.count() {
         return Some(frame_at(def, 1.0, &timing.easing));
     }
@@ -322,4 +340,36 @@ pub fn keyframes_css(name: &str) -> String {
         })
         .collect();
     format!("@keyframes xui-{name}{{{}}}", steps.join(""))
+}
+
+fn positive_ms(v: Option<&Value>) -> f64 {
+    v.and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).unwrap_or(0.0)
+}
+
+/// Round 4 motion (`src/animation.ts enterDelay`): the ms a node's ENTER
+/// animation waits: its stagger index (None = it did not enter in a
+/// staggered batch) × the parent's `animationStagger` + its own
+/// `animationDelay` (base style; negative or non-numbers = 0). Reduced
+/// motion = 0.
+pub fn enter_delay(own_delay: Option<&Value>, stagger_index: Option<u32>, parent_stagger: Option<&Value>, reduced_motion: bool) -> f64 {
+    if reduced_motion {
+        return 0.0;
+    }
+    r4(positive_ms(own_delay) + stagger_index.map(|i| i as f64 * positive_ms(parent_stagger)).unwrap_or(0.0))
+}
+
+/// Round 4 motion (`src/animation.ts exitTiming`): the timing of an
+/// `exitAnimation` (`duration_ms` = a resolved `animationDuration`, the
+/// factor kept); None = no exit (none, unknown, or reduced motion).
+pub fn exit_timing(name: &str, theme: &ResolvedTheme, duration_ms: Option<f64>, reduced_motion: bool) -> Option<AnimationTiming> {
+    if reduced_motion || !ANIMATIONS.get(name).is_some_and(|d| d.exit) {
+        return None;
+    }
+    animation_timing_ms(name, theme, duration_ms)
+}
+
+/// The total run of a timing in ms (delay + duration × iterations; infinite
+/// for a loop).
+pub fn total_ms(timing: &AnimationTiming) -> f64 {
+    timing.delay_ms.max(0.0) + timing.duration_ms.max(0.0) * timing.iterations.count()
 }

@@ -190,6 +190,13 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
       out.push(...animationDeclarations(value, style.animationDuration))
       continue
     }
+    // Round 4 motion: the exit and the stagger are the renderer's (presence,
+    // inline delays); the own delay shifts the enter animation.
+    if (key === `exitAnimation` || key === `animationStagger`) continue
+    if (key === `animationDelay`) {
+      if (typeof value === `number` && Number.isFinite(value) && value > 0) out.push([`animation-delay`, `${value}ms`])
+      continue
+    }
     if (key === `animationDuration`) {
       // Alone (a state or media block): the duration, the set's factor kept
       // through `--xui-anim-factor`.

@@ -457,6 +457,21 @@
     "animationDuration": {
       "type": "token",
       "group": "motion"
+    },
+    "exitAnimation": {
+      "enum": [
+        "fade-out",
+        "slide-out-up",
+        "slide-out-down",
+        "slide-out-left",
+        "slide-out-right"
+      ]
+    },
+    "animationStagger": {
+      "type": "number"
+    },
+    "animationDelay": {
+      "type": "number"
     }
   },
   "animations": {
@@ -624,6 +639,104 @@
           }
         ]
       }
+    },
+    "fade-out": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.accelerate",
+      "iterations": 1,
+      "rest": 1,
+      "exit": true,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1
+        },
+        {
+          "offset": 1,
+          "opacity": 0
+        }
+      ]
+    },
+    "slide-out-up": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.accelerate",
+      "iterations": 1,
+      "rest": 1,
+      "exit": true,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1,
+          "translateY": 0
+        },
+        {
+          "offset": 1,
+          "opacity": 0,
+          "translateY": -8
+        }
+      ]
+    },
+    "slide-out-down": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.accelerate",
+      "iterations": 1,
+      "rest": 1,
+      "exit": true,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1,
+          "translateY": 0
+        },
+        {
+          "offset": 1,
+          "opacity": 0,
+          "translateY": 8
+        }
+      ]
+    },
+    "slide-out-left": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.accelerate",
+      "iterations": 1,
+      "rest": 1,
+      "exit": true,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1,
+          "translateX": 0
+        },
+        {
+          "offset": 1,
+          "opacity": 0,
+          "translateX": -8
+        }
+      ]
+    },
+    "slide-out-right": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.accelerate",
+      "iterations": 1,
+      "rest": 1,
+      "exit": true,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1,
+          "translateX": 0
+        },
+        {
+          "offset": 1,
+          "opacity": 0,
+          "translateX": 8
+        }
+      ]
     }
   },
   "conditions": {

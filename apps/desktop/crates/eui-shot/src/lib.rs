@@ -199,6 +199,7 @@ pub fn render(bundle: &Bundle) -> Result<image::RgbaImage, String> {
         why.extend(issues.borrow().iter().cloned());
         return Err(format!("the screen did not open: {}", if why.is_empty() { "no surface".to_string() } else { why.join("; ") }));
     };
+    let resting = surface.clone();
     let window = cx
         .open_window(size(px(bundle.width), px(bundle.height)), move |_, cx| cx.new(|_| Frame { surface: Some(surface), background }))
         .map_err(|e| format!("no headless window: {e:#}"))?;
@@ -212,6 +213,15 @@ pub fn render(bundle: &Bundle) -> Result<image::RgbaImage, String> {
         })
         .map_err(|e| format!("a frame failed: {e:#}"))?;
     }
+    // A picture shows the screen AT REST: keyframe enters (their stagger and
+    // delays included) and transitions have run.
+    resting.update(&mut cx, |view, cx| view.advance_clock(std::time::Duration::from_secs(10), cx));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .map_err(|e| format!("a frame failed: {e:#}"))?;
     let shot = cx.capture_screenshot(window.into()).map_err(|e| format!("the capture failed: {e:#}"))?;
     // The headless app's leak check would flag the live views.
     std::mem::forget(cx);

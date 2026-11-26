@@ -13,7 +13,7 @@
 
 import { QR_SCANNER } from "./round5"
 import { LAYOUT_CONSTANTS } from "../layout"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
  *  `shimmer` utility): the glyphs clip a gradient of the text colour that
@@ -38,7 +38,7 @@ const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important
  *  the shimmer band's `--xui-band`), and the glyphs that mirror
  *  in an rtl node (catalog/locale.json `rtlMirroredIcons`, by the element's
  *  `dir`, so a node's own direction counts). */
-const ROUND2_CSS = `${ANIMATION_NAMES.map(keyframesCss).join(`\n`)}
+const ROUND2_CSS = `${[...ANIMATION_NAMES, ...EXIT_ANIMATION_NAMES].map(keyframesCss).join(`\n`)}
 :is(${RTL_MIRRORED_ICONS.map((n) => `svg[data-icon="${n}"]`).join(`,`)}):dir(rtl){scale:-1 1}`
 
 /** EXP-1673: a surface with `data-xui-overlays="inline"` (a static render)
@@ -572,7 +572,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-toast-layer{position:fixed;bottom:var(--xui-spacing-lg);left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;align-items:center;gap:var(--xui-spacing-sm);pointer-events:none;width:max-content;max-width:calc(100vw - 32px)}
 .xui-toast-layer>:nth-last-child(n+4){display:none}
 .xui-Popover-content[data-open-on="hover"]{pointer-events:auto}
-@keyframes xui-fade-out{to{opacity:0}}
+@keyframes xui-overlay-out{to{opacity:0}}
 @keyframes xui-pop-in{from{opacity:0;scale:var(--xui-scale-popoverFrom,.96)}}
 @keyframes xui-pop-out{to{opacity:0}}
 @keyframes xui-slide-bottom-in{from{translate:0 100%}}
@@ -591,7 +591,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Button"].xui-el:active:not(:disabled){scale:var(--xui-scale-press,1)}
 .xui-Popover-content[data-state="closed"],.xui-Tooltip-content[data-state="closed"],.xui-Menu-content[data-state="closed"],.xui-Select-content[data-state="closed"],.xui-DatePicker-calendar[data-state="closed"],.xui-DateRangePicker-calendar[data-state="closed"],.xui-TimePicker-list[data-state="closed"],.xui-Dialog-content[data-state="closed"]{animation:xui-pop-out var(--xui-motion-fast) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Dialog-overlay[data-state="open"],.xui-Drawer-overlay[data-state="open"]{animation:xui-fade-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
-.xui-Dialog-overlay[data-state="closed"],.xui-Drawer-overlay[data-state="closed"]{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
+.xui-Dialog-overlay[data-state="closed"],.xui-Drawer-overlay[data-state="closed"]{animation:xui-overlay-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Drawer-content[data-side="bottom"][data-state="open"]{animation:xui-slide-bottom-in var(--xui-motion-slow) var(--xui-ease-decelerate,ease-out)}
 .xui-Drawer-content[data-side="bottom"][data-state="closed"]{animation:xui-slide-bottom-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Drawer-content[data-side="top"][data-state="open"]{animation:xui-slide-top-in var(--xui-motion-slow) var(--xui-ease-decelerate,ease-out)}
@@ -604,13 +604,13 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Accordion-content[data-state="closed"]{animation:xui-accordion-close var(--xui-motion-standard) var(--xui-ease-standard,ease)}
 .xui-Tabs-content[data-state="active"]{animation:xui-fade-in var(--xui-motion-fast) var(--xui-ease-decelerate,ease-out)}
 [data-xui-c="Toast"][data-state="open"].xui-el{animation:xui-toast-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
-[data-xui-c="Toast"][data-state="closed"].xui-el{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
+[data-xui-c="Toast"][data-state="closed"].xui-el{animation:xui-overlay-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-accordion-title{display:inline-flex;align-items:baseline;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Collapsible-chevron.xui-el{transition:transform var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 ${SHIMMER_CSS}
 }
-@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
-.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
+@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-delay:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
+.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-delay:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
 ${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}
 ${INLINE_OVERLAYS_CSS}
 @layer xui-part{.xui-Markdown-quote{border-top-width:0;border-right-width:0;border-bottom-width:0;padding-right:0}.xui-md>:is(ul,ol):first-child>li:first-child{margin-top:0}.xui-md>:is(ul,ol):last-child>li:last-child{margin-bottom:0}}`

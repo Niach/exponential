@@ -19,6 +19,7 @@ import { For, Show, createSignal, onMount, type JSX } from "solid-js"
 import { render } from "solid-js/web"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential_app/eui"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential_app/eui"
+import { readPresence, setPointer, type PresenceScenario, type PresencePainted } from "@exponential_app/eui/web"
 import benchFixture from "@exponential_app/eui/fixtures/bench-list.json" with { type: "json" }
 import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json" with { type: "json" }
 import geometry from "@exponential_app/eui/fixtures/layout-geometry.json" with { type: "json" }
@@ -69,6 +70,8 @@ declare global {
     __xuiBench?: { firstPaintMs?: number; handle: () => SurfaceHandle | null; flush: (fn: () => void) => void }
     __xuiHandle?: () => SurfaceHandle | null
     __xuiMount?: (tree: NestedNode, options?: MountOptions) => Promise<void>
+    /** Round 4 motion: one animations.json `presence` scenario, painted after every step. */
+    __xuiPresence?: (c: PresenceScenario) => Promise<PresencePainted[][]>
     __xuiVList?: (c: VListCase) => Promise<VListProbe>
     __xuiBenchSuite?: BenchSuiteApi
   }
@@ -421,6 +424,8 @@ function remount(node: () => JSX.Element): HTMLElement {
   disposeMounted = render(node, el)
   return el
 }
+/** Round 4 motion: neutral with 600 ms exits (`__xuiPresence`: timers far apart). */
+const SLOW_EXITS = { $schema: THEME_SCHEMA_ID, id: `slow-exits`, name: `Slow exits`, extends: `neutral`, tokens: { motion: { standard: 600 } } } as never
 function Mount(): JSX.Element {
   onMount(() => {
     window.__xuiMount = async (tree, options = {}) => {
@@ -431,6 +436,27 @@ function Mount(): JSX.Element {
       const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
       remount(() => <ExponentialSurface id="m" root={root} templates={templates} data={options.data} theme={theme} mode="light" width={options.width ?? `100%`} direction={options.dir} readOnly={options.readOnly} handleRef={(h) => (handle = h)} host={{ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, context: e.context }) }} />)
       await frames(3)
+    }
+    window.__xuiPresence = async (c) => {
+      const [state, setState] = createSignal({ components: c.components, data: c.data })
+      const tree = () => reduceSurface(state().components, { catalogId: CORE_CATALOG_ID })
+      const el = remount(() => <ExponentialSurface id="m" root={tree().root} templates={tree().templates} data={state().data} theme={SLOW_EXITS} mode="light" width={c.viewport?.width ?? 400} host={{ icons: harnessIcons }} />)
+      await frames(3)
+      let components = c.components
+      let data = c.data
+      const out: PresencePainted[][] = []
+      for (const step of c.steps) {
+        if (step.data) data = setPointer(data, step.data.path, step.data.value) as Record<string, unknown>
+        if (step.components) components = step.components
+        if (step.data || step.components) setState({ components, data })
+        // Exits last 600 ms here (a slow theme): steps 250 ms apart start (and end) them well apart.
+        if (step.data || step.components) await new Promise((r) => setTimeout(r, 250))
+        // The painter ends an exit itself (its timer): wait it out.
+        for (let k = 0; step.finishExit && k < 240 && readPresence(el, c.container).some((p) => p.id === step.finishExit); k++) await frames(1)
+        await frames(2)
+        out.push(readPresence(el, c.container, c.first))
+      }
+      return out
     }
     window.__xuiVList = async (c) => {
       const horizontal = c.axis === `horizontal`
