@@ -1,5 +1,6 @@
 package com.exponential.app.data.call
 
+import com.exponential.app.domain.listed
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -408,7 +409,7 @@ class VoiceCallController @Inject constructor(
         override suspend fun ready(): Boolean {
             val manager = nodes.get()
             if (manager.awaitHolder(accountId, 0L) != null) return true
-            val sealable = databases.database(accountId).deviceDao().observeAll().first().any { it.caps?.contains("\"${VoiceCall.Seal.CAP}\"") == true }
+            val sealable = databases.database(accountId).deviceDao().observeAll().first().listed().any { it.caps?.contains("\"${VoiceCall.Seal.CAP}\"") == true }
             return sealable && manager.awaitHolder(accountId, SEAL_HOLDER_WAIT_MS) != null
         }
         override suspend fun target(agentId: String): CallKeyTarget =

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.gettingstarted
 
+import com.exponential.app.domain.listed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.ARG_TEAM
@@ -72,7 +73,7 @@ class GettingStartedViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
         auth.userId,
     ) { devices, userId ->
-        if (userId == null) emptyList() else devices.filter { it.userId == userId }
+        if (userId == null) emptyList() else devices.listed().filter { it.userId == userId }
     }
 
     private val boards = teamScoped(emptyList()) { db, teamId ->
