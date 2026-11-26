@@ -14,6 +14,9 @@ import { guardDestructiveCall } from "./delete-guard"
 import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
 import { NO_CLIENT, withEmcpContext, type EmcpContext } from "./request-context"
 import { elicitBeforeCall, urlElicitAfterCall } from "./elicit"
+import { fileArgumentShape, routeFileArgument } from "./files"
+import { HOST_CONFIRMS_META } from "@exp/mcp-apps/genui-result"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -736,7 +739,9 @@ export function registerNounTools(
           description: nounDescription(spec, legacy, everything, { ops: half.ops, twin: twin?.name, read: half.read }),
           // The op enum's own refusal names a moved op's new home (the SDK
           // validates before the handler runs).
-          inputSchema: z.object({ op: openOp ? opSchema.optional() : opSchema }).passthrough(),
+          // #NEW-149: with MCP_FILES_EXTENSION on, a half whose op takes a
+          // file argument declares it (`x-mcp-file`, files.json).
+          inputSchema: z.object({ op: openOp ? opSchema.optional() : opSchema, ...fileArgumentShape(half.name, half.ops) }).passthrough(),
           annotations: half.annotations,
           ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         } as never,
@@ -749,8 +754,19 @@ export function registerNounTools(
           const tool = routes.get(String(op))
           if (tool === undefined) return err(new Error(unknownOp(spec, String(op), half.ops, twinRef)))
           if (tool === null) return err(new Error(unavailable(spec, String(op))))
+          // #NEW-149 (files.json): a file argument becomes the op's inline or
+          // signed shape, or answers on its own (a refused file, upload_required's retry checks).
+          const fileRoute = await routeFileArgument(extra, {
+            tool: half.name,
+            op: String(op),
+            args: rest,
+            userId: user.id,
+            origin: process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin,
+          })
+          if (fileRoute?.kind === `result`) return fileRoute.result
+          const callArgs = fileRoute?.kind === `args` ? fileRoute.args : rest
           const schema = tool.def.inputSchema ?? z.strictObject({})
-          const parsed = schema.safeParse(coerceScalars(rest, kinds.get(String(op)) ?? new Map()))
+          const parsed = schema.safeParse(coerceScalars(callArgs, kinds.get(String(op)) ?? new Map()))
           if (!parsed.success) {
             const issues = parsed.error.issues
               .map((issue) => `${issue.path.join(`.`) || `(root)`}: ${issue.message}`)
@@ -786,7 +802,14 @@ export function registerNounTools(
           const teamId = typeof data.teamId === `string` ? data.teamId : null
           const url = await urlElicitAfterCall(extra, handled, { userId: user.id, external: sessionId === null, data: gate.data, teamId })
           if (url) return url
-          const result = handled
+          if (fileRoute?.kind === `args` && fileRoute.after) return fileRoute.after(handled)
+          // #NEW-149: an app read for a host that declared form elicitation tells
+          // the genUI view the server confirms its deletes and stops (elicit.ts),
+          // so the view skips its own confirm (packages/mcp-apps genui/result.ts).
+          const result =
+            sessionId === null && spec.name === `apps` && String(op) === `get` && !handled.isError && extra.client.era === `modern` && extra.client.elicitation.form
+              ? { ...handled, _meta: { ...((handled as { _meta?: Record<string, unknown> })._meta ?? {}), [HOST_CONFIRMS_META]: true } }
+              : handled
           // #VAPP-292: outside a session a view list op answers the model with
           // a summary and the view with the rows (view-results.ts).
           return sessionId === null && isViewListOp(spec.name, String(op))

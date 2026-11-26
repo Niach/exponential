@@ -237,6 +237,28 @@ describe.skipIf(!ready.ok)(`/api/mcp extensions (real db, #NEW-147)`, () => {
     expect(hidden.error).toMatchObject({ code: -32602, message: tasksFixture.errors.notFound })
   })
 
+  it(`#NEW-149: a session that posted a surface card completes its task with it for the genUI view`, async () => {
+    resetTaskRateWindows()
+    const w = await world()
+    const sessionId = await session(w.userId, w.teamId)
+    const created = await call(w.token, `exponential_sessions_send`, { sessionId, text: `Check the tests` })
+    const taskId = created.result!.taskId as string
+    const surface = { root: { id: `s`, component: `Stack`, children: [{ id: `r`, component: `Row`, props: { title: `Tests` } }] } }
+    await db.transaction((tx) => insertMessage(tx, sessionId, { authorKind: `agent`, body: ``, card: { kind: `surface`, surface: { ...surface, data: { stale: true } }, title: `Old` } as never }))
+    await db.transaction((tx) => insertMessage(tx, sessionId, { authorKind: `agent`, body: ``, card: { kind: `surface`, surface, title: `Checks` } as never }))
+    await endSession({ userId: w.userId, sessionId, summary: `All green` })
+    const done = await rpc(w.token, `tasks/get`, { taskId })
+    expect(done.result).toMatchObject({
+      status: `completed`,
+      result: {
+        content: [{ type: `text`, text: `All green` }],
+        structuredContent: { shown: `inline`, card: { kind: `surface`, surface, title: `Checks` } },
+        _meta: { ui: { resourceUri: tasksFixture.genuiResourceUri } },
+        isError: false,
+      },
+    })
+  })
+
   it(`cancel stops the session; a person's End fails a live task`, async () => {
     resetTaskRateWindows()
     const w = await world()

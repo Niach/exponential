@@ -3,7 +3,7 @@ import { users } from "@/db/auth-schema"
 import { registerNounTools } from "./nouns"
 import { registerExponentialApps } from "./apps"
 import { registerIssueResource } from "./mentions"
-import { MCP_EXTENSION_CAPABILITIES } from "./extensions"
+import { mcpExtensionCapabilities } from "./extensions"
 import { NO_CLIENT, type EmcpContext } from "./request-context"
 import { installRpcErrorEscape, requestStateVerifier } from "./mrtr"
 import { registerSkills } from "./skills-mcp"
@@ -43,7 +43,7 @@ export function createExponentialMcpServer(
     // wording matches who is watching the run. FEED-21: reportBug mirrors
     // the EXP-496 registration check in tools.ts exactly.
     {
-      ...(sessionId ? {} : { capabilities: MCP_EXTENSION_CAPABILITIES }),
+      ...(sessionId ? {} : { capabilities: mcpExtensionCapabilities() }),
       // #NEW-144: an MRTR retry's requestState is opened, checked against
       // this request's member, credential and call, and spent before any
       // handler runs (mrtr.ts).

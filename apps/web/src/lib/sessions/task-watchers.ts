@@ -8,10 +8,12 @@
 // what lands here is every change's `last_updated_at` stamp and the
 // TERMINAL outcome (the report, a failure, an event firing), kept on the
 // `mcp_tasks` row after the watched session's rows are gone.
-import { and, asc, eq, inArray, lte, sql, type SQL } from "drizzle-orm"
-import { isTerminal, taskReduce, type TaskEvent, type TaskState, type TaskStatus } from "@exp/emcp/tasks"
+import { and, asc, desc, eq, inArray, lte, sql, type SQL } from "drizzle-orm"
+import { isTerminal, taskReduce, type SurfaceCard, type TaskEvent, type TaskState, type TaskStatus } from "@exp/emcp/tasks"
 import { db } from "@/db/connection"
-import { mcpElicitations, mcpRequestStates, mcpTasks, sessionWatches, type SessionWatchKind } from "@/db/schema"
+import { mcpElicitations, mcpRequestStates, mcpTasks, messages, sessionWatches, type SessionWatchKind } from "@/db/schema"
+import { inSession } from "@/lib/sessions/messages"
+import { isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 
 type TaskRow = typeof mcpTasks.$inferSelect
@@ -99,10 +101,26 @@ export async function endSessionTasks(
   at: Date = new Date()
 ): Promise<string[]> {
   const rows = await liveTasksWatching(tx, subjectId, [`session`])
-  const event: TaskEvent = { kind: `session.end`, at: at.getTime(), summary: outcome.summary, reason: outcome.reason ?? null }
+  // #NEW-149 (tasks.json GENUI): a completed task carries the session's last
+  // surface card for the host's genUI view (MCP Apps).
+  const surface = rows.length > 0 && !outcome.reason ? await lastSurfaceCard(tx, subjectId) : null
+  const event: TaskEvent = { kind: `session.end`, at: at.getTime(), summary: outcome.summary, reason: outcome.reason ?? null, surface }
   for (const row of rows) await persist(tx, taskReduce(taskStateOf(row), event))
   await dropTaskWatches(tx, rows.map((row) => row.id))
   return rows.map((row) => row.id)
+}
+
+/** The last surface card `sessionId` posted (never a sealed one: the server cannot read it), or null. */
+export async function lastSurfaceCard(tx: Tx, sessionId: string): Promise<SurfaceCard | null> {
+  const [row] = await tx
+    .select({ card: messages.card })
+    .from(messages)
+    .where(and(inSession(sessionId), sql`${messages.card}->>'kind' = 'surface'`))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1)
+  const card = row?.card as { kind?: unknown; surface?: unknown; title?: unknown } | null | undefined
+  if (!card || isSealedCard(card) || card.kind !== `surface` || !card.surface || typeof card.surface !== `object`) return null
+  return { kind: `surface`, surface: card.surface as SurfaceCard[`surface`], title: typeof card.title === `string` ? card.title : null }
 }
 
 /** `watch.fire` for task watchers: every live task holding a fired watch

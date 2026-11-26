@@ -52,6 +52,15 @@ export function taskWatchFor(call: TaskCall): TaskWatch | null {
 
 // ── The task and what drives it ──────────────────────────────────────
 
+/** A posted surface card as the genUI view draws it (packages/mcp-apps genui/result.ts `InlineCard`). */
+export interface SurfaceCard {
+  kind: `surface`
+  surface: { root: Record<string, unknown>; data?: Record<string, unknown> | null }
+  title?: string | null
+}
+
+export const GENUI_RESOURCE_URI: string = fixture.genuiResourceUri
+
 export type Card =
   | { kind: `ask`; question: string; options: string[]; multi?: boolean; custom?: boolean; sealed?: boolean }
   | { kind: `plan`; text: string; questions: { id: string; prompt: string; options: string[] }[]; sealed?: boolean }
@@ -76,7 +85,8 @@ export type TaskEvent =
   | { kind: `session.transition`; at: number; digest: string }
   | { kind: `card.open`; at: number; messageId: string; card: Card }
   | { kind: `card.answered`; at: number; messageId: string }
-  | { kind: `session.end`; at: number; summary: string; reason?: string | null }
+  /** #NEW-149: `surface` = the last surface card the session posted (its genUI view). */
+  | { kind: `session.end`; at: number; summary: string; reason?: string | null; surface?: SurfaceCard | null }
   | { kind: `watch.fire`; at: number; text: string }
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
@@ -119,7 +129,9 @@ export function taskReduce(task: TaskState, event: TaskEvent): TaskState {
       } else {
         const text = event.summary.trim() || fixture.copy.noSummary
         next.status = `completed`
-        next.result = { content: [{ type: `text`, text }], isError: false }
+        next.result = event.surface
+          ? { content: [{ type: `text`, text }], structuredContent: { shown: `inline`, card: event.surface }, _meta: { ui: { resourceUri: GENUI_RESOURCE_URI } }, isError: false }
+          : { content: [{ type: `text`, text }], isError: false }
         next.statusMessage = clip(lastLine(text) ?? text, fixture.statusMessageMax)
       }
       return next

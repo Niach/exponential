@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/files.json" with { type: "json" }
-import { fileInputSpec, filesEnabled, planFiles, retryVerdict, stagingKeys, uploadCapabilityError, uploadRequired, type FileInput } from "./files"
+import { downloadMeta, fileInputSchema, fileInputSpec, filesDeclared, filesEnabled, planFiles, retryVerdict, stagingKeys, uploadCapabilityError, uploadRequired, type FileInput } from "./files"
 import { argsDigest, sealRequestState } from "./request-state"
 
 /** `{repeat, times}` = that string repeated; `{concat: [...]}` = the parts joined. */
@@ -61,4 +61,10 @@ describe(`retry`, () => {
       expect(verdict).toEqual(entry.expected as never)
     })
   }
+})
+
+describe(`schema, declaration, downloads (#NEW-149)`, () => {
+  for (const entry of fixture.schemaCases) test(`${entry.tool} ${entry.op}`, () => expect(fileInputSchema(entry.tool, entry.op)).toEqual(entry.expected as never))
+  for (const entry of fixture.declaredCases) test(entry.name, () => expect(filesDeclared(entry.extensions)).toEqual(entry.expected))
+  for (const entry of fixture.downloadCases) test(entry.name, () => expect(downloadMeta(entry.attachment, entry.declaredDownload)).toEqual(entry.expected as never))
 })

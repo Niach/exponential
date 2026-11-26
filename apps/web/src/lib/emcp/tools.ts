@@ -181,6 +181,7 @@ import { reconcileDeviceUsage } from "@/lib/usage-reconcile"
 import { sendSession } from "@/lib/sessions/send"
 import { createEventTask, createSessionTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
 import type { EmcpToolContext } from "@/lib/emcp/request-context"
+import { downloadMetaFor } from "@/lib/emcp/files"
 import {
   assertCanSteer,
   isSessionPrincipal,
@@ -1675,7 +1676,7 @@ export function registerExponentialTools(
       description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content, downscaled when large (the JSON's inline field reports what was sent; downloadUrl always has the original); small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
-    async ({ id }) => {
+    async ({ id }, extra) => {
       try {
         // Issue attachments first; EXP-1291: a conversation message's file
         // (`attachments.message_id`) shares the /api/attachments/{id} url
@@ -1742,6 +1743,16 @@ export function registerExponentialTools(
         if (`durationMs` in attachment && attachment.durationMs != null) {
           payload.durationMs = attachment.durationMs
         }
+        // #NEW-149 (files.json `download`): a client that declared the files
+        // extension's `download` (flag on) gets the signed URL as a DownloadTarget.
+        const filesMeta = downloadMetaFor(extra as unknown as EmcpToolContext, {
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          sizeBytes: attachment.sizeBytes,
+          downloadUrl: payload.downloadUrl as string,
+          expiresAt: expiresAt.toISOString(),
+        })
+        const withFilesMeta = <T extends object>(result: T) => (filesMeta ? { ...result, _meta: filesMeta } : result)
 
         const contentType = attachment.contentType
         // EXP-853 review: the inline copy goes through sharp, so classify
@@ -1781,7 +1792,7 @@ export function registerExponentialTools(
             bytes: inlineBytes.byteLength,
             downscaled: inlined?.downscaled ?? false,
           }
-          return {
+          return withFilesMeta({
             content: [
               {
                 type: `image` as const,
@@ -1793,10 +1804,10 @@ export function registerExponentialTools(
                 text: JSON.stringify(payload, null, 2),
               },
             ],
-          }
+          })
         }
 
-        return ok(payload)
+        return withFilesMeta(ok(payload))
       } catch (e) {
         return err(e)
       }

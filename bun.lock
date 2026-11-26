@@ -452,6 +452,7 @@
       "dependencies": {
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
+        "@exp/emcp": "workspace:*",
         "@exp/icons": "workspace:*",
         "@exp/plugin-kit": "workspace:*",
         "@exp/ui": "workspace:*",
