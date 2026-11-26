@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.listed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.DeviceLatestVersions
@@ -364,6 +365,15 @@ class AgentsViewModel @Inject constructor(
         }
     }
 
+    /** #EXP-2161: a team owner switches members' Assistants off on a
+     *  teammate's device, for [teamId]. */
+    fun dropAssistantTeam(device: SteerDevice, teamId: String) {
+        val rowId = device.rowId ?: return
+        mutateDevice(device.deviceId, "update", "sharing") { accountId ->
+            devicesApi.dropAssistantTeam(accountId, rowId, teamId)
+        }
+    }
+
     /** Ask a server daemon to self-update; it restarts when idle. */
     fun requestDeviceUpdate(deviceId: String): Unit =
         mutateDevice(deviceId, "update", "the device", retry = { requestDeviceUpdate(deviceId) }) { accountId ->
@@ -437,7 +447,7 @@ internal fun accountCommandKey(deviceId: String, agent: String, profileId: Strin
  * shared_team_ids && member teams`) — once each, ignoring [teamId].
  */
 fun composeDeviceList(
-    rows: List<DeviceEntity>,
+    allRows: List<DeviceEntity>,
     users: List<UserEntity>,
     teamId: String?,
     currentUserId: String?,
@@ -445,6 +455,8 @@ fun composeDeviceList(
     allTeams: Boolean = false,
 ): List<SteerDevice> {
     if (currentUserId == null) return emptyList()
+    // #EXP-2161 (member-space.json `listed`): a member space is never a device.
+    val rows = allRows.listed()
     val usersById = users.associateBy { it.id }
     // #EXP-1440: scoped to a team, an own machine shared only with OTHER
     // teams is theirs and never listed (`deviceUsableInTeam`).

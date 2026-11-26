@@ -1,5 +1,6 @@
 package com.exponential.app.ui.call
 
+import com.exponential.app.domain.listed
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import android.Manifest
@@ -84,6 +85,7 @@ import com.exponential.app.ui.theme.LocalReduceMotion
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -526,7 +528,7 @@ class AgentCallViewModel @Inject constructor(
 
     private val db = accountDatabaseFlow(auth, holder)
 
-    private val devices = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+    private val devices = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }.map { it.listed() }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val agent = agentId.flatMapLatest { id ->

@@ -159,6 +159,28 @@ describe(`install-trust.json space on the web`, () => {
     expect(trust.keep(wrap, bytes(keys.A!.installSecret))).toMatchObject({ keep: false })
   })
 
+  it(`a new root this install sealed itself: recorded \`verified\` at adoption, so it counts once its row arrives, over a reload too`, async () => {
+    let sight: RootSight = `unknown`
+    const { trust, io } = await installTrust({ installs: [], approvals: [] }, { store: build(space.stores.withSpace as unknown as StoreSpec), see: () => sight })
+    const store = memoryTreeKeyStore()
+    const api = { mine: async () => [], pending: async () => [], wrap: async () => ({ written: 0, skipped: 0 }), create: async () => ({}) } as unknown as SessionKeysApi
+    const secret = bytes(keys.A!.installSecret)
+    const holder = new KeyHolder(keys.A!.userId, `install-A`, secret, { api, store, trust })
+    const created = holder.newTreeKey([{ installId: `install-A`, userId: keys.A!.userId, x25519Public: keys.A!.x25519Public, endpointId: keys.A!.endpointId }], true)
+    await holder.adoptNewRoot(`root-new`, created)
+    expect(trust.recordOf(`root-new`, created.epoch)).toBe(`verified`)
+    expect(trust.store.rootMarks?.[`root-new`]).toBe(`unseen`)
+    // The next pass, and a reload, never take it for a key held before.
+    await holder.loadCache()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const again = new InstallTrust(keys.A!.userId, `install-A`, bytes(keys.A!.identity), { api: {} as TrustApi, io, see: () => sight })
+    await again.load()
+    await new KeyHolder(keys.A!.userId, `install-A`, secret, { api, store, trust: again }).loadCache()
+    expect(again.recordOf(`root-new`, created.epoch)).toBe(`verified`)
+    sight = `assistant`
+    expect(again.ownAssistant(`root-new`)).toBe(true)
+  })
+
   it(`keepCases, sealCases, targetCases through the own-Assistant lookup`, async () => {
     for (const mode of [`record`, `mandatory`] as const) {
       const at = (c: { now: unknown; mandatory: unknown }) => (mode === `record` ? c.now : c.mandatory) as Record<string, unknown>

@@ -413,6 +413,15 @@ fun AgentSettingsScreen(
         deviceId = picks.deviceId
         accountKey = picks.account?.let { account -> picks.cli?.let { "$it:$account" } }
     }
+    // #EXP-2161: the server moves an Assistant's device (a pick, its space
+    // ending): the row follows the synced one.
+    val syncedDeviceId = agent?.takeIf { it.isAssistant }?.runnerDefaults?.deviceId
+    LaunchedEffect(syncedDeviceId) {
+        if (seeded && agent?.isAssistant == true && syncedDeviceId != deviceId) {
+            deviceId = syncedDeviceId
+            accountKey = null
+        }
+    }
     LaunchedEffect(loadedInstructions) {
         val text = loadedInstructions ?: return@LaunchedEffect
         if (instructionsSeeded) return@LaunchedEffect
@@ -421,7 +430,13 @@ fun AgentSettingsScreen(
     }
 
     val deviceList = devices.orEmpty()
-    val device = deviceList.firstOrNull { it.deviceId == deviceId }
+    // #EXP-2161 (member-space.json): an Assistant bound to a member space
+    // reads the space's logins (its host's until it reports).
+    val spaces: AssistantSpacesViewModel = hiltViewModel()
+    val spaceRows by spaces.rows.collectAsStateWithLifecycle()
+    val isAssistantRow = agent?.isAssistant == true
+    val device = spaceRows.device?.takeIf { isAssistantRow && it.deviceId == deviceId }
+        ?: deviceList.firstOrNull { it.deviceId == deviceId }
     val accountOptions = remember(device) { accountOptionsFor(device, device?.acpAgents.orEmpty()) }
     // EXP-1306: the Account row's value = `agentAccountValue` over the pin
     // (`<cli>:<profile>` while editing, the synced row's cli otherwise).
@@ -506,6 +521,31 @@ fun AgentSettingsScreen(
                     accountKey = null
                     patch(UpdateAgentPatch(deviceId = it))
                 }
+            },
+            // #EXP-2161: the Assistant's Device row adds the team sections.
+            deviceRow = if (assistant && !isNew) {
+                {
+                    AssistantDeviceRow(
+                        deviceId = deviceId,
+                        own = pickerDevices,
+                        onPickOwn = { next ->
+                            if (next != deviceId) {
+                                deviceId = next
+                                accountKey = null
+                                patch(UpdateAgentPatch(deviceId = next))
+                            }
+                        },
+                        // `memberSpaces.request` bound it and cleared the account.
+                        onPickedSpace = { next ->
+                            deviceId = next
+                            accountKey = null
+                        },
+                        enabled = editable,
+                        viewModel = spaces,
+                    )
+                }
+            } else {
+                null
             },
             accounts = accountOptions.map { it.toPickerAccount() },
             accountValueKey = accountValueKey,
@@ -703,6 +743,9 @@ internal fun AgentSettingsContent(
     /** #EXP-1988 (`page.sections` › `team-picks`): the Assistant's one
      *  section per team, right after Runs on. */
     teamPicksSections: (@Composable () -> Unit)? = null,
+    /** #EXP-2161: replaces the Device row (the Assistant's, with its team
+     *  sections). */
+    deviceRow: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
@@ -769,6 +812,7 @@ internal fun AgentSettingsContent(
                 onModelChange = onModelChange,
                 skillsRow = skillsRow,
                 mcpRow = mcpRow,
+                deviceRow = deviceRow,
             )
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_DEVICE)))
@@ -859,9 +903,11 @@ internal fun AgentRunsOnRows(
     /** The Device sheet's headline (#EXP-1849: the slot's `Runs on`). */
     deviceTitle: String = deviceLabel,
     runner: Boolean = true,
+    /** #EXP-2161: replaces the Device row (the Assistant's [AssistantDeviceRow]). */
+    deviceRow: (@Composable () -> Unit)? = null,
 ) {
     val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
-    DevicePicker(
+    if (deviceRow != null) deviceRow() else DevicePicker(
         devices = devices,
         value = deviceId,
         onChange = onDeviceChange,

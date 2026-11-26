@@ -116,6 +116,10 @@ data class PickerItem<T>(
     /** #EXP-1832: set = a FOLDER row (read-only sidebar folders): never
      *  picked, a press folds it ([Picker]'s `onToggleGroup`). */
     val folder: PickerFolder? = null,
+    /** #EXP-2161: the muted heading this row's run of rows sits under (a
+     *  team's devices in Runs on; web `PickerItem.section`). Rows without one
+     *  come first, unheaded. */
+    val section: String? = null,
 ) {
     /** The keywords the row matches on: the explicit ones, else its label. */
     val searchKeywords: List<String> get() = keywords.ifEmpty { listOf(label) }
@@ -230,6 +234,23 @@ fun pickerPlacement(
 }
 
 object PickerRules {
+
+    /** #EXP-2161 (web `ComboboxList`): the rows in display order, the ones
+     *  without a [PickerItem.section] first, then each section's run in
+     *  first-seen order; the map names the heading drawn above a row index. */
+    fun <T> sectioned(items: List<PickerItem<T>>): Pair<List<PickerItem<T>>, Map<Int, String>> {
+        if (items.none { it.section != null }) return items to emptyMap()
+        val plain = items.filter { it.section == null }
+        val runs = LinkedHashMap<String, MutableList<PickerItem<T>>>()
+        for (item in items) item.section?.let { runs.getOrPut(it) { mutableListOf() } += item }
+        val ordered = plain.toMutableList()
+        val headings = HashMap<Int, String>()
+        for ((title, run) in runs) {
+            headings[ordered.size] = title
+            ordered += run
+        }
+        return ordered to headings
+    }
 
     /** A row matches when ANY of its keywords contains the query. */
     fun matches(item: PickerItem<*>, query: String): Boolean {
@@ -466,12 +487,14 @@ fun <T : Any> Picker(
     if (!isOpen) return
 
     val currentQuery = query ?: internalQuery
-    val rows = remember(items, groupedItems, currentQuery, search, filter) {
-        when {
-            groupedItems != null && currentQuery.isBlank() -> groupedItems
-            search && filter -> PickerRules.filter(items, currentQuery)
-            else -> items
-        }
+    val (rows, headings) = remember(items, groupedItems, currentQuery, search, filter) {
+        PickerRules.sectioned(
+            when {
+                groupedItems != null && currentQuery.isBlank() -> groupedItems
+                search && filter -> PickerRules.filter(items, currentQuery)
+                else -> items
+            },
+        )
     }
     val guides = remember(rows) { if (rows.any { it.depth > 0 }) TreeGuides.compute(rows.map { it.depth }) else null }
 
@@ -539,6 +562,7 @@ fun <T : Any> Picker(
                 item { EmptyState(title = emptyText, size = EmptyStateSize.List) }
             }
             itemsIndexed(rows, key = { _, row -> row.value }) { index, item ->
+                headings[index]?.let { PickerSectionHeading(it) }
                 PickerRow(
                     item = item,
                     mark = if (item.folder != null) PickerMark.None else PickerDefaults.mark(mode, PickerRules.checked(item, value), checkMarks),
@@ -599,6 +623,30 @@ fun <T : Any> Picker(
     } else {
         GlassSheet(title = title, onDismiss = { setOpen(false) }, modifier = sheetModifier, primaryAction = primaryAction, content = body)
     }
+}
+
+/**
+ * #EXP-2161: a run of rows' muted heading (a team's name over its devices),
+ * web's cmdk group heading: `text-xs font-medium text-muted-foreground`,
+ * level with the rows' text gutter.
+ */
+@Composable
+internal fun PickerSectionHeading(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = PickerDefaults.RowOuterPadding + PickerDefaults.RowInnerPadding,
+                end = PickerDefaults.RowOuterPadding + PickerDefaults.RowInnerPadding,
+                top = 10.dp,
+                bottom = 4.dp,
+            ),
+    )
 }
 
 /**
