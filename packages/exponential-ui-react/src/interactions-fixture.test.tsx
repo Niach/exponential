@@ -691,6 +691,50 @@ describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.
   }
 })
 
+// #EDE-247 boxPointer: `on.auxPress` (middle on press, right on release, the
+// context menu swallowed) and `on.scroll` (one per wheel step). Every step
+// sends the button's whole DOM sequence, so a double fire would show.
+interface BoxPointerCase {
+  name: string
+  steps: ({ aux: string; button: `middle` | `right` } | { press: string } | { wheel: string; notches: number; axis?: `x` })[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+const boxPointerFixture = (fixture as unknown as { boxPointer: { surface: NestedNode; cases: BoxPointerCase[] } }).boxPointer
+
+describe(`fixtures/interactions-round1.json boxPointer`, () => {
+  for (const c of boxPointerFixture.cases) {
+    it(`boxPointer: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ExponentialSurface root={tree(boxPointerFixture.surface)} theme="neutral" id="bp" host={{ onAction: (e) => void actions.push(e) }} />)
+      const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+      for (const s of c.steps) {
+        if (`aux` in s) {
+          const button = s.button === `middle` ? 1 : 2
+          fireEvent.mouseDown(box(s.aux), { button })
+          if (button === 2) fireEvent.contextMenu(box(s.aux), { button })
+          fireEvent.mouseUp(box(s.aux), { button })
+          fireEvent(box(s.aux), new MouseEvent(`auxclick`, { bubbles: true, cancelable: true, button }))
+        } else if (`wheel` in s) {
+          const delta = -3 * s.notches
+          fireEvent.wheel(box(s.wheel), { deltaMode: 1, deltaX: s.axis === `x` ? delta : 0, deltaY: s.axis === `x` ? 0 : delta })
+        } else fireEvent.click(box(s.press))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+  it(`boxPointer: pixel deltas accumulate to a step per 100 px; the context menu and page scroll are kept only with the handlers`, () => {
+    const actions: SurfaceActionEvent[] = []
+    const { container } = render(<ExponentialSurface root={tree(boxPointerFixture.surface)} theme="neutral" id="bp" host={{ onAction: (e) => void actions.push(e) }} />)
+    const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+    for (let i = 0; i < 5; i++) fireEvent.wheel(box(`a`), { deltaMode: 0, deltaY: 40 })
+    expect(actions.map((a) => a.context.direction)).toEqual([`down`, `down`])
+    expect(fireEvent.contextMenu(box(`a`))).toBe(false)
+    expect(fireEvent.wheel(box(`a`), { deltaMode: 1, deltaY: 3 })).toBe(false)
+    expect(fireEvent.contextMenu(box(`b`))).toBe(true)
+    expect(fireEvent.wheel(box(`b`), { deltaMode: 1, deltaY: 3 })).toBe(true)
+  })
+})
+
 // #EXP-1629 keyRecorder: a press while idle starts recording (`start` +
 // recording true), then every key and mouse buttons 3-5 go to `key`; blur
 // stops it; a host write of recording false stops it silently.
