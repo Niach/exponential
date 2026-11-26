@@ -17050,7 +17050,7 @@
           "at_exponential_component": {
             "kind": "macro",
             "group": "layout",
-            "lite": false,
+            "lite": true,
             "children": "none",
             "events": [
               "move"
@@ -17075,7 +17075,7 @@
           "items": {
             "$ref": "#/$defs/mapMarker"
           },
-          "description": "Pins."
+          "description": "Pins at x, y."
         },
         "style": {
           "$ref": "#/$defs/Style"

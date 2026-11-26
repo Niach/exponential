@@ -7821,7 +7821,7 @@
     "Board": {
       "kind": "macro",
       "group": "layout",
-      "lite": false,
+      "lite": true,
       "children": "none",
       "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
       "props": {
@@ -7895,7 +7895,7 @@
             "type": "object",
             "shape": "mapMarker"
           },
-          "description": "Pins."
+          "description": "Pins at x, y."
         }
       },
       "example": {

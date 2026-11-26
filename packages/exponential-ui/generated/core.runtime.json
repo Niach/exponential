@@ -5672,7 +5672,7 @@
     "Board": {
       "kind": "macro",
       "group": "layout",
-      "lite": false,
+      "lite": true,
       "children": "none",
       "props": {
         "columns": {

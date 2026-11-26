@@ -3830,7 +3830,7 @@
           "description": "Place name."
         },
         "markers": {
-          "description": "Pins."
+          "description": "Pins at x, y."
         }
       },
       "description": "Map: the host's `map:` tile, else a grid + pin; `markers` at 0..1.",

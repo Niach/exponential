@@ -9814,7 +9814,7 @@
       "name": "Board",
       "kind": "macro",
       "group": "layout",
-      "lite": false,
+      "lite": true,
       "specimenId": "exponential-ui-board",
       "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
       "children": "none",
@@ -9906,7 +9906,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Pins."
+          "description": "Pins at x, y."
         }
       ],
       "accessibility": {
