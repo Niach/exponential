@@ -60,6 +60,7 @@ pub fn config_json() -> Value {
     let kb = t.get("keyboard").and_then(|v| v.as_table()).cloned().unwrap_or_default();
     let theme = t.get("theme").and_then(|v| v.as_table()).cloned().unwrap_or_default();
     let diagnostics = t.get("diagnostics").and_then(|v| v.as_table()).cloned().unwrap_or_default();
+    let display = display_flags(&t);
     json!({
         "keyboard": {
             "layout": kb.get("layout").and_then(|v| v.as_str()).filter(|l| !l.is_empty()).unwrap_or("us"),
@@ -75,7 +76,47 @@ pub fn config_json() -> Value {
         "diagnostics": {
             "send": diagnostics.get("send").and_then(|v| v.as_bool()).unwrap_or(true),
         },
+        // #EDE-250: the Display page's switches (the compositor's `[display]`).
+        "display": {
+            "fractional_scaling": display.fractional_scaling,
+            "xwayland_native_scaling": display.xwayland_native_scaling,
+        },
     })
+}
+
+/// `[display]` as the compositor reads it (#EDE-250), defaults on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DisplayFlags {
+    pub fractional_scaling: bool,
+    pub xwayland_native_scaling: bool,
+}
+
+fn display_flags(t: &toml::Table) -> DisplayFlags {
+    let display = t.get("display").and_then(|v| v.as_table());
+    let flag = |k: &str| display.and_then(|d| d.get(k)).and_then(|v| v.as_bool()).unwrap_or(true);
+    DisplayFlags { fractional_scaling: flag("fractional_scaling"), xwayland_native_scaling: flag("xwayland_native_scaling") }
+}
+
+/// The scales the Display page offers (#EDE-250), Cinnamon's steps: every
+/// quarter from 100 % to 300 % with fractional scaling, else 100 %, 200 %,
+/// 300 %. The output's own scale is always among them (one set by hand or
+/// before fractional scaling went off).
+pub fn scale_options(fractional: bool, current: f64) -> Vec<Value> {
+    let mut steps: Vec<f64> = if fractional { (4..=12).map(|q| q as f64 / 4.0).collect() } else { vec![1.0, 2.0, 3.0] };
+    if !steps.iter().any(|s| (s - current).abs() < 0.001) && current > 0.0 {
+        steps.push(current);
+        steps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    }
+    steps.into_iter().map(|s| json!({"label": format!("{}%", (s * 100.0).round() as i64), "value": scale_text(s)})).collect()
+}
+
+/// `1`, `1.25`, `2`: a scale as the page's values spell it.
+pub fn scale_text(scale: f64) -> String {
+    if (scale - scale.round()).abs() < 0.001 {
+        format!("{}", scale.round() as i64)
+    } else {
+        format!("{}", (scale * 1000.0).round() / 1000.0)
+    }
 }
 
 /// The bridge's choice as one line; the demo never reads the machine.
@@ -91,7 +132,7 @@ fn theme_summary() -> String {
 /// `ede_settings` (settings_pages) adds `windows`.
 pub fn persist_config(args: &Value) -> Result<(), String> {
     let mut t = read_table();
-    for section in ["keyboard", "theme", "windows", "diagnostics"] {
+    for section in ["keyboard", "theme", "windows", "diagnostics", "display"] {
         let Some(changes) = args.get(section).and_then(Value::as_object) else { continue };
         let entry = t.entry(section).or_insert(toml::Value::Table(toml::Table::new()));
         let Some(table) = entry.as_table_mut() else { return Err(format!("[{section}] is not a table")) };
@@ -139,14 +180,15 @@ fn mode_label(m: &ede_protocol::ModeInfo) -> String {
 
 /// The Displays page's outputs: the person's (#EDE-91).
 pub fn outputs_json(outputs: &[ede_protocol::OutputInfo]) -> Vec<Value> {
-    outputs.iter().filter(|o| o.is_persons()).map(output_json).collect()
+    let fractional = display_flags(&read_table()).fractional_scaling;
+    outputs.iter().filter(|o| o.is_persons()).map(|o| output_json(o, fractional)).collect()
 }
 
 /// An output as the Displays page binds it.
-pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
+pub fn output_json(o: &ede_protocol::OutputInfo, fractional: bool) -> Value {
     let current = o.modes.iter().find(|m| m.current).map(mode_label).unwrap_or_default();
     let options: Vec<Value> = o.modes.iter().map(|m| json!({"label": format!("{}{}", mode_label(m), if m.preferred { " (preferred)" } else { "" }), "value": mode_label(m)})).collect();
-    let scale_text = if (o.scale - o.scale.round()).abs() < 0.01 { format!("{}", o.scale.round() as i64) } else { format!("{}", o.scale) };
+    let scale_text = scale_text(o.scale);
     json!({
         "name": o.name,
         "summary": format!("{} {} · {}×{} at {}× ({}, {})", o.make, o.model, o.width, o.height, o.scale, o.x, o.y).trim().to_string(),
@@ -154,6 +196,7 @@ pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
         "modeOptions": options,
         "scale": o.scale,
         "scaleText": scale_text,
+        "scaleOptions": scale_options(fractional, o.scale),
         "width": o.width,
         "height": o.height,
     })
@@ -253,12 +296,31 @@ pub fn demo_services() -> Value {
 }
 
 pub fn demo_outputs() -> Vec<Value> {
-    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1", "width": 1280, "height": 720})]
+    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1", "scaleOptions": scale_options(true, 1.0), "width": 1280, "height": 720})]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scale_steps_follow_the_fractional_switch() {
+        let values = |v: Vec<Value>| v.iter().map(|o| o["value"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(values(scale_options(true, 1.0)), ["1", "1.25", "1.5", "1.75", "2", "2.25", "2.5", "2.75", "3"]);
+        assert_eq!(values(scale_options(false, 2.0)), ["1", "2", "3"]);
+        // A fractional scale stays pickable after the switch went off.
+        assert_eq!(values(scale_options(false, 1.25)), ["1", "1.25", "2", "3"]);
+        assert_eq!(scale_options(true, 1.75)[3]["label"], "175%");
+        assert_eq!(scale_text(1.5), "1.5");
+        assert_eq!(scale_text(2.0000001), "2");
+    }
+
+    #[test]
+    fn display_flags_default_on() {
+        assert_eq!(display_flags(&toml::Table::new()), DisplayFlags { fractional_scaling: true, xwayland_native_scaling: true });
+        let t: toml::Table = toml::from_str("[display]\nfractional_scaling = false\n").unwrap();
+        assert!(!display_flags(&t).fractional_scaling);
+    }
 
     /// #EDE-91: the Displays page lists the person's outputs, never an agent space's.
     #[test]

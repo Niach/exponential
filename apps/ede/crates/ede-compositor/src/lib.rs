@@ -41,6 +41,7 @@ pub mod peer;
 pub mod popup_namespace;
 pub mod protected;
 pub mod recovery;
+pub mod scaling;
 pub mod sealed;
 pub mod services;
 pub mod shortcuts;

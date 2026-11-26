@@ -39,6 +39,33 @@ pub struct Config {
     pub session: Session,
     /// `[control]`: who may present the root token (#EDE-172, design v3).
     pub control: Control,
+    /// `[display]`: scaling across outputs (#EDE-250).
+    pub display: Display,
+}
+
+/// `[display]` (#EDE-250): how scaling reaches what is not a native
+/// Wayland client, and what the Display page offers.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Display {
+    /// Offer 125 %, 150 %, 175 %… on the Display page (Cinnamon's
+    /// "fractional scaling"); off = 100 %, 200 %, 300 % only. The compositor
+    /// takes any configured scale either way.
+    pub fractional_scaling: bool,
+    /// X11 apps draw at the full resolution of the most scaled output and
+    /// are shown at its scale (sharp; Xwayland told the scale through
+    /// XSETTINGS and `Xft.dpi`), as KWin and Mutter's native Xwayland
+    /// scaling do. Off = they draw at 1 and are stretched (blurry).
+    pub xwayland_native_scaling: bool,
+    /// An output with no `[[outputs]]` scale takes 200 % when it is HiDPI
+    /// (Mutter's rule: 192 dpi and 1200 px tall), else 100 %.
+    pub auto_scale: bool,
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self { fractional_scaling: true, xwayland_native_scaling: true, auto_scale: true }
+    }
 }
 
 /// `[session]` (#EDE-172). Read at the compositor's start only.
@@ -260,6 +287,7 @@ impl Default for Config {
             theme: toml::Table::new(),
             session: Session::default(),
             control: Control::default(),
+            display: Display::default(),
         }
     }
 }

@@ -169,6 +169,9 @@ impl WlrLayerShellHandler for Ede {
         };
         let layer = LayerSurface::new(surface, namespace);
         layer.user_data().insert_if_missing(|| origin);
+        // #EDE-250: its output's scale. Its wp_fractional_scale came before
+        // the layer surface (gpui asks first), when it was on no output yet.
+        crate::outputs::set_surface_scale(layer.wl_surface(), output.current_scale().fractional_scale());
         let mut map = layer_map_for_output(&output);
         if let Err(e) = map.map_layer(&layer) {
             tracing::warn!("layer surface refused: {e}");

@@ -6,6 +6,7 @@
 //! ```text
 //! exponential-ctl windows                          the open windows as JSON lines
 //! exponential-ctl outputs                          the outputs
+//! exponential-ctl output NAME [--scale S] [--mode WxH@R] [--position X,Y]  change one (as the Display page does)
 //! exponential-ctl capture [--output NAME | --window ID] --png FILE   a capture as a PNG
 //! exponential-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
 //! exponential-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
@@ -46,7 +47,7 @@ use std::{
 
 use ede_protocol::{Capability, CaptureTarget, Client, ErrorCode, InputEvent, SessionId, SpaceId, WindowId};
 
-const USAGE: &str = "usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID | --space ID] --png FILE [--expect-drawn] | space create [WxH] [--session NAME] | space list | space destroy ID | launch [--cwd DIR] [--env K=V] -- ARGV | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID | session (those commands from stdin, one per line)";
+const USAGE: &str = "usage: exponential-ctl windows | outputs | output NAME [--scale S] [--mode WxH@R] [--position X,Y] | capture [--output NAME | --window ID | --space ID] --png FILE [--expect-drawn] | space create [WxH] [--session NAME] | space list | space destroy ID | launch [--cwd DIR] [--env K=V] -- ARGV | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID | session (those commands from stdin, one per line)";
 
 /// A command that does not parse.
 #[derive(Debug)]
@@ -215,6 +216,23 @@ fn run(ede: &mut Client, mut args: impl Iterator<Item = String>) -> Result<()> {
             for o in ede.outputs()? {
                 println!("{}", serde_json::to_string(&o)?);
             }
+        }
+        "output" => {
+            let name = next(&mut args)?;
+            let (mut mode, mut scale, mut position) = (None, None, None);
+            while let Some(flag) = args.next() {
+                match flag.as_str() {
+                    "--scale" => scale = Some(next(&mut args)?.parse::<f64>().map_err(|e| format!("--scale: {e}"))?),
+                    "--mode" => mode = Some(next(&mut args)?),
+                    "--position" => {
+                        let text = next(&mut args)?;
+                        let (x, y) = text.split_once(',').ok_or("--position needs X,Y")?;
+                        position = Some((x.trim().parse::<i32>().map_err(|e| format!("--position: {e}"))?, y.trim().parse::<i32>().map_err(|e| format!("--position: {e}"))?));
+                    }
+                    _ => return Err(Usage.into()),
+                }
+            }
+            ede.set_output(&name, mode.as_deref(), scale, position)?;
         }
         "capture" => {
             let mut target: Option<CaptureTarget> = None;
