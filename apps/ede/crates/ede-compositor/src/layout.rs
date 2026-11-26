@@ -16,6 +16,10 @@ pub enum Tile {
     Maximized,
     Left,
     Right,
+    /// #EDE-243: Muffin's push-tile up/down (Super+Up/Down): the top or
+    /// bottom half. Only the keys reach them; an edge drag never does.
+    Top,
+    Bottom,
     TopLeft,
     TopRight,
     BottomLeft,
@@ -35,11 +39,68 @@ impl Tile {
             Tile::Maximized => area,
             Tile::Left => r(x, y, lw, h),
             Tile::Right => r(x + lw, y, rw, h),
+            Tile::Top => r(x, y, w, th),
+            Tile::Bottom => r(x, y + th, w, bh),
             Tile::TopLeft => r(x, y, lw, th),
             Tile::TopRight => r(x + lw, y, rw, th),
             Tile::BottomLeft => r(x, y + th, lw, bh),
             Tile::BottomRight => r(x + lw, y + th, rw, bh),
         }
+    }
+}
+
+/// A Super+arrow's direction (Muffin's push-tile).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Push {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Muffin's `get_new_tile_mode` (keybindings.c), verbatim in its outcomes:
+/// where Super+`push` takes a window tiled `current` (`None` = floating);
+/// `None` back = untile (restore). Equal to `current` = nothing happens.
+pub fn push_tile(current: Option<Tile>, push: Push) -> Option<Tile> {
+    use Push as P;
+    use Tile as T;
+    match (current, push) {
+        (None, P::Left) => Some(T::Left),
+        (None, P::Right) => Some(T::Right),
+        (None, P::Up) => Some(T::Top),
+        (None, P::Down) => Some(T::Bottom),
+        (Some(T::Maximized), P::Left) => Some(T::Left),
+        (Some(T::Maximized), P::Right) => Some(T::Right),
+        (Some(T::Maximized), P::Up) => Some(T::Maximized),
+        (Some(T::Maximized), P::Down) => Some(T::Top),
+        (Some(T::Left), P::Left) => Some(T::Left),
+        (Some(T::Left), P::Right) => None,
+        (Some(T::Left), P::Up) => Some(T::TopLeft),
+        (Some(T::Left), P::Down) => Some(T::BottomLeft),
+        (Some(T::Right), P::Left) => None,
+        (Some(T::Right), P::Right) => Some(T::Right),
+        (Some(T::Right), P::Up) => Some(T::TopRight),
+        (Some(T::Right), P::Down) => Some(T::BottomRight),
+        (Some(T::Top), P::Left) => Some(T::TopLeft),
+        (Some(T::Top), P::Right) => Some(T::TopRight),
+        (Some(T::Top), P::Up) => Some(T::Maximized),
+        (Some(T::Top), P::Down) => None,
+        (Some(T::Bottom), P::Left) => Some(T::BottomLeft),
+        (Some(T::Bottom), P::Right) => Some(T::BottomRight),
+        (Some(T::Bottom), P::Up) => None,
+        (Some(T::Bottom), P::Down) => Some(T::Bottom),
+        (Some(T::TopLeft), P::Left | P::Up) => Some(T::TopLeft),
+        (Some(T::TopLeft), P::Right) => Some(T::Top),
+        (Some(T::TopLeft), P::Down) => Some(T::Left),
+        (Some(T::BottomLeft), P::Left | P::Down) => Some(T::BottomLeft),
+        (Some(T::BottomLeft), P::Right) => Some(T::Bottom),
+        (Some(T::BottomLeft), P::Up) => Some(T::Left),
+        (Some(T::TopRight), P::Right | P::Up) => Some(T::TopRight),
+        (Some(T::TopRight), P::Left) => Some(T::Top),
+        (Some(T::TopRight), P::Down) => Some(T::Right),
+        (Some(T::BottomRight), P::Right | P::Down) => Some(T::BottomRight),
+        (Some(T::BottomRight), P::Left) => Some(T::Bottom),
+        (Some(T::BottomRight), P::Up) => Some(T::Right),
     }
 }
 
@@ -252,5 +313,24 @@ mod tests {
         // has the pointer inside it.
         let p = untile_location((480.0, 900.0).into(), tiled, (600, 400).into());
         assert_eq!(p, (180, 700).into());
+    }
+
+    /// #EDE-243: Muffin's push-tile walk: halves, quarters by combination,
+    /// Up twice maximizes, the opposite half restores.
+    #[test]
+    fn super_arrows_walk_like_muffin() {
+        let walk = |start: Option<Tile>, keys: &[Push]| keys.iter().fold(start, |t, k| push_tile(t, *k));
+        assert_eq!(walk(None, &[Push::Up]), Some(Tile::Top));
+        assert_eq!(walk(None, &[Push::Up, Push::Up]), Some(Tile::Maximized));
+        assert_eq!(walk(None, &[Push::Left, Push::Up]), Some(Tile::TopLeft));
+        assert_eq!(walk(None, &[Push::Left, Push::Down]), Some(Tile::BottomLeft));
+        assert_eq!(walk(None, &[Push::Left, Push::Right]), None, "the opposite side restores");
+        assert_eq!(walk(None, &[Push::Down, Push::Right]), Some(Tile::BottomRight));
+        assert_eq!(walk(None, &[Push::Up, Push::Down]), None);
+        assert_eq!(walk(Some(Tile::Maximized), &[Push::Down]), Some(Tile::Top), "maximized: Down halves to the top");
+        assert_eq!(walk(Some(Tile::TopRight), &[Push::Left]), Some(Tile::Top));
+        let area = Rectangle::new((0, 32).into(), (1000, 600).into());
+        assert_eq!(Tile::Top.rect(area), Rectangle::new((0, 32).into(), (1000, 300).into()));
+        assert_eq!(Tile::Bottom.rect(area), Rectangle::new((0, 332).into(), (1000, 300).into()));
     }
 }

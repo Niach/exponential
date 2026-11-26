@@ -8,6 +8,8 @@ pub use resize::{ResizeEdge, ResizeSurfaceGrab};
 
 /// linux/input-event-codes.h
 pub const BTN_LEFT: u32 = 0x110;
+/// #EDE-243: Alt+right-drag resizes.
+pub const BTN_RIGHT: u32 = 0x111;
 
 use smithay::{
     desktop::Window,

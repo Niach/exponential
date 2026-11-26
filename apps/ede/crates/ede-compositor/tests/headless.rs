@@ -23,8 +23,9 @@ const BACKGROUND: u32 = 0xff0a_0a0a;
 const KEY_LEFTALT: u32 = 56 + 8;
 const KEY_LEFTMETA: u32 = 125 + 8;
 const KEY_F4: u32 = 62 + 8;
-const KEY_UP: u32 = 103 + 8;
-const KEY_DOWN: u32 = 108 + 8;
+// #EDE-243: Cinnamon maximizes with Alt+F10 and unmaximizes with Alt+F5 (Super+Up/Down tile halves).
+const KEY_F5: u32 = 63 + 8;
+const KEY_F10: u32 = 68 + 8;
 const KEY_LEFT: u32 = 105 + 8;
 const BTN_LEFT: u32 = 0x110;
 
@@ -174,20 +175,20 @@ fn window_edges_stick_to_the_screen_edge() {
 }
 
 #[test]
-fn super_up_maximizes_and_super_down_restores() {
+fn alt_f10_maximizes_and_alt_f5_restores() {
     let h = harness(&[(1280, 800)]);
     let mut c = Session::connect(h.connect());
     let t = c.toplevel("w");
     c.draw(&t, 400, 300, RED);
     wait_for(&mut c, |_| !windows(&h).is_empty());
 
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     wait_for(&mut c, |c| c.state.toplevels[0].states.contains(&XdgState::Maximized));
     assert_eq!(c.state.toplevels[0].size, (1280, 800));
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((0, 0).into(), (1280, 800).into()));
 
-    chord(&h, KEY_LEFTMETA, KEY_DOWN);
+    chord(&h, KEY_LEFTALT, KEY_F5);
     wait_for(&mut c, |c| !c.state.toplevels[0].states.contains(&XdgState::Maximized));
     assert_eq!(c.state.toplevels[0].size, (400, 300));
     c.draw_configured(&t, 0, 0, RED);
@@ -345,7 +346,7 @@ fn the_panel_margin_keeps_windows_off_the_frame() {
     wait_for(&mut c, |_| !windows(&h).is_empty());
     assert_eq!(windows(&h)[0].1.loc, (440, 230).into(), "centred in the inset area");
 
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     wait_for(&mut c, |c| c.state.toplevels[0].size == (1260, 740));
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[0].1 == Rectangle::new((10, 10).into(), (1260, 740).into()));
@@ -376,7 +377,7 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
     wait_for(&mut c, |_| !windows(&h).is_empty());
     assert_eq!(windows(&h)[0].1.loc, (440, 230).into(), "centred in the 760 px above the panel");
 
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 760));
     c.draw_configured(&t, 0, 0, RED);
     wait_for(&mut c, |_| windows(&h)[0].1.size == (1280, 760).into());
@@ -500,8 +501,8 @@ fn fullscreen_covers_the_panel_and_the_output_shows_only_that_window() {
     let frame = h.capture(0);
     assert_eq!((frame.at(640, 790), frame.at(0, 0)), (RED, RED), "over the panel");
 
-    // Super+Up does nothing to a fullscreen window; leaving restores it.
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    // Alt+F10 does nothing to a fullscreen window; leaving restores it.
+    chord(&h, KEY_LEFTALT, KEY_F10);
     t.toplevel.unset_fullscreen();
     c.roundtrip();
     wait_for(&mut c, |c| !c.state.toplevels[1].states.contains(&XdgState::Fullscreen));
@@ -1733,7 +1734,7 @@ fn a_maximized_window_dragged_away_floats_under_the_pointer_at_the_same_grab_poi
     let t = c.toplevel("w");
     c.draw(&t, 400, 300, RED);
     wait_for(&mut c, |_| !windows(&h).is_empty());
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 800));
     c.draw_configured(&t, 0, 0, RED);
     // Grabbed at a quarter of its width, 20 px down.
@@ -1764,16 +1765,16 @@ fn tiling_respects_the_clients_minimum_and_fixed_sizes() {
     assert_eq!(first_tile(&h), None);
     chord(&h, KEY_LEFTMETA, KEY_LEFT);
     assert_eq!(first_tile(&h), None, "Super+Left neither");
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     assert_eq!(first_tile(&h), Some(Tile::Maximized), "the whole screen holds it");
-    chord(&h, KEY_LEFTMETA, KEY_DOWN);
+    chord(&h, KEY_LEFTALT, KEY_F5);
     wait_for(&mut c, |c| c.state.toplevels[0].size == (700, 300));
     c.draw_configured(&t, 0, 0, RED);
 
     // Fixed size.
     t.toplevel.set_max_size(700, 300);
     c.draw_configured(&t, 0, 0, RED);
-    chord(&h, KEY_LEFTMETA, KEY_UP);
+    chord(&h, KEY_LEFTALT, KEY_F10);
     assert_eq!(first_tile(&h), None, "a fixed size never maximizes");
     let configures = c.state.toplevels[0].configures;
     t.toplevel.set_maximized();

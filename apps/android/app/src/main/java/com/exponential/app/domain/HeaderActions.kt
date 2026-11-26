@@ -38,4 +38,28 @@ object HeaderActions {
             entry != SEPARATOR || (index > 0 && index < kept.size - 1 && kept[index - 1] != SEPARATOR)
         }
     }
+
+    /** #EXP-2183 COLLAPSE: the title keeps at least this share of a narrow bar. */
+    const val TITLE_MIN_SHARE = 0.6
+
+    /** The fold order: the Merge pill first, then the waiting chip. */
+    val COLLAPSE_ORDER: List<String> = listOf("primary", "status")
+
+    data class CollapseChip(val action: String, val full: Float, val compact: Float)
+
+    /** TS `headerCollapse`: fold chips in [COLLAPSE_ORDER] until the title gets
+     *  `min(title, TITLE_MIN_SHARE × bar)`; the folded actions in fold order.
+     *  [fixed] = what never folds (back, disc, call, +, …, gaps, padding). */
+    fun collapse(bar: Float, title: Float, fixed: Float, chips: List<CollapseChip>): List<String> {
+        val target = minOf(title, (TITLE_MIN_SHARE * bar).toFloat())
+        var used = fixed + chips.sumOf { it.full.toDouble() }.toFloat()
+        val folded = mutableListOf<String>()
+        for (action in COLLAPSE_ORDER) {
+            if (bar - used >= target) break
+            val chip = chips.firstOrNull { it.action == action } ?: continue
+            used -= chip.full - chip.compact
+            folded += action
+        }
+        return folded
+    }
 }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.exponential.app.ui.components.headerFoldChip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -276,8 +277,12 @@ fun AgentSettingsItem(agentId: String, onClose: () -> Unit, onDeleted: () -> Uni
 fun SessionWaitingButton(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val name = WaitingCards.waitingCountLabel(count)
     val shape = RoundedCornerShape(10.dp)
+    // #EXP-2183 (header-actions.json COLLAPSE): folded = the icon alone, the
+    // count read out (its accessible name).
+    val folded = com.exponential.app.ui.components.headerFolded("status")
     Row(
         modifier = modifier
+            .then(Modifier.headerFoldChip("status", count, 34.dp))
             .clip(shape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .clickable(onClick = onClick)
@@ -293,14 +298,16 @@ fun SessionWaitingButton(count: Int, onClick: () -> Unit, modifier: Modifier = M
             tint = DesignTokens.Semantic.Yellow,
             modifier = Modifier.size(14.dp),
         )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            "$count",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
-            softWrap = false,
-        )
+        if (!folded) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
     }
 }
 
