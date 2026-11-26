@@ -358,7 +358,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-list",
-      "description": "Windowed list for anything past a screen; children may be a data template.",
+      "description": "Windowed list; children may be a data template.",
       "children": "many",
       "slots": [
         "section"
