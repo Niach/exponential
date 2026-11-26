@@ -9,7 +9,7 @@
 //! exponential-ctl capture [--output NAME | --window ID] --png FILE   a capture as a PNG
 //! exponential-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
 //! exponential-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
-//! exponential-ctl pointer <x> <y> [--click|--press|--release] [--bindings]  pointer motion, optionally a left click, or one edge of it for a drag (--bindings = as the person's)
+//! exponential-ctl pointer <x> <y> [--click|--press|--release] [--right] [--bindings]  pointer motion, optionally a left click (--right: the right button, a context menu), or one edge of it for a drag (--bindings = as the person's)
 //! exponential-ctl minimize <id> | restore <id>                         into the taskbar and back (#EDE-48)
 //! exponential-ctl space create [WxH] [--session NAME]    an agent space (#EDE-126): mints a space grant, makes its space, prints it with the grant's token
 //! exponential-ctl space list | space destroy <id>        the spaces (all of them with the root token); close one
@@ -46,7 +46,7 @@ use std::{
 
 use ede_protocol::{Capability, CaptureTarget, Client, ErrorCode, InputEvent, SessionId, SpaceId, WindowId};
 
-const USAGE: &str = "usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID | --space ID] --png FILE [--expect-drawn] | space create [WxH] [--session NAME] | space list | space destroy ID | launch [--cwd DIR] [--env K=V] -- ARGV | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--bindings] | minimize ID | restore ID | session (those commands from stdin, one per line)";
+const USAGE: &str = "usage: exponential-ctl windows | outputs | capture [--output NAME | --window ID | --space ID] --png FILE [--expect-drawn] | space create [WxH] [--session NAME] | space list | space destroy ID | launch [--cwd DIR] [--env K=V] -- ARGV | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click|--press|--release] [--right] [--bindings] | minimize ID | restore ID | session (those commands from stdin, one per line)";
 
 /// A command that does not parse.
 #[derive(Debug)]
@@ -275,12 +275,14 @@ fn run(ede: &mut Client, mut args: impl Iterator<Item = String>) -> Result<()> {
             let bindings = rest.iter().any(|a| a == "--bindings");
             let mut send = |event: InputEvent| -> std::result::Result<(), ede_protocol::Error> { if bindings { ede.input_as_person(event) } else { ede.input(event) } };
             send(InputEvent::PointerMotion { x, y })?;
+            // BTN_LEFT, or BTN_RIGHT with --right (#EDE-252: a panel's context menu).
+            let button = if rest.iter().any(|a| a == "--right") { 0x111 } else { 0x110 };
             let click = rest.iter().any(|a| a == "--click");
             if click || rest.iter().any(|a| a == "--press") {
-                send(InputEvent::PointerButton { button: 0x110, pressed: true })?;
+                send(InputEvent::PointerButton { button, pressed: true })?;
             }
             if click || rest.iter().any(|a| a == "--release") {
-                send(InputEvent::PointerButton { button: 0x110, pressed: false })?;
+                send(InputEvent::PointerButton { button, pressed: false })?;
             }
         }
         "space" => match args.next().as_deref() {

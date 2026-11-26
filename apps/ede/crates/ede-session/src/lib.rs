@@ -29,6 +29,17 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
     ("QT_QPA_PLATFORM", "wayland;xcb"),
     ("ELECTRON_OZONE_PLATFORM_HINT", "auto"),
     ("_JAVA_AWT_WM_NONREPARENTING", "1"),
+    // Chromium and Electron (Signal, VS Code, Brave) pick their password
+    // store from the desktop's name: an unknown XDG_CURRENT_DESKTOP gets
+    // `basic_text`, no Secret Service, and Signal refuses a database whose
+    // key the Cinnamon login stored in `gnome_libsecret`. Their last fallback
+    // is this variable (what gnome-session still sets), so they use the
+    // login keyring gnome-keyring keeps (PAM unlocks it at login,
+    // exponential-keyring.service joins it), without claiming GNOME in
+    // XDG_CURRENT_DESKTOP (autostart OnlyShowIn and portals.conf read that).
+    // Flameshot reads it too: without it, it refuses to capture on Wayland;
+    // with it, it takes the portal path.
+    ("GNOME_DESKTOP_SESSION_ID", "this-is-deprecated"),
 ];
 
 /// What systemd and D-Bus activation need to know once the compositor runs.
@@ -39,7 +50,7 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
 /// the polkit agent, the portal and the services daemon (P13) itself; their
 /// units are conditioned off by it (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`).
 pub const EXPORTED_ENV: &[&str] =
-    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
+    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "GNOME_DESKTOP_SESSION_ID", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
 
 /// xdg-desktop-portal reads `XDG_CURRENT_DESKTOP` (and so which
 /// `<desktop>-portals.conf` routes Screenshot/ScreenCast to us) once, when it
@@ -583,6 +594,9 @@ mod tests {
             }
         }
         assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "Exponential");
+        // Chromium/Electron's keyring pick: a set GNOME_DESKTOP_SESSION_ID means
+        // gnome-libsecret; it reaches the device, autostart and D-Bus-activated apps.
+        assert!(SESSION_ENV.iter().any(|(k, v)| *k == "GNOME_DESKTOP_SESSION_ID" && !v.is_empty()) && EXPORTED_ENV.contains(&"GNOME_DESKTOP_SESSION_ID"));
         // #EDE-2: the shell runs under the supervisor, and only once the
         // compositor's display reached systemd (`exponential-session --ready`).
         let shell = std::fs::read_to_string(root.join("systemd/exponential-shell.service")).unwrap();

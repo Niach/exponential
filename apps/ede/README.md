@@ -96,9 +96,10 @@ shell documents' commits with Undo and Reset to factory, on demand),
 opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
 workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
 thumbnails, #EDE-49), `osd.express`, `notifications.express` (the toasts, top-right, on
-demand), `notification-center.express` (the bell's popup) and `tray-menu.express`
-(a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it. A layer document's root is opaque (`$color.background`
+demand) and `notification-center.express` (the bell's popup). The panel's menus
+(an app's, Start's, the clock's, a tray item's dbusmenu) are genUI `Menu`s in
+`taskbar.express`, opening above the panel (#EDE-252). A click outside an open
+popup, or Escape in it, closes it. A layer document's root is opaque (`$color.background`
 for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
 the OSD and the switcher): `$color.card` is a white
 glaze at 6% in the dark theme, right inside a window, see-through for a
