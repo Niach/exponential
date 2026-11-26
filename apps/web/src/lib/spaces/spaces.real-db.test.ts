@@ -740,11 +740,12 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
       .returning({ id: messages.id })
     expect(await refusal(me.sessions.answer({ messageId: card!.id, answer: `a` } as never))).toBe(MEMBER_SPACE_COPY.noDevice)
     expect(await refusal(me.sessions.answer({ messageId: card!.id, dismissed: true } as never))).toBe(`ok`)
+    // One at a time: a refusal nobody awaits yet is an unhandled rejection.
     for (const call of [
-      me.voice.startCall({ agentId: r.agentId, platform: `web` } as never),
-      me.voice.callSession({ agentId: r.agentId }),
+      () => me.voice.startCall({ agentId: r.agentId, platform: `web` } as never),
+      () => me.voice.callSession({ agentId: r.agentId }),
     ]) {
-      expect(await refusal(call)).toBe(MEMBER_SPACE_COPY.noDevice)
+      expect(await refusal(call())).toBe(MEMBER_SPACE_COPY.noDevice)
     }
     // Its schedules are spent, not piled up.
     const { fireScheduledTriggers } = await import(`@/lib/agents/triggers`)
