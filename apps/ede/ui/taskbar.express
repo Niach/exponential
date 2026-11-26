@@ -27,7 +27,7 @@
 # settings, Cinnamon's calendar applet) or on a tray item opens one; a tray item's menu is its dbusmenu (/tray/*/menu, read
 # again while the pointer is on it); a left click activates it, or opens the same menu for an item
 # that is only a menu (ItemIsMenu, or an AppIndicator: /tray/*/menuOnPress), as Cinnamon's tray does.
-# #EDE-237: a tray slot is Cinnamon's applet box: the icon 24 px (a symbolic one 16 px, centred; the
+# #EDE-247: a tray slot is Cinnamon's applet box: the icon 24 px (a symbolic one 16 px, centred; the
 # shell draws it at the output's device size, tray_icon.rs), 5 px either side, the hover colour while
 # hovered or pressed; the middle button = SecondaryActivate, a right click on an item without a menu =
 # ContextMenu, the wheel = Scroll (ede_tray_input, Box auxPress / scroll).

@@ -7,7 +7,7 @@ import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, us
 import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, resolveContextOf, useSurfaceContext } from "../context"
 import { MotionContext, usePresence } from "../presence"
-import { getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { attachBoxPointer, getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
@@ -31,7 +31,17 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
   useEffect(() => {
     if (recording && ref.current && document.activeElement !== ref.current) ref.current.focus()
   }, [recording])
-  if (!pressable) return <div {...(rootProps as Record<string, unknown>)} onPointerEnter={onPointerEnter}>{children}</div>
+  // #EDE-247: `on.auxPress` (middle on press, right on release) and
+  // `on.scroll` (one per wheel step), native listeners only when present.
+  const auxPress = Boolean(node.on?.auxPress)
+  const scroll = Boolean(node.on?.scroll)
+  const emitRef = useRef(emit)
+  emitRef.current = emit
+  useEffect(() => {
+    if (!ref.current || (!auxPress && !scroll)) return
+    return attachBoxPointer(ref.current, { auxPress, scroll }, (event, payload) => void emitRef.current(event, payload))
+  }, [auxPress, scroll, pressable])
+  if (!pressable) return <div {...(rootProps as Record<string, unknown>)} ref={ref} onPointerEnter={onPointerEnter}>{children}</div>
   const press = (e?: MouseEvent) => {
     // #VAPP-284: a press target inside another (a foldable Row's fold
     // button in its head) fires only its own press.
@@ -87,7 +97,7 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
     }
   }
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role={treeRole(rootProps)} tabIndex={0} onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} {...(recorder ? { ref, onKeyUp: (e: KeyboardEvent<HTMLDivElement>) => recording && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
+    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role={treeRole(rootProps)} tabIndex={0} onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} ref={ref} {...(recorder ? { onKeyUp: (e: KeyboardEvent<HTMLDivElement>) => recording && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
       {children}
     </div>
   )

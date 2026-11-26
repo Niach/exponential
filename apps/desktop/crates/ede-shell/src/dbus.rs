@@ -21,7 +21,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::Engine;
 use serde_json::{json, Value};
 use zbus::{
     blocking::{Connection, Proxy},
@@ -67,7 +66,7 @@ enum TrayRequest {
     Scroll(String, i32, &'static str),
 }
 
-/// #EDE-237: what a tray item does on input, Cinnamon's way (its
+/// #EDE-247: what a tray item does on input, Cinnamon's way (its
 /// xapp-sn-watcher, `sn-item.c`), the same for third-party items and ours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayInput {
@@ -110,7 +109,7 @@ fn is_appindicator(service: &str) -> bool {
     service.split_once('/').is_some_and(|(_, path)| format!("/{path}").starts_with(APPINDICATOR_PATH_PREFIX))
 }
 
-/// #EDE-237: whether a left press opens the item's menu (the taskbar's
+/// #EDE-247: whether a left press opens the item's menu (the taskbar's
 /// `menuOnPress`): `ItemIsMenu` (the spec), or Cinnamon's rule: an
 /// AppIndicator item opens its menu on a left press, unless its Id is one of
 /// [`LEFT_CLICK_ACTIVATE_APPS`].
@@ -392,7 +391,7 @@ pub struct Dbus {
     items: Arc<Mutex<Vec<String>>>,
     tx: mpsc::Sender<Event>,
     tray: mpsc::Sender<TrayRequest>,
-    /// #EDE-237: the taskbar's output scale the icons are drawn at.
+    /// #EDE-247: the taskbar's output scale the icons are drawn at.
     tray_scale: Arc<Mutex<f64>>,
 }
 
@@ -509,7 +508,7 @@ impl Dbus {
         let _ = self.tray.send(TrayRequest::MenuEvent(service.to_string(), id));
     }
 
-    /// #EDE-237: the middle or right button or the wheel on an item.
+    /// #EDE-247: the middle or right button or the wheel on an item.
     pub fn tray_input(&self, service: &str, input: TrayInput) {
         let service = service.to_string();
         let _ = self.tray.send(match input {
@@ -519,7 +518,7 @@ impl Dbus {
         });
     }
 
-    /// #EDE-237: the taskbar's output scale: the icons are read again at it
+    /// #EDE-247: the taskbar's output scale: the icons are read again at it
     /// when it changes (the rule's size in device pixels, [`crate::tray_icon`]).
     pub fn tray_scale(&self, scale: f64) {
         let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
@@ -607,7 +606,7 @@ impl Tray {
     }
 
     /// Every registered item, read fresh (a dead one is dropped, a
-    /// `Passive` one hidden as Cinnamon does). #EDE-237: its icon drawn at the
+    /// `Passive` one hidden as Cinnamon does). #EDE-247: its icon drawn at the
     /// panel's icon size and the taskbar's scale ([`crate::tray_icon`]),
     /// `NeedsAttention` with the attention icon first.
     fn tray_items(&self) -> Vec<TrayItem> {
@@ -736,24 +735,6 @@ fn flatten_layout(node: &Layout, depth: u32, out: &mut Vec<MenuEntry>) {
     }
 }
 
-/// The largest pixmap up to 64 px as a PNG data URL (SNI pixmaps are ARGB32
-/// in network byte order).
-pub fn pixmap_data_url(pixmaps: &[(i32, i32, Vec<u8>)]) -> Option<String> {
-    let (w, h, argb) = pixmaps.iter().filter(|(w, h, b)| *w > 0 && *h > 0 && b.len() == (*w * *h * 4) as usize).filter(|(w, _, _)| *w <= 64).max_by_key(|(w, _, _)| *w).or_else(|| pixmaps.iter().find(|(w, h, b)| *w > 0 && *h > 0 && b.len() == (*w * *h * 4) as usize))?;
-    let mut rgba = Vec::with_capacity(argb.len());
-    for px in argb.chunks_exact(4) {
-        rgba.extend_from_slice(&[px[1], px[2], px[3], px[0]]);
-    }
-    let mut png = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut png, *w as u32, *h as u32);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.write_header().ok()?.write_image_data(&rgba).ok()?;
-    }
-    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
-}
-
 #[cfg(test)]
 pub(crate) mod private_bus {
     //! A dbus-daemon of the test's own (never the session bus).
@@ -872,11 +853,8 @@ mod tests {
     }
 
     #[test]
-    fn bodies_lose_their_markup_and_pixmaps_become_pictures() {
+    fn bodies_lose_their_markup() {
         assert_eq!(strip_markup("<b>Build</b> done &amp; <a href=\"x\">shipped</a>"), "Build done & shipped");
-        let px = vec![(2, 2, vec![0xff, 0x10, 0x20, 0x30].repeat(4))];
-        assert!(pixmap_data_url(&px).unwrap().starts_with("data:image/png;base64,"));
-        assert!(pixmap_data_url(&[(2, 2, vec![0u8; 3])]).is_none());
     }
 
     #[test]
@@ -984,7 +962,7 @@ mod tests {
         calls.lock().unwrap().clone()
     }
 
-    /// #EDE-237: Cinnamon's click semantics (xapp-sn-watcher's sn-item.c),
+    /// #EDE-247: Cinnamon's click semantics (xapp-sn-watcher's sn-item.c),
     /// the same for every item: left = Activate, middle = SecondaryActivate,
     /// right without a dbusmenu = ContextMenu, the wheel = Scroll(±1, axis)
     /// with up and left negative.
@@ -1019,7 +997,7 @@ mod tests {
         assert_eq!(TrayInput::from_event(None, None), None);
     }
 
-    /// #EDE-237: an AppIndicator item's left press opens its menu (Steam,
+    /// #EDE-247: an AppIndicator item's left press opens its menu (Steam,
     /// Discord's Electron, nm-applet), unless whitelisted; ItemIsMenu too.
     #[test]
     fn appindicators_open_their_menu_on_a_left_press() {
@@ -1031,7 +1009,7 @@ mod tests {
         assert!(names_a_menu("/MenuBar"));
     }
 
-    /// #EDE-237: a Passive item is hidden (Cinnamon), the icon is drawn at
+    /// #EDE-247: a Passive item is hidden (Cinnamon), the icon is drawn at
     /// the taskbar's scale: 24 px slots, 30 device pixels at 1.25.
     #[test]
     fn tray_items_hide_passive_ones_and_draw_at_the_scale() {
@@ -1053,6 +1031,7 @@ mod tests {
         assert!(items.iter().all(|i| i.service != passive), "Passive is hidden");
         let steam = items.iter().find(|i| i.service == active).unwrap();
         assert!(steam.item_is_menu, "an AppIndicator opens its menu on a left press");
+        use base64::Engine as _;
         let b64 = steam.icon.strip_prefix("data:image/png;base64,").expect("a PNG data URL");
         let png = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
         assert_eq!(image::load_from_memory(&png).unwrap().to_rgba8().dimensions(), (30, 30));

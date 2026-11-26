@@ -659,7 +659,7 @@ impl HostPlugin for Host {
             });
             return;
         }
-        // #EDE-237: a tray item's middle or right button or wheel step
+        // #EDE-247: a tray item's middle or right button or wheel step
         // (`auxPress {button}`, `scroll {direction}`): an event, its payload
         // reaches the context (never a function's args).
         if event.name == "ede_tray_input" && allowed(&self.shell.borrow(), &event.surface_id, "ede_tray_input") {
@@ -4167,7 +4167,7 @@ fn outputs_refresh(shell: &SharedShell) {
     s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
     s.person_outputs = person_outputs(&outputs);
     s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
-    // #EDE-237: the tray's icons are drawn at the taskbar's output scale
+    // #EDE-247: the tray's icons are drawn at the taskbar's output scale
     // (the taskbar stands on the person's first output).
     if let (Some(d), Some(o)) = (s.dbus.as_ref(), outputs.iter().find(|o| o.is_persons())) {
         d.tray_scale(o.scale);

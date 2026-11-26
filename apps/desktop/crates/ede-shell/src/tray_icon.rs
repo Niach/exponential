@@ -1,4 +1,4 @@
-//! The tray's icons, pixel-clean like Cinnamon's systray (#EDE-237): ONE
+//! The tray's icons, pixel-clean like Cinnamon's systray (#EDE-247): ONE
 //! icon size per panel height and output scale, every icon rasterized here
 //! at exactly that many device pixels, so the taskbar draws it 1:1 and never
 //! scales a bitmap (a 64 px pixmap squeezed into 18 px, a 16 px SVG blown up
@@ -91,7 +91,7 @@ pub fn render(source: &Source, panel_height: f32, scale: f64) -> Option<String> 
     let img = named.flatten().or_else(|| {
         let (w, h, argb) = best_pixmap(&source.pixmaps, canvas)?;
         let rgba = argb.chunks_exact(4).flat_map(|p| [p[1], p[2], p[3], p[0]]).collect();
-        let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba)?;
+        let img = image::RgbaImage::from_raw(*w as u32, *h as u32, rgba)?;
         Some(centred(&fit(&img, canvas), canvas))
     })?;
     png_data_url(&img)
@@ -183,17 +183,17 @@ pub fn find_icon(name: &str, theme_path: &str, px: u32) -> Option<PathBuf> {
         return Path::new(name).is_file().then(|| PathBuf::from(name));
     }
     let name = name.strip_suffix(".png").or_else(|| name.strip_suffix(".svg")).unwrap_or(name);
-    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut roots: Vec<(PathBuf, u8)> = Vec::new();
     if !theme_path.is_empty() {
-        roots.push(PathBuf::from(theme_path));
+        roots.push((PathBuf::from(theme_path), 3));
     }
     for theme in uicore_data::apps::icon_themes() {
         for root in uicore_data::apps::icon_theme_roots() {
-            roots.push(root.join(&theme));
+            roots.push((root.join(&theme), 2));
         }
     }
-    for root in roots.iter().filter(|r| r.is_dir()) {
-        if let Some(found) = best_in(root, name, px) {
+    for (root, depth) in roots.iter().filter(|(r, _)| r.is_dir()) {
+        if let Some(found) = best_in(root, name, px, *depth) {
             return Some(found);
         }
     }
@@ -215,14 +215,16 @@ fn dir_size(rel: &Path) -> Option<u32> {
 }
 
 /// The best file for `name` at `px` under `root`: the root itself (a flat
-/// `IconThemePath`) and the directories two levels down (`<size>/<context>`
-/// and `<context>/<size>` themes), probed by name, never listed.
-fn best_in(root: &Path, name: &str, px: u32) -> Option<PathBuf> {
+/// `IconThemePath`) and the directories `depth` levels down (a theme's
+/// `<size>/<context>` or `<context>/<size>`: 2; an item's own path may hold
+/// a whole theme, `hicolor/<size>/<context>`: 3), probed by name.
+fn best_in(root: &Path, name: &str, px: u32, depth: u8) -> Option<PathBuf> {
     let subdirs = |d: &Path| -> Vec<PathBuf> { std::fs::read_dir(d).map(|it| it.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default() };
     let mut dirs = vec![root.to_path_buf()];
-    for d in subdirs(root) {
-        dirs.extend(subdirs(&d));
-        dirs.push(d);
+    let mut level = vec![root.to_path_buf()];
+    for _ in 0..depth {
+        level = level.iter().flat_map(|d| subdirs(d)).collect();
+        dirs.extend(level.iter().cloned());
     }
     // (rank, path): lower rank wins.
     let mut best: Option<(u64, PathBuf)> = None;
