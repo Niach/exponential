@@ -790,7 +790,9 @@ export async function pullRequestFiles(args: {
   // view's read is cached per PR, so no token is resolved here.
   const fullName = repoFromPrUrl(pr.url)
   if (!fullName) return { files: [] }
-  const at: ForgeRepo = { id: pr.repositoryId, fullName }
+  // #EXP-2170: a hosted repo's PR reads its files from eCode's forge.
+  const { provider } = await loadRepository(pr.repositoryId)
+  const at: ForgeRepo = { id: pr.repositoryId, fullName, ...(provider ? { provider } : {}) }
   let files: Awaited<ReturnType<Forge[`files`]>>
   try {
     files = await (await forgeFor(at)).files(at, pr.number)
