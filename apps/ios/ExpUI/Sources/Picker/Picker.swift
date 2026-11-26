@@ -185,21 +185,27 @@ public enum PickerSections {
     }
 }
 
-/// #EXP-2161: a picker section's heading: web's `[cmdk-group-heading]`
-/// (`px-(--menu-item-padding-x) py-1.5 text-xs font-medium
-/// text-muted-foreground`).
+/// #EXP-2161: a picker section's heading: genUI's `Select/sectionHeading`
+/// (web's `[cmdk-group-heading]`): 12/16 medium in the muted ink, 6 above
+/// and below, the rows' own inset; `sectionGap` more above it under a row.
 struct PickerSectionHeading: View {
     let title: String
+    /// A row sits above it.
+    let afterRow: Bool
+
+    /// genUI layout `selectSectionGap`.
+    static let sectionGap: CGFloat = 8
 
     var body: some View {
         Text(title)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .font(.system(size: DesignTokens.Typography.Size.xs, weight: .medium))
+            .foregroundStyle(DesignTokens.Palette.mutedForeground)
             .lineLimit(1)
+            .frame(height: DesignTokens.Typography.LineHeight.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, GlassPickerTokens.rowHPadding)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            .padding(.vertical, 6)
+            .padding(.top, afterRow ? Self.sectionGap : 0)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -964,8 +970,11 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                     EmptyState(title: emptyText, size: .list)
                 }
             } else {
-                ForEach(PickerSections.runs(visible)) { run in
-                    if let title = run.title { PickerSectionHeading(title: title) }
+                let runs = PickerSections.runs(visible)
+                ForEach(runs) { run in
+                    if let title = run.title {
+                        PickerSectionHeading(title: title, afterRow: run.id != runs.first?.id)
+                    }
                     ForEach(run.items) { item in
                     GlassPickerSheetRow(
                         item: item,

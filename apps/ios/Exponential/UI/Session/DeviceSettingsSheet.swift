@@ -104,6 +104,7 @@ struct DeviceSettingsSheet: View {
     /// #EXP-2161: the team whose opt-in waits for its confirm.
     @State private var optInTeamId: String?
     @State private var savingAssistants = false
+    @State private var spaceMembers = MemberSpaceMembersModel()
     @State private var savingDefaultDevice = false
     /// EXP-1158: the machine's LAST USED agent (`launchDefaults.defaultAgent`),
     /// READ-ONLY here — only the device writes it; the agent tab opens on it.
@@ -168,9 +169,7 @@ struct DeviceSettingsSheet: View {
                     if device.isServer {
                         sharingSection(device)
                         // #EXP-2161: who runs their Assistant here.
-                        MemberSpaceMembersSection(
-                            rowId: device.rowId, version: device.assistantTeamIds.joined(separator: ",")
-                        )
+                        MemberSpaceMembersSection(model: spaceMembers, rowId: device.rowId)
                     }
                     if let doctor = device.doctor {
                         readinessSection(device, doctor: doctor)
@@ -203,6 +202,11 @@ struct DeviceSettingsSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
         .onAppear { seed(device) }
+        // #EXP-2161: re-read whenever the opt-in moves (it may end spaces).
+        .task(id: "\(device.rowId ?? "")/\(device.assistantTeamIds.joined(separator: ","))") {
+            guard device.isServer else { return }
+            await spaceMembers.run(deps: deps, accountId: accountId, rowId: device.rowId)
+        }
         // EXP-909: only a daemon server has an Update section to gate.
         .task {
             guard device.isServer, latestVersions == nil else { return }
