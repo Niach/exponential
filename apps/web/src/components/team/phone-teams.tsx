@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { phoneTeamsEmpty, SIDEBAR_TREE_COPY, sidebarTeamOpenKey } from "@exp/domain-contract/sidebar-tree"
-import { Button, conceptIcon, FabButton, GlassGroup, Menu, SkeletonRows } from "@exp/ui"
+import { Button, conceptIcon, GlassGroup, HeaderAction, Menu, SkeletonRows } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { Empty } from "@/components/empty"
@@ -79,9 +79,9 @@ export function PhoneTeams({ me, teamSlug }: { me: string; teamSlug?: string }) 
                 "join-team": () => setJoinOpen(true),
               })}
               trigger={
-                <FabButton emphasis="primary" className="size-11" aria-label={SIDEBAR_TREE_COPY.newTeam} data-testid="teams-add">
-                  <AddIcon className="size-5" />
-                </FabButton>
+                <HeaderAction aria-label={SIDEBAR_TREE_COPY.newTeam} data-testid="teams-add">
+                  <AddIcon />
+                </HeaderAction>
               }
             />
           }

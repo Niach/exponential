@@ -1,24 +1,18 @@
 import type { ReactNode, Ref } from "react"
-import { Button } from "./button"
 import { cn } from "./cn"
 import { DETAIL_EDGE_TOP_CLASS } from "./detail-chrome"
-import { conceptIcon } from "./icons.generated"
+import { HeaderBack } from "./header-action"
 
 // NEW-15: moved from apps/web (components/team/mobile-detail-header.tsx, which
 // re-exports it) so the marketing site's phone demos draw the same header.
 // EXP-851: the ONE phone header every detail screen wears — the native
-// layout: a round ghost back button, the identifier (or title) beside it, the
-// page's round actions on the right (header-actions.json). No breadcrumbs anywhere: the board glyph crumb on the issue
+// layout: THE round back (`HeaderBack`, #EXP-2168), the identifier (or title)
+// beside it, the page's round actions on the right (header-actions.json). No breadcrumbs anywhere: the board glyph crumb on the issue
 // detail, the old "Reviews / MET-3" crumb and the ad-hoc
 // back rows on the session pages all became this.
 
-const UiBackIcon = conceptIcon(`ui-back`)
-
-/** The round ghost back control: no circle stroke, no fill (EXP-850 §10). */
-export const HEADER_BUTTON_CLASS = `size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground`
-
 /** The bar itself: one line, no card. */
-export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 pr-4 pl-2`
+export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-2 px-4`
 
 /** EXP-1150: the header BAND — the title row plus whatever rides under it
  *  (the Work screen's face tabs), one block. EXP-1162: no hairline closes it
@@ -68,16 +62,7 @@ export function MobileDetailHeader({
       className={cn(MOBILE_DETAIL_HEADER_CLASS, className)}
     >
       {onBack ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className={HEADER_BUTTON_CLASS}
-          aria-label={backLabel}
-          title={backLabel}
-          onClick={onBack}
-        >
-          <UiBackIcon className="size-4" />
-        </Button>
+        <HeaderBack label={backLabel} onClick={onBack} />
       ) : (
         <span aria-hidden className="w-1 shrink-0" />
       )}

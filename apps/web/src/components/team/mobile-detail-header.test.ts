@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest"
-import {
-  HEADER_BUTTON_CLASS,
-  MOBILE_DETAIL_HEADER_CLASS,
-} from "@/components/team/mobile-detail-header"
+import { MOBILE_DETAIL_HEADER_CLASS } from "@/components/team/mobile-detail-header"
 import { SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exp/ui"
 
-// EXP-851: the ONE detail header — the native layout (round ghost back,
-// the title beside it, round actions). The class strings are the contract; a second
+// EXP-851: the ONE detail header — the native layout (THE round back,
+// the title beside it, round actions; #EXP-2168). The class strings are the contract; a second
 // hand-rolled back row anywhere is the bug this pins.
 
 describe(`MobileDetailHeader`, () => {
@@ -19,15 +16,6 @@ describe(`MobileDetailHeader`, () => {
     // A rounded/filled bar would read as a second card inside the panel.
     expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`rounded`)
     expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`bg-`)
-  })
-
-  it(`draws a GHOST round back — no circle stroke, no fill`, () => {
-    const tokens = HEADER_BUTTON_CLASS.split(/\s+/)
-    expect(tokens).toContain(`rounded-full`)
-    expect(tokens).toContain(`size-9`)
-    expect(HEADER_BUTTON_CLASS).not.toContain(`border`)
-    expect(HEADER_BUTTON_CLASS).not.toContain(`bg-popover`)
-    expect(HEADER_BUTTON_CLASS).not.toContain(`backdrop-`)
   })
 })
 

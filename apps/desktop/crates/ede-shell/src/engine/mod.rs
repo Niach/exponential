@@ -189,6 +189,8 @@ pub fn launcher_entry(app: &EngineApp) -> apps::App {
         icon: None,
         keywords: format!("{} {}", app.name, app.id).to_lowercase(),
         categories: vec!["Utility".into()],
+        wm_class: None,
+        steam_app: None,
     }
 }
 

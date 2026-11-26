@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { Button, conceptIcon, getDeviceIcon, HeaderAction, Separator, SkeletonRows } from "@exp/ui"
+import { conceptIcon, getDeviceIcon, HeaderAction, HeaderBack, Separator, SkeletonRows } from "@exp/ui"
 import { SIDEBAR_TREE_COPY } from "@exp/domain-contract/sidebar-tree"
 import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { deviceIsMine, deviceIsOnline, deviceUpdateAvailable, type SteerDevice } from "@/lib/steer-devices"
@@ -21,7 +21,6 @@ import { useDevicePage } from "@/components/devices/use-device-page"
 // settings dialog's body as a page). Team-less pages of web md+.
 
 const SettingsIcon = conceptIcon(`nav-settings`)
-const BackIcon = conceptIcon(`ui-back`)
 
 const PAGE_FRAME = `mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`
 
@@ -116,16 +115,7 @@ export function DeviceSettingsPage({ deviceId, userId }: { deviceId: string; use
         device={device}
         latestVersions={page.latestVersions}
         leading={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={deviceName(device)}
-            className="-ml-2 size-9 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={back}
-            data-testid="device-settings-back"
-          >
-            <BackIcon className="size-5" />
-          </Button>
+          <HeaderBack label={deviceName(device)} onClick={back} data-testid="device-settings-back" />
         }
       />
       <Separator />

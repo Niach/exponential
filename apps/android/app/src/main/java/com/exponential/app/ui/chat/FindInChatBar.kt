@@ -1,5 +1,8 @@
 package com.exponential.app.ui.chat
 
+import com.exponential.app.domain.HeaderActions
+import com.exponential.app.ui.components.PageHeaderBack
+import com.exponential.app.ui.components.PageHeaderCircle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -194,8 +198,8 @@ fun rememberFindInChat(chatKey: String): FindInChatState {
  * COMPACT (find-in-chat.json WHERE THE BAR SITS, phones): the bar REPLACES
  * the chat header while open: back (closes), THE search field, the counter
  * (`counterCompact`, muted), previous (chevron up), next (chevron down); the
- * status line under it. Existing components only: the header's ghost
- * buttons, the BORDERLESS glass field (iOS `GlassTextField(bordered: false)`:
+ * status line under it. Existing components only: THE round header
+ * buttons (#EXP-2168), the BORDERLESS glass field (iOS `GlassTextField(bordered: false)`:
  * no outline, glyph or clear button), muted Text. Enter = previous (older).
  */
 @Composable
@@ -205,15 +209,16 @@ fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag(FindInChat.TestIds.BAR)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = Chats.Shell.ChatHeader.ROW.dp).padding(start = Chats.Shell.ChatHeader.PADDING_X.dp, end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ChatHeaderButton(
-                    ExpIcons.uiBack,
-                    FindInChat.Copy.CLOSE,
+                Spacer(Modifier.width(8.dp))
+                PageHeaderBack(
                     onClick = state::close,
+                    description = FindInChat.Copy.CLOSE,
                     modifier = Modifier.testTag(FindInChat.TestIds.CLOSE),
                 )
+                Spacer(Modifier.width(HeaderActions.GAP.dp))
                 androidx.compose.runtime.key(state.openNonce) {
                     FindInChatField(state, Modifier.weight(1f))
                 }
@@ -227,13 +232,15 @@ fun FindInChatHeader(state: FindInChatState, modifier: Modifier = Modifier) {
                     )
                     Spacer(Modifier.width(Chats.Shell.ChatHeader.GAP.dp))
                 }
-                ChatHeaderButton(
+                Spacer(Modifier.width(HeaderActions.GAP.dp))
+                PageHeaderCircle(
                     ExpIcons.uiChevronUp,
                     FindInChat.Copy.PREVIOUS,
                     onClick = { state.go(FindInChat.Step.Previous) },
                     modifier = Modifier.testTag(FindInChat.TestIds.PREVIOUS),
                 )
-                ChatHeaderButton(
+                Spacer(Modifier.width(HeaderActions.GAP.dp))
+                PageHeaderCircle(
                     ExpIcons.uiChevronDown,
                     FindInChat.Copy.NEXT,
                     onClick = { state.go(FindInChat.Step.Next) },
