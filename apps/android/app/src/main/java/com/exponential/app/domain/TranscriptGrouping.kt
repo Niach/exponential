@@ -39,10 +39,11 @@ object TranscriptGrouping {
             "session" to "Session update",
         )
 
-        /** #EXP-1873 `copy.checkIn*`: the quiet check-in line. */
-        const val CHECK_IN = "Checked in, nothing to do"
-        const val CHECK_INS = "Checked in {count} times, nothing to do"
+        /** #EXP-1873 + #FEED-317 `copy.checkIn*`: the quiet ticks' schedule line. */
+        const val CHECK_IN = "Schedule"
+        const val CHECK_INS = "Schedule ×{count}"
         const val CHECK_IN_TIME_SEPARATOR = " · "
+        const val CHECK_IN_TIME_RANGE = "–"
     }
 
     enum class ItemKind(val wire: String) { Message("message"), Trace("trace"), Full("full") }
@@ -290,23 +291,26 @@ object TranscriptGrouping {
     }
 
     /** #EXP-1873: a feed row as [feedRows] reads it: `schedule` = a schedule
-     *  firing (a check-in), `marker` = every other marker, `quiet` = the quiet
-     *  notice, `blank` = an agent turn with blank text. */
+     *  firing (a tick), `marker` = every other marker, `quiet` = the quiet
+     *  notice, `blank` = an agent turn with blank text, `work` (#FEED-317) =
+     *  the agent's work (a tool line or run, a thought, a subagent line; never
+     *  a notice or a `show` call), `other` = everything else drawn (cards). */
     enum class FeedRowRole(val wire: String) {
         Schedule("schedule"), Marker("marker"), Input("input"), Reply("reply"),
-        Quiet("quiet"), Blank("blank"), Other("other"),
+        Quiet("quiet"), Blank("blank"), Work("work"), Other("other"),
     }
 
-    /** Per row: not drawn, drawn as itself, or THE check-in line covering [count] quiet check-ins. */
+    /** Per row: not drawn, drawn as itself, or THE schedule line covering
+     *  [count] quiet ticks (the last [count] `schedule` rows). */
     sealed interface FeedRowShown {
         data object Hidden : FeedRowShown
         data object Row : FeedRowShown
         data class CheckIn(val count: Int) : FeedRowShown
     }
 
-    /** #EXP-1873 (`checkInCases`): a quiet check-in (a schedule firing whose
-     *  turn only called quiet, nothing else) is one line;
-     *  consecutive ones collapse onto the last. */
+    /** #EXP-1873 + #FEED-317 (`checkInCases`): a quiet tick (a schedule
+     *  firing whose turn called quiet and said nothing visible: work folds in)
+     *  is one line; consecutive ones collapse onto the last. */
     fun feedRows(kinds: List<FeedRowRole>): List<FeedRowShown> {
         val drawn = markersShown(
             kinds.map {
@@ -314,7 +318,7 @@ object TranscriptGrouping {
                     FeedRowRole.Schedule, FeedRowRole.Marker -> FeedRowKind.Marker
                     FeedRowRole.Input -> FeedRowKind.Input
                     FeedRowRole.Reply -> FeedRowKind.Reply
-                    FeedRowRole.Quiet, FeedRowRole.Blank, FeedRowRole.Other -> FeedRowKind.Other
+                    FeedRowRole.Quiet, FeedRowRole.Blank, FeedRowRole.Work, FeedRowRole.Other -> FeedRowKind.Other
                 }
             },
         )
@@ -353,10 +357,29 @@ object TranscriptGrouping {
         return shown
     }
 
-    /** #EXP-1873 (`checkInLabelCases`): the check-in line's text. */
-    fun checkInLabel(count: Int, time: String?): String {
+    /** #FEED-317: the rows a schedule line at [index] covers ([feedRows] gave
+     *  it [count]): the last [count] schedule rows up to and including it,
+     *  oldest first. */
+    fun checkInTicks(kinds: List<FeedRowRole>, index: Int, count: Int): List<Int> {
+        val ticks = ArrayDeque<Int>()
+        var at = index
+        while (at >= 0 && ticks.size < count) {
+            if (kinds.getOrNull(at) == FeedRowRole.Schedule) ticks.addFirst(at)
+            at -= 1
+        }
+        return ticks.toList()
+    }
+
+    /** #EXP-1873 + #FEED-317 (`checkInLabelCases`): the schedule line's text,
+     *  `Schedule ×5 · 11:15–12:15`. */
+    fun checkInLabel(count: Int, first: String?, last: String?): String {
         val label = if (count == 1) Copy.CHECK_IN else Copy.CHECK_INS.replace("{count}", count.toString())
-        return if (time.isNullOrEmpty()) label else "$label${Copy.CHECK_IN_TIME_SEPARATOR}$time"
+        val time = if (!first.isNullOrEmpty() && !last.isNullOrEmpty() && first != last) {
+            "$first${Copy.CHECK_IN_TIME_RANGE}$last"
+        } else {
+            last?.takeIf { it.isNotEmpty() } ?: first?.takeIf { it.isNotEmpty() }
+        }
+        return if (time == null) label else "$label${Copy.CHECK_IN_TIME_SEPARATOR}$time"
     }
 
     /** #FEED-256 `blank.codePoints`: whitespace + the invisible format
@@ -408,29 +431,32 @@ object TranscriptGrouping {
     /** #EXP-1873 `checkInSpecimen`: an agent chat's feed row (kind, `HH:mm`, text). */
     data class CheckInSpecimenRow(val kind: FeedRowRole, val time: String?, val text: String?)
 
-    /** #EXP-1873: the chat-transcript specimen's agent chat: a run of quiet
-     *  check-ins, one that answered, a second run. */
     /** #EXP-1873 `checkInSpecimenAgent`: the agent whose real bubble (avatar,
      *  name, tail) answers in the specimen. */
     data class CheckInSpecimenAgent(val name: String, val icon: String?, val color: String?)
 
     val CHECK_IN_SPECIMEN_AGENT = CheckInSpecimenAgent("Assistant", "bot", "#6366f1")
 
+    /** #EXP-1873 + #FEED-317: the chat-transcript specimen's agent chat: a run
+     *  of five quiet ticks (one with work), one that answered, a run of two. */
     val CHECK_IN_SPECIMEN: List<CheckInSpecimenRow> = listOf(
-        CheckInSpecimenRow(FeedRowRole.Schedule, "16:30", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "11:15", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "16:45", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "11:30", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "17:00", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "11:45", null),
+        CheckInSpecimenRow(FeedRowRole.Work, null, null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "17:15", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "12:00", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "17:30", null),
-        CheckInSpecimenRow(FeedRowRole.Reply, "17:31", "Two PRs landed overnight: #412 and #415, both green."),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "12:15", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "17:45", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "12:30", null),
+        CheckInSpecimenRow(FeedRowRole.Reply, "12:31", "Two PRs landed: #412 and #415, both green."),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
-        CheckInSpecimenRow(FeedRowRole.Schedule, "18:00", null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "12:45", null),
+        CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
+        CheckInSpecimenRow(FeedRowRole.Schedule, "13:00", null),
         CheckInSpecimenRow(FeedRowRole.Quiet, null, null),
     )
 

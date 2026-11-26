@@ -87,6 +87,8 @@ import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatRowMeta
 import com.exponential.app.ui.chat.ChatAgent
 import com.exponential.app.ui.chat.FeedMarkerRow
+import com.exponential.app.ui.chat.ScheduleTicksRow
+import com.exponential.app.domain.TranscriptGrouping as TG
 import com.exponential.app.ui.chat.MessageBubble
 import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chats.ChatsContent
@@ -622,43 +624,53 @@ private fun specimenClock(wire: String): String? = runCatching {
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrNull()
 
-/** #EXP-1873 `checkInSpecimen` through `feedRows`: a run of quiet check-ins
- *  = ONE marker line, the answered one keeps its marker + the agent's bubble. */
+/** #EXP-1873 + #FEED-317 `checkInSpecimen` through `feedRows`: a run of
+ *  quiet ticks = ONE tool-group line (the agent's trace, beside its avatar),
+ *  the answered one keeps its marker + the agent's bubble; work folds away. */
 @Composable
 private fun CheckInSpecimen(modifier: Modifier = Modifier) {
-    val rows = com.exponential.app.domain.TranscriptGrouping.CHECK_IN_SPECIMEN
-    val agent = com.exponential.app.domain.TranscriptGrouping.CHECK_IN_SPECIMEN_AGENT
-    val shown = remember { com.exponential.app.domain.TranscriptGrouping.feedRows(rows.map { it.kind }) }
+    val rows = TG.CHECK_IN_SPECIMEN
+    val agent = TG.CHECK_IN_SPECIMEN_AGENT
+    val kinds = remember { rows.map { it.kind } }
+    val shown = remember { TG.feedRows(kinds) }
+    // The chat's own layout: a tick line is a trace item, the reply a message.
+    val layouts = remember {
+        val items = rows.mapIndexedNotNull { index, row ->
+            val id = "check-in-$index"
+            when (shown[index]) {
+                TG.FeedRowShown.Hidden -> null
+                is TG.FeedRowShown.CheckIn -> TG.Item(id, TG.ItemKind.Trace)
+                TG.FeedRowShown.Row -> if (row.kind == TG.FeedRowRole.Reply) {
+                    TG.Item(id, TG.ItemKind.Message, authorKind = "agent")
+                } else {
+                    TG.Item(id, TG.ItemKind.Full)
+                }
+            }
+        }
+        TG.transcriptLayout(
+            TG.Input(
+                viewerId = SPECIMEN_VIEWER,
+                chat = TG.Chat(sessionId = "check-in", title = agent.name, agentId = null, originSessionId = null),
+                items = items,
+            ),
+        ).associateBy { it.id }
+    }
+    val avatar: @Composable () -> Unit = {
+        com.exponential.app.ui.components.AgentAvatar(icon = agent.icon, color = agent.color, size = TG.Layout.AVATAR.dp)
+    }
     Column(modifier.fillMaxWidth().testTag("chat-check-in-specimen"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         rows.forEachIndexed { index, row ->
+            val layout = layouts["check-in-$index"]?.copy(gap = 0)
             when (val drawn = shown[index]) {
-                com.exponential.app.domain.TranscriptGrouping.FeedRowShown.Hidden -> Unit
-                is com.exponential.app.domain.TranscriptGrouping.FeedRowShown.CheckIn ->
-                    FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.checkInLabel(drawn.count, row.time))
-                com.exponential.app.domain.TranscriptGrouping.FeedRowShown.Row -> when (row.kind) {
-                    com.exponential.app.domain.TranscriptGrouping.FeedRowRole.Schedule ->
-                        FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.Copy.MARKERS.getValue("schedule"))
-                    com.exponential.app.domain.TranscriptGrouping.FeedRowRole.Quiet ->
-                        FeedMarkerRow(com.exponential.app.domain.TranscriptGrouping.NOTICES.getValue("session_self_quiet"))
+                TG.FeedRowShown.Hidden -> Unit
+                is TG.FeedRowShown.CheckIn -> TranscriptBubbleRow(layout = layout, avatar = avatar) {
+                    ScheduleTicksRow(TG.checkInTicks(kinds, index, drawn.count).map { rows[it].time })
+                }
+                TG.FeedRowShown.Row -> when (row.kind) {
+                    TG.FeedRowRole.Schedule -> FeedMarkerRow(TG.Copy.MARKERS.getValue("schedule"))
+                    TG.FeedRowRole.Quiet -> FeedMarkerRow(TG.NOTICES.getValue("session_self_quiet"))
                     // A real agent bubble: its avatar, name and tail.
-                    else -> TranscriptBubbleRow(
-                        layout = com.exponential.app.domain.TranscriptGrouping.RowLayout(
-                            id = "check-in-$index",
-                            side = com.exponential.app.domain.TranscriptGrouping.Side.Other,
-                            sender = null,
-                            avatar = true,
-                            name = true,
-                            tail = true,
-                            gap = 0,
-                        ),
-                        avatar = {
-                            com.exponential.app.ui.components.AgentAvatar(
-                                icon = agent.icon,
-                                color = agent.color,
-                                size = com.exponential.app.domain.TranscriptGrouping.Layout.AVATAR.dp,
-                            )
-                        },
-                    ) {
+                    else -> TranscriptBubbleRow(layout = layout, avatar = avatar) {
                         MessageBubble(text = row.text.orEmpty(), own = false, time = row.time, author = agent.name, tail = true)
                     }
                 }
