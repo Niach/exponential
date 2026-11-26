@@ -59,6 +59,14 @@ impl Ede {
         (holder == pid && wayland.is_none()) || descends(pid, holder)
     }
 
+    /// A desktop portal's own window (xdg-desktop-portal-gtk's "Allow
+    /// Applications to Take Screenshots?", a file chooser): it answers the
+    /// person's own action and times out unseen behind another window, so
+    /// it opens in front and focused, as Muffin maps it.
+    pub fn is_portal_dialog(&self, window: &Window) -> bool {
+        self.window_pid(window).is_some_and(self.portal_process)
+    }
+
     /// The process behind a window: the client's, or `_NET_WM_PID` on X11.
     pub fn window_pid(&self, window: &Window) -> Option<u32> {
         #[cfg(feature = "xwayland")]
@@ -98,6 +106,19 @@ impl Ede {
     }
 }
 
+/// Does `pid` run a desktop portal: an `xdg-desktop-portal*` binary (the
+/// frontend or a backend: -gtk, -gnome, -xapp…) owned by root, so no
+/// program of the person's can pass for one by its name alone?
+pub fn portal_process(pid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else { return false };
+    is_portal_binary(&exe, std::fs::metadata(&exe).map(|m| m.uid()).ok())
+}
+
+fn is_portal_binary(exe: &std::path::Path, owner: Option<u32>) -> bool {
+    owner == Some(0) && exe.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("xdg-desktop-portal"))
+}
+
 /// Is `ancestor` a parent, grandparent… of `pid` (never `pid` itself)?
 pub fn descends(mut pid: u32, ancestor: u32) -> bool {
     for _ in 0..64 {
@@ -121,7 +142,17 @@ fn parent_of(pid: u32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::descends;
+    use super::{descends, is_portal_binary};
+
+    #[test]
+    fn only_a_root_owned_portal_binary_is_a_portal() {
+        use std::path::Path;
+        assert!(is_portal_binary(Path::new("/usr/libexec/xdg-desktop-portal-gtk"), Some(0)));
+        assert!(is_portal_binary(Path::new("/usr/libexec/xdg-desktop-portal"), Some(0)));
+        assert!(!is_portal_binary(Path::new("/home/me/bin/xdg-desktop-portal-gtk"), Some(1000)), "the person's own copy");
+        assert!(!is_portal_binary(Path::new("/usr/bin/firefox"), Some(0)));
+        assert!(!is_portal_binary(Path::new("/usr/libexec/xdg-desktop-portal-gtk"), None));
+    }
 
     #[test]
     fn a_child_descends_from_its_parent_and_nobody_from_itself() {

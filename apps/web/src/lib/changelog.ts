@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-26-ede-app-screen-without-asking`,
+    date: `2026-11-26`,
+    title: `Exponential Desktop lets the Exponential app use the screen without asking`,
+    summary: `On Exponential Desktop, the genuine Exponential app no longer asks for your screen at login. Other programs still ask.`,
+    body: `- **No prompt for the app**: Exponential Desktop checks the app's signature and lets it use your screen at login without the Allow Exponential to use your screen question. A copy that was changed, or another program, is still asked. Needs the next desktop release and eDE 0.2.39.`,
+  },
+  {
     id: `2026-11-26-confirm-its-you`,
     date: `2026-11-26`,
     title: `Confirm it's you instead of signing in again`,

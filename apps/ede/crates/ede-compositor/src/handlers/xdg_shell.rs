@@ -122,7 +122,13 @@ impl XdgShellHandler for Ede {
             return self.space_keeps_state(id, surface);
         }
         match self.window_for_surface(surface.wl_surface()) {
-            Some(window) if self.desk.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
+            Some(window) if self.desk.space.element_location(&window).is_some() => {
+                // One it may not maximize (Muffin: a fixed size, a minimum
+                // the work area can't hold) still gets its configure.
+                if !self.tile(&window, Tile::Maximized) {
+                    surface.send_configure();
+                }
+            }
             // Not mapped yet: it opens maximized once its first buffer arrives.
             _ => {
                 surface.with_pending_state(|s| s.states.set(xdg_toplevel::State::Maximized));
@@ -248,8 +254,10 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
             state.place_new_window(state.desk_of_window(&window), window.clone());
-            if wants_max {
-                state.tile(&window, Tile::Maximized);
+            if wants_max && !state.tile(&window, Tile::Maximized) {
+                // Its size hints forbid it (Muffin's rule): it floats.
+                toplevel.with_pending_state(|s| s.states.unset(xdg_toplevel::State::Maximized));
+                toplevel.send_configure();
             }
             if wants_full {
                 state.set_fullscreen(&window, true);
@@ -297,6 +305,14 @@ impl Ede {
             let map = smithay::desktop::layer_map_for_output(o);
             map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| grabs || l.can_receive_keyboard_focus())
         })
+    }
+
+    /// A popup of a layer surface, kept on that layer's output.
+    pub(crate) fn unconstrain_layer_popup(&self, popup: &PopupSurface) {
+        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
+        if let Some(target) = self.layer_popup_target(&root, popup) {
+            popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));
+        }
     }
 
     fn unconstrain_popup(&self, popup: &PopupSurface) {
