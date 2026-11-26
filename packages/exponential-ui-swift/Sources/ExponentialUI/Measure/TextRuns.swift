@@ -222,7 +222,14 @@ struct TextRunsLook {
                 fill: run.mark == "highlight" ? match : nil
             ))
         }
-        return TextShaper.runs(inlines, spec, mono: mono, ink: ink, link: ink, codeBackground: codeBackground, align: align, chip: chip, looks: looks, base: style)
+        return TextShaper.runs(inlines, spec, mono: Self.codeFamily(mono), ink: ink, link: ink, codeBackground: codeBackground, align: align, chip: chip, looks: looks, base: style)
+    }
+
+    /// A `code` run's family: the theme's mono when the platform has it,
+    /// else the system monospace (CodeBlock's rule), never the sans a
+    /// missing host family (JetBrains Mono) would resolve to.
+    static func codeFamily(_ mono: String?) -> String {
+        SurfaceMeasurer.codeStyle(TextStyle(fontSize: 0, fontWeight: 400, lineHeight: 0, fontFamily: mono ?? "ui-monospace")).fontFamily ?? "ui-monospace"
     }
 
     /// The cap's type: the Text's family at the cap size, the run's weight.
