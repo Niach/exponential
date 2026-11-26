@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `FfiVisual.background_image_json` (genUI round 4): the resolved `backgroundImage`; `background_gradient_json` carries `kind: radial` + `centre [x, y]`.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): every component and nested JSON writes `@catalogId`, `@accessibility`, `@metadata`, `@checks`.
 - `answer_renderer_call_json(op_json, data_json, available_catalog_ids)` (#VAPP-289): the `rendererFunctionResponse` of a router `call` op.
 - #VAPP-300: `Surface.set_streaming(on) -> changed` + `Surface.streaming()` (an Express block is still streaming the surface: a child not streamed yet renders as nothing), `reduce_surface_streaming_json(…, streaming)`; the decoders' JSON carries `open` (the surfaces whose block is still open). The facade, Swift and Kotlin suites replay `expressOpen` and the `streaming-*` reduce cases. Bindings regenerated.

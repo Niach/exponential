@@ -21,7 +21,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-box",
-      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "children": "many",
       "slots": [],
       "events": [
@@ -281,7 +281,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-window",
-      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "children": "one",
       "slots": [],
       "events": [],
@@ -403,7 +403,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         {
           "name": "stickyHeaders",
@@ -421,7 +421,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
+          "description": "Rows drag to reorder; fires `move` {id, before|after|into}."
         },
         {
           "name": "maxDepth",
@@ -430,7 +430,7 @@
           "bindable": false,
           "responsive": false,
           "default": 1,
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         {
           "name": "style",
@@ -561,7 +561,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         {
           "name": "style",
@@ -1046,7 +1046,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-text",
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1055,10 +1055,18 @@
         {
           "name": "text",
           "type": "string",
-          "required": true,
+          "required": false,
           "bindable": true,
           "responsive": false,
           "description": "Text to show."
+        },
+        {
+          "name": "runs",
+          "type": "[textRun]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Spans replacing `text`."
         },
         {
           "name": "variant",
@@ -1092,6 +1100,14 @@
           "bindable": false,
           "responsive": false,
           "description": "One line; `middle` = start…end."
+        },
+        {
+          "name": "dropCap",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Lines the first letter spans (2-4)."
         },
         {
           "name": "tone",
@@ -1223,7 +1239,7 @@
           "bindable": false,
           "responsive": false,
           "default": "document",
-          "description": "`inline` = a text run; `document` = full prose."
+          "description": "`inline` = a text run."
         },
         {
           "name": "variant",
@@ -1360,7 +1376,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Sticks to the bottom as it grows (a live log)."
+          "description": "Sticks to the bottom as it grows."
         },
         {
           "name": "variant",
@@ -1935,7 +1951,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Waveform 0 to 1; press seeks."
+          "description": "Waveform, 0 to 1."
         }
       ],
       "accessibility": {
@@ -2156,7 +2172,7 @@
       "group": "media",
       "lite": false,
       "specimenId": "exponential-ui-mosaic",
-      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "description": "Picture group with `+N`; press fires `select {index}`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -2371,7 +2387,7 @@
           "bindable": false,
           "responsive": false,
           "default": "segmented",
-          "description": "Pill track, toggles, joined buttons, icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         {
           "name": "size",
@@ -3434,7 +3450,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       ],
       "accessibility": {
@@ -3503,7 +3519,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
       "children": "one",
       "slots": [],
       "events": [
@@ -3645,7 +3661,7 @@
           "bindable": false,
           "responsive": false,
           "default": "info",
-          "description": "Severity: icon and tone (`error` interrupts readers)."
+          "description": "Severity: icon and tone."
         },
         {
           "name": "open",
@@ -4177,7 +4193,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Outermost first, instead of value."
+          "description": "Outermost first."
         },
         {
           "name": "sweep",
@@ -4186,7 +4202,7 @@
           "bindable": false,
           "responsive": false,
           "default": 360,
-          "description": "Degrees; under 360 = gauge."
+          "description": "Degrees; <360 = gauge."
         },
         {
           "name": "size",
@@ -4806,7 +4822,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         {
           "name": "series",
@@ -5382,7 +5398,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-form",
-      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "children": "many",
       "slots": [],
       "events": [
@@ -5789,7 +5805,7 @@
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         {
           "name": "disabled",
@@ -6942,7 +6958,7 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-key-recorder",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -7487,7 +7503,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-file-upload",
-      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; fires `upload`, lists `files`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -7701,7 +7717,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Attach control firing `attach` (a pasted image too, {files})."
+          "description": "Attach control; fires `attach` {files}."
         },
         {
           "name": "busy",
@@ -7719,7 +7735,7 @@
           "bindable": false,
           "responsive": false,
           "default": "stacked",
-          "description": "stacked = field over controls; flat = one row."
+          "description": "flat = one row."
         },
         {
           "name": "menuKeys",
@@ -7728,7 +7744,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       ],
       "accessibility": {
@@ -7752,7 +7768,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-row",
-      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
+      "description": "THE list row: lead, title, subtitle, trailing meta/value/slot; nests, folds.",
       "children": "many",
       "slots": [
         "leading",
@@ -8051,7 +8067,7 @@
           "bindable": true,
           "responsive": false,
           "default": "none",
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
+          "description": "start/end = top corner, down = bottom edge."
         },
         {
           "name": "time",
@@ -8311,7 +8327,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "DotLottie state machine (a .lottie src has its own)."
+          "description": "DotLottie state machine."
         },
         {
           "name": "inputs",
@@ -8598,7 +8614,7 @@
       "group": "layout",
       "lite": false,
       "specimenId": "exponential-ui-embed",
-      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8807,7 +8823,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-record-form",
-      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form; submit saves.",
       "children": "none",
       "slots": [],
       "events": [
@@ -9706,7 +9722,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-day-strip",
-      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -9842,6 +9858,117 @@
         ]
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AvatarGroup/<part>."
+    },
+    {
+      "name": "Board",
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "specimenId": "exponential-ui-board",
+      "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "move"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "columns",
+          "type": "[boardColumn]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group; each column a group labelled by its title, its cards a list (listitems); a card drags to another place or column",
+        "keys": [
+          "Tab to a card; Enter: press"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Board",
+        "columns": [
+          {
+            "value": "todo",
+            "title": "Todo",
+            "cards": [
+              {
+                "label": "Write the brief",
+                "value": "c1",
+                "description": "Due Friday"
+              },
+              {
+                "label": "Pick a venue",
+                "value": "c2",
+                "trailing": "3d"
+              }
+            ]
+          },
+          {
+            "value": "doing",
+            "title": "Doing",
+            "cards": [
+              {
+                "label": "Draft the agenda",
+                "value": "c3",
+                "icon": "pencil"
+              }
+            ]
+          },
+          {
+            "value": "done",
+            "title": "Done",
+            "cards": []
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Board/<part>."
+    },
+    {
+      "name": "MapPlaceholder",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-map-placeholder",
+      "description": "Map: host `map:` tile, else grid + pin; `markers` at 0..1.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Place name."
+        },
+        {
+          "name": "markers",
+          "type": "[mapMarker]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Pins at x, y."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img named by the label; the grid, the pins and the tile are decorative",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "MapPlaceholder",
+        "label": "Vienna, Stephansplatz"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MapPlaceholder/<part>."
     }
   ]
 }

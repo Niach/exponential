@@ -6,7 +6,7 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
@@ -187,6 +187,17 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
   // else the child's id; `depth` / `group` = the item's fields; indent = a
   // Row's TreeGuides gutter at that depth).
   const reorderable = bool(props.reorderable) && !horizontal
+  // genUI round 4 (fixtures/board-drop.json): a Board column (the macro's
+  // internal `board`) trades rows with its sibling columns; the TARGET
+  // column's List fires `move`.
+  const board = reorderable && typeof props.board === `string` && props.board ? props.board : undefined
+  const emitRef = useRef(emit)
+  emitRef.current = emit
+  useEffect(() => {
+    const el = rootRef.current
+    if (!board || !el) return
+    return registerBoardList(el, (context) => void emitRef.current(`move`, context))
+  }, [board])
   const reorderAttrs = (item: number): Record<string, unknown> => {
     if (item < childCount) return { [REORDER_KEY_ATTR]: node.children[item].id, [REORDER_DEPTH_ATTR]: 0, [REORDER_INDENT_ATTR]: 0 }
     const it = tpl!.items[item - childCount]
@@ -207,7 +218,7 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
         const start = listReorderStart(e.currentTarget, e.target)
         if (!start) return
         const root = e.currentTarget
-        startListDrag(e.nativeEvent, start.key, { rows: () => listReorderRows(root), maxDepth: Math.max(1, Math.floor(num(props.maxDepth, 1))) }, { move: (context) => void emit(`move`, context) })
+        startListDrag(e.nativeEvent, start.key, { rows: () => listReorderRows(root), maxDepth: Math.max(1, Math.floor(num(props.maxDepth, 1))), board: board ? root : undefined }, { move: (context) => void emit(`move`, context) })
       }
     : undefined
   const divider = (r: number) => {
@@ -217,7 +228,7 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
   if (windowed) {
     const headerRows = sticky ? rows.flatMap((row, r) => (`header` in row ? [r] : [])) : undefined
     return (
-      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown}>
+      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown} {...(board ? { [REORDER_BOARD_ATTR]: board } : {})}>
         <WindowedList
           ref={windowRef}
           count={rows.length}
@@ -253,7 +264,7 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
     )
   }
   return (
-    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown}>
+    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole} onPointerDown={onPointerDown} {...(board ? { [REORDER_BOARD_ATTR]: board } : {})}>
       {out}
     </div>
   )

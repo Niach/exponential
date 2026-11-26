@@ -11,8 +11,30 @@ import at.exponential.ui.primitives.parseHexColor
 /** One shadow layer of a resolved `boxShadow` (dp). */
 data class ShadowLayer(val x: Float, val y: Float, val blur: Float, val spread: Float, val color: Color)
 
-/** A linear gradient painted over the background (CSS angle: 0 = up, 90 = right; stop offsets 0..1). */
-data class GradientPaint(val angle: Float, val stops: List<Pair<Float, Color>>)
+/**
+ * A gradient painted over the background: linear (CSS angle: 0 = up, 90 = right; stop offsets 0..1)
+ * or, genUI round 4, RADIAL about [centre] (box fractions) out to the farthest corner ([radialRadius]).
+ */
+data class GradientPaint(val angle: Float, val stops: List<Pair<Float, Color>>, val centre: Pair<Float, Float>? = null)
+
+/** genUI round 4: a box's `backgroundImage`: the src (loaded like an Image), `contain` (else cover), the focal fractions, the scrim (its alpha = the opacity). */
+data class PicturePaint(val src: String, val contain: Boolean, val focalX: Float, val focalY: Float, val scrim: Color?)
+
+/** A radial gradient's 100% radius in a [w]×[h] box about the centre fractions: the distance to the FARTHEST corner (CSS `circle farthest-corner`). */
+fun radialRadius(w: Float, h: Float, cx: Float, cy: Float): Float {
+    val x = cx * w
+    val y = cy * h
+    return kotlin.math.hypot(kotlin.math.max(x, w - x), kotlin.math.max(y, h - y))
+}
+
+/** Where a picture of [iw]×[ih] lands in a [w]×[h] box (`[x, y, w, h]`): cover (else contain) scaled, placed by the focal fractions (fixtures/box-backgrounds.json `picture`). */
+fun pictureRect(contain: Boolean, w: Float, h: Float, iw: Float, ih: Float, fx: Float, fy: Float): FloatArray {
+    if (iw <= 0f || ih <= 0f) return floatArrayOf(0f, 0f, w, h)
+    val scale = if (contain) kotlin.math.min(w / iw, h / ih) else kotlin.math.max(w / iw, h / ih)
+    val dw = iw * scale
+    val dh = ih * scale
+    return floatArrayOf((w - dw) * fx.coerceIn(0f, 1f), (h - dh) * fy.coerceIn(0f, 1f), dw, dh)
+}
 
 /** One paint-only transform function, applied about the box centre in source order. */
 sealed class TransformOp {
@@ -31,6 +53,8 @@ data class AnimationSpec(val name: String, val timingJson: String, val reduced: 
 data class PaintStyle(
     val background: Color? = null,
     val gradient: GradientPaint? = null,
+    /** genUI round 4: the picture behind the children. */
+    val picture: PicturePaint? = null,
     val color: Color? = null,
     val borderWidth: Float = 0f,
     /** Per-side widths `[top, right, bottom, left]` when a side differs (else [borderWidth] everywhere). */
@@ -99,6 +123,7 @@ data class PaintStyle(
     constructor(v: FfiVisual) : this(
         background = v.backgroundColor?.let(::parseHexColor),
         gradient = parseGradient(v.backgroundGradientJson),
+        picture = parsePicture(v.backgroundImageJson),
         color = v.color?.let(::parseHexColor),
         borderWidth = v.borderWidth ?: 0f,
         borderWidths = v.borderWidths?.takeIf { it.size == 4 },
@@ -195,7 +220,22 @@ data class PaintStyle(
                 (s["offset"]?.number ?: 0.0).toFloat() to c
             } ?: return null
             if (stops.isEmpty()) return null
-            return GradientPaint((o["angle"]?.number ?: 180.0).toFloat(), stops)
+            val centre = if (o["kind"]?.string == "radial") {
+                val c = o["centre"]?.array
+                ((c?.getOrNull(0)?.number ?: 0.5).toFloat()) to ((c?.getOrNull(1)?.number ?: 0.5).toFloat())
+            } else null
+            return GradientPaint((o["angle"]?.number ?: 180.0).toFloat(), stops, centre)
+        }
+
+        /** genUI round 4: the FFI `backgroundImageJson` (defaults filled, the scrim colour resolved). */
+        internal fun parsePicture(json: String?): PicturePaint? {
+            val o = json?.let(JsonValue::parse) ?: return null
+            val src = o["src"]?.string ?: return null
+            val scrim = o["scrim"]?.let { sc ->
+                val c = sc["color"]?.string?.let(::parseHexColor) ?: return@let null
+                c.copy(alpha = c.alpha * (sc["opacity"]?.number ?: 0.0).toFloat().coerceIn(0f, 1f))
+            }?.takeIf { it.alpha > 0f }
+            return PicturePaint(src, o["fit"]?.string == "contain", (o["focalX"]?.number ?: 0.5).toFloat(), (o["focalY"]?.number ?: 0.5).toFloat(), scrim)
         }
 
         internal fun parseTransform(json: String?): List<TransformOp> {

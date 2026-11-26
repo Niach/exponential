@@ -40,6 +40,7 @@ import {
   Image as ImageGlyph,
   Info,
   LoaderCircle,
+  MapPin,
   Maximize2,
   Menu,
   Mic,
@@ -94,6 +95,8 @@ export const CHROME = {
  *  them, for every name the catalog's `builtinIcons` and the core macros
  *  draw (React's table, name for name). */
 export const FALLBACK_ICONS: Record<string, IconComponent> = {
+  // genUI round 4: MapPlaceholder's pin, so its placeholder paints without a registry.
+  "map-pin": MapPin,
   "ui-check": Check,
   "ui-chevron-down": ChevronDown,
   "ui-chevron-up": ChevronUp,

@@ -14,10 +14,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ffi.FfiFrame
 import at.exponential.ui.ffi.listDragStyle
+import at.exponential.ui.model.isListDragPath
 import at.exponential.ui.model.isListDragRow
 import at.exponential.ui.model.isReorderRow
 import at.exponential.ui.model.listDrag
 import at.exponential.ui.theme.ShadowLayer
+import at.exponential.ui.primitives.ImageSource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.snap
@@ -341,6 +343,13 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         Modifier
     }
 
+    // genUI round 4: a `backgroundImage` loads like an Image (refused by the host's rule = the placeholder).
+    val picture = style.picture?.let { p ->
+        val allowed = remember(p.src, model.host) { model.imageSource(p.src, "") == ImageSource.Load }
+        val image = rememberPolicedImage(model, if (allowed) p.src else "")
+        val fallback = model.part("Image", "fallback", emptyMap()).style.background ?: model.color("muted")
+        PictureLayer(image, fallback)
+    }
     val clips = style.overflowHidden || style.overflowScroll || (style.rounded && !node.isLeaf)
     // #EXP-1876: a tail squares its top corner (the clip follows); the core mirrored an RTL surface.
     val rtl = model.direction == "rtl"
@@ -369,7 +378,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
 
     Box(
         modifier
-            .then(if (pinned) Modifier.zIndex(1f) else Modifier)
+            .then(if (pinned || model.isListDragPath(index)) Modifier.zIndex(1f) else Modifier)
             .traversal(index)
             .nodeSemantics(node, model)
             .then(animated)
@@ -383,7 +392,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(tabStripDrag(node, model, !invisible))
             .then(listReorderDrag(node, model, !invisible && !disabled))
             .then(tabPagerSwipe(node, model, !invisible))
-            .paintedBox(style, size, rtl = rtl)
+            .paintedBox(style, size, rtl = rtl, picture = picture)
             .then(clip)
             .then(band),
     ) {

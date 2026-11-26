@@ -40,6 +40,15 @@ pub struct Inline {
     /// #VAPP-258: the host's chip for this text link (`catalog/host.json`
     /// markdown): painted as the Chip look inline in the run.
     pub chip: Option<InlineChip>,
+    /// Round 4 (fixtures/text-runs.json): a Text run's own weight
+    /// (`$type.weight.*`; `None` = the block's, or bold's 600).
+    pub weight: Option<u16>,
+    /// A Text run's tone colour (`None` = the ink, or the link colour).
+    pub color: Option<Hsla>,
+    /// A Text run's `underline` mark.
+    pub underline: bool,
+    /// A Text run's `highlight` mark: `$color.match` in the glyph box.
+    pub fill: Option<Hsla>,
 }
 
 /// #VAPP-258: an inline chip (a policed `textLinks` segment's `chip`). Its
@@ -195,7 +204,7 @@ fn push_text(out: &mut Vec<Inline>, raw: &str, f: Flags, link: Option<&str>) {
             return;
         }
     }
-    out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string), chip: None });
+    out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string), ..Inline::default() });
 }
 
 /// `[label](dest)` at the start of `s` → (label, dest, consumed bytes): the
@@ -1688,6 +1697,70 @@ pub trait MdText {
     /// lands: `(x in its line, that line's top, that line's width)` — the
     /// painter places the inline chips there.
     fn spots(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32, at: &[usize]) -> Vec<(f32, f32, f32)>;
+    /// Round 4 (a drop cap): `inlines` wrapped at `width`, per visual line
+    /// its first byte and its width (the text system's own lines).
+    fn line_starts(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32) -> Vec<(usize, f32)> {
+        vec![(0, self.width(inlines, spec).min(width))]
+    }
+}
+
+/// Round 4 (fixtures/text-runs.json): the spans beside a drop cap and the
+/// spans under it. `inlines` wrap at `beside` (the width the cap leaves) for
+/// at most `lines` lines; a line wider than `beside` (its first unbreakable
+/// segment does not fit) and every line after it go under the cap. The
+/// split falls on a line start, so it never cuts a chip.
+pub fn drop_cap_flow(inlines: &[Inline], spec: &TextSpec, beside: f32, lines: usize, text: &mut dyn MdText) -> (Vec<Inline>, Vec<Inline>) {
+    let starts = text.line_starts(inlines, spec, beside.max(1.0));
+    let mut cut = None;
+    for (k, (start, w)) in starts.iter().enumerate() {
+        if k >= lines || *w > beside + 0.5 {
+            cut = Some(*start);
+            break;
+        }
+    }
+    let Some(cut) = cut else { return (inlines.to_vec(), Vec::new()) };
+    let (mut head, mut rest) = (Vec::new(), Vec::new());
+    let mut at = 0;
+    for span in inlines {
+        let end = at + span.text.len();
+        if end <= cut {
+            head.push(span.clone());
+        } else if at >= cut {
+            rest.push(span.clone());
+        } else {
+            let k = cut - at;
+            head.push(Inline { text: span.text[..k].to_string(), ..span.clone() });
+            rest.push(Inline { text: span.text[k..].to_string(), ..span.clone() });
+        }
+        at = end;
+    }
+    // The line under the cap starts clean, as a wrapped line does.
+    if let Some(first) = rest.first_mut() {
+        if first.chip.is_none() {
+            first.text = first.text.trim_start_matches(' ').to_string();
+        }
+    }
+    rest.retain(|span| !span.text.is_empty());
+    (head, rest)
+}
+
+/// Round 4 (fixtures/text-runs.json): a Text's normalised runs as spans:
+/// `tone` = `tone_color`, a `highlight` mark = `fill`, `code` = the inline
+/// code chip, a link only when `href` allows it (else plain text).
+pub fn text_run_inlines(runs: &[eui_core::text_runs::TextRun], tone_color: &dyn Fn(&str) -> Option<Hsla>, fill: Hsla, href: &dyn Fn(&str) -> Option<String>) -> Vec<Inline> {
+    runs.iter()
+        .map(|r| Inline {
+            text: r.text.clone(),
+            code: r.mark.as_deref() == Some("code"),
+            strike: r.mark.as_deref() == Some("strike"),
+            underline: r.mark.as_deref() == Some("underline"),
+            fill: (r.mark.as_deref() == Some("highlight")).then_some(fill),
+            link: r.link.as_deref().and_then(href),
+            weight: r.font_weight(),
+            color: r.tone.as_deref().and_then(tone_color),
+            ..Inline::default()
+        })
+        .collect()
 }
 
 /// The non-breaking spaces a chip's placeholder is made of (both glue in
@@ -2041,7 +2114,7 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
             family: if span.code { mono.clone() } else { family.clone() },
             features: Default::default(),
             fallbacks: None,
-            weight: FontWeight(if span.bold { weight.max(600) } else { weight } as f32),
+            weight: FontWeight(span.weight.unwrap_or(if span.bold { weight.max(600) } else { weight }) as f32),
             style: if span.italic { FontStyle::Italic } else { FontStyle::Normal },
         };
         // #VAPP-258: a chip's placeholder paints nothing (the chip box
@@ -2050,14 +2123,15 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
             out.push(TextRun { len: span.text.len(), font, color: gpui::transparent_black(), background_color: None, underline: None, strikethrough: None });
             continue;
         }
-        let color = if span.link.is_some() { colors.link } else { colors.ink };
+        let color = span.color.unwrap_or(if span.link.is_some() { colors.link } else { colors.ink });
         out.push(TextRun {
             len: span.text.len(),
             font,
             color,
             background_color: if span.code { colors.code_bg } else { None },
-            underline: span.link.as_ref().map(|_| UnderlineStyle { thickness: px(1.0), color: Some(colors.link), wavy: false }),
-            strikethrough: span.strike.then_some(StrikethroughStyle { thickness: px(1.0), color: Some(colors.ink) }),
+            // Round 4: a Text run's underline (and link) in its own colour.
+            underline: (span.link.is_some() || span.underline).then_some(UnderlineStyle { thickness: px(1.0), color: Some(if span.color.is_some() || span.link.is_none() { color } else { colors.link }), wavy: false }),
+            strikethrough: span.strike.then_some(StrikethroughStyle { thickness: px(1.0), color: Some(span.color.unwrap_or(colors.ink)) }),
         });
     }
     (text.into(), out)
@@ -2404,7 +2478,20 @@ fn unit_element(id: SharedString, styled: StyledText, links: Vec<(Range<usize>, 
 fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors, wrap: f32, text: &mut dyn MdText, marks: &[super::highlight::Mark]) -> AnyElement {
     let (shown, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
     // #EDE-95: the search marks on the runs, inline code's on its label.
-    let (text_marks, mut chip_marks) = super::highlight::split_unit_marks(inlines, marks);
+    let (mut text_marks, mut chip_marks) = super::highlight::split_unit_marks(inlines, marks);
+    // Round 4: a Text run's `highlight` mark, under the search marks.
+    let mut at = 0;
+    let mut run_fills: Vec<super::highlight::Mark> = Vec::new();
+    for span in inlines {
+        if let (Some(fill), None) = (span.fill, &span.chip) {
+            run_fills.push((at..at + span.text.len(), fill));
+        }
+        at += span.text.len();
+    }
+    if !run_fills.is_empty() {
+        run_fills.append(&mut text_marks);
+        text_marks = run_fills;
+    }
     let fills = super::highlight::mark_fills(&runs, &text_marks);
     let runs = p.fallback(&shown, runs);
     // Link ranges (a chip opens its own href) and the chips' byte offsets.

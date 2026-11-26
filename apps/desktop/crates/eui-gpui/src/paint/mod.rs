@@ -7,6 +7,7 @@
 //! their content inside the box, inset by the recipe padding + border the
 //! measurer counted.
 
+pub mod background;
 pub mod chart;
 pub mod color;
 pub mod date;
@@ -18,6 +19,7 @@ pub mod markdown_selection;
 pub mod natives;
 pub mod parts;
 pub mod qr;
+pub mod rich_text;
 pub mod tail;
 
 use eui_core::style::{Transition, TransformOp, Visual};
@@ -32,11 +34,25 @@ pub enum Decoration {
     LineThrough,
 }
 
-/// A linear gradient (CSS angle: 0 = up, 90 = right), stops 0..1.
+/// A linear gradient (CSS angle: 0 = up, 90 = right), stops 0..1; genUI
+/// round 4: `centre` = a RADIAL one about those box fractions, out to the
+/// farthest corner (`eui_core::style::radial_radius`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct GradientPaint {
     pub angle: f32,
     pub stops: Vec<(Hsla, f32)>,
+    pub centre: Option<[f32; 2]>,
+}
+
+/// genUI round 4: a box's `backgroundImage`, painted behind its children:
+/// the src (loaded like an Image), `contain` (else cover), the focal
+/// fractions and the resolved scrim colour (its alpha = the opacity).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PicturePaint {
+    pub src: String,
+    pub contain: bool,
+    pub focal: (f32, f32),
+    pub scrim: Option<Hsla>,
 }
 
 /// The paint-only transform folded into translate + uniform scale +
@@ -95,6 +111,8 @@ impl Affine {
 pub struct PaintStyle {
     pub bg: Option<Hsla>,
     pub gradient: Option<GradientPaint>,
+    /// genUI round 4: the picture behind the children (`view::paint::picture`).
+    pub picture: Option<PicturePaint>,
     pub border_color: Option<Hsla>,
     /// `[top, right, bottom, left]` (layout-effective: the frames include them).
     pub border: [f32; 4],
@@ -214,11 +232,18 @@ impl PaintStyle {
         }
         let gradient = v.background_gradient.as_ref().and_then(|g| {
             let stops: Vec<(Hsla, f32)> = g.stops.iter().filter_map(|s| color_of(Some(&s.color)).map(|c| (c, s.offset.clamp(0.0, 1.0)))).collect();
-            (stops.len() >= 2).then_some(GradientPaint { angle: g.angle, stops })
+            (stops.len() >= 2).then_some(GradientPaint { angle: g.angle, stops, centre: g.is_radial().then(|| g.centre.unwrap_or([0.5, 0.5])) })
+        });
+        let picture = v.background_image.as_ref().map(|b| PicturePaint {
+            src: b.src.clone(),
+            contain: b.fit == "contain",
+            focal: (b.focal_x, b.focal_y),
+            scrim: b.scrim.as_ref().and_then(|s| color_of(Some(&s.color)).map(|c| Hsla { a: c.a * s.opacity.clamp(0.0, 1.0), ..c })).filter(|c| c.a > 0.0),
         });
         PaintStyle {
             bg: color_of(v.background_color.as_deref()).filter(|c| c.a > 0.0),
             gradient,
+            picture,
             border_color: color_of(v.border_color.as_deref()),
             border,
             dashed: matches!(v.border_style.as_deref(), Some("dashed" | "dotted")),
@@ -377,7 +402,7 @@ mod tests {
         let v = Visual {
             overflow_y: Some("auto".into()),
             overflow_x: Some("hidden".into()),
-            background_gradient: Some(Gradient { angle: 90.0, stops: vec![GradientStop { color: "#000000".into(), offset: 0.0 }, GradientStop { color: "#ffffff".into(), offset: 1.0 }] }),
+            background_gradient: Some(Gradient { angle: 90.0, stops: vec![GradientStop { color: "#000000".into(), offset: 0.0 }, GradientStop { color: "#ffffff".into(), offset: 1.0 }], ..Default::default() }),
             text_decoration: Some("line-through".into()),
             font_style: Some("italic".into()),
             text_transform: Some("uppercase".into()),

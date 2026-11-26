@@ -11,6 +11,7 @@
 // `$color.matchCurrent` (base-css). A browser without the API paints none.
 
 import { HIGHLIGHT_BARRIER, highlightCount, highlightLocalCurrent, highlightRanges, highlightSpec, type HighlightSpec } from "../highlight"
+import { runsText as joinedRuns, textRuns } from "../text-runs"
 import { parseMarkdown, type MarkdownBlock } from "./markdown"
 import { normalMarkdown, type NormalBlock, type NormalRun } from "./markdown-normal"
 
@@ -48,7 +49,8 @@ export function nodeHighlightCount(component: string, props: Record<string, unkn
   const str = (v: unknown) => (typeof v === `string` ? v : ``)
   switch (component) {
     case `Text`:
-      return highlightCount(str(props.text), spec.query)
+      // Round 4 (text-runs.json): `runs` = their joined text.
+      return highlightCount(Array.isArray(props.runs) ? joinedRuns(textRuns(props.runs) ?? []) : str(props.text), spec.query)
     case `Markdown`:
     case `MessageBubble`:
       return markdownHighlightCount(str(props.text), spec.query)
@@ -135,6 +137,11 @@ function blocksOf(root: Element, markdown: boolean): Piece[][] {
       const last = lastPara.get(group)
       if (last !== undefined && para !== last && lengths.get(group)! > 0) push(null, ` `)
       lastPara.set(group, para)
+    }
+    // Round 4 (text-runs.json): a drop cap counts but never paints a fill.
+    if (!markdown && text.parentElement?.closest(`[data-xui-cap]`)) {
+      push(null, text.data)
+      continue
     }
     push(text, text.data)
   }

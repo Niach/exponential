@@ -129,6 +129,7 @@ pub mod surface;
 pub mod swipe;
 pub mod table_fit;
 pub mod text_highlight;
+pub mod text_runs;
 pub mod text_truncate;
 pub mod tabs_strip;
 pub mod theme;

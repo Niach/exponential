@@ -891,6 +891,18 @@
       "role": "group",
       "notes": "group; each avatar an img named by the person, the `+N` disc labelled by its count",
       "keys": []
+    },
+    "Board": {
+      "role": "group",
+      "notes": "group; each column a group labelled by its title, its cards a list (listitems); a card drags to another place or column",
+      "keys": [
+        "Tab to a card; Enter: press"
+      ]
+    },
+    "MapPlaceholder": {
+      "role": "img",
+      "notes": "img named by the label; the grid, the pins and the tile are decorative",
+      "keys": []
     }
   }
 }

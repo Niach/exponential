@@ -8873,6 +8873,84 @@
               }
             }
           ]
+        },
+        "Board": {
+          "title": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "tint": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ]
+        },
+        "MapPlaceholder": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "pin": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "markerLabel": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ]
         }
       }
     },
@@ -19411,6 +19489,84 @@
               }
             }
           ]
+        },
+        "Board": {
+          "title": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "tint": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ]
+        },
+        "MapPlaceholder": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "pin": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "markerLabel": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ]
         }
       }
     },
@@ -29011,6 +29167,84 @@
               "style": {
                 "color": "$color.mutedForeground",
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "Board": {
+          "title": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "tint": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ]
+        },
+        "MapPlaceholder": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "pin": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "markerLabel": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
               }
             }
           ]
@@ -39550,6 +39784,84 @@
               "style": {
                 "color": "$color.mutedForeground",
                 "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "Board": {
+          "title": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "tint": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ]
+        },
+        "MapPlaceholder": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "backgroundColor": "$color.border"
+              }
+            }
+          ],
+          "pin": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "markerLabel": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "caption": [
+            {
+              "style": {
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground"
               }
             }
           ]
