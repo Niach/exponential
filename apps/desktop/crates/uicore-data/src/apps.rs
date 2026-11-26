@@ -401,6 +401,16 @@ fn icon_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// The icon themes searched, most specific first (the tray's sized lookup).
+pub fn icon_themes() -> Vec<String> {
+    themes()
+}
+
+/// The directories icon themes live in.
+pub fn icon_theme_roots() -> Vec<PathBuf> {
+    icon_roots()
+}
+
 /// A desktop entry's `Icon` as a file: an absolute path as is, else the
 /// first match in the themes' `apps` (then any) directories, scalable SVG
 /// before the largest PNG, then `/usr/share/pixmaps`.

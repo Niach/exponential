@@ -1703,6 +1703,32 @@ impl SurfaceView {
         num(n.props.get("value")).or_else(|| num(n.props.get("min"))).unwrap_or(0.0)
     }
 
+    /// A Box's `scroll` (eDE's tray, Cinnamon's `Scroll(delta,
+    /// orientation)`): the wheel steps in `ev`, as directions. A notch is
+    /// one step (gpui's lines come [`WHEEL_LINES_PER_STEP`] to a notch);
+    /// a touchpad's pixels count once [`WHEEL_STEP_PX`] add up on an axis.
+    pub(crate) fn wheel_steps(&mut self, index: u32, ev: &ScrollEvent) -> Vec<&'static str> {
+        let (dx, dy) = match ev.delta {
+            gpui::ScrollDelta::Lines(l) => {
+                self.wheel_pending.remove(&index);
+                let notches = |v: f32| if v == 0.0 { 0.0 } else { (v.abs() / WHEEL_LINES_PER_STEP).round().max(1.0).copysign(v) };
+                (notches(l.x), notches(l.y))
+            }
+            gpui::ScrollDelta::Pixels(p) => {
+                let acc = self.wheel_pending.entry(index).or_default();
+                acc.0 += f32::from(p.x);
+                acc.1 += f32::from(p.y);
+                let take = |a: &mut f32| {
+                    let n = (*a / WHEEL_STEP_PX).trunc();
+                    *a -= n * WHEEL_STEP_PX;
+                    n
+                };
+                (take(&mut acc.0), take(&mut acc.1))
+            }
+        };
+        wheel_directions(dx, dy)
+    }
+
     /// The wheel / trackpad over a scroll container: the core's offset
     /// moves; at an edge the event chains to the host.
     pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollEvent, cx: &mut Context<Self>) {
@@ -1969,4 +1995,33 @@ pub enum ListExternalPhase {
     Move,
     End,
     Cancel,
+}
+
+/// gpui's wheel lines per notch (its Linux `SCROLL_LINES`).
+pub(crate) const WHEEL_LINES_PER_STEP: f32 = 3.0;
+/// A touchpad's pixels to one `scroll` step.
+pub(crate) const WHEEL_STEP_PX: f32 = 50.0;
+
+/// Signed steps per axis as `scroll` directions, one per step. gpui's
+/// positive y is the wheel turned away from the person (up).
+pub(crate) fn wheel_directions(dx: f32, dy: f32) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    let (y, x) = (dy as i32, dx as i32);
+    out.extend(std::iter::repeat_n(if y > 0 { "up" } else { "down" }, y.unsigned_abs() as usize));
+    out.extend(std::iter::repeat_n(if x > 0 { "left" } else { "right" }, x.unsigned_abs() as usize));
+    out
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::wheel_directions;
+
+    #[test]
+    fn wheel_steps_read_as_directions() {
+        assert_eq!(wheel_directions(0.0, 1.0), vec!["up"]);
+        assert_eq!(wheel_directions(0.0, -2.0), vec!["down", "down"]);
+        assert_eq!(wheel_directions(1.0, 0.0), vec!["left"]);
+        assert_eq!(wheel_directions(-1.0, 0.0), vec!["right"]);
+        assert!(wheel_directions(0.0, 0.0).is_empty());
+    }
 }
