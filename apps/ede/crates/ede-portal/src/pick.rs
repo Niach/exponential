@@ -4,6 +4,7 @@
 
 use std::{
     io::Write,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -102,13 +103,27 @@ pub fn choose(chooser: &[String], ask: &Ask, outputs: &[OutputInfo], windows: &[
         }
         // #EDE-200: only the rows of the types asked for (a screen picked
         // for a window-only ask would be dropped, answering as a cancel).
+        // The names the person knows (a desktop entry's `Name`, as GNOME's
+        // and Cinnamon's dialogs say "Discord", not `com.discordapp.Discord`).
+        let dirs = application_dirs();
+        let windows: Vec<serde_json::Value> = windows
+            .iter()
+            .map(|w| {
+                let mut row = json!(w);
+                if let Some(name) = w.app_id.as_deref().and_then(|id| app_name(id, &dirs)) {
+                    row["app_name"] = json!(name);
+                }
+                row
+            })
+            .collect();
         let input = json!({
             "app_id": ask.app_id,
+            "app_name": app_name(ask.app_id, &dirs),
             "types": names,
             "multiple": ask.multiple,
             "remote_control": ask.remote_control,
             "outputs": if types & MONITOR != 0 { outputs } else { &[] },
-            "windows": if types & WINDOW != 0 { windows.clone() } else { vec![] },
+            "windows": if types & WINDOW != 0 { windows } else { vec![] },
             "selected": selected,
             // #EDE-172 (P7): the size of the output the chooser covers (the
             // first one), so the chooser asks the compositor nothing.
@@ -126,6 +141,46 @@ pub fn choose(chooser: &[String], ask: &Ask, outputs: &[OutputInfo], windows: &[
         return Ok(None);
     }
     Ok(Some(Chosen { picks, allow }))
+}
+
+/// Where desktop entries live: `$XDG_DATA_HOME`, `$XDG_DATA_DIRS`, and the
+/// Flatpak and Snap exports (each `applications/`).
+pub fn application_dirs() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let data_home = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| home.as_ref().map(|h| h.join(".local/share")));
+    let data_dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    let mut dirs: Vec<PathBuf> = data_home.into_iter().chain(data_dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from)).collect();
+    dirs.extend(home.map(|h| h.join(".local/share/flatpak/exports/share")));
+    dirs.push("/var/lib/flatpak/exports/share".into());
+    let mut apps: Vec<PathBuf> = dirs.into_iter().map(|d| d.join("applications")).collect();
+    apps.push("/var/lib/snapd/desktop/applications".into());
+    apps.dedup();
+    apps
+}
+
+/// The `Name` of `app_id`'s desktop entry (`<app_id>.desktop`) in the
+/// first of `dirs` that has one; `None` = no app id or no entry.
+pub fn app_name(app_id: &str, dirs: &[PathBuf]) -> Option<String> {
+    if app_id.is_empty() || app_id.contains('/') {
+        return None;
+    }
+    let file = format!("{app_id}.desktop");
+    dirs.iter().find_map(|d| desktop_name(&d.join(&file)))
+}
+
+fn desktop_name(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut in_entry = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+        } else if in_entry {
+            if let Some(name) = line.strip_prefix("Name=").map(str::trim).filter(|n| !n.is_empty()) {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn auto(types: u32, outputs: &[OutputInfo], windows: &[&WindowInfo]) -> Vec<Pick> {
@@ -236,6 +291,43 @@ mod tests {
         let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
         let list = |key: &str, field: &str| input[key].as_array().unwrap_or_else(|| panic!("the ask names its {key}")).iter().map(|r| r[field].as_str().unwrap().to_string()).collect::<Vec<_>>();
         (list("outputs", "name"), list("windows", "id"), input["selected"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect(), chosen)
+    }
+
+    /// The chooser names the asking app and each window's app as their
+    /// desktop entries do (Discord, not com.discordapp.Discord); no entry
+    /// = the app id.
+    #[test]
+    fn apps_are_named_by_their_desktop_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let apps = dir.path().join("applications");
+        std::fs::create_dir_all(&apps).unwrap();
+        std::fs::write(apps.join("com.discordapp.Discord.desktop"), "[Desktop Action x]\nName=Not this\n[Desktop Entry]\nName[de]=Diskord\nName=Discord\nExec=discord\n").unwrap();
+        std::fs::write(apps.join("firefox_firefox.desktop"), "[Desktop Entry]\nType=Application\nName=Firefox\n").unwrap();
+        let dirs = vec![dir.path().join("missing"), apps.clone()];
+        assert_eq!(app_name("com.discordapp.Discord", &dirs).as_deref(), Some("Discord"));
+        assert_eq!(app_name("", &dirs), None, "a host app has no app id");
+        assert_eq!(app_name("../applications/firefox_firefox", &dirs), None);
+        assert_eq!(app_name("org.example.None", &dirs), None);
+
+        let outputs = [output("A", 0)];
+        let mut firefox = window("w1", 50, true, false);
+        firefox.app_id = Some("firefox_firefox".into());
+        let windows = [firefox, window("w2", 60, false, false)];
+        let seen = dir.path().join("in.json");
+        let ask = Ask { app_id: "com.discordapp.Discord", types: MONITOR | WINDOW, multiple: false, remote_control: false, selected: &[] };
+        let chooser = vec!["sh".to_string(), "-c".to_string(), format!("cat > {}; echo output:A", seen.display())];
+        let data_dirs = std::env::var_os("XDG_DATA_DIRS");
+        std::env::set_var("XDG_DATA_DIRS", dir.path());
+        let chosen = choose(&chooser, &ask, &outputs, &windows);
+        match data_dirs {
+            Some(v) => std::env::set_var("XDG_DATA_DIRS", v),
+            None => std::env::remove_var("XDG_DATA_DIRS"),
+        }
+        assert_eq!(chosen.unwrap().unwrap().picks, [Pick::Output("A".into())]);
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
+        assert_eq!(input["app_name"], "Discord");
+        let names: Vec<_> = input["windows"].as_array().unwrap().iter().map(|w| w["app_name"].as_str()).collect();
+        assert_eq!(names, [Some("Firefox"), None]);
     }
 
     /// #EDE-200: the chooser lists only the types the app asked for: a
