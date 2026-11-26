@@ -8,7 +8,6 @@ interface HeapStats {
   extraMemorySize: number
   objectCount: number
   objectTypeCounts: Record<string, number>
-  mimalloc?: { committed?: { current?: number } }
 }
 
 export interface ProcessHeap {
@@ -17,8 +16,6 @@ export interface ProcessHeap {
   heapCapacityBytes: number
   /** Memory the heap's objects hold outside it (buffers, strings, streams). */
   extraBytes: number
-  /** What the native allocator has from the kernel. */
-  committedBytes: number
   objects: number
   types: Record<string, number>
 }
@@ -39,7 +36,6 @@ export function readProcessHeap(): ProcessHeap | null {
     heapBytes: stats.heapSize,
     heapCapacityBytes: stats.heapCapacity,
     extraBytes: stats.extraMemorySize,
-    committedBytes: stats.mimalloc?.committed?.current ?? 0,
     objects: stats.objectCount,
     types: stats.objectTypeCounts,
   }
@@ -58,7 +54,7 @@ export function processHeapLine(now: ProcessHeap, first: ProcessHeap): string {
     .map((type) => `${type.name} ${type.count} (+${type.growth})`)
   return (
     `rss ${mb(now.rssBytes)} MB, heap ${mb(now.heapBytes)}/${mb(now.heapCapacityBytes)} MB, ` +
-    `extra ${mb(now.extraBytes)} MB, committed ${mb(now.committedBytes)} MB, ${now.objects} objects` +
+    `extra ${mb(now.extraBytes)} MB, ${now.objects} objects` +
     (grown.length > 0 ? `; grown: ${grown.join(`, `)}` : ``)
   )
 }
