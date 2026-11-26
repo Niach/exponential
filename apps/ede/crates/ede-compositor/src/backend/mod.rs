@@ -172,6 +172,10 @@ where
         if out.overlaps(bbox) {
             window(renderer, &mut elements, w);
         }
+        // Muffin's tile preview, right under the window being moved.
+        if let Some(r) = state.desk.tile_preview.of(w).filter(|r| out.overlaps(*r)) {
+            elements.extend(tile_preview(&state.desk.tile_preview.ids, r, out.loc, scale).into_iter().map(OutputElements::Solid));
+        }
     }
     draw(renderer, &mut elements, &|l| !upper(l));
     elements
@@ -460,6 +464,38 @@ pub(crate) fn primary_output(state: &Ede, window: &smithay::desktop::Window) -> 
         .filter(|(area, _)| *area > 0)
         .max_by_key(|(area, _)| *area)
         .map(|(_, o)| o.clone())
+}
+
+/// The tile preview's elements, front to back: a 2 px ring border around
+/// a translucent fill of the tile `r` (space coordinates).
+fn tile_preview(
+    ids: &[smithay::backend::renderer::element::Id; 5],
+    r: crate::layout::Rect,
+    origin: smithay::utils::Point<i32, smithay::utils::Logical>,
+    scale: f64,
+) -> Vec<smithay::backend::renderer::element::solid::SolidColorRenderElement> {
+    use smithay::backend::renderer::{element::{solid::SolidColorRenderElement, Kind}, utils::CommitCounter};
+    use smithay::utils::Rectangle;
+    const LINE: i32 = 2;
+    // Premultiplied: the foreground at 15 %, the ring opaque.
+    let fg = crate::text::colour::FOREGROUND.map(|c| c as f32 / 255.0);
+    let fill = [fg[0] * 0.15, fg[1] * 0.15, fg[2] * 0.15, 0.15];
+    let ring = crate::text::colour::RING.map(|c| c as f32 / 255.0);
+    let r = Rectangle::new(r.loc - origin, r.size);
+    let (x, y, w, h) = (r.loc.x, r.loc.y, r.size.w, r.size.h);
+    let rect = |x: i32, y: i32, w: i32, h: i32| Rectangle::<i32, smithay::utils::Logical>::new((x, y).into(), (w.max(0), h.max(0)).into()).to_physical_precise_round(scale);
+    let parts = [
+        (rect(x, y, w, LINE), ring),
+        (rect(x, y + h - LINE, w, LINE), ring),
+        (rect(x, y + LINE, LINE, h - 2 * LINE), ring),
+        (rect(x + w - LINE, y + LINE, LINE, h - 2 * LINE), ring),
+        (rect(x + LINE, y + LINE, w - 2 * LINE, h - 2 * LINE), fill),
+    ];
+    parts
+        .into_iter()
+        .zip(ids)
+        .map(|((geo, colour), id)| SolidColorRenderElement::new(id.clone(), geo, CommitCounter::default(), colour, Kind::Unspecified))
+        .collect()
 }
 
 smithay::backend::renderer::element::render_elements! {

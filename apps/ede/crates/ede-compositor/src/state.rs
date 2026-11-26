@@ -41,6 +41,8 @@ use crate::{
 
 pub struct Ede {
     pub start_time: Instant,
+    /// [`CLIENTS_GONE`] as this compositor last saw it.
+    clients_gone: u64,
     pub display_handle: DisplayHandle,
     pub loop_handle: LoopHandle<'static, Ede>,
     pub loop_signal: LoopSignal,
@@ -130,6 +132,9 @@ pub struct Ede {
     pub fatal: Option<String>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
     pub debug_captures: bool,
+    /// Is this process a desktop portal's ([`crate::focus::portal_process`])?
+    /// Tests swap it for their own process.
+    pub portal_process: fn(u32) -> bool,
     /// A test's own process standing in for `exponential-sealed` (as
     /// [`Ede::begin_sealed_lock_as`] does for the lock): a layer surface it
     /// maps meanwhile is a sealed one ([`crate::sealed::origin_of`]). It
@@ -227,6 +232,12 @@ impl Ede {
             .insert_source(Generic::new(display, Interest::READ, Mode::Level), |_, display, state| {
                 // Safety: the display is never dropped while the source lives.
                 unsafe { display.get_mut().dispatch_clients(state).expect("dispatch clients") };
+                // A client that quit may have held the clipboard ([`crate::clipboard`]).
+                let gone = CLIENTS_GONE.load(std::sync::atomic::Ordering::Relaxed);
+                if gone != state.clients_gone {
+                    state.clients_gone = gone;
+                    state.clipboard_clients_gone();
+                }
                 Ok(PostAction::Continue)
             })
             .expect("insert the display source");
@@ -239,6 +250,7 @@ impl Ede {
 
         Self {
             start_time: Instant::now(),
+            clients_gone: CLIENTS_GONE.load(std::sync::atomic::Ordering::Relaxed),
             display_handle: dh.clone(),
             loop_handle,
             loop_signal,
@@ -270,6 +282,7 @@ impl Ede {
                 minimized: Vec::new(),
                 workspaces: crate::workspaces::Workspaces::default(),
                 title_click: None,
+                tile_preview: Default::default(),
             },
             spaces: Default::default(),
             vt_switch: None,
@@ -306,6 +319,7 @@ impl Ede {
             recovery: crate::recovery::Recovery::default(),
             fatal: None,
             debug_captures: false,
+            portal_process: crate::focus::portal_process,
             sealed_stand_in: None,
             shell_stand_in: None,
             installed: crate::peer::Installed::system(),
@@ -685,9 +699,11 @@ impl Ede {
             }
             None => (0, fh).into(),
         };
-        // #EDE-82, #EDE-76: only a window of the focused app, or one the
-        // person launched, takes the keyboard; never from a prompt.
-        let person = self.person_started(&window);
+        // #EDE-82, #EDE-76: only a window of the focused app, one the
+        // person launched or a portal's dialog (it answers what the person
+        // just did, Muffin maps it in front) takes the keyboard; never from
+        // a prompt.
+        let person = self.person_started(&window) || self.is_portal_dialog(&window);
         let takes = self.takes_keyboard(&window) || (person && self.exclusive_prompt().is_none());
         self.move_window(&window, loc, takes);
         self.send_preferred_scale(&window);
@@ -747,22 +763,46 @@ impl Ede {
 
     /// Tiles `window` into `tile` on the output under its centre, remembering
     /// the floating geometry the first time.
-    pub fn tile(&mut self, window: &Window, tile: Tile) {
-        let Some(geo) = self.desk.space.element_geometry(window) else { return };
+    /// `false` = it stays as it was ([`Self::can_tile`]).
+    pub fn tile(&mut self, window: &Window, tile: Tile) -> bool {
+        let Some(geo) = self.desk.space.element_geometry(window) else { return false };
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
-        if let Some(output) = self.output_at(center) {
-            self.tile_on(window, tile, &output);
+        match self.output_at(center) {
+            Some(output) => self.tile_on(window, tile, &output),
+            None => false,
+        }
+    }
+
+    /// Can `window` take `tile` in `area` (Muffin's `meta_window_can_tile`
+    /// and `recalc_features`)? Not with a fixed size (minimum = maximum);
+    /// a half or quarter needs room for its minimum size, maximizing a
+    /// work area larger than it. The maximum size is no bar: the window
+    /// is handed the whole tile, as Muffin does.
+    pub fn can_tile(&self, window: &Window, tile: Tile, area: Rect) -> bool {
+        let (min, max) = size_limits(window);
+        if max.w > 0 && max.h > 0 && min == max {
+            return false;
+        }
+        let room = self.without_frame(window, tile.rect(area)).size;
+        if tile == Tile::Maximized {
+            min.w < room.w && min.h < room.h
+        } else {
+            min.w <= room.w && min.h <= room.h
         }
     }
 
     /// [`Self::tile`] on `output`, whichever output its old tile's centre
     /// lies on now (#EDE-139: the outputs moved under it).
-    pub fn tile_on(&mut self, window: &Window, tile: Tile, output: &Output) {
-        let Some(geo) = self.desk.space.element_geometry(window) else { return };
-        let Some(area) = self.work_area(output) else { return };
+    pub fn tile_on(&mut self, window: &Window, tile: Tile, output: &Output) -> bool {
+        let Some(geo) = self.desk.space.element_geometry(window) else { return false };
+        let Some(area) = self.work_area(output) else { return false };
         let mut st = window_state(window);
         if st.fullscreen.is_some() {
-            return;
+            return false;
+        }
+        // A tile it holds already follows its area whatever the hints.
+        if st.tile != Some(tile) && !self.can_tile(window, tile, area) {
+            return false;
         }
         if st.tile.is_none() {
             st.restore = Some(geo);
@@ -772,6 +812,7 @@ impl Ede {
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.remap(window, rect.loc);
+        true
     }
 
     /// `output`'s work area changed (a panel's exclusive zone came, changed
@@ -888,6 +929,19 @@ impl Ede {
             self.desk.space.element_geometry(w).is_some_and(|g| g.overlaps(out))
         })?;
         (window_state(top).fullscreen.is_some() && self.desk.space.element_location(top) == Some(out.loc)).then(|| top.clone())
+    }
+
+    /// Where a move that ends at `pointer` would tile `window`, if it may
+    /// ([`layout::tile_zone`], [`Self::can_tile`]): the tile and the
+    /// rectangle it covers, its title bar included.
+    pub fn drop_tile(&self, window: &Window, pointer: Point<f64, Logical>) -> Option<(Tile, Rect)> {
+        let w = &self.config.windows;
+        if !w.edge_tiling || window_state(window).tile.is_some() {
+            return None;
+        }
+        let area = self.output_at(pointer).and_then(|o| self.work_area(&o))?;
+        let tile = layout::tile_zone(pointer, area, w.edge_tiling_px, w.corner_px)?;
+        self.can_tile(window, tile, area).then(|| (tile, tile.rect(area)))
     }
 
     /// The floating size a window returns to, if it is tiled.
@@ -1018,7 +1072,30 @@ pub fn client_pid(dh: &DisplayHandle, client: &smithay::reexports::wayland_serve
     }
 }
 
+/// Clients that went away, in this process (every compositor of a test
+/// binary counts here: each compares with the count it saw last).
+static CLIENTS_GONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {
+        CLIENTS_GONE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// The client's minimum and maximum size (0 = none): xdg-shell's, or an
+/// X11 window's `WM_NORMAL_HINTS`.
+pub fn size_limits(window: &Window) -> (Size<i32, Logical>, Size<i32, Logical>) {
+    if let Some(xdg) = window.toplevel() {
+        return smithay::wayland::compositor::with_states(xdg.wl_surface(), |states| {
+            let mut guard = states.cached_state.get::<smithay::wayland::shell::xdg::SurfaceCachedState>();
+            let data = guard.current();
+            (data.min_size, data.max_size)
+        });
+    }
+    #[cfg(feature = "xwayland")]
+    if let Some(x11) = window.x11_surface() {
+        return (x11.min_size().unwrap_or_default(), x11.max_size().unwrap_or_default());
+    }
+    (Size::default(), Size::default())
 }

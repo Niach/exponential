@@ -2,7 +2,10 @@
 //! PipeWire video nodes. Also the screen half of a RemoteDesktop session
 //! (the frontend calls SelectSources on its session handle).
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use zbus::{
     interface,
@@ -19,6 +22,35 @@ use crate::{
 /// restore_data's vendor and version.
 const VENDOR: &str = "ede";
 const RESTORE_VERSION: u32 = 1;
+
+/// How long a chooser's pick stays a handoff ([`Ctx::handoffs`]): Discord
+/// shows its own "Go Live" step (quality, sound) between the two sessions.
+pub const HANDOFF: Duration = Duration::from_secs(300);
+
+/// A pick the person just made in the chooser for `app_id`, for a session
+/// that persists only while the app runs: the app's next session restoring
+/// exactly these picks shares them once, without the chooser again (one
+/// picker per share, as on GNOME and Cinnamon). Restoring anything else, a
+/// persistent token (`persist_mode` 2), a later restore or remote control
+/// still goes through the chooser (#EDE-172, D6 a).
+#[derive(Clone, Debug)]
+pub struct Handoff {
+    pub app_id: String,
+    pub picks: Vec<Pick>,
+    pub at: Instant,
+}
+
+/// Takes `s`'s handoff: its restored picks are the ones the person picked
+/// for the same app less than [`HANDOFF`] ago (used up either way).
+fn take_handoff(ctx: &Ctx, s: &Session, now: Instant) -> Option<Vec<Pick>> {
+    let mut handoffs = ctx.handoffs.lock().unwrap();
+    handoffs.retain(|h| now.saturating_duration_since(h.at) < HANDOFF);
+    if s.kind != Kind::ScreenCast || s.restore.is_empty() {
+        return None;
+    }
+    let i = handoffs.iter().position(|h| h.app_id == s.app_id && h.picks == s.restore)?;
+    Some(handoffs.remove(i).picks)
+}
 
 pub struct ScreenCast {
     pub ctx: Arc<Ctx>,
@@ -119,7 +151,14 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
     let allowed = config.remote_desktop.allow.iter().any(|a| a == &s.app_id);
     let ask = Ask { app_id: &s.app_id, types, multiple: s.multiple, remote_control, selected: &s.restore };
 
-    let picks = if remote_control && config.screencast.chooser.is_empty() {
+    let handoff = if remote_control { None } else { take_handoff(ctx, &s, Instant::now()) };
+    // Still there, of the types asked for, never a protected window.
+    let handoff = handoff.filter(|picks| picks.iter().all(|p| p.source_type() & types != 0 && p.geometry(&outputs, &windows).is_some()));
+    let from_chooser = handoff.is_none() && !config.screencast.chooser.is_empty();
+    let picks = if let Some(picks) = handoff {
+        tracing::info!(app = %s.app_id, "screencast: the pick the person just made, handed to the app's capture session");
+        picks
+    } else if remote_control && config.screencast.chooser.is_empty() {
         if !allowed {
             tracing::warn!("remote control for {:?} refused: set [screencast] chooser or [remote_desktop] allow", s.app_id);
             return Ok(None);
@@ -153,6 +192,9 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
         })
         .collect();
     results.insert("streams".into(), value(list));
+    if from_chooser && !remote_control && s.kind == Kind::ScreenCast && s.persist_mode == 1 && !picks.is_empty() {
+        ctx.handoffs.lock().unwrap().push(Handoff { app_id: s.app_id.clone(), picks: picks.clone(), at: Instant::now() });
+    }
     if s.persist_mode > 0 && !picks.is_empty() {
         let data = picks.iter().map(Pick::encode).collect::<Vec<_>>().join("\n");
         results.insert("persist_mode".into(), value(s.persist_mode));
@@ -195,5 +237,43 @@ fn restore_picks(v: &OwnedValue) -> Vec<Pick> {
     match data {
         Value::Str(s) => s.as_str().lines().filter_map(Pick::decode).collect(),
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx() -> Arc<Ctx> {
+        Ctx::new(Arc::new(|| Err(ede_protocol::Error::Io(std::io::ErrorKind::NotFound.into()))), None)
+    }
+
+    fn restoring(app_id: &str, picks: &[Pick]) -> Session {
+        let mut s = Session::new(Kind::ScreenCast, app_id);
+        s.restore = picks.to_vec();
+        s
+    }
+
+    /// Chromium's pick-then-capture: the restore of the pick the person
+    /// just made, for the same app, shares once; another app, other picks,
+    /// a second restore or an old pick go through the chooser.
+    #[test]
+    fn a_handoff_shares_once_for_the_same_app_and_picks() {
+        let ctx = ctx();
+        let screen = vec![Pick::Output("Virtual-1".into())];
+        let now = Instant::now();
+        let handoff = |app: &str, at| Handoff { app_id: app.into(), picks: screen.clone(), at };
+        ctx.handoffs.lock().unwrap().extend([handoff("com.discordapp.Discord", now), handoff("", now - HANDOFF - Duration::from_secs(1))]);
+
+        assert_eq!(take_handoff(&ctx, &restoring("org.example.Other", &screen), now), None, "another app");
+        assert_eq!(take_handoff(&ctx, &restoring("com.discordapp.Discord", &[Pick::Output("HDMI-A-1".into())]), now), None, "other picks");
+        assert_eq!(take_handoff(&ctx, &restoring("com.discordapp.Discord", &[]), now), None, "no restore");
+        let mut remote = restoring("com.discordapp.Discord", &screen);
+        remote.kind = Kind::RemoteDesktop;
+        assert_eq!(take_handoff(&ctx, &remote, now), None, "remote control never");
+        assert_eq!(take_handoff(&ctx, &restoring("com.discordapp.Discord", &screen), now), Some(screen.clone()));
+        assert_eq!(take_handoff(&ctx, &restoring("com.discordapp.Discord", &screen), now), None, "used up");
+        assert_eq!(take_handoff(&ctx, &restoring("", &screen), now), None, "older than HANDOFF");
+        assert!(ctx.handoffs.lock().unwrap().is_empty());
     }
 }

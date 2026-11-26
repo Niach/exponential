@@ -424,15 +424,15 @@ mod tests {
 
     /// #EXP-2041: the taskbar's Agent spaces list, a hosted Popover, names
     /// its popup with the namespace the compositor keeps out of every
-    /// capture of the person's output; the taskbar's other hosted layer (the
-    /// window previews) and its popup documents (the tray menu, Needs you)
+    /// capture of the person's output; the taskbar's other hosted layers (the
+    /// window previews, its menus) and its popup documents (Needs you)
     /// have names of their own.
     #[cfg(target_os = "linux")]
     #[test]
     fn the_lists_popup_has_the_namespace_captures_black_out() {
         let prefix = uicore_gpui::LayerShellHost::default().namespace;
         assert_eq!(uicore_gpui::hosted_namespace(&prefix, "taskbar", LIST), ede_protocol::SPACE_LIST_NAMESPACE);
-        for other in [uicore_gpui::hosted_namespace(&prefix, "taskbar", "previews"), uicore_gpui::layer_namespace(&prefix, "tray-menu"), uicore_gpui::layer_namespace(&prefix, "needs-you")] {
+        for other in [uicore_gpui::hosted_namespace(&prefix, "taskbar", "previews"), uicore_gpui::hosted_namespace(&prefix, "taskbar", "group"), uicore_gpui::layer_namespace(&prefix, "needs-you")] {
             assert_ne!(other, ede_protocol::SPACE_LIST_NAMESPACE);
         }
     }

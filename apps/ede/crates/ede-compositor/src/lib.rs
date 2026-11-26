@@ -45,6 +45,7 @@ pub mod screen_pick;
 pub mod screencopy;
 pub mod sealed;
 pub mod services;
+pub mod signed;
 pub mod shortcuts;
 pub mod spaces;
 pub mod state;
