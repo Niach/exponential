@@ -1,0 +1,1363 @@
+{
+  "$comment": "#NEW-146 (part of #NEW-143, phase 5): A THIRD-PARTY MCP SERVER'S ELICITATION REACHES THE PERSON ×4 (MCP 2026-07-28 client/elicitation). WHERE IT COMES FROM: an MCP server the agent uses asks the person something (`elicitation/create`). Codex's app-server raises it as `mcpServer/elicitation/request` (flat: the MCP request beside `serverName`, the name Exponential configured the server under) and the codex adapter maps it to THE ACP elicitation (`codex_wire::mcp_elicitation_request`), the server's name in the request's `_meta` under `serverMetaKey`, the server's property order under `orderMetaKey`; codex's private `openai/form` modes and an unreadable schema are DECLINED, never guessed at. The answer goes back as MCP's own `{action: accept|decline|cancel, content?}`. An ACP elicitation WITH `serverMetaKey` (or in url mode) is THE ELICITATION CARD below; one without it stays THE question stepper (ask-dock.json, claude's AskUserQuestion and codex's requestUserInput). THE CARD (`elicitationCard(request)`, `cardCases`, the device's: the engine builds it and posts it like every engine ask, so it is SEALED through coding mcp_gateway.rs like every other card, is a Needs you item (needs-you.json) and PUSHES (question-push.json)) = the existing `question` card with `custom: false`, `multi: false`, `question` = the server's message, a genUI `surface` built from the request and the sidecar `elicitation` {server, mode, required, url}. FORM MODE: `options` = [`copy.submit`, `copy.decline`, `copy.cancel`]; the surface = ONE vertical Stack (gap md) of ONE field per property, in the server's order (`orderMetaKey`, else by name: `elicitationFieldOrder`), each bound to `/<formKey>/<name>`: FIELD MAP: boolean = Switch (`checked`, the description as its description); a string with `enum` (labels = `enumNames` when given) or `oneOf` (labels = titles) = Select; an array (multi-select: `items.enum` or `items.anyOf`) = Select `multiple`; number = NumberField (`min`/`max`), integer = NumberField with `step` 1, `precision` 0; a string with format `date` = DatePicker; `email` = Input type email; `uri` = Input type url; any other string (`date-time` included) = Input type text. The label = the property's title, else its name; a description that is not a Switch's or a Select's rides as the placeholder. DEFAULTS ARE PREFILLED (the data model starts at each default of the right type; else `\"\"`, null for a number, false for a boolean, [] for a list). URL MODE: `options` = [`copy.done`, `copy.decline`]; the surface = the URL review (`elicitationUrl`, `urlCases`): the REGISTRABLE DOMAIN as a Heading h4 (bold; eTLD+1 with `multiPartSuffixes`, an IP or a two-label host = the host), the FULL URL as a code Text (never a link: nothing in the card is clickable but its buttons), one warning Alert per warning: `punycode` (a label starts `xn--`), `ip` (an IPv4 or IPv6 host), `insecure` (not https). A url that is not an absolute http(s) URL = `null`: the device declines it. RENDER ×4 (only existing components: the question card's AskCard chrome, its surface frame, THE Button): the header's label = the server's name (`elicitation.server`) beside `icons.server`, ALWAYS (the card names who asks); the message; the surface WITHOUT the plan card's `Preview` caption; then ONE end-aligned button row (FormActions' order): form = `copy.cancel` (ghost), `copy.decline` (outline), `copy.submit` (the small primary, disabled while `elicitationMissing(elicitation, surfaceData)` names a field, `copy.missing` under the row); url = `copy.decline` (outline), `copy.done` (outline), `copy.openLink` (the small primary). The waiting card's × (waiting-cards.json DISMISS) stays and means cancel. OPEN LINK (url mode) opens `elicitation.url` and answers NOTHING (the person comes back and presses `copy.done`): NO PREFETCH (nothing loads it before the press), never an in-app WebView: web = a new tab with `noopener,noreferrer`; desktop = the system browser; iOS = SFSafariViewController (ASWebAuthenticationSession for an OAuth URL); Android = Custom Tabs. AN ANSWER = THE answer path (`sessions.answer({messageId, answers: [label], surfaceData})`, re-sealed on the device for a sealed card); the device maps it back (`elicitationAction`, `actionCases`): `copy.submit` / `copy.done` = accept, `copy.decline` = decline, `copy.cancel`, a dismiss or anything else = cancel; NEVER AN AUTO-ACCEPT. An accepted form carries `elicitationContent(schema, surfaceData)` (`contentCases`): each value coerced to its property's type, an empty optional left out, `null` (= the card stays waiting; the renderers never send it) when a required value is missing or a value is of the wrong type or outside its choices. LIVE (`elicitationFeedCard(messages, questionId, resolved)`, `feedCardCases`): while the session runs, an engine ask reaches a live session view TWICE: as the relay's question frame (question, options, header: no surface, no sidecar) and as the posted `messages.card` (`sessionCards` leaves an engine card to its frame, ask-dock.json). The frame alone would draw a bare Submit / Decline / Cancel whose Submit carries no form data, so EVERY live view (web, desktop's running session view, iOS, Android; the session on this device or another) draws THE POSTED CARD for a frame of the same `questionId` (a lone question frame or a one-step ask), answered via `sessions.answer` like the idle card: the id of the first message whose card is a `question` with that `questionId` AND an `elicitation` sidecar; `null` (the frame stays) when no such card is synced yet, or when the frame already resolved while the card never got an answer (withdrawn: the frame names it Dismissed). ANSWERED = closed like every question card: the surface inert at its answered data, the buttons gone, THE answered line names the pick. `copy.specimen` = the specimen's four captions ×4 (the waiting form, the clean url, the warned url, an answered form). Mirrors: TS src/elicitation-card.ts (the reference); the engine (eagent `engine/elicitation_card.rs`) replays `cardCases`, `contentCases`, `actionCases`, `urlCases`; the renderers (desktop `domain::elicitation_card`, iOS ExpCore `ElicitationCard.swift`, Android `domain/ElicitationCard.kt`) replay `missingCases`, `actionCases` and `feedCardCases`. Whole values compared.",
+  "serverMetaKey": "exponential.at/mcpServer",
+  "orderMetaKey": "exponential.at/fieldOrder",
+  "formKey": "form",
+  "copy": {
+    "submit": "Submit",
+    "decline": "Decline",
+    "cancel": "Cancel",
+    "openLink": "Open link",
+    "done": "I'm done",
+    "missing": "Fill in every required field.",
+    "unknownServer": "MCP server",
+    "warnings": {
+      "punycode": "This address uses look-alike characters.",
+      "ip": "This link goes to an IP address, not a domain.",
+      "insecure": "This link is not encrypted (no https)."
+    },
+    "specimen": {
+      "form": "Form",
+      "url": "URL",
+      "warned": "URL with warnings",
+      "answered": "Answered"
+    }
+  },
+  "icons": {
+    "server": "settings-mcp",
+    "url": "globe"
+  },
+  "testIds": {
+    "card": "elicitation-card",
+    "server": "elicitation-server",
+    "submit": "elicitation-submit",
+    "decline": "elicitation-decline",
+    "cancel": "elicitation-cancel",
+    "openLink": "elicitation-open-link",
+    "done": "elicitation-done"
+  },
+  "multiPartSuffixes": [
+    "co.uk",
+    "org.uk",
+    "ac.uk",
+    "gov.uk",
+    "com.au",
+    "net.au",
+    "org.au",
+    "co.nz",
+    "co.jp",
+    "ne.jp",
+    "or.jp",
+    "com.br",
+    "com.cn",
+    "com.mx",
+    "co.in",
+    "co.za",
+    "com.tr",
+    "co.kr",
+    "com.sg",
+    "co.at",
+    "or.at",
+    "gv.at"
+  ],
+  "cardCases": [
+    {
+      "name": "a form with every field kind, in the server's order, defaults prefilled",
+      "request": {
+        "server": "linear",
+        "message": "Where should the issue go?",
+        "mode": "form",
+        "order": [
+          "title",
+          "team",
+          "labels",
+          "estimate",
+          "points",
+          "due",
+          "email",
+          "link",
+          "notify"
+        ],
+        "schema": {
+          "properties": {
+            "notify": {
+              "type": "boolean",
+              "title": "Notify the team",
+              "description": "Posts in the team channel.",
+              "default": true
+            },
+            "title": {
+              "type": "string",
+              "title": "Title",
+              "default": "Crash on launch"
+            },
+            "team": {
+              "type": "string",
+              "title": "Team",
+              "oneOf": [
+                {
+                  "const": "web",
+                  "title": "Web"
+                },
+                {
+                  "const": "ios",
+                  "title": "iOS"
+                }
+              ],
+              "default": "ios"
+            },
+            "labels": {
+              "type": "array",
+              "title": "Labels",
+              "items": {
+                "enum": [
+                  "bug",
+                  "crash",
+                  "p1"
+                ]
+              },
+              "default": [
+                "bug"
+              ]
+            },
+            "estimate": {
+              "type": "integer",
+              "title": "Estimate",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "points": {
+              "type": "number",
+              "description": "Confidence"
+            },
+            "due": {
+              "type": "string",
+              "title": "Due",
+              "format": "date"
+            },
+            "email": {
+              "type": "string",
+              "title": "Reporter",
+              "format": "email",
+              "description": "Who reported it"
+            },
+            "link": {
+              "type": "string",
+              "title": "Link",
+              "format": "uri"
+            }
+          },
+          "required": [
+            "title",
+            "team"
+          ]
+        }
+      },
+      "expected": {
+        "kind": "question",
+        "question": "Where should the issue go?",
+        "options": [
+          "Submit",
+          "Decline",
+          "Cancel"
+        ],
+        "custom": false,
+        "multi": false,
+        "surface": {
+          "root": {
+            "id": "root",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "md"
+            },
+            "children": [
+              {
+                "id": "f_title",
+                "component": "Input",
+                "props": {
+                  "label": "Title",
+                  "name": "title",
+                  "type": "text",
+                  "value": {
+                    "path": "/form/title"
+                  }
+                }
+              },
+              {
+                "id": "f_team",
+                "component": "Select",
+                "props": {
+                  "label": "Team",
+                  "name": "team",
+                  "options": [
+                    {
+                      "label": "Web",
+                      "value": "web"
+                    },
+                    {
+                      "label": "iOS",
+                      "value": "ios"
+                    }
+                  ],
+                  "value": {
+                    "path": "/form/team"
+                  }
+                }
+              },
+              {
+                "id": "f_labels",
+                "component": "Select",
+                "props": {
+                  "label": "Labels",
+                  "name": "labels",
+                  "options": [
+                    {
+                      "label": "bug",
+                      "value": "bug"
+                    },
+                    {
+                      "label": "crash",
+                      "value": "crash"
+                    },
+                    {
+                      "label": "p1",
+                      "value": "p1"
+                    }
+                  ],
+                  "value": {
+                    "path": "/form/labels"
+                  },
+                  "multiple": true
+                }
+              },
+              {
+                "id": "f_estimate",
+                "component": "NumberField",
+                "props": {
+                  "label": "Estimate",
+                  "name": "estimate",
+                  "value": {
+                    "path": "/form/estimate"
+                  },
+                  "min": 1,
+                  "max": 8,
+                  "step": 1,
+                  "precision": 0
+                }
+              },
+              {
+                "id": "f_points",
+                "component": "NumberField",
+                "props": {
+                  "label": "points",
+                  "name": "points",
+                  "value": {
+                    "path": "/form/points"
+                  },
+                  "placeholder": "Confidence"
+                }
+              },
+              {
+                "id": "f_due",
+                "component": "DatePicker",
+                "props": {
+                  "label": "Due",
+                  "name": "due",
+                  "value": {
+                    "path": "/form/due"
+                  }
+                }
+              },
+              {
+                "id": "f_email",
+                "component": "Input",
+                "props": {
+                  "label": "Reporter",
+                  "name": "email",
+                  "type": "email",
+                  "value": {
+                    "path": "/form/email"
+                  },
+                  "placeholder": "Who reported it"
+                }
+              },
+              {
+                "id": "f_link",
+                "component": "Input",
+                "props": {
+                  "label": "Link",
+                  "name": "link",
+                  "type": "url",
+                  "value": {
+                    "path": "/form/link"
+                  }
+                }
+              },
+              {
+                "id": "f_notify",
+                "component": "Switch",
+                "props": {
+                  "label": "Notify the team",
+                  "name": "notify",
+                  "checked": {
+                    "path": "/form/notify"
+                  },
+                  "description": "Posts in the team channel."
+                }
+              }
+            ]
+          },
+          "data": {
+            "form": {
+              "title": "Crash on launch",
+              "team": "ios",
+              "labels": [
+                "bug"
+              ],
+              "estimate": null,
+              "points": null,
+              "due": "",
+              "email": "",
+              "link": "",
+              "notify": true
+            }
+          }
+        },
+        "elicitation": {
+          "server": "linear",
+          "mode": "form",
+          "required": [
+            "title",
+            "team"
+          ],
+          "url": null
+        }
+      }
+    },
+    {
+      "name": "a legacy enum with enumNames, no order (by name), a wrong-typed default ignored",
+      "request": {
+        "server": "  ",
+        "message": "Pick one",
+        "mode": "form",
+        "schema": {
+          "properties": {
+            "size": {
+              "type": "string",
+              "enum": [
+                "s",
+                "m"
+              ],
+              "enumNames": [
+                "Small",
+                "Medium"
+              ],
+              "default": 3
+            },
+            "agree": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "expected": {
+        "kind": "question",
+        "question": "Pick one",
+        "options": [
+          "Submit",
+          "Decline",
+          "Cancel"
+        ],
+        "custom": false,
+        "multi": false,
+        "surface": {
+          "root": {
+            "id": "root",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "md"
+            },
+            "children": [
+              {
+                "id": "f_agree",
+                "component": "Switch",
+                "props": {
+                  "label": "agree",
+                  "name": "agree",
+                  "checked": {
+                    "path": "/form/agree"
+                  }
+                }
+              },
+              {
+                "id": "f_size",
+                "component": "Select",
+                "props": {
+                  "label": "size",
+                  "name": "size",
+                  "options": [
+                    {
+                      "label": "Small",
+                      "value": "s"
+                    },
+                    {
+                      "label": "Medium",
+                      "value": "m"
+                    }
+                  ],
+                  "value": {
+                    "path": "/form/size"
+                  }
+                }
+              }
+            ]
+          },
+          "data": {
+            "form": {
+              "agree": false,
+              "size": ""
+            }
+          }
+        },
+        "elicitation": {
+          "server": "MCP server",
+          "mode": "form",
+          "required": [],
+          "url": null
+        }
+      }
+    },
+    {
+      "name": "a url: the domain, the full url, no warning",
+      "request": {
+        "server": "github",
+        "message": "Sign in to GitHub",
+        "mode": "url",
+        "url": "https://github.com/login/oauth/authorize?client_id=abc&state=xyz",
+        "elicitationId": "e-1"
+      },
+      "expected": {
+        "kind": "question",
+        "question": "Sign in to GitHub",
+        "options": [
+          "I'm done",
+          "Decline"
+        ],
+        "custom": false,
+        "multi": false,
+        "surface": {
+          "root": {
+            "id": "root",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "sm"
+            },
+            "children": [
+              {
+                "id": "domain",
+                "component": "Heading",
+                "props": {
+                  "text": "github.com",
+                  "level": "h4"
+                }
+              },
+              {
+                "id": "url",
+                "component": "Text",
+                "props": {
+                  "text": "https://github.com/login/oauth/authorize?client_id=abc&state=xyz",
+                  "variant": "code"
+                }
+              }
+            ]
+          },
+          "data": {}
+        },
+        "elicitation": {
+          "server": "github",
+          "mode": "url",
+          "required": [],
+          "url": "https://github.com/login/oauth/authorize?client_id=abc&state=xyz"
+        }
+      }
+    },
+    {
+      "name": "a url on http with a punycode host under a multi-part suffix",
+      "request": {
+        "server": "billing",
+        "message": "Pay the invoice",
+        "mode": "url",
+        "url": "http://pay.xn--pple-43d.co.uk/invoice/42",
+        "elicitationId": "e-2"
+      },
+      "expected": {
+        "kind": "question",
+        "question": "Pay the invoice",
+        "options": [
+          "I'm done",
+          "Decline"
+        ],
+        "custom": false,
+        "multi": false,
+        "surface": {
+          "root": {
+            "id": "root",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "sm"
+            },
+            "children": [
+              {
+                "id": "domain",
+                "component": "Heading",
+                "props": {
+                  "text": "xn--pple-43d.co.uk",
+                  "level": "h4"
+                }
+              },
+              {
+                "id": "url",
+                "component": "Text",
+                "props": {
+                  "text": "http://pay.xn--pple-43d.co.uk/invoice/42",
+                  "variant": "code"
+                }
+              },
+              {
+                "id": "warn_punycode",
+                "component": "Alert",
+                "props": {
+                  "title": "This address uses look-alike characters.",
+                  "type": "warning"
+                }
+              },
+              {
+                "id": "warn_insecure",
+                "component": "Alert",
+                "props": {
+                  "title": "This link is not encrypted (no https).",
+                  "type": "warning"
+                }
+              }
+            ]
+          },
+          "data": {}
+        },
+        "elicitation": {
+          "server": "billing",
+          "mode": "url",
+          "required": [],
+          "url": "http://pay.xn--pple-43d.co.uk/invoice/42"
+        }
+      }
+    },
+    {
+      "name": "a url that is not http(s) is declined",
+      "request": {
+        "server": "x",
+        "message": "Open",
+        "mode": "url",
+        "url": "javascript:alert(1)",
+        "elicitationId": "e-3"
+      },
+      "expected": null
+    }
+  ],
+  "urlCases": [
+    {
+      "url": "https://accounts.google.com/o/oauth2/auth?x=1",
+      "expected": {
+        "url": "https://accounts.google.com/o/oauth2/auth?x=1",
+        "host": "accounts.google.com",
+        "domain": "google.com",
+        "warnings": []
+      }
+    },
+    {
+      "url": "  https://example.com/path  ",
+      "expected": {
+        "url": "https://example.com/path",
+        "host": "example.com",
+        "domain": "example.com",
+        "warnings": []
+      }
+    },
+    {
+      "url": "https://google.com@evil.example.org/login",
+      "expected": {
+        "url": "https://google.com@evil.example.org/login",
+        "host": "evil.example.org",
+        "domain": "example.org",
+        "warnings": []
+      }
+    },
+    {
+      "url": "https://192.168.1.10:8443/setup",
+      "expected": {
+        "url": "https://192.168.1.10:8443/setup",
+        "host": "192.168.1.10",
+        "domain": "192.168.1.10",
+        "warnings": [
+          "ip"
+        ]
+      }
+    },
+    {
+      "url": "http://[::1]:3000/cb",
+      "expected": {
+        "url": "http://[::1]:3000/cb",
+        "host": "[::1]",
+        "domain": "[::1]",
+        "warnings": [
+          "ip",
+          "insecure"
+        ]
+      }
+    },
+    {
+      "url": "https://localhost:3000/cb",
+      "expected": {
+        "url": "https://localhost:3000/cb",
+        "host": "localhost",
+        "domain": "localhost",
+        "warnings": []
+      }
+    },
+    {
+      "url": "https://shop.example.co.at/checkout",
+      "expected": {
+        "url": "https://shop.example.co.at/checkout",
+        "host": "shop.example.co.at",
+        "domain": "example.co.at",
+        "warnings": []
+      }
+    },
+    {
+      "url": "file:///etc/passwd",
+      "expected": null
+    },
+    {
+      "url": "not a url",
+      "expected": null
+    }
+  ],
+  "missingCases": [
+    {
+      "name": "nothing required",
+      "required": [],
+      "surfaceData": null,
+      "expected": []
+    },
+    {
+      "name": "both empty",
+      "required": [
+        "title",
+        "team"
+      ],
+      "surfaceData": {
+        "form": {
+          "title": "  ",
+          "team": ""
+        }
+      },
+      "expected": [
+        "title",
+        "team"
+      ]
+    },
+    {
+      "name": "one filled",
+      "required": [
+        "title",
+        "team"
+      ],
+      "surfaceData": {
+        "form": {
+          "title": "Crash",
+          "team": ""
+        }
+      },
+      "expected": [
+        "team"
+      ]
+    },
+    {
+      "name": "a false boolean and a zero count as given",
+      "required": [
+        "ok",
+        "n"
+      ],
+      "surfaceData": {
+        "form": {
+          "ok": false,
+          "n": 0
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "an empty list is missing",
+      "required": [
+        "labels"
+      ],
+      "surfaceData": {
+        "form": {
+          "labels": []
+        }
+      },
+      "expected": [
+        "labels"
+      ]
+    },
+    {
+      "name": "no form at all",
+      "required": [
+        "title"
+      ],
+      "surfaceData": {},
+      "expected": [
+        "title"
+      ]
+    }
+  ],
+  "actionCases": [
+    {
+      "name": "submit accepts",
+      "card": {
+        "answers": [
+          "Submit"
+        ]
+      },
+      "expected": "accept"
+    },
+    {
+      "name": "I'm done accepts",
+      "card": {
+        "answers": [
+          "I'm done"
+        ]
+      },
+      "expected": "accept"
+    },
+    {
+      "name": "decline",
+      "card": {
+        "answers": [
+          "Decline"
+        ]
+      },
+      "expected": "decline"
+    },
+    {
+      "name": "cancel",
+      "card": {
+        "answers": [
+          "Cancel"
+        ]
+      },
+      "expected": "cancel"
+    },
+    {
+      "name": "the legacy joined answer",
+      "card": {
+        "answer": "Decline"
+      },
+      "expected": "decline"
+    },
+    {
+      "name": "a dismissed card cancels, whatever it says",
+      "card": {
+        "answers": [
+          "Submit"
+        ],
+        "dismissed": true
+      },
+      "expected": "cancel"
+    },
+    {
+      "name": "an unknown label never accepts",
+      "card": {
+        "answers": [
+          "submit"
+        ]
+      },
+      "expected": "cancel"
+    },
+    {
+      "name": "nothing picked",
+      "card": {},
+      "expected": "cancel"
+    }
+  ],
+  "contentCases": [
+    {
+      "name": "coerced to each type, empty optionals left out",
+      "schema": {
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string",
+            "enum": [
+              "web",
+              "ios"
+            ]
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "bug",
+                "crash"
+              ]
+            }
+          },
+          "estimate": {
+            "type": "integer"
+          },
+          "points": {
+            "type": "number"
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "team"
+        ]
+      },
+      "surfaceData": {
+        "form": {
+          "title": "  Crash  ",
+          "team": "ios",
+          "labels": [
+            "bug"
+          ],
+          "estimate": "3",
+          "points": 0.5,
+          "notify": false,
+          "note": ""
+        }
+      },
+      "expected": {
+        "estimate": 3,
+        "labels": [
+          "bug"
+        ],
+        "notify": false,
+        "points": 0.5,
+        "team": "ios",
+        "title": "Crash"
+      }
+    },
+    {
+      "name": "a required value missing",
+      "schema": {
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "surfaceData": {
+        "form": {
+          "title": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a value outside its choices",
+      "schema": {
+        "properties": {
+          "team": {
+            "type": "string",
+            "enum": [
+              "web"
+            ]
+          }
+        }
+      },
+      "surfaceData": {
+        "form": {
+          "team": "android"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a fraction for an integer",
+      "schema": {
+        "properties": {
+          "n": {
+            "type": "integer"
+          }
+        }
+      },
+      "surfaceData": {
+        "form": {
+          "n": 1.5
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "no surface data, nothing required",
+      "schema": {
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "surfaceData": null,
+      "expected": {}
+    }
+  ],
+  "feedCardCases": [
+    {
+      "name": "a waiting frame of an elicitation card = that card",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-1#submit",
+      "resolved": false,
+      "expected": "m-form"
+    },
+    {
+      "name": "an answered card stays the card once its frame resolved",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-2#submit",
+      "resolved": true,
+      "expected": "m-done"
+    },
+    {
+      "name": "an answered card while its frame still waits = that card",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-2#submit",
+      "resolved": false,
+      "expected": "m-done"
+    },
+    {
+      "name": "a withdrawn frame (resolved, card never answered) stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-1#submit",
+      "resolved": true,
+      "expected": null
+    },
+    {
+      "name": "an engine question without the sidecar stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "ask-1#0",
+      "resolved": false,
+      "expected": null
+    },
+    {
+      "name": "a frame whose card is not synced yet stays the frame",
+      "messages": [
+        {
+          "id": "m-plain",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "ask-1#0",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ]
+          }
+        },
+        {
+          "id": "m-plan",
+          "answeredAt": null,
+          "card": {
+            "kind": "plan",
+            "questionId": "mcp-1#submit"
+          }
+        },
+        {
+          "id": "m-form",
+          "answeredAt": null,
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-1#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-done",
+          "answeredAt": "2026-11-26T17:00:00.000Z",
+          "card": {
+            "kind": "question",
+            "questionId": "mcp-2#submit",
+            "options": [
+              "Submit",
+              "Decline",
+              "Cancel"
+            ],
+            "elicitation": {
+              "server": "acme",
+              "mode": "form",
+              "required": [],
+              "url": null
+            }
+          }
+        },
+        {
+          "id": "m-text",
+          "answeredAt": null,
+          "card": null
+        }
+      ],
+      "questionId": "mcp-9#submit",
+      "resolved": false,
+      "expected": null
+    }
+  ]
+}

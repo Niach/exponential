@@ -1,0 +1,887 @@
+{
+  "$comment": "#NEW-145 / #NEW-143 D5 (Danny 2026-11-26): FILE UPLOADS over Exponential's MCP server, the DRAFT `io.modelcontextprotocol/files` extension (github.com/modelcontextprotocol/experimental-ext-file-uploads specification/draft/file-uploads.md), BUILT BEHIND the `flag` (`MCP_FILES_EXTENSION` = `1` or `true`, `flagCases`; off = nothing of this is declared or accepted, tools keep today's base64 / signed-URL upload) and shipped when Claude rolls the extension out. DECLARED (flag on): `capability` in `server/discover` (`upload: {}`, `maxInlineBytes` = 1 MiB); a tool's file argument (`fileInputs`: tool -> the op and argument carrying it) carries `x-mcp-file` {accept, maxSize} in its input schema (maxSize = lib/storage maxFileUploadBytes; the image limit stays the handler's). A client that has not declared `upload` gets -32021 with data.requiredCapabilities when it sends a FileInput without `data` (it cannot upload). FIRST CALL (`planFiles`, `planCases`): each FileInput {id (1..`idMax` chars, unique in the call), name?, mimeType, size (integer >= 0), digest? {algorithm `digestAlgorithm`, value = base64url sha-256 without padding}, data? (RFC 4648 base64)} is checked in order: shape (`invalid`: wrong types, `data: null`, data on a size-0 file), duplicate id (`duplicateId`), size over maxSize (`oversize`, before any upload), then inline data: not base64 (`undecodable`), decoded length != size (`sizeMismatch`), digest differs (`digestMismatch`), the call's inline total over `maxInlineBytes` (`inlineTooLarge`). Any of these = an isError tool result (`errors.<reason>`, `{id}` = the file id) and the tool NOT run. All inline (or size 0) = the tool runs with the bytes. Any file without data and size > 0 = `upload_required` (`uploadRequiredCases`): one target per such file, `url` = `${APP_URL}` + `staging.path` + a staging id (32 random bytes base64url, unguessable: the URL is the capability; no Authorization or Cookie header, `credentials` omit), `method` PUT, `headers` Content-Type = the file's mimeType, `expiresAt` = now + `staging.ttlMs` (RFC 3339), plus a `requestState` (elicitation.json `requestState`, kind `upload`, keys = `<fileId>:<stagingId>`, bound to the principal, the tool and the exact arguments). The staging object accepts at most `size` bytes. RETRY (`retryVerdict`, `retryCases`): the client sends the SAME tool and arguments with the exact requestState; the state's checks come first (malformed, tampered, expired, foreign principal, CHANGED ARGUMENTS or tool, replayed, an elicit-kind state) = -32602, nothing runs; then every staged file must have ARRIVED with exactly its size (else `missingBytes`, isError) and its digest when one was given (`digestMismatch`). There is NEVER a second `upload_required` in one logical call (the client would fail it): bytes still missing = `missingBytes`, and the caller starts a new call. Verified = the state is consumed (single use: running twice is unsafe), the staged objects finalize into attachments, the tool runs. Staged objects nobody finalized are deleted after `staging.ttlMs`. In the cases a string written {repeat, times} = that string repeated, {concat: [...]} = the parts joined. SCHEMA (`fileSchema`, `schemaCases`, #NEW-149): the file argument's JSON schema is the spec's FileInput object {id (string, 1..`idMax`), name?, mimeType, size (integer >= 0), digest? {algorithm const `digestAlgorithm`, value}, data? (string)} with `required` [id, mimeType, size] and `x-mcp-file` {accept, maxSize} beside its `type`; flag off = no such property. CLIENT DECLARATION (`declaredCases`): `upload` / `download` are read PER REQUEST from the client's `extensions[extension]` (objects; anything else = not declared). DOWNLOADS (`download`, `downloadCases`, #NEW-149): an attachment READ (`exponential_attachments {op: get}`) whose request declared `download` (flag on) adds ONE DownloadTarget to the result's `_meta[extension].downloads` {name = the filename, mimeType = the content type (`application/octet-stream` when empty), size = sizeBytes, url = the short-lived signed downloadUrl (the URL is the capability), credentials `omit`, expiresAt = the URL's expiry}; never in content or structuredContent; not declared (or flag off) = no `_meta` key, today's result.",
+  "extension": "io.modelcontextprotocol/files",
+  "flag": {
+    "env": "MCP_FILES_EXTENSION",
+    "on": [
+      "1",
+      "true"
+    ]
+  },
+  "capability": {
+    "upload": {},
+    "maxInlineBytes": 1048576
+  },
+  "fileInputs": {
+    "exponential_attachments_write": {
+      "op": "upload",
+      "arg": "file",
+      "accept": [
+        "*/*"
+      ],
+      "maxSize": 52428800
+    }
+  },
+  "idMax": 128,
+  "digestAlgorithm": "sha-256",
+  "staging": {
+    "path": "/api/mcp/uploads/",
+    "method": "PUT",
+    "credentials": "omit",
+    "ttlMs": 900000
+  },
+  "errors": {
+    "invalid": "File {id}: not a valid file input.",
+    "duplicateId": "File {id}: two files share this id.",
+    "oversize": "File {id} is larger than this tool accepts.",
+    "undecodable": "File {id}: data is not base64.",
+    "sizeMismatch": "File {id}: data does not match its size.",
+    "digestMismatch": "File {id}: the bytes do not match its digest.",
+    "inlineTooLarge": "File {id}: inline files are limited to 1 MiB per call; send it without data to upload it.",
+    "missingBytes": "File {id} has not arrived; call the tool again to get a new upload."
+  },
+  "flagCases": [
+    {
+      "env": {},
+      "expected": false
+    },
+    {
+      "env": {
+        "MCP_FILES_EXTENSION": "1"
+      },
+      "expected": true
+    },
+    {
+      "env": {
+        "MCP_FILES_EXTENSION": "TRUE "
+      },
+      "expected": true
+    },
+    {
+      "env": {
+        "MCP_FILES_EXTENSION": "0"
+      },
+      "expected": false
+    },
+    {
+      "env": {
+        "MCP_FILES_EXTENSION": "yes"
+      },
+      "expected": false
+    }
+  ],
+  "specCases": [
+    {
+      "tool": "exponential_attachments_write",
+      "op": "upload",
+      "expected": {
+        "arg": "file",
+        "accept": [
+          "*/*"
+        ],
+        "maxSize": 52428800
+      }
+    },
+    {
+      "tool": "exponential_attachments_write",
+      "op": "delete",
+      "expected": null
+    },
+    {
+      "tool": "exponential_issues_write",
+      "op": "create",
+      "expected": null
+    }
+  ],
+  "planCases": [
+    {
+      "name": "small inline runs",
+      "files": [
+        {
+          "id": "file-1",
+          "name": "file-1.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8=",
+          "digest": {
+            "algorithm": "sha-256",
+            "value": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+          }
+        }
+      ],
+      "expected": {
+        "kind": "run",
+        "inline": [
+          {
+            "id": "file-1",
+            "size": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "exactly 1 MiB inline runs",
+      "files": [
+        {
+          "id": "file-1",
+          "name": "file-1.bin",
+          "mimeType": "application/octet-stream",
+          "size": 1048576,
+          "data": {
+            "concat": [
+              {
+                "repeat": "YWFh",
+                "times": 349525
+              },
+              "YQ=="
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "kind": "run",
+        "inline": [
+          {
+            "id": "file-1",
+            "size": 1048576
+          }
+        ]
+      }
+    },
+    {
+      "name": "over 1 MiB inline in total is refused",
+      "files": [
+        {
+          "id": "file-1",
+          "name": "file-1.bin",
+          "mimeType": "application/octet-stream",
+          "size": 1048576,
+          "data": {
+            "concat": [
+              {
+                "repeat": "YWFh",
+                "times": 349525
+              },
+              "YQ=="
+            ]
+          }
+        },
+        {
+          "id": "file-2",
+          "name": "file-2.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8="
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "inlineTooLarge",
+        "fileId": "file-2"
+      }
+    },
+    {
+      "name": "a size-0 file needs no bytes",
+      "files": [
+        {
+          "id": "empty",
+          "name": "empty.bin",
+          "mimeType": "application/octet-stream",
+          "size": 0
+        }
+      ],
+      "expected": {
+        "kind": "run",
+        "inline": []
+      }
+    },
+    {
+      "name": "no data above zero = upload_required",
+      "files": [
+        {
+          "id": "file-1",
+          "name": "Q3 report.pdf",
+          "mimeType": "application/pdf",
+          "size": 41204133
+        }
+      ],
+      "expected": {
+        "kind": "upload",
+        "fileIds": [
+          "file-1"
+        ]
+      }
+    },
+    {
+      "name": "mixed: inline + out of band",
+      "files": [
+        {
+          "id": "small",
+          "name": "small.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8="
+        },
+        {
+          "id": "big",
+          "name": "big.bin",
+          "mimeType": "application/octet-stream",
+          "size": 2097152
+        }
+      ],
+      "expected": {
+        "kind": "upload",
+        "fileIds": [
+          "big"
+        ]
+      }
+    },
+    {
+      "name": "over maxSize is refused before any upload",
+      "files": [
+        {
+          "id": "huge",
+          "name": "huge.bin",
+          "mimeType": "application/octet-stream",
+          "size": 52428801
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "oversize",
+        "fileId": "huge"
+      }
+    },
+    {
+      "name": "duplicate ids",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8="
+        },
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8="
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "duplicateId",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "data null",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": null
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "data on an empty file",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 0,
+          "data": ""
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "no mimeType",
+      "files": [
+        {
+          "id": "a",
+          "size": 5,
+          "data": "aGVsbG8="
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "an id over 128",
+      "files": [
+        {
+          "id": {
+            "repeat": "x",
+            "times": 129
+          },
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8="
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": {
+          "repeat": "x",
+          "times": 129
+        }
+      }
+    },
+    {
+      "name": "a negative size",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": -1
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "not base64",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "hello!!"
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "undecodable",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "size lies",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 6,
+          "data": "aGVsbG8="
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "sizeMismatch",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "digest lies",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8=",
+          "digest": {
+            "algorithm": "sha-256",
+            "value": "SG6kYiTRu0-2gPNPfJrZao8k7Ii-c-qOWmxlJg6cuKc"
+          }
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "digestMismatch",
+        "fileId": "a"
+      }
+    },
+    {
+      "name": "another digest algorithm",
+      "files": [
+        {
+          "id": "a",
+          "name": "a.bin",
+          "mimeType": "application/octet-stream",
+          "size": 5,
+          "data": "aGVsbG8=",
+          "digest": {
+            "algorithm": "md5",
+            "value": "x"
+          }
+        }
+      ],
+      "expected": {
+        "kind": "error",
+        "error": "invalid",
+        "fileId": "a"
+      }
+    }
+  ],
+  "uploadRequiredCases": [
+    {
+      "name": "one PDF",
+      "files": [
+        {
+          "id": "file-1",
+          "name": "Q3 report.pdf",
+          "mimeType": "application/pdf",
+          "size": 41204133
+        }
+      ],
+      "staged": {
+        "file-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "appUrl": "https://app.exponential.at/",
+      "expiresAt": "2026-11-26T12:15:00Z",
+      "requestState": "rs1.x.y",
+      "expected": {
+        "resultType": "upload_required",
+        "uploads": [
+          {
+            "fileId": "file-1",
+            "url": "https://app.exponential.at/api/mcp/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "method": "PUT",
+            "headers": {
+              "Content-Type": "application/pdf"
+            },
+            "credentials": "omit",
+            "expiresAt": "2026-11-26T12:15:00Z"
+          }
+        ],
+        "requestState": "rs1.x.y"
+      }
+    }
+  ],
+  "retryGiven": {
+    "key": "test-request-state-key-0123456789",
+    "principal": "user:u1|client:c1",
+    "tool": "exponential_attachments_write",
+    "now": 1764158000000,
+    "exp": 1764158400000,
+    "arguments": {
+      "op": "upload",
+      "issueId": "EXP-12",
+      "file": {
+        "id": "file-1",
+        "name": "Q3 report.pdf",
+        "mimeType": "application/pdf",
+        "size": 41204133,
+        "digest": {
+          "algorithm": "sha-256",
+          "value": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+        }
+      }
+    },
+    "staged": {
+      "file-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "retryCases": [
+    {
+      "name": "bytes arrived: runs",
+      "state": "fresh",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "run",
+        "staged": {
+          "file-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      }
+    },
+    {
+      "name": "missing bytes: isError, never a second upload_required",
+      "state": "fresh",
+      "object": null,
+      "expected": {
+        "kind": "error",
+        "error": "missingBytes",
+        "fileId": "file-1"
+      }
+    },
+    {
+      "name": "a short upload is missing bytes",
+      "state": "fresh",
+      "object": {
+        "size": 1000,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "error",
+        "error": "missingBytes",
+        "fileId": "file-1"
+      }
+    },
+    {
+      "name": "wrong bytes",
+      "state": "fresh",
+      "object": {
+        "size": 41204133,
+        "digest": "SG6kYiTRu0-2gPNPfJrZao8k7Ii-c-qOWmxlJg6cuKc"
+      },
+      "expected": {
+        "kind": "error",
+        "error": "digestMismatch",
+        "fileId": "file-1"
+      }
+    },
+    {
+      "name": "changed arguments",
+      "state": "fresh",
+      "changeArgs": {
+        "issueId": "EXP-13"
+      },
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "mismatch"
+      }
+    },
+    {
+      "name": "another principal",
+      "state": "fresh",
+      "principal": "user:u2|client:c1",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "foreign"
+      }
+    },
+    {
+      "name": "tampered",
+      "state": "tampered",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "tampered"
+      }
+    },
+    {
+      "name": "replayed",
+      "state": "consumed",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "replayed"
+      }
+    },
+    {
+      "name": "expired",
+      "state": "fresh",
+      "now": 1764158400000,
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "expired"
+      }
+    },
+    {
+      "name": "a confirm's state is not an upload's",
+      "state": "elicit",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "mismatch"
+      }
+    },
+    {
+      "name": "no state at all",
+      "state": "none",
+      "object": {
+        "size": 41204133,
+        "digest": "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ"
+      },
+      "expected": {
+        "kind": "refused",
+        "error": "malformed"
+      }
+    }
+  ],
+  "missingCapability": {
+    "code": -32021,
+    "message": "This file must be uploaded, and this client did not declare the files extension's upload."
+  },
+  "capabilityCases": [
+    {
+      "name": "inline needs no upload capability",
+      "files": [
+        {
+          "id": "a",
+          "mimeType": "text/plain",
+          "size": 5,
+          "data": "aGVsbG8="
+        }
+      ],
+      "declaredUpload": false,
+      "expected": null
+    },
+    {
+      "name": "out of band without upload",
+      "files": [
+        {
+          "id": "a",
+          "mimeType": "application/pdf",
+          "size": 2097152
+        }
+      ],
+      "declaredUpload": false,
+      "expected": {
+        "code": -32021,
+        "message": "This file must be uploaded, and this client did not declare the files extension's upload.",
+        "data": {
+          "requiredCapabilities": {
+            "extensions": {
+              "io.modelcontextprotocol/files": {
+                "upload": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "out of band with upload",
+      "files": [
+        {
+          "id": "a",
+          "mimeType": "application/pdf",
+          "size": 2097152
+        }
+      ],
+      "declaredUpload": true,
+      "expected": null
+    }
+  ],
+  "download": {
+    "credentials": "omit",
+    "unknownMimeType": "application/octet-stream"
+  },
+  "schemaCases": [
+    {
+      "tool": "exponential_attachments_write",
+      "op": "upload",
+      "expected": {
+        "type": "object",
+        "x-mcp-file": {
+          "accept": [
+            "*/*"
+          ],
+          "maxSize": 52428800
+        },
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "digest": {
+            "type": "object",
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "const": "sha-256"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "algorithm",
+              "value"
+            ]
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mimeType",
+          "size"
+        ]
+      }
+    },
+    {
+      "tool": "exponential_attachments_write",
+      "op": "delete",
+      "expected": null
+    }
+  ],
+  "declaredCases": [
+    {
+      "name": "nothing declared",
+      "extensions": {},
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    },
+    {
+      "name": "upload and download",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "upload": {},
+          "download": {}
+        }
+      },
+      "expected": {
+        "upload": true,
+        "download": true
+      }
+    },
+    {
+      "name": "download only",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "download": {}
+        }
+      },
+      "expected": {
+        "upload": false,
+        "download": true
+      }
+    },
+    {
+      "name": "not objects",
+      "extensions": {
+        "io.modelcontextprotocol/files": {
+          "upload": true,
+          "download": null
+        }
+      },
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    },
+    {
+      "name": "the extension is not an object",
+      "extensions": {
+        "io.modelcontextprotocol/files": true
+      },
+      "expected": {
+        "upload": false,
+        "download": false
+      }
+    }
+  ],
+  "downloadCases": [
+    {
+      "name": "declared: one target",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": true,
+      "expected": {
+        "io.modelcontextprotocol/files": {
+          "downloads": [
+            {
+              "name": "Q3 report.pdf",
+              "mimeType": "application/pdf",
+              "size": 41204133,
+              "url": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+              "credentials": "omit",
+              "expiresAt": "2026-11-26T12:15:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an empty type is octet-stream",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": true,
+      "expected": {
+        "io.modelcontextprotocol/files": {
+          "downloads": [
+            {
+              "name": "Q3 report.pdf",
+              "mimeType": "application/octet-stream",
+              "size": 41204133,
+              "url": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+              "credentials": "omit",
+              "expiresAt": "2026-11-26T12:15:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "not declared: no _meta",
+      "attachment": {
+        "filename": "Q3 report.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 41204133,
+        "downloadUrl": "https://app.exponential.at/api/attachments/0b8f6c2e-3a51-4c07-9d1e-6f1b2a3c4d5e?token=t",
+        "expiresAt": "2026-11-26T12:15:00.000Z"
+      },
+      "declaredDownload": false,
+      "expected": null
+    }
+  ]
+}

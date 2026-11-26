@@ -8371,6 +8371,43 @@
         "bytes": 65930,
         "sha256": "0b8e3f9ecb2510b957558fbf826ecbe81bd3ced4a83848734b602326d21e7eed"
       }
+    },
+    "elicitation-card": {
+      "android": {
+        "file": "shots/elicitation-card/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 29394,
+        "sha256": "1b183fee12956d5d2d31898ea8a5076a6faeac327a25799762c999c54ab3c61c"
+      },
+      "desktop": {
+        "file": "shots/elicitation-card/desktop.webp",
+        "width": 597,
+        "height": 1800,
+        "bytes": 29432,
+        "sha256": "99d5828893f05aebb8a97d4ec1d51b7ce5d49319a696d7c0970102fd77d0be3e"
+      },
+      "ios": {
+        "file": "shots/elicitation-card/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 25938,
+        "sha256": "2c7cbc374c2f5ce7d873c1d09d08a69d0fd9c5a63d6a00272fc019d2ef2d897b"
+      },
+      "web": {
+        "file": "shots/elicitation-card/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 38968,
+        "sha256": "6a317044ad83bc5eca93239cfed1a15d1826272396d01ef400f2e1daf389ca00"
+      },
+      "web-mobile": {
+        "file": "shots/elicitation-card/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 27352,
+        "sha256": "5e486c4888989be41d40bf603a125049013a9f74fb2c57e0e75a235d169eb97f"
+      }
     }
   }
 }

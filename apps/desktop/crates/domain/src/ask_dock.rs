@@ -403,6 +403,7 @@ mod tests {
                 surface_data: None,
                 answered: row["answered"].as_bool().unwrap(),
                 dismissed: None,
+                elicitation: None,
             },
             _ => SessionChatRow::Event { id: s("id"), event: String::new(), text: String::new(), session_id: None },
         }

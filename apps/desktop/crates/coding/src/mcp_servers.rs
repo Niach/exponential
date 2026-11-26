@@ -15,10 +15,12 @@
 //! in [`ResolvedMcp::warnings`]; so is the whole pick when the resolve call
 //! itself fails. The run starts without those tools.
 //!
-//! **Mid-run expiry is ACCEPTED and SURFACED, never brokered (EXP-808 —
-//! decided, do not reopen).** A token is resolved ONCE, at spawn, and handed
-//! to the agent as an env value; nothing can rotate it while the run is
-//! alive. A resume re-resolves, so it picks up a fresh token.
+//! **Mid-run expiry is REFRESHED (EXP-808, reopened by #NEW-148).** The
+//! resolved servers are mounted behind the device hub ([`crate::team_hub`]),
+//! which holds their values in this process (never the agent's env or
+//! config) and, on an HTTP 401, re-resolves the server's credentials through
+//! the same `resolveForLaunch` (refreshing an expiring OAuth token) and
+//! retries once. A resume re-resolves too.
 
 use api::mcp_servers::{resolve_for_launch, McpLaunchResolution, McpLaunchServer, McpMember};
 use api::trpc::TrpcClient;
@@ -80,12 +82,29 @@ pub struct ResolvedMcp {
     /// `mcp_server_ids`, read back as `sessions.mcpPicks`). `None` = not
     /// resolved (the call failed): a live run never compares it.
     pub pick: Option<Vec<String>>,
+    /// #NEW-148: the team servers as resolved, once [`crate::team_hub::route`]
+    /// mounted them behind the device hub (then [`Self::servers`] holds the
+    /// ONE `team` entry instead). Empty before routing.
+    pub routed: Vec<McpServerWire>,
+    /// #NEW-148: secret values that no longer reach the spawn env (the
+    /// routed servers' credentials, held by the hub) but stay redacted.
+    pub redact: Vec<String>,
 }
 
 impl ResolvedMcp {
     /// The secret values, for the steer redactor.
     pub fn secret_values(&self) -> Vec<String> {
-        self.env.iter().map(|(_, v)| v.clone()).collect()
+        self.env.iter().map(|(_, v)| v.clone()).chain(self.redact.iter().cloned()).collect()
+    }
+
+    /// The team servers this launch wired (FEED-73's note names them):
+    /// the routed ones once routed, else the entries themselves.
+    pub fn team_servers(&self) -> &[McpServerWire] {
+        if self.routed.is_empty() {
+            &self.servers
+        } else {
+            &self.routed
+        }
     }
 }
 
