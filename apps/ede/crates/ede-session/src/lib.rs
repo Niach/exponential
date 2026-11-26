@@ -41,6 +41,16 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
 pub const EXPORTED_ENV: &[&str] =
     &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
 
+/// xdg-desktop-portal reads `XDG_CURRENT_DESKTOP` (and so which
+/// `<desktop>-portals.conf` routes Screenshot/ScreenCast to us) once, when it
+/// starts. With lingering, the user manager outlives a logout: the frontend
+/// a Cinnamon login started (`X-Cinnamon`, routed to xapp) would answer this
+/// session and never ask our backend (Flameshot: "No such interface
+/// org.freedesktop.impl.portal.Screenshot"). `--ready` restarts the running
+/// ones after the environment update; the session's end stops them so the
+/// next desktop starts its own.
+pub const PORTAL_UNITS: &[&str] = &["xdg-desktop-portal.service", "xdg-desktop-portal-gtk.service"];
+
 /// The units the compositor starts the programs of itself when
 /// `[session] helpers = "compositor"` (#EDE-172 P4): installed, and
 /// conditioned off by `EDE_HELPERS_SPAWNED`.

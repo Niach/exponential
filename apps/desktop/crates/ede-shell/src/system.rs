@@ -1,7 +1,7 @@
 //! What the shell does to the system for the menu and the media keys
 //! (#EDE-12): sound through WirePlumber (`wpctl`), the backlight through
 //! sysfs or `brightnessctl`, power through logind (ede-services' call), the
-//! terminal and the screenshot. Everything shells out to tools the
+//! terminal. Everything shells out to tools the
 //! distribution ships; a missing tool is a warning, never a crash.
 
 use std::{
@@ -236,23 +236,6 @@ pub fn media(action: &str) {
     if let Err(e) = Command::new("playerctl").arg(verb).spawn() {
         tracing::info!("playerctl {verb}: {e}");
     }
-}
-
-/// `~/Pictures/Screenshots/Screenshot <date time>.png`.
-pub fn screenshot_path() -> PathBuf {
-    let base = std::env::var_os("XDG_PICTURES_DIR")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Pictures"));
-    let dir = base.join("Screenshots");
-    let _ = std::fs::create_dir_all(&dir);
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: time() with a null pointer only returns; localtime_r writes the tm we own.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        libc::localtime_r(&now, &mut tm);
-    }
-    dir.join(format!("Screenshot {:04}-{:02}-{:02} {:02}-{:02}-{:02}.png", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec))
 }
 
 #[cfg(test)]
