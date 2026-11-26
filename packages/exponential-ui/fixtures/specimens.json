@@ -2669,7 +2669,7 @@
                 "props": {
                   "runs": [
                     {
-                      "text": "Deploy "
+                      "text": "Release "
                     },
                     {
                       "text": "v2.4",
@@ -2746,7 +2746,7 @@
                 },
                 "props": {
                   "dropCap": 3,
-                  "text": "Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it within minutes, so nobody waits on a button."
+                  "text": "Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button."
                 }
               }
             ]

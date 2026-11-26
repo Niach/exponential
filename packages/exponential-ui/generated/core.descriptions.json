@@ -4198,7 +4198,7 @@
           "description": "Colour tone."
         },
         "mark": {
-          "description": "Mark."
+          "description": "Span mark."
         },
         "link": {
           "description": "Opens like Link `href`."

@@ -32,16 +32,18 @@ export function TextNative({ node, props, rootProps }: NativeProps) {
   // `textAlign` (the node layer) wins over it (round 2 §2, text-direction.json).
   const style: Record<string, string | number> = {}
   if (lines > 1) style.WebkitLineClamp = lines
+  // Round 4 (text-runs.json): runs and a drop cap paint start-aligned.
+  if (rich) style.textAlign = `start`
   // Round 9 §5.1: `accessibility.live` (already on the root) wins over `live`.
   const live = liveOf(rootProps as Record<string, unknown>, props.live)
   // #EDE-95: `highlight` marks the search term's matches in the shown text.
   useHighlight(middle.ref, props.highlight, false, middle.shown ?? full)
   return (
-    <span {...(rootProps as Record<string, unknown>)} ref={middle.ref} data-truncate={truncate} aria-live={live} aria-atomic={live && live !== `off` ? true : undefined} data-xui-align={align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} data-xui-dropcap={rich?.cap ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
+    <span {...(rootProps as Record<string, unknown>)} ref={middle.ref} data-truncate={truncate} aria-live={live} aria-atomic={live && live !== `off` ? true : undefined} data-xui-align={rich ? undefined : align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} data-xui-dropcap={rich?.cap ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
       {rich
         ? [
             rich.cap ? (
-              <span key="cap" data-xui-cap="" aria-hidden={true} style={reactCss(rich.cap.css)}>
+              <span key="cap" data-xui-cap="" style={reactCss(rich.cap.css)}>
                 {rich.cap.text}
               </span>
             ) : null,
