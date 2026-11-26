@@ -13,6 +13,7 @@ import { compactViewResult, isViewListOp } from "./view-results"
 import { guardDestructiveCall } from "./delete-guard"
 import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
 import { NO_CLIENT, withEmcpContext, type EmcpContext } from "./request-context"
+import { elicitBeforeCall, urlElicitAfterCall } from "./elicit"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -683,7 +684,17 @@ export function registerNounTools(
       }
       const wire = `${PREFIX}${spec.name}`
       const handler: LegacyHandler = tool
-        ? (args, extra) => tool.handler(args, ctxOf(extra, wire, args))
+        ? async (args, sdkExtra) => {
+            const extra = ctxOf(sdkExtra, wire, args)
+            // #NEW-147 (elicitation.json): the stop confirm and the start's
+            // team and device picks, for an external host that declared them.
+            const gate = await elicitBeforeCall(extra, { tool: wire, args, userId: user.id, access, external: sessionId === null })
+            if (gate.kind === `answer`) return gate.result as ToolResult
+            const result = await tool.handler(gate.args, extra)
+            const teamId = typeof gate.args.teamId === `string` ? gate.args.teamId : null
+            const url = await urlElicitAfterCall(extra, result, { userId: user.id, external: sessionId === null, data: gate.data, teamId })
+            return (url ?? result) as ToolResult
+          }
         : async () => err(new Error(`${spec.name} only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`))
       server.registerTool(wire, def as never, handler as never)
       continue
@@ -746,7 +757,19 @@ export function registerNounTools(
               .join(`; `)
             return err(new Error(`Invalid arguments for ${spec.name}.${String(op)}: ${issues}`))
           }
-          const data = parsed.data as Record<string, unknown>
+          const parsedData = parsed.data as Record<string, unknown>
+          // #NEW-147 (elicitation.json): a destructive op asks its confirm
+          // first (an external host that declared form elicitation); a
+          // declined or cancelled one runs nothing and never counts in the burst.
+          const gate = await elicitBeforeCall(extra, {
+            tool: half.name,
+            args: { op: String(op), ...parsedData },
+            userId: user.id,
+            access,
+            external: sessionId === null,
+          })
+          if (gate.kind === `answer`) return gate.result
+          const { op: _op, ...data } = gate.args
           // #EXP-1798: one explicit id, within the burst (delete-guard.ts).
           const refused = guardDestructiveCall({
             noun: spec.name,
@@ -758,7 +781,12 @@ export function registerNounTools(
             access,
           })
           if (refused) return err(new Error(refused))
-          const result = await tool.handler(data, extra)
+          const handled = await tool.handler(data, extra)
+          // #NEW-147: a failure a person fixes on a page (billing, the GitHub App) asks in URL mode.
+          const teamId = typeof data.teamId === `string` ? data.teamId : null
+          const url = await urlElicitAfterCall(extra, handled, { userId: user.id, external: sessionId === null, data: gate.data, teamId })
+          if (url) return url
+          const result = handled
           // #VAPP-292: outside a session a view list op answers the model with
           // a summary and the view with the rows (view-results.ts).
           return sessionId === null && isViewListOp(spec.name, String(op))

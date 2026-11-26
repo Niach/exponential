@@ -530,7 +530,7 @@ export const appsToolProvider: ToolProvider = async (caller, request) => {
   if (!grant) return noGrant()
   const { teamId, teamSlug, tools } = await brokerTools(caller.user.id, grant)
   const appOf = new Map(tools.map((t) => [t.name, t.app.id]))
-  const audit: ServeOptions = { teamId, appIdOf: (name) => appOf.get(name) ?? null, classify: classifyAppToolResponse }
+  const audit: ServeOptions = { teamId, appIdOf: (name) => appOf.get(name) ?? null, classify: classifyAppToolResponse, toolCallsOnly: true }
   return { server: createAppsMcpServer({ user: caller.user, request, teamId, teamSlug }, tools), audit }
 }
 
