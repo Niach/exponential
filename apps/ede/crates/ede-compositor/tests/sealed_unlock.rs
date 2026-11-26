@@ -97,8 +97,13 @@ fn is_locked(h: &Harness) -> bool {
 }
 
 /// Does the output show the danger tone (the lock's error line)?
+/// The destructive red (#ff6467): bright red with some blue. #EDE-235: the
+/// Rerusted focus ring (#ba4f1f, darker, almost no blue) is not an error.
 fn shows_an_error(h: &Harness) -> bool {
-    h.capture(0).pixels.iter().any(|p| (p >> 16) & 0xff > 0xb0 && (p >> 8) & 0xff < 0x80 && p & 0xff < 0x80)
+    h.capture(0).pixels.iter().any(|p| {
+        let (r, g, b) = ((p >> 16) & 0xff, (p >> 8) & 0xff, p & 0xff);
+        r > 0xe0 && g < 0x90 && (0x40..0x90).contains(&b)
+    })
 }
 
 #[test]
