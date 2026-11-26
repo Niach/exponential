@@ -5558,7 +5558,9 @@ mod layer_sizes {
         };
         assert_eq!(popup_height("applet-sound", 534), room);
         assert_eq!(popup_height("start-menu", 534), room);
-        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-battery", 534), 360, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-network", 534), room, "#EDE-235: the network applet's 520 is held too");
+        assert_eq!(popup_height("applet-network", 800), 520);
         assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
         for d in uicore_docs::DOCS.iter() {
             let doc = factory(d.name);
