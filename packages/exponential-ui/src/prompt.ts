@@ -38,10 +38,10 @@ export interface PromptOptions {
 /** The rules every surface author (a model) must follow, shared by the core
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
-  `Reply with A2UI 1.0 messages, each {"version": "1.0", <kind>}: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (value null removes). Keep data in the model; bind to it.`,
-  `A component = {id (letters, digits, _), component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.`,
-  `Include every required prop. A ~ prop takes a binding {"@path": "/json/pointer"} or a live call {"@call": name, args}. visible: false (or bound) hides.`,
-  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context bindings read after the component's own write) and/or {functionCall: {"@call": name, args}} (client-side: a function below or a flat host one like app_toast).`,
+  `Send A2UI messages {"version": "1.0", <kind>}: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (value null removes). Keep data in the model; bind to it.`,
+  `A component = {id (a_b), component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.`,
+  `Include every required prop. A ~ prop takes {"@path": "/pointer"} or a live call {"@call": name, args}. visible: false (or bound) hides.`,
+  `An action (on: {event: action}) = {event: {name, context?}} (to you; bindings read after its own write) and/or {functionCall: {"@call": name, args}} (client-side: a function below or a host one, e.g. app_toast).`,
   `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar, List (past a screen); control row = Toolbar, side-by-side fields = FieldGroup, Cancel/submit row = FormActions; Box + style for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.`,
   `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-/max-height, in px or $breakpoint.*; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
   `Prefer components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token (light and dark apply), never #hex. Built-in copy (Cancel, Search…) is localized: leave it unset.`,

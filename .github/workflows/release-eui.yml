@@ -41,14 +41,6 @@ env:
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
-  pick:
-    # The xcframework builds on the same Mac as exponential-ui.yml (the
-    # MacBook when it is awake, xcode-27 otherwise): the xcframework size
-    # budget in release/size-budget.json is recorded on that machine, and the
-    # hosted image's toolchain produces slices ~25% larger (VAPP-109 dry run).
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -66,6 +58,7 @@ jobs:
   npm:
     needs: version
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -104,10 +97,13 @@ jobs:
   crates:
     needs: version
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Publish eui-core (or dry-run)
         working-directory: apps/desktop
         env:
@@ -117,33 +113,27 @@ jobs:
           else cargo publish --locked -p eui-core --dry-run; [ "$DRY_RUN" = "true" ] && echo "::notice::dry run: cargo publish --dry-run only" || echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
 
   swift:
-    needs: [version, pick]
-    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    needs: version
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Disk guard (self-hosted Mac, EXP-1396)
-        if: runner.environment == 'self-hosted'
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
       - name: Select Xcode 27
         run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Build the xcframework
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       - uses: ./.github/actions/setup-bun
       - name: Size gate (xcframework slices, VAPP-106)
         env:
-          # EXP-1371: the MacBook (pick-runner) and GitHub's macos-26 fallback
-          # link different sizes; each has its own budgets ($machines).
-          EXPONENTIAL_UI_SIZE_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || '' }}
+          # EXP-1371: the MacBook and GitHub's image link different sizes; each
+          # has its own budgets ($machines).
+          EXPONENTIAL_UI_SIZE_MACHINE: github-macos-26
         run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Zip + checksum
         id: zip
@@ -166,12 +156,15 @@ jobs:
   maven:
     needs: version
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -252,6 +245,7 @@ jobs:
     # push (a `git push --dry-run`, which still needs the token's write access).
     needs: [version, release]
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/download-artifact@v4
         with:

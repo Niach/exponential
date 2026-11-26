@@ -26,6 +26,7 @@ use domain::chats::{chat_selection_range, chat_sections, ChatListView, ChatRow, 
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{chat_in_stack, chat_row_word_on, chat_row_word_waiting, StackPr, ChatRowWord};
 
+use crate::user_avatar::{card_ground, with_team_mark, RowTeam};
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{screen_team_id, nav_for_window, Navigation, Screen};
@@ -300,22 +301,14 @@ type OnSelect = std::rc::Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 /// chat (or toggles it while selecting), a right-click its menu: Select,
 /// then the chat's entries.
 /// #EXP-2027 (sidebar-tree.json): the Chats page spans every team: a row
-/// wears its team's mark (its image, else the team glyph), as in the
-/// sidebar; the viewer's Assistant wears none.
-pub(crate) type TeamMarks = std::rc::Rc<std::collections::HashMap<String, Option<crate::markdown::CachedImage>>>;
+/// wears its team's mark (its image, else the team glyph) on its lead; the
+/// viewer's Assistant wears none.
+pub(crate) type TeamMarks = std::rc::Rc<std::collections::HashMap<String, RowTeam>>;
 
-/// The size of a Chats row's team mark (the sidebar's row glyph).
-const TEAM_MARK_PX: f32 = 16.;
-
-fn team_mark(marks: &TeamMarks, team_id: Option<&str>) -> Option<gpui::AnyElement> {
-    team_mark_of(marks, team_id, TEAM_MARK_PX)
-}
-
-/// A team's mark out of [`team_marks`] (Needs you draws it too); none
-/// outside the member teams (the Assistant's personal team).
-pub(crate) fn team_mark_of(marks: &TeamMarks, team_id: Option<&str>, size: f32) -> Option<gpui::AnyElement> {
-    let image = marks.get(team_id?)?.clone();
-    Some(crate::user_avatar::team_avatar_of(image, size))
+/// A row's team out of [`team_marks`]; none outside the member teams (the
+/// Assistant's personal team).
+pub(crate) fn row_team<'a>(marks: &'a TeamMarks, team_id: Option<&str>) -> Option<&'a RowTeam> {
+    marks.get(team_id?)
 }
 
 /// Each member team's image, loaded once per render.
@@ -325,7 +318,7 @@ pub(crate) fn team_marks(cx: &mut App) -> TeamMarks {
             .map(|store| store.collections().teams_sorted(cx))
             .unwrap_or_default()
             .into_iter()
-            .map(|team| (team.id.clone(), crate::user_avatar::team_image(team.icon_url.as_deref(), cx)))
+            .map(|team| (team.id.clone(), RowTeam { name: team.name.clone().into(), image: crate::user_avatar::team_image(team.icon_url.as_deref(), cx) }))
             .collect(),
     )
 }
@@ -341,7 +334,7 @@ pub(crate) struct ChatRowDrag {
     /// The row's bounds in the window (its last paint).
     pub(crate) bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     pub(crate) row: ChatRow,
-    pub(crate) mark: Option<crate::markdown::CachedImage>,
+    pub(crate) team: Option<RowTeam>,
 }
 
 /// The dragged Chats row's copy under the pointer: the row again, lifted
@@ -357,8 +350,8 @@ impl Render for ChatDragPreview {
         let row = &self.drag.row;
         let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
         let lead = crate::chat_list::chat_lead_disc(row.lead, agent, false, cx);
-        let mark = self.drag.mark.clone().map(|image| crate::user_avatar::team_avatar_of(Some(image), TEAM_MARK_PX));
-        let content = crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), mark, cx);
+        let lead = with_team_mark(&row.session_id, lead, CHATS.shell.lead_disc, self.drag.team.as_ref(), cx.theme().popover, cx);
+        let content = crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx);
         let shadow = gpui::BoxShadow { color: gpui::black().opacity(0.35), offset: gpui::point(px(0.0), px(8.0)), blur_radius: px(24.0), spread_radius: px(0.0), inset: false };
         gpui::div()
             .ml(px(LIST_LIFT_OFFSET))
@@ -384,6 +377,9 @@ fn chats_page_row(
     use gpui::StatefulInteractiveElement as _;
     let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
     let lead = crate::chat_list::chat_lead_disc(row.lead, agent, selected, cx);
+    // A selected row's check takes the corner: no mark.
+    let team = row_team(marks, Some(&row.team_id)).filter(|_| !selected);
+    let lead = with_team_mark(&row.session_id, lead, CHATS.shell.lead_disc, team, card_ground(), cx);
     let session_id = row.session_id.clone();
     let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();
@@ -394,7 +390,7 @@ fn chats_page_row(
         team_id: row.team_id.clone(),
         bounds: Default::default(),
         row: row.clone(),
-        mark: marks.get(&row.team_id).cloned().flatten(),
+        team: marks.get(&row.team_id).cloned(),
     });
     let bounds = drag.as_ref().map(|drag| drag.bounds.clone());
     crate::chat_list::chat_selectable(
@@ -402,7 +398,7 @@ fn chats_page_row(
         &row.session_id,
         Some((selected, selecting)),
         move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_toggle(&toggle_id, true, window, cx),
-        crate::chat_list::chat_row_in_team(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), team_mark(marks, Some(&row.team_id)), cx),
+        crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx),
         cx,
     )
     .on_click(move |event: &ClickEvent, window: &mut Window, cx: &mut App| on_click(&session_id, event, window, cx))
@@ -525,7 +521,7 @@ impl Render for ChatsView {
                             &row.agent_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::agent_chat_row_in_team(row, (!row.assistant).then(|| team_mark(&marks, agent_team(&row.agent_id, cx).as_deref())).flatten(), cx),
+                            crate::chat_list::agent_chat_row_in_team(row, (!row.assistant).then(|| row_team(&marks, agent_team(&row.agent_id, cx).as_deref())).flatten(), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -557,7 +553,7 @@ impl Render for ChatsView {
                             &row.app_id,
                             None,
                             |_, _, _| {},
-                            crate::chat_list::app_chat_row_in_team(row, team_mark(&marks, app_team(&row.app_id, cx).as_deref()), cx),
+                            crate::chat_list::app_chat_row_in_team(row, row_team(&marks, app_team(&row.app_id, cx).as_deref()), cx),
                             cx,
                         )
                         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {

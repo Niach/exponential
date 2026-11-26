@@ -1,8 +1,10 @@
 // @vitest-environment node
-import { readFileSync, readdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { HostRouter, availableExtensions, CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, reduceSurface, validatePackage, type AppPackage, type NestedNode } from "@exponential_app/eui"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
@@ -15,10 +17,17 @@ import fixture from "./fixture.json"
 // their committed rows (a foreign failed row turned `ok` false) and, applying,
 // row-locked them until the rollback (their writes and cleanup deadlocked).
 
+// One test breaks the converter on purpose; every other call is the real one.
+vi.mock(`./upgrade09`, async (original) => {
+  const real = await original<typeof import("./upgrade09")>()
+  return { ...real, upgradePackage09: vi.fn(real.upgradePackage09) }
+})
+
 const ready = await probeRealDb(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'refresh_conversation_digests_update') AS ok`)
 if (!ready.ok) console.info(`[a2ui10-migrate.real-db] skipped: ${ready.reason}`)
 
-const { A2UI10_MIGRATION, migrateA2ui10Once, runA2ui10Migration } = await import(`@/lib/apps/a2ui10-migrate`)
+const { A2UI10_MIGRATION, migrateA2ui10Once, runA2ui10Migration, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
+const upgrades = await import(`./upgrade09`)
 const { APP_CATALOG_IDS, appExtension } = await import(`@/lib/apps/package`)
 const { stripUngrantableGrants } = await import(`@/lib/bootstrap-cloud`)
 
@@ -198,6 +207,94 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
     })
   })
 
+  /** A format 5 package whose own test expects `error` from a bad param. */
+  const crm = (error: string) => ({
+    formatVersion: 5,
+    id: `acme.crm`,
+    name: `CRM`,
+    version: `1.0.0`,
+    catalogId: CORE_CATALOG_ID,
+    functions: [`records.*`],
+    sources: [`records:*`],
+    records: { deal: { schema: { type: `object`, properties: { stage: { type: `string`, enum: [`lead`, `won`] } }, required: [`stage`] } } },
+    actions: { move: { params: { type: `object`, properties: { stage: { type: `string`, enum: [`lead`, `won`] } }, required: [`stage`] }, steps: [{ "records.upsert": { kind: `deal`, data: { stage: `params.stage` } } }] } },
+    templates: { main: { components: [{ id: `root`, component: `Text`, text: `x` }] } },
+    tests: [
+      { name: `a known stage writes`, action: { name: `move`, params: { stage: `won` } }, expect: { records: { deal: [{ stage: `won` }] } } },
+      { name: `unknown stage is refused by the params`, action: { name: `move`, params: { stage: `nope` } }, expect: { error } },
+    ],
+  })
+
+  it(`staging's shapes: a test that already failed migrates, an unloadable row is left alone`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const stale = await s.app(`stale-${id8()}`, { package: crm(`params: /stage must be equal to one of the allowed values`) })
+      const good = await s.app(`good-${id8()}`, { package: crm(`stage must be one of lead, won`) })
+      const { formatVersion: _none, ...bare } = crm(`x`)
+      const unloadable = await s.app(`bare-${id8()}`, { package: bare, grants: [`exponential.issues.update`] })
+      for (const apply of [false, true]) {
+        const report = await runA2ui10Migration(tx as Client, { apply, teamId: s.teamId })
+        const column = report.columns[`apps.package`]!
+        expect(report.ok).toBe(true)
+        expect(column).toMatchObject({ total: 3, toRewrite: 2, rewritten: apply ? 2 : 0, failed: [] })
+        expect(column.unloadable).toEqual([{ id: unloadable, reason: `format version undefined is read by no client` }])
+        expect(column.testsAlreadyFailing.map((row) => row.id)).toEqual([stale])
+        expect(column.testsAlreadyFailing[0]!.reason).toContain(`/tests/1`)
+      }
+      expect((await appRow(tx, stale)).package!.formatVersion).toBe(6)
+      expectPackageLoads((await appRow(tx, good)).package)
+      const left = await appRow(tx, unloadable)
+      expect(left.package).toEqual(bare)
+      expect(left.granted_tools).toEqual([`exponential_issues_update`])
+    })
+  })
+
+  it(`production's shape: a ~129 KB package its upgrade grows past the cap migrates and is listed`, async () => {
+    await inRollback(async (tx) => {
+      const s = await seed(tx)
+      const base = structuredClone(CAT.fieldVisits) as Record<string, unknown>
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+      // Its templates again and again, as a big app grows (the upgrade adds ~6.5 %).
+      const templates = Object.entries(base.templates as Record<string, unknown>)
+      for (let i = 0; bytes(base) < 128_000; i++) for (const [id, template] of templates) (base.templates as Record<string, unknown>)[`${id}${i}`] = structuredClone(template)
+      expect(bytes(base)).toBeLessThan(131_072)
+      const big = await s.app(`big-${id8()}`, { package: base })
+      const version = await s.version(big, 1, base)
+      const report = await runA2ui10Migration(tx as Client, { apply: true, teamId: s.teamId })
+      expect(report.ok).toBe(true)
+      const pkg = (await appRow(tx, big)).package!
+      expect(pkg.formatVersion).toBe(6)
+      expect(bytes(pkg)).toBeGreaterThan(131_072)
+      expect(report.columns[`apps.package`]!.overCap).toEqual([{ id: big, bytes: bytes(pkg) }])
+      expect(report.columns[`app_versions.package`]!.overCap.map((row) => row.id)).toEqual([version])
+      expectPackageLoads(pkg)
+    })
+  })
+
+  it(`a test the upgrade broke still fails its row`, async () => {
+    const pkg = crm(`stage must be one of lead, won`)
+    // Passes on format 5; a conversion that touched the action's data would not.
+    const broken = { ...pkg, tests: [{ name: `t`, action: { name: `move`, params: { stage: `won` } }, expect: { records: { deal: [{ stage: `lead` }] } } }] }
+    expect(await upgradeStoredPackage(broken)).toMatchObject({ kind: `rewrite`, testsFailing: expect.stringContaining(`/tests/0`) })
+    vi.mocked(upgrades.upgradePackage09).mockResolvedValueOnce({ package: { ...broken, formatVersion: 6, functions: [`records_*`], actions: { move: { ...pkg.actions.move, steps: [{ records_upsert: { kind: `deal`, data: { stage: `'lead'` } } }] } }, tests: pkg.tests }, status: `unsigned` } as never)
+    expect(await upgradeStoredPackage(pkg)).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`/tests/0`) })
+  })
+
+  it(`the script's dry run connects read-only and loads no server module`, async () => {
+    const { connectMigration } = await import(`./connect`)
+    const readOnly = connectMigration(process.env.DATABASE_URL!, { readOnly: true })
+    await expect(readOnly.db.execute(sql`CREATE TABLE a2ui_probe (x int)`)).rejects.toMatchObject({ cause: { message: expect.stringContaining(`read-only transaction`) } })
+    await readOnly.close()
+    const out = execFileSync(`bun`, [`scripts/a2ui10-migrate.ts`], { cwd: join(ROOT, `apps/web`), encoding: `utf8`, env: { ...process.env, BETTER_AUTH_SECRET: ``, NODE_ENV: `` }, stdio: `pipe` })
+    expect(out).toContain(`a2ui10-migrate (dry-run)`)
+    expect(out).not.toContain(`better-auth`)
+    const dir = mkdtempSync(join(tmpdir(), `a2ui10-`))
+    execFileSync(`bun`, [`build`, `scripts/a2ui10-migrate.ts`, `--target=bun`, `--packages=external`, `--outdir=${dir}`], { cwd: join(ROOT, `apps/web`), stdio: `pipe` })
+    const graph = readFileSync(join(dir, `a2ui10-migrate.js`), `utf8`)
+    rmSync(dir, { recursive: true })
+    for (const server of [`better-auth"`, `src/lib/auth/`, `src/db/connection.ts`, `src/lib/trpc.ts`]) expect(graph).not.toContain(server)
+  }, 60_000)
+
   it(`apply rewrites, keeps timestamps and the digest, and every row loads as 1.0`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
@@ -272,7 +369,7 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
       expect(report.columns[`apps.draft_package`]!.failed).toEqual([{ id: broken, reason: expect.stringContaining(`no component has the id root`) }])
       expect(report.columns[`apps.package`]!.heldBack).toBe(1)
       expect(report.columns[`apps.granted_tools`]!.heldBack).toBe(1)
-      expect(report.columns[`app_versions.package`]!.failed).toEqual([{ id: format4, reason: `format version 4 has no upgrade` }])
+      expect(report.columns[`app_versions.package`]!.unloadable).toEqual([{ id: format4, reason: `format version 4 is read by no client` }])
       expect(report.columns[`messages.card`]!.failed).toEqual([{ id: card, reason: expect.stringContaining(`NoSuchComponent`) }])
       const app = await appRow(tx, broken)
       expect(app.package).toEqual(CAT.fieldVisits)

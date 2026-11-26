@@ -3,12 +3,12 @@
 # checked by sha256 (apps/web/embedder/model.json), then baked into the image:
 # the running server never downloads weights and works offline. Its own stage,
 # so a source change does not fetch 135 MB again.
-FROM oven/bun:1.3.14-alpine AS embedding-model
+FROM oven/bun:1.4.4-alpine AS embedding-model
 WORKDIR /embedder
 COPY apps/web/embedder/model.json apps/web/embedder/model.mjs apps/web/embedder/fetch-model.mjs ./
 RUN bun fetch-model.mjs
 
-FROM oven/bun:1.3.14-alpine AS builder
+FROM oven/bun:1.4.4-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
@@ -51,7 +51,7 @@ COPY . .
 # into apps/web/public, which the web build then copies into .output/public.
 RUN bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 
-FROM oven/bun:1.3.14-alpine
+FROM oven/bun:1.4.4-alpine
 WORKDIR /app
 COPY --from=builder /app/apps/web/.output .output
 COPY --from=builder /app/apps/web/src/db apps/web/src/db

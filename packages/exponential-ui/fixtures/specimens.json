@@ -2306,6 +2306,43 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_section_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_section_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "actionLabel",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_popular",
+                "component": "Section",
+                "props": {
+                  "title": "Popular",
+                  "actionLabel": "View all"
+                },
+                "children": [
+                  {
+                    "id": "c1_popular_row",
+                    "component": "Row",
+                    "props": {
+                      "title": "Lakeside cabin",
+                      "meta": "€120"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -11411,6 +11448,32 @@
             ]
           },
           {
+            "id": "specimen_link_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_link_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "press only (no href)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_press_link",
+                "component": "Link",
+                "props": {
+                  "label": "View all"
+                }
+              }
+            ]
+          },
+          {
             "id": "specimen_link_state_0",
             "component": "Stack",
             "props": {
@@ -19983,6 +20046,1180 @@
                 "component": "MessageStatus",
                 "props": {
                   "status": "failed"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-avatar-badge",
+      "component": "AvatarBadge",
+      "title": "AvatarBadge",
+      "node": {
+        "id": "specimen_avatar_badge",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_avatar_badge_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "sm"
+                },
+                "children": [
+                  {
+                    "id": "c0_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada",
+                      "size": "sm"
+                    }
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c0_team",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-team",
+                      "label": "Acme"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_badge_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · default",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "default"
+                },
+                "children": [
+                  {
+                    "id": "c1_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada",
+                      "size": "default"
+                    }
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c1_team",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-team",
+                      "label": "Acme"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_badge_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · lg",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "lg"
+                },
+                "children": [
+                  {
+                    "id": "c2_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada",
+                      "size": "lg"
+                    }
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c2_team",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-team",
+                      "label": "Acme"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_badge_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "disc",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "default"
+                },
+                "children": [
+                  {
+                    "id": "c3_disc",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 32,
+                      "height": 32,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "$color.muted"
+                    },
+                    "children": [
+                      {
+                        "id": "c3_glyph",
+                        "component": "Icon",
+                        "props": {
+                          "name": "nav-chats"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c3_team",
+                    "component": "Icon",
+                    "props": {
+                      "name": "ui-team",
+                      "label": "Acme"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_badge_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "badge · image",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "lg"
+                },
+                "children": [
+                  {
+                    "id": "c4_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Mia Berger",
+                      "seed": "user-mia",
+                      "size": "lg"
+                    }
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c4_team",
+                    "component": "Image",
+                    "props": {
+                      "alt": "Acme",
+                      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_badge_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_badge_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "badge · avatar",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_avatar_badge",
+                "component": "AvatarBadge",
+                "props": {
+                  "size": "lg"
+                },
+                "children": [
+                  {
+                    "id": "c5_avatar",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Mia Berger",
+                      "seed": "user-mia",
+                      "size": "lg"
+                    }
+                  }
+                ],
+                "slots": {
+                  "badge": {
+                    "id": "c5_other",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-nav-bar",
+      "component": "NavBar",
+      "title": "NavBar",
+      "node": {
+        "id": "specimen_nav_bar",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_nav_bar_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_nav_bar_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_nav_bar",
+                "component": "NavBar",
+                "props": {
+                  "title": "Acme",
+                  "value": "pricing",
+                  "items": [
+                    {
+                      "label": "Product",
+                      "value": "product"
+                    },
+                    {
+                      "label": "Pricing",
+                      "value": "pricing"
+                    },
+                    {
+                      "label": "Docs",
+                      "value": "docs"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_nav_bar_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_nav_bar_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "logo + trailing action",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_nav",
+                "component": "NavBar",
+                "props": {
+                  "title": "Acme",
+                  "logo": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC",
+                  "value": "docs",
+                  "items": [
+                    {
+                      "label": "Product",
+                      "value": "product"
+                    },
+                    {
+                      "label": "Pricing",
+                      "value": "pricing"
+                    },
+                    {
+                      "label": "Docs",
+                      "value": "docs"
+                    }
+                  ]
+                },
+                "slots": {
+                  "trailing": {
+                    "id": "c1_signup",
+                    "component": "Button",
+                    "props": {
+                      "label": "Sign up",
+                      "size": "sm"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-footer",
+      "component": "Footer",
+      "title": "Footer",
+      "node": {
+        "id": "specimen_footer",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_footer_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_footer_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_footer",
+                "component": "Footer",
+                "props": {
+                  "caption": "© 2026 Acme Inc.",
+                  "items": [
+                    {
+                      "label": "Privacy",
+                      "value": "privacy"
+                    },
+                    {
+                      "label": "Terms",
+                      "value": "terms"
+                    },
+                    {
+                      "label": "Contact",
+                      "value": "contact"
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c0_footer_child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_footer_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_footer_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "columns + links + fine print",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_footer",
+                "component": "Footer",
+                "props": {
+                  "caption": "© 2026 Acme Inc.",
+                  "items": [
+                    {
+                      "label": "Privacy",
+                      "value": "privacy"
+                    },
+                    {
+                      "label": "Terms",
+                      "value": "terms"
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c1_cols",
+                    "component": "Grid",
+                    "props": {
+                      "columns": {
+                        "base": 2
+                      },
+                      "gap": "md"
+                    },
+                    "children": [
+                      {
+                        "id": "c1_col_product",
+                        "component": "Stack",
+                        "props": {
+                          "gap": "xs",
+                          "align": "start"
+                        },
+                        "children": [
+                          {
+                            "id": "c1_col_product_title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Product",
+                              "variant": "label"
+                            }
+                          },
+                          {
+                            "id": "c1_col_product_a",
+                            "component": "Link",
+                            "props": {
+                              "label": "Features"
+                            }
+                          },
+                          {
+                            "id": "c1_col_product_b",
+                            "component": "Link",
+                            "props": {
+                              "label": "Pricing"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "c1_col_company",
+                        "component": "Stack",
+                        "props": {
+                          "gap": "xs",
+                          "align": "start"
+                        },
+                        "children": [
+                          {
+                            "id": "c1_col_company_title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Company",
+                              "variant": "label"
+                            }
+                          },
+                          {
+                            "id": "c1_col_company_a",
+                            "component": "Link",
+                            "props": {
+                              "label": "About"
+                            }
+                          },
+                          {
+                            "id": "c1_col_company_b",
+                            "component": "Link",
+                            "props": {
+                              "label": "Careers"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-hero",
+      "component": "Hero",
+      "title": "Hero",
+      "node": {
+        "id": "specimen_hero",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_hero_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_hero_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_hero",
+                "component": "Hero",
+                "props": {
+                  "eyebrow": "New",
+                  "title": "Ship faster together",
+                  "subtitle": "Plan, build and review in one place."
+                },
+                "children": [
+                  {
+                    "id": "c0_hero_child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_hero_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_hero_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "actions",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_hero",
+                "component": "Hero",
+                "props": {
+                  "eyebrow": "New",
+                  "title": "Ship faster together",
+                  "subtitle": "Plan, build and review in one place."
+                },
+                "children": [
+                  {
+                    "id": "c1_start",
+                    "component": "Button",
+                    "props": {
+                      "label": "Get started"
+                    }
+                  },
+                  {
+                    "id": "c1_demo",
+                    "component": "Button",
+                    "props": {
+                      "label": "Book a demo",
+                      "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-media-card",
+      "component": "MediaCard",
+      "title": "MediaCard",
+      "node": {
+        "id": "specimen_media_card",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_media_card_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_media_card_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_media_card",
+                "component": "MediaCard",
+                "props": {
+                  "src": "https://example.com/cabin.jpg",
+                  "alt": "Cabin by a lake",
+                  "title": "Lakeside cabin",
+                  "subtitle": "Sleeps 4 · Wi-Fi",
+                  "meta": "€120 / night"
+                },
+                "children": [
+                  {
+                    "id": "c0_media_card_child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_media_card_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_media_card_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "picture + action",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_card",
+                "component": "MediaCard",
+                "props": {
+                  "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC",
+                  "alt": "Portrait",
+                  "title": "Mia Berger",
+                  "subtitle": "Product designer",
+                  "meta": "Vienna",
+                  "aspectRatio": 2
+                },
+                "style": {
+                  "maxWidth": 320
+                },
+                "children": [
+                  {
+                    "id": "c1_follow",
+                    "component": "Button",
+                    "props": {
+                      "label": "Follow",
+                      "size": "sm",
+                      "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-day-strip",
+      "component": "DayStrip",
+      "title": "DayStrip",
+      "node": {
+        "id": "specimen_day_strip",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_day_strip_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_day_strip_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_day_strip",
+                "component": "DayStrip",
+                "props": {
+                  "value": "2026-11-25",
+                  "days": [
+                    {
+                      "date": "2026-11-23"
+                    },
+                    {
+                      "date": "2026-11-24",
+                      "tone": "primary"
+                    },
+                    {
+                      "date": "2026-11-25"
+                    },
+                    {
+                      "date": "2026-11-26"
+                    },
+                    {
+                      "date": "2026-11-27",
+                      "tone": "warning"
+                    },
+                    {
+                      "date": "2026-11-28"
+                    },
+                    {
+                      "date": "2026-11-29"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_day_strip_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_day_strip_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "no selection",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_strip",
+                "component": "DayStrip",
+                "props": {
+                  "days": [
+                    {
+                      "date": "2026-11-23",
+                      "tone": "success"
+                    },
+                    {
+                      "date": "2026-11-24"
+                    },
+                    {
+                      "date": "2026-11-25",
+                      "tone": "danger"
+                    },
+                    {
+                      "date": "2026-11-26"
+                    },
+                    {
+                      "date": "2026-11-27"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-avatar-group",
+      "component": "AvatarGroup",
+      "title": "AvatarGroup",
+      "node": {
+        "id": "specimen_avatar_group",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_avatar_group_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_group_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_avatar_group",
+                "component": "AvatarGroup",
+                "props": {
+                  "max": 3,
+                  "people": [
+                    {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada"
+                    },
+                    {
+                      "name": "Alan Turing",
+                      "seed": "demo-alan"
+                    },
+                    {
+                      "name": "Grace Hopper",
+                      "seed": "demo-grace"
+                    },
+                    {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    },
+                    {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_group_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_group_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_avatar_group",
+                "component": "AvatarGroup",
+                "props": {
+                  "max": 3,
+                  "people": [
+                    {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada"
+                    },
+                    {
+                      "name": "Alan Turing",
+                      "seed": "demo-alan"
+                    },
+                    {
+                      "name": "Grace Hopper",
+                      "seed": "demo-grace"
+                    },
+                    {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    },
+                    {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  ],
+                  "size": "sm"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_group_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_group_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · default",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_avatar_group",
+                "component": "AvatarGroup",
+                "props": {
+                  "max": 3,
+                  "people": [
+                    {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada"
+                    },
+                    {
+                      "name": "Alan Turing",
+                      "seed": "demo-alan"
+                    },
+                    {
+                      "name": "Grace Hopper",
+                      "seed": "demo-grace"
+                    },
+                    {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    },
+                    {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  ],
+                  "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_group_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_group_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · lg",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_avatar_group",
+                "component": "AvatarGroup",
+                "props": {
+                  "max": 3,
+                  "people": [
+                    {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada"
+                    },
+                    {
+                      "name": "Alan Turing",
+                      "seed": "demo-alan"
+                    },
+                    {
+                      "name": "Grace Hopper",
+                      "seed": "demo-grace"
+                    },
+                    {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    },
+                    {
+                      "name": "Mia Berger",
+                      "seed": "user-mia"
+                    }
+                  ],
+                  "size": "lg"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_group_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_group_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "pictures, no overflow",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_group",
+                "component": "AvatarGroup",
+                "props": {
+                  "size": "lg",
+                  "people": [
+                    {
+                      "name": "Mia Berger",
+                      "seed": "user-mia",
+                      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACu0lEQVR42tXY11pTQRSG4XVDGHpUOkRFETuKKOrNgVIUG0UR0kggnQQsWFABu2gAsR25dmZTTsye7DXsyXqe/wLe7yDJmsC1nr9Xe/7grvT+xnX3/uq+jvt5GXdj8xKu7weuq2+jq3/jYv+6sYH1zoG1zsG1C4NZYze/nzf2reMWbrVjaPXc0Ffc2dtfxM7c+Yw7ffdTbh9P3cN9OIm7/x53Yvgdrn14pX1k5fjIsrHR5bbRpbaxpWNjb409eHPU2OvWh7jF1vHFI+OvcIcfvcQBa70ZwFd/aOIFsNabAXz1nonnwFrvmcQAznrP5AKw1rd4F4C1vsX7DFjrmzGAtb7Z9xRY680Avvom3xNgrW/yYwBnfaP/MbDWNwZEgGp9Nrv5v6nV5wKU6vPQd0+VviEwD87rxZToG4IYoEMvRtfXB+dAl16MqN8K2MtPrUyAbX39VAY06sUo+joMoH/f0wNs6+tCaaD/WhEDKPpaDKD/1lIDCPra0CzQLwVygH19TRgDyHcOMYCirwmngH6lkQPs680A4o1JDKDoD04ngX4hUwMI+p0A4n2vS39gJgFKXieUAIreCFD1ttKiNwNUvQyd1++PxEHtu9Zh/XaA4lf5nn5qd+vdkRjo/U+BqHdHY8Ba745GgbW+OhYF1vrqWARY66tEAF99VXwGlOstfwQU6s0AJXobpwRdXxmfBrqeeE5T9JUJDNCqF7Otr0iEQbtezJ6+IikCdOvFbOhzAcWh324oSF+eDEHx6MUK0penMKCY9GLy+rLUFDjwfV94gKx+K6CY9GKS+rLZIBR0KTgWIKkvxYAi1JsNEvrSdAAUXmlqJ6N3YYD8hex0gITelfZDcerFLPWuDAbIvU50BeTX78v4QPJtpSXAUm8GyLwM9QRY6UvmvCD5rtUSYKnfCbB8lWsLyKsvmff+A9vY5mTot7phAAAAAElFTkSuQmCC"
+                    },
+                    {
+                      "name": "Ada Lovelace",
+                      "seed": "demo-ada"
+                    },
+                    {
+                      "name": "Bob",
+                      "seed": "demo-bob"
+                    }
+                  ]
                 }
               }
             ]

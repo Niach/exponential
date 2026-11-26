@@ -23,15 +23,11 @@ on:
 permissions:
   contents: write
 
+# #EXP-2151: GitHub-hosted on a cold cache (README, Release trust boundary).
 jobs:
-  # EXP-1364: the release builds on the Mint when it is up.
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
   build:
-    needs: pick
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    runs-on: ubuntu-24.04
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
 
     env:
       # Override the repo's 2G default — packaging the release APK + Play
@@ -65,12 +61,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
-          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
       - run: cargo install cargo-ndk --locked
       # VAPP-40 / EXP-1457: the eNet facade's host build is what the JVM unit
       # tests (PushSealFixtureTest, InstallRegistrationTest, InstallNodeEnetTest)
@@ -92,15 +85,6 @@ jobs:
       - name: Build the eUI facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-ui-ffi --release
-
-      # Restore only: seed-gradle-caches.yml saves the entry on master.
-      - name: Restore the Gradle caches
-        if: runner.environment == 'github-hosted'
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.gradle/caches
-          key: gradle-android-
-          restore-keys: gradle-android-
 
       - name: Extract version from tag
         id: version

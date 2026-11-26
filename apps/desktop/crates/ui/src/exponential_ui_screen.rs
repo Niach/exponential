@@ -580,8 +580,8 @@ impl HostPlugin for SpecimenHost {
     }
 
     /// #EDE-65: the rail's glyphs (eDE's chats in the ede-panel entry).
-    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
-        uicore_gpui::glyphs::paint(name, size, color, &|n| self.icon(n))
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        uicore_gpui::glyphs::paint(name, size, color, &|n| self.icon(n), cx)
     }
 
     fn on_action(&self, event: &ActionEvent, _cx: &mut App) {
@@ -729,8 +729,8 @@ mod tests {
         // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave;
         // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner;
         // round 6's Outline and Mosaic; EXP-1586's ZoomableImage; EXP-1604's
-        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed. #EXP-1760: + IconPicker, ColorPicker. #FEED-232: + CountBadge. #FEED-237: + MessageStatus.
-        assert_eq!(specimens().len(), 107);
+        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed. #EXP-1760: + IconPicker, ColorPicker. #FEED-232: + CountBadge. #FEED-237: + MessageStatus. #EXP-2145: + AvatarBadge. Round 4: + NavBar, Footer, Hero, MediaCard, DayStrip, AvatarGroup.
+        assert_eq!(specimens().len(), 114);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

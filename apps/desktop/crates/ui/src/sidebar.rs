@@ -692,6 +692,8 @@ struct RailInputs {
     team: Option<String>,
     board: Option<String>,
     account: Option<String>,
+    /// The install trust tick (installs waiting for approval).
+    installs: u64,
     minute: i64,
 }
 
@@ -722,6 +724,7 @@ impl RailInputs {
             team: crate::navigation::screen_team_id(nav, cx),
             board: crate::navigation::active_board_id(nav, cx),
             account: crate::queries::active_account(cx).map(|account| account.id),
+            installs: cx.try_global::<crate::install_approval::InstallTrustTick>().map_or(0, |tick| tick.0),
             minute: crate::session_data::now_ms() / 60_000,
         }
     }
@@ -757,7 +760,7 @@ impl RailView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // The team picker's rows follow the teams collection.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
-            // The Inbox dot is a live read over unread rows.
+            // The Inbox count is a live read over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
@@ -767,6 +770,8 @@ impl RailView {
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
+            // #EXP-1950: installs waiting for approval count in Needs you.
+            cx.observe_global::<crate::install_approval::InstallTrustTick>(|_, cx| cx.notify()),
             // EXP-548: the Getting-started entry hides once every checklist
             // entry is done — the shared progress entity re-notifies on the
             // synced collections it reads AND on its tRPC one-shots.
@@ -780,7 +785,7 @@ impl RailView {
             // dialog, which also marks it seen) must repaint the rail.
             cx.observe(&coding_hub, |_, _, cx| cx.notify()),
         ];
-        // EXP-1294: the Chats dot, the Agents rows and the Running section
+        // EXP-1294: the Chats count, the Agents rows and the Running section
         // are live reads over the session tree (+ the issues that title it).
         // #LOGS-11: never the transcripts — no row reads a message.
         subscriptions.extend(crate::session_data::observe_session_rows(cx));

@@ -170,13 +170,12 @@ export function appPackageIssues(pkg: unknown): PackageIssue[] {
 }
 
 /** Round 9 §14: what the stored-data migration asks of an upgraded package:
- *  what every client's load checks (the SDK's validator) and
- *  the contract's caps. The upsert rules stay out: a stored package that a
+ *  what every client's load checks (the SDK's validator) and the components
+ *  per template. Not `packageMaxBytes`: no client checks it at load, only this
+ *  server's write does (the migration reports a package it grew past it). The upsert rules stay out: a stored package that a
  *  later rule would refuse still runs, and format 5 stops loading on the flag
  *  day. */
 export function migratedPackageIssues(pkg: unknown): PackageIssue[] {
-  const bytes = packageBytes(pkg)
-  if (bytes > APP_PACKAGE_MAX_BYTES) return [{ path: `/`, message: `the upgraded package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}` }]
   const issues = validatePackage(pkg, APP_CATALOG_IDS, APP_EXTENSIONS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
   if (issues.length > 0) return issues
   for (const [id, template] of Object.entries((pkg as AppPackage).templates)) {

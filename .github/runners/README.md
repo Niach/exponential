@@ -7,8 +7,12 @@ fork never runs any workflow (the same job skips, everything needs it).
 
 | Label | Machine | Takes |
 |---|---|---|
-| `exp-linux` | the Mint, 2 Docker runners (`linux/`) | test: desktop, android · build-desktop Linux · build-android · exponential-ui rust |
-| `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios · release-eui swift (the xcframework, unsigned) |
+| `exp-linux` | the Mint, 2 Docker runners (`linux/`) | test: desktop, android · exponential-ui rust |
+| `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios |
+
+Pull requests and branches only (#EXP-2151): tags, master and every release
+build run GitHub-hosted (workflows/README.md, Release trust boundary). Any PR
+job can write these machines' caches, so nothing that ships may read them.
 
 Stays on GitHub: build-web (pushing an image from the Mint goes through a
 home upload link), the exponential-ui compose leg (its snapshots are pixel-exact
@@ -283,7 +287,7 @@ A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the 
 only (`.github/scripts/select-xcode.sh`; no beta Xcode, no other runtime) and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
 `~/actions-runner/svc.sh stop` pauses it; jobs then fall back to GitHub.
 
-Two instances (2026-11-03), so a release build never queues the PR jobs:
+Two instances (2026-11-03):
 `macbook` in `~/actions-runner` and `macbook-2` in `~/actions-runner-2`
 (`bash .github/runners/mac/install.sh macbook-2`), same labels, each its own
 launchd service (`~/actions-runner-2/svc.sh stop` pauses only it). What they

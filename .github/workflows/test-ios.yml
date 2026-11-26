@@ -33,6 +33,9 @@ on:
       compile_only:
         type: boolean
         default: false
+    secrets:
+      RUNNER_STATUS_TOKEN:
+        required: false
   workflow_dispatch: {}
 
 permissions:
@@ -42,7 +45,8 @@ jobs:
   # EXP-1364: fork PRs never run here; the MacBook takes the job when it is up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   compile:
     needs: pick
@@ -51,9 +55,10 @@ jobs:
     # (.github/scripts/select-xcode.sh); the MacBook uses its own Homebrew
     # tuist; the signed release stays on GitHub.
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
-    # A Release compile plus two simulator suites is ~25 min on a cold cache;
-    # anything past this is a hung simulator, not slow work.
-    timeout-minutes: 60
+    # ~25 min on the Macs. A release runs on GitHub's image with a cold Rust
+    # build (#EXP-2151: 52 min before the suites even start); anything past
+    # this is a hung simulator, not slow work.
+    timeout-minutes: 110
 
     defaults:
       run:
