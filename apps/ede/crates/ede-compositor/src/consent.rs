@@ -18,7 +18,9 @@
 //! - What the root-owned policy file names: its principal, no prompt.
 //! - The root-owned `exponential-ctl`: the sealed consent for every ctl
 //!   process (D3 a); on Allow, root for that process.
-//! - An executable named `exp-desktop` or `exponential` (the app's, inside
+//! - The genuine Exponential app, told by its signed binaries list
+//!   ([`crate::signed`]): the `computer-use` principal, no prompt.
+//! - Any other executable named `exp-desktop` or `exponential` (the app's, inside
 //!   its AppImage mount, and the CLI's; both the person's own files): the
 //!   sealed consent at its first `hello` per login and content hash (the
 //!   path is shown, never the key: an AppImage mounts at a new path every
@@ -102,6 +104,11 @@ impl Own {
         let parent = peer.parent.as_ref().map(|(pid, _)| *pid);
         self.pids.contains(&peer.pid) || (self.children.contains(&peer.pid) && parent == Some(std::process::id())) || (self.by_file && edes_own(peer, installed))
     }
+}
+
+/// `peer`'s executable is named as the app's or the CLI's ([`ASKING_NAMES`]).
+fn asking_named(peer: &Peer) -> bool {
+    peer.exe_path().and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|n| ASKING_NAMES.contains(&n))).unwrap_or(false)
 }
 
 /// `peer` runs eDE's installed shell, sealed or portal ([`Installed::is`]).
@@ -262,7 +269,7 @@ impl Policy {
     }
 }
 
-fn hex32(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn hex32(text: &str) -> Option<[u8; 32]> {
     let text = text.trim();
     if text.len() != 64 {
         return None;
@@ -381,6 +388,17 @@ pub struct Gate {
     /// `--consent-answer` (a headless or nested test compositor): the
     /// person's answer to every question, without a prompt.
     pub answer_with: Option<bool>,
+    /// The key the app's signed binaries list verifies under
+    /// ([`crate::signed`]; the build's pinned one, a test's own): none =
+    /// the app is asked.
+    pub signing_key: Option<String>,
+    /// Processes checked against their signed list ([`crate::signed::check`]):
+    /// passed or not, for their life.
+    signed: HashMap<(u32, u64), bool>,
+    /// The checks being run, per process, and the hellos waiting for each.
+    pub checking: HashMap<(u32, u64), Vec<(u64, u64)>>,
+    /// How many checks were started (tests).
+    pub checks_started: u32,
 }
 
 impl std::fmt::Debug for Gate {
@@ -402,6 +420,25 @@ impl Gate {
                 Policy::default()
             }
         }
+    }
+
+    /// Whether `peer`'s hello waits for the signed-list check first: a key
+    /// is pinned, the executable is the app's or the CLI's name (hashed
+    /// already) and this process was not checked yet.
+    pub fn needs_signed_check(&self, peer: &Peer, installed: &Installed, hash: Option<&[u8; 32]>) -> bool {
+        self.signing_key.is_some()
+            && hash.is_some()
+            && asking_named(peer)
+            && !edes_own(peer, installed)
+            && !installed.is(peer, crate::peer::CTL)
+            && !self.signed.contains_key(&(peer.pid, peer.start))
+    }
+
+    /// Process `(pid, start)` was checked against its signed list; what
+    /// processes that are gone left goes.
+    pub fn checked(&mut self, pid: u32, start: u64, passed: bool) {
+        self.signed.retain(|(p, s), _| crate::peer::stat_of(*p).is_some_and(|(now, _)| now == *s));
+        self.signed.insert((pid, start), passed);
     }
 
     pub fn cached_hash(&self, peer: &Peer) -> Option<[u8; 32]> {
@@ -453,7 +490,7 @@ impl Gate {
                 file,
             });
         }
-        let named = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| ASKING_NAMES.contains(&n));
+        let named = asking_named(peer);
         if edes_own(peer, installed) {
             // P14: the compositor starts eDE's own programs itself.
             return Verdict::Refuse(format!("the root token is not honoured from {}: the compositor did not start it", path.display()));
@@ -462,6 +499,10 @@ impl Gate {
             return Verdict::Refuse(format!("the root token is not honoured from {}", path.display()));
         }
         let Some(hash) = hash else { return Verdict::Refuse("its executable could not be read".into()) };
+        // First-party: the genuine app, by its signed binaries list.
+        if self.signed.get(&(peer.pid, peer.start)) == Some(&true) {
+            return Verdict::Grant(Principal::ComputerUse);
+        }
         let key = Key::Binary(*hash);
         if self.allowed.contains(&key) {
             return Verdict::Grant(Principal::ComputerUse);
@@ -483,8 +524,7 @@ impl Gate {
         if edes_own(peer, installed) || installed.is(peer, crate::peer::CTL) {
             return false;
         }
-        let named = peer.exe_path().and_then(|p| p.file_name().and_then(|n| n.to_str()).map(|n| ASKING_NAMES.contains(&n))).unwrap_or(false);
-        (named && peer.same_userns) || policy.wants_hash(peer)
+        (asking_named(peer) && peer.same_userns) || policy.wants_hash(peer)
     }
 
     /// The person answered `key`: remembered (yes), or the askers refused
