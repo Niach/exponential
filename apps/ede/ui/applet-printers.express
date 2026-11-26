@@ -1,0 +1,20 @@
+# Exponential Desktop's factory printers applet (#EDE-245, Cinnamon's printers@cinnamon.org with its
+# default "When printers exist"): the taskbar's printer button, shown only while CUPS lists a printer, opens
+# it as a popup. The print jobs (/services/printers/jobs, each with Cancel, and Cancel all jobs while there
+# are any: ede_service cancel / cancel_all on the printers domain), the printers (/services/printers/printers,
+# the default one selected) and Printer settings (system-config-printer, as Cinnamon's item opens).
+surface("applet-printers", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_printers", placement: "top-end", size: {width: 320, height: 300}}, functions: ["ede_service", "ede_launch"]}})
+$/services/printers/jobs = []
+$/services/printers/printers = []
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[jobs_title, jobs, job, no_jobs, cancel_all, printers_title, printers, printer, printers_foot])
+jobs_title = Text(text="Print jobs", variant="label")
+jobs = List(gap="none", divided=true, children=_template($/services/printers/jobs, job, key="id"))
+job = Row(title=$id, subtitle=$printer, meta=$owner, icon="printer", density="compact", slots={trailing: "job_cancel"})
+job_cancel = Button(label="Cancel", icon="ui-close", variant="ghost", size="icon", on={press: ede_service(action="cancel", args={job: $id}, domain="printers")})
+no_jobs = Text(text="No print job", variant="muted", visible=eq(a=len(value=$/services/printers/jobs), b=0))
+cancel_all = Button(label="Cancel all jobs", variant="outline", size="sm", on={press: ede_service(action="cancel_all", args={}, domain="printers")}, visible=not(value=eq(a=len(value=$/services/printers/jobs), b=0)))
+printers_title = Text(text="Printers", variant="label")
+printers = List(gap="none", divided=true, children=_template($/services/printers/printers, printer, key="name"))
+printer = Row(title=$name, meta=$state, selected=$default, density="compact")
+printers_foot = Stack(direction="horizontal", gap="sm", align="center", children=[printers_settings])
+printers_settings = Link(label="Printer settings", on={press: ede_launch(command="system-config-printer")})
