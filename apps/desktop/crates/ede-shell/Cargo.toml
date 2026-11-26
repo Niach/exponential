@@ -61,6 +61,10 @@ chrono = { version = "0.4.38", default-features = false, features = ["std", "clo
 # The switcher's thumbnails: captures as PNG data URLs.
 png = "0.17"
 base64 = "0.22"
+# #EDE-237: the tray's icons rasterized at the panel's device size (SVG by
+# gpui's own renderer, pixmaps and PNGs resampled once); both already in the tree.
+resvg = { version = "0.45", default-features = false }
+image = { workspace = true, features = ["png"] }
 # #EDE-65 lane L: the chat composer's uploads (api::attachment_upload).
 anyhow.workspace = true
 # Notifications and the tray over the session bus (zbus like the IDE's voice tray; blocking calls from the main loop).

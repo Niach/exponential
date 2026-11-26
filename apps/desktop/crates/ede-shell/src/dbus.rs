@@ -59,6 +59,73 @@ enum TrayRequest {
     Refresh,
     Activate(String),
     MenuEvent(String, i32),
+    /// The middle button: `SecondaryActivate`.
+    SecondaryActivate(String),
+    /// The right button on an item without a dbusmenu: `ContextMenu`.
+    ContextMenu(String),
+    /// One wheel step: `Scroll(delta, orientation)`.
+    Scroll(String, i32, &'static str),
+}
+
+/// #EDE-237: what a tray item does on input, Cinnamon's way (its
+/// xapp-sn-watcher, `sn-item.c`), the same for third-party items and ours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayInput {
+    /// The middle button (on press): `SecondaryActivate(x, y)`.
+    Middle,
+    /// The right button (on release) on an item WITHOUT a dbusmenu:
+    /// `ContextMenu(x, y)` (one with a menu opens it in the taskbar).
+    Right,
+    /// A wheel step: `Scroll(±1, "vertical" | "horizontal")`; up and left
+    /// are -1, as Cinnamon's xapp-status applet sends them.
+    Scroll { delta: i32, horizontal: bool },
+}
+
+impl TrayInput {
+    /// The taskbar's `auxPress {button}` / `scroll {direction}` payload.
+    pub fn from_event(button: Option<&str>, direction: Option<&str>) -> Option<TrayInput> {
+        match (button, direction) {
+            (Some("middle"), _) => Some(TrayInput::Middle),
+            (Some("right"), _) => Some(TrayInput::Right),
+            (_, Some("up")) => Some(TrayInput::Scroll { delta: -1, horizontal: false }),
+            (_, Some("down")) => Some(TrayInput::Scroll { delta: 1, horizontal: false }),
+            (_, Some("left")) => Some(TrayInput::Scroll { delta: -1, horizontal: true }),
+            (_, Some("right")) => Some(TrayInput::Scroll { delta: 1, horizontal: true }),
+            _ => None,
+        }
+    }
+}
+
+/// The object path libappindicator (Ayatana) registers its items under:
+/// Cinnamon's `APPINDICATOR_PATH_PREFIX`.
+const APPINDICATOR_PATH_PREFIX: &str = "/org/ayatana/NotificationItem/";
+
+/// `org.x.apps.statusicon` `left-click-activate-apps`' default: the
+/// AppIndicator items whose left click is `SecondaryActivate`, not the menu.
+const LEFT_CLICK_ACTIVATE_APPS: &[&str] = &["onboard"];
+
+/// An item registered at an AppIndicator path (Steam, Electron apps,
+/// nm-applet's indicator): libappindicator has no `Activate`.
+fn is_appindicator(service: &str) -> bool {
+    service.split_once('/').is_some_and(|(_, path)| format!("/{path}").starts_with(APPINDICATOR_PATH_PREFIX))
+}
+
+/// #EDE-237: whether a left press opens the item's menu (the taskbar's
+/// `menuOnPress`): `ItemIsMenu` (the spec), or Cinnamon's rule: an
+/// AppIndicator item opens its menu on a left press, unless its Id is one of
+/// [`LEFT_CLICK_ACTIVATE_APPS`].
+pub fn left_opens_menu(service: &str, id: &str, item_is_menu: bool) -> bool {
+    item_is_menu || (is_appindicator(service) && !LEFT_CLICK_ACTIVATE_APPS.contains(&id.to_lowercase().as_str()))
+}
+
+/// A whitelisted AppIndicator item's left press: `SecondaryActivate`.
+fn left_is_secondary(service: &str, id: &str) -> bool {
+    is_appindicator(service) && LEFT_CLICK_ACTIVATE_APPS.contains(&id.to_lowercase().as_str())
+}
+
+/// A `Menu` path that names a dbusmenu (`/` and `/NO_DBUSMENU` say none).
+fn names_a_menu(path: &str) -> bool {
+    !path.is_empty() && path != "/" && path != "/NO_DBUSMENU"
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -325,6 +392,8 @@ pub struct Dbus {
     items: Arc<Mutex<Vec<String>>>,
     tx: mpsc::Sender<Event>,
     tray: mpsc::Sender<TrayRequest>,
+    /// #EDE-237: the taskbar's output scale the icons are drawn at.
+    tray_scale: Arc<Mutex<f64>>,
 }
 
 impl Dbus {
@@ -358,8 +427,9 @@ impl Dbus {
         if conn.request_name(host.as_str()).is_ok() {
             let _ = conn.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_NAME), "RegisterStatusNotifierHost", &(host.as_str(),));
         }
-        let tray = Tray { conn: conn.clone(), items: items.clone() }.spawn(tx.clone());
-        let dbus = Dbus { conn, items, tx, tray };
+        let tray_scale = Arc::new(Mutex::new(1.0));
+        let tray = Tray { conn: conn.clone(), items: items.clone(), scale: tray_scale.clone() }.spawn(tx.clone());
+        let dbus = Dbus { conn, items, tx, tray, tray_scale };
         tracing::info!(unique = %dbus.unique_name(), "session bus");
         dbus.watch_bus();
         Some(dbus)
@@ -438,12 +508,34 @@ impl Dbus {
     pub fn tray_menu_event(&self, service: &str, id: i32) {
         let _ = self.tray.send(TrayRequest::MenuEvent(service.to_string(), id));
     }
+
+    /// #EDE-237: the middle or right button or the wheel on an item.
+    pub fn tray_input(&self, service: &str, input: TrayInput) {
+        let service = service.to_string();
+        let _ = self.tray.send(match input {
+            TrayInput::Middle => TrayRequest::SecondaryActivate(service),
+            TrayInput::Right => TrayRequest::ContextMenu(service),
+            TrayInput::Scroll { delta, horizontal } => TrayRequest::Scroll(service, delta, if horizontal { "horizontal" } else { "vertical" }),
+        });
+    }
+
+    /// #EDE-237: the taskbar's output scale: the icons are read again at it
+    /// when it changes (the rule's size in device pixels, [`crate::tray_icon`]).
+    pub fn tray_scale(&self, scale: f64) {
+        let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        let mut now = self.tray_scale.lock().unwrap_or_else(|p| p.into_inner());
+        if (*now - scale).abs() > f64::EPSILON {
+            *now = scale;
+            let _ = self.tray.send(TrayRequest::Refresh);
+        }
+    }
 }
 
 /// The tray thread's side: the calls to the items (#EDE-135).
 struct Tray {
     conn: Connection,
     items: Arc<Mutex<Vec<String>>>,
+    scale: Arc<Mutex<f64>>,
 }
 
 /// The requests one turn of the tray thread runs: in order, each refresh
@@ -479,6 +571,23 @@ impl Tray {
                                 self.tray_menu_event(&service, id);
                                 None
                             }
+                            TrayRequest::SecondaryActivate(service) => {
+                                self.tray_call(&service, "SecondaryActivate", &(0i32, 0i32));
+                                None
+                            }
+                            // Cinnamon calls ContextMenu only on an item without a
+                            // dbusmenu; one with a menu opens it in the taskbar.
+                            TrayRequest::ContextMenu(service) => {
+                                let menu = self.item_proxy(&service).and_then(|p| p.get_property::<OwnedObjectPath>("Menu").ok());
+                                if !menu.is_some_and(|m| names_a_menu(m.as_str())) {
+                                    self.tray_call(&service, "ContextMenu", &(0i32, 0i32));
+                                }
+                                None
+                            }
+                            TrayRequest::Scroll(service, delta, orientation) => {
+                                self.tray_call(&service, "Scroll", &(delta, orientation));
+                                None
+                            }
                         };
                         if let Some(event) = event {
                             if tx.send(event).is_err() {
@@ -497,44 +606,62 @@ impl Tray {
         uncached_proxy(&self.conn, name, path, ITEM_INTERFACE)
     }
 
-    /// Every registered item, read fresh (a dead one is dropped).
+    /// Every registered item, read fresh (a dead one is dropped, a
+    /// `Passive` one hidden as Cinnamon does). #EDE-237: its icon drawn at the
+    /// panel's icon size and the taskbar's scale ([`crate::tray_icon`]),
+    /// `NeedsAttention` with the attention icon first.
     fn tray_items(&self) -> Vec<TrayItem> {
         let services = self.items.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let scale = *self.scale.lock().unwrap_or_else(|p| p.into_inner());
         services
             .iter()
             .filter_map(|service| {
                 let proxy = self.item_proxy(service)?;
                 let title: String = proxy.get_property("Title").unwrap_or_default();
                 let status: String = proxy.get_property("Status").unwrap_or_else(|_| "Active".into());
-                let icon_name: String = proxy.get_property("IconName").unwrap_or_default();
-                let theme_path: String = proxy.get_property("IconThemePath").unwrap_or_default();
-                let mut icon = String::new();
-                if !icon_name.is_empty() {
-                    icon = icon_in_path(&theme_path, &icon_name).or_else(|| crate::apps::icon_file(&icon_name)).map(|p| format!("file://{}", p.display())).unwrap_or_default();
+                if status == "Passive" {
+                    return None;
                 }
-                if icon.is_empty() {
-                    if let Ok(pixmaps) = proxy.get_property::<Vec<(i32, i32, Vec<u8>)>>("IconPixmap") {
-                        icon = pixmap_data_url(&pixmaps).unwrap_or_default();
-                    }
-                }
+                let pixmaps = |prop: &str| proxy.get_property::<Vec<(i32, i32, Vec<u8>)>>(prop).unwrap_or_default();
+                let named = |prop: &str| proxy.get_property::<String>(prop).unwrap_or_default();
+                let theme_path = named("IconThemePath");
+                let source = |name: &str, pixmap: &str| crate::tray_icon::Source { name: named(name), theme_path: theme_path.clone(), pixmaps: pixmaps(pixmap) };
+                let draw = |s: &crate::tray_icon::Source| crate::tray_icon::render(s, crate::tray_icon::PANEL_HEIGHT, scale);
+                let icon = (status == "NeedsAttention")
+                    .then(|| draw(&source("AttentionIconName", "AttentionIconPixmap")))
+                    .flatten()
+                    .or_else(|| draw(&source("IconName", "IconPixmap")))
+                    .unwrap_or_default();
                 let menu: Option<OwnedObjectPath> = proxy.get_property("Menu").ok();
                 let item_is_menu: bool = proxy.get_property("ItemIsMenu").unwrap_or(false);
-                let has_menu = menu.as_ref().is_some_and(|m| m.as_str() != "/") && (item_is_menu || menu.is_some());
+                let has_menu = menu.as_ref().is_some_and(|m| names_a_menu(m.as_str()));
                 let id: String = proxy.get_property("Id").unwrap_or_default();
                 if title.is_empty() && icon.is_empty() && id.is_empty() {
                     return None;
                 }
                 let menu = if has_menu { self.tray_menu(service).unwrap_or_default() } else { Vec::new() };
+                let item_is_menu = left_opens_menu(service, &id, item_is_menu);
                 Some(TrayItem { service: service.clone(), title: if title.is_empty() { id } else { title }, status, icon, menu, item_is_menu })
             })
             .collect()
     }
 
-    /// A left click: `Activate`.
+    /// A left click: `Activate`; a whitelisted AppIndicator item's
+    /// `SecondaryActivate` (Cinnamon's `left-click-activate-apps`). Neither
+    /// falls back to the menu when it fails: Cinnamon's does not either.
     fn tray_activate(&self, service: &str, x: i32, y: i32) {
+        let secondary = self.item_proxy(service).is_some_and(|p| left_is_secondary(service, &p.get_property::<String>("Id").unwrap_or_default()));
+        self.tray_call(service, if secondary { "SecondaryActivate" } else { "Activate" }, &(x, y));
+    }
+
+    /// `method` on the item, bounded by [`TRAY_CALL_TIMEOUT`]; a failure is logged.
+    fn tray_call<B>(&self, service: &str, method: &str, body: &B)
+    where
+        B: serde::ser::Serialize + zbus::zvariant::DynamicType,
+    {
         if let Some(proxy) = self.item_proxy(service) {
-            if let Err(e) = proxy.call_method("Activate", &(x, y)) {
-                tracing::info!(service, "Activate: {e}");
+            if let Err(e) = proxy.call_method(method, body) {
+                tracing::info!(service, method, "tray item: {e}");
             }
         }
     }
@@ -542,7 +669,7 @@ impl Tray {
     fn menu_proxy(&self, service: &str) -> Option<Proxy<'static>> {
         let proxy = self.item_proxy(service)?;
         let menu: OwnedObjectPath = proxy.get_property("Menu").ok()?;
-        if menu.as_str() == "/" {
+        if !names_a_menu(menu.as_str()) {
             return None;
         }
         let name = service.split_once('/')?.0.to_string();
@@ -607,31 +734,6 @@ fn flatten_layout(node: &Layout, depth: u32, out: &mut Vec<MenuEntry>) {
             flatten_layout(&child, depth + 1, out);
         }
     }
-}
-
-/// An icon named by an item with its own theme path (`IconThemePath`).
-fn icon_in_path(theme_path: &str, name: &str) -> Option<std::path::PathBuf> {
-    if theme_path.is_empty() {
-        return None;
-    }
-    let root = std::path::Path::new(theme_path);
-    let mut stack = vec![root.to_path_buf()];
-    let mut best: Option<std::path::PathBuf> = None;
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.file_stem().is_some_and(|s| s == name) && p.extension().is_some_and(|x| x == "svg" || x == "png") {
-                if p.extension().is_some_and(|x| x == "svg") {
-                    return Some(p);
-                }
-                best.get_or_insert(p);
-            }
-        }
-    }
-    best
 }
 
 /// The largest pixmap up to 64 px as a PNG data URL (SNI pixmaps are ARGB32
@@ -822,5 +924,137 @@ mod tests {
         assert_eq!(item.to_json()["menuOnPress"], json!(true));
         assert_eq!(item.to_json()["hasMenu"], json!(true));
         assert_eq!(TrayItem { menu: Vec::new(), ..item }.to_json()["hasMenu"], json!(false));
+    }
+
+    /// An item that writes down every call it gets.
+    struct Recorder {
+        id: &'static str,
+        status: &'static str,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[zbus::interface(name = "org.kde.StatusNotifierItem")]
+    impl Recorder {
+        #[zbus(property)]
+        fn id(&self) -> String {
+            self.id.into()
+        }
+        #[zbus(property)]
+        fn title(&self) -> String {
+            self.id.into()
+        }
+        #[zbus(property)]
+        fn status(&self) -> String {
+            self.status.into()
+        }
+        #[zbus(property)]
+        fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
+            vec![(24, 24, vec![0xff; 24 * 24 * 4])]
+        }
+        fn activate(&self, x: i32, y: i32) {
+            self.calls.lock().unwrap().push(format!("Activate {x} {y}"));
+        }
+        fn secondary_activate(&self, x: i32, y: i32) {
+            self.calls.lock().unwrap().push(format!("SecondaryActivate {x} {y}"));
+        }
+        fn context_menu(&self, x: i32, y: i32) {
+            self.calls.lock().unwrap().push(format!("ContextMenu {x} {y}"));
+        }
+        fn scroll(&self, delta: i32, orientation: String) {
+            self.calls.lock().unwrap().push(format!("Scroll {delta} {orientation}"));
+        }
+    }
+
+    /// `path` served by a Recorder on its own connection, registered with
+    /// the watcher the way its kind does (an AppIndicator by its path).
+    fn recorder(bus: &private_bus::PrivateBus, path: &str, id: &'static str, status: &'static str) -> (zbus::blocking::Connection, String, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let conn = bus.builder().and_then(|b| b.serve_at(path, Recorder { id, status, calls: calls.clone() })).and_then(|b| b.build()).unwrap();
+        let me = conn.unique_name().unwrap().to_string();
+        let registered = if path == "/StatusNotifierItem" { me.clone() } else { path.to_string() };
+        conn.call_method(Some(WATCHER_NAME), WATCHER_PATH, Some(WATCHER_NAME), "RegisterStatusNotifierItem", &(registered.as_str(),)).unwrap();
+        (conn, format!("{me}{path}"), calls)
+    }
+
+    fn wait_for(calls: &Arc<Mutex<Vec<String>>>, n: usize) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while calls.lock().unwrap().len() < n && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        calls.lock().unwrap().clone()
+    }
+
+    /// #EDE-237: Cinnamon's click semantics (xapp-sn-watcher's sn-item.c),
+    /// the same for every item: left = Activate, middle = SecondaryActivate,
+    /// right without a dbusmenu = ContextMenu, the wheel = Scroll(±1, axis)
+    /// with up and left negative.
+    #[test]
+    fn tray_input_reaches_the_item_as_cinnamon_sends_it() {
+        let bus = private_bus::PrivateBus::start();
+        let (tx, _rx) = mpsc::channel();
+        let dbus = Dbus::start_on(bus.builder(), tx, clock).expect("the shell on the private bus");
+        let (_c, service, calls) = recorder(&bus, "/StatusNotifierItem", "plain", "Active");
+        dbus.tray_activate(&service);
+        dbus.tray_input(&service, TrayInput::Middle);
+        dbus.tray_input(&service, TrayInput::Right);
+        for (button, direction) in [(None, Some("up")), (None, Some("down")), (None, Some("left")), (None, Some("right"))] {
+            dbus.tray_input(&service, TrayInput::from_event(button, direction).unwrap());
+        }
+        assert_eq!(
+            wait_for(&calls, 7),
+            ["Activate 0 0", "SecondaryActivate 0 0", "ContextMenu 0 0", "Scroll -1 vertical", "Scroll 1 vertical", "Scroll -1 horizontal", "Scroll 1 horizontal"]
+        );
+        // Cinnamon's left-click-activate-apps: such an AppIndicator's left press is SecondaryActivate.
+        let (_c2, onboard, calls) = recorder(&bus, "/org/ayatana/NotificationItem/onboard", "onboard", "Active");
+        dbus.tray_activate(&onboard);
+        assert_eq!(wait_for(&calls, 1), ["SecondaryActivate 0 0"]);
+    }
+
+    #[test]
+    fn the_taskbar_s_events_name_the_input() {
+        assert_eq!(TrayInput::from_event(Some("middle"), None), Some(TrayInput::Middle));
+        assert_eq!(TrayInput::from_event(Some("right"), None), Some(TrayInput::Right));
+        assert_eq!(TrayInput::from_event(None, Some("up")), Some(TrayInput::Scroll { delta: -1, horizontal: false }));
+        assert_eq!(TrayInput::from_event(Some("left"), None), None, "a left press is the press event, not auxPress");
+        assert_eq!(TrayInput::from_event(None, None), None);
+    }
+
+    /// #EDE-237: an AppIndicator item's left press opens its menu (Steam,
+    /// Discord's Electron, nm-applet), unless whitelisted; ItemIsMenu too.
+    #[test]
+    fn appindicators_open_their_menu_on_a_left_press() {
+        assert!(left_opens_menu(":1.4/org/ayatana/NotificationItem/steam", "steam", false));
+        assert!(!left_opens_menu(":1.4/org/ayatana/NotificationItem/onboard", "Onboard", false));
+        assert!(!left_opens_menu(":1.5/StatusNotifierItem", "discord_status_icon_1", false));
+        assert!(left_opens_menu(":1.5/StatusNotifierItem", "x", true));
+        assert!(!names_a_menu("/") && !names_a_menu("/NO_DBUSMENU") && !names_a_menu(""));
+        assert!(names_a_menu("/MenuBar"));
+    }
+
+    /// #EDE-237: a Passive item is hidden (Cinnamon), the icon is drawn at
+    /// the taskbar's scale: 24 px slots, 30 device pixels at 1.25.
+    #[test]
+    fn tray_items_hide_passive_ones_and_draw_at_the_scale() {
+        let bus = private_bus::PrivateBus::start();
+        let (tx, rx) = mpsc::channel();
+        let dbus = Dbus::start_on(bus.builder(), tx, clock).expect("the shell on the private bus");
+        let (_a, active, _) = recorder(&bus, "/org/ayatana/NotificationItem/steam", "steam", "Active");
+        let (_p, passive, _) = recorder(&bus, "/StatusNotifierItem", "quiet", "Passive");
+        dbus.tray_scale(1.25);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let items = loop {
+            dbus.tray_refresh();
+            match next_answer(&rx, Duration::from_secs(5)) {
+                Some(Event::TrayItems(items)) if items.iter().any(|i| i.service == active) => break items,
+                _ if Instant::now() > deadline => panic!("the items never came"),
+                _ => {}
+            }
+        };
+        assert!(items.iter().all(|i| i.service != passive), "Passive is hidden");
+        let steam = items.iter().find(|i| i.service == active).unwrap();
+        assert!(steam.item_is_menu, "an AppIndicator opens its menu on a left press");
+        let b64 = steam.icon.strip_prefix("data:image/png;base64,").expect("a PNG data URL");
+        let png = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        assert_eq!(image::load_from_memory(&png).unwrap().to_rgba8().dimensions(), (30, 30));
     }
 }
