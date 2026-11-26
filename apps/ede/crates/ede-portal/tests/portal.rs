@@ -424,9 +424,13 @@ impl Chooser {
 /// SelectSources for an output, persisting, with `restore` as the
 /// frontend hands a restore token's data back.
 fn select_output(w: &World, session: &str, app: &str, restore: Option<&OwnedValue>) {
+    select_output_persisting(w, session, app, restore, 2);
+}
+
+fn select_output_persisting(w: &World, session: &str, app: &str, restore: Option<&OwnedValue>, persist_mode: u32) {
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("types", Value::from(1u32));
-    opts.insert("persist_mode", Value::from(2u32));
+    opts.insert("persist_mode", Value::from(persist_mode));
     if let Some(data) = restore {
         opts.insert("restore_data", Value::from(data.try_clone().unwrap()));
     }
@@ -487,6 +491,44 @@ fn a_restored_share_goes_through_the_chooser() {
     assert_eq!((r, results.contains_key("streams")), (1, false), "a cancel shares nothing");
     assert!(screencast_nodes() <= before, "a cancelled restore made a PipeWire node");
     close(&w, third);
+}
+
+/// Chromium and Electron (Discord) pick in one session (`persist_mode` 1)
+/// and capture in the next, restoring it: that capture shares the pick the
+/// person just made without a second chooser; the restore after it asks
+/// again, and so does a persistent token (`a_restored_share_goes_through_the_chooser`).
+#[test]
+fn the_pick_hands_off_to_the_apps_capture_session_once() {
+    let chooser = Chooser::new();
+    let w = world(&format!("[screencast]\n{}", chooser.toml()));
+    let app = "com.discordapp.Discord";
+    let start = |session: &str| -> (u32, Vardict) { w.call(SCREENCAST, "Start", &(path("/r/start"), path(session), app, "", none())).unwrap() };
+    let open = |n: u32, restore: Option<&OwnedValue>| {
+        let session = format!("/org/freedesktop/portal/desktop/session/1_1/webrtc_session{n}");
+        let _: (u32, Vardict) = w.call(SCREENCAST, "CreateSession", &(path("/r/c"), path(&session), app, none())).unwrap();
+        select_output_persisting(&w, &session, app, restore, 1);
+        session
+    };
+
+    let pick = open(1, None);
+    chooser.answer(Some("output:HEADLESS-1\n"));
+    let (r, results) = start(&pick);
+    assert_eq!((r, chooser.selected()), (0, Some(vec![])), "the pick: the chooser");
+    let restore = results["restore_data"].try_clone().unwrap();
+    close(&w, &pick);
+
+    let capture = open(2, Some(&restore));
+    chooser.answer(None);
+    let (r, results) = start(&capture);
+    assert_eq!(chooser.selected(), None, "the capture right after the pick shows no second chooser");
+    assert_eq!(r, 0);
+    assert_eq!(<Vec<(u32, Vardict)>>::try_from(results["streams"].try_clone().unwrap()).unwrap().len(), 1);
+    close(&w, &capture);
+
+    let again = open(3, Some(&restore));
+    let (r, _) = start(&again);
+    assert_eq!((r, chooser.selected()), (1, Some(vec!["output:HEADLESS-1".to_string()])), "a handoff is used once: the next restore asks");
+    close(&w, &again);
 }
 
 /// #EDE-172 (D6 a): a restored RemoteDesktop session goes through the
