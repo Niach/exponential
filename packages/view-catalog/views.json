@@ -7741,12 +7741,19 @@
         },
         "settleMs": 800
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "specimen:elicitation-card"
+        },
+        "anchorDelayMs": 1500
+      },
       "notes": {
         "web": "The DEV-ONLY `?dev=elicitation-card` on the Agent route (never parsed in a production build): `@exp/ui` `ElicitationCardSpecimen`, the fixture's device-built cards through the real ChatConversation (the waiting form, the clean url, the warned url, an answered form).",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
         "ios": "#NEW-146: the port follows the approved web draft.",
         "android": "#NEW-146: the port follows the approved web draft.",
-        "desktop": "#NEW-146: the port follows the approved web draft."
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=specimen:elicitation-card`: the IDE specimen `elicitation_card.rs` drawn full-window, the fixture's cards through the chat's real card (`ask_row_card`), the web island line for line."
       }
     },
     {

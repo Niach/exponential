@@ -1095,6 +1095,9 @@ pub fn mcp_elicitation_request(
     };
     let mut meta = serde_json::Map::new();
     meta.insert(super::MCP_SERVER_META.to_string(), Value::String(server));
+    // ACP's schema is a sorted map: the server's property order rides along.
+    let order = crate::engine::elicitation_card::schema_order(params.get("requestedSchema"));
+    meta.insert(crate::engine::elicitation_card::ORDER_META_KEY.to_string(), json!(order));
     Some(CreateElicitationRequest::new(mode, message).meta(meta))
 }
 

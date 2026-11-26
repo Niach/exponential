@@ -2334,6 +2334,13 @@
         "height": 1800,
         "bytes": 27352,
         "sha256": "5e486c4888989be41d40bf603a125049013a9f74fb2c57e0e75a235d169eb97f"
+      },
+      "desktop": {
+        "file": "shots/elicitation-card/desktop.webp",
+        "width": 597,
+        "height": 1800,
+        "bytes": 29432,
+        "sha256": "99d5828893f05aebb8a97d4ec1d51b7ce5d49319a696d7c0970102fd77d0be3e"
       }
     },
     "exponential-ui-accordion": {

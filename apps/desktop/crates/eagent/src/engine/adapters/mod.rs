@@ -37,11 +37,9 @@ pub use crate::engine::launch::RunOptions;
 pub const PLAN_MODE_ID: &str = "plan";
 pub const BUILD_MODE_ID: &str = "bypassPermissions";
 
-/// #NEW-146 (elicitation-card.json `serverMetaKey`): the `_meta` key of an
-/// ACP elicitation naming the THIRD-PARTY MCP server that asked (the name
-/// Exponential configured it under). Its presence makes the ask THE
-/// elicitation card instead of the question stepper.
-pub const MCP_SERVER_META: &str = "exponential.at/mcpServer";
+/// #NEW-146: THE elicitation card's `serverMetaKey` (one definition:
+/// [`crate::engine::elicitation_card::SERVER_META_KEY`]).
+pub use crate::engine::elicitation_card::SERVER_META_KEY as MCP_SERVER_META;
 
 /// The contract's `/new` steer command (`contract.json` `steerCommands`): a
 /// fresh conversation in the SAME session row, between turns — claude via
