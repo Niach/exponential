@@ -24,10 +24,10 @@ genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an `ex
 
 Their props are in exponential_apps {op: "catalog"} (only: [names] = just these). By group:
 
-- layout: Box, Stack, Grid, Card, Window, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar, Embed, Footer, Hero
+- layout: Box, Stack, Grid, Card, Window, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar, Embed, Footer, Hero, Board
 - list: Section, Group, Trace, TraceItem, Plan, Row, Tree, MessageBubble, MessageStatus
 - text: Text, Heading, Markdown, CodeBlock, Kbd, KbdGroup, Label
-- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas, AvatarBadge, MediaCard, AvatarGroup
+- media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion, Canvas, AvatarBadge, MediaCard, AvatarGroup, MapPlaceholder
 - navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper, NavBar
 - overlay: Dialog, Drawer, DockCard, AlertDialog, Popover, Tooltip, Menu, Toast
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave, CountBadge

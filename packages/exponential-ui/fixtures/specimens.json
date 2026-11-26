@@ -211,6 +211,75 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_box_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_box_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "motion · stagger + exit",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_box_motion",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm",
+                  "animationStagger": 60
+                },
+                "children": [
+                  {
+                    "id": "c4_box_motion_a",
+                    "component": "Row",
+                    "props": {
+                      "title": "Design review",
+                      "subtitle": "Today, 14:00",
+                      "icon": "calendar"
+                    },
+                    "style": {
+                      "animation": "slide-in-up"
+                    }
+                  },
+                  {
+                    "id": "c4_box_motion_b",
+                    "component": "Row",
+                    "props": {
+                      "title": "Ship the release",
+                      "subtitle": "Tomorrow",
+                      "icon": "rocket"
+                    },
+                    "style": {
+                      "animation": "slide-in-up"
+                    }
+                  },
+                  {
+                    "id": "c4_box_motion_c",
+                    "component": "Row",
+                    "props": {
+                      "title": "Retro notes",
+                      "subtitle": "Friday",
+                      "icon": "file-text"
+                    },
+                    "style": {
+                      "animation": "slide-in-up",
+                      "animationDelay": 40,
+                      "exitAnimation": "fade-out"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -2803,19 +2872,67 @@
                 "id": "specimen_text_case_8_label",
                 "component": "Text",
                 "props": {
-                  "text": "fontFamily · serif",
+                  "text": "runs · weight, tone, marks, link",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c8_serif",
+                "id": "c8_rich",
                 "component": "Text",
-                "props": {
-                  "text": "The quick brown fox jumps over the lazy dog.",
-                  "variant": "lead"
-                },
                 "style": {
-                  "fontFamily": "$type.family.serif"
+                  "maxWidth": 320
+                },
+                "props": {
+                  "runs": [
+                    {
+                      "text": "Release "
+                    },
+                    {
+                      "text": "v2.4",
+                      "weight": "semibold"
+                    },
+                    {
+                      "text": " shipped ",
+                      "tone": "success"
+                    },
+                    {
+                      "text": "today",
+                      "mark": "highlight"
+                    },
+                    {
+                      "text": ". Run "
+                    },
+                    {
+                      "text": "bun install",
+                      "mark": "code"
+                    },
+                    {
+                      "text": ", drop the "
+                    },
+                    {
+                      "text": "old flag",
+                      "mark": "strike"
+                    },
+                    {
+                      "text": " and read the "
+                    },
+                    {
+                      "text": "release notes",
+                      "link": "https://exponential.at/changelog"
+                    },
+                    {
+                      "text": " before "
+                    },
+                    {
+                      "text": "Friday",
+                      "weight": "bold",
+                      "tone": "danger",
+                      "mark": "underline"
+                    },
+                    {
+                      "text": "."
+                    }
+                  ]
                 }
               }
             ]
@@ -2833,52 +2950,20 @@
                 "id": "specimen_text_case_9_label",
                 "component": "Text",
                 "props": {
-                  "text": "truncate · middle",
+                  "text": "dropCap · 3",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c9_hook",
-                "component": "Stack",
-                "props": {
-                  "gap": "xs"
-                },
+                "id": "c9_cap",
+                "component": "Text",
                 "style": {
-                  "maxWidth": 240
+                  "maxWidth": 320
                 },
-                "children": [
-                  {
-                    "id": "c9_hook_url",
-                    "component": "Text",
-                    "props": {
-                      "text": "https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push",
-                      "variant": "caption",
-                      "truncate": "middle"
-                    },
-                    "style": {
-                      "fontFamily": "$type.family.mono"
-                    }
-                  },
-                  {
-                    "id": "c9_hook_secret",
-                    "component": "Text",
-                    "props": {
-                      "text": "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa",
-                      "truncate": "middle"
-                    },
-                    "style": {
-                      "fontFamily": "$type.family.mono"
-                    }
-                  },
-                  {
-                    "id": "c9_hook_end",
-                    "component": "Text",
-                    "props": {
-                      "text": "truncate · end keeps the start of a long line and cuts its end",
-                      "truncate": "end"
-                    }
-                  }
-                ]
+                "props": {
+                  "dropCap": 3,
+                  "text": "Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button."
+                }
               }
             ]
           },
@@ -2895,12 +2980,104 @@
                 "id": "specimen_text_case_10_label",
                 "component": "Text",
                 "props": {
+                  "text": "fontFamily · serif",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_serif",
+                "component": "Text",
+                "props": {
+                  "text": "The quick brown fox jumps over the lazy dog.",
+                  "variant": "lead"
+                },
+                "style": {
+                  "fontFamily": "$type.family.serif"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_text_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_text_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "truncate · middle",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_hook",
+                "component": "Stack",
+                "props": {
+                  "gap": "xs"
+                },
+                "style": {
+                  "maxWidth": 240
+                },
+                "children": [
+                  {
+                    "id": "c11_hook_url",
+                    "component": "Text",
+                    "props": {
+                      "text": "https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push",
+                      "variant": "caption",
+                      "truncate": "middle"
+                    },
+                    "style": {
+                      "fontFamily": "$type.family.mono"
+                    }
+                  },
+                  {
+                    "id": "c11_hook_secret",
+                    "component": "Text",
+                    "props": {
+                      "text": "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa",
+                      "truncate": "middle"
+                    },
+                    "style": {
+                      "fontFamily": "$type.family.mono"
+                    }
+                  },
+                  {
+                    "id": "c11_hook_end",
+                    "component": "Text",
+                    "props": {
+                      "text": "truncate · end keeps the start of a long line and cuts its end",
+                      "truncate": "end"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_text_case_12",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_text_case_12_label",
+                "component": "Text",
+                "props": {
                   "text": "highlight · current",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c10_marks",
+                "id": "c12_marks",
                 "component": "Text",
                 "props": {
                   "text": "Résumé review: the resume link, the RESUME button and the résumé PDF.",
@@ -4146,6 +4323,71 @@
                 "props": {
                   "src": "https://example.com/track.mp3",
                   "title": "Episode 12"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_audio_player_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_audio_player_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "peaks · waveform",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_voice",
+                "component": "AudioPlayer",
+                "props": {
+                  "src": "https://example.com/note.mp3",
+                  "title": "Voice note",
+                  "durationMs": 42000,
+                  "peaks": [
+                    0.2,
+                    0.45,
+                    0.8,
+                    0.6,
+                    0.3,
+                    0.9,
+                    1,
+                    0.7,
+                    0.4,
+                    0.25,
+                    0.5,
+                    0.75,
+                    0.6,
+                    0.35,
+                    0.2,
+                    0.55,
+                    0.85,
+                    0.65,
+                    0.4,
+                    0.3,
+                    0.15,
+                    0.45,
+                    0.7,
+                    0.5,
+                    0.3,
+                    0.2,
+                    0.6,
+                    0.9,
+                    0.55,
+                    0.35,
+                    0.25,
+                    0.4
+                  ]
+                },
+                "style": {
+                  "width": 360
                 }
               }
             ]
@@ -8734,6 +8976,47 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_meter_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_meter_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "range · normal band",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_heart",
+                "component": "Meter",
+                "props": {
+                  "label": "Resting heart rate",
+                  "value": "64 bpm",
+                  "max": 120,
+                  "segments": [
+                    {
+                      "value": 64,
+                      "tone": "success"
+                    }
+                  ],
+                  "range": [
+                    50,
+                    80
+                  ]
+                },
+                "style": {
+                  "width": 360
+                }
+              }
+            ]
           }
         ]
       }
@@ -8969,6 +9252,69 @@
                   "value": 0.62,
                   "tone": "danger"
                 }
+              }
+            ]
+          },
+          {
+            "id": "specimen_ring_case_8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_ring_case_8_label",
+                "component": "Text",
+                "props": {
+                  "text": "sweep · 270 (gauge), rings",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8_rings",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "md",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c8_gauge",
+                    "component": "Ring",
+                    "props": {
+                      "value": 0.64,
+                      "sweep": 270,
+                      "size": "lg",
+                      "tone": "success",
+                      "label": "64"
+                    }
+                  },
+                  {
+                    "id": "c8_activity",
+                    "component": "Ring",
+                    "props": {
+                      "size": "lg",
+                      "rings": [
+                        {
+                          "value": 0.8,
+                          "tone": "danger"
+                        },
+                        {
+                          "value": 42,
+                          "max": 60,
+                          "tone": "success"
+                        },
+                        {
+                          "value": 0.35,
+                          "tone": "info"
+                        }
+                      ]
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -21367,6 +21713,223 @@
                       "seed": "demo-bob"
                     }
                   ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-board",
+      "component": "Board",
+      "title": "Board",
+      "node": {
+        "id": "specimen_board",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_board_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_board_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_board",
+                "component": "Board",
+                "props": {
+                  "columns": [
+                    {
+                      "value": "todo",
+                      "title": "Todo",
+                      "cards": [
+                        {
+                          "label": "Write the brief",
+                          "value": "c1",
+                          "description": "Due Friday"
+                        },
+                        {
+                          "label": "Pick a venue",
+                          "value": "c2",
+                          "trailing": "3d"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "doing",
+                      "title": "Doing",
+                      "cards": [
+                        {
+                          "label": "Draft the agenda",
+                          "value": "c3",
+                          "icon": "pencil"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "done",
+                      "title": "Done",
+                      "cards": []
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_board_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_board_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "phone width · columns scroll",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_board_narrow",
+                "component": "Board",
+                "props": {
+                  "columns": [
+                    {
+                      "value": "todo",
+                      "title": "Todo",
+                      "cards": [
+                        {
+                          "label": "Write the brief",
+                          "value": "n1"
+                        }
+                      ]
+                    },
+                    {
+                      "value": "doing",
+                      "title": "Doing",
+                      "cards": [
+                        {
+                          "label": "Draft the agenda",
+                          "value": "n2",
+                          "trailing": "2d"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "style": {
+                  "width": 320
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-map-placeholder",
+      "component": "MapPlaceholder",
+      "title": "MapPlaceholder",
+      "node": {
+        "id": "specimen_map_placeholder",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_map_placeholder_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_map_placeholder_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_map_placeholder",
+                "component": "MapPlaceholder",
+                "props": {
+                  "label": "Vienna, Stephansplatz"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_map_placeholder_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_map_placeholder_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "markers",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_map_markers",
+                "component": "MapPlaceholder",
+                "props": {
+                  "label": "Old town",
+                  "markers": [
+                    {
+                      "x": 0.3,
+                      "y": 0.4,
+                      "label": "Hotel"
+                    },
+                    {
+                      "x": 0.68,
+                      "y": 0.62,
+                      "label": "Venue"
+                    },
+                    {
+                      "x": 0.5,
+                      "y": 0.25
+                    }
+                  ]
+                },
+                "style": {
+                  "maxWidth": 480
                 }
               }
             ]

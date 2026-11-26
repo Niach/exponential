@@ -361,6 +361,11 @@ pub struct FfiNode {
     pub live: Option<String>,
     /// A freed slot (indices are stable; `nodes()[i].index == i`).
     pub removed: bool,
+    /// Round 4 motion: a leaving ghost root playing `exitJson` from the
+    /// moment this turned true (its subtree: no hit-testing, out of the
+    /// accessibility tree); call `finishExit(id)` once it ran.
+    #[uniffi(default = false)]
+    pub exiting: bool,
     /// The states the core resolved into the node's PART recipe query only
     /// (a tab `selected`, an accordion trigger `open`, a check part
     /// `checked`; VAPP-88).
@@ -462,6 +467,11 @@ pub struct FfiVisual {
     /// sample it with `animationFrameJson`.
     #[uniffi(default = None)]
     pub animation_json: Option<String>,
+    /// Round 4 motion: the `exitAnimation` as `{name, timing}` (`timing.delayMs`
+    /// never set), played while the node is `exiting`; sample it with
+    /// `animationFrameJson`. None under reduced motion.
+    #[uniffi(default = None)]
+    pub exit_json: Option<String>,
     /// Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
     #[uniffi(default = false)]
     pub sticky: bool,
@@ -679,6 +689,7 @@ fn node(n: &PlacedNode, lnode: Option<&eui_core::layout_tree::LNode>, host: &[St
         form: n.form.clone(),
         live: n.live.clone(),
         removed: n.removed,
+        exiting: n.exiting,
         part_states: query.map(|q| q.states.clone()).unwrap_or_default(),
         macro_name: match (query, lnode) {
             (Some(q), Some(l)) if l.owner.is_none() => Some(q.component.clone()),
@@ -733,6 +744,7 @@ fn visual(v: &eui_core::style::Visual) -> FfiVisual {
         backdrop_blur: v.backdrop_blur,
         tail: v.tail.clone(),
         animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
+        exit_json: v.exit.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
         sticky: v.sticky,
         background_clip: v.background_clip.clone(),
         background_image_json: v.background_image.as_ref().map(|b| serde_json::to_string(b).unwrap_or_default()),
@@ -1737,6 +1749,14 @@ impl Surface {
                     Some(FfiPaint { index: i, visual: visual(v), text_style: if leaf { inner.text_style(i).map(text_style) } else { None } })
                 })
                 .collect()
+        })
+    }
+
+    /// Round 4 motion: the painter played `id`'s exit to its end (the ghost
+    /// leaves; lay out again). False = no such exit.
+    pub fn finish_exit(&self, id: String) -> bool {
+        self.shield("finish_exit", || false, || {
+            self.core().finish_exit(&id)
         })
     }
 

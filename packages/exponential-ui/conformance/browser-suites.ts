@@ -54,6 +54,7 @@ import {
   sourceWithParams,
   DEFAULT_STRINGS,
   animationFrame,
+  exitTiming,
   displayString,
   formatChartValue,
   intlFormatter,
@@ -71,7 +72,7 @@ import { conformanceManifest } from "../src/conformance"
 import { ExpressDecoder, FrameDecoder, SseDecoder as ExpressSse, inferenceFormatOf, mergeDecoded, messagesFromMcpResult as mcpResult, rendererCapabilities as capabilities } from "../src/host/index"
 import { initExpress } from "../src/express/index"
 import type { ConformanceReport } from "../src/conformance"
-import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
+import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type PresenceScenario, type ResolveContext } from "../src/web/index"
 import { launchChromium, openPage, pageUrl, type Query, type WebHarness } from "./browser-page"
 
 /** The renderer-side functions the pure suites run (everything else is the
@@ -773,6 +774,43 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         const ms = duration.endsWith(`ms`) ? Number.parseFloat(duration) : Number.parseFloat(duration) * 1000
         const painted = await opacityAt(o.timing.durationMs / 2)
         record(`animations`, `override`, Math.abs(ms - o.timing.durationMs) <= 0.5 && Math.abs(painted - o.frame.opacity) <= 1e-3, `${duration} ${painted}`)
+      }
+      // Round 4 motion: the exit sets (the keyframes this renderer ships +
+      // the timing and frames off the core), `animationDelay` (the computed
+      // delay + the frames) and the presence scenarios through the
+      // harness's own surface (`__xuiPresence`).
+      for (const [id, entries] of Object.entries(anim.exits as Record<string, Record<string, { timing: unknown; frames: { t: number; frame: Record<string, number | null> }[] }>>))
+        for (const [name, e] of Object.entries(entries)) {
+          const theme = builtinTheme(id)
+          const verdict = (() => {
+            if (keyframesCss(name) !== (anim.css as Record<string, string>)[name] || !BASE_CSS.includes(keyframesCss(name))) return `css`
+            if (canon(exitTiming(name, theme)) !== canon(e.timing)) return `timing`
+            for (const fr of e.frames) {
+              const got = animationFrame(name, fr.t, theme) as unknown as Record<string, number | null>
+              for (const [k, v] of Object.entries(fr.frame)) if (v === null ? got[k] !== null : Math.abs((got[k] as number) - v) > 1e-3) return `${fr.t}.${k}`
+            }
+            return true
+          })()
+          record(`animations`, `exit ${id}/${name}`, verdict)
+        }
+      for (const c of anim.delay as { name: string; theme: string; animation: string; delay: number; frames: { t: number; frame: Record<string, number | null> }[] }[]) {
+        await mount({ id: `a`, component: `Box`, style: { width: 40, height: 40, animation: c.animation, animationDelay: c.delay } }, { theme: c.theme })
+        const delay = await page.evaluate(() => getComputedStyle(document.querySelector(`[data-xui-id="a"]`)!).animationDelay)
+        const ms = delay.endsWith(`ms`) ? Number.parseFloat(delay) : Number.parseFloat(delay) * 1000
+        const theme = builtinTheme(c.theme)
+        let verdict: boolean | string = Math.abs(ms - c.delay) <= 0.5 ? true : `delay ${delay}`
+        for (const fr of c.frames) {
+          const got = animationFrame(c.animation, fr.t, theme, { delayMs: c.delay }) as unknown as Record<string, number | null>
+          for (const [k, v] of Object.entries(fr.frame)) if (verdict === true && (v === null ? got[k] !== null : Math.abs((got[k] as number) - v) > 1e-3)) verdict = `${fr.t}.${k}`
+        }
+        record(`animations`, `delay ${c.name}`, verdict)
+      }
+      for (const c of anim.presence as PresenceScenario[]) {
+        await page.emulateMedia({ reducedMotion: c.reducedMotion ? `reduce` : `no-preference` })
+        const got = (await page.evaluate((c) => (window as unknown as { __xuiPresence: (c: unknown) => Promise<unknown> }).__xuiPresence(c), c as never)) as unknown[]
+        await page.emulateMedia({ reducedMotion: `no-preference` })
+        const bad = c.steps.findIndex((st, i) => canon(st.expect) !== canon(got[i]))
+        record(`animations`, `presence ${c.name}`, bad < 0 ? true : `step ${bad}: ${JSON.stringify(got[bad])}`)
       }
       // `opacity`: the painted opacity = the node's own × the frame's.
       for (const c of anim.opacity as { name: string; own: number; animation: string; theme: string; t: number; expected: number }[]) {

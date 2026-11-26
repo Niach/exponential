@@ -683,7 +683,10 @@ class SurfaceModel(
     }
 
     /** #EXP-1926: the host's source rule for a content picture ([HostPlugin.imageSource]); a link's href passes the URL policy (denied = its text). */
-    fun imageSource(src: String, alt: String): ImageSource = when (val r = host.imageSource(src, alt)) {
+    fun imageSource(src: String, alt: String): ImageSource = if (src.startsWith("map:") && host.resolveUrl(src).let { it.isEmpty() || it.startsWith("map:") }) {
+        // genUI round 4 (catalog/host.json media.map): a `map:` src the host's `resolveUrl` does not resolve paints nothing.
+        ImageSource.Text("")
+    } else when (val r = host.imageSource(src, alt)) {
         null, ImageSource.Load -> ImageSource.Load
         is ImageSource.Link -> if (href(r.href) != null) r else ImageSource.Text(r.text)
         is ImageSource.Text -> r
@@ -767,6 +770,11 @@ class SurfaceModel(
                 failedProps.remove(cid)
             }
         }
+    }
+
+    /** Round 4 motion: the exit of ghost [id] ran to its end: it leaves and layout closes its gap. */
+    fun finishExit(id: String) {
+        if (runCatching { surface.finishExit(id) }.getOrDefault(false)) invalidate(true)
     }
 
     /** Write at a JSON pointer (null removes). */

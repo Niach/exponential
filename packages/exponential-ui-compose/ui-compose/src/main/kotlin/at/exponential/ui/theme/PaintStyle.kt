@@ -109,6 +109,8 @@ data class PaintStyle(
     val backdropBlur: Float? = null,
     /** Round 2: the keyframe animation. */
     val animation: AnimationSpec? = null,
+    /** Round 4 motion: the `exitAnimation` a leaving ghost plays. */
+    val exit: AnimationSpec? = null,
     /** Round 2: `position: sticky` (the offsets come with the pass). */
     val sticky: Boolean = false,
     /** #EXP-1629: a recipe's `backgroundClip: padding-box` (the fill paints inside the border). */
@@ -161,6 +163,7 @@ data class PaintStyle(
         direction = v.direction,
         backdropBlur = v.backdropBlur,
         animation = parseAnimation(v.animationJson),
+        exit = parseAnimation(v.exitJson),
         sticky = v.sticky,
         clipToPadding = v.backgroundClip == "padding-box",
         tail = v.tail?.takeIf { it == "start" || it == "end" || it == "down" },

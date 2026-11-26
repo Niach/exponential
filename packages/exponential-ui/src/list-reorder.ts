@@ -93,3 +93,57 @@ export type ListMoveContext = { id: string } & Partial<Record<ListDropPosition, 
 export function listMoveContext(dragKey: string, drop: ListDrop): ListMoveContext {
   return { id: dragKey, [drop.position]: drop.key }
 }
+
+/** genUI round 4 (fixtures/board-drop.json): one column of a Board = one of
+ *  its reorderable Lists: its key, its box across (`left`, `width`) and its
+ *  rendered cards. */
+export interface BoardColumn {
+  key: string
+  left: number
+  width: number
+  rows: readonly ListReorderRow[]
+}
+
+/** A Board drop: the column, and the card it lands beside (none = an empty
+ *  column). */
+export interface BoardDrop {
+  column: string
+  key?: string
+  position?: `before` | `after`
+}
+
+/** The index of the span nearest `at` (inside one = it; a tie = the earlier). */
+function nearest<T>(items: readonly T[], at: number, start: (item: T) => number, size: (item: T) => number): number {
+  let best = -1
+  let gap = Infinity
+  items.forEach((item, i) => {
+    const s = start(item)
+    const d = at < s ? s - at : at >= s + size(item) ? at - (s + size(item)) : 0
+    if (d < gap) {
+      gap = d
+      best = i
+    }
+  })
+  return best
+}
+
+/**
+ * Where a card drag over a Board drops (fixtures/board-drop.json): the
+ * column under `x` (else the nearer one), in it the card under `y` (else
+ * the nearer one): its upper half = before, its lower half = after; over
+ * the dragged card = null; a column with no cards = `{column}`.
+ */
+export function boardDropSlot(columns: readonly BoardColumn[], dragKey: string, x: number, y: number): BoardDrop | null {
+  if (!columns.some((c) => c.rows.some((r) => r.key === dragKey))) return null
+  const column = columns[nearest(columns, x, (c) => c.left, (c) => c.width)]
+  if (column.rows.length === 0) return { column: column.key }
+  const row = column.rows[nearest(column.rows, y, (r) => r.top, (r) => r.height)]
+  if (row.key === dragKey) return null
+  const frac = row.height > 0 ? (y - row.top) / row.height : 0
+  return { column: column.key, key: row.key, position: frac < 0.5 ? `before` : `after` }
+}
+
+/** A Board drop's `move` context: {id, column, before | after}. */
+export function boardMoveContext(dragKey: string, drop: BoardDrop): { id: string; column: string } & Partial<Record<`before` | `after`, string>> {
+  return drop.key && drop.position ? { id: dragKey, column: drop.column, [drop.position]: drop.key } : { id: dragKey, column: drop.column }
+}

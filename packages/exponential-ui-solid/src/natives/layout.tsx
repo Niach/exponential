@@ -3,10 +3,11 @@
 // (keyed by `template.key`), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { For, Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
-import { foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
-import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
+import { Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
+import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
+import { getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useSurfaceContext } from "../context"
+import { MotionContext, PresenceList, type PresenceItem } from "../presence"
 import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, TemplateItemView, latest, mergeStyle, templateItems, type NativeProps } from "../node-view"
@@ -180,13 +181,45 @@ export function ListNative(props: NativeProps): JSX.Element {
       })
     )
   })
-  const renderRow = (r: Accessor<number>) => <ListRowView row={rows()[r()]} node={props.node} tpl={tpl()} sections={sections()} childCount={childCount()} part={part} />
+  // Round 4 motion: a windowed List staggers the rows of its FIRST window
+  // only (React's); a flat one runs the presence pass (ghosts).
+  const stagger = () => (props.node.style as Record<string, unknown> | undefined)?.animationStagger
+  const firstWindow = new Map<string, number>()
+  let mounted = false
+  // The first window: the rows painted in the task its first row paints in
+  // (the window fills from effects after mount).
+  let closing = false
+  const rowNode = (r: number): UiNode | undefined => {
+    const row = rows()[r]
+    return !row || `header` in row ? undefined : row.item < childCount() ? props.node.children[row.item] : tpl()?.tpl
+  }
+  const renderRow = (r: Accessor<number>) => {
+    const view = () => <ListRowView row={rows()[r()]} node={props.node} tpl={tpl()} sections={sections()} childCount={childCount()} part={part} />
+    const per = untrack(stagger)
+    if (!untrack(windowed) || ctx.reducedMotion || enterDelay(0, 1, per) <= 0) return view()
+    const key = untrack(() => keyOf(r()))
+    if (!closing) {
+      closing = true
+      setTimeout(() => (mounted = true), 0)
+    }
+    if (!mounted && !firstWindow.has(key)) firstWindow.set(key, enterDelay((untrack(() => rowNode(r()))?.style as Record<string, unknown> | undefined)?.animationDelay, firstWindow.size, per))
+    const delayMs = firstWindow.get(key) ?? 0
+    return delayMs > 0 ? <MotionContext.Provider value={{ delayMs: () => delayMs, exit: () => undefined }}>{view()}</MotionContext.Provider> : view()
+  }
   // Round 3: a Section body with `tree` asks for role `tree`.
   const listRole = () => ((props.rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`)
   const itemRole = () => (listRole() === `tree` ? `treeitem` : `listitem`)
   // EXP-1832 (fixtures/list-reorder.json, React's): a vertical
   // `reorderable` List's items carry the web controller's DOM contract.
   const reorderable = () => bool(props.props.reorderable) && !horizontal()
+  // genUI round 4 (fixtures/board-drop.json, React's): a Board column trades
+  // rows with its sibling columns; the TARGET column's List fires `move`.
+  const board = () => (reorderable() && typeof props.props.board === `string` && props.props.board ? (props.props.board as string) : undefined)
+  createEffect(() => {
+    const el = rootEl
+    if (!board() || !el) return
+    onCleanup(registerBoardList(el, (context) => void props.emit(`move`, context)))
+  })
   const reorderAttrs = (item: number): Record<string, unknown> => {
     const cc = childCount()
     if (item < cc) return { [REORDER_KEY_ATTR]: props.node.children[item].id, [REORDER_DEPTH_ATTR]: 0, [REORDER_INDENT_ATTR]: 0 }
@@ -207,7 +240,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     const start = listReorderStart(root, e.target)
     if (!start) return
     const maxDepth = Math.max(1, Math.floor(num(untrack(() => props.props.maxDepth), 1)))
-    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth }, { move: (context) => void props.emit(`move`, context) })
+    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth, board: untrack(board) ? root : undefined }, { move: (context) => void props.emit(`move`, context) })
   }
   const divider = (r: number) => {
     const before = dividerBefore(r)
@@ -217,31 +250,43 @@ export function ListNative(props: NativeProps): JSX.Element {
   // Flat rows, keyed like React's (`keyOf`).
   const flatKeys = createMemo(() => rowKeys(), undefined, { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) })
   const flatIndex = createMemo(() => new Map(flatKeys().map((k, r) => [k, r])))
+  // One flat row by KEY: a ghost keeps its last row and items (frozen).
+  const flatRow = (key: string): JSX.Element => {
+    const r = createMemo<number>((prev) => flatIndex().get(key) ?? prev!)
+    const here = () => flatIndex().has(key)
+    const row = createMemo<ListRow>((prev) => (here() ? rows()[r()] : prev!))
+    const t = createMemo<ReturnType<typeof templateItems>>((prev) => (here() ? tpl() : (prev ?? null)))
+    const line = createMemo(() => (here() ? divider(r()) : null))
+    return (
+      <div class="xui-list-row" data-axis={axis()} data-xui-row={r()} {...itemAttrs(r())}>
+        {line() ? (
+          <div class="xui-list-gap" aria-hidden="true" data-axis={axis()} style={css(horizontal() ? { [rtl() ? `right` : `left`]: -(step() / 2) } : { top: -(step() / 2) })}>
+            {line()}
+          </div>
+        ) : null}
+        <ListRowView row={row()} node={props.node} tpl={t()} sections={sections()} childCount={childCount()} part={part} />
+      </div>
+    )
+  }
+  // A row whose node has an exit and is hidden leaves through its exit.
+  const hiddenExit = (r: number): boolean => {
+    const n = rowNode(r)
+    if (n?.visible === undefined || (n.style as Record<string, unknown> | undefined)?.exitAnimation === undefined) return false
+    const row = rows()[r]
+    const at = `item` in row && row.item >= childCount() ? tpl()!.items[row.item - childCount()].path : props.scope
+    return !resolveVisible(n.visible, resolveContextOf(ctx, at))
+  }
+  const flatItems = createMemo((): PresenceItem[] => (windowed() ? [] : flatKeys().flatMap((key, r) => (hiddenExit(r) ? [] : [{ key, node: rowNode(r), render: () => flatRow(key) }]))))
   return (
     <Show
       when={windowed()}
       fallback={
-        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
-          <For each={flatKeys()}>
-            {(key) => {
-              const r = createMemo<number>((prev) => flatIndex().get(key) ?? prev!)
-              const line = createMemo(() => divider(r()))
-              return (
-                <div class="xui-list-row" data-axis={axis()} data-xui-row={r()} {...itemAttrs(r())}>
-                  {line() ? (
-                    <div class="xui-list-gap" aria-hidden="true" data-axis={axis()} style={css(horizontal() ? { [rtl() ? `right` : `left`]: -(step() / 2) } : { top: -(step() / 2) })}>
-                      {line()}
-                    </div>
-                  ) : null}
-                  {renderRow(r)}
-                </div>
-              )
-            }}
-          </For>
+        <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown} {...{ [REORDER_BOARD_ATTR]: board() }}>
+          <PresenceList items={flatItems()} stagger={stagger()} />
         </div>
       }
     >
-      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown}>
+      <div ref={rootEl} {...props.rootProps} style={style()} role={listRole()} onPointerDown={onPointerDown} {...{ [REORDER_BOARD_ATTR]: board() }}>
         <WindowedList
           ref={(h) => (windowHandle = h)}
           count={rows().length}

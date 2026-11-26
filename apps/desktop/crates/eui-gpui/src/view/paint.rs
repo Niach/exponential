@@ -254,6 +254,8 @@ impl SurfaceView {
         // transform; opacity multiplies; a leaf scales about its centre; a
         // rotation turns an Icon's glyph (gpui rotates no other box).
         let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window, cx) };
+        // Round 4 motion: a leaving ghost plays its exit instead.
+        let anim = if n.exiting && !self.ghosting.get() { self.exit_frame(index, &style, window, cx).or(anim) } else { anim };
         if let Some(a) = &anim {
             style.opacity = Some(style.opacity.unwrap_or(1.0) * a.opacity as f32);
             style.transform.tx += a.translate_x as f32;
@@ -502,11 +504,26 @@ impl SurfaceView {
         let reduced = a.reduced || self.surface.settings().reduced_motion;
         let now = self.now();
         let id = self.cache.ids.get(index as usize)?.clone();
-        let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+        let start = *self.anim_start.borrow_mut().entry(id.clone()).or_insert(now);
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
         let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, reduced)?;
-        let total = a.timing.duration_ms * a.timing.iterations.count();
-        if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
+        let total = eui_core::animation::total_ms(&a.timing);
+        if !reduced && a.timing.delay_ms > 0.0 && elapsed < a.timing.delay_ms {
+            // Round 4 motion: the enter waits (stagger + animationDelay) on
+            // its first keyframe: one timer for its start, no frames.
+            if self.delay_armed.borrow_mut().insert(id.clone()) {
+                let wait = std::time::Duration::from_secs_f64((a.timing.delay_ms - elapsed).max(1.0) / 1000.0);
+                let armed = id.clone();
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |v, cx| {
+                        v.delay_armed.borrow_mut().remove(&armed);
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        } else if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
             // #LOGS-3: a LOOP (a spinner's `spin`, a `pulse`) lives as long
             // as what it marks: on the shared stepped grid, not every frame.
             // A finite run (an entrance) keeps every frame.
@@ -515,6 +532,28 @@ impl SurfaceView {
                 crate::controls::repaint_on_next_step(&self.loop_armed_until, crate::controls::SMOOTH_STEP, window, cx);
             } else {
                 window.request_animation_frame();
+            }
+        }
+        Some(frame)
+    }
+
+    /// Round 4 motion: the exit frame of a leaving ghost (from when it began
+    /// leaving); frames while it runs, then `Surface::finish_exit` on the
+    /// next pass (its end frame holds until then).
+    fn exit_frame(&self, index: u32, _style: &PaintStyle, window: &mut Window, cx: &mut Context<Self>) -> Option<eui_core::animation::AnimationFrame> {
+        let a = self.styles.get(index as usize)?.exit.clone()?;
+        let now = self.now();
+        let id = self.cache.ids.get(index as usize)?.clone();
+        let start = *self.exit_start.borrow_mut().entry(id.clone()).or_insert(now);
+        let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, false)?;
+        if elapsed < eui_core::animation::total_ms(&a.timing) {
+            window.request_animation_frame();
+        } else {
+            let mut done = self.exits_done.borrow_mut();
+            if !done.iter().any(|d| d == id.as_ref()) {
+                done.push(id.to_string());
+                cx.notify();
             }
         }
         Some(frame)
@@ -990,6 +1029,11 @@ impl SurfaceView {
         if prop("src").is_empty() {
             return None;
         }
+        // genUI round 4 (catalog/host.json media.map): a `map:` src the
+        // host's `resolve_url` does not resolve paints nothing.
+        if prop("src").starts_with("map:") && { let resolved = self.host.resolve_url(prop("src")); resolved.is_empty() || resolved.starts_with("map:") } {
+            return Some((String::new(), None));
+        }
         match self.host.image_source(prop("src"), prop("alt"))? {
             crate::host::ImageSourceVerdict::Load => None,
             crate::host::ImageSourceVerdict::Text(text) => Some((text, None)),
@@ -1093,6 +1137,8 @@ impl SurfaceView {
                     natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
                 }
             }
+            // Round 4 (fixtures/text-runs.json): runs and the drop cap.
+            ("Text", None) if crate::paint::rich_text::rich_spans(&n.props, lcx.style.text_transform.as_deref()).is_some() => self.paint_text_rich(&lcx, index, window, cx),
             ("Text", _) => self.paint_text(&lcx, window, cx),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
             ("Button" | "Toggle", _) => natives::button(&lcx, &n.component, window),
@@ -1432,6 +1478,106 @@ impl SurfaceView {
         }
         let runs = crate::fallback::cluster_runs(&self.fonts.text_system, &text, &runs, &crate::fallback::default_chain());
         lcx.content().whitespace_nowrap().child(gpui::StyledText::new(text).with_runs(runs)).into_any_element()
+    }
+
+    /// Round 4 (fixtures/text-runs.json): a Text's runs as one inline
+    /// paragraph through the Markdown span machinery (the measurer's
+    /// [`crate::paint::rich_text::flow`]), its drop cap a box `lines` ×
+    /// lineHeight tall at the inline start, the glyph by half-leading in it.
+    /// Links open through the host's URL policy (denied = plain) and never
+    /// press the parent; nothing is selectable.
+    fn paint_text_rich(&self, lcx: &LeafCx, index: u32, window: &mut Window, _cx: &mut Context<Self>) -> AnyElement {
+        use crate::paint::rich_text as rt;
+        let (x, y, w, h) = lcx.inner();
+        let ts = lcx.text_style;
+        let Some(spans) = rt::rich_spans(&lcx.node.props, ts.text_transform.as_deref()) else { return div().into_any_element() };
+        let props = rt::style_props();
+        let styles = MdStyles::resolve(lcx.theme, lcx.mode, rt::spec_of(ts), &props);
+        let (theme, mode) = (lcx.theme, lcx.mode);
+        let tone_ink = |tone: &str| {
+            let mut q = serde_json::Map::new();
+            if let Some(v) = lcx.node.props.get("variant") {
+                q.insert("variant".into(), v.clone());
+            }
+            q.insert("tone".into(), Value::from(tone));
+            crate::paint::color::color_of(crate::paint::parts::part_visual(theme, mode, "Text", "root", &q, &[]).color.as_deref())
+        };
+        let policy = self.host.url_policy();
+        let href = |raw: &str| eui_core::host::safe_href(policy.as_ref(), raw).map(|_| raw.to_string());
+        let fill = crate::paint::highlight::MarkColors::of(lcx.theme, lcx.mode).matched;
+        let inlines = markdown::text_run_inlines(&spans.runs, &tone_ink, fill, &href);
+        let (mut colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &props);
+        // A Text's link keeps its run's colour (the #EXP-1674 text link look).
+        colors.link = lcx.ink;
+        let mut shaper = Shaper::new(window, &self.fonts);
+        let family = self.fonts.family(ts.font_family.as_deref());
+        let cap = spans.cap.as_ref().map(|(cap, lines)| {
+            let (font, size) = rt::cap_font(family.clone(), cap, ts, *lines);
+            let advance = shaper.line_width(&cap.text, &font, size);
+            (cap.clone(), font, size, advance, advance + crate::paint::parts::spacing(lcx.theme, eui_core::text_runs::DROP_CAP_GAP_TOKEN), *lines)
+        });
+        let flow = rt::flow(&inlines, &styles, w, cap.as_ref().map(|c| (c.4, c.5)), lcx.rtl, &mut shaper);
+        let task_box = natives::task_box_painter(lcx, self.host.clone());
+        let chip_box = crate::paint::PaintStyle::from_visual(&crate::paint::parts::part_visual(lcx.theme, lcx.mode, "Chip", "root", &serde_json::Map::new(), &[]));
+        let mono = self.fonts.family(styles.code.family.as_deref().or(Some(self.fonts.mono.as_ref())));
+        let make = |marks| {
+        let host = self.host.clone();
+        MdPaint {
+            family: family.clone(),
+            heading_family: family.clone(),
+            mono: mono.clone(),
+            styles: styles.clone(),
+            colors,
+            muted,
+            border,
+            code_block_bg,
+            rtl: lcx.rtl,
+            on_link: Rc::new({
+                let host = host.clone();
+                move |href, _window, cx| host.open_url(href, cx)
+            }),
+            image: Rc::new(move |src| crate::media::image_source(host.as_ref(), src)),
+            node: index,
+            units: None,
+            selection: None,
+            selection_bg: gpui::transparent_black(),
+            task_box: task_box.clone(),
+            code_token: Rc::new(|_| None),
+            text_system: Some(self.fonts.text_system.clone()),
+            chip_box: chip_box.clone(),
+            chip_label: None,
+            chip_looks: Default::default(),
+            code_block_border: None,
+            header_bg: None,
+            icon: {
+                let host = self.host.clone();
+                Rc::new(move |name, size, color| crate::paint::icons::concept(host.as_ref(), name, size, color))
+            },
+            image_menu: None,
+            image_press: None,
+            task_press: None,
+            window_selection: None,
+            visible: None,
+            attachments: std::cell::RefCell::new(Default::default()),
+            live: std::cell::RefCell::new(None),
+            marks,
+        }
+        };
+        let spec = lcx.node.props.get("highlight").and_then(eui_core::text_highlight::highlight_spec);
+        let mut el = div().id(SharedString::from(format!("{}.rich", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden();
+        if let Some((cap, font, size, advance, _, lines)) = &cap {
+            let boxed = *lines as f32 * ts.line_height;
+            let ink = cap.tone.as_deref().and_then(tone_ink).unwrap_or(lcx.ink);
+            let left = if lcx.rtl { w - advance } else { 0.0 };
+            el = el.child(div().absolute().left(px(left)).top_0().w(px(*advance)).h(px(boxed)).font(font.clone()).text_size(px(*size)).line_height(px(boxed)).text_color(ink).whitespace_nowrap().child(SharedString::from(cap.text.clone())));
+        }
+        for (k, piece) in flow.pieces.iter().enumerate() {
+            // #EDE-95: the search marks of each piece.
+            let marks = make(spec.as_ref().map(|spec| crate::paint::highlight::markdown_marks(&piece.blocks, spec, crate::paint::highlight::MarkColors::of(lcx.theme, lcx.mode))).unwrap_or_default());
+            let id = format!("{}.r{k}", lcx.node.id);
+            el = el.child(div().absolute().left(px(piece.x)).top(px(piece.y)).w(px(piece.width)).child(markdown::paint(&id, &piece.blocks, &piece.layout, piece.width, &marks, &mut shaper)));
+        }
+        el.into_any_element()
     }
 
     fn paint_markdown(&self, lcx: &LeafCx, index: u32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

@@ -13,7 +13,7 @@
 
 import { QR_SCANNER } from "./round5"
 import { LAYOUT_CONSTANTS } from "../layout"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
  *  `shimmer` utility): the glyphs clip a gradient of the text colour that
@@ -38,7 +38,7 @@ const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important
  *  the shimmer band's `--xui-band`), and the glyphs that mirror
  *  in an rtl node (catalog/locale.json `rtlMirroredIcons`, by the element's
  *  `dir`, so a node's own direction counts). */
-const ROUND2_CSS = `${ANIMATION_NAMES.map(keyframesCss).join(`\n`)}
+const ROUND2_CSS = `${[...ANIMATION_NAMES, ...EXIT_ANIMATION_NAMES].map(keyframesCss).join(`\n`)}
 :is(${RTL_MIRRORED_ICONS.map((n) => `svg[data-icon="${n}"]`).join(`,`)}):dir(rtl){scale:-1 1}`
 
 /** EXP-1673: a surface with `data-xui-overlays="inline"` (a static render)
@@ -85,6 +85,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Text"][data-xui-align="start"].xui-el{text-align:start}
 [data-xui-c="Text"][data-xui-align="center"].xui-el{text-align:center}
 [data-xui-c="Text"][data-xui-align="end"].xui-el{text-align:end}
+[data-xui-c="Text"][data-xui-dropcap].xui-el{display:flow-root}
 [data-xui-c="Button"].xui-el,[data-xui-c="Toggle"].xui-el,[data-xui-c="Link"].xui-el{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;cursor:pointer;user-select:none;flex-shrink:0;transition:background-color var(--xui-motion-fast) var(--xui-ease-standard,ease),color var(--xui-motion-fast) var(--xui-ease-standard,ease),opacity var(--xui-motion-fast) var(--xui-ease-standard,ease),border-color var(--xui-motion-fast) var(--xui-ease-standard,ease),scale var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 [data-xui-c="Button"].xui-el:disabled,[data-xui-c="Toggle"].xui-el:disabled{cursor:default;pointer-events:none}
 [data-xui-c="Link"].xui-el{text-decoration:underline;text-underline-offset:3px}
@@ -115,6 +116,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-AudioPlayer-controls{display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;flex-shrink:0;padding:0 8px;border-radius:9999px;background-color:var(--xui-color-muted)}
 .xui-audio-progress{flex:1 1 0;height:4px;border-radius:9999px;overflow:hidden;background-color:color-mix(in srgb,var(--xui-color-mutedForeground) 35%,transparent)}
 .xui-audio-progress>span{display:block;height:100%;background-color:var(--xui-color-foreground)}
+.xui-audio-wave{flex:1 1 0;min-width:0;height:24px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+.xui-audio-wave>svg{display:block;overflow:visible}
+.xui-audio-wave:dir(rtl)>svg,[data-xui-c="Ring"].xui-el:dir(rtl)>svg{transform:scaleX(-1)}
+.xui-audio-wave rect{fill:color-mix(in srgb,var(--xui-color-mutedForeground) 35%,transparent)}
+.xui-audio-wave rect[data-played]{fill:var(--xui-color-foreground)}
 .xui-audio-clock{font-size:12px;color:var(--xui-color-mutedForeground);font-variant-numeric:tabular-nums;white-space:nowrap}
 [data-xui-c="Avatar"].xui-el{overflow:clip;flex-shrink:0;align-items:center;justify-content:center}
 .xui-Avatar-image{width:100%;height:100%;object-fit:cover;object-position:calc(50% + 0px) 50%;border-radius:inherit}
@@ -566,7 +572,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-toast-layer{position:fixed;bottom:var(--xui-spacing-lg);left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;align-items:center;gap:var(--xui-spacing-sm);pointer-events:none;width:max-content;max-width:calc(100vw - 32px)}
 .xui-toast-layer>:nth-last-child(n+4){display:none}
 .xui-Popover-content[data-open-on="hover"]{pointer-events:auto}
-@keyframes xui-fade-out{to{opacity:0}}
+@keyframes xui-overlay-out{to{opacity:0}}
 @keyframes xui-pop-in{from{opacity:0;scale:var(--xui-scale-popoverFrom,.96)}}
 @keyframes xui-pop-out{to{opacity:0}}
 @keyframes xui-slide-bottom-in{from{translate:0 100%}}
@@ -585,7 +591,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Button"].xui-el:active:not(:disabled){scale:var(--xui-scale-press,1)}
 .xui-Popover-content[data-state="closed"],.xui-Tooltip-content[data-state="closed"],.xui-Menu-content[data-state="closed"],.xui-Select-content[data-state="closed"],.xui-DatePicker-calendar[data-state="closed"],.xui-DateRangePicker-calendar[data-state="closed"],.xui-TimePicker-list[data-state="closed"],.xui-Dialog-content[data-state="closed"]{animation:xui-pop-out var(--xui-motion-fast) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Dialog-overlay[data-state="open"],.xui-Drawer-overlay[data-state="open"]{animation:xui-fade-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
-.xui-Dialog-overlay[data-state="closed"],.xui-Drawer-overlay[data-state="closed"]{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
+.xui-Dialog-overlay[data-state="closed"],.xui-Drawer-overlay[data-state="closed"]{animation:xui-overlay-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Drawer-content[data-side="bottom"][data-state="open"]{animation:xui-slide-bottom-in var(--xui-motion-slow) var(--xui-ease-decelerate,ease-out)}
 .xui-Drawer-content[data-side="bottom"][data-state="closed"]{animation:xui-slide-bottom-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Drawer-content[data-side="top"][data-state="open"]{animation:xui-slide-top-in var(--xui-motion-slow) var(--xui-ease-decelerate,ease-out)}
@@ -598,13 +604,13 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Accordion-content[data-state="closed"]{animation:xui-accordion-close var(--xui-motion-standard) var(--xui-ease-standard,ease)}
 .xui-Tabs-content[data-state="active"]{animation:xui-fade-in var(--xui-motion-fast) var(--xui-ease-decelerate,ease-out)}
 [data-xui-c="Toast"][data-state="open"].xui-el{animation:xui-toast-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
-[data-xui-c="Toast"][data-state="closed"].xui-el{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
+[data-xui-c="Toast"][data-state="closed"].xui-el{animation:xui-overlay-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-accordion-title{display:inline-flex;align-items:baseline;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Collapsible-chevron.xui-el{transition:transform var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 ${SHIMMER_CSS}
 }
-@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
-.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
+@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-delay:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
+.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-delay:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
 ${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}
 ${INLINE_OVERLAYS_CSS}
 @layer xui-part{.xui-Markdown-quote{border-top-width:0;border-right-width:0;border-bottom-width:0;padding-right:0}.xui-md>:is(ul,ol):first-child>li:first-child{margin-top:0}.xui-md>:is(ul,ol):last-child>li:last-child{margin-bottom:0}}`

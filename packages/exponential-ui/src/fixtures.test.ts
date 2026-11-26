@@ -176,7 +176,7 @@ describe(`kitchen-sink.json`, () => {
     // that rewrite; catalog-macros.json + specimens.json lock it.
     // AvatarBadge (Boxes, natives the sink has) joins with that rewrite;
     // catalog-macros.json + specimens.json lock it.
-    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`, `IconPicker`, `ColorPicker`, `CountBadge`, `MessageStatus`, `AvatarBadge`, `NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup`]
+    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`, `IconPicker`, `ColorPicker`, `CountBadge`, `MessageStatus`, `AvatarBadge`, `NavBar`, `Footer`, `Hero`, `MediaCard`, `DayStrip`, `AvatarGroup`, `Board`, `MapPlaceholder`]
     // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
     // `host`) paints only once filled; its catalog specimen shows it (the
     // styleguide entries) and it expands into natives the sink already has.

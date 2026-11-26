@@ -535,6 +535,32 @@ impl MdText for Shaper<'_> {
         out
     }
 
+    /// Round 4: the text system's own wrapped lines (what `StyledText`
+    /// paints), per line its first byte and its width.
+    fn line_starts(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32) -> Vec<(usize, f32)> {
+        let (text, runs) = self.md_runs(inlines, spec);
+        if text.is_empty() {
+            return vec![(0, 0.0)];
+        }
+        self.calls += 1;
+        let Ok(lines) = self.window.text_system().shape_text(text, px(spec.size), &runs, Some(px(width.max(1.0))), None) else { return vec![(0, 0.0)] };
+        let mut out = Vec::new();
+        let mut start = 0usize;
+        for line in lines.iter() {
+            let layout = &line.unwrapped_layout;
+            let len = layout.len;
+            let breaks: Vec<usize> = line.wrap_boundaries.iter().map(|b| layout.runs[b.run_ix].glyphs[b.glyph_ix].index).collect();
+            let x_at = |i: usize| if i >= len { f32::from(layout.width) } else { f32::from(layout.x_for_index(i)) };
+            let mut from = 0usize;
+            for &b in breaks.iter().chain(std::iter::once(&len)) {
+                out.push((start + from, x_at(b) - x_at(from)));
+                from = b;
+            }
+            start += len + 1;
+        }
+        out
+    }
+
     /// Max-content of styled spans: the widest hard line shaped with its
     /// runs (a bold or code run is wider than the body font says).
     fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
@@ -889,6 +915,46 @@ impl<'a> GpuiMeasure<'a> {
             Some(x) => w.min(x),
         };
         (used, ts.line_height, Some(self.line_baseline(ts)))
+    }
+
+    /// Round 4 (fixtures/text-runs.json): a Text's runs (the Markdown span
+    /// machinery, one paragraph) and drop cap, as [`crate::paint::rich_text`]
+    /// paints them.
+    fn rich_text(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
+        use crate::paint::rich_text as rt;
+        let ts = leaf.text_style;
+        let Some(spans) = rt::rich_spans(leaf.props, ts.text_transform.as_deref()) else { return (0.0, ts.line_height, None) };
+        let styles = MdStyles::resolve(self.theme, self.mode, rt::spec_of(ts), &rt::style_props());
+        let inlines = rt::measure_inlines(&spans.runs);
+        let cap = spans.cap.as_ref().map(|(cap, lines)| {
+            let (font, size) = rt::cap_font(self.fonts.family(ts.font_family.as_deref()), cap, ts, *lines);
+            let mut s = self.shaper();
+            let w = s.line_width(&cap.text, &font, size);
+            self.shaped += s.calls;
+            (w + crate::paint::parts::spacing(self.theme, eui_core::text_runs::DROP_CAP_GAP_TOKEN), *lines)
+        });
+        let baseline = self.line_baseline(ts);
+        let clamp = leaf.lines.filter(|n| *n > 0).map(|n| n as usize);
+        let rtl = false;
+        let mut s = self.shaper();
+        let out = match wrap {
+            None => {
+                let w = rt::intrinsic(&inlines, &styles, cap, false, &mut s);
+                (w, rt::flow(&inlines, &styles, w, cap, rtl, &mut s).height)
+            }
+            Some(w) if w <= 0.0 => {
+                let w = rt::intrinsic(&inlines, &styles, cap, true, &mut s);
+                (w, rt::flow(&inlines, &styles, w, cap, rtl, &mut s).height)
+            }
+            Some(w) => (w, rt::flow(&inlines, &styles, w, cap, rtl, &mut s).height),
+        };
+        self.shaped += s.calls;
+        let h = match clamp {
+            Some(n) => out.1.min(n as f32 * ts.line_height),
+            None => out.1,
+        }
+        .max(ts.line_height);
+        (self.text_width(out.0), h, Some(baseline))
     }
 
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
@@ -1286,6 +1352,8 @@ impl<'a> GpuiMeasure<'a> {
             ("Extension", _) => return (0.0, 0.0, None),
             _ if is_inline_field(leaf.component, leaf.part) => self.inline_field(leaf),
             ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => self.trigger(leaf),
+            // Round 4 (fixtures/text-runs.json): runs and the drop cap.
+            ("Text", None) if crate::paint::rich_text::rich_spans(props, ts.text_transform.as_deref()).is_some() => self.rich_text(leaf, inner),
             ("Text", part) => {
                 let count_w = props.get("count").or_else(|| props.get("trailing")).map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
                 // #EXP-1778: a `button` menu row's check: its recipe width.

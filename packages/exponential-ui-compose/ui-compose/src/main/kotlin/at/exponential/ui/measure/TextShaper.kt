@@ -173,6 +173,13 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         return max(max(lines, 1) * lineHeight, lineHeight)
     }
 
+    /** Round 4 (a drop cap): [text] wrapped at [wrap] dp, per line its first char (of [text]) and its width (dp). */
+    fun lineStarts(text: AnnotatedString, style: TextStyle, wrap: Float, placeholders: List<AnnotatedString.Range<Placeholder>>): List<Pair<Int, Float>> {
+        if (text.isEmpty()) return listOf(0 to 0f)
+        val r = layout(text, style, ceil(max(wrap, 1f) * density).toInt(), placeholders = placeholders)
+        return (0 until r.lineCount).map { r.getLineStart(it) to (r.getLineRight(it) - r.getLineLeft(it)) / density }
+    }
+
     /** [lineWidth] with inline [placeholders]. */
     fun lineWidth(text: AnnotatedString, style: TextStyle, placeholders: List<AnnotatedString.Range<Placeholder>>): Float {
         if (placeholders.isEmpty()) return lineWidth(text, style)
@@ -260,7 +267,7 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
             b.addStyle(
                 SpanStyle(
                     color = if (span.link != null) link else ink,
-                    fontWeight = if (span.bold) FontWeight(max(spec.weight, 600)) else null,
+                    fontWeight = span.weight?.let { FontWeight(it) } ?: if (span.bold) FontWeight(max(spec.weight, 600)) else null,
                     fontStyle = if (span.italic) FontStyle.Italic else null,
                     fontSize = if (pill) code!!.size(spec).sp else TextUnit.Unspecified,
                     fontFamily = if (span.code) family(mono ?: "ui-monospace") else null,
@@ -332,6 +339,12 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
         val text = inlines.map { if (it.chip != null) it.copy(text = " ", chip = null) else it }
         val widestChip = inlines.mapNotNull { it.chip }.maxOf { markdownChipWidth(it, chips, null) { t, sp -> labelWidth(t, sp, chips) } }
         return max(widestWord(text, spec), widestChip)
+    }
+
+    override fun lineStarts(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float, chips: MarkdownChipStyle): List<Pair<Int, Float>> {
+        val a = annotated(inlines, spec, chips.code)
+        val ph = if (inlines.any { it.chip != null || it.code }) placeholders(inlines, spec, chips, width) else emptyList()
+        return shaper.lineStarts(a, shaper.markdownStyle(spec), width, ph).map { (i, w) -> at.exponential.ui.primitives.markdownInlineOffset(inlines, i, chips.code != null) to w }
     }
 
     private companion object {

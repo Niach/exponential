@@ -1091,10 +1091,42 @@ pub fn audio(cx: &LeafCx, play: MediaPlay) -> AnyElement {
             .gap(px(8.0))
             .px(px(8.0))
             .child(play_control(format!("{}.play", cx.node.id), 28.0, div().bg(cx.ink).child(icons::glyph(Glyph::Play, 14.0, cx.theme_color("background").unwrap_or(gpui::white()))), play))
-            .child(div().flex_1().h(px(4.0)).rounded_full().bg(muted_fg.opacity(0.35)))
+            .child(waveform_or_track(cx, muted_fg))
             .child(div().text_size(px(12.0)).text_color(muted_fg).child(SharedString::from(format!("0:00 / {duration}")))),
     )
     .into_any_element()
+}
+
+/// The controls row's middle: the plain 4 px track, or (Group D,
+/// fixtures/data-viz.json) the `peaks` waveform bars, none played (the
+/// system player owns the position here).
+fn waveform_or_track(cx: &LeafCx, muted_fg: Hsla) -> AnyElement {
+    let peaks = cx.node.props.get("peaks").cloned();
+    if !peaks.as_ref().and_then(Value::as_array).is_some_and(|a| !a.is_empty()) {
+        return div().flex_1().h(px(4.0)).rounded_full().bg(muted_fg.opacity(0.35)).into_any_element();
+    }
+    let rtl = cx.rtl;
+    let unplayed = muted_fg.opacity(0.35);
+    let played = cx.ink;
+    div()
+        .flex_1()
+        .min_w_0()
+        .h(px(eui_core::data_viz::WAVEFORM_HEIGHT as f32))
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, _, window, _| {
+                    let w = f32::from(bounds.size.width);
+                    for bar in eui_core::data_viz::waveform_bars(w as f64, peaks.as_ref(), None) {
+                        let x = if rtl { w - bar.x as f32 - bar.width as f32 } else { bar.x as f32 };
+                        let b = Bounds::new(point(bounds.origin.x + px(x), bounds.origin.y + px(bar.y as f32)), gpui::size(px(bar.width as f32), px(bar.height as f32)));
+                        window.paint_quad(gpui::fill(b, if bar.played { played } else { unplayed }).corner_radii(px(bar.width as f32 / 2.0)));
+                    }
+                },
+            )
+            .size_full(),
+        )
+        .into_any_element()
 }
 
 /// #VAPP-258: the FileUpload `file` row's look for a Markdown file
@@ -1166,28 +1198,56 @@ pub(crate) fn stroke_arc(window: &mut gpui::Window, center: Point<Pixels>, r: f3
     }
 }
 
-/// `Ring`: track circle + value arc from 12 o'clock (counter-clockwise in
-/// RTL), label centred.
+/// Round caps for a stroked arc (gpui strokes butt-ended): a dot of the
+/// stroke's diameter at both ends.
+fn arc_caps(window: &mut gpui::Window, center: Point<Pixels>, r: f32, from: f32, sweep: f32, width: f32, color: Hsla) {
+    for a in [from, from + sweep] {
+        let p = point(center.x + px(r * a.cos() - width / 2.0), center.y + px(r * a.sin() - width / 2.0));
+        window.paint_quad(gpui::fill(Bounds::new(p, gpui::size(px(width), px(width))), color).corner_radii(px(width / 2.0)));
+    }
+}
+
+/// `Ring` (Group D, fixtures/data-viz.json): per ring a track arc and a
+/// value arc over `eui_core::data_viz::ring_arcs` (`sweep`, `rings`; from
+/// 12 o'clock, mirrored in RTL), round caps, no fill at 0; label centred.
 pub fn ring(cx: &LeafCx) -> AnyElement {
-    let value = cx.num("value").unwrap_or(0.0).clamp(0.0, 1.0) as f32;
     let track = cx.part_props("Ring", "track", &[]);
-    let fill = cx.part_props("Ring", "fill", &[]);
     let stroke = px_prop(&track, "borderWidth").unwrap_or(2.0);
-    let fill_stroke = px_prop(&fill, "borderWidth").unwrap_or(stroke);
     let track_color = color_of(track.get("color").and_then(Value::as_str)).unwrap_or(cx.ink.opacity(0.15));
-    let fill_color = color_of(fill.get("color").and_then(Value::as_str)).unwrap_or(cx.ink);
+    let size = cx.w.min(cx.h);
+    let props = &cx.node.props;
+    let arcs = eui_core::data_viz::ring_arcs(size as f64, stroke as f64, props.get("value"), props.get("tone"), props.get("sweep"), props.get("rings"));
+    let rings: Vec<(f32, f32, Hsla)> = arcs
+        .rings
+        .iter()
+        .map(|ring| {
+            let mut owner = cx.owner_props.clone();
+            owner.insert("tone".into(), Value::String(ring.tone.clone()));
+            let fill = part_props(cx.theme, cx.mode, "Ring", "fill", &owner, &[]);
+            (ring.r as f32, ring.fraction as f32, color_of(fill.get("color").and_then(Value::as_str)).unwrap_or(cx.ink))
+        })
+        .collect();
+    let rtl = cx.rtl;
+    let start = (arcs.start as f32 - 90.0).to_radians();
+    let (from, dir) = if rtl { (PI - start, -1.0) } else { (start, 1.0) };
+    let sweep = dir * (arcs.sweep as f32).to_radians();
     let label = cx.str("label").to_string();
     let label_style = cx.part("Ring", "label", &[]);
-    let size = cx.w.min(cx.h);
-    let dir = if cx.rtl { -1.0 } else { 1.0 };
     let mut out = div().size_full().relative().child(
         canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
                 let c = bounds.center();
-                let r = size / 2.0 - stroke.max(fill_stroke) / 2.0;
-                stroke_arc(window, c, r, 0.0, 2.0 * PI, stroke, track_color);
-                stroke_arc(window, c, r, -PI / 2.0, dir * 2.0 * PI * value, fill_stroke, fill_color);
+                for (r, fraction, color) in &rings {
+                    stroke_arc(window, c, *r, from, sweep, stroke, track_color);
+                    if sweep.abs() < 2.0 * PI - 0.001 {
+                        arc_caps(window, c, *r, from, sweep, stroke, track_color);
+                    }
+                    if *fraction > 0.0 {
+                        stroke_arc(window, c, *r, from, sweep * fraction, stroke, *color);
+                        arc_caps(window, c, *r, from, sweep * fraction, stroke, *color);
+                    }
+                }
             },
         )
         .absolute()

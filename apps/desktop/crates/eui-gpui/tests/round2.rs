@@ -779,3 +779,57 @@ fn a_trace_item_paints_its_chevron_rail_and_pending_line(cx: &mut TestAppContext
     let rail = painted(&view, cx, content);
     assert!((f32::from(rail.origin.x - origin.x) - frame(&view, cx, content).x).abs() < 0.5);
 }
+
+/// Round 4 motion: a node whose `visible` turns false plays its exit as a
+/// ghost in its own slot (its siblings stay put), then leaves and layout
+/// closes the gap at the END.
+#[gpui::test]
+fn an_exit_keeps_its_slot_then_layout_closes_the_gap(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
+        {"id": "a", "component": "Box", "style": {"height": 20}},
+        {"id": "b", "component": "Box", "visible": {"@path": "/showB"}, "style": {"height": 20, "exitAnimation": "slide-out-left", "backgroundColor": "$color.foreground"}},
+        {"id": "c", "component": "Box", "style": {"height": 20}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree);
+    view.update(cx, |v, cx| v.set_data("/showB", Some(json!(true)), cx)).unwrap();
+    draw(cx);
+    draw(cx);
+    let c0 = frame(&view, cx, "c").y;
+    let b0 = frame(&view, cx, "b");
+    let origin = view.read_with(cx, |v, _| v.origin());
+    view.update(cx, |v, cx| v.set_data("/showB", Some(json!(false)), cx)).unwrap();
+    draw(cx);
+    let b = view.read_with(cx, |v, _| v.index_of("b")).expect("b is a ghost");
+    assert!(view.read_with(cx, |v, _| v.placed_nodes()[b as usize].exiting), "b is exiting");
+    assert_eq!(frame(&view, cx, "c").y, c0, "c keeps its place while b exits");
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(90), cx));
+    draw(cx);
+    let dx = f32::from(painted(&view, cx, "b").origin.x - origin.x) - b0.x;
+    assert!(dx < -1.0 && dx > -8.0, "mid-exit b slides left: {dx}");
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(400), cx));
+    draw(cx);
+    draw(cx);
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.index_of("b")).is_none(), "b left after its exit");
+    assert_eq!(frame(&view, cx, "c").y, c0 - 20.0, "then the gap closes");
+}
+
+/// Round 4 motion: `animationStagger` holds child i on its first keyframe
+/// for i × N ms.
+#[gpui::test]
+fn a_stagger_holds_later_children_on_their_first_keyframe(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20, "animationStagger": 300}, "children": [
+        {"id": "one", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "$color.foreground"}},
+        {"id": "two", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "$color.foreground"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree);
+    let origin = view.read_with(cx, |v, _| v.origin());
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(250), cx));
+    draw(cx);
+    let dy = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| f32::from(painted(view, cx, id).origin.y - origin.y) - frame(view, cx, id).y;
+    assert!(dy(&view, cx, "one").abs() < 0.01, "one has entered");
+    assert!(dy(&view, cx, "two") > 7.9, "two still waits 8 px below: {}", dy(&view, cx, "two"));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(1000), cx));
+    draw(cx);
+    assert!(dy(&view, cx, "two").abs() < 0.01, "two entered after its offset");
+}

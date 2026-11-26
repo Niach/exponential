@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "Container laid out by its style; macros expand into it.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "example": {
         "style": {
           "display": "flex",
@@ -125,16 +125,16 @@
           "description": "Hairline between items."
         },
         "sectionBy": {
-          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "description": "Pins the current header."
         },
         "reorderable": {
-          "description": "Rows drag to reorder (vertical); fires `move` {id, before|after|into}."
+          "description": "Rows drag to reorder; fires `move` {id, before|after|into}."
         },
         "maxDepth": {
-          "description": "With `reorderable`: nesting levels (2 = drop on a row nests); items carry `depth`, `group`."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         "style": {
           "description": "Extra Box styles for the list frame."
@@ -180,7 +180,7 @@
           "description": "Which axis scrolls."
         },
         "maxHeight": {
-          "description": "Px before scrolling; omit = fill the parent."
+          "description": "Px before scrolling."
         },
         "style": {
           "description": "Extra Box styles merged over the region's own."
@@ -343,6 +343,9 @@
         "text": {
           "description": "Text to show."
         },
+        "runs": {
+          "description": "Spans replacing `text`."
+        },
         "variant": {
           "description": "Type style."
         },
@@ -354,6 +357,9 @@
         },
         "truncate": {
           "description": "One line; `middle` = start…end."
+        },
+        "dropCap": {
+          "description": "Lines the first letter spans (2-4)."
         },
         "tone": {
           "description": "Colour tone instead of the default foreground."
@@ -371,7 +377,7 @@
           "description": "Extra Box styles for the text box."
         }
       },
-      "description": "One type style; prefer components over inline markdown.",
+      "description": "One type style; `runs` = styled spans.",
       "example": {
         "text": "Hello, world!",
         "variant": "body"
@@ -398,7 +404,7 @@
           "description": "GFM source."
         },
         "profile": {
-          "description": "`inline` = a text run; `document` = full prose."
+          "description": "`inline` = a text run."
         },
         "variant": {
           "description": "Inline profile's paragraph type."
@@ -445,7 +451,7 @@
           "description": "Lines before it scrolls."
         },
         "follow": {
-          "description": "Sticks to the bottom as it grows (a live log)."
+          "description": "Sticks to the bottom as it grows."
         },
         "variant": {
           "description": "destructive = failed output."
@@ -644,6 +650,9 @@
         },
         "durationMs": {
           "description": "Known length for the scrubber."
+        },
+        "peaks": {
+          "description": "Waveform, 0 to 1."
         }
       },
       "description": "Audio with a play control.",
@@ -728,7 +737,7 @@
           "description": "A11y label."
         }
       },
-      "description": "Pictures: halves, or one large + two small with `+N`; press fires `select {index}`.",
+      "description": "Picture group with `+N`; press fires `select {index}`.",
       "example": {
         "pictures": [
           {
@@ -801,7 +810,7 @@
           "description": "Selected value (comma-joined when multiple); bind it."
         },
         "variant": {
-          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
+          "description": "Pill track, toggles, outline group, icon bar."
         },
         "size": {
           "description": "Control height class."
@@ -893,7 +902,7 @@
           "description": "Muted detail (a duration)."
         },
         "status": {
-          "description": "running shimmers, error tints, pending dims, done ticks, skipped strikes."
+          "description": "Step state."
         },
         "size": {
           "description": "sm = compact."
@@ -1195,7 +1204,7 @@
           "description": "`hover` is press on touch."
         },
         "matchAnchorWidth": {
-          "description": "Panel exactly as wide as its anchor/trigger."
+          "description": "As wide as its trigger."
         }
       },
       "description": "Small panel anchored to its trigger.",
@@ -1241,7 +1250,7 @@
           "description": "Child's press, or right-click/long-press."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opens from its child; `preview` card events fire `action`.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
       "example": {
         "label": "More",
         "items": [
@@ -1266,7 +1275,7 @@
           "description": "Detail under the notice."
         },
         "type": {
-          "description": "Severity: icon and tone (`error` interrupts readers)."
+          "description": "Severity: icon and tone."
         },
         "open": {
           "description": "Whether it shows; bind it so the host learns of a dismissal."
@@ -1432,6 +1441,9 @@
         },
         "value": {
           "description": "Formatted value after the track."
+        },
+        "range": {
+          "description": "Band [low, high]."
         }
       },
       "description": "Usage bar: coloured segments against a max.",
@@ -1455,6 +1467,12 @@
       "props": {
         "value": {
           "description": "Fraction 0 to 1."
+        },
+        "rings": {
+          "description": "Outermost first."
+        },
+        "sweep": {
+          "description": "Degrees; <360 = gauge."
         },
         "size": {
           "description": "Diameter class."
@@ -1533,7 +1551,7 @@
           "description": "Accessibility label."
         }
       },
-      "description": "Live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional child.",
       "example": {
         "activity": "listening",
         "level": 0.6,
@@ -1691,7 +1709,7 @@
           "description": "Chart form."
         },
         "categories": {
-          "description": "X-axis labels or pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices."
         },
         "series": {
           "description": "One per line, bar group or pie ring."
@@ -1826,7 +1844,7 @@
           "description": "URL a press opens; `press` still fires."
         },
         "variant": {
-          "description": "`default` = primary; `ghost`/`link` = quiet; `fab` = floating round icon button."
+          "description": "`default` = primary; `fab` = floating round icon."
         },
         "size": {
           "description": "`icon` = square icon-only, `icon-xs` = small round."
@@ -1920,7 +1938,7 @@
           "description": "Also lists failed checks above the fields."
         }
       },
-      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "example": {
         "name": "profile"
       }
@@ -1990,7 +2008,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = Group row; `bare` = chromeless; `code` = mono bare; `box` = boxed, label hidden."
+          "description": "`row` = Group row; `bare`/`code` = chromeless; `box` = boxed."
         },
         "size": {
           "description": "sm = compact."
@@ -2037,7 +2055,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
+          "description": "`row` = in a Group, label hidden; `code` = mono row."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2334,7 +2352,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = Group row; `pill` = capsule; `button` = outline + option icon; `inline` = text + chevron."
+          "description": "`row` = Group row; `pill` = capsule; `inline` = text + chevron."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
@@ -2479,7 +2497,7 @@
           "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys fire `key`; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2680,7 +2698,7 @@
           "description": "Shows it inert."
         }
       },
-      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; fires `upload`, lists `files`.",
       "example": {
         "label": "Attachments",
         "name": "attachments",
@@ -2720,19 +2738,19 @@
           "description": "Submit button's a11y label."
         },
         "attachments": {
-          "description": "Attach control firing `attach` (a pasted image too, {files})."
+          "description": "Attach control; fires `attach` {files}."
         },
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
         },
         "layout": {
-          "description": "stacked = field over controls; flat = one row."
+          "description": "flat = one row."
         },
         "menuKeys": {
-          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
+          "description": "Arrows, Enter, Tab, Escape fire `key` {key}."
         }
       },
-      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "example": {
         "placeholder": "Ask anything"
       }
@@ -2788,7 +2806,7 @@
           "description": "Marks a search term in title and subtitle."
         }
       },
-      "description": "THE list row: lead, identifier, title, subtitle, trailing meta/value/slot, chevron; nests, folds.",
+      "description": "THE list row: lead, title, subtitle, trailing meta/value/slot; nests, folds.",
       "example": {
         "title": "r/selfhosted",
         "meta": "312 posts",
@@ -2850,7 +2868,7 @@
           "description": "out = the viewer's."
         },
         "tail": {
-          "description": "start/end = top corner (a group's first bubble), down = bottom edge."
+          "description": "start/end = top corner, down = bottom edge."
         },
         "time": {
           "description": "Under the text."
@@ -2979,7 +2997,7 @@
           "description": "Lottie slot overrides {slotId: value}."
         },
         "stateMachine": {
-          "description": "DotLottie state machine (a .lottie src has its own)."
+          "description": "DotLottie state machine."
         },
         "inputs": {
           "description": "State-machine inputs {name: value}; bind them."
@@ -2991,7 +3009,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
+      "description": "Lottie-compatible vector animation.",
       "example": {
         "size": [
           48,
@@ -3062,7 +3080,7 @@
           "description": "Extra Box styles for the box."
         }
       },
-      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
+      "description": "Static drawing of shapes and text; Motion animates.",
       "example": {
         "size": [
           160,
@@ -3187,7 +3205,7 @@
           "description": "{root: a nested component, data?: object}."
         }
       },
-      "description": "Sandboxed nested surface; its `event` actions fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "example": {
         "surface": {
           "root": {
@@ -3232,7 +3250,7 @@
           "description": "Frame styles."
         }
       },
-      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "example": {
         "view": "month"
       }
@@ -3255,7 +3273,7 @@
           "description": "Frame styles."
         }
       },
-      "description": "Records over time: coloured bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "example": {
         "rowTitle": "Workstream"
       }
@@ -3296,7 +3314,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form; submit saves.",
       "example": {
         "kind": "deal",
         "fields": [
@@ -3448,7 +3466,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "One kind's records: count + Add, sortable table (a list on phones), drawer edit, delete.",
+      "description": "One kind's records: sortable table, Add, drawer edit, delete.",
       "example": {
         "kind": "deal",
         "title": "Deal",
@@ -3568,7 +3586,7 @@
           "description": "Delivery state."
         }
       },
-      "description": "A message's delivery mark: clock, check, double check (info), error (danger).",
+      "description": "A message's delivery mark.",
       "example": {
         "status": "read"
       }
@@ -3711,7 +3729,7 @@
           "description": "Selected day; bind it."
         }
       },
-      "description": "Week strip: day tiles (weekday, date, dot), one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "example": {
         "value": "2026-11-25",
         "days": [
@@ -3778,6 +3796,64 @@
             "seed": "user-mia"
           }
         ]
+      }
+    },
+    "Board": {
+      "props": {
+        "columns": {
+          "description": "Bind it."
+        }
+      },
+      "description": "Kanban; a card drag fires `move` {id, column, before|after}.",
+      "example": {
+        "columns": [
+          {
+            "value": "todo",
+            "title": "Todo",
+            "cards": [
+              {
+                "label": "Write the brief",
+                "value": "c1",
+                "description": "Due Friday"
+              },
+              {
+                "label": "Pick a venue",
+                "value": "c2",
+                "trailing": "3d"
+              }
+            ]
+          },
+          {
+            "value": "doing",
+            "title": "Doing",
+            "cards": [
+              {
+                "label": "Draft the agenda",
+                "value": "c3",
+                "icon": "pencil"
+              }
+            ]
+          },
+          {
+            "value": "done",
+            "title": "Done",
+            "cards": []
+          }
+        ]
+      }
+    },
+    "MapPlaceholder": {
+      "props": {
+        "label": {
+          "description": "Place name."
+        },
+        "markers": {
+          "description": "Pins at x, y."
+        }
+      },
+      "description": "Map: host `map:` tile, else grid + pin; `markers` at 0..1.",
+      "example": {
+        "label": "Vienna, Stephansplatz"
       }
     }
   },
@@ -4179,6 +4255,68 @@
         }
       },
       "description": "One person of an AvatarGroup."
+    },
+    "boardColumn": {
+      "properties": {
+        "value": {
+          "description": "The `move` event's `column`."
+        },
+        "title": {
+          "description": "Header."
+        },
+        "cards": {
+          "description": "Rows: `label`, `description`, `trailing`, `icon`; `move` `id` = `value`."
+        }
+      },
+      "description": "One Board column."
+    },
+    "mapMarker": {
+      "properties": {
+        "x": {
+          "description": "0..1 from the left."
+        },
+        "y": {
+          "description": "0..1 from the top."
+        },
+        "label": {
+          "description": "Beside the pin."
+        }
+      },
+      "description": "One MapPlaceholder pin."
+    },
+    "textRun": {
+      "properties": {
+        "text": {
+          "description": "Span text."
+        },
+        "weight": {
+          "description": "Font weight."
+        },
+        "tone": {
+          "description": "Colour tone."
+        },
+        "mark": {
+          "description": "Span mark."
+        },
+        "link": {
+          "description": "Opens like Link `href`."
+        }
+      },
+      "description": "One inline span of a Text."
+    },
+    "ring": {
+      "properties": {
+        "value": {
+          "description": "Amount."
+        },
+        "max": {
+          "description": "Full amount, default 1."
+        },
+        "tone": {
+          "description": "Arc tone."
+        }
+      },
+      "description": "One concentric ring."
     }
   },
   "functions": {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,11 +38,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -68,6 +71,7 @@ import at.exponential.ui.ffi.FfiImageHeader
 import at.exponential.ui.ffi.mediaImageHeader
 import at.exponential.ui.host.MediaLimits
 import at.exponential.ui.host.MediaRequest
+import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.list
 import at.exponential.ui.json.num
@@ -77,7 +81,7 @@ import at.exponential.ui.paint.DateModel
 import at.exponential.ui.primitives.AvatarFallback
 import at.exponential.ui.primitives.AvatarView
 import at.exponential.ui.primitives.Rgba
-import at.exponential.ui.primitives.RingView
+import at.exponential.ui.primitives.DataViz
 import at.exponential.ui.theme.ResolvedTextStyle
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -643,6 +647,7 @@ internal fun AudioLeaf(cx: LeafContext) {
             src = cx.props.str("src"),
             title = title,
             durationMs = cx.props.num("durationMs")?.toLong(),
+            peaks = cx.props.list("peaks").map { it.number },
             titleLine = { LeafLine(cx, it, color = cx.part("AudioPlayer", "track").color ?: cx.ink) },
         )
     }
@@ -660,6 +665,7 @@ internal fun AudioView(
     title: String,
     durationMs: Long?,
     rowHeight: Float = 40f,
+    peaks: List<Double?> = emptyList(),
     titleLine: @Composable (String) -> Unit,
 ) {
     val model = cx.model
@@ -704,13 +710,39 @@ internal fun AudioView(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .pointerInput(playback, known) {
-                            detectTapGestures { o -> playback.seek(if (size.width > 0) o.x / size.width else 0f, known) }
+                        .pointerInput(playback, known, cx.rtl) {
+                            // Group D: x / width from the start edge (mirrored in RTL, like the bars).
+                            val at = { x: Float -> DataViz.seekFraction((if (cx.rtl) size.width - x else x).toDouble(), size.width.toDouble()).toFloat() }
+                            detectTapGestures { o -> playback.seek(at(o.x), known) }
+                        }
+                        .pointerInput(playback, known, cx.rtl) {
+                            // Group D: a drag on the waveform (or the track) seeks too.
+                            val at = { x: Float -> DataViz.seekFraction((if (cx.rtl) size.width - x else x).toDouble(), size.width.toDouble()).toFloat() }
+                            detectHorizontalDragGestures { change, _ -> playback.seek(at(change.position.x), known) }
                         },
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    Box(Modifier.fillMaxWidth().height(4.dp).background(mutedFg.copy(alpha = mutedFg.alpha * 0.35f), CircleShape))
-                    if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(4.dp).background(mutedFg, CircleShape))
+                    val unplayed = mutedFg.copy(alpha = mutedFg.alpha * 0.35f)
+                    if (peaks.isNotEmpty()) {
+                        // Group D (fixtures/data-viz.json): the `peaks` waveform, the played bars in the ink.
+                        val rtl = cx.rtl
+                        Canvas(Modifier.fillMaxWidth().height(DataViz.HEIGHT.dp)) {
+                            val scale = density
+                            val w = this.size.width / scale
+                            for (bar in DataViz.waveformBars(w.toDouble(), peaks, progress.toDouble())) {
+                                val x = if (rtl) w - bar.x.toFloat() - bar.width.toFloat() else bar.x.toFloat()
+                                drawRoundRect(
+                                    if (bar.played) cx.ink else unplayed,
+                                    topLeft = Offset(x * scale, bar.y.toFloat() * scale),
+                                    size = Size(bar.width.toFloat() * scale, bar.height.toFloat() * scale),
+                                    cornerRadius = CornerRadius(bar.width.toFloat() * scale / 2f),
+                                )
+                            }
+                        }
+                    } else {
+                        Box(Modifier.fillMaxWidth().height(4.dp).background(unplayed, CircleShape))
+                        if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(4.dp).background(mutedFg, CircleShape))
+                    }
                 }
                 BasicText(
                     "$elapsed / ${length?.let { DateModel.formatDuration(it.toDouble()) } ?: "0:00"}",
@@ -764,18 +796,32 @@ internal fun Modifier.skeletonPulse(on: Boolean, reduced: Boolean): Modifier {
 /** `Ring`: the `Ring/track` circle + the `Ring/fill` arc from twelve o'clock (value / max, max 1), the label centred. */
 @Composable
 internal fun RingLeaf(cx: LeafContext) {
-    val maxV = cx.props.num("max")?.takeIf { it > 0 } ?: 1.0
-    val value = ((cx.props.num("value") ?: 0.0) / maxV).coerceIn(0.0, 1.0)
     val track = cx.part("Ring", "track")
-    val fill = cx.part("Ring", "fill")
     val stroke = track.px("borderWidth") ?: 2f
-    val fillStroke = fill.px("borderWidth") ?: stroke
     val trackColor = track.color ?: cx.ink.copy(alpha = 0.15f)
-    val fillColor = fill.color ?: cx.tone(cx.props.str("tone")) ?: cx.ink
     val label = cx.part("Ring", "label")
     val size = min(cx.size.width, cx.size.height)
+    // Group D (fixtures/data-viz.json): `sweep` + `rings`, round caps, no fill at 0, mirrored in RTL.
+    val arcs = DataViz.ringArcs(
+        size.toDouble(), stroke.toDouble(), cx.props.num("value"), cx.props.str("tone"), cx.props.num("sweep"),
+        cx.props.list("rings").mapNotNull { it.obj }.map { o -> DataViz.RingSpec(o["value"]?.number, o["max"]?.number, o["tone"]?.string) },
+    )
+    val fills = arcs.rings.map { ring -> cx.part("Ring", "fill", cx.ownerProps + ("tone" to JsonValue.Str(ring.tone))).color ?: cx.tone(ring.tone) ?: cx.ink }
+    val rtl = cx.rtl
     LeafFrame {
-        RingView(value.toFloat(), Modifier.align(Alignment.Center), size = size.dp, stroke = stroke.dp, track = trackColor, fill = fillColor, fillStroke = fillStroke.dp)
+        Canvas(Modifier.align(Alignment.Center).size(size.dp)) {
+            val w = stroke.dp.toPx()
+            val dir = if (rtl) -1f else 1f
+            // Compose angles: degrees clockwise from 3 o'clock.
+            val from = if (rtl) 180f - (arcs.start.toFloat() - 90f) else arcs.start.toFloat() - 90f
+            arcs.rings.forEachIndexed { i, ring ->
+                val r = ring.r.toFloat().dp.toPx()
+                val topLeft = Offset(this.size.width / 2f - r, this.size.height / 2f - r)
+                val box = Size(r * 2f, r * 2f)
+                drawArc(trackColor, from, dir * arcs.sweep.toFloat(), false, topLeft, box, style = Stroke(width = w, cap = StrokeCap.Round))
+                if (ring.fraction > 0) drawArc(fills[i], from, dir * arcs.sweep.toFloat() * ring.fraction.toFloat(), false, topLeft, box, style = Stroke(width = w, cap = StrokeCap.Round))
+            }
+        }
         val text = cx.props.str("label")
         if (text.isNotEmpty()) {
             BasicText(

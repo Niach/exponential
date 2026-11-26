@@ -1,0 +1,7 @@
+- Teams is one tree with folders, boards, agents and apps; pinned headers and the same buttons on every page
+- Badges count the same way everywhere
+- Dismiss on every Needs you row
+- New issue offers the boards of every team
+- Long-press menus on navigation rows
+- The Teams pick in every chat's composer
+- Fixes for encrypted chats, the offline notice and large font sizes

@@ -250,6 +250,8 @@ public struct PaintStyle: Equatable, Sendable {
     /// Round 2: a keyframe animation (`{name, timing, reduced?}`), sampled
     /// with the core's `animationFrameJson`.
     public var animation: KeyframeAnimation?
+    /// Round 4 motion: the `exitAnimation` a leaving ghost plays.
+    public var exit: KeyframeAnimation?
     /// Round 2: `position: sticky` (the offset arrives in `SurfaceModel.sticky`).
     public var sticky = false
     /// #EXP-1876: the speech-bubble tail (`start | end | down`, LOGICAL;
@@ -268,6 +270,7 @@ public struct PaintStyle: Equatable, Sendable {
         direction = v.direction
         backdropBlur = v.backdropBlur.flatMap { $0 > 0 ? CGFloat($0) : nil }
         animation = v.animationJson.flatMap(KeyframeAnimation.init(json:))
+        exit = v.exitJson.flatMap(KeyframeAnimation.init(json:))
         sticky = v.sticky
         tail = v.tail
         borderColor = v.borderColor.flatMap { Color(hex: $0) }

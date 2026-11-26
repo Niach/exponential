@@ -292,3 +292,27 @@ fn theme_settings_density_contrast_system_mode_and_breakpoint_keys() {
     assert!(json::equal(&resolved["@media (max-width: 640px)"]["gap"], &json!(neutral.tokens.spacing["md"])));
     assert_eq!(resolved["backgroundGradient"]["stops"][0]["color"], json!(neutral.modes.light.color["primary"]));
 }
+
+/// Group D: `data-viz.json` = the Ring arcs, the AudioPlayer waveform, the seek.
+#[test]
+fn data_viz_every_case_matches_the_reference() {
+    use eui_core::data_viz::{ring_arcs, seek_fraction, waveform_bars, RingArcs, WaveBar, WAVEFORM_BAR_WIDTH, WAVEFORM_GAP, WAVEFORM_HEIGHT, WAVEFORM_MIN_HEIGHT};
+    let file = fixture("data-viz.json");
+    let w = &file["waveform"];
+    assert_eq!((w["barWidth"].as_f64(), w["gap"].as_f64(), w["minHeight"].as_f64(), w["height"].as_f64()), (Some(WAVEFORM_BAR_WIDTH), Some(WAVEFORM_GAP), Some(WAVEFORM_MIN_HEIGHT), Some(WAVEFORM_HEIGHT)));
+    for c in file["rings"].as_array().unwrap() {
+        let i = &c["input"];
+        let got = ring_arcs(i["size"].as_f64().unwrap(), i["stroke"].as_f64().unwrap(), i.get("value"), i.get("tone"), i.get("sweep"), i.get("rings"));
+        let expected: RingArcs = serde_json::from_value(c["expected"].clone()).unwrap();
+        assert_eq!(got, expected, "{}", c["name"]);
+    }
+    for c in file["bars"].as_array().unwrap() {
+        let i = &c["input"];
+        let got = waveform_bars(i["width"].as_f64().unwrap(), i.get("peaks"), i["progress"].as_f64());
+        let expected: Vec<WaveBar> = serde_json::from_value(c["expected"].clone()).unwrap();
+        assert_eq!(got, expected, "{}", c["name"]);
+    }
+    for c in file["seek"].as_array().unwrap() {
+        assert_eq!(seek_fraction(c["x"].as_f64().unwrap(), c["width"].as_f64().unwrap()), c["expected"].as_f64().unwrap());
+    }
+}

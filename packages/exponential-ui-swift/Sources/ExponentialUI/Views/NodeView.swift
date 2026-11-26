@@ -165,13 +165,17 @@ private struct NodeBody: View {
         .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListReorderDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(ListDragOverlayModifier(node: node, model: model))
+        // genUI round 4: the path to the List a drag paints over stays on top.
+        .zIndex(model.isListDragPath(index) ? 1 : 0)
         .modifier(TabSwipeModifier(node: node, model: model, enabled: interactive))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
         // Round 2: keyframe animations from the core's frames, outside the
         // node's own transform; reduced motion = the rest frame.
-        .modifier(KeyframeAnimationModifier(animation: style.animation, reducedMotion: model.reducedMotion, size: size, bandColor: style.background ?? model.color("muted")))
+        .modifier(KeyframeAnimationModifier(animation: node.exiting ? nil : style.animation, reducedMotion: model.reducedMotion, size: size, bandColor: style.background ?? model.color("muted")))
+        // Round 4 motion: a leaving ghost plays its exit instead.
+        .modifier(ExitAnimationModifier(id: node.id, exit: style.exit, exiting: node.exiting, model: model))
         .environment(\.xuiGlyphMirrored, mirrorIcon)
         .transformEnvironment(\.xuiTextPaint) { $0 = $0.merged(style) }
     }

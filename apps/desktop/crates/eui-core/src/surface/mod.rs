@@ -118,6 +118,13 @@ pub struct PlacedNode {
     /// A freed slot (the node left the tree; a later node may reuse it).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub removed: bool,
+    /// Round 4 motion: a leaving GHOST root playing its `Visual::exit`
+    /// (its subtree as last painted, keeping its layout slot): paint the
+    /// exit frames from the moment this turned true, take the subtree out of
+    /// hit-testing and accessibility, and call `Surface::finish_exit(id)`
+    /// once the exit ran (layout reflows then).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exiting: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -499,6 +506,8 @@ struct NodeState {
     /// a pass, `pass.rs refit_containers`).
     container: bool,
     container_width: Option<f32>,
+    /// Round 4 motion: the stagger offset (ms) the node entered with.
+    stagger_ms: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -609,6 +618,11 @@ pub struct Surface {
     /// Measurements by node id that outlive a slot (a windowed list's rows
     /// scrolled out and back in cost nothing twice).
     archive: HashMap<String, Carried>,
+    /// Round 4 motion: the ids of the nodes playing their exit (ghost roots,
+    /// until `finish_exit`), every slot of a ghost subtree, and the roots.
+    exits: HashSet<String>,
+    ghosts: HashSet<u32>,
+    ghost_roots: HashSet<u32>,
     responsive: bool,
     breakpoint: Option<String>,
     delta_added: BTreeSet<u32>,
@@ -724,6 +738,9 @@ impl Surface {
             component_index: HashMap::new(),
             last_frames: Vec::new(),
             archive: HashMap::new(),
+            exits: HashSet::new(),
+            ghosts: HashSet::new(),
+            ghost_roots: HashSet::new(),
             responsive: false,
             breakpoint: None,
             delta_added: BTreeSet::new(),
@@ -773,6 +790,22 @@ impl Surface {
     pub fn set_clock(&mut self, now_ms: Option<f64>) {
         self.clock = now_ms;
         self.needs_build = true;
+    }
+
+    /// Round 4 motion: the painter played `id`'s exit to its end: the ghost
+    /// leaves and the next layout closes its gap. False = no such exit.
+    pub fn finish_exit(&mut self, id: &str) -> bool {
+        let done = self.exits.remove(id);
+        if done {
+            self.needs_build = true;
+        }
+        done
+    }
+
+    /// Round 4 motion: whether `index` is inside a leaving ghost (no
+    /// hit-testing, no events, out of the accessibility tree).
+    pub fn is_ghost(&self, index: u32) -> bool {
+        self.ghosts.contains(&index)
     }
 
     /// Re-bind (relative times move): the next layout rebuilds.
@@ -1822,7 +1855,7 @@ impl Surface {
             kind: n.kind,
             props: if removed { Map::new() } else { n.props.clone() },
             lines: n.lines,
-            pressable: n.pressable && !removed,
+            pressable: n.pressable && !removed && !self.ghosts.contains(&(i as u32)),
             hidden: n.hidden || removed,
             accessibility: n.accessibility.clone(),
             trigger_for: n.trigger_for.clone(),
@@ -1830,6 +1863,7 @@ impl Surface {
             form: n.form.clone(),
             live: n.live.clone(),
             removed,
+            exiting: !removed && self.ghost_roots.contains(&(i as u32)),
         }
     }
 

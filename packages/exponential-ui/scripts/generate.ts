@@ -22,6 +22,7 @@
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
 //   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings (VAPP-162: + the bars)
+//   fixtures/data-viz.json                Group D: Ring arcs × AudioPlayer waveform bars × seek (inputs hand-written)
 //   fixtures/qr-code.json                 VAPP-162: value × level → the QrCode matrix
 //   fixtures/zoom.json                    EXP-1586: picture × viewport × input → the ZoomableImage view
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
@@ -51,6 +52,7 @@ import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, 
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { textShimmer } from "../src/text-shimmer"
 import { voiceWave, voiceWaveBars, type VoiceWaveBarsInput, type VoiceWaveInput } from "../src/voice-wave"
+import { ringArcs, seekFraction, waveformBars, WAVEFORM, type RingInput } from "../src/data-viz"
 import * as zoom from "../src/zoom"
 import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
@@ -61,7 +63,7 @@ import { renderHost } from "./generate-host"
 import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
-import { ANIMATION_NAMES } from "../src/animation"
+import { ANIMATION_NAMES, EXIT_ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
 import { LIMITS } from "../src/limits"
@@ -443,6 +445,8 @@ const rows = {
   basicIconTargets: basicIcons.map(([, t]) => t),
   // Round 2 (docs/round-2-contract.md).
   animationNames: [...ANIMATION_NAMES],
+  // Round 4 motion: the `exitAnimation` sets.
+  exitAnimationNames: [...EXIT_ANIMATION_NAMES],
   formatFunctionNames: [...FORMAT_FUNCTION_NAMES],
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
@@ -1567,6 +1571,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `orientation · vertical · bar (the rail) · counts`,
     node: { id: `rail`, component: `Segmented`, props: { variant: `bar`, orientation: `vertical`, value: `chats`, items: [{ label: `Chats`, value: `chats`, icon: `message-circle`, count: 3 }, { label: `Voices`, value: `voices`, icon: `mic` }, { label: `Library`, value: `library`, icon: `layers`, count: 12 }, { label: `Friends`, value: `friends`, icon: `users` }] } },
   }],
+  // Group D: the gauge, the activity rings, the waveform scrubber, the meter's normal range.
+  Ring: [{
+    label: `sweep · 270 (gauge), rings`,
+    node: { id: `rings`, component: `Stack`, props: { direction: `horizontal`, gap: `md`, align: `center` }, children: [
+      { id: `gauge`, component: `Ring`, props: { value: 0.64, sweep: 270, size: `lg`, tone: `success`, label: `64` } },
+      { id: `activity`, component: `Ring`, props: { size: `lg`, rings: [{ value: 0.8, tone: `danger` }, { value: 42, max: 60, tone: `success` }, { value: 0.35, tone: `info` }] } },
+    ] },
+  }],
+  AudioPlayer: [{
+    label: `peaks · waveform`,
+    node: { id: `voice`, component: `AudioPlayer`, props: { src: `https://example.com/note.mp3`, title: `Voice note`, durationMs: 42000, peaks: [0.2, 0.45, 0.8, 0.6, 0.3, 0.9, 1, 0.7, 0.4, 0.25, 0.5, 0.75, 0.6, 0.35, 0.2, 0.55, 0.85, 0.65, 0.4, 0.3, 0.15, 0.45, 0.7, 0.5, 0.3, 0.2, 0.6, 0.9, 0.55, 0.35, 0.25, 0.4] }, style: { width: 360 } },
+  }],
+  Meter: [{
+    label: `range · normal band`,
+    node: { id: `heart`, component: `Meter`, props: { label: `Resting heart rate`, value: `64 bpm`, max: 120, segments: [{ value: 64, tone: `success` }], range: [50, 80] }, style: { width: 360 } },
+  }],
   VoiceWave: [`sm`, `md`, `lg`, `xl`].map((size) => ({
     label: `variant · bars · ${size}`,
     node: { id: `bars_${size}`, component: `VoiceWave`, props: { variant: `bars`, size, activity: `speaking`, level: 0.7, bands: [0.9, 0.5, 1, 0.6], label: `Voice` } },
@@ -1618,6 +1638,35 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   // VAPP-162: the serif family token on a node style.
   Text: [{
+    // Round 4 (fixtures/text-runs.json): styled spans wrapping as one paragraph.
+    label: `runs · weight, tone, marks, link`,
+    node: {
+      id: `rich`,
+      component: `Text`,
+      style: { maxWidth: 320 },
+      props: {
+        runs: [
+          { text: `Release ` },
+          { text: `v2.4`, weight: `semibold` },
+          { text: ` shipped `, tone: `success` },
+          { text: `today`, mark: `highlight` },
+          { text: `. Run ` },
+          { text: `bun install`, mark: `code` },
+          { text: `, drop the ` },
+          { text: `old flag`, mark: `strike` },
+          { text: ` and read the ` },
+          { text: `release notes`, link: `https://exponential.at/changelog` },
+          { text: ` before ` },
+          { text: `Friday`, weight: `bold`, tone: `danger`, mark: `underline` },
+          { text: `.` },
+        ],
+      },
+    },
+  }, {
+    // Round 4: the first letter spans three lines, the text wraps beside it.
+    label: `dropCap · 3`,
+    node: { id: `cap`, component: `Text`, style: { maxWidth: 320 }, props: { dropCap: 3, text: `Once the build turns green, the merge train picks the pull request up, rebases it on master and lands it in minutes, so nobody waits on a button.` } },
+  }, {
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
   }, {
@@ -1782,6 +1831,21 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         children: [{ id: `glow_text`, component: `Text`, props: { text: `Radial, farthest corner` } }],
       },
     },
+    // Round 4 motion: children entering together slide in 60 ms apart; the
+    // last row fades out when it leaves (`exitAnimation`).
+    {
+      label: `motion · stagger + exit`,
+      node: {
+        id: `box_motion`,
+        component: `Box`,
+        style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, animationStagger: 60 },
+        children: [
+          { id: `box_motion_a`, component: `Row`, props: { title: `Design review`, subtitle: `Today, 14:00`, icon: `calendar` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_b`, component: `Row`, props: { title: `Ship the release`, subtitle: `Tomorrow`, icon: `rocket` }, style: { animation: `slide-in-up` } },
+          { id: `box_motion_c`, component: `Row`, props: { title: `Retro notes`, subtitle: `Friday`, icon: `file-text` }, style: { animation: `slide-in-up`, animationDelay: 40, exitAnimation: `fade-out` } },
+        ],
+      } as NestedNode,
+    },
   ],
   // A press-only Link (no href, `on.press`): underlined on every renderer, as one with an allowed href.
   Link: [{ label: `press only (no href)`, node: { id: `press_link`, component: `Link`, props: { label: `View all` } } }],
@@ -1810,6 +1874,16 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   DayStrip: [{
     label: `no selection`,
     node: { id: `strip`, component: `DayStrip`, props: { days: [{ date: `2026-11-23`, tone: `success` }, { date: `2026-11-24` }, { date: `2026-11-25`, tone: `danger` }, { date: `2026-11-26` }, { date: `2026-11-27` }] } },
+  }],
+  // genUI round 4 (Board): a phone-wide board scrolls its 280 px columns sideways.
+  Board: [{
+    label: `phone width · columns scroll`,
+    node: { id: `board_narrow`, component: `Board`, props: { columns: [{ value: `todo`, title: `Todo`, cards: [{ label: `Write the brief`, value: `n1` }] }, { value: `doing`, title: `Doing`, cards: [{ label: `Draft the agenda`, value: `n2`, trailing: `2d` }] }] }, style: { width: 320 } },
+  }],
+  // genUI round 4 (MapPlaceholder): pins at 0..1 with labels; the label moves to a corner caption.
+  MapPlaceholder: [{
+    label: `markers`,
+    node: { id: `map_markers`, component: `MapPlaceholder`, props: { label: `Old town`, markers: [{ x: 0.3, y: 0.4, label: `Hotel` }, { x: 0.68, y: 0.62, label: `Venue` }, { x: 0.5, y: 0.25 }] }, style: { maxWidth: 480 } },
   }],
   AvatarGroup: [{
     label: `pictures, no overflow`,
@@ -2278,8 +2352,13 @@ function avatarBadgeCases(): ComponentCase[] {
   return [`sm`, `default`, `lg`].flatMap((size) => Object.entries(badges).map(([kind, badge]) => ({ name: `AvatarBadge/${size}+${kind}`, node: avatarBadge(size, lead, badge) })))
 }
 
+/** Group D: Meter's `range` band over the track. */
+function meterRangeCases(): ComponentCase[] {
+  return [{ name: `Meter/range`, node: { id: `heart`, component: `Meter`, props: { label: `Resting`, max: 120, segments: [{ value: 64, tone: `success` }], range: [50, 80] } } }]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...avatarBadgeCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases()]
+  return [...all, ...boundMacroCases(), ...avatarBadgeCases(), ...treeGuideCases(), ...authoredStyleCases(), ...omittedPropCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases(), ...messageBubbleCases(), ...meterRangeCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -2599,6 +2678,23 @@ function voiceWaveCases(file: VoiceWaveCaseFile) {
   }
 }
 
+interface DataVizCaseFile {
+  $comment: string
+  rings: { name: string; input: RingInput; expected?: unknown }[]
+  bars: { name: string; input: { width: number; peaks: unknown; progress?: number }; expected?: unknown }[]
+  seek: { x: number; width: number; expected?: unknown }[]
+}
+
+function dataVizCases(file: DataVizCaseFile) {
+  return {
+    $comment: file.$comment,
+    waveform: WAVEFORM,
+    rings: file.rings.map((c) => ({ name: c.name, input: c.input, expected: ringArcs(c.input) })),
+    bars: file.bars.map((c) => ({ name: c.name, input: c.input, expected: waveformBars(c.input) })),
+    seek: file.seek.map((c) => ({ x: c.x, width: c.width, expected: seekFraction(c.x, c.width) })),
+  }
+}
+
 interface QrCaseFile {
   $comment: string
   cases: { name: string; value: string; level: string; expected?: unknown }[]
@@ -2804,6 +2900,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
     "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
     "fixtures/voice-wave.json": json(voiceWaveCases(readJson<VoiceWaveCaseFile>(`fixtures/voice-wave.json`))),
+    "fixtures/data-viz.json": json(dataVizCases(readJson<DataVizCaseFile>(`fixtures/data-viz.json`))),
     "fixtures/qr-code.json": json(qrCases(readJson<QrCaseFile>(`fixtures/qr-code.json`))),
     "fixtures/zoom.json": json(zoomCases(readJson<ZoomCaseFile>(`fixtures/zoom.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),

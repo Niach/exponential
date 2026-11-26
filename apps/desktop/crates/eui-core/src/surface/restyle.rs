@@ -355,6 +355,15 @@ impl Surface {
             width: flat.get("width").and_then(style::px),
             height: flat.get("height").and_then(style::px),
         };
+        // Round 4 motion: the enter waits for the stagger offset (set when
+        // the node entered) + its own `animationDelay`; the exit's timing.
+        if let Some(a) = visual.animation.as_mut() {
+            a.timing.delay_ms = crate::animation::enter_delay(n.base_style.get("animationDelay"), None, None, self.settings.reduced_motion) + if self.settings.reduced_motion { 0.0 } else { self.node_state[i].stagger_ms };
+        }
+        visual.exit = match (n.base_style.get("exitAnimation").and_then(Value::as_str), &self.effective) {
+            (Some(name), Some(theme)) => crate::animation::exit_timing(name, theme, flat.get("animationDuration").and_then(Value::as_f64), self.settings.reduced_motion).map(|timing| crate::style::VisualAnimation { name: name.to_string(), timing, reduced: false }),
+            _ => None,
+        };
         let state = &mut self.node_state[i];
         if state.visual != visual {
             self.visuals_dirty.insert(slot);
