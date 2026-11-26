@@ -507,6 +507,42 @@ class InteractionTest {
         assertEquals("XS, S", o.hint)
     }
 
+    /**
+     * #EXP-2161 fixtures/interactions-round1.json `selectSections`: the popup
+     * lists the unsectioned options first, then each section's run under its
+     * heading (first-seen order); the search keeps a heading over its shown
+     * options only; a heading splits a `multiple` block.
+     */
+    @Test fun selectSectionsHeadTheirRuns() {
+        val cases = Fixtures.json("interactions-round1.json")["selectSections"]!!.array!!
+        assertEquals(5, cases.size)
+        for (case in cases) {
+            val name = case["name"]!!.string!!
+            val options = at.exponential.ui.compose.selectOptions(mapOf("options" to case["options"]!!), case["query"]?.string.orEmpty().lowercase())
+            val chosen = case["value"]!!.string!!.split(",")
+            val picked = options.map { chosen.contains(it.value.displayText) }
+            val multiple = case["multiple"]?.bool == true
+            val rows = mutableListOf<Map<String, Any>>()
+            for ((i, o) in options.withIndex()) {
+                at.exponential.ui.compose.selectSectionHeading(options, i)?.let { rows += mapOf("heading" to it) }
+                val (top, bottom) = at.exponential.ui.compose.selectItemJoins(multiple, picked, i) { at.exponential.ui.compose.selectSectionHeading(options, it) != null }
+                rows += buildMap<String, Any> {
+                    put("option", o.value.displayText)
+                    if (top) put("joinTop", true)
+                    if (bottom) put("joinBottom", true)
+                }
+            }
+            val want = case["rows"]!!.array!!.map { r ->
+                r["heading"]?.string?.let { mapOf<String, Any>("heading" to it) } ?: buildMap<String, Any> {
+                    put("option", r["option"]!!.string!!)
+                    if (r["joinTop"]?.bool == true) put("joinTop", true)
+                    if (r["joinBottom"]?.bool == true) put("joinBottom", true)
+                }
+            }
+            assertEquals(name, want, rows)
+        }
+    }
+
     /** #EXP-1629: `selectPointerOpen`: the pointer opening keeps the cursor but on a pill. */
     @Test
     fun selectPointerOpenKeepsTheCursorButOnAPill() {

@@ -350,6 +350,7 @@ impl Transport for HttpTransport {
         input: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<String, ApiError> {
+        crate::member_spaces::refuse(path)?;
         match kind {
             CallKind::Query => {
                 let url = match input {

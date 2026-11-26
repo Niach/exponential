@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -124,8 +125,18 @@ fun AssistantSettingsRoute(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            when (state) {
-                AssistantSettingsRouteViewModel.State.NoAssistant -> EmptyState(
+            // #EXP-2161: a member without a machine picks a team device,
+            // which makes the Assistant; its row then syncs.
+            val spaces: AssistantSpacesViewModel = hiltViewModel()
+            val spaceRows by spaces.rows.collectAsStateWithLifecycle()
+            when {
+                state == AssistantSettingsRouteViewModel.State.NoAssistant && spaceRows.picks.isNotEmpty() -> Column(Modifier.padding(vertical = 8.dp)) {
+                    com.exponential.app.ui.components.SectionHeader(AgentSettings.Copy.RUNS_ON, modifier = Modifier.padding(horizontal = 16.dp))
+                    com.exponential.app.ui.components.OptionGroup {
+                        AssistantDeviceRow(deviceId = null, own = emptyList(), onPickOwn = {}, onPickedSpace = {}, viewModel = spaces)
+                    }
+                }
+                state == AssistantSettingsRouteViewModel.State.NoAssistant -> EmptyState(
                     title = AgentSettings.Assistant.NO_DEVICE,
                     icon = ExpIcons.settingsAgents,
                 )

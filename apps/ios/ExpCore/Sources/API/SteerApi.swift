@@ -385,6 +385,9 @@ public struct SteerDevice: Sendable, Identifiable {
     /// private). Carried on the caller's OWN rows too, so it can never stand
     /// in for `owner`.
     public let sharedTeamIds: [String]
+    /// #EXP-2161 (member-space.json): the teams whose members may run their
+    /// Assistant here (a subset of `sharedTeamIds`; empty = none).
+    public let assistantTeamIds: [String]
     /// EXP-432: set ONLY on a teammate's shared row — the machine's owner.
     /// Absent on the caller's own rows, which is exactly what `isMine` reads.
     public let owner: DeviceOwner?
@@ -439,6 +442,7 @@ public struct SteerDevice: Sendable, Identifiable {
         updateRequested: Bool? = nil,
         updateBlocked: Bool? = nil,
         sharedTeamIds: [String] = [],
+        assistantTeamIds: [String] = [],
         owner: DeviceOwner? = nil,
         isDefault: Bool? = nil,
         agentAccounts: [String: AgentAccount]? = nil,
@@ -465,6 +469,7 @@ public struct SteerDevice: Sendable, Identifiable {
         self.updateRequested = updateRequested
         self.updateBlocked = updateBlocked
         self.sharedTeamIds = sharedTeamIds
+        self.assistantTeamIds = assistantTeamIds
         self.owner = owner
         self.isDefault = isDefault
         self.agentAccounts = agentAccounts

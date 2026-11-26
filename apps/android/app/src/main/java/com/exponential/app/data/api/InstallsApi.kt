@@ -74,6 +74,10 @@ data class ApproveInstallInput(val installId: String, val subjectInstallId: Stri
 @Serializable
 private data class InstallIdInput(val installId: String)
 
+/** `spaces` = this build knows member spaces (#EXP-2161): their rows and `space` approvals are served too. */
+@Serializable
+private data class TrustInput(val installId: String, val spaces: Boolean)
+
 /**
  * #EXP-1950 (fixtures/install-trust.json): install approval. The server
  * stores and relays; this install judges every signature itself
@@ -142,8 +146,8 @@ class InstallsApi @Inject constructor(private val trpc: TrpcClient) : InstallTru
         trpc.query(
             accountId,
             path = "installs.trust",
-            input = InstallIdInput(installId),
-            inputSerializer = InstallIdInput.serializer(),
+            input = TrustInput(installId, spaces = true),
+            inputSerializer = TrustInput.serializer(),
             outputSerializer = com.exponential.app.data.sealed.TrustAnswer.serializer(),
         )
 

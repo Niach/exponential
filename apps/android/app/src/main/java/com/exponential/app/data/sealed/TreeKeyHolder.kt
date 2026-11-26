@@ -267,7 +267,7 @@ class TreeKeyHolder(
         val wraps = pairs.mapNotNull { pair ->
             val secret = held[pair.rootId]?.get(pair.epoch) ?: return@mapNotNull null
             // R4: never for a target that asked and is not approved, or whose key is not the pinned one.
-            if (trust?.target(accountId, pair.targetInstallId, pair.targetX25519Public, pair.targetEndpointId, null)?.wraps == false) return@mapNotNull null
+            if (trust?.target(accountId, pair.rootId, pair.targetInstallId, pair.targetX25519Public, pair.targetEndpointId, null)?.wraps == false) return@mapNotNull null
             val wrapped = runCatching { crypto.wrapTreeKey(pair.targetX25519Public, secret) }.getOrNull() ?: return@mapNotNull null
             // #EXP-1950: signed over the key this install HOLDS; a root whose
             // stored key is another goes unsigned (the server would refuse the batch).
@@ -357,7 +357,7 @@ class TreeKeyHolder(
         } else {
             job.targets.mapNotNull { target ->
                 // R4 over a new root's readers: this install always, the others only where the rule wraps for them.
-                if (target.installId != installId && trust?.target(accountId, target.installId, target.x25519Public, target.endpointId, null)?.wraps == false) {
+                if (target.installId != installId && trust?.target(accountId, job.rootId, target.installId, target.x25519Public, target.endpointId, null)?.wraps == false) {
                     return@mapNotNull null
                 }
                 val wrapped = runCatching { crypto.wrapTreeKey(target.x25519Public, secret) }.getOrNull() ?: return@mapNotNull null
@@ -400,7 +400,7 @@ class TreeKeyHolder(
     fun allowed(targets: List<Pair<WrapTarget, String?>>): List<WrapTarget> {
         val trust = trust ?: return targets.map { it.first }
         return targets.filter { (target, userId) ->
-            target.installId == installId || trust.target(accountId, target.installId, target.x25519Public, target.endpointId, userId).wraps
+            target.installId == installId || trust.target(accountId, null, target.installId, target.x25519Public, target.endpointId, userId).wraps
         }.map { it.first }
     }
 

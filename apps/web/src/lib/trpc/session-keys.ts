@@ -23,6 +23,8 @@ import { teamMemberPairs } from "@/lib/auth/membership"
 import { installWaits, waitingInstallIds } from "@/lib/install-approvals"
 import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
+import { spaceOf } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
   createTreeKeyInTx,
@@ -549,7 +551,15 @@ export const sessionKeysRouter = router({
     .input(z.object({ rootIds: z.array(uuid).min(1).max(BATCH_MAX) }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const rows = (await ctx.db.select().from(sessions).where(inArray(sessions.id, input.rootIds))).filter(
+      // #EXP-2161: through a member space, its trees and the chats its
+      // Assistant started (it seals to them), no other.
+      const space = spaceOf(userId)
+      const rows = (
+        await ctx.db
+          .select()
+          .from(sessions)
+          .where(and(inArray(sessions.id, input.rootIds), ...(space ? [spaceReachCondition(space)] : [])))
+      ).filter(
         (row) => input.rootIds.includes(row.id) && row.parentId === null && row.sealPublicKey && row.sealEpoch !== null
       )
       if (rows.length === 0) return []

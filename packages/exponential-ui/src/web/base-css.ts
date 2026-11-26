@@ -281,6 +281,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-item>.xui-Select-itemText{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
 .xui-Select-itemHint{margin-inline-start:auto;flex-shrink:0;white-space:nowrap}
 .xui-Select-itemHint+.xui-Select-check{margin-inline-start:0}
+/* #EXP-2161: an option section's heading (web's picker group heading): a text row, never picked; under a row the group gap. */
+.xui-Select-sectionHeading{display:block;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;user-select:none}
+.xui-Select-item+.xui-Select-sectionHeading{margin-top:${LAYOUT_CONSTANTS.selectSectionGap}px}
 .xui-Select-itemLabel,.xui-Select-itemDescription{display:block;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
 .xui-Checkbox-check{display:inline-flex;align-items:center;justify-content:center}

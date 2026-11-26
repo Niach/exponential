@@ -3481,6 +3481,27 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v115 (#EXP-2161, member-space.json): `devices.assistant_team_ids`
+        // (uuid[] as JSON text, like `shared_team_ids`), `space_host_id` and
+        // `space_team_id` (a member space: never listed); the devices cursor
+        // resets only when the columns were added.
+        migrator.registerMigration("v115_device_member_spaces") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            let added = ["assistant_team_ids", "space_host_id", "space_team_id"].filter { !existing.contains($0) }
+            guard !added.isEmpty else { return }
+            try db.alter(table: "devices") { t in
+                for column in added { t.add(column: column, .text) }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
         return migrator
     }
 

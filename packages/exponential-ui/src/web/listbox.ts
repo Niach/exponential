@@ -147,9 +147,40 @@ export function openingCursorIndex(count: number, isDisabled: (index: number) =>
  *  ONE block (web's Picker, the IDE's `multi_row_edges`): the item recipe
  *  props of shown row `index`, `joinTop` under a picked row and
  *  `joinBottom` over one (only the true ones; nothing on a single Select). */
-export function selectItemJoins(multiple: boolean, count: number, isPicked: (index: number) => boolean, index: number): { joinTop?: true; joinBottom?: true } {
+export function selectItemJoins(multiple: boolean, count: number, isPicked: (index: number) => boolean, index: number, isHeaded: (index: number) => boolean = () => false): { joinTop?: true; joinBottom?: true } {
   if (!multiple || !isPicked(index)) return {}
-  return { ...(index > 0 && isPicked(index - 1) ? { joinTop: true as const } : {}), ...(index + 1 < count && isPicked(index + 1) ? { joinBottom: true as const } : {}) }
+  // #EXP-2161: a section heading between two picked rows splits the block.
+  return { ...(index > 0 && isPicked(index - 1) && !isHeaded(index) ? { joinTop: true as const } : {}), ...(index + 1 < count && isPicked(index + 1) && !isHeaded(index + 1) ? { joinBottom: true as const } : {}) }
+}
+
+/** #EXP-2161: an option's `section` ("" = none). */
+export function optionSection(option: { section?: unknown } | undefined): string {
+  const section = option?.section
+  return section === undefined || section === null ? `` : String(section)
+}
+
+/** #EXP-2161 (web's Picker sections): the options without a `section`
+ *  first, unheaded, then one run per distinct section in first-seen order,
+ *  each keeping its options' order. */
+export function selectSectionOrder<T extends { section?: unknown }>(options: readonly T[]): T[] {
+  const plain: T[] = []
+  const runs = new Map<string, T[]>()
+  for (const option of options) {
+    const section = optionSection(option)
+    if (!section) plain.push(option)
+    else if (runs.has(section)) runs.get(section)!.push(option)
+    else runs.set(section, [option])
+  }
+  // No section: the same list (a memo keyed on it stays put).
+  return runs.size === 0 ? (options as T[]) : [...plain, ...[...runs.values()].flat()]
+}
+
+/** #EXP-2161: the `sectionHeading` drawn before option `index` of a
+ *  `selectSectionOrder`ed list: its section where the row above has
+ *  another (or none), else undefined. */
+export function selectSectionHeading(options: readonly { section?: unknown }[], index: number): string | undefined {
+  const section = optionSection(options[index])
+  return section && (index === 0 || optionSection(options[index - 1]) !== section) ? section : undefined
 }
 
 /** #EXP-1629: does `list` have rows below its visible end (the bottom

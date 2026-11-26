@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
-  resolveSession: h.resolveSession,
+  resolveSessionOrSpace: async (request: Request) => ({ session: await h.resolveSession(request), space: null }),
   SessionResolveError: class SessionResolveError extends Error {},
 }))
 

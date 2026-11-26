@@ -1,4 +1,4 @@
-import { resolveSession, SessionResolveError } from "@/lib/auth/resolve-bearer"
+import { resolveSessionOrSpace, SessionResolveError } from "@/lib/auth/resolve-bearer"
 import { checkClientVersion } from "@/lib/client-version"
 import {
   isLiveRequest,
@@ -7,6 +7,8 @@ import {
   proxyElectricRequest,
 } from "@/lib/electric-proxy"
 import { recordShapeRequest } from "@/lib/metrics/registry"
+import { runInSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
+import { spaceMayReadShape, spaceShapeWhere } from "@/lib/spaces/shapes"
 
 // True when the request carries explicit token credentials — an
 // `Authorization` header (session bearer, `expu_` api key, or MCP OAuth
@@ -62,9 +64,10 @@ export function createShapeRouteHandler({
     // deliberately NOT accepted — those are consent-scoped and only /api/mcp
     // resolves them (see lib/auth/resolve-bearer.ts) — so a presented MCP
     // token fails to resolve and 401s below. Null when anonymous.
-    let session: Awaited<ReturnType<typeof resolveSession>>
+    let session: Awaited<ReturnType<typeof resolveSessionOrSpace>>[`session`]
+    let space: Awaited<ReturnType<typeof resolveSessionOrSpace>>[`space`]
     try {
-      session = await resolveSession(request)
+      ;({ session, space } = await resolveSessionOrSpace(request))
     } catch (err) {
       if (!(err instanceof SessionResolveError)) throw err
       // The session LOOKUP failed (DB blip, auth backend down) — that is not a
@@ -89,6 +92,11 @@ export function createShapeRouteHandler({
       return new Response(`Unauthorized`, { status: 401 })
     }
 
+    // #EXP-2161: a member space's key reads the shapes of its contract only.
+    if (space && !spaceMayReadShape(table)) {
+      return new Response(SPACE_KEY_MESSAGE, { status: 403, headers: { "cache-control": `no-store` } })
+    }
+
     const originUrl = prepareElectricUrl(request.url)
     originUrl.searchParams.set(`table`, table)
 
@@ -106,7 +114,11 @@ export function createShapeRouteHandler({
       for (const [key, value] of Object.entries(subset)) originUrl.searchParams.set(key, value)
     }
 
-    const where = await getWhere?.(userId)
+    // #EXP-2161: the one place a space's shapes narrow: its team set (inside
+    // `runInSpace`) and its own sessions.
+    const where = space
+      ? await runInSpace(space, async () => spaceShapeWhere(space, table, await getWhere?.(userId)))
+      : await getWhere?.(userId)
 
     if (where) {
       originUrl.searchParams.set(`where`, where)

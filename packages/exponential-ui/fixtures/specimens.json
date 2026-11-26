@@ -15527,6 +15527,71 @@
             ]
           },
           {
+            "id": "specimen_select_case_16",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_16_label",
+                "component": "Text",
+                "props": {
+                  "text": "option section",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c16_runs_on",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c16_runs_on_device",
+                    "component": "Select",
+                    "props": {
+                      "label": "Device",
+                      "name": "device",
+                      "triggerVariant": "row",
+                      "popupMinWidth": 170,
+                      "value": "mint",
+                      "options": [
+                        {
+                          "label": "build",
+                          "value": "acme:build",
+                          "icon": "server",
+                          "description": "Offline",
+                          "disabled": true,
+                          "section": "Acme"
+                        },
+                        {
+                          "label": "mint",
+                          "value": "mint",
+                          "icon": "monitor"
+                        },
+                        {
+                          "label": "unraid",
+                          "value": "acme:unraid",
+                          "icon": "server",
+                          "section": "Acme"
+                        },
+                        {
+                          "label": "build",
+                          "value": "side:build",
+                          "icon": "server",
+                          "description": "Offline",
+                          "disabled": true,
+                          "section": "Side project"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "id": "specimen_select_state_0",
             "component": "Stack",
             "props": {

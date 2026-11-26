@@ -40,6 +40,8 @@ pub fn run(args: &[String]) -> CommandResult {
     if let Some(pid) = daemon::daemon_pid(&context::data_dir()) {
         println!("A daemon is still running (pid {pid}) — stop it or it lives until reboot.");
     }
+    // #EXP-2161: members' Assistants end with the host (saved by this binary).
+    crate::members::teardown(&context::data_dir(), None);
     std::fs::remove_file(&exe).with_context(|| format!("delete {}", exe.display()))?;
     println!("Deleted {}.", exe.display());
     println!("Reinstall any time: curl -fsSL https://exponential.at/install.sh | sh");

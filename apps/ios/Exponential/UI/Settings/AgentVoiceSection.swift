@@ -182,7 +182,7 @@ struct AgentVoiceSection: View {
     private func observeWake() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
-            (try AgentDefinitionEntity.fetchAll(db), try DeviceEntity.fetchAll(db))
+            (try AgentDefinitionEntity.fetchAll(db), DeviceEntity.listed(try DeviceEntity.fetchAll(db)))
         }
         do {
             for try await (agents, nextDevices) in observation.values(in: pool) {

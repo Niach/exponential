@@ -1,3 +1,6 @@
+import { assertOutsideSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
+import { loadSpaceGrant } from "@/lib/spaces/grant"
+import { deleteSpaceKeys, endAccountSpacesInTx, finishEndedSpaces, type EndedSpace } from "@/lib/spaces/end"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
@@ -25,7 +28,7 @@ import {
   AGENT_KEY_TEAM_MESSAGE,
   SESSION_KEY_INPUT_MESSAGE,
   SESSION_KEY_NOT_YOURS_MESSAGE,
-  API_KEY_KINDS,
+  MINTABLE_KEY_KINDS,
   assertNotAgentApiKeySession,
   assertNotApiKeySession,
   parseApiKeyMetadata,
@@ -159,7 +162,7 @@ export const usersRouter = router({
       z
         .object({
           name: z.string().min(1).max(180).optional(),
-          purpose: z.enum(API_KEY_KINDS).optional(),
+          purpose: z.enum(MINTABLE_KEY_KINDS).optional(),
           scope: scopeSelectionInput.optional(),
           teamId: z.string().uuid().optional(),
           sessionId: z.string().uuid().optional(),
@@ -172,7 +175,15 @@ export const usersRouter = router({
         ctx.session,
         AGENT_KEY_MANAGES_KEYS_MESSAGE
       )
+      // #EXP-2161: a space's agent may not mint; the space's own key mints
+      // agent keys that carry it (and die with it), nothing else.
+      const space = ctx.space ?? null
+      if (!space) assertOutsideSpace()
       const kind = input?.purpose ?? `personal`
+      if (space && (kind !== `agent` || input?.scope)) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_KEY_MESSAGE })
+      }
+      const spaceId = space ? { spaceId: space.spaceId } : {}
       let scope: ApiKeyScope | null = null
       // The personal team an Assistant's key was asked for (the answer names it).
       let assistantTeamId: string | null = null
@@ -229,9 +240,14 @@ export const usersRouter = router({
           userId: ctx.session.user.id,
           expiresIn: null,
           rateLimitEnabled: false,
-          metadata: sessionId ? { kind, sessionId } : scope ? { kind, scope } : { kind },
+          metadata: sessionId ? { kind, sessionId, ...spaceId } : scope ? { kind, scope, ...spaceId } : { kind, ...spaceId },
         },
       })
+      if (space && !(await loadSpaceGrant(ctx.db, space.userId, space.spaceId))) {
+        // The space ended while the key was made.
+        await deleteSpaceKeys(ctx.db, space.userId, space.spaceId)
+        throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_KEY_MESSAGE })
+      }
       if (sessionId) {
         await sweepSessionBoundKeys(ctx.db, ctx.session.user.id, sessionId, created.id)
         invalidateSessionCache()
@@ -285,7 +301,8 @@ export const usersRouter = router({
       .orderBy(desc(apikeys.createdAt))
     // #EXP-2028: a session's key is the launcher's, swept with its session;
     // it never shows in the person's key list.
-    const rows = allRows.filter((row) => !isSessionBoundKey(row.metadata))
+    // #EXP-2161: nor a member space's.
+    const rows = allRows.filter((row) => !isSessionBoundKey(row.metadata) && !parseApiKeyMetadata(row.metadata).spaceId)
     // FEED-76: the stored scope, resolved to names for the row caption; the
     // raw metadata never leaves the server.
     const scopes = await resolveApiKeyScopes(
@@ -578,11 +595,14 @@ export const usersRouter = router({
       let doomedSubscriptions: CancellableSubscription[] = []
       // Cross-account coding sessions the cleanup ended in-tx (EXP-445).
       let endedSessionIds: string[] = []
+      let endedSpaces: EndedSpace[] = []
       await ctx.db.transaction(async (tx) => {
         // Fail closed when the caller is the sole owner of a team that
         // still has other members, then delete their solo teams, scrub their
         // mentions and email residue (shared with admin.deleteUser — see
         // lib/account-deletion.ts).
+        // #EXP-2161: their member space, and the ones their machines host.
+        endedSpaces = await endAccountSpacesInTx(tx, userId)
         const cleanup = await guardAndCleanupTeamsForUserDeletion(
           tx,
           userId,
@@ -615,6 +635,7 @@ export const usersRouter = router({
       // Tear the shared-device runs down immediately (EXP-445); the committed
       // `ended` rows above are the durable signal either way.
       await relayKillSessionsBestEffort(endedSessionIds)
+      await finishEndedSpaces(endedSpaces)
 
       return { ok: true }
     }),

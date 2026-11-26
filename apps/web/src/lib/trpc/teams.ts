@@ -1,3 +1,4 @@
+import { endSpacesInTx, finishEndedSpaces, spacesOfTeam, type EndedSpace } from "@/lib/spaces/end"
 import { z } from "zod"
 import { contract } from "@exp/domain-contract"
 import { issueEstimationSchema } from "@/lib/domain"
@@ -292,6 +293,7 @@ export const teamsRouter = router({
       let storageKeys: string[] = []
       // #EXP-2138: the team's sessions, read before the cascade drops them.
       let kills: KillTarget[] = []
+      let endedSpaces: EndedSpace[] = []
       // No last-team guard (EXP-188): deleting your only team is allowed —
       // nothing self-heals a replacement anymore, clients route the
       // team-less state back into onboarding.
@@ -304,13 +306,17 @@ export const teamsRouter = router({
           input.teamId,
         ])
         kills = await teamKillTargets(tx, input.teamId)
+        // #EXP-2161: the member spaces picked through it end with it.
+        const spaceIds = await spacesOfTeam(tx, input.teamId)
         await tx.delete(teams).where(eq(teams.id, input.teamId))
+        endedSpaces = await endSpacesInTx(tx, spaceIds, `unshared`)
         await deletePlaceholdersIfOrphaned(tx, placeholderIds)
         return { ok: true, txId }
       })
       // Post-commit: the cascade dropped every member's teamMembers row.
       invalidateMembershipCaches()
       await relayKillDeletedBestEffort(kills)
+      await finishEndedSpaces(endedSpaces)
 
       // No remote cancellation here — the gate above already proved there is
       // nothing live left to cancel (a scheduled cancellation keeps serving

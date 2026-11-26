@@ -214,6 +214,48 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
 
   const selection = resolveSelection(props)
   const { multiple, noneLabel, noneMarked } = selection
+  // #EXP-2161: rows with a `section` sit under its heading, in first-seen order.
+  const plain = options.filter((option) => option.section === undefined)
+  const sections: { title: string; options: PickerItem<TValue>[] }[] = []
+  for (const option of options) {
+    if (option.section === undefined) continue
+    const run = sections.find((section) => section.title === option.section)
+    if (run) run.options.push(option)
+    else sections.push({ title: option.section, options: [option] })
+  }
+
+  const renderRow = (option: PickerItem<TValue>) => {
+    const state = selection.stateOf(option)
+    const isSelected = state === `selected`
+    return (
+      <CommandItem
+        key={option.value}
+        value={option.value}
+        keywords={pickerItemKeywords(option)}
+        disabled={selection.isDisabled(option)}
+        aria-pressed={
+          multiple
+            ? state === `indeterminate`
+              ? `mixed`
+              : isSelected
+            : undefined
+        }
+        data-picked={pickedAttr(multiple, state)}
+        className={cn(
+          `flex items-center gap-2.5`,
+          pickedRowClass(multiple, state)
+        )}
+        onSelect={() => selection.pick(option)}
+      >
+        {renderOption ? (
+          renderOption(option, { selected: isSelected })
+        ) : (
+          <PickerItemBody item={option} />
+        )}
+        {!multiple && <SelectionCheck state={state} />}
+      </CommandItem>
+    )
+  }
 
   return (
     <Command
@@ -256,6 +298,7 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
             <CommandEmpty className="">
               <ListEmpty>{emptyText}</ListEmpty>
             </CommandEmpty>
+            {(noneLabel !== undefined || plain.length > 0 || sections.length === 0) && (
             <CommandGroup>
               {noneLabel !== undefined && (
                 // No `value`: cmdk derives it from the row's own text, so the
@@ -274,39 +317,14 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                   />
                 </CommandItem>
               )}
-              {options.map((option) => {
-                const state = selection.stateOf(option)
-                const isSelected = state === `selected`
-                return (
-                  <CommandItem
-                    key={option.value}
-                    value={option.value}
-                    keywords={pickerItemKeywords(option)}
-                    disabled={selection.isDisabled(option)}
-                    aria-pressed={
-                      multiple
-                        ? state === `indeterminate`
-                          ? `mixed`
-                          : isSelected
-                        : undefined
-                    }
-                    data-picked={pickedAttr(multiple, state)}
-                    className={cn(
-                      `flex items-center gap-2.5`,
-                      pickedRowClass(multiple, state)
-                    )}
-                    onSelect={() => selection.pick(option)}
-                  >
-                    {renderOption ? (
-                      renderOption(option, { selected: isSelected })
-                    ) : (
-                      <PickerItemBody item={option} />
-                    )}
-                    {!multiple && <SelectionCheck state={state} />}
-                  </CommandItem>
-                )
-              })}
+              {plain.map(renderRow)}
             </CommandGroup>
+            )}
+            {sections.map((section) => (
+              <CommandGroup key={section.title} heading={section.title}>
+                {section.options.map(renderRow)}
+              </CommandGroup>
+            ))}
           </>
         ) : null}
       </CommandList>

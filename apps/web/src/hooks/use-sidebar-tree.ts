@@ -5,7 +5,7 @@ import { sidebarTree, type SidebarEntry, type SidebarMove } from "@exp/domain-co
 import { sidebarDeviceRows, type SidebarDeviceRow, type SidebarSessionInput } from "@exp/domain-contract/sidebar-tree"
 import type { Device, IssueDraft } from "@/db/schema"
 import { deviceCollection, issueDraftCollection, pullRequestCollection } from "@/lib/collections"
-import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { deviceRowIsOnline, listedDevices } from "@/lib/steer-devices"
 import { resolveDraftEntries } from "@/lib/issue-drafts"
 import type { PullRequestRow } from "@/lib/session-tree"
 import { useBoardsForTeams } from "@/hooks/use-team-data"
@@ -145,7 +145,7 @@ export function useSidebarDevices(me: string | null | undefined, viewerTeamIds: 
   const key = viewerTeamIds.join(`,`)
   return useMemo(() => {
     if (!me) return []
-    const rows = (data ?? []) as Device[]
+    const rows = listedDevices((data ?? []) as Device[])
     const byId = new Map(rows.map((row) => [row.deviceId, row]))
     const devices = rows.map((row) => ({
       id: row.deviceId,

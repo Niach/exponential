@@ -78,7 +78,8 @@ final class AgentSettingsDraft {
         name = agent.name
         icon = agent.icon ?? SessionTree.ListCopy.agentDefaultIcon
         color = agent.color ?? SessionTree.ListCopy.agentDefaultColor
-        deviceId = agent.deviceId
+        // #EXP-2161: `""` = its space ended, no device.
+        deviceId = (agent.deviceId ?? "").isEmpty ? nil : agent.deviceId
         cli = agent.cli
         lockedCli = agent.cli
         account = AccountOptions.wireAccount(agent.account)
@@ -208,6 +209,26 @@ final class AgentSettingsDraft {
             cli = lockedCli
             account = nil
         }
+    }
+
+    /// #EXP-2161: `memberSpaces.request` bound the Assistant to a space and
+    /// cleared its login: the draft follows, with nothing left to save.
+    func adoptSpace(_ id: String) {
+        deviceId = id
+        cli = lockedCli
+        account = nil
+        baseline.deviceId = id
+        baseline.cli = cli
+        baseline.account = nil
+    }
+
+    /// #EXP-2161: the synced device moved under us (a space ended: `""` =
+    /// none, the page asks for one; web `syncedDevice || null`).
+    func adoptSyncedDevice(_ id: String?) {
+        let next = (id ?? "").isEmpty ? nil : id
+        guard next != deviceId, baseline.deviceId == deviceId else { return }
+        deviceId = next
+        baseline.deviceId = next
     }
 
     /// The Device row's pool (`runsOnCases`, web `deviceRows`): every
@@ -516,11 +537,15 @@ struct AgentSettingsForm: View {
     var memberVoice: Voice.Settings? = nil
     /// #EXP-1859: a team agent's Wake word flip hands the new settings back.
     var onMemberVoice: (Voice.Settings) -> Void = { _ in }
+    /// #EXP-2161: the Assistant's team devices (member spaces).
+    var space: AssistantSpaceModel? = nil
+    var onPickedSpace: (String) -> Void = { _ in }
     /// The team's MCP servers (`mcpServers.list`).
     @State private var mcpServers: [McpServerRow] = []
 
+    /// #EXP-2161: on a space, the space's logins (its host's until it reports).
     private var device: SteerDevice? {
-        devices.first { $0.deviceId == draft.deviceId }
+        space?.accountDevice(boundId: draft.deviceId) ?? devices.first { $0.deviceId == draft.deviceId }
     }
 
     private func label(_ key: String) -> String {
@@ -538,7 +563,14 @@ struct AgentSettingsForm: View {
 
             // runs-on: device, account, model, skills, mcp-servers
             Section {
-                AgentDeviceRow(draft: draft, devices: devices, canEdit: canEdit, title: label("device"))
+                if assistant, let space {
+                    AssistantDeviceRow(
+                        draft: draft, devices: devices, space: space, canEdit: canEdit, title: label("device"),
+                        onPickedSpace: onPickedSpace
+                    )
+                } else {
+                    AgentDeviceRow(draft: draft, devices: devices, canEdit: canEdit, title: label("device"))
+                }
                 errorLine("device")
                 AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
                 modelRow

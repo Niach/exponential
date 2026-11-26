@@ -55,6 +55,7 @@
     "./message-conversation": "./src/message-conversation.ts",
     "./message-session": "./src/message-session.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
+    "./member-space": "./src/member-space.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./schedule-picker": "./src/schedule-picker.ts",
     "./chats": "./src/chats.ts",

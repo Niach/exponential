@@ -180,6 +180,7 @@ public enum DeviceReadiness {
         "speech": "Speech",
         "wake": "Wake word",
         "disk": "Disk",
+        "member_space": "Members' Assistants",
     ]
 
     /// Fixture `states`; an unknown state is a muted dash.

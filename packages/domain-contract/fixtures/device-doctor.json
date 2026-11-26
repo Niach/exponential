@@ -17,7 +17,8 @@
     "microphone": "Microphone",
     "speech": "Speech",
     "wake": "Wake word",
-    "disk": "Disk"
+    "disk": "Disk",
+    "member_space": "Members' Assistants"
   },
   "states": {
     "ok": { "glyph": "check", "tone": "success" },

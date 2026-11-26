@@ -154,6 +154,7 @@ private struct AssistantSettingsContent: View {
     let accountId: String
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
     @Environment(\.toaster) private var toaster
 
     @State private var draft = AgentSettingsDraft()
@@ -162,6 +163,8 @@ private struct AssistantSettingsContent: View {
     @State private var allDevices: [SteerDevice] = []
     @State private var seeded = false
     @State private var observation: Task<Void, Never>?
+    /// #EXP-2161: the team devices it may run on (member spaces).
+    @State private var space = AssistantSpaceModel()
 
     init(teamId: String, agentId: String?, accountId: String) {
         self.teamId = teamId
@@ -181,9 +184,25 @@ private struct AssistantSettingsContent: View {
     var body: some View {
         ZStack {
             AppBackground()
-            if agentId == nil {
+            if agentId == nil, space.picks(teams: teamState.orderedTeams, boundId: nil).picks.isEmpty {
                 EmptyState(title: AgentSettings.AssistantCopy.noDevice, icon: AppIcons.navDevices, size: .page)
                     .accessibilityIdentifier("assistant-no-device")
+            } else if agentId == nil {
+                // #EXP-2161: a member without a machine picks a team device,
+                // which makes the Assistant; its row then syncs.
+                Form {
+                    Section {
+                        AssistantDeviceRow(
+                            draft: draft, devices: [], space: space, canEdit: true,
+                            title: AgentSettings.fields.first { $0.key == "device" }?.label ?? "",
+                            onPickedSpace: { draft.adoptSpace($0) }
+                        )
+                    } header: {
+                        GlassSectionHeader(AgentSettings.Copy.runsOn)
+                    }
+                    .listRowBackground(glassFormRowFill)
+                }
+                .scrollContentBackground(.hidden)
             } else {
                 // EXP-1554: no Save changes bar; the fields save inline.
                 AgentSettingsForm(
@@ -197,13 +216,24 @@ private struct AssistantSettingsContent: View {
                     agentId: agentId,
                     skillIds: agent?.skillIds ?? [],
                     mcpServerIds: agent?.mcpServerIds ?? [],
-                    agentVoice: agent?.voice ?? AgentVoice()
+                    agentVoice: agent?.voice ?? AgentVoice(),
+                    space: space,
+                    onPickedSpace: { draft.adoptSpace($0) }
                 )
             }
         }
         .pageHeader(AgentSettings.AssistantCopy.title, pushed: true)
         .voiceSettingsHost(voice)
         .task(id: agentId) { await start() }
+        .task(id: accountId) { await space.observe(deps: deps, accountId: accountId) }
+        .task(id: space.space(boundId: draft.deviceId)?.id) {
+            await space.watchWaiting(deps: deps, accountId: accountId, spaceRowId: space.space(boundId: draft.deviceId)?.id)
+        }
+        // #EXP-2161: an Assistant loses its device when its space ends.
+        .onChange(of: agent?.deviceId) { _, synced in
+            guard seeded, !draft.saving else { return }
+            draft.adoptSyncedDevice(synced)
+        }
         .task(id: draft.autosaveKey) { await autosave() }
         .onDisappear { observation?.cancel() }
         // The synced row is the truth for the triggers once no write of

@@ -188,7 +188,7 @@ final class VoiceSettingsModel {
         guard let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
             (
-                try DeviceEntity.fetchAll(db),
+                DeviceEntity.listed(try DeviceEntity.fetchAll(db)),
                 try AgentDefinitionEntity.fetchAll(db),
                 try TeamEntity.fetchAll(db)
             )

@@ -10,6 +10,8 @@ import { expectParity, fixtureCases } from "./inputs-parity"
 
 const STATES = [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]
 const OPTIONS = [{ label: `Backlog`, value: `backlog`, icon: `star` }, { label: `Sprint`, value: `sprint` }, { label: `Done`, value: `done`, disabled: true }]
+// #EXP-2161: the Runs on device picker's options (two team sections).
+const SECTIONED = [{ label: `build`, value: `acme:build`, icon: `server`, section: `Acme`, disabled: true }, { label: `mint`, value: `mint`, icon: `monitor` }, { label: `unraid`, value: `acme:unraid`, icon: `server`, section: `Acme` }, { label: `build`, value: `side:build`, icon: `server`, section: `Side project` }]
 const sel = (props: Record<string, unknown>) => ({ id: `s`, component: `Select`, props: { label: `Board`, name: `board`, options: OPTIONS, ...props } }) as unknown as NestedNode
 
 describe(`select: catalog fixture cases`, () => {
@@ -20,7 +22,7 @@ describe(`select: variants`, () => {
   const example = fixtureCases([`Select`])[0].node
   it(`every forced state`, async () => expectParity({ tree: example, theme: `exponential`, states: STATES }))
   it(`dark + rtl (orange)`, async () => expectParity({ tree: example, theme: `orange`, mode: `dark`, direction: `rtl` }))
-  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }, { triggerVariant: `row`, options: [{ label: `main`, value: `main`, trailing: `· default` }, ...OPTIONS] }, { triggerVariant: `pill` }, { triggerVariant: `pill`, searchable: true }, { triggerVariant: `pill`, description: `Hint` }, { triggerVariant: `pill`, disabled: true }, { triggerVariant: `button` }, { triggerVariant: `button`, disabled: true }, { triggerVariant: `inline` }, { triggerVariant: `inline`, disabled: true }, { triggerVariant: `row`, popupMinWidth: 168, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }, ...OPTIONS] }, { triggerVariant: `row`, searchable: true, options: [{ label: `mint`, value: `mint`, icon: `monitor`, description: `Online` }, ...OPTIONS] }, { triggerVariant: `row`, triggerIcon: true, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Blocked`, value: `blocked`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } }, ...OPTIONS] }]) {
+  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }, { triggerVariant: `row`, options: [{ label: `main`, value: `main`, trailing: `· default` }, ...OPTIONS] }, { triggerVariant: `pill` }, { triggerVariant: `pill`, searchable: true }, { triggerVariant: `pill`, description: `Hint` }, { triggerVariant: `pill`, disabled: true }, { triggerVariant: `button` }, { triggerVariant: `button`, disabled: true }, { triggerVariant: `inline` }, { triggerVariant: `inline`, disabled: true }, { triggerVariant: `row`, popupMinWidth: 168, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }, ...OPTIONS] }, { triggerVariant: `row`, searchable: true, options: [{ label: `mint`, value: `mint`, icon: `monitor`, description: `Online` }, ...OPTIONS] }, { triggerVariant: `row`, triggerIcon: true, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Blocked`, value: `blocked`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } }, ...OPTIONS] }, { triggerVariant: `row`, options: SECTIONED }]) {
     const tag = JSON.stringify(variant)
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))
@@ -165,6 +167,29 @@ describe(`select: open popup`, () => {
     const solid = await hints(renderSolidSurface, (f) => f())
     expect(solid).toEqual(react)
     expect(react).toEqual([[`XS, S, M`, true], [null, null]])
+  })
+  it(`option sections: the unsectioned first, each section's under its heading (#EXP-2161)`, async () => {
+    const rows = async (render: typeof renderReact | typeof renderSolidSurface, wrap: (f: () => Promise<void>) => Promise<void>, props: Record<string, unknown>) => {
+      const r = await render({ tree: sel({ value: `mint`, options: SECTIONED, ...props }), theme: `exponential`, mode: `dark` })
+      try {
+        await wrap(async () => {
+          openIt(r.root)
+          await settle()
+        })
+        const content = r.root.ownerDocument.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)!
+        return Array.from(content.querySelectorAll(`.xui-Select-item, .xui-Select-sectionHeading`)).map((el) =>
+          el.classList.contains(`xui-Select-sectionHeading`) ? [`heading`, el.textContent, el.getAttribute(`role`)] : [`option`, el.textContent, el.getAttribute(`data-r-join-top`) ?? null, el.getAttribute(`data-r-join-bottom`) ?? null]
+        )
+      } finally {
+        r.cleanup()
+      }
+    }
+    for (const props of [{ triggerVariant: `row` }, { triggerVariant: `button` }, { searchable: true }, { multiple: true, value: `mint,acme:build,acme:unraid` }]) {
+      const react = await rows(renderReact, (f) => act(f), props)
+      const solid = await rows(renderSolidSurface, (f) => f(), props)
+      expect(solid, JSON.stringify(props)).toEqual(react)
+      expect(react.map((r) => r.slice(0, 2)), JSON.stringify(props)).toEqual([[`option`, `mint`], [`heading`, `Acme`], [`option`, `build`], [`option`, `unraid`], [`heading`, `Side project`], [`option`, `build`]])
+    }
   })
   it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })

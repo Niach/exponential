@@ -208,6 +208,39 @@ pub fn create(data_dir: &Path, agent: CodingAgent) -> io::Result<AgentProfile> {
     Ok(profile)
 }
 
+/// #EXP-2161: `agent`'s profiles become exactly `ids` (the host's logins in
+/// a member's space, its last used first), with the emails the host knows.
+/// The directories of the ones that left stay (a conversation may lie in
+/// them), without an index row.
+pub fn mirror(data_dir: &Path, agent: CodingAgent, ids: &[String], emails: &[(String, String)]) -> io::Result<()> {
+    let ids: Vec<&String> = ids.iter().filter(|id| valid_id(id)).collect();
+    let before = read_index(data_dir, agent);
+    let mut index = Index { active: before.active.clone(), profiles: Vec::new() };
+    for id in ids {
+        let dir = agent_root(data_dir, agent).join(id);
+        if !dir.is_dir() {
+            create_private_dir(&dir)?;
+            link_conversation_store(agent, &dir)?;
+        }
+        index.profiles.push(before.profiles.iter().find(|profile| profile.id == *id).cloned().unwrap_or_else(|| AgentProfile {
+            id: id.clone(),
+            created_at: crate::agent_accounts::now_iso(),
+            last_login_at: None,
+        }));
+    }
+    index.active = index.active.filter(|id| index.profiles.iter().any(|profile| &profile.id == id));
+    if index != before && (!index.profiles.is_empty() || !before.profiles.is_empty()) {
+        write_index(data_dir, agent, &index)?;
+    }
+    let mut known = read_emails(data_dir, agent);
+    let held = known.clone();
+    known.extend(emails.iter().filter(|(id, _)| valid_id(id)).cloned());
+    if known != held {
+        write_emails(data_dir, agent, &known)?;
+    }
+    Ok(())
+}
+
 /// [`create`] under a FIXED id — tests that need a known profile id.
 #[cfg(test)]
 pub(crate) fn create_with_id(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<AgentProfile> {

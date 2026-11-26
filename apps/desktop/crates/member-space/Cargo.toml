@@ -1,0 +1,28 @@
+[package]
+name = "member-space"
+description = "#EXP-2161: a member's private Assistant on a device shared with their team: the Linux isolation of its daemon (namespaces, a private root, its own network)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+log = "0.4"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time", "io-util"] }
+# The space's own network: a TUN device in its network namespace, terminated
+# in user space by the launcher (no slirp4netns, no pasta, no bubblewrap).
+ipstack = "1.0.1"
+
+[dev-dependencies]
+libc.workspace = true
+
+# Its own main: the binary is also the launcher and the program that runs
+# inside the space.
+[[test]]
+name = "isolation"
+harness = false

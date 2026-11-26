@@ -1,3 +1,4 @@
+import { assertStaysOnSpace } from "@/lib/spaces/no-device"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, ne, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
@@ -113,6 +114,8 @@ export async function resolveMoveTarget(
     moverId?: string
   }
 ): Promise<MoveTarget> {
+  // #EXP-2161: nothing leaves a member space.
+  assertStaysOnSpace(session, deviceId)
   let device: Awaited<ReturnType<typeof resolveSessionDevice>>
   try {
     device = await resolveSessionDevice(session.userId, session.teamId, deviceId)

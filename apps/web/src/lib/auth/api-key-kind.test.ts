@@ -164,3 +164,28 @@ describe(`apiKeySessionKind / isApiKeySession / the assert helpers`, () => {
     await expect(assertNotAgentApiKeySession(db, session(`sess-1`), `nope`)).resolves.toBeUndefined()
   })
 })
+
+describe(`#EXP-2161 member space keys`, () => {
+  const spaceId = `0b7cb8b0-3a0d-4f0c-9a57-0d7f0b8a1c11`
+  const nothing = { allTeams: false, teamIds: [], boardIds: [] }
+
+  it(`reads the space's own key and the agent keys minted through it`, () => {
+    expect(parseApiKeyMetadata(JSON.stringify({ kind: `space`, spaceId }))).toEqual({ kind: `space`, scope: null, spaceId })
+    expect(parseApiKeyMetadata(JSON.stringify({ kind: `agent`, spaceId }))).toEqual({ kind: `agent`, scope: null, spaceId })
+    expect(parseApiKeyMetadata(JSON.stringify({ kind: `agent`, sessionId: spaceId, spaceId }))).toEqual({ kind: `agent`, scope: null, sessionId: spaceId, spaceId })
+  })
+
+  it(`a malformed or missing space grants nothing`, () => {
+    for (const metadata of [
+      { kind: `space` },
+      { kind: `space`, spaceId: `nope` },
+      { kind: `space`, spaceId: 7 },
+      { kind: `agent`, spaceId: `nope` },
+      { kind: `personal`, spaceId },
+      { spaceId },
+    ]) {
+      expect(parseApiKeyMetadata(JSON.stringify(metadata)).scope).toEqual(nothing)
+      expect(parseApiKeyMetadata(JSON.stringify(metadata)).spaceId ?? null).toBeNull()
+    }
+  })
+})

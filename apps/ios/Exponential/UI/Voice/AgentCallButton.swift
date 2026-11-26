@@ -120,7 +120,7 @@ final class AgentCallAvailability {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in try DeviceEntity.fetchAll(db) }
         do {
-            for try await rows in observation.values(in: pool) { devices = rows }
+            for try await rows in observation.values(in: pool) { devices = DeviceEntity.listed(rows) }
         } catch {}
     }
 

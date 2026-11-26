@@ -72,7 +72,7 @@ import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { agentCollection, deviceCollection, teamCollection } from "@/lib/collections"
-import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { deviceRowIsOnline, listedDevices } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 
 export type VoiceSettings = Awaited<ReturnType<typeof trpc.voice.get.query>>
@@ -520,7 +520,7 @@ export function useVoiceDeviceRows(): VoiceDeviceRow[] {
   const now = useNow(15_000)
   return useMemo<VoiceDeviceRow[]>(
     () =>
-      (deviceRows ?? [])
+      listedDevices(deviceRows ?? [])
         .filter((device) => device.userId === userId)
         .map((device) => ({
           deviceId: device.deviceId,

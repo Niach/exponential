@@ -87,6 +87,7 @@ public extension SteerDevice {
             updateRequested: entity.updateRequestedAt != nil,
             updateBlocked: entity.updateRequestedAt != nil && entity.activeSessions > 0,
             sharedTeamIds: entity.sharedTeamIds,
+            assistantTeamIds: entity.assistantTeamIds,
             owner: mine ? nil : DeviceOwner(id: entity.userId, name: ownerName ?? entity.userId),
             // EXP-622: a default belongs to the row's OWNER — never surface a
             // teammate's shared server as the caller's default.
@@ -254,6 +255,8 @@ public enum DeviceQueries {
         userId: String?,
         now: Date = Date()
     ) -> [SteerDevice] {
+        // #EXP-2161: a member space is never a device (`listed`).
+        let rows = DeviceEntity.listed(rows)
         // users.name is nullable — flatten so the lookup yields String?.
         let nameById: [String: String] = Dictionary(
             users.compactMap { user in user.name.map { (user.id, $0) } },

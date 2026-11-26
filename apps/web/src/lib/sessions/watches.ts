@@ -1,3 +1,5 @@
+import { currentSpace } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { and, asc, eq, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { checksWakeText } from "@exp/domain-contract/pr-checks"
@@ -150,6 +152,7 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
     .limit(1)
     .for(`update`)
   if (!row) return []
+  const space = currentSpace()
   const own = await ownAssistantTeam(row, row.userId, tx)
   const teams = [...(await treeTeams(row.rootId, tx)), ...(own ? [own] : [])]
   if (teams.length === 0) return []
@@ -161,7 +164,10 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
         inArray(sessions.id, wanted),
         ne(sessions.status, `ended`),
         inArray(sessions.teamId, teams),
-        or(eq(sessions.shared, true), eq(sessions.userId, row.userId))
+        or(eq(sessions.shared, true), eq(sessions.userId, row.userId)),
+        // #EXP-2161: a member space hears its own sessions only (a watched
+        // chat's device seals its lines to the watcher's tree).
+        space ? spaceReachCondition(space) : undefined
       )
     )
   const liveIds = live.map((entry) => entry.id).sort()

@@ -85,6 +85,12 @@ export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise
   await relayKills(await killTargets(db, inArray(sessions.id, sessionIds)))
 }
 
+/** #EXP-2161: the kills of sessions whose device row is gone by now (read
+ *  in its transaction, `treeKillTargets`). Best-effort. */
+export async function relayKillTargets(targets: readonly KillTarget[]): Promise<void> {
+  await relayKills(targets)
+}
+
 /** #EXP-2138: tell the devices their sessions were DELETED (after commit):
  *  each ends what it runs and asks `sessions.heldGone` before it removes
  *  anything. Best-effort, a missed one is the device's 24 h rule. */

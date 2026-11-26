@@ -143,6 +143,8 @@ fn valid(payload: &DirectPayload) -> bool {
 pub enum InstallKind {
     Desktop,
     Daemon,
+    /// #EXP-2161: a member space's daemon (member-space.json THE INSTALL).
+    Space,
 }
 
 impl InstallKind {
@@ -150,13 +152,14 @@ impl InstallKind {
         match self {
             InstallKind::Desktop => "desktop",
             InstallKind::Daemon => "daemon",
+            InstallKind::Space => "space",
         }
     }
 
     fn identity_file(self) -> &'static str {
         match self {
             InstallKind::Desktop => "enet-identity",
-            InstallKind::Daemon => "cli-enet-identity",
+            InstallKind::Daemon | InstallKind::Space => "cli-enet-identity",
         }
     }
 }
@@ -274,7 +277,12 @@ impl Registration<'_> {
     pub fn sign(&self, identity: &Identity, signed_at: &str) -> RegisterInstall {
         let endpoint_id = endpoint_hex(&identity.endpoint_id());
         let x25519_public = x25519_public(identity);
-        let message = install_message(self.user_id, &endpoint_id, &x25519_public, signed_at);
+        let message = match self.kind {
+            InstallKind::Space => {
+                enet_core::install_trust::space_registration_message(self.user_id, &endpoint_id, &x25519_public, signed_at)
+            }
+            _ => install_message(self.user_id, &endpoint_id, &x25519_public, signed_at),
+        };
         let signature = data_encoding::BASE64URL_NOPAD.encode(&identity.sign(message.as_bytes()));
         RegisterInstall {
             kind: self.kind.as_str().to_string(),
@@ -407,6 +415,8 @@ struct Inner {
     team_entries: Mutex<HashMap<String, Vec<InstallEntry>>>,
     /// VAPP-43: the host's stored journals (STORED REPLAY), once set.
     stored: Mutex<Option<crate::enet_steer::StoredJournals>>,
+    /// #EXP-2161: which roots are the member's own Assistant conversation.
+    own_assistant: Mutex<Option<crate::install_trust::OwnAssistant>>,
 }
 
 /// One install's running eNet node. Cheap to clone; [`InstallNode::stop`]
@@ -441,6 +451,7 @@ impl InstallNode {
             entries: Mutex::new(Vec::new()),
             team_entries: Mutex::new(HashMap::new()),
             stored: Mutex::new(None),
+            own_assistant: Mutex::new(None),
         });
         // #FEED-184: a key holder is coming; sessions launched before it
         // runs still seal (they wait for it) instead of going out in clear.
@@ -538,6 +549,16 @@ impl InstallNode {
     pub fn serve_stored(&self, stored: crate::enet_steer::StoredJournals) {
         crate::enet_steer::set_tunnel_stored(stored.clone());
         *lock(&self.inner.stored) = Some(stored);
+    }
+
+    /// #EXP-2161 (member-space.json `pinCases`): how this install knows the
+    /// member's own Assistant conversation, off its synced rows. Never set =
+    /// no member space takes part in any key here.
+    pub fn set_own_assistant(&self, rule: crate::install_trust::OwnAssistant) {
+        *lock(&self.inner.own_assistant) = Some(Arc::clone(&rule));
+        if let Some(trust) = self.trust() {
+            trust.set_own_assistant(rule);
+        }
     }
 
     /// The allowlist passes finished so far.
@@ -788,7 +809,11 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     // #EXP-1950 (install-trust.json): the pin store beside the keyring and
     // the four rules, record-only (`TRUST_MODE`, a build constant).
     if let Some(trust_api) = Arc::clone(&inner.registry).trust() {
-        let keeper = crate::install_trust::TrustKeeper::open(
+        let open = match inner.spec.kind {
+            InstallKind::Space => crate::install_trust::TrustKeeper::open_space,
+            _ => crate::install_trust::TrustKeeper::open,
+        };
+        let keeper = open(
             crate::install_trust::store_path(&keyring_path(&inner.spec)),
             identity,
             &inner.spec.user_id,
@@ -796,6 +821,9 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
             trust_api,
             crate::install_trust::TRUST_MODE,
         );
+        if let Some(rule) = lock(&inner.own_assistant).clone() {
+            keeper.set_own_assistant(rule);
+        }
         holder.set_trust(Arc::new(keeper));
     }
     coding::sealing::install(Arc::new(holder.clone()));
@@ -807,7 +835,8 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
 /// #FEED-311: this device's own MCP clients reach the holder (idempotent; a
 /// changed credential is granted again).
 async fn serve_clients(inner: &Arc<Inner>) {
-    if lock(&inner.holder).is_none() {
+    // #EXP-2161: no endpoint of a member space for other programs.
+    if lock(&inner.holder).is_none() || inner.spec.kind == InstallKind::Space {
         return;
     }
     let Some(trpc) = Arc::clone(&inner.registry).client() else { return };
@@ -832,7 +861,7 @@ async fn serve_clients(inner: &Arc<Inner>) {
 fn keyring_path(spec: &InstallSpec) -> std::path::PathBuf {
     spec.identity_path.with_file_name(match spec.kind {
         InstallKind::Desktop => "seal-keys",
-        InstallKind::Daemon => "cli-seal-keys",
+        InstallKind::Daemon | InstallKind::Space => "cli-seal-keys",
     })
 }
 

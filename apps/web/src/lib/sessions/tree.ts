@@ -13,6 +13,8 @@ import {
 } from "@/db/schema"
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
+import { spaceOf } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { deriveSessionTitles } from "@/lib/sessions/title"
 import { SHARING_ORDER } from "@/lib/sessions/host"
 import { messageSessionId } from "@/lib/sessions/messages"
@@ -212,6 +214,7 @@ export async function listSessions(
   if (teamIds.length === 0) return []
 
   const root = alias(sessions, `list_root`)
+  const space = spaceOf(userId)
   const roots = and(
     isNull(sessions.parentId),
     args.agentId ? eq(sessions.agentId, args.agentId) : isNull(sessions.agentId)
@@ -249,6 +252,8 @@ export async function listSessions(
         // THE visibility rule (lib/sessions/access.ts), on the row and its root.
         or(eq(sessions.shared, true), eq(sessions.userId, userId)),
         or(eq(root.shared, true), eq(root.userId, userId)),
+        // #EXP-2161: a member space lists its own trees and what it started.
+        ...(space ? [spaceReachCondition(space)] : []),
         ...(args.live ? [ne(sessions.status, `ended`)] : [])
       )
     )

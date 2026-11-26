@@ -1,4 +1,5 @@
 import fixture from "@exp/domain-contract/fixtures/prompts.json"
+import { MEMBER_SPACE_COPY } from "@exp/domain-contract/member-space"
 import type { PromptAction, PromptActionRole } from "@exp/ui"
 import { PLAN_LIMITS } from "@/lib/plan-limits"
 
@@ -334,6 +335,20 @@ const primaryConfirm = (
   ...(body === undefined ? {} : { body }),
   actions: [cancelAction(), { id, label, role: `primary`, autoFocus: true }],
 })
+
+/** #EXP-2161 (member-space.json `copy.optIn*`): letting a team's members run
+ *  their Assistant on a device. */
+export const memberSpaceOptInPrompt = () =>
+  primaryConfirm(MEMBER_SPACE_COPY.optInTitle, MEMBER_SPACE_COPY.optInBody, `allow`, MEMBER_SPACE_COPY.optInConfirm)
+
+/** #EXP-2161 (`copy.pick*`): running one's Assistant on a team device. */
+export const memberSpacePickPrompt = (device: string, owner: string) =>
+  primaryConfirm(
+    fillPromptTemplate(MEMBER_SPACE_COPY.pickTitle, { device }),
+    fillPromptTemplate(MEMBER_SPACE_COPY.pickBody, { owner }),
+    `pick`,
+    MEMBER_SPACE_COPY.pickConfirm
+  )
 
 const FREE = PLAN_LIMITS.free
 

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.domain.listed
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PinnedScaffold
@@ -163,7 +164,7 @@ class VoiceSettingsViewModel @Inject constructor(
     /** FEED-79: a refused save, raised once as a toast. */
     var failure by mutableStateOf<FailedAction?>(null)
 
-    private val devices: StateFlow<List<DeviceEntity>> = db.deviceDao().observeAll()
+    private val devices: StateFlow<List<DeviceEntity>> = db.deviceDao().observeAll().map { it.listed() }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val agents: StateFlow<List<AgentDefinitionEntity>> = db.agentDefinitionDao().observeAll()
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

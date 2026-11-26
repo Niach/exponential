@@ -18,7 +18,7 @@ use crate::trpc::TrpcClient;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterInstall {
-    /// `desktop` | `daemon` (phones and browsers register themselves).
+    /// `desktop` | `daemon` | `space` (phones and browsers register themselves).
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -158,8 +158,17 @@ pub fn revoke_stored(trpc: &TrpcClient, path: &std::path::Path) {
 
 /// `installs.trust {installId}`: every live install of the account and its
 /// team-mates, and every approval about them.
+/// `spaces` = this build knows member spaces (#EXP-2161): their rows and
+/// `space` approvals are served too.
 pub fn trust<T: serde::de::DeserializeOwned>(trpc: &TrpcClient, install_id: &str) -> Result<T, ApiError> {
-    trpc.query_with_input("installs.trust", &InstallInput { install_id })
+    trpc.query_with_input("installs.trust", &TrustInput { install_id, spaces: true })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TrustInput<'a> {
+    install_id: &'a str,
+    spaces: bool,
 }
 
 /// `installs.requestApproval {installId}`: a waiting install asks, once.
@@ -201,7 +210,7 @@ struct ApproveInput<'a> {
     signature: &'a str,
 }
 
-/// `installs.approve {kind: approve | reset | decline}`.
+/// `installs.approve {kind: approve | reset | decline | space}`.
 pub fn approve(trpc: &TrpcClient, install_id: &str, subject_install_id: &str, kind: &str, signature: &str) -> Result<(), ApiError> {
     let _: serde_json::Value = trpc.mutation("installs.approve", &ApproveInput { install_id, subject_install_id, kind, signature })?;
     Ok(())

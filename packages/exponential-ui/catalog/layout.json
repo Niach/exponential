@@ -34,5 +34,6 @@
   "menuPreviewCloseMs": 80,
   "selectButtonPopupOffset": 4,
   "selectButtonPopupMinWidth": 130,
-  "selectButtonItemGap": 0
+  "selectButtonItemGap": 0,
+  "selectSectionGap": 8
 }

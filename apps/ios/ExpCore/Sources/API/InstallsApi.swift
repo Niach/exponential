@@ -100,6 +100,12 @@ public protocol InstallTrustApi: Sendable {
 
 private struct InstallsTeamInput: Encodable { let teamId: String }
 private struct InstallIdInput: Encodable { let installId: String }
+/// `spaces` = this build knows member spaces (#EXP-2161): their rows and
+/// `space` approvals are served too.
+private struct TrustInput: Encodable {
+    let installId: String
+    let spaces: Bool
+}
 /// One `approve` an existing install sends with its root claim.
 public struct RootClaimApproval: Encodable, Equatable, Sendable {
     public let subjectInstallId: String
@@ -143,7 +149,7 @@ public final class InstallsApi: InstallsRegistry, TreeReaderDirectory, InstallTr
     }
 
     public func trust(accountId: String, installId: String) async throws -> TrustAnswer {
-        try await trpc.query(accountId: accountId, path: "installs.trust", input: InstallIdInput(installId: installId))
+        try await trpc.query(accountId: accountId, path: "installs.trust", input: TrustInput(installId: installId, spaces: true))
     }
 
     public func requestApproval(accountId: String, installId: String) async throws {

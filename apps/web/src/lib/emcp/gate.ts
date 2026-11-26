@@ -6,6 +6,9 @@
 // everything around it: credentials, the 401 with the protected-resource
 // hint, the acting session's confinement and sign of life, the transport,
 // and the `mcp_calls` row of every `tools/call` (audit.ts).
+import { runInSpace, SPACE_KEY_MESSAGE, type SpaceGrant } from "@/lib/spaces/context"
+import { assertSessionOnSpace } from "@/lib/spaces/gate"
+import { loadSpaceGrant } from "@/lib/spaces/grant"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
@@ -87,12 +90,29 @@ async function resolveCredential(
   clientId: string | null
   access: McpAccess
   keySessionId?: string | null
+  /** #EXP-2161: the member space the agent key was minted through. */
+  space?: SpaceGrant
   /** A scoped `expu_` key's row id, kind and stored scope (#EXP-2079). */
   key?: { id: string | null; kind: ApiKeyKind | null; scope: ApiKeyScope }
 } | null> {
-  const { session, keyScope, keyKind, keySessionId } = await resolveMcpCredential(request)
+  const { session, keyScope, keyKind, keySessionId, keySpaceId } = await resolveMcpCredential(request)
   if (session?.user) {
     const userId = session.user.id
+    // #EXP-2161: a space's own key is no MCP credential; an agent key minted
+    // through it lives while the space does and reaches its teams only.
+    if (keyKind === `space`) return null
+    if (keySpaceId) {
+      const space = await loadSpaceGrant(db, userId, keySpaceId)
+      if (!space) return null
+      const teamIds = keyScope && !keyScope.assistant ? space.reach.filter((id) => keyScope.teamIds.includes(id)) : space.reach
+      return {
+        userId,
+        clientId: null,
+        access: await resolveMcpAccessForGrant({ allTeams: false, teamIds, boardIds: [] }, keyScope ? `agent` : `session`),
+        keySessionId: keySessionId ?? null,
+        space,
+      }
+    }
     // #EXP-2028: a session-bound launcher key carries the member's access,
     // always clamped below to its session's tree.
     if (!keyScope) return { userId, clientId: null, access: FULL_ACCESS, keySessionId: keySessionId ?? null }
@@ -174,7 +194,7 @@ async function withSessionHeader(request: Request, sessionId: string): Promise<R
  *  header). */
 export async function authenticateMcpRequest(
   incoming: Request
-): Promise<{ caller: EmcpCaller; request: Request } | { response: Response }> {
+): Promise<{ caller: EmcpCaller; request: Request; space?: SpaceGrant } | { response: Response }> {
   const resolved = await resolveCredential(incoming)
   if (!resolved) return { response: unauthorized(incoming) }
 
@@ -189,6 +209,13 @@ export async function authenticateMcpRequest(
   // clamp; a header naming another session, or a bound session that no
   // longer resolves as the caller's, is refused.
   const keySessionId = resolved.keySessionId ?? null
+  // #EXP-2161: a space's agent key speaks for a session running on the space.
+  const space = resolved.space
+  if (space) {
+    const named = keySessionId ?? headerSessionId
+    const onSpace = named ? await assertSessionOnSpace(db, space, named).then(() => true, () => false) : false
+    if (!onSpace) return { response: jsonResponse(403, { error: SPACE_KEY_MESSAGE }) }
+  }
   let request = incoming
   if (keySessionId) {
     const bound = await actingSessionForRequest(incoming, user.id, keySessionId)
@@ -208,7 +235,8 @@ export async function authenticateMcpRequest(
   // `agent_id`) is confined to that session's team, whatever credential
   // carried it. A foreign session id changes nothing (the header grants
   // nothing on its own).
-  const access = await accessForActingSession(resolved, request, user.id, sessionId)
+  const inSpace = <T>(run: () => T): T => (space ? runInSpace(space, run) : run())
+  const access = await inSpace(() => accessForActingSession(resolved, request, user.id, sessionId))
   // EXP-1374: a tool call by a session of the caller's is its sign of life
   // (the stuck rule); best effort, never in the request's way.
   if (sessionId) {
@@ -217,8 +245,8 @@ export async function authenticateMcpRequest(
     ).catch(() => {})
   }
   // EXP-660: which conditional tool families this caller gets to see.
-  const gates = await resolveMcpToolGates(user.id, access, sessionId)
-  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates }, request }
+  const gates = await inSpace(() => resolveMcpToolGates(user.id, access, sessionId))
+  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates }, request, ...(space ? { space } : {}) }
 }
 
 /** The access of a request speaking for `sessionId`: the credential's,
@@ -258,7 +286,13 @@ export async function serveMcp(
 ): Promise<Response> {
   const gated = await authenticateMcpRequest(incoming)
   if (`response` in gated) return gated.response
-  const { caller, request } = gated
+  // #EXP-2161: every read and write of the call narrows to its space.
+  return gated.space
+    ? runInSpace(gated.space, () => serveGated(gated.caller, gated.request, provider, options))
+    : serveGated(gated.caller, gated.request, provider, options)
+}
+
+async function serveGated(caller: EmcpCaller, request: Request, provider: ToolProvider, options: ServeOptions): Promise<Response> {
 
   const body: unknown = await request
     .clone()

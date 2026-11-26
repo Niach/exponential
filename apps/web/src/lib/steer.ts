@@ -87,7 +87,8 @@ export const STEER_TICKET_TTL_SECONDS = 60
 // EXP-710: a control seed is the account and nothing else. VAPP-43: the
 // `publisher` and `viewer` seeds are gone with the relay's session rooms.
 export type SteerTicketSeed =
-  | { kind: `control`; userId: string }
+  // #EXP-2161 `deviceId`: the ONLY device the socket may announce (a member space).
+  | { kind: `control`; userId: string; deviceId?: string }
   // NEW-55: a voice call. The CALLER (a phone or web client streaming its
   // audio) names the call, the agent and the member's voice device; the relay
   // rings that device under the member (`deviceOwnerId`). The HOST (the voice
@@ -126,6 +127,7 @@ export function buildSteerTicketClaims(
         ...base,
         team: ``,
         role: `control`,
+        ...(seed.deviceId ? { deviceId: seed.deviceId } : {}),
       }
     case `caller`:
       return {

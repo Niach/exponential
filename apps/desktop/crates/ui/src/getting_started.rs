@@ -656,7 +656,7 @@ impl GettingStartedProgress {
         let mut server = false;
         for row in devices
             .iter()
-            .filter(|row| row.user_id.as_deref() == Some(me.as_str()))
+            .filter(|row| row.user_id.as_deref() == Some(me.as_str()) && !row.is_space())
         {
             match row.kind.as_deref() {
                 Some("desktop") => desktop = true,

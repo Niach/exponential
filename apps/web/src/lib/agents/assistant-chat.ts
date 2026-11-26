@@ -120,7 +120,7 @@ export async function memberChatsChanged(
   since: Date
 ): Promise<boolean> {
   const [conversation] = await tx
-    .select({ teamId: sessions.teamId, userId: sessions.userId, agentId: sessions.agentId, scopeTeamIds: sessions.scopeTeamIds })
+    .select({ teamId: sessions.teamId, userId: sessions.userId, agentId: sessions.agentId, scopeTeamIds: sessions.scopeTeamIds, deviceId: sessions.deviceId })
     .from(sessions)
     .where(and(eq(sessions.agentId, agent.id), eq(sessions.userId, agent.ownerId), isNull(sessions.parentId)))
     .limit(1)

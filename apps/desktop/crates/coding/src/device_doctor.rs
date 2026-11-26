@@ -53,6 +53,11 @@ pub const KEY_DISK_WRITES: &str = "disk_writes";
 /// #EXP-2144: the storage row of a newer build that waits for its restart
 /// (see [`add_app_update`]).
 pub const KEY_APP_UPDATE: &str = "app_update";
+/// #EXP-2161: whether this server can run members' Assistants
+/// (see [`add_member_space`]).
+pub const KEY_MEMBER_SPACE: &str = "member_space";
+/// member-space.json `copy.optIn`.
+pub const MEMBER_SPACE_LABEL: &str = "Members' Assistants";
 /// #EXP-1514: the row under the computer-use switch that says whether this
 /// desktop gives a run an agent space (see [`ComputerState::Supported`]).
 pub const KEY_AGENT_SPACE: &str = "agent_space";
@@ -251,6 +256,7 @@ pub fn label(key: &str) -> &str {
         "speech" => "Speech",
         "wake" => "Wake word",
         "disk" => "Disk",
+        KEY_MEMBER_SPACE => MEMBER_SPACE_LABEL,
         KEY_DESKTOP_AUDIO => &etalk::meeting::MEETING.copy.doctor_label,
         other => other,
     }
@@ -703,6 +709,18 @@ pub fn add_install_waiting(doctor: &mut DeviceDoctor, code: Option<&str>) {
     let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
         .detail(format!("{} · {code}", enet_core::install_trust_copy::WAITING));
     row.label = Some("Encryption keys".to_string());
+    doctor.items.push(row);
+}
+
+/// #EXP-2161 (member-space.json `doctorKey`): whether members of a team may
+/// run their Assistant on this server: a real test space was started and
+/// found closed (`ok`), or why not (`missing`). Servers only.
+pub fn add_member_space(doctor: &mut DeviceDoctor, probed: &Result<(), String>) {
+    let mut row = match probed {
+        Ok(()) => item(KEY_MEMBER_SPACE, DoctorGroup::Storage, DoctorState::Ok).detail(READY),
+        Err(reason) => item(KEY_MEMBER_SPACE, DoctorGroup::Storage, DoctorState::Missing).detail(reason),
+    };
+    row.label = Some(MEMBER_SPACE_LABEL.to_string());
     doctor.items.push(row);
 }
 

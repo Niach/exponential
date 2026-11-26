@@ -237,3 +237,94 @@ fn settings_agent_voice() {
     };
     page("agent-voice", agent, true, Some(Ok(INSTRUCTIONS.into())));
 }
+
+// ── #EXP-2161: member spaces on Settings › Assistant › Runs on ───────────
+
+/// The bench's member (headless has no account).
+const ME: &str = "u-me";
+
+/// Two teams, the member's laptop, two of Mira's servers opted in (unraid
+/// online in Acme, build offline in both) and Sam's closed one; `space` =
+/// the member's space on unraid (picked through Acme).
+fn space_seed(space: bool, cx: &mut gpui::App) {
+    crate::settings::agent_detail::SHOT_VIEWER.with(|viewer| *viewer.borrow_mut() = Some(ME.into()));
+    let collections = sync::Store::global(cx).collections().clone();
+    for team in [json!({"id": "t-acme", "name": "Acme"}), json!({"id": "t-side", "name": "Side project"})] {
+        let team: domain::rows::Team = serde_json::from_value(team).expect("a team row");
+        collections.teams.update(cx, |c, _| c.seed(RowKey::Single(team.id.clone()), team));
+    }
+    for user in [json!({"id": ME, "name": "Dennis"}), json!({"id": "u-mira", "name": "Mira Jensen"}), json!({"id": "u-sam", "name": "Sam"})] {
+        let user: domain::rows::User = serde_json::from_value(user).expect("a user row");
+        collections.users.update(cx, |c, _| c.seed(RowKey::Single(user.id.clone()), user));
+    }
+    let now = now_iso();
+    let mut rows = vec![
+        json!({"id": "row-mint", "user_id": ME, "device_id": "mint", "label": "mint", "kind": "desktop", "icon": "monitor", "agents": ["claude"], "agent_accounts": accounts("dennis@example.com"), "last_seen_at": now}),
+        json!({"id": "row-unraid", "user_id": "u-mira", "device_id": "srv-unraid", "label": "unraid", "kind": "server", "icon": "server", "agents": ["claude"], "agent_accounts": accounts("mira@example.com"), "last_seen_at": now, "shared_team_ids": "{t-acme}", "assistant_team_ids": "{t-acme}"}),
+        json!({"id": "row-build", "user_id": "u-mira", "device_id": "srv-build", "label": "build", "kind": "server", "icon": "server", "agents": ["claude"], "last_seen_at": "2020-01-01T00:00:00Z", "shared_team_ids": "{t-acme,t-side}", "assistant_team_ids": "{t-acme,t-side}"}),
+        json!({"id": "row-closed", "user_id": "u-sam", "device_id": "srv-closed", "label": "closed", "kind": "server", "agents": ["claude"], "last_seen_at": now, "shared_team_ids": "{t-acme}"}),
+    ];
+    if space {
+        rows.push(json!({"id": "row-space", "user_id": ME, "device_id": "space-1", "label": "unraid", "kind": "server", "agents": ["claude"], "last_seen_at": now, "space_host_id": "row-unraid", "space_team_id": "t-acme"}));
+    }
+    for row in rows {
+        let row: domain::rows::DeviceRow = serde_json::from_value(row).expect("a device row");
+        collections.devices.update(cx, |c, _| c.seed(RowKey::Single(row.id.clone()), row));
+    }
+}
+
+/// The member's Assistant bound to `device` ("" = none).
+fn space_assistant(device: &str) -> domain::rows::AgentDefRow {
+    let mut agent = agent("a0", "assistant", device, json!([]));
+    agent.owner_id = Some(ME.into());
+    agent
+}
+
+fn space_page(name: &str, device: &'static str, space: bool, waiting: bool, press: Option<&'static str>) {
+    let agent = space_assistant(device);
+    let id = agent.id.clone();
+    shoot_pane_acted(name, move |window, cx| {
+        space_seed(space, cx);
+        let collections = sync::Store::global(cx).collections().clone();
+        collections.agents.update(cx, |c, _| c.seed(RowKey::Single(agent.id.clone()), agent));
+        let mut pane = AgentDetailPane::for_shots(&id, window, cx);
+        pane.show(true, Some(Ok(String::new())), window, cx);
+        if waiting {
+            pane.seed_space_waiting_for_shots("row-space", cx);
+        }
+        pane
+    }, |_, _| {}, Some(std::time::Duration::from_millis(800)), &[], move |pane, window, cx| {
+        if let Some(node) = press {
+            pane.press_for_shots(node, window, cx);
+        }
+    });
+}
+
+/// Runs on open: the member's laptop, then Acme's and Side project's team
+/// devices under their names (build offline, disabled).
+#[test]
+#[ignore]
+fn settings_assistant_spaces_open() {
+    space_page("desktop-assistant-runs-on-open", "mint", false, false, Some("assistant_device.trigger"));
+}
+
+/// Bound to the space on unraid, picked: its host's row reads selected.
+#[test]
+#[ignore]
+fn settings_assistant_spaces_bound_open() {
+    space_page("desktop-assistant-space-bound-open", "space-1", true, false, Some("assistant_device.trigger"));
+}
+
+/// The space waits for the member's approval: `copy.waiting` under the row.
+#[test]
+#[ignore]
+fn settings_assistant_spaces_waiting() {
+    space_page("desktop-assistant-space-waiting", "space-1", true, true, None);
+}
+
+/// The Assistant has no device (its space ended): `copy.noDevice`.
+#[test]
+#[ignore]
+fn settings_assistant_spaces_no_device() {
+    space_page("desktop-assistant-no-device", "", false, false, None);
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "via_space" boolean DEFAULT false NOT NULL;
