@@ -7741,11 +7741,15 @@
         },
         "settleMs": 800
       },
+      "android": {
+        "shot": "sg_elicitation-card",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "The DEV-ONLY `?dev=elicitation-card` on the Agent route (never parsed in a production build): `@exp/ui` `ElicitationCardSpecimen`, the fixture's device-built cards through the real ChatConversation (the waiting form, the clean url, the warned url, an answered form).",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
         "ios": "#NEW-146: the port follows the approved web draft.",
-        "android": "#NEW-146: the port follows the approved web draft.",
+        "android": "#NEW-146: the capture-only specimen (ElicitationCardSpecimen: the fixture's cards through the real row model + ChatAskCard), shot sg_elicitation-card.",
         "desktop": "#NEW-146: the port follows the approved web draft."
       }
     },
