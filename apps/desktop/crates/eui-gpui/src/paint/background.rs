@@ -101,7 +101,7 @@ pub fn radial(g: &GradientPaint, w: f32, h: f32, radii: [f32; 4], window: &mut W
 /// decoded picture at its `picture_rect`, else `placeholder` (loading,
 /// failed, refused, no src); then the scrim over it.
 pub fn picture(p: &PicturePaint, w: f32, h: f32, radii: [f32; 4], placeholder: Option<Hsla>, host: &dyn crate::host::HostPlugin, window: &mut Window, cx: &mut App) -> AnyElement {
-    let refused = host.image_source(&p.src, "").is_some();
+    let refused = !matches!(host.image_source(&p.src, ""), None | Some(crate::host::ImageSourceVerdict::Load));
     let decoded = if refused {
         None
     } else {
@@ -121,7 +121,18 @@ pub fn picture(p: &PicturePaint, w: f32, h: f32, radii: [f32; 4], placeholder: O
                     let (bw, bh) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                     let (x, y, dw, dh) = eui_core::style::picture_rect(if contain { "contain" } else { "cover" }, (bw, bh), (size.width.0 as f32, size.height.0 as f32), focal);
                     let image_bounds = Bounds { origin: point(bounds.origin.x + px(x), bounds.origin.y + px(y)), size: gpui::size(px(dw), px(dh)) };
-                    let _ = window.paint_image(bounds, image_bounds, corners(radii), data.clone(), 0, false);
+                    // gpui rounds the VISIBLE rect: only a corner it shares
+                    // with the box takes the box's radius (a contained
+                    // picture's inner edge stays square, as on the web).
+                    let (vx0, vy0, vx1, vy1) = (x.max(0.0), y.max(0.0), (x + dw).min(bw), (y + dh).min(bh));
+                    let at = |a: f32, b: f32| (a - b).abs() < 0.5;
+                    let r = [
+                        if at(vx0, 0.0) && at(vy0, 0.0) { radii[0] } else { 0.0 },
+                        if at(vx1, bw) && at(vy0, 0.0) { radii[1] } else { 0.0 },
+                        if at(vx1, bw) && at(vy1, bh) { radii[2] } else { 0.0 },
+                        if at(vx0, 0.0) && at(vy1, bh) { radii[3] } else { 0.0 },
+                    ];
+                    let _ = window.paint_image(bounds, image_bounds, corners(r), data.clone(), 0, false);
                 })
                 .absolute()
                 .top_0()
@@ -133,7 +144,8 @@ pub fn picture(p: &PicturePaint, w: f32, h: f32, radii: [f32; 4], placeholder: O
         None => out = fill(out, placeholder),
     }
     if let Some(scrim) = p.scrim {
-        out = out.child(layer(w, h).bg(scrim));
+        // gpui clips children to the rect only: the scrim rounds itself.
+        out = out.child(layer(w, h).bg(scrim).rounded_tl(px(radii[0])).rounded_tr(px(radii[1])).rounded_br(px(radii[2])).rounded_bl(px(radii[3])));
     }
     out.into_any_element()
 }
