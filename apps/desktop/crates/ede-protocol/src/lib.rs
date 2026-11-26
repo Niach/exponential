@@ -2205,7 +2205,7 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 43, "one row per variant at least");
+        assert_eq!(seen.len(), 44, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2553,7 +2553,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 43, "every op has a row");
+        assert_eq!(seen.len(), 44, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.
