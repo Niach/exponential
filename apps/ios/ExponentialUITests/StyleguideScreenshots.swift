@@ -1287,11 +1287,22 @@ final class StyleguideScreenshots: XCTestCase {
     @MainActor
     private func showTeamSettings(_ app: XCUIApplication) {
         showTeam(app)
-        app.buttons["team-actions"].tap()
-        let item = anyElement(app, identified: "team-menu-settings")
+        teamButton(app, "team-actions").tap()
+        let item = anyElement(app, identified: "sidebar-menu-settings")
         expect(item, within: Wait.nav, "The team menu has no Settings")
         item.tap()
         expect(anyElement(app, identified: "team-settings"), within: Wait.nav, "The team's settings never opened")
+    }
+
+    /// #EXP-2109 (header-actions.json `rows.team`): a team row's own + or
+    /// `…` (`team-new-<id>` / `team-actions-<id>`), the team named `name`.
+    @MainActor
+    private func teamButton(_ app: XCUIApplication, _ prefix: String, _ name: String = "Acme") -> XCUIElement {
+        let button = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label ENDSWITH %@", "\(prefix)-", ": \(name)")
+        ).firstMatch
+        expect(button, within: Wait.nav, "The \(name) row has no \(prefix)")
+        return button
     }
 
     /// Settings › Devices.
@@ -1821,12 +1832,11 @@ final class StyleguideScreenshots: XCTestCase {
     /// → dismissed.
     @MainActor
     private func walkAppImport(_ app: XCUIApplication) {
-        app.buttons["team-actions"].tap()
-        for id in ["team-menu-new", "team-menu-new-app"] {
-            let item = anyElement(app, identified: id)
-            expect(item, within: Wait.nav, "The team menu has no \(id)")
-            item.tap()
-        }
+        // #EXP-2109: the team row's + = THE new menu, its App = THE NEW MENU.
+        teamButton(app, "team-new").tap()
+        let item = anyElement(app, identified: "sidebar-new-app")
+        expect(item, within: Wait.nav, "The team's new menu has no App")
+        item.tap()
         let importItem = anyElement(app, identified: "apps-import")
         expect(importItem, within: Wait.nav, "THE NEW MENU has no Import…")
         importItem.tap()
@@ -1937,7 +1947,9 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_chat-screen: the cold-start chat (DEMO_CHAT_ID) ──────────────
         let coldStart = chatRow(app, containing: Self.coldStartChatTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Chats list")
-        coldStart.tap()
+        // #EXP-2184: the row may sit under the docked tab bar: scroll it
+        // into the readable band, then tap it there.
+        revealAndTap(app, coldStart, "The cold-start chat row never cleared the tab bar")
         // #EXP-1732: THE session tabs under the header, Chat active (the
         // seeded question + the child's plan stay inline, not in the Dock).
         let chatSegment = anyElement(app, identified: "session-tabs-chat")
