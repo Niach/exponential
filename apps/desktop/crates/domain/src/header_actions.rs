@@ -41,6 +41,8 @@ pub struct HeaderActions {
     pub wide_circle: f32,
     pub wide_glyph: f32,
     pub gap: f32,
+    /// #EXP-2183 COLLAPSE.
+    pub collapse: HeaderCollapse,
     pub order: Vec<HeaderAction>,
     pub icons: BTreeMap<HeaderAction, String>,
     pub adds: BTreeMap<String, String>,
@@ -87,4 +89,41 @@ pub fn header_menu_by<T: Clone>(entries: &[T], id: impl Fn(&T) -> &str) -> Vec<T
 
 pub fn header_menu<'a>(entries: &[&'a str]) -> Vec<&'a str> {
     header_menu_by(entries, |entry| entry)
+}
+
+/// #EXP-2183 COLLAPSE: a narrow bar folds trailing chips so the title keeps
+/// `title_min_share` of it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderCollapse {
+    pub title_min_share: f32,
+    pub order: Vec<HeaderAction>,
+}
+
+/// A foldable chip's two widths.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct HeaderCollapseChip {
+    pub action: HeaderAction,
+    pub full: f32,
+    pub compact: f32,
+}
+
+/// TS `headerCollapse`: fold the chips in `collapse.order` until the title
+/// gets `min(title, titleMinShare × bar)`; the folded actions in fold order.
+/// `fixed` = what never folds (back, disc, call, +, …, gaps, padding). The
+/// IDE's bar is wide, so it never folds; the twin replays the cases.
+pub fn header_collapse(bar: f32, title: f32, fixed: f32, chips: &[HeaderCollapseChip]) -> Vec<HeaderAction> {
+    let collapse = &HEADER_ACTIONS.collapse;
+    let target = title.min(collapse.title_min_share * bar);
+    let mut used = fixed + chips.iter().map(|chip| chip.full).sum::<f32>();
+    let mut folded = Vec::new();
+    for action in &collapse.order {
+        if bar - used >= target {
+            break;
+        }
+        let Some(chip) = chips.iter().find(|chip| chip.action == *action) else { continue };
+        used -= chip.full - chip.compact;
+        folded.push(*action);
+    }
+    folded
 }

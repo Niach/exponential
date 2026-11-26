@@ -226,6 +226,7 @@ export * from "./chat-specimens"
 export * from "./general-specimens"
 // NEW-15: THE phone detail header and its title block (moved from apps/web).
 export * from "./mobile-detail-header"
+export * from "./header-collapse"
 export * from "./phone-header-title"
 export * from "./exponential-ui-specimen"
 export * from "./app-markdown"

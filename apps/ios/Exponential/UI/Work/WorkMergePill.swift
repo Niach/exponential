@@ -35,6 +35,8 @@ struct WorkMergePill: View {
     var identifier = MergeTrain.TestIds.statusPill
     var style: Style = .capsule
     enum Style { case capsule, circle, toolbar }
+    /// #EXP-2183 COLLAPSE (`.toolbar`): the same pill, its glyph alone.
+    var compact = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -163,7 +165,7 @@ struct WorkMergePill: View {
     /// `MergeStatusPill`, desktop, Android `MergeStatusPill`),
     /// primary only for `Needs approval`.
     private var toolbarButton: some View {
-        MergeStatusPill(view: view, merging: merging, action: action, identifier: identifier)
+        MergeStatusPill(view: view, merging: merging, action: action, identifier: identifier, compact: compact)
     }
 
     /// Needs approval: `pullRequests.merge` QUEUES it (the train is on). No
@@ -187,10 +189,13 @@ struct MergeStatusPill: View {
     /// nil = readonly (no tap).
     let action: (() -> Void)?
     var identifier = MergeTrain.TestIds.statusPill
+    /// #EXP-2183 COLLAPSE: the glyph alone; the label stays the
+    /// accessibility label, the tap unchanged.
+    var compact = false
 
     var body: some View {
         GlassPill(
-            view.label,
+            compact ? "" : view.label,
             size: .md,
             mode: action.map { tap in GlassPillMode.action { tap() } } ?? GlassPillMode.readonly,
             primary: view.primary,
