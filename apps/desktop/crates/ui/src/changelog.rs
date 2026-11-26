@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-confirm-its-you",
+    date: "2026-11-26",
+    title: "Confirm it's you instead of signing in again",
+    summary: "Adding a passkey on a sign-in older than a day now asks you to confirm it's you, then carries on.",
+    body: r##"- **Confirm it's you**: when an action needs a recent sign-in, such as adding a passkey, a sheet asks you to confirm with your passkey, a code to your email or your password. Then the action finishes by itself, without signing you out and without losing what you typed."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_367: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-assistant-on-team-device",
     date: "2026-11-26",
     title: "Your Assistant on a team's machine",
