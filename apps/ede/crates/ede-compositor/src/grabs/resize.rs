@@ -14,7 +14,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel, wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Logical, Point, Rectangle, Size},
-    wayland::{compositor, shell::xdg::SurfaceCachedState},
+    wayland::compositor,
 };
 use std::cell::RefCell;
 
@@ -84,21 +84,8 @@ impl ResizeSurfaceGrab {
         &self.window
     }
 
-    /// The client's minimum and maximum size (0 = none): xdg-shell's, or
-    /// an X11 window's `WM_NORMAL_HINTS`.
     fn size_limits(&self) -> (Size<i32, Logical>, Size<i32, Logical>) {
-        if let Some(xdg) = self.window.toplevel() {
-            return compositor::with_states(xdg.wl_surface(), |states| {
-                let mut guard = states.cached_state.get::<SurfaceCachedState>();
-                let data = guard.current();
-                (data.min_size, data.max_size)
-            });
-        }
-        #[cfg(feature = "xwayland")]
-        if let Some(x11) = self.window.x11_surface() {
-            return (x11.min_size().unwrap_or_default(), x11.max_size().unwrap_or_default());
-        }
-        (Size::default(), Size::default())
+        crate::state::size_limits(&self.window)
     }
 }
 
