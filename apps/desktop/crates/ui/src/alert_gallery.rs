@@ -58,6 +58,9 @@ fn openers() -> Vec<(String, Opener)> {
                 crate::meeting_mode::consent_alert(&who, "Ops", |_, _| true)
             }),
         ),
+        // #EXP-2161 (member-space.json `copy.optIn*`, `copy.pick*`).
+        ("member-space-opt-in".into(), alert(|| crate::member_spaces::opt_in_alert(|_| {}))),
+        ("member-space-pick".into(), alert(|| crate::member_spaces::pick_alert("unraid", "Mira Jensen", |_| {}))),
     ];
     for spec in domain::prompts::ALL {
         let title_key = spec.copy.iter().map(|(k, _)| *k).find(|k| k.starts_with("title")).unwrap();

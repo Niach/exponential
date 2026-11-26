@@ -240,7 +240,8 @@ fn gather_devices(teams: &[String], glyphs: &mut HashMap<String, Glyph>, cx: &Ap
     let Some(store) = Store::try_global(cx) else { return Vec::new() };
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let now = crate::session_data::now_ms();
-    let rows: Vec<domain::rows::DeviceRow> = store.collections().devices.read(cx).iter().cloned().collect();
+    // #EXP-2161 (member-space.json `listed`): a member space is never a device row.
+    let rows: Vec<domain::rows::DeviceRow> = store.collections().devices.read(cx).iter().filter(|row| !row.is_space()).cloned().collect();
     let inputs: Vec<SidebarDeviceInput> = rows
         .iter()
         .map(|row| SidebarDeviceInput {

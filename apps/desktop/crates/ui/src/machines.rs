@@ -807,7 +807,8 @@ impl MachinesSection {
         let users = collections.users.read(cx);
         let now_ms = chrono::Utc::now().timestamp_millis();
         let mut derived = DerivedDevices::default();
-        for row in devices.iter() {
+        // #EXP-2161 (member-space.json `listed`): a member space is never a device.
+        for row in devices.iter().filter(|row| !row.is_space()) {
             let owned = row.user_id.as_deref() == Some(me.as_str());
             let owner_tooltip = (!owned)
                 .then(|| {

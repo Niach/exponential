@@ -78,6 +78,102 @@ pub fn provision(trpc: &TrpcClient, space_id: &str) -> Result<Provisioned, ApiEr
     trpc.mutation("memberSpaces.provision", &SpaceInput { space_id })
 }
 
+/// `memberSpaces.request`'s answer: the space row the Assistant now runs on.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Requested {
+    pub space_id: String,
+    /// `space-<uuid>`: the Assistant's `agents.device_id` from now on.
+    pub device_id: String,
+    #[serde(default)]
+    pub txid: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestInput<'a> {
+    device_id: &'a str,
+    team_id: &'a str,
+}
+
+/// `memberSpaces.request {deviceId, teamId}` (the HOST's `device_id`): run
+/// the caller's Assistant on a team device; its running conversation is
+/// detached and the next message starts a fresh one there.
+pub fn request(trpc: &TrpcClient, host_device_id: &str, team_id: &str) -> Result<Requested, ApiError> {
+    trpc.mutation("memberSpaces.request", &RequestInput { device_id: host_device_id, team_id })
+}
+
+/// `memberSpaces.mine`'s space: `starting` (its daemon has not registered),
+/// `waiting` (for the member's approval) or `ready`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MySpace {
+    pub space_id: String,
+    pub device_id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub host_device_id: String,
+    #[serde(default)]
+    pub owner_id: String,
+    #[serde(default)]
+    pub owner_name: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+}
+
+/// `memberSpaces.mine`: the caller's own space (`None` = none) and whether
+/// their Assistant lost its device (`ended`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mine {
+    #[serde(default)]
+    pub space: Option<MySpace>,
+    #[serde(default)]
+    pub ended: bool,
+}
+
+/// `memberSpaces.mine`.
+pub fn mine(trpc: &TrpcClient) -> Result<Mine, ApiError> {
+    trpc.query("memberSpaces.mine")
+}
+
+/// One member with a space on a device (`memberSpaces.forDevice`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceMember {
+    pub space_id: String,
+    pub user_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Members {
+    members: Vec<SpaceMember>,
+}
+
+#[derive(Serialize)]
+struct RowInput<'a> {
+    id: &'a str,
+}
+
+/// `memberSpaces.forDevice {id}` (the host's `devices` ROW id): the members
+/// running their Assistant there, for its owner or a team owner.
+pub fn for_device(trpc: &TrpcClient, row_id: &str) -> Result<Vec<SpaceMember>, ApiError> {
+    trpc.query_with_input::<_, Members>("memberSpaces.forDevice", &RowInput { id: row_id }).map(|answer| answer.members)
+}
+
+/// `memberSpaces.remove {spaceId}`: the device owner's, or a team owner's, Remove.
+pub fn remove(trpc: &TrpcClient, space_id: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("memberSpaces.remove", &SpaceInput { space_id })?;
+    Ok(())
+}
+
 // ── inside a space ────────────────────────────────────────────────────────
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -151,6 +247,17 @@ mod tests {
         .unwrap();
         assert_eq!(hosted.spaces[0].member_name, "Ada");
         let key: Provisioned = serde_json::from_str(r#"{"key":"expu_x","userId":"u","deviceId":"space-1"}"#).unwrap();
+        let mine: Mine = serde_json::from_str(
+            r#"{"space":{"spaceId":"s","deviceId":"space-1","label":"unraid","hostDeviceId":"srv","ownerId":"u2","ownerName":"Mira","teamId":"t1","teamIds":["t1"],"status":"waiting","endpointId":null},"ended":false}"#,
+        )
+        .unwrap();
+        assert_eq!(mine.space.as_ref().map(|space| space.status.as_str()), Some("waiting"));
+        let none: Mine = serde_json::from_str(r#"{"space":null,"ended":true}"#).unwrap();
+        assert!(none.space.is_none() && none.ended);
+        let members: Members = serde_json::from_str(r#"{"members":[{"spaceId":"s","userId":"u","name":"Ada","teamId":null}]}"#).unwrap();
+        assert_eq!(members.members[0].name, "Ada");
+        let requested: Requested = serde_json::from_str(r#"{"spaceId":"s","deviceId":"space-1","txid":"12"}"#).unwrap();
+        assert_eq!(requested.device_id, "space-1");
         assert!(!format!("{key:?}").contains("expu_x"));
     }
 }
