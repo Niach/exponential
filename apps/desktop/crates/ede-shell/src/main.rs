@@ -88,6 +88,7 @@ mod captures;
 mod chats;
 mod cli_setup;
 mod engine;
+mod holder_windows;
 mod issues;
 mod assets;
 mod connect;
@@ -349,6 +350,8 @@ struct Shell {
     /// Live thumbnails by window id, refreshed by the capture loop while
     /// the switcher or the previews are open.
     thumbnails: HashMap<String, String>,
+    /// #EDE-237: what the Exponential app's windows are (the holder's pages).
+    holder_windows: holder_windows::HolderWindows,
     /// #EXP-2024: THE capture loop's plan and asks (`captures.rs`): the
     /// windows and agent spaces it photographs, derived from what is open.
     captures: Arc<captures::Shared>,
@@ -2442,20 +2445,43 @@ fn previews_after(current: &Option<String>, app: Option<String>, open: bool) -> 
 
 fn previews_refresh(shell: &SharedShell) {
     let mut s = shell.borrow_mut();
-    let value = match s.model.taskbar.previews.clone() {
-        None => json!({"app": null, "windows": []}),
-        Some(app) => {
-            let windows: Vec<Value> = s
-                .model
-                .windows
-                .iter()
-                .filter(|w| w.app == app && w.workspace == s.model.workspaces.active)
-                .map(|w| json!({"id": w.id, "title": w.title, "focused": w.focused, "minimized": w.minimized, "thumbnail": s.thumbnails.get(&w.id).cloned().unwrap_or_default()}))
-                .collect();
-            json!({"app": app, "windows": windows})
-        }
+    let value = {
+        let s = &*s;
+        previews_feed(&s.model, &s.holder_windows, |app| app_icon(s, app), |id| s.thumbnails.get(id).cloned().unwrap_or_default())
     };
     s.feed.set("/previews", value);
+}
+
+/// The hovered app's thumbnails (Cinnamon's grouped window list): each
+/// window's title and icon over its picture. #EDE-237: an Exponential page
+/// window wears its page's concept icon (`concept`, from the holder), any
+/// other window its app's icon.
+fn previews_feed(model: &ShellState, holder: &holder_windows::HolderWindows, icon: impl Fn(&str) -> String, thumbnail: impl Fn(&str) -> String) -> Value {
+    let Some(app) = model.taskbar.previews.clone() else {
+        return json!({"app": null, "windows": []});
+    };
+    let app_icon = icon(&app);
+    let windows: Vec<Value> = model
+        .windows
+        .iter()
+        .filter(|w| w.app == app && w.workspace == model.workspaces.active)
+        .map(|w| {
+            let page = holder.page(&w.app, &w.title);
+            json!({
+                "id": w.id,
+                "title": w.title,
+                "focused": w.focused,
+                "minimized": w.minimized,
+                "thumbnail": thumbnail(&w.id),
+                "icon": app_icon,
+                // A hidden Icon still names a concept.
+                "page": page.is_some(),
+                "concept": page.map_or_else(|| "nav-apps".to_string(), |page| page.icon.clone()),
+                "team": page.and_then(|page| page.team.clone()),
+            })
+        })
+        .collect();
+    json!({"app": app, "windows": windows})
 }
 
 /// The chat surface (the Assistant's composer) opens or closes with the model.
@@ -4589,6 +4615,11 @@ fn main() {
     let connect = connect::Connect::new(workspaces.auth.clone(), connect_tx);
     let (share_tx, share_rx) = mpsc::channel::<share::Event>();
     let share = share::Share::new(share_tx);
+    // #EDE-237: the holder's page windows (their icons and titles).
+    let (holder_windows_tx, holder_windows_rx) = mpsc::channel::<holder_windows::HolderWindows>();
+    if !demo {
+        holder_windows::follow(holder_windows_tx);
+    }
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         // #EDE-172 (P4): gpui's Wayland connection did its first roundtrip.
@@ -4756,6 +4787,7 @@ fn main() {
             x11_hints: Default::default(),
             windows: Vec::new(),
             thumbnails: HashMap::new(),
+            holder_windows: Default::default(),
             captures: captures_shared,
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
@@ -4937,6 +4969,11 @@ fn main() {
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                if let Some(windows) = holder_windows_rx.try_iter().last() {
+                    s.borrow_mut().holder_windows = windows;
+                    previews_refresh(&s);
+                    dirty = true;
                 }
                 while let Ok((domain, snapshot)) = services_rx.try_recv() {
                     let mut sh = s.borrow_mut();
@@ -5903,7 +5940,32 @@ mod chat_as_drawn {
 
 #[cfg(test)]
 mod previews {
-    use super::{popups_to_dismiss, previews_after, previews_under_a_menu};
+    use super::{popups_to_dismiss, previews_after, previews_feed, previews_under_a_menu};
+
+    /// #EDE-237: the Exponential button's thumbnails wear each page's icon
+    /// and title (the holder's window metadata); another app's its app icon.
+    #[test]
+    fn exponential_thumbnails_wear_their_pages_icon_and_title() {
+        use uicore_model::{ShellState, ShellWindow};
+        let window = |id: &str, app: &str, title: &str| ShellWindow { id: id.into(), app: app.into(), title: title.into(), focused: false, workspace: 0, minimized: false };
+        let mut model = ShellState::default();
+        model.windows = vec![window("w1", "at.exponential", "Desktop"), window("w2", "at.exponential", "EXP-1 Crash"), window("w3", "nemo", "Files"), window("w4", "at.exponential", "Unknown")];
+        model.taskbar.previews = Some("at.exponential".into());
+        let meta = |title: &str, icon: &str| api::bus::WindowMeta { key: title.into(), kind: "k".into(), icon: icon.into(), title: title.into(), team: Some("Exponential".into()), team_id: None };
+        let holder = super::holder_windows::HolderWindows { app_id: "at.exponential".into(), windows: vec![meta("Desktop", "nav-boards"), meta("EXP-1 Crash", "ui-issue")] };
+        let feed = previews_feed(&model, &holder, |app| format!("icon:{app}"), |id| format!("thumb:{id}"));
+        let windows = feed["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 3, "only the hovered app's windows");
+        assert_eq!(windows[0]["concept"], "nav-boards");
+        assert_eq!(windows[0]["title"], "Desktop");
+        assert_eq!(windows[0]["team"], "Exponential");
+        assert_eq!(windows[1]["concept"], "ui-issue");
+        assert_eq!(windows[1]["thumbnail"], "thumb:w2");
+        // No page told for it: the app's icon alone.
+        assert_eq!((windows[0]["page"].as_bool(), windows[2]["page"].as_bool()), (Some(true), Some(false)));
+        assert_eq!(windows[2]["icon"], "icon:at.exponential");
+        assert_eq!(previews_feed(&ShellState::default(), &holder, |_| String::new(), |_| String::new())["windows"], serde_json::json!([]));
+    }
 
     /// #EDE-252: a menu of the taskbar opening closes the hover previews.
     #[test]

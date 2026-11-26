@@ -347,6 +347,13 @@ pub fn run(mode: Mode) {
         })
         .detach();
 
+        // #EDE-237: eDE mode: every page its own window; the ones open when
+        // the holder last ended come back.
+        if mode == Mode::Component {
+            ui::ede_windows::set_app_id(channel::APP_ID);
+            ui::ede_windows::restore(cx);
+        }
+
         if session_device {
             ui::set_resident_device(cx);
         } else {

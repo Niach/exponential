@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-page-windows",
+    date: "2026-11-27",
+    title: "Every page of Exponential is its own window",
+    summary: "On Exponential Desktop each board, issue, chat and device opens in a window of its own, grouped under the Exponential button on the taskbar.",
+    body: r##"- **A window per page**: boards, issues, chats, devices and every other page open as windows of their own, without a sidebar or tabs; a link to a page that is already open brings its window forward.
+- **One taskbar button**: Exponential's windows group under its button, and hovering it shows each window's thumbnail with its page's icon and title.
+- **Back after a restart**: the windows you had open come back when the app restarts or recovers from a crash."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_373: ChangelogEntry = ChangelogEntry {
     id: "2026-11-26-ede-app-built-in",
     date: "2026-11-26",
     title: "Exponential Desktop brings the app with it",
