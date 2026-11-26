@@ -585,13 +585,16 @@ The compositor opens one window on the running X11 (or Wayland) session and
 serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
 `--headless 1920x1080` runs without a window (pixman, no GPU).
 
-Bindings: Alt+drag moves a window, dropping it on a side edge tiles it to a
-half (corners = quarter, top = maximize), Super+Left/Right tile, Super+Up
-maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quits
-(logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev). Workspaces
-(#EDE-18, shared by every output as on Cinnamon, four listed, up to nine):
-Super+1…9 switch, Super+Shift+1…9 take the focused window along,
-Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
+Bindings (#EDE-243: Cinnamon's defaults): Alt+drag moves a window, Alt+right-drag
+resizes it, dropping it on a side edge tiles it to a half (corners = quarter,
+top = maximize), Super+arrows walk Muffin's tiles (halves, quarters by
+combination, Up twice maximizes, the opposite way restores), Super+Shift+arrows
+move it to the next output, Alt+F10 maximizes, Alt+F5 unmaximizes, Alt+F7 / F8
+move / resize it with the pointer, Super+D shows the desktop, Super+Space
+switches the keyboard layout, Alt+F4 closes, Super+L and Ctrl+Alt+L lock,
+Super+Shift+E quits (logs out of the session), Ctrl+Alt+F1…F12 switch VTs
+(udev). Workspaces (#EDE-18, shared by every output as on Cinnamon, four
+listed, up to nine): Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
 workspace is parked off screen; the taskbar still lists it and focusing it
 switches back. A parked or minimized window comes back fitted to its output
 as it is now (a tiled or fullscreen one fills it; one whose output went

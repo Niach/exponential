@@ -444,12 +444,14 @@ fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
     assert_eq!(spaces.len(), 4, "Cinnamon's four by default");
     assert!(spaces[0].active && spaces[0].windows.len() == 2);
 
-    // Super+2: both windows park, the screen shows the background only.
-    const KEY_2: u32 = 3;
-    press(&h, KEY_LEFTMETA, true);
-    press(&h, KEY_2, true);
-    press(&h, KEY_2, false);
-    press(&h, KEY_LEFTMETA, false);
+    // Ctrl+Alt+Right (Cinnamon's, #EDE-243): both windows park, the screen shows the background only.
+    const KEY_RIGHT: u32 = 106;
+    press(&h, KEY_LEFTCTRL, true);
+    press(&h, KEY_LEFTALT, true);
+    press(&h, KEY_RIGHT, true);
+    press(&h, KEY_RIGHT, false);
+    press(&h, KEY_LEFTALT, false);
+    press(&h, KEY_LEFTCTRL, false);
     let switched = ipc.next_event().unwrap();
     assert_eq!((switched.kind.as_str(), switched.data["workspace"].as_u64()), (events::WORKSPACE_SWITCHED, Some(1)));
     assert!(h.with(|ede| ede.desk.space.elements().count() == 0));

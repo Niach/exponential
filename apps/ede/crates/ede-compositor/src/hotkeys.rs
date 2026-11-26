@@ -3,8 +3,10 @@
 //! the shell's layer surfaces never hold the keyboard while an app has it.
 //! Alt+Tab opens the switcher and cycles it (Shift reverses), Alt+` (the
 //! key above Tab, whatever the layout) cycles the focused app's windows, the
-//! arrow keys move while it is held, releasing Alt commits, Escape cancels; Super alone toggles the menu; Super+Space the
-//! agent panel; Ctrl+Alt+Up Expo and Ctrl+Alt+Down Scale (#EDE-49); Print
+//! arrow keys move while it is held, releasing Alt commits, Escape cancels; Super alone toggles the menu; Super+A the
+//! agent panel (#EDE-243: Super+Space is Cinnamon's layout switch); Super+1…9 the taskbar's nth app (Cinnamon's
+//! grouped window list: focus or launch, Shift: a new instance); Super+N the notifications, Shift+Super+C clears
+//! them; Alt+F1 Expo as Ctrl+Alt+Up; Ctrl+Alt+Up Expo and Ctrl+Alt+Down Scale (#EDE-49); Print
 //! the screenshot; Ctrl+Alt+T a terminal; the media keys
 //! (volume, microphone, brightness, play/next/previous) show the OSD.
 //!
@@ -29,6 +31,13 @@ pub mod names {
     pub const SWITCHER_CANCEL: &str = "switcher.cancel";
     pub const MENU_TOGGLE: &str = "menu.toggle";
     pub const AGENT_TOGGLE: &str = "agent.toggle";
+    /// Super+1…9 (#EDE-243): `taskbar.activate.<n>` (1-based), with Shift
+    /// `taskbar.launch.<n>`: the grouped window list's nth app.
+    pub const TASKBAR_ACTIVATE: [&str; 9] = ["taskbar.activate.1", "taskbar.activate.2", "taskbar.activate.3", "taskbar.activate.4", "taskbar.activate.5", "taskbar.activate.6", "taskbar.activate.7", "taskbar.activate.8", "taskbar.activate.9"];
+    pub const TASKBAR_LAUNCH: [&str; 9] = ["taskbar.launch.1", "taskbar.launch.2", "taskbar.launch.3", "taskbar.launch.4", "taskbar.launch.5", "taskbar.launch.6", "taskbar.launch.7", "taskbar.launch.8", "taskbar.launch.9"];
+    /// Super+N / Shift+Super+C: Cinnamon's notifications applet keys.
+    pub const NOTIFICATIONS_OPEN: &str = "notifications.open";
+    pub const NOTIFICATIONS_CLEAR: &str = "notifications.clear";
     /// Ctrl+Alt+Up: the workspace overview (#EDE-49); Ctrl+Alt+Down: the
     /// current workspace's windows tiled. Both shell overlays, no fallback.
     pub const EXPO_TOGGLE: &str = "expo.toggle";
@@ -59,6 +68,10 @@ pub enum Hotkey {
     SwitcherCancel,
     MenuToggle,
     AgentToggle,
+    /// Super+n (0-based), Shift = a new instance.
+    Taskbar(usize, bool),
+    NotificationsOpen,
+    NotificationsClear,
     ExpoToggle,
     ScaleToggle,
     Screenshot,
@@ -80,6 +93,10 @@ impl Hotkey {
             Hotkey::SwitcherCancel => names::SWITCHER_CANCEL,
             Hotkey::MenuToggle => names::MENU_TOGGLE,
             Hotkey::AgentToggle => names::AGENT_TOGGLE,
+            Hotkey::Taskbar(n, false) => names::TASKBAR_ACTIVATE[n.min(8)],
+            Hotkey::Taskbar(n, true) => names::TASKBAR_LAUNCH[n.min(8)],
+            Hotkey::NotificationsOpen => names::NOTIFICATIONS_OPEN,
+            Hotkey::NotificationsClear => names::NOTIFICATIONS_CLEAR,
             Hotkey::ExpoToggle => names::EXPO_TOGGLE,
             Hotkey::ScaleToggle => names::SCALE_TOGGLE,
             Hotkey::Screenshot => names::SCREENSHOT,
@@ -112,6 +129,24 @@ pub struct Hotkeys {
 /// others, so the compositor names it by position as Cinnamon does
 /// (`<Alt>Above_Tab`).
 pub const ABOVE_TAB_KEYCODE: u32 = 49;
+
+/// The digit row's 1…9, and its shifted symbols on a US layout.
+fn digit(sym: u32) -> Option<usize> {
+    use keysyms::*;
+    match sym {
+        KEY_1..=KEY_9 => Some((sym - KEY_1 + 1) as usize),
+        KEY_exclam => Some(1),
+        KEY_at => Some(2),
+        KEY_numbersign => Some(3),
+        KEY_dollar => Some(4),
+        KEY_percent => Some(5),
+        KEY_asciicircum => Some(6),
+        KEY_ampersand => Some(7),
+        KEY_asterisk => Some(8),
+        KEY_parenleft => Some(9),
+        _ => None,
+    }
+}
 
 /// `(keep the key from the app?, the hotkey)`, pure so it can be tested.
 #[allow(non_upper_case_globals)]
@@ -159,7 +194,13 @@ pub fn decide(h: &mut Hotkeys, mods: &ModifiersState, sym: u32, state: KeyState,
             h.switcher = true;
             (true, Some(if mods.shift { Hotkey::SwitcherPrevApp } else { Hotkey::SwitcherNextApp }))
         }
-        KEY_space if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => (true, Some(Hotkey::AgentToggle)),
+        KEY_a | KEY_A if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => (true, Some(Hotkey::AgentToggle)),
+        // Super+1…9 (the digit row by keysym; Shift's symbols on a US layout too).
+        _ if mods.logo && !mods.alt && !mods.ctrl && shell_listening && digit(sym).is_some() => (true, Some(Hotkey::Taskbar(digit(sym).unwrap() - 1, mods.shift))),
+        KEY_n | KEY_N if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => (shell_listening, Some(Hotkey::NotificationsOpen)),
+        KEY_c | KEY_C if mods.logo && mods.shift && !mods.alt && !mods.ctrl => (shell_listening, Some(Hotkey::NotificationsClear)),
+        // Alt+F1: Cinnamon's switch-to-workspace-up, Expo.
+        KEY_F1 if mods.alt && !mods.ctrl && !mods.logo && !mods.shift => (shell_listening, Some(Hotkey::ExpoToggle)),
         // Expo and Scale are shell overlays (#EDE-49): with no shell the
         // key goes to the app, as Print does.
         KEY_Up if mods.ctrl && mods.alt && !mods.logo && !mods.shift => (shell_listening, Some(Hotkey::ExpoToggle)),
@@ -355,7 +396,7 @@ mod tests {
         let mut h = Hotkeys::default();
         assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_XF86AudioRaiseVolume, KeyState::Pressed, true), (true, Some(Hotkey::Media(names::VOLUME_UP))));
         assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_XF86AudioRaiseVolume, KeyState::Pressed, false), (false, Some(Hotkey::Media(names::VOLUME_UP))));
-        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_space, KeyState::Pressed, true), (true, Some(Hotkey::AgentToggle)));
+        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_a, KeyState::Pressed, true), (true, Some(Hotkey::AgentToggle)));
         assert_eq!(decide(&mut h, &mods(true, false, true, false), keysyms::KEY_t, KeyState::Pressed, true), (true, Some(Hotkey::Terminal)));
         assert_eq!(decide(&mut h, &mods(false, false, false, false), keysyms::KEY_Print, KeyState::Pressed, true), (true, Some(Hotkey::Screenshot)));
     }
@@ -374,7 +415,24 @@ mod tests {
         assert_eq!(decide(&mut h, &ctrl_alt, keysyms::KEY_Up, KeyState::Released, true), (false, None));
         assert_eq!(decide(&mut h, &mods(true, false, true, true), keysyms::KEY_Up, KeyState::Pressed, true), (false, None));
         assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_Up, KeyState::Pressed, true), (false, None));
-        // Super+Space stays the agent panel.
-        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_space, KeyState::Pressed, true), (true, Some(Hotkey::AgentToggle)));
+        // #EDE-243: Super+Space is the layout switch now (a compositor binding), the agent panel Super+A.
+        assert_eq!(decide(&mut h, &mods(false, true, false, false), keysyms::KEY_space, KeyState::Pressed, true), (false, None));
+        // Alt+F1: Expo, as Cinnamon's switch-to-workspace-up.
+        assert_eq!(decide(&mut h, &mods(true, false, false, false), keysyms::KEY_F1, KeyState::Pressed, true), (true, Some(Hotkey::ExpoToggle)));
+    }
+
+    /// #EDE-243: the grouped window list's Super+1…9 and the notifications keys.
+    #[test]
+    fn super_digits_reach_the_taskbar_and_super_n_the_notifications() {
+        let mut h = Hotkeys::default();
+        let sup = mods(false, true, false, false);
+        let sup_shift = mods(false, true, false, true);
+        assert_eq!(decide(&mut h, &sup, keysyms::KEY_3, KeyState::Pressed, true), (true, Some(Hotkey::Taskbar(2, false))));
+        assert_eq!(Hotkey::Taskbar(2, false).name(), "taskbar.activate.3");
+        assert_eq!(decide(&mut h, &sup_shift, keysyms::KEY_numbersign, KeyState::Pressed, true), (true, Some(Hotkey::Taskbar(2, true))));
+        assert_eq!(Hotkey::Taskbar(2, true).name(), "taskbar.launch.3");
+        assert_eq!(decide(&mut h, &sup, keysyms::KEY_3, KeyState::Pressed, false), (false, None), "no shell: the app keeps it");
+        assert_eq!(decide(&mut h, &sup, keysyms::KEY_n, KeyState::Pressed, true), (true, Some(Hotkey::NotificationsOpen)));
+        assert_eq!(decide(&mut h, &sup_shift, keysyms::KEY_C, KeyState::Pressed, true), (true, Some(Hotkey::NotificationsClear)));
     }
 }

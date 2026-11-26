@@ -79,6 +79,9 @@ pub mod events {
     pub const WINDOW_RESTORED: &str = "window.restored";
     /// A key the shell answers (#EDE-12): `{"name": "switcher.next" | "menu.toggle" | "volume.up" | …}`.
     pub const HOTKEY: &str = "hotkey";
+    /// The keyboard layout changed (#EDE-243, Super+Space): `{"index": 1,
+    /// "layouts": ["English (US)", "German"]}`, for the keyboard applet.
+    pub const KEYBOARD_LAYOUT: &str = "keyboard.layout";
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
