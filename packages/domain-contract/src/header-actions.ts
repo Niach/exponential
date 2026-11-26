@@ -34,3 +34,38 @@ export function headerMenu<T extends string>(entries: readonly T[]): T[] {
     .filter((entry) => !HEADER_MENU_DROPS.includes(entry))
     .filter((entry, index, all) => entry !== `separator` || (index > 0 && index < all.length - 1 && all[index - 1] !== `separator`))
 }
+
+/** #EXP-2183: the trailing chips a narrow bar may fold to their glyph. */
+export type HeaderCollapsible = `primary` | `status`
+export type HeaderCollapseChip = { action: HeaderCollapsible; full: number; compact: number }
+
+export const HEADER_TITLE_MIN_SHARE = fixture.collapse.titleMinShare
+export const HEADER_COLLAPSE_ORDER = fixture.collapse.order as readonly HeaderCollapsible[]
+
+/** COLLAPSE: fold the chips in `collapse.order` until the title gets at
+ *  least `titleMinShare` of the bar (or its whole intrinsic width when
+ *  shorter); returns the folded actions in fold order. `fixed` = what never
+ *  folds (back, disc, call, +, …, gaps, padding). */
+export function headerCollapse({
+  bar,
+  title,
+  fixed,
+  chips,
+}: {
+  bar: number
+  title: number
+  fixed: number
+  chips: readonly HeaderCollapseChip[]
+}): HeaderCollapsible[] {
+  const target = Math.min(title, HEADER_TITLE_MIN_SHARE * bar)
+  let used = fixed + chips.reduce((sum, chip) => sum + chip.full, 0)
+  const folded: HeaderCollapsible[] = []
+  for (const action of HEADER_COLLAPSE_ORDER) {
+    if (bar - used >= target) break
+    const chip = chips.find((entry) => entry.action === action)
+    if (!chip) continue
+    used -= chip.full - chip.compact
+    folded.push(action)
+  }
+  return folded
+}
