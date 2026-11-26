@@ -116,6 +116,10 @@ pub struct Ede {
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
+    /// #EDE-246: the pointer against the hot corners.
+    pub corners: crate::hot_corners::HotCorners,
+    /// The windows Show desktop sent to the taskbar ([`Ede::toggle_desktop`]).
+    pub desktop_shown: Vec<Window>,
     /// wp-fractional-scale + wp-viewporter: HiDPI at 1.5× and the like.
     pub fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub viewporter_state: smithay::wayland::viewporter::ViewporterState,
@@ -305,6 +309,8 @@ impl Ede {
             input_methods: crate::InputMethods::system(),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
+            corners: Default::default(),
+            desktop_shown: Vec::new(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
