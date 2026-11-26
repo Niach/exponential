@@ -757,6 +757,13 @@ impl Ede {
                 self.minimize_window(&w);
                 json(serde_json::Value::Null)
             }
+            Request::ToggleDesktop => {
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                self.toggle_desktop();
+                json(serde_json::Value::Null)
+            }
             Request::RestoreWindow { window } => {
                 let w = self.any_window_by_id(&window)?;
                 if self.is_locked() {
