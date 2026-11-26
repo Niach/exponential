@@ -512,6 +512,10 @@ impl XwmHandler for Ede {
             XwmDesk::Gone => return,
         }
         if let Some(w) = self.x11_window(&surface) {
+            // A double click's second press may have started a move: it
+            // would pull the restored window back to where the maximized
+            // one stood.
+            crate::grabs::end_grab_of(self, &w);
             self.untile(&w, None);
         }
     }
@@ -642,6 +646,19 @@ impl XwmHandler for Ede {
         pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 
+    /// `_NET_WM_MOVERESIZE_CANCEL`: the client's move or resize ends
+    /// where the window is (Muffin ends its grab the same way).
+    fn move_resize_cancel_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        match self.desk_of_xwm(xwm) {
+            XwmDesk::Person => {}
+            XwmDesk::Space(_desk) => return,
+            XwmDesk::Gone => return,
+        }
+        if let Some(w) = self.x11_window(&surface) {
+            crate::grabs::end_grab_of(self, &w);
+        }
+    }
+
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         match self.desk_of_xwm(xwm) {
             // Only the focused X11 client may read the clipboard.
@@ -683,6 +700,7 @@ impl XwmHandler for Ede {
         d.clipboard.changed(crate::clipboard::Owner::X11(mime_types.clone()));
         let seat = d.seat.clone();
         set_data_device_selection(&self.display_handle, &seat, mime_types, crate::clipboard::Selection::X11);
+        self.clipboard_keep(desk);
     }
 
     fn cleared_selection(&mut self, xwm: XwmId, selection: SelectionTarget) {
@@ -690,9 +708,10 @@ impl XwmHandler for Ede {
         let Some(d) = self.try_desk_mut(desk) else { return };
         let x11 = matches!(current_data_device_selection_userdata(&d.seat).as_deref(), Some(crate::clipboard::Selection::X11));
         if selection == SelectionTarget::Clipboard && x11 {
-            d.clipboard.changed(crate::clipboard::Owner::Empty);
+            // Its owner quit (or let go): the kept copy takes its place.
             let seat = d.seat.clone();
             clear_data_device_selection(&self.display_handle, &seat);
+            self.clipboard_source_gone(desk);
         }
     }
 }

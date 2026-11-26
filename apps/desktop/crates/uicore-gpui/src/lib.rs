@@ -19,8 +19,9 @@ pub mod inline;
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use ede_ui::surface::Edge;
 #[cfg(target_os = "linux")]
-use ede_ui::surface::{Edge, Keyboard, Layer as DocLayer};
+use ede_ui::surface::{Keyboard, Layer as DocLayer};
 use ede_ui::{
     surface::{Placement, SurfaceHeader},
     Document,
@@ -55,6 +56,10 @@ pub struct SurfaceRoot {
     /// `Some` = the window takes input only where its root's children are
     /// ([`clips_input`]); the input region it was last given.
     pub input: Option<InputRegion>,
+    /// #EDE-252: a hosted Menu's popup takes the keyboard (it grabs): its
+    /// keys go to the surface's menu (arrows, Home/End, Enter, Escape,
+    /// type-ahead), as the in-surface menu takes them.
+    pub keys: Option<gpui::FocusHandle>,
 }
 
 /// The input region a window was last given.
@@ -115,7 +120,15 @@ impl Render for SurfaceRoot {
             }
             Some(owner) => {
                 let el = self.view.update(cx, |v, cx| v.hosted_popup_element(&owner, window, cx));
-                div().size_full().children(el)
+                let root = div().size_full().children(el);
+                let Some(keys) = self.keys.clone() else { return root };
+                let view = self.view.clone();
+                root.track_focus(&keys).on_key_down(move |ev: &gpui::KeyDownEvent, window, cx| {
+                    let k = &ev.keystroke;
+                    if view.update(cx, |v, cx| v.handle_key(&k.key, k.modifiers.shift, k.key_char.as_deref(), window, cx)) {
+                        cx.stop_propagation();
+                    }
+                })
             }
         }
     }
@@ -131,6 +144,9 @@ pub struct Region {
     pushed: Rc<RefCell<Pushed>>,
     /// The input region its window was last given ([`clips_input`]).
     pub input: Option<InputRegion>,
+    /// #EDE-252: a panel's edge and thickness ([`panel_of`]): its hosted
+    /// popups open off that edge into the screen.
+    pub panel: Option<(Edge, f32)>,
 }
 
 /// What one view was last given of the feed (#EDE-65): the data roots its
@@ -344,6 +360,88 @@ fn same_bounds(a: &Bounds<Pixels>, b: &Bounds<Pixels>) -> bool {
     near(a.origin.x, b.origin.x) && near(a.origin.y, b.origin.y) && near(a.size.width, b.size.width) && near(a.size.height, b.size.height)
 }
 
+/// #EDE-252: the edge a layer document stands on as a panel (anchored to
+/// that edge and along it, not to the opposite one) and its thickness.
+pub fn panel_of(header: &SurfaceHeader) -> Option<(Edge, f32)> {
+    let SurfaceHeader::Layer { anchor, .. } = header else { return None };
+    let has = |e: Edge| anchor.contains(&e);
+    let size = layer_bounds(header).size;
+    let (h, w) = (f32::from(size.height), f32::from(size.width));
+    let along_x = has(Edge::Left) && has(Edge::Right);
+    let along_y = has(Edge::Top) && has(Edge::Bottom);
+    match () {
+        _ if along_x && has(Edge::Bottom) && !has(Edge::Top) => Some((Edge::Bottom, h)),
+        _ if along_x && has(Edge::Top) && !has(Edge::Bottom) => Some((Edge::Top, h)),
+        _ if along_y && has(Edge::Left) && !has(Edge::Right) => Some((Edge::Left, w)),
+        _ if along_y && has(Edge::Right) && !has(Edge::Left) => Some((Edge::Right, w)),
+        _ => None,
+    }
+}
+
+/// A hosted Menu takes the keyboard while it is open (#EDE-252: arrows,
+/// Enter and Escape, Cinnamon's panel menus); a Popover never does (a hover
+/// preview must not steal the focused window's keys).
+pub fn hosted_grabs(layer: &Layer) -> bool {
+    layer.kind == "Menu"
+}
+
+/// A hosted popup's `xdg_positioner`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostedPositioner {
+    pub anchor_rect: Bounds<Pixels>,
+    pub anchor: PopupAnchor,
+    pub gravity: PopupGravity,
+    pub adjustment: PopupConstraintAdjustment,
+    pub offset: gpui::Point<Pixels>,
+}
+
+/// Where a hosted layer opens against its anchor (VAPP-281). #EDE-252: in a
+/// panel (`panel` = its edge and thickness) every popup anchored in the
+/// panel opens off the panel's edge INTO the screen (above a bottom panel,
+/// below a top one), whatever side its document asked for and wherever in
+/// the panel it was opened (a context menu at the pointer): standing on the
+/// panel's edge, aligned at its anchor, sliding only along the panel (the
+/// compositor keeps it on the output; it never flips into or off the
+/// panel). Elsewhere: `side` + `align`, flipping when it runs out of room.
+pub fn hosted_positioner(panel: Option<(Edge, f32)>, side: OverlaySide, align: OverlayAlign, anchor_rect: Bounds<Pixels>) -> HostedPositioner {
+    let gap = POPUP_GAP;
+    let (ax, ay, aw, ah) = (anchor_rect.origin.x, anchor_rect.origin.y, anchor_rect.size.width, anchor_rect.size.height);
+    let in_band = |start: Pixels, thickness: f32| f32::from(start) >= -0.5 && f32::from(start) <= thickness + 0.5;
+    let panel = panel.filter(|(edge, thickness)| match edge {
+        Edge::Top | Edge::Bottom => in_band(ay, *thickness),
+        Edge::Left | Edge::Right => in_band(ax, *thickness),
+    });
+    if let Some((edge, thickness)) = panel {
+        let t = px(thickness);
+        let (side, rect, adjustment) = match edge {
+            Edge::Bottom => (OverlaySide::Top, Bounds { origin: point(ax, px(0.0)), size: size(aw, t) }, PopupConstraintAdjustment::SLIDE_X),
+            Edge::Top => (OverlaySide::Bottom, Bounds { origin: point(ax, px(0.0)), size: size(aw, t) }, PopupConstraintAdjustment::SLIDE_X),
+            Edge::Left => (OverlaySide::Right, Bounds { origin: point(px(0.0), ay), size: size(t, ah) }, PopupConstraintAdjustment::SLIDE_Y),
+            Edge::Right => (OverlaySide::Left, Bounds { origin: point(px(0.0), ay), size: size(t, ah) }, PopupConstraintAdjustment::SLIDE_Y),
+        };
+        // Along a horizontal panel the menu keeps the author's alignment; a
+        // vertical panel's opens from its anchor's top.
+        let align = if matches!(edge, Edge::Left | Edge::Right) { OverlayAlign::Start } else { align };
+        let (anchor, gravity) = side_anchor(side, align);
+        return HostedPositioner { anchor_rect: rect, anchor, gravity, adjustment, offset: side_offset(side, gap) };
+    }
+    let (anchor, gravity) = side_anchor(side, align);
+    let adjustment = match side {
+        OverlaySide::Top | OverlaySide::Bottom => PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::FLIP_Y,
+        OverlaySide::Left | OverlaySide::Right => PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_X,
+    };
+    HostedPositioner { anchor_rect, anchor, gravity, adjustment, offset: side_offset(side, gap) }
+}
+
+fn side_offset(side: OverlaySide, gap: f32) -> gpui::Point<Pixels> {
+    match side {
+        OverlaySide::Top => point(px(0.0), px(-gap)),
+        OverlaySide::Bottom => point(px(0.0), px(gap)),
+        OverlaySide::Left => point(px(-gap), px(0.0)),
+        OverlaySide::Right => point(px(gap), px(0.0)),
+    }
+}
+
 fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixels> {
     Bounds { origin: point(anchor_rect.origin.x, anchor_rect.origin.y + anchor_rect.size.height + px(POPUP_GAP)), size: size(px(size_px.0), px(size_px.1)) }
 }
@@ -368,19 +466,9 @@ impl ShellHost for LayerShellHost {
     fn hosted(&self, parent: &Region, layer: &Layer, _cx: &mut App) -> Option<Placed> {
         let (root, anchor_rect) = hosted_frames(layer)?;
         let side = layer.placement.map(|p| p.side).unwrap_or(OverlaySide::Bottom);
-        let (anchor, gravity) = side_anchor(side, layer.align.unwrap_or_default());
+        let p = hosted_positioner(parent.panel, side, layer.align.unwrap_or_default(), anchor_rect);
         let parent_handle: AnyWindowHandle = parent.handle.into();
-        let offset = match side {
-            OverlaySide::Top => point(px(0.0), px(-POPUP_GAP)),
-            OverlaySide::Bottom => point(px(0.0), px(POPUP_GAP)),
-            OverlaySide::Left => point(px(-POPUP_GAP), px(0.0)),
-            OverlaySide::Right => point(px(POPUP_GAP), px(0.0)),
-        };
-        let adjustment = match side {
-            OverlaySide::Top | OverlaySide::Bottom => PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::FLIP_Y,
-            OverlaySide::Left | OverlaySide::Right => PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_X,
-        };
-        let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect, anchor, gravity, constraint_adjustment: adjustment, offset, grab: false });
+        let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect: p.anchor_rect, anchor: p.anchor, gravity: p.gravity, constraint_adjustment: p.adjustment, offset: p.offset, grab: hosted_grabs(layer) });
         Some(Placed { kind, bounds: Bounds { origin: root.origin, size: root.size }, namespace: Some(hosted_namespace(&self.namespace, &parent.name, &layer.owner)) })
     }
 }
@@ -461,6 +549,7 @@ impl Surfaces {
         let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
         let out = view_out.clone();
         let input: Option<InputRegion> = clips_input(&doc).then(Default::default);
+        let panel = panel_of(&doc.surface);
         let window_input = input.clone();
         let opened = cx.open_window(
             WindowOptions {
@@ -489,14 +578,14 @@ impl Surfaces {
                     // one starts; the eDE goldens wait for this line, not for time.
                     window.on_next_frame(move |_, _| tracing::info!(document = %n, "drawn"));
                 });
-                cx.new(|_| SurfaceRoot { view, hosted: None, input: window_input })
+                cx.new(|_| SurfaceRoot { view, hosted: None, input: window_input, keys: None })
             },
         );
         match opened {
             Ok(handle) => view_out.borrow().clone().map(|view| {
                 let mut pushed = Pushed::for_source(&source);
                 pushed.given_all(&feed_now);
-                Region { name: doc_name, handle, view, pushed: Rc::new(RefCell::new(pushed)), input }
+                Region { name: doc_name, handle, view, pushed: Rc::new(RefCell::new(pushed)), input, panel }
             }),
             Err(e) => {
                 tracing::warn!(document = %doc_name, "window: {e}");
@@ -625,9 +714,17 @@ impl Surfaces {
             }
             let view = parent.view.clone();
             let owner = layer.owner.clone();
+            let grabs = hosted_grabs(layer);
             let opened = cx.open_window(
                 WindowOptions { kind: placed.kind, window_bounds: Some(WindowBounds::Windowed(placed.bounds)), titlebar: None, app_id: Some(placed.namespace.unwrap_or_else(|| self.app_id.clone())), focus: false, is_resizable: false, window_background: WindowBackgroundAppearance::Transparent, ..Default::default() },
-                move |_, cx| cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None }),
+                move |window, cx| {
+                    let keys = grabs.then(|| {
+                        let focus = cx.focus_handle();
+                        window.focus(&focus, cx);
+                        focus
+                    });
+                    cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None, keys })
+                },
             );
             match opened {
                 Ok(handle) => {
@@ -891,6 +988,65 @@ mod tests {
         let (anchor, gravity) = side_anchor(OverlaySide::Bottom, OverlayAlign::Start);
         assert!(matches!(anchor, PopupAnchor::BottomLeft));
         assert!(matches!(gravity, PopupGravity::BottomRight));
+    }
+
+    fn at(x: f32, y: f32, w: f32, h: f32) -> Bounds<Pixels> {
+        Bounds { origin: point(px(x), px(y)), size: size(px(w), px(h)) }
+    }
+
+    /// #EDE-252: the factory taskbar is a bottom panel 48 px thick.
+    #[test]
+    fn the_taskbar_is_a_bottom_panel() {
+        let taskbar = uicore_docs::DOCS.iter().find(|d| d.name == "taskbar").unwrap();
+        let header = ede_ui::surface::normalize_surface(&taskbar.json()["surface"]).expect("the taskbar's header");
+        assert_eq!(panel_of(&header), Some((Edge::Bottom, 48.0)));
+    }
+
+    /// #EDE-252: a context menu opened at the pointer in a bottom panel
+    /// (the core asks for `bottom` of the point) opens UPWARDS, standing on
+    /// the panel's top edge, sliding only along it: never down off the screen.
+    #[test]
+    fn a_bottom_panels_context_menu_opens_upwards_on_the_panel() {
+        let p = hosted_positioner(Some((Edge::Bottom, 48.0)), OverlaySide::Bottom, OverlayAlign::Start, at(600.0, 30.0, 0.0, 0.0));
+        assert_eq!(p.anchor_rect, at(600.0, 0.0, 0.0, 48.0), "the panel's whole height at the pointer");
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::TopLeft, PopupGravity::TopRight), "above it, growing right");
+        assert_eq!(p.adjustment, PopupConstraintAdjustment::SLIDE_X, "slides along the panel, never flips down");
+        assert_eq!(p.offset, point(px(0.0), px(-POPUP_GAP)));
+        // A button's menu (side top, align start) and a right-hand popover
+        // (align end) keep their alignment on the panel's edge.
+        let p = hosted_positioner(Some((Edge::Bottom, 48.0)), OverlaySide::Top, OverlayAlign::End, at(1800.0, 4.0, 40.0, 40.0));
+        assert_eq!(p.anchor_rect, at(1800.0, 0.0, 40.0, 48.0));
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::TopRight, PopupGravity::TopLeft));
+    }
+
+    #[test]
+    fn a_top_panels_context_menu_opens_downwards_under_the_panel() {
+        let p = hosted_positioner(Some((Edge::Top, 32.0)), OverlaySide::Top, OverlayAlign::Start, at(10.0, 12.0, 0.0, 0.0));
+        assert_eq!(p.anchor_rect, at(10.0, 0.0, 0.0, 32.0));
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::BottomLeft, PopupGravity::BottomRight));
+        assert_eq!(p.adjustment, PopupConstraintAdjustment::SLIDE_X);
+        assert_eq!(p.offset, point(px(0.0), px(POPUP_GAP)));
+    }
+
+    #[test]
+    fn a_side_panels_menu_opens_into_the_screen() {
+        let p = hosted_positioner(Some((Edge::Left, 56.0)), OverlaySide::Bottom, OverlayAlign::Center, at(20.0, 300.0, 0.0, 0.0));
+        assert_eq!(p.anchor_rect, at(0.0, 300.0, 56.0, 0.0));
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::TopRight, PopupGravity::BottomRight));
+        assert_eq!(p.adjustment, PopupConstraintAdjustment::SLIDE_Y);
+    }
+
+    /// A layer anchored OUTSIDE the panel's band (a submenu beside its
+    /// row) and a surface that is no panel keep the document's side, and may flip.
+    #[test]
+    fn a_layer_off_the_panel_keeps_its_side() {
+        let anchor = at(600.0, 120.0, 200.0, 28.0);
+        let p = hosted_positioner(Some((Edge::Bottom, 48.0)), OverlaySide::Right, OverlayAlign::Start, anchor);
+        assert_eq!(p.anchor_rect, anchor);
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::TopRight, PopupGravity::BottomRight));
+        let p = hosted_positioner(None, OverlaySide::Bottom, OverlayAlign::Start, at(5.0, 5.0, 0.0, 0.0));
+        assert_eq!((p.anchor, p.gravity), (PopupAnchor::BottomLeft, PopupGravity::BottomRight));
+        assert_eq!(p.adjustment, PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::FLIP_Y);
     }
 
     #[test]

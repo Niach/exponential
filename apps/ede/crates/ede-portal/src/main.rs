@@ -50,6 +50,11 @@ fn serve(channel: Result<Option<ede_protocol::Client>, ede_protocol::Error>) -> 
     zbus::block_on(async {
         let _conn = ede_portal::serve(zbus::connection::Builder::session()?, ctx).await?;
         tracing::info!("serving {}", ede_portal::BUS_NAME);
+        match ede_portal::screenshot::grant_host_screenshots(&_conn).await {
+            Ok(true) => tracing::info!("unsandboxed apps may take screenshots (Cinnamon's default)"),
+            Ok(false) => {}
+            Err(e) => tracing::warn!("screenshot permission: {e}"),
+        }
         std::future::pending::<()>().await;
         Ok::<_, zbus::Error>(())
     })?;
