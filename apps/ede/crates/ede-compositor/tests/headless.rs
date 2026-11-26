@@ -1685,6 +1685,8 @@ fn x11_apps_draw_at_the_outputs_scale() {
     wait("Xft.dpi 144 after the change", Box::new(|| resources(&conn).contains("Xft.dpi:\t144")));
     // Same size on screen, more X pixels per logical one: 160×120 at 1.5.
     wait("the window keeps its size on screen", Box::new(|| conn.get_geometry(win).unwrap().reply().unwrap().width == 240));
+}
+
 /// Alt+drag from `from` to `to` with the button still held (the release
 /// is the caller's, [`release`]).
 fn alt_drag_hold(h: &Harness, from: (f64, f64), to: (f64, f64)) {
