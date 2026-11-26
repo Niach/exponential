@@ -3851,6 +3851,12 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func fieldChecksJson(id: String)  -> String
     
     /**
+     * Round 4 motion: the painter played `id`'s exit to its end (the ghost
+     * leaves; lay out again). False = no such exit.
+     */
+    func finishExit(id: String)  -> Bool
+    
+    /**
      * #EXP-1781: the forced states `id` carries, for a part the painter
      * draws itself (a Segmented item `<id>.item.<k>`).
      */
@@ -4420,6 +4426,20 @@ open func fieldChecksJson(id: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Round 4 motion: the painter played `id`'s exit to its end (the ghost
+     * leaves; lay out again). False = no such exit.
+     */
+open func finishExit(id: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_finish_exit(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),uniffiCallStatus
     )
@@ -6936,6 +6956,12 @@ public struct FfiNode: Equatable, Hashable {
      */
     public var removed: Bool
     /**
+     * Round 4 motion: a leaving ghost root playing `exitJson` from the
+     * moment this turned true (its subtree: no hit-testing, out of the
+     * accessibility tree); call `finishExit(id)` once it ran.
+     */
+    public var exiting: Bool
+    /**
      * The states the core resolved into the node's PART recipe query only
      * (a tab `selected`, an accordion trigger `open`, a check part
      * `checked`; VAPP-88).
@@ -6983,6 +7009,11 @@ public struct FfiNode: Equatable, Hashable {
          * A freed slot (indices are stable; `nodes()[i].index == i`).
          */removed: Bool, 
         /**
+         * Round 4 motion: a leaving ghost root playing `exitJson` from the
+         * moment this turned true (its subtree: no hit-testing, out of the
+         * accessibility tree); call `finishExit(id)` once it ran.
+         */exiting: Bool = false, 
+        /**
          * The states the core resolved into the node's PART recipe query only
          * (a tab `selected`, an accordion trigger `open`, a check part
          * `checked`; VAPP-88).
@@ -7027,6 +7058,7 @@ public struct FfiNode: Equatable, Hashable {
         self.form = form
         self.live = live
         self.removed = removed
+        self.exiting = exiting
         self.partStates = partStates
         self.macroName = macroName
         self.interactionStates = interactionStates
@@ -7073,6 +7105,7 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
                 form: FfiConverterOptionString.read(from: &buf), 
                 live: FfiConverterOptionString.read(from: &buf), 
                 removed: FfiConverterBool.read(from: &buf), 
+                exiting: FfiConverterBool.read(from: &buf), 
                 partStates: FfiConverterSequenceString.read(from: &buf), 
                 macroName: FfiConverterOptionString.read(from: &buf), 
                 interactionStates: FfiConverterSequenceString.read(from: &buf), 
@@ -7105,6 +7138,7 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.form, into: &buf)
         FfiConverterOptionString.write(value.live, into: &buf)
         FfiConverterBool.write(value.removed, into: &buf)
+        FfiConverterBool.write(value.exiting, into: &buf)
         FfiConverterSequenceString.write(value.partStates, into: &buf)
         FfiConverterOptionString.write(value.macroName, into: &buf)
         FfiConverterSequenceString.write(value.interactionStates, into: &buf)
@@ -7889,6 +7923,12 @@ public struct FfiVisual: Equatable, Hashable {
      */
     public var animationJson: String?
     /**
+     * Round 4 motion: the `exitAnimation` as `{name, timing}` (`timing.delayMs`
+     * never set), played while the node is `exiting`; sample it with
+     * `animationFrameJson`. None under reduced motion.
+     */
+    public var exitJson: String?
+    /**
      * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
      */
     public var sticky: Bool
@@ -7952,6 +7992,11 @@ public struct FfiVisual: Equatable, Hashable {
          * sample it with `animationFrameJson`.
          */animationJson: String? = nil, 
         /**
+         * Round 4 motion: the `exitAnimation` as `{name, timing}` (`timing.delayMs`
+         * never set), played while the node is `exiting`; sample it with
+         * `animationFrameJson`. None under reduced motion.
+         */exitJson: String? = nil, 
+        /**
          * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
          */sticky: Bool = false, 
         /**
@@ -7999,6 +8044,7 @@ public struct FfiVisual: Equatable, Hashable {
         self.backdropBlur = backdropBlur
         self.tail = tail
         self.animationJson = animationJson
+        self.exitJson = exitJson
         self.sticky = sticky
         self.backgroundClip = backgroundClip
     }
@@ -8060,6 +8106,7 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
                 backdropBlur: FfiConverterOptionFloat.read(from: &buf), 
                 tail: FfiConverterOptionString.read(from: &buf), 
                 animationJson: FfiConverterOptionString.read(from: &buf), 
+                exitJson: FfiConverterOptionString.read(from: &buf), 
                 sticky: FfiConverterBool.read(from: &buf), 
                 backgroundClip: FfiConverterOptionString.read(from: &buf)
         )
@@ -8107,6 +8154,7 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
         FfiConverterOptionFloat.write(value.backdropBlur, into: &buf)
         FfiConverterOptionString.write(value.tail, into: &buf)
         FfiConverterOptionString.write(value.animationJson, into: &buf)
+        FfiConverterOptionString.write(value.exitJson, into: &buf)
         FfiConverterBool.write(value.sticky, into: &buf)
         FfiConverterOptionString.write(value.backgroundClip, into: &buf)
     }
@@ -11360,6 +11408,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json() != 24616) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_finish_exit() != 54653) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_forced_states_of() != 25369) {
