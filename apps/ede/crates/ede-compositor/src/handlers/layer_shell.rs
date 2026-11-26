@@ -179,7 +179,7 @@ impl WlrLayerShellHandler for Ede {
         }
     }
 
-    /// #EDE-237: a layer surface's popup (`get_popup`: the panel's menus,
+    /// #EDE-252: a layer surface's popup (`get_popup`: the panel's menus,
     /// previews, the start menu) is placed now that it has its parent: kept on
     /// the panel's output (xdg-shell's `new_popup` came before, parentless).
     fn new_popup(&mut self, parent: WlrLayerSurface, popup: smithay::wayland::shell::xdg::PopupSurface) {

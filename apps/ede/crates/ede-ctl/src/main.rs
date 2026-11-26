@@ -275,7 +275,7 @@ fn run(ede: &mut Client, mut args: impl Iterator<Item = String>) -> Result<()> {
             let bindings = rest.iter().any(|a| a == "--bindings");
             let mut send = |event: InputEvent| -> std::result::Result<(), ede_protocol::Error> { if bindings { ede.input_as_person(event) } else { ede.input(event) } };
             send(InputEvent::PointerMotion { x, y })?;
-            // BTN_LEFT, or BTN_RIGHT with --right (#EDE-237: a panel's context menu).
+            // BTN_LEFT, or BTN_RIGHT with --right (#EDE-252: a panel's context menu).
             let button = if rest.iter().any(|a| a == "--right") { 0x111 } else { 0x110 };
             let click = rest.iter().any(|a| a == "--click");
             if click || rest.iter().any(|a| a == "--press") {

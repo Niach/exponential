@@ -1138,7 +1138,7 @@ mod tests {
 
     #[test]
     fn a_menu_binds_its_rows_and_their_checked_state() {
-        // #EDE-237: `Menu.items` is bindable: a menu's rows from a host
+        // #EDE-252: `Menu.items` is bindable: a menu's rows from a host
         // source (a tray item's dbusmenu), a checkbox row's state per row.
         let view = CatalogView::core();
         let def = view.components.get("Menu").expect("Menu");

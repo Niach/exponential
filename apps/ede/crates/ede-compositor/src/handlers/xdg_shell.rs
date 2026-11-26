@@ -321,7 +321,7 @@ impl Ede {
         }
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
         // A panel's popup (the taskbar's context menus, its previews, the
-        // start menu): kept on the panel's output (#EDE-237: a menu at the
+        // start menu): kept on the panel's output (#EDE-252: a menu at the
         // pointer opened downwards off the screen).
         if let Some(target) = self.layer_popup_target(&root, popup) {
             popup.with_pending_state(|state| state.geometry = state.positioner.get_unconstrained_geometry(target));

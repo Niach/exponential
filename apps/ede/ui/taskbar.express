@@ -20,7 +20,7 @@
 # (notification-center.express: the desktop's notifications and the accounts' unread inbox merged) and
 # the clock (#EXP-2046: in tabular figures, so its width holds from minute to minute and nothing left
 # of it moves: an open popover anchored there stays open).
-# #EDE-237: every menu of the panel is ONE genUI Menu, Cinnamon's panel menus: icons, separators, a
+# #EDE-252: every menu of the panel is ONE genUI Menu, Cinnamon's panel menus: icons, separators, a
 # checkmark row for a state, the keyboard (the menu takes it while open), opening off the panel's edge
 # into the screen (above this bottom panel, kept on the output). A right click on an app (its group
 # menu), on Start (Settings, Version history: ede_panel_menu), on the clock (Date and time

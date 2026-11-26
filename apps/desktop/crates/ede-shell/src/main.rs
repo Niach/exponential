@@ -27,7 +27,7 @@
 //! and apps, chat, Alt-Tab; #EDE-65: `/shell/chats`, the rail's chats), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
-//! unread inbox merged in), `/needsYou`, `/tray` (#EDE-237: each item's dbusmenu as Menu `items`),
+//! unread inbox merged in), `/needsYou`, `/tray` (#EDE-252: each item's dbusmenu as Menu `items`),
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
 //! document may call are the `ede_*` names its `surface.functions` lists
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
@@ -38,7 +38,7 @@
 //! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
 //! `ede_tray {service, refresh?}`, `ede_tray_menu {service, id}`, `ede_panel_menu {value}`
-//! (#EDE-237: the start button's and the clock's context menus), `ede_open_document
+//! (#EDE-252: the start button's and the clock's context menus), `ede_open_document
 //! {name, page?}` (#EDE-214: Settings on `page`; open popups close),
 //! `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
@@ -307,7 +307,7 @@ type HostedReport = (String, Vec<Layer>);
 
 /// The last of each surface's hosted-popup reports, in arrival order of
 /// those last ones.
-/// #EDE-237: the hover previews (`previews…` Popovers) open while a Menu
+/// #EDE-252: the hover previews (`previews…` Popovers) open while a Menu
 /// of the same surface is: the ones to close.
 fn previews_under_a_menu(layers: &[eui_core::surface::Layer]) -> Vec<String> {
     if !layers.iter().any(|l| l.hosted && l.kind == "Menu") {
@@ -842,7 +842,7 @@ impl HostPlugin for Host {
                 }
             }
             "ede_tray" => {
-                // #EDE-237: `refresh` = the pointer is on an item with a menu:
+                // #EDE-252: `refresh` = the pointer is on an item with a menu:
                 // its rows are read again (dbusmenu's AboutToShow) before a
                 // press opens them; a press on an item without one activates it.
                 if args.get("refresh").and_then(Value::as_bool) == Some(true) {
@@ -923,7 +923,7 @@ impl HostPlugin for Host {
                 });
             }
             "ede_tray_menu" => {
-                // #EDE-237: a Menu row's value is its dbusmenu id, as a string.
+                // #EDE-252: a Menu row's value is its dbusmenu id, as a string.
                 let id = args.get("id").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
                 if let (Some(service), Some(id)) = (args.get("service").and_then(Value::as_str), id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
@@ -1103,7 +1103,7 @@ impl HostPlugin for Host {
                 let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(value)) = (app, value) {
                     cx.defer(move |cx| match value.as_str() {
-                        // #EDE-237: the menu's "Pinned to the taskbar" checkbox toggles.
+                        // #EDE-252: the menu's "Pinned to the taskbar" checkbox toggles.
                         "pin" if shell.borrow().model.taskbar.pinned.contains(&app) => {
                             dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
                             pins_persist(&shell);
@@ -4172,7 +4172,7 @@ fn tray_refresh(shell: &SharedShell) {
     }
 }
 
-/// A tray item pressed: `Activate` (#EDE-237, Cinnamon's xapp status
+/// A tray item pressed: `Activate` (#EDE-252, Cinnamon's xapp status
 /// applet: an `ItemIsMenu` item's press opens its menu, the taskbar's Menu;
 /// a right click opens any item's).
 fn tray_press(shell: &SharedShell, service: &str) {
@@ -4181,7 +4181,7 @@ fn tray_press(shell: &SharedShell, service: &str) {
     }
 }
 
-/// #EDE-237: a row of the start button's or the clock's context menu.
+/// #EDE-252: a row of the start button's or the clock's context menu.
 fn panel_menu(shell: &SharedShell, value: &str, cx: &mut App) {
     match value {
         "settings" => {
@@ -4525,7 +4525,7 @@ fn main() {
         }
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
-            // #EDE-237: the demo's tray items, the first with a menu.
+            // #EDE-252: the demo's tray items, the first with a menu.
             let network = dbus::TrayItem {
                 service: "demo/network".into(),
                 title: "Network".into(),
@@ -4833,7 +4833,7 @@ fn main() {
                 // window opens at the second size instead of the first.
                 for (document, layers) in latest_reports(hosted_rx.try_iter()) {
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
-                    // #EDE-237: a menu opening closes the hover previews (Cinnamon's
+                    // #EDE-252: a menu opening closes the hover previews (Cinnamon's
                     // right click hides the thumbnails); with the shell free (#EDE-75).
                     let covered = previews_under_a_menu(&layers);
                     if !covered.is_empty() {
@@ -5768,7 +5768,7 @@ mod chat_as_drawn {
 mod previews {
     use super::{popups_to_dismiss, previews_after, previews_under_a_menu};
 
-    /// #EDE-237: a menu of the taskbar opening closes the hover previews.
+    /// #EDE-252: a menu of the taskbar opening closes the hover previews.
     #[test]
     fn a_menu_closes_the_hover_previews() {
         let layer = |kind: &str, owner: &str| -> eui_core::surface::Layer { serde_json::from_value(serde_json::json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };

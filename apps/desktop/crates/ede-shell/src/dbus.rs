@@ -266,7 +266,7 @@ pub struct TrayItem {
     pub status: String,
     /// A `file:` or `data:` URL, or empty.
     pub icon: String,
-    /// #EDE-237: its dbusmenu, read with the item (`AboutToShow` first), so
+    /// #EDE-252: its dbusmenu, read with the item (`AboutToShow` first), so
     /// the taskbar's Menu opens on it at once; empty = none (a press activates).
     pub menu: Vec<MenuEntry>,
     /// `ItemIsMenu`: a left click opens the menu too (Cinnamon's xapp
@@ -281,7 +281,7 @@ impl TrayItem {
     }
 }
 
-/// #EDE-237: a dbusmenu as genUI Menu items, the look every panel menu
+/// #EDE-252: a dbusmenu as genUI Menu items, the look every panel menu
 /// shares: a row's value is its dbusmenu id, a toggle a checkbox row with
 /// its state, a separator a separator, a submenu Cinnamon's way: its title
 /// as a group label over its rows, inline.
@@ -796,7 +796,7 @@ mod tests {
         assert_eq!(out.iter().map(|e| e.submenu).collect::<Vec<_>>(), [false, true, false]);
     }
 
-    /// #EDE-237: a tray item's dbusmenu as the panel's Menu items: ids as
+    /// #EDE-252: a tray item's dbusmenu as the panel's Menu items: ids as
     /// values, toggles as checkbox rows, a submenu's title as a group label.
     #[test]
     fn a_dbusmenu_becomes_menu_items() {

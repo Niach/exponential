@@ -56,7 +56,7 @@ pub struct SurfaceRoot {
     /// `Some` = the window takes input only where its root's children are
     /// ([`clips_input`]); the input region it was last given.
     pub input: Option<InputRegion>,
-    /// #EDE-237: a hosted Menu's popup takes the keyboard (it grabs): its
+    /// #EDE-252: a hosted Menu's popup takes the keyboard (it grabs): its
     /// keys go to the surface's menu (arrows, Home/End, Enter, Escape,
     /// type-ahead), as the in-surface menu takes them.
     pub keys: Option<gpui::FocusHandle>,
@@ -144,7 +144,7 @@ pub struct Region {
     pushed: Rc<RefCell<Pushed>>,
     /// The input region its window was last given ([`clips_input`]).
     pub input: Option<InputRegion>,
-    /// #EDE-237: a panel's edge and thickness ([`panel_of`]): its hosted
+    /// #EDE-252: a panel's edge and thickness ([`panel_of`]): its hosted
     /// popups open off that edge into the screen.
     pub panel: Option<(Edge, f32)>,
 }
@@ -360,7 +360,7 @@ fn same_bounds(a: &Bounds<Pixels>, b: &Bounds<Pixels>) -> bool {
     near(a.origin.x, b.origin.x) && near(a.origin.y, b.origin.y) && near(a.size.width, b.size.width) && near(a.size.height, b.size.height)
 }
 
-/// #EDE-237: the edge a layer document stands on as a panel (anchored to
+/// #EDE-252: the edge a layer document stands on as a panel (anchored to
 /// that edge and along it, not to the opposite one) and its thickness.
 pub fn panel_of(header: &SurfaceHeader) -> Option<(Edge, f32)> {
     let SurfaceHeader::Layer { anchor, .. } = header else { return None };
@@ -378,7 +378,7 @@ pub fn panel_of(header: &SurfaceHeader) -> Option<(Edge, f32)> {
     }
 }
 
-/// A hosted Menu takes the keyboard while it is open (#EDE-237: arrows,
+/// A hosted Menu takes the keyboard while it is open (#EDE-252: arrows,
 /// Enter and Escape, Cinnamon's panel menus); a Popover never does (a hover
 /// preview must not steal the focused window's keys).
 pub fn hosted_grabs(layer: &Layer) -> bool {
@@ -395,7 +395,7 @@ pub struct HostedPositioner {
     pub offset: gpui::Point<Pixels>,
 }
 
-/// Where a hosted layer opens against its anchor (VAPP-281). #EDE-237: in a
+/// Where a hosted layer opens against its anchor (VAPP-281). #EDE-252: in a
 /// panel (`panel` = its edge and thickness) every popup anchored in the
 /// panel opens off the panel's edge INTO the screen (above a bottom panel,
 /// below a top one), whatever side its document asked for and wherever in
@@ -994,7 +994,7 @@ mod tests {
         Bounds { origin: point(px(x), px(y)), size: size(px(w), px(h)) }
     }
 
-    /// #EDE-237: the factory taskbar is a bottom panel 48 px thick.
+    /// #EDE-252: the factory taskbar is a bottom panel 48 px thick.
     #[test]
     fn the_taskbar_is_a_bottom_panel() {
         let taskbar = uicore_docs::DOCS.iter().find(|d| d.name == "taskbar").unwrap();
@@ -1002,7 +1002,7 @@ mod tests {
         assert_eq!(panel_of(&header), Some((Edge::Bottom, 48.0)));
     }
 
-    /// #EDE-237: a context menu opened at the pointer in a bottom panel
+    /// #EDE-252: a context menu opened at the pointer in a bottom panel
     /// (the core asks for `bottom` of the point) opens UPWARDS, standing on
     /// the panel's top edge, sliding only along it: never down off the screen.
     #[test]
