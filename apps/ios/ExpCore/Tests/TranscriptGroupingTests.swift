@@ -42,10 +42,11 @@ final class TranscriptGroupingTests: XCTestCase {
         XCTAssertEqual(try number(layout["radius"]), TranscriptGrouping.Layout.radius)
         XCTAssertEqual(try number(layout["nameSize"]), TranscriptGrouping.Layout.nameSize)
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "markers", "checkIn", "checkIns", "checkInTimeSeparator"])
+        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "markers", "checkIn", "checkIns", "checkInTimeSeparator", "checkInTimeRange"])
         XCTAssertEqual(copy["checkIn"] as? String, TranscriptGrouping.Copy.checkIn)
         XCTAssertEqual(copy["checkIns"] as? String, TranscriptGrouping.Copy.checkIns)
         XCTAssertEqual(copy["checkInTimeSeparator"] as? String, TranscriptGrouping.Copy.checkInTimeSeparator)
+        XCTAssertEqual(copy["checkInTimeRange"] as? String, TranscriptGrouping.Copy.checkInTimeRange)
         XCTAssertEqual(copy["formerMember"] as? String, TranscriptGrouping.Copy.formerMember)
         XCTAssertEqual(copy["linkChevron"] as? String, TranscriptGrouping.Copy.linkChevron)
         XCTAssertEqual(copy["markers"] as? [String: String], TranscriptGrouping.Copy.markers)
@@ -281,13 +282,23 @@ final class TranscriptGroupingTests: XCTestCase {
                 return (value as? Bool) == true ? .row : .hidden
             }
             XCTAssertEqual(TranscriptGrouping.feedRows(kinds), expected, name)
+            // #FEED-317: a line covering n ticks names the last n schedule rows.
+            for (index, shown) in TranscriptGrouping.feedRows(kinds).enumerated() {
+                guard case let .checkIn(count) = shown else { continue }
+                let ticks = TranscriptGrouping.checkInTicks(kinds, index: index, count: count)
+                XCTAssertEqual(ticks.count, count, name)
+                XCTAssertEqual(ticks.last, index, name)
+                XCTAssertTrue(ticks.allSatisfy { kinds[$0] == .schedule }, name)
+            }
         }
         let labels = try XCTUnwrap(try fixture()["checkInLabelCases"] as? [[String: Any]])
         XCTAssertFalse(labels.isEmpty)
         for testCase in labels {
             let name = testCase["name"] as? String ?? ""
             let count = try XCTUnwrap(testCase["count"] as? Int, name)
-            XCTAssertEqual(TranscriptGrouping.checkInLabel(count: count, time: string(testCase["time"])), testCase["expected"] as? String, name)
+            XCTAssertEqual(TranscriptGrouping.checkInLabel(
+                count: count, first: string(testCase["first"]), last: string(testCase["last"])
+            ), testCase["expected"] as? String, name)
         }
     }
     // #FEED-256 / #FEED-254: the blank-text rule.
