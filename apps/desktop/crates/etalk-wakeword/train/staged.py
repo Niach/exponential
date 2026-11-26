@@ -192,7 +192,8 @@ def _batches(trainer, start_step: int):
         if array.ndim == 2 and array.shape[1] == 96:
             array = array[: (array.shape[0] // 16) * 16].reshape(-1, 16, 96)
         assert array.ndim == 3 and array.shape[1:] == (16, 96), f"{path}: {array.shape}"
-        data[name] = array
+        # random batches from a memory map cost a disk seek each: the small files go to RAM
+        data[name] = array if name == "ACAV100M_sample" else np.ascontiguousarray(array)
     per_class = {name: config.batch_n_per_class.get(name, 0) for name in data}
     step = start_step
     while True:
