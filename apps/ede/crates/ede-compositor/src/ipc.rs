@@ -1555,6 +1555,8 @@ impl Ede {
                     workspace: st.workspace,
                     minimized: st.minimized,
                     maximized: st.tile == Some(crate::layout::Tile::Maximized),
+                    sticky: st.sticky,
+                    urgent: st.urgent,
                     // #EDE-91: every window is on the person's desk until spaces land.
                     space: None,
                 })

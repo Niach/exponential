@@ -94,6 +94,11 @@ impl XdgActivationHandler for Ede {
         // One-shot; a client's own token was checked when it was made.
         let valid = self.xdg_activation_state.remove_token(&token) && data.timestamp.elapsed() < LAUNCH_TOKEN_TTL;
         if !valid {
+            // #EDE-255: Muffin's answer to an activation it refuses: the
+            // window demands attention (the taskbar flashes its group).
+            if let Some(window) = self.all_windows().into_iter().find(|w| w.wl_surface().is_some_and(|s| *s == surface)) {
+                self.mark_urgent(&window);
+            }
             return;
         }
         let mapped = self.desk.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned();

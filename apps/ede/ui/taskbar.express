@@ -9,7 +9,9 @@
 # launch, else focus the group's last focused window, or minimize it while it has the focus), the
 # middle button closes that window (ede_taskbar_input, Box auxPress), a group of two or more windows
 # wears its window count top-left (/shell/taskbar/buttons/*/count) and an app with desktop
-# notifications their count top-right; the context menu is Cinnamon's (the shell builds each group's
+# notifications their count top-right; #EDE-255: a group whose window asks for attention (X11 urgency, a
+# refused activation) wears the demands-attention highlight, flashing first (/shell/taskbar/buttons/*/urgentLit,
+# shell.json's urgentLit), until a focus answers it; the context menu is Cinnamon's (the shell builds each group's
 # /shell/taskbar/buttons/*/menu, shell.json's taskbarMenu: monitor and workspace moves, Applet
 # preferences, Recent, the desktop entry's actions, "Pinned to the taskbar" (a checkbox row),
 # Restore/Minimize, Maximize/Unmaximize, Close others and Close all or Close; ede_taskbar_menu),
@@ -99,8 +101,9 @@ preview_app_icon = Image(src=$icon, alt=$title, fit="contain", width=16, height=
 preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
 preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
 preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")
-button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, button_icon, button_icon_dim, running_focused, running, not_running, window_count, notification_count], on={press: ede_taskbar(app=$app), auxPress: Event("ede_taskbar_input", {app: $app})})
+button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, urgent_bg, button_icon, button_icon_dim, running_focused, running, not_running, window_count, notification_count], on={press: ede_taskbar(app=$app), auxPress: Event("ede_taskbar_input", {app: $app})})
 focus_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
+urgent_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.destructive", opacity: 0.8}, visible=cond(if=$urgentLit, then=true, else=false))
 button_icon = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", visible=not(value=cond(if=$minimized, then=true, else=false)))
 button_icon_dim = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", style={opacity: 0.5}, visible=cond(if=$minimized, then=true, else=false))
 running_focused = Box(style={height: 2, width: 20, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.primary"}, visible=cond(if=$focused, then=true, else=false))

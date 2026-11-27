@@ -364,6 +364,10 @@ struct Shell {
     first_output: Option<(i32, i32, i32, i32)>,
     /// #EDE-250: a Display page change waiting for Keep.
     display_confirm: display_confirm::Confirm,
+    /// #EDE-255: since when each urgent group asks for attention (its
+    /// button flashes, shell.json's urgentLit), and a flash tick runs.
+    urgent_since: HashMap<String, Instant>,
+    flash_ticking: bool,
     /// #EDE-225: every person output's x, y, width, height: the switcher
     /// opens on the one with the focused window.
     person_outputs: Vec<(i32, i32, i32, i32)>,
@@ -1769,7 +1773,7 @@ fn taskbar_menu_context(shell: &Shell, app: &str) -> uicore_model::TaskbarMenuCo
         .filter_map(|w| {
             let info = shell.windows.iter().find(|i| i.id.as_str() == w.id)?;
             let output = output_of(&shell.person_outputs, info).and_then(|o| shell.person_outputs.iter().position(|p| *p == o)).unwrap_or(0);
-            Some((w.id.clone(), uicore_model::WindowFacts { output, maximized: info.maximized }))
+            Some((w.id.clone(), uicore_model::WindowFacts { output, maximized: info.maximized, sticky: info.sticky }))
         })
         .collect();
     let entry = app_entry(shell, app);
@@ -1813,6 +1817,10 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
             b["count"] = json!(b["windows"].as_array().map_or(0, Vec::len));
             b["notifications"] = json!(app_notifications(shell, &app));
             b["menu"] = json!(uicore_model::taskbar_menu(&shell.model, &app, &taskbar_menu_context(shell, &app)));
+            // #EDE-255: the demands-attention highlight, flashing first
+            // (the goldens: lit for good).
+            let since = shell.urgent_since.get(&app);
+            b["urgentLit"] = json!(since.is_some_and(|t| demo() || uicore_model::urgent_lit(t.elapsed().as_millis() as u64)));
             if demo() && std::env::var("EDE_SHELL_DEMO_TASKBAR_MENU").is_ok_and(|open| open == app) {
                 b["menuOpen"] = json!(true);
             }
@@ -2251,6 +2259,7 @@ fn refresh(shell: &SharedShell, cx: &mut App) {
 
 /// `/shell` from the model, then every view.
 fn model_changed(shell: &SharedShell, cx: &mut App) {
+    urgent_flash(shell, cx);
     {
         let mut s = shell.borrow_mut();
         let favourites: Vec<String> = s.model.taskbar.pinned.clone();
@@ -2262,6 +2271,36 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
         s.feed.set("/sessions", sessions);
     }
     refresh(shell, cx);
+}
+
+/// #EDE-255: the urgent groups' clocks (a group turning urgent starts its
+/// flash, an answered one forgets it), and a redraw every flash interval
+/// while one still flashes.
+fn urgent_flash(shell: &SharedShell, cx: &mut App) {
+    let flashing = {
+        let mut s = shell.borrow_mut();
+        let urgent: Vec<String> = uicore_model::taskbar_buttons(&s.model).into_iter().filter(|b| b.urgent).map(|b| b.app).collect();
+        s.urgent_since.retain(|app, _| urgent.contains(app));
+        let now = Instant::now();
+        for app in urgent {
+            s.urgent_since.entry(app).or_insert(now);
+        }
+        let flash_for = Duration::from_millis(5 * uicore_model::TASKBAR_FLASH_MS);
+        let flashing = !demo() && s.urgent_since.values().any(|t| t.elapsed() < flash_for);
+        let start = flashing && !s.flash_ticking;
+        s.flash_ticking |= start;
+        start
+    };
+    if !flashing {
+        return;
+    }
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(uicore_model::TASKBAR_FLASH_MS)).await;
+        shell.borrow_mut().flash_ticking = false;
+        let _ = cx.update(|cx| model_changed(&shell, cx));
+    })
+    .detach();
 }
 
 /// One event through the reducer, then `/shell` into every view.
@@ -2384,6 +2423,13 @@ fn taskbar_menu_pick(shell: &SharedShell, app: &str, value: &str, cx: &mut App) 
         "restore" => {
             if let Some(w) = last_id {
                 with_ede(shell, |ede| ede.focus(w));
+            }
+        }
+        // #EDE-255: Visible on all workspaces / Only on this workspace.
+        "stick" | "unstick" => {
+            if let Some(w) = last_id {
+                let action = if value == "stick" { ede_protocol::WindowAction::Stick } else { ede_protocol::WindowAction::Unstick };
+                with_ede(shell, |ede| ede.window_action(w, action));
             }
         }
         "maximize" | "unmaximize" => {
@@ -3837,7 +3883,9 @@ fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowIn
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: None };
+    // #EDE-255: `EDE_SHELL_DEMO_URGENT=<app>` = that app's windows ask for attention.
+    let urgent = std::env::var("EDE_SHELL_DEMO_URGENT").unwrap_or_default();
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, sticky: false, urgent: !focused && urgent == app, space: None };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
@@ -4218,6 +4266,8 @@ fn main() {
             locked: false,
             first_output: None,
             display_confirm: Default::default(),
+            urgent_since: HashMap::new(),
+            flash_ticking: false,
             person_outputs: Vec::new(),
             layers_opened: HashMap::new(),
             osd_until: None,
@@ -5011,7 +5061,7 @@ mod switcher {
     #[test]
     fn the_switcher_is_sized_to_the_focused_windows_output() {
         let outputs = [(0, 0, 1920, 1080), (1920, 0, 1280, 800)];
-        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: None };
+        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, sticky: false, urgent: false, space: None };
         assert_eq!(output_of(&outputs, &window(100, 800)), Some(outputs[0]));
         assert_eq!(output_of(&outputs, &window(1920, 1280)), Some(outputs[1]));
         // Across the edge: where most of it is.
@@ -5224,7 +5274,7 @@ mod previews {
     #[test]
     fn exponential_thumbnails_wear_their_pages_icon_and_title() {
         use uicore_model::{ShellState, ShellWindow};
-        let window = |id: &str, app: &str, title: &str| ShellWindow { id: id.into(), app: app.into(), title: title.into(), focused: false, workspace: 0, minimized: false };
+        let window = |id: &str, app: &str, title: &str| ShellWindow { id: id.into(), app: app.into(), title: title.into(), focused: false, workspace: 0, minimized: false, urgent: false };
         let mut model = ShellState::default();
         model.windows = vec![window("w1", "at.exponential", "Desktop"), window("w2", "at.exponential", "EXP-1 Crash"), window("w3", "nemo", "Files"), window("w4", "at.exponential", "Unknown")];
         model.taskbar.previews = Some("at.exponential".into());
