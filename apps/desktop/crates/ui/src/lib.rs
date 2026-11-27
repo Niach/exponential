@@ -222,7 +222,8 @@ mod session_holder;
 pub mod ede_component;
 /// #EDE-237: eDE mode's page windows.
 pub mod ede_windows;
-/// #EDE-258: the start menu's feeds over the session bus.
+/// #EDE-258: the start menu's feeds over the session bus (Linux: eDE's).
+#[cfg(target_os = "linux")]
 pub mod ede_feeds;
 #[cfg(target_os = "linux")]
 pub mod session_bus;
