@@ -1,11 +1,4 @@
 {
   "$comment": "SnapshotTest.matchesTheSwiftSnapshot: shared cases whose Compose snapshot differs from the Swift one until the Swift snapshot re-records on a Mac (EXPONENTIAL_UI_RECORD=1 rewrites this list; empty it after the re-record).",
-  "cases": [
-    "JobGraph/example",
-    "LogView/example",
-    "LogView/follow=false",
-    "LogView/follow=true",
-    "LogView/timestamps=false",
-    "LogView/timestamps=true"
-  ]
+  "cases": []
 }
