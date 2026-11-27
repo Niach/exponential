@@ -53,7 +53,7 @@ describe(`menuPreview`, () => {
     expect(shape.detail).toMatchObject({ type: `string` })
     expect(shape.preview).toMatchObject({ type: `object` })
     expect(shape.preview!.shape).toBeUndefined()
-    expect((coreCatalog.components.Menu as unknown as { events: string[] }).events).toEqual([`select`, `action`])
+    expect((coreCatalog.components.Menu as unknown as { events: string[] }).events).toEqual([`select`, `action`, `change`])
   })
   for (const c of fixture.menuPreview.cases) {
     test(c.name, () => {

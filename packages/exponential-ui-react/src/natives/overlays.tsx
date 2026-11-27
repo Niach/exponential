@@ -50,6 +50,24 @@ function useOpenState(node: NativeProps[`node`], scope: string, external: boolea
   return [open, change] as const
 }
 
+/** #EDE-253: a Menu's `open` ({@link useOpenState}) that writes and fires
+ *  only on a CHANGE (Radix's own close and the item's `close` both report a
+ *  pick). The ref follows every call, so two in one event fire once. */
+function useMenuOpen(node: NativeProps[`node`], scope: string, external: boolean, emit: NativeProps[`emit`]) {
+  const [open, change] = useOpenState(node, scope, external, emit)
+  const openRef = useRef(open)
+  openRef.current = open
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (next === openRef.current) return
+      openRef.current = next
+      change(next)
+    },
+    [change]
+  )
+  return [open, setOpen, openRef] as const
+}
+
 /** The slot wrapper Radix anchors to and clicks through (forwardRef so the
  *  popper can measure it; the rest of the props are Radix's). The toggle runs
  *  on the way down: a Button in the slot stops its click (so it never presses
@@ -678,7 +696,9 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const items = objects<MenuItem>(props.items)
   const label = str(props.label)
   const icon = str(props.icon)
-  const [open, setOpen] = useState(ctx.inlineOverlays)
+  // #EDE-253: `open` (bindable, like Popover's): a host opens it; a dismiss,
+  // a pick or the trigger writes the new value through + fires `change`.
+  const [open, setOpen, openRef] = useMenuOpen(node, scope, ctx.inlineOverlays || bool(props.open), emit)
   const child = node.children[0] ?? null
   // VAPP-276: `side` + `align`; `anchor` = a node elsewhere is the trigger
   // the popper measures (its child, when given, still toggles it).
@@ -688,8 +708,6 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const anchored = !!anchorId
   const contentId = useId()
   const wrapperRef = useRef<HTMLDivElement | null>(null)
-  const openRef = useRef(open)
-  openRef.current = open
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `menu`, toggle: () => setOpen(!openRef.current), open: () => setOpen(true) }, open, contentId)
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
@@ -739,22 +757,49 @@ function closeContextMenu() {
   document.dispatchEvent(new KeyboardEvent(`keydown`, { key: `Escape`, bubbles: true }))
 }
 
+/** Open a context menu with no pointer point: at its target's corner (the
+ *  keyboard's Shift+F10 / Menu key, a host's `open`). */
+function openContextMenuAtCorner(el: HTMLElement) {
+  const r = el.getBoundingClientRect()
+  el.dispatchEvent(new MouseEvent(`contextmenu`, { bubbles: true, cancelable: true, clientX: r.left + 8, clientY: r.top + 8 }))
+}
+
 function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = objects<MenuItem>(props.items)
-  const [open, setOpen] = useState(false)
+  // #EDE-253: `open` = the wanted state (bound or literal, like Popover's);
+  // `shown` = Radix's (a context menu is uncontrolled). A wanted open with
+  // no pointer point opens at the child's corner as the keyboard does; a
+  // wanted close closes it as Escape does; Radix's own open/close writes
+  // the value through + fires `change`.
+  const [open, setOpen] = useMenuOpen(node, scope, bool(props.open), emit)
+  const [shown, setShown] = useState(false)
+  const shownRef = useRef(false)
   const triggerRef = useRef<HTMLDivElement | null>(null)
-  useCloseOnAnchorLost(open, open ? triggerRef.current : null, closeContextMenu)
-  const preview = useMenuPreview(open)
+  const onOpenChange = useCallback(
+    (next: boolean) => {
+      shownRef.current = next
+      setShown(next)
+      setOpen(next)
+    },
+    [setOpen]
+  )
+  useEffect(() => {
+    const el = triggerRef.current
+    if (open && !shownRef.current && el) openContextMenuAtCorner(el)
+    else if (!open && shownRef.current) closeContextMenu()
+  }, [open])
+  useCloseOnAnchorLost(shown, shown ? triggerRef.current : null, closeContextMenu)
+  const preview = useMenuPreview(shown)
   return (
     <MenuPreviewContext.Provider value={anyPreview(items) ? preview : null}>
-    <ContextPrimitive.Root onOpenChange={setOpen} dir={ctx.direction}>
+    <ContextPrimitive.Root onOpenChange={onOpenChange} dir={ctx.direction}>
       <ContextPrimitive.Trigger asChild>
         <div
           ref={triggerRef}
           {...(rootProps as Record<string, unknown>)}
-          data-state={open ? `open` : `closed`}
+          data-state={shown ? `open` : `closed`}
           // #EXP-1945: a long-press on a ready picture is the host's image
           // menu (a prevented pointerdown = Radix starts no long-press).
           onPointerDown={(e) => {
@@ -763,8 +808,7 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
           onKeyDown={(e) => {
             if ((e.key === `F10` && e.shiftKey) || e.key === `ContextMenu`) {
               e.preventDefault()
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-              e.currentTarget.dispatchEvent(new MouseEvent(`contextmenu`, { bubbles: true, cancelable: true, clientX: r.left + 8, clientY: r.top + 8 }))
+              openContextMenuAtCorner(e.currentTarget as HTMLElement)
             }
           }}
         >
@@ -772,11 +816,11 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
         </div>
       </ContextPrimitive.Trigger>
       <OverlayPortal as={ContextPrimitive.Portal}>
-        <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...menuModalityProps(preview)} onPointerDownOutside={insidePreview} onFocusOutside={insidePreview} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
+        <ContextPrimitive.Content {...(part(`content`, shown && `open`) as Record<string, string>)} {...menuModalityProps(preview)} onPointerDownOutside={insidePreview} onFocusOutside={insidePreview} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
           <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={closeContextMenu} />
         </ContextPrimitive.Content>
       </OverlayPortal>
-      {open ? <MenuPreviewPanel api={preview} items={items} part={part} emit={emit} /> : null}
+      {shown ? <MenuPreviewPanel api={preview} items={items} part={part} emit={emit} /> : null}
     </ContextPrimitive.Root>
     </MenuPreviewContext.Provider>
   )

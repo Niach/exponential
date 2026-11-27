@@ -35,8 +35,10 @@ fn layer_documents_have_an_opaque_root() {
             continue;
         }
         let Some(bg) = doc["root"]["style"].get("backgroundColor") else {
-            // No root background: the children paint their own (toasts).
-            assert_eq!(name, "notifications.express", "{name}: a layer document's root paints a background");
+            // No root background: the children paint their own (toasts),
+            // or nothing of it shows (#EDE-253: the window menu's one-pixel
+            // anchor; the menu is its popup).
+            assert!(matches!(name.as_str(), "notifications.express" | "window-menu.express"), "{name}: a layer document's root paints a background");
             continue;
         };
         let resolved = resolve_token(&theme, bg, Mode::Dark).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| bg.to_string());

@@ -180,4 +180,46 @@ final class MenuPreviewTests: XCTestCase {
             }
         }
     }
+
+    /// #EDE-253 `menuOpen`: a Menu's bindable `open` (Popover's rule)
+    /// through the core: a host write opens a press Menu and a context Menu;
+    /// Escape, an outside press (the layer's dismiss), a pick or the
+    /// trigger's press writes /open and fires `change {open}`; a host write
+    /// fires nothing.
+    func testMenuOpenCases() throws {
+        let fx = try XCTUnwrap(Fixtures.json("interactions-round1.json")["menuOpen"])
+        let cases = try XCTUnwrap(fx["cases"]?.array)
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try makeModel("menu", theme: "neutral", mode: .light, width: 390)
+            m.host = host
+            let surface = try XCTUnwrap(fx["surfaces"]?[c["surface"]?.string ?? ""], "\(name): surface")
+            try m.setNested(json: surface.json)
+            if case .object(let seed) = c["data"] ?? .null {
+                for (k, v) in seed { m.setData(path: "/\(k)", value: v) }
+            }
+            m.pass()
+            for (i, step) in (c["steps"]?.array ?? []).enumerated() {
+                let at = "\(name): step \(i) (\(step["do"]?.string ?? "?"))"
+                let before = host.actions.count
+                switch step["do"]?.string {
+                case "open": m.setData(path: "/open", value: .bool(true))
+                case "close": m.setData(path: "/open", value: .bool(false))
+                case "escape": XCTAssertTrue(m.escape(), "\(at): Escape handled")
+                case "outside": m.dismissLayer("m")
+                case "pick": m.press(id: "m.item.0")
+                case "pressTrigger": m.press(id: "t")
+                default: break
+                }
+                m.pass()
+                XCTAssertEqual(m.layers.contains { $0.owner == "m" && m.node($0.root)?.id == "m.content" }, step["shown"]?.bool, "\(at): shown")
+                if let want = step["data"]?.bool { XCTAssertEqual(m.data["open"]?.bool, want, "\(at): /open") }
+                let fired = host.actions.dropFirst(before)
+                XCTAssertEqual(fired.filter { $0.name == "change" }.map { $0.context["open"]?.bool }, (step["changes"]?.array ?? []).map(\.bool), "\(at): changes")
+                XCTAssertEqual(fired.filter { $0.name == "select" }.map { $0.context["value"]?.string }, (step["selects"]?.array ?? []).map(\.string), "\(at): selects")
+            }
+        }
+    }
 }

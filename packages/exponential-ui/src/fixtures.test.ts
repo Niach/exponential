@@ -40,6 +40,8 @@ describe(`catalog-components.json`, () => {
           const values = schema.values ?? coreCatalog.enums[schema.enum!]
           for (const value of values) expect(cases.some((c) => c.name === `${name}/${prop}=${value}`), `${name}/${prop}=${value}`).toBe(true)
         }
+        // #EDE-253: scripts/generate.ts CASELESS_PROPS (a Menu's `open` replays in interactions-round1.json menuOpen).
+        if (name === `Menu` && prop === `open`) continue
         if (schema.type === `boolean`) for (const value of [true, false]) expect(cases.some((c) => c.name === `${name}/${prop}=${value}`), `${name}/${prop}=${value}`).toBe(true)
       }
     }

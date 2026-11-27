@@ -51,6 +51,7 @@ pub mod shortcuts;
 pub mod spaces;
 pub mod state;
 pub mod text;
+pub mod window_menu;
 pub mod workspaces;
 pub mod xauth;
 
