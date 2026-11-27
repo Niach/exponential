@@ -411,6 +411,13 @@ pub struct SurfaceView {
     /// #EXP-2045: how much of each hosted layer its host last painted, and
     /// how many times it did.
     hosted_shown: HashMap<String, (f32, u64)>,
+    /// #EDE-263: the window each hosted Menu's popup paints in. That popup
+    /// takes the keyboard (uicore-gpui's `hosted_grabs`), so while one is
+    /// open the focus is its window's: the surface window still holds the
+    /// handle focused as the menu opened, and its pass must not take the
+    /// focus back there (Enter picked the first entry, not the one the
+    /// arrows had moved to).
+    hosted_key_windows: HashMap<String, gpui::WindowId>,
     unknown_version: Option<u64>,
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
@@ -685,6 +692,7 @@ impl SurfaceView {
             just_dismissed: None,
             hosted_popups: Vec::new(),
             hosted_shown: HashMap::new(),
+            hosted_key_windows: HashMap::new(),
             unknown_version: None,
             host_scroll: None,
             drag: None,
@@ -1456,6 +1464,7 @@ impl SurfaceView {
             self.hosted_popups = hosted;
         }
         self.hosted_shown.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
+        self.hosted_key_windows.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
         // #EXP-2045: the host's popup windows paint the hosted layers from
         // these caches, and the change that woke this pass woke them too:
         // one may have drawn first, from the caches before it (a row's new
