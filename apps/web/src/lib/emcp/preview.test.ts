@@ -159,6 +159,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_session_self_report_bug: [`issue`],
   exponential_repositories_create: [`repository`],
   exponential_repositories_configure_ci: [],
+  exponential_repositories_restore: [],
   exponential_repositories_credentials: [],
   exponential_repositories_list: [`list`, `repository`],
   exponential_session_self_compact: [],
