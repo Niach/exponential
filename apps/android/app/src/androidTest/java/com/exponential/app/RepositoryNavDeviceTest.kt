@@ -9,6 +9,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -27,7 +28,8 @@ import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.repo.NEW_REPOSITORY_TEST_ID
 import com.exponential.app.ui.repo.NewRepositoryForm
 import com.exponential.app.ui.repo.NewRepositoryPage
-import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
+import com.exponential.app.ui.components.PhoneDock
+import com.exponential.app.ui.components.PhoneMoreMenu
 import com.exponential.app.ui.teams.TEAMS_REPOSITORY_SPECIMEN_TEST_ID
 import com.exponential.app.ui.teams.TeamsRepositorySpecimenScreen
 import com.exponential.app.ui.theme.AppBackground
@@ -88,11 +90,11 @@ class RepositoryNavDeviceTest {
         // Rows titled by the full name's last segment.
         compose.onNode(hasText("engine")).assertExists()
         compose.onNode(hasText("site")).assertExists()
-        compose.onNode(hasTestTag("team-repository-github")).assertExists()
+        compose.onNode(hasTestTag("team-repository-github"), useUnmergedTree = true).assertExists()
         shot("android-teams-repositories")
         show { TeamsRepositorySpecimenScreen(menuOpen = true) }
-        compose.onNode(hasTestTag("team-menu-new-repo-chat")).assertExists()
-        compose.onNode(hasText(SidebarMenus.COPY.getValue("copy-clone-url"))).assertExists()
+        compose.onNode(hasTestTag("team-menu-new-repo-chat"), useUnmergedTree = true).assertExists()
+        compose.onNode(hasText(SidebarMenus.COPY.getValue("copy-clone-url")), useUnmergedTree = true).assertExists()
         shot("android-repository-menu")
     }
 
@@ -110,10 +112,23 @@ class RepositoryNavDeviceTest {
 
     @Test
     fun moreMenu() {
-        show { PhoneTabBarSpecimenScreen() }
-        compose.onNode(hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-devices")).assertExists()
-        compose.onNode(hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-settings")).assertExists()
-        compose.onAllNodes(hasText(Chats.Copy.TABS.getValue("more"))).onFirst().assertExists()
+        // The Chats tab with More open: THE dock and its menu, as AppNavHost lays them.
+        show {
+            Box(Modifier.fillMaxSize()) {
+                PhoneMoreMenu(onPick = {}, onDismiss = {})
+                PhoneDock(
+                    selected = "chats",
+                    newOpen = false,
+                    moreOpen = true,
+                    badges = emptyMap(),
+                    onSelect = {},
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
+        }
+        compose.onNode(hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-devices"), useUnmergedTree = true).assertExists()
+        compose.onNode(hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-settings"), useUnmergedTree = true).assertExists()
+        compose.onAllNodes(hasText(Chats.Copy.TABS.getValue("more")), useUnmergedTree = true).onFirst().assertExists()
         shot("android-more-menu")
     }
 }
