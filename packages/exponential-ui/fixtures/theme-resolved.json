@@ -6904,7 +6904,8 @@
                 "state": "selected"
               },
               "style": {
-                "backgroundColor": "$color.muted"
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.ring"
               }
             }
           ],
@@ -17982,7 +17983,8 @@
                 "state": "selected"
               },
               "style": {
-                "backgroundColor": "$color.muted"
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.ring"
               }
             }
           ],
@@ -28454,7 +28456,8 @@
                 "state": "selected"
               },
               "style": {
-                "backgroundColor": "$color.muted"
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.ring"
               }
             }
           ],
@@ -39627,7 +39630,8 @@
                 "state": "selected"
               },
               "style": {
-                "backgroundColor": "$color.muted"
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.ring"
               }
             }
           ],
