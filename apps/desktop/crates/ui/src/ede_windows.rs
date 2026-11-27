@@ -421,6 +421,24 @@ pub(crate) fn open_from_bus(link: Option<String>, cx: &mut App) {
     }
 }
 
+/// #EDE-258: the bus's `page {key}` (the start menu's rows): the window
+/// holding the page `key` comes forward, else a window opens for it.
+/// `false` = the key names no page.
+pub(crate) fn open_key(key: &str, cx: &mut App) -> bool {
+    let Some(screen) = screen_of_key(key) else { return false };
+    let holding = cx.try_global::<PageWindows>().and_then(|windows| {
+        let (id, _) = windows.meta.iter().find(|(_, meta)| meta.key == key)?;
+        windows.order.iter().find(|handle| handle.window_id() == *id).copied()
+    });
+    match holding {
+        Some(window) => {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        }
+        None => open_page(Some(screen), None, None, Vec::new(), cx),
+    }
+    true
+}
+
 /// `Shell`'s render in eDE mode: the window's title is its page's, and
 /// what it is goes to the shell.
 pub(crate) fn publish(window: &mut Window, cx: &mut App) {

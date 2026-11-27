@@ -497,11 +497,11 @@ pub fn open_window(engine: &SharedEngine, app_id: &str, cx: &mut App) {
 }
 
 /// The most an app window takes on an output of `out` px: the ground's
-/// free area inside the rail (#EDE-65: the sidebar for good), the taskbar
-/// and the panel margins (shell-layout.json), never below 320×240.
+/// free area above the taskbar inside the panel margins (shell-layout.json;
+/// #EDE-238: no rail), never below 320×240.
 pub fn window_max(out: (u32, u32)) -> (u32, u32) {
     let layout = shell_layout();
-    (out.0.saturating_sub(layout.rail_width + 2 * layout.panel_margin).max(320), out.1.saturating_sub(layout.taskbar_height + 2 * layout.panel_margin).max(240))
+    (out.0.saturating_sub(2 * layout.panel_margin).max(320), out.1.saturating_sub(layout.taskbar_height + 2 * layout.panel_margin).max(240))
 }
 
 /// Where the `n`th widget of the column goes: its size for its class and
@@ -631,8 +631,8 @@ mod tests {
 
     #[test]
     fn an_app_window_fits_the_ground() {
-        assert_eq!(window_max((1920, 1080)), (1844, 1012));
-        assert_eq!(window_max((1280, 720)), (1204, 652));
+        assert_eq!(window_max((1920, 1080)), (1900, 1012));
+        assert_eq!(window_max((1280, 720)), (1260, 652));
         assert_eq!(window_max((300, 200)), (320, 240));
     }
 

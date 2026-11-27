@@ -334,11 +334,20 @@ impl Workspaces {
         if self.demo {
             return None;
         }
-        let mut sources: Vec<crate::issues::Source> = self.session_accounts().iter().filter_map(|a| self.sync.store(&a.id)).map(crate::issues::Source::Account).collect();
+        // #EDE-258: the teams' issues are the holder's search (one store).
+        let mut sources: Vec<crate::issues::Source> = Vec::new();
         for d in self.desktops.active() {
             sources.push(crate::issues::Source::Local { id: d.id.clone(), name: d.name.clone(), path: self.desktops.desktop_dir(&d.id).join("local.sqlite") });
         }
         Some(sources)
+    }
+
+    /// #EDE-258: the active Local desktops (id, name, store path).
+    pub fn local_desktops(&self) -> Vec<(String, String, std::path::PathBuf)> {
+        if self.demo {
+            return Vec::new();
+        }
+        self.desktops.active().iter().map(|d| (d.id.clone(), d.name.clone(), self.desktops.desktop_dir(&d.id).join("local.sqlite"))).collect()
     }
 
     /// `/accounts`: what Settings' Account page lists.
