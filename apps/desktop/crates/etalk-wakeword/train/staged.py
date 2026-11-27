@@ -70,6 +70,10 @@ def _generate(job: tuple[str, str, int, int]) -> None:
     else:
         random.seed(129)  # every worker and every rerun cycles the same list
         phrases = g.generate_adversarial_phrases(target_phrases=config.target_phrases)
+        # NEW-129: the classifier hears the window's last ~1.3 s, so a near miss that ENDS in
+        # the wake word's last word ("hay claude", "claude") is the wake word there: drop it.
+        last = {phrase.split()[-1] for phrase in config.target_phrases}
+        phrases = [phrase for phrase in phrases if phrase.split()[-1] not in last]
         phrases.extend(config.custom_negative_phrases)
     _quiet_threads()
     start = first
@@ -210,6 +214,8 @@ def _batches(trainer, start_step: int):
                 continue
             if name == "ACAV100M_sample":  # 16 GB on disk: in file order
                 indices = np.sort(np.arange(step * n, step * n + n) % array.shape[0])
+            elif os.environ.get("STAGED_IN_ORDER"):  # livekit-wakeword's own walk (diagnostic)
+                indices = np.arange(step * n, step * n + n) % array.shape[0]
             else:  # the German clips follow the English ones: mix them in every batch
                 indices = np.sort(np.random.randint(0, array.shape[0], n))
             features.append(np.asarray(array[indices]))
