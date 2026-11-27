@@ -185,6 +185,10 @@
       "reason": "The same page as `settings-prompt` (captured on /settings/prompts/new) filled from a prompt row; a seeded prompt id is not resolvable by the capture."
     },
     {
+      "route": "/t/$teamSlug/new/repository",
+      "reason": "#EXP-2209: New › Repository (#3652) is not captured yet; its view (like new-board, new-agent and new-app) follows in #EXP-2209."
+    },
+    {
       "route": "/t/$teamSlug/settings/skills/new",
       "reason": "#EXP-1659: New skill = the skill page in create mode, the same layout settings-skill photographs with the seeded db-migration skill."
     },
