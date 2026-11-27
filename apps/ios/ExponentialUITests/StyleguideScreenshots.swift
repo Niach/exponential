@@ -831,13 +831,13 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        // ── sg_settings-root: the SETTINGS tab (#EXP-2109): the viewer's
-        // card, the account rows, Devices, About.
-        showTab(app, "tab-settings", root: "settings-tab")
+        // ── sg_settings-root: the SETTINGS page (#EXP-2109; #EXP-2171: More ›
+        // Settings): the viewer's card, the account rows, About.
+        showMore(app, "settings", root: "settings-tab")
         expect(
-            app.buttons["settings-devices-row"],
+            app.buttons["settings-viewer"],
             within: Wait.nav,
-            "The Settings tab has no Devices row"
+            "The Settings page has no viewer card"
         )
         snapshot("sg_settings-root", settle: 2)
 
@@ -996,7 +996,7 @@ final class StyleguideScreenshots: XCTestCase {
         // page ensures it): identity, Runs on, Check in, the Voice block. A
         // detour: nothing is edited.
         if ScreenshotShots.isWanted("sg_settings-assistant") || ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
-            showTab(app, "tab-settings", root: "settings-tab")
+            showMore(app, "settings", root: "settings-tab")
             let assistantRow = app.buttons["assistant-settings-row"]
             scrollUntilVisible(app, assistantRow, attempts: 8)
             expect(assistantRow, within: Wait.sync, "Settings has no Personal › Assistant row")
@@ -1072,7 +1072,7 @@ final class StyleguideScreenshots: XCTestCase {
         // detail view. The row is titled by the SERVER, with the email below,
         // so match on the email.
         // #EXP-2109: the Settings tab's viewer card opens it.
-        showTab(app, "tab-settings", root: "settings-tab")
+        showMore(app, "settings", root: "settings-tab")
         app.buttons["settings-viewer"].tap()
         scrollUntilVisible(app, app.buttons["Sign out"], attempts: 4)
         expect(
@@ -1306,12 +1306,16 @@ final class StyleguideScreenshots: XCTestCase {
         return button
     }
 
-    /// Settings › Devices.
+    /// More › Devices (#EXP-2171; the iPad: its sidebar entry).
     @MainActor
     private func openDevices(_ app: XCUIApplication) {
-        showTab(app, "tab-settings", root: "settings-tab")
-        let row = app.buttons["settings-devices-row"]
-        expect(row, within: Wait.nav, "Settings has no Devices row")
+        let sidebar = app.buttons["sidebar-devices"]
+        if sidebar.exists, sidebar.isHittable { return sidebar.tap() }
+        let cell = shellEntry(app, "tab-settings", within: Wait.nav)
+        expect(cell, within: 1, "The bar has no More")
+        cell.tap()
+        let row = app.buttons["more-menu-devices"]
+        expect(row, within: Wait.nav, "The More menu has no Devices")
         row.tap()
     }
 

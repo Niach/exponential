@@ -15,6 +15,7 @@ public enum SidebarTree {
         public static let teams = "Teams"
         public static let newTeam = "New team"
         public static let joinTeam = "Join team"
+        public static let repository = "Repository"
     }
 
     /// The Teams header's + menu (`teamsMenu`).
@@ -25,7 +26,7 @@ public enum SidebarTree {
 
     public static let teamsMenu: [TeamsMenuItem] = TeamsMenuItem.allCases
 
-    public enum ItemKind: String, Sendable { case board, agent, app, session }
+    public enum ItemKind: String, Sendable { case board, repository, agent, app, session }
 
     public struct TeamItem: Equatable, Sendable {
         public let id: String
@@ -73,12 +74,13 @@ public enum SidebarTree {
         teams.filter { $0.kind != "personal" }.map { (id: $0.id, name: $0.name) }.sorted(by: byName).map(\.id)
     }
 
-    /// `teamItems` (TS `sidebarTeamItems`): boards by sortOrder, agents (role
-    /// agent) by sortOrder, apps by name, then the placed root sessions in
-    /// entry order.
+    /// `teamItems` (TS `sidebarTeamItems`): boards by sortOrder, repositories
+    /// (#EXP-2171) by sortOrder then full name, agents (role agent) by
+    /// sortOrder, apps by name, then the placed root sessions in entry order.
     public static func teamItems(
         teamId: String,
         boards: [(id: String, sortOrder: Double)],
+        repositories: [(id: String, sortOrder: Double, fullName: String)] = [],
         agents: [Agent],
         apps: [(id: String, name: String)],
         sessions: [Session],
@@ -94,6 +96,12 @@ public enum SidebarTree {
         return boards
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.id < $1.id }
             .map { TeamItem(id: $0.id, kind: .board) }
+            + repositories
+            .sorted {
+                $0.sortOrder != $1.sortOrder
+                    ? $0.sortOrder < $1.sortOrder : byName((id: $0.id, name: $0.fullName), (id: $1.id, name: $1.fullName))
+            }
+            .map { TeamItem(id: $0.id, kind: .repository) }
             + agents.filter { $0.role == "agent" }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.id < $1.id }
             .map { TeamItem(id: $0.id, kind: .agent) }
@@ -193,5 +201,35 @@ public enum SidebarTree {
     /// the viewer's only team, without a node.
     public static func phoneTeamsEmpty(_ teams: [(id: String, count: Int)]) -> String? {
         teams.count == 1 && teams[0].count == 0 ? teams[0].id : nil
+    }
+
+    // MARK: - `repositoryRow` (#EXP-2171)
+
+    /// The repository row's glyph and a GitHub repository's mark.
+    public static let repositoryGlyph = "git-branch"
+    public static let repositoryGithubIcon = "github"
+
+    /// A repository row's trailing side (TS `sidebarRepositoryTrailing`).
+    public enum RepositoryTrailing: Equatable, Sendable {
+        /// The checks rollup of its live PRs: `success` | `pending` | `failure`.
+        case checks(String)
+        case github
+    }
+
+    /// Its checks chip, else a GitHub repository's mark, else nothing.
+    public static func repositoryTrailing(provider: String, checks: String?) -> RepositoryTrailing? {
+        if let checks { return .checks(checks) }
+        return provider == "github" ? .github : nil
+    }
+
+    /// Copy clone URL: a hosted repository's `exp://` remote, else GitHub's.
+    public static func repositoryCloneUrl(provider: String, fullName: String) -> String {
+        provider == "ecode" ? "exp://\(fullName)" : "https://github.com/\(fullName).git"
+    }
+
+    /// The row's title: the full name's last segment.
+    public static func repositoryName(_ fullName: String) -> String {
+        let last = fullName.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? ""
+        return last.isEmpty ? fullName : last
     }
 }

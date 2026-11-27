@@ -48,6 +48,20 @@ public enum RepoPage {
             public static let create = "Create"
         }
 
+        /// #EXP-2171 `copy.new`: New › Repository, the page.
+        public enum New {
+            public static let title = "New repository"
+            public static let hosted = "Host on Exponential"
+            public static let hostedHint = "Git hosted by Exponential. Nothing else to set up."
+            public static let github = "Link from GitHub"
+            public static let githubHint = "The code stays on GitHub."
+            public static let description = "Description"
+            public static let runCi = "Run CI"
+            public static let create = "Create repository"
+            public static let link = "Link repository"
+            public static let connectGithub = "Connect GitHub"
+        }
+
         public enum Pulls {
             public static let empty = "No open pull requests"
         }

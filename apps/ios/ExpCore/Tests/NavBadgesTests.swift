@@ -133,8 +133,11 @@ final class NavBadgesTests: XCTestCase {
         let ids = try cases("destinations").filter { $0["badge"] as? Bool == true }.compactMap { $0["id"] as? String }
         XCTAssertEqual(ids, [
             "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab", "chats", "chat-row",
-            "inbox", "drafts", "app-icon",
+            "inbox", "drafts", "app-icon", "more",
         ])
+        // #EXP-2171: a repository row never badges.
+        let quiet = try cases("destinations").filter { $0["badge"] as? Bool == false }.compactMap { $0["id"] as? String }
+        XCTAssertTrue(quiet.contains("repository"))
     }
 
     func testTeamMarkLeadCases() throws {

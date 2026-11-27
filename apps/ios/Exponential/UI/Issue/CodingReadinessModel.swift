@@ -220,7 +220,9 @@ final class CodingReadinessModel {
             boardRepository: boardRepository,
             github: githubInput(board: board),
             devices: devices,
-            nowMs: Int64((now.timeIntervalSince1970 * 1000).rounded())
+            nowMs: Int64((now.timeIntervalSince1970 * 1000).rounded()),
+            // #EXP-2171: a team with a repository can code on any issue.
+            teamRepositoryCount: repos?.count ?? 0
         ))
     }
 

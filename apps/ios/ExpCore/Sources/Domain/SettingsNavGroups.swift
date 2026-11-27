@@ -43,6 +43,8 @@ public extension SettingsNav {
         public static let newAgent = "@new-agent"
         public static let apps = "@apps"
         public static let newApp = "@new-app"
+        /// #EXP-2171: New › Repository (owners).
+        public static let newRepository = "@new-repository"
     }
 
     static let groups: [Group] = [
@@ -83,7 +85,7 @@ public extension SettingsNav {
     ]
 
     /// #EXP-2109 (`nav.phone.settings`): the phone's Settings tab.
-    static let phoneSettings = ["account", "assistant", "notifications", "security", "devices", "about"]
+    static let phoneSettings = ["account", "assistant", "notifications", "security", "about"]
 
     /// #EXP-2109 (`nav.phone.team`): a team's settings page on a phone.
     static let phoneTeam: [Id] = [
@@ -106,6 +108,7 @@ public extension SettingsNav {
         List.newBoard: .owner,
         List.newAgent: .owner,
         List.newApp: .owner,
+        List.newRepository: .owner,
     ]
 
     static func group(_ id: String) -> Group? { groups.first { $0.id == id } }

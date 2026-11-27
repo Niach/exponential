@@ -108,6 +108,8 @@ private struct CiRepoInput: Encodable {
 /// Nil keys drop off the wire: only the given keys change.
 private struct CiSetRepoConfigInput: Encodable {
     let repositoryId: String
+    /// #EXP-2171: New › Repository's Run CI switch.
+    var enabled: Bool? = nil
     let requiredChecks: [String]?
     let githubStatuses: Bool?
     let actionsRunners: Bool?
@@ -170,6 +172,7 @@ public final class CiApi: Sendable {
     public func setRepoConfig(
         accountId: String,
         repositoryId: String,
+        enabled: Bool? = nil,
         requiredChecks: [String]? = nil,
         githubStatuses: Bool? = nil,
         actionsRunners: Bool? = nil
@@ -177,7 +180,7 @@ public final class CiApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "ci.setRepoConfig",
             input: CiSetRepoConfigInput(
-                repositoryId: repositoryId, requiredChecks: requiredChecks,
+                repositoryId: repositoryId, enabled: enabled, requiredChecks: requiredChecks,
                 githubStatuses: githubStatuses, actionsRunners: actionsRunners
             )
         )

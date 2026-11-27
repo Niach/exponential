@@ -16,7 +16,8 @@ public enum Chats {
             public static let teams = "Teams"
             public static let assistant = "Assistant"
             public static let new = "New"
-            public static let settings = "Settings"
+            /// #EXP-2171: the phones' last cell (Devices · CI · Settings).
+            public static let more = "More"
         }
         /// Page header titles.
         public enum Headers {
@@ -213,7 +214,7 @@ public enum Chats {
     /// Fixture `shell`.
     public enum Shell {
         public enum Tab: String, CaseIterable, Sendable {
-            case chats, teams, assistant, new, settings
+            case chats, teams, assistant, new, more
 
             public var label: String {
                 switch self {
@@ -221,7 +222,7 @@ public enum Chats {
                 case .teams: Copy.Tabs.teams
                 case .assistant: Copy.Tabs.assistant
                 case .new: Copy.Tabs.new
-                case .settings: Copy.Tabs.settings
+                case .more: Copy.Tabs.more
                 }
             }
 
@@ -232,7 +233,7 @@ public enum Chats {
                 case .teams: "ui-team"
                 case .assistant: "brand-exponential"
                 case .new: "ui-add"
-                case .settings: "nav-settings"
+                case .more: "ellipsis"
                 }
             }
 
@@ -242,7 +243,8 @@ public enum Chats {
                 case .teams: TestIds.tabTeams
                 case .assistant: TestIds.tabAssistant
                 case .new: TestIds.tabNew
-                case .settings: TestIds.tabSettings
+                // The fixture keeps the cell's test id.
+                case .more: TestIds.tabSettings
                 }
             }
         }
@@ -293,6 +295,48 @@ public enum Chats {
             public static let gap: Double = 26
         }
 
+        /// `shell.moreMenu` (#EXP-2171): the More cell's menu, opened upwards
+        /// (side top, align end). A row opens its page as the More tab's
+        /// root; its badge = that item's count, the cell wears their sum.
+        public enum MoreMenu {
+            public enum Item: String, CaseIterable, Sendable {
+                case devices, ci, settings
+
+                public var label: String {
+                    switch self {
+                    case .devices: "Devices"
+                    case .ci: "CI"
+                    case .settings: "Settings"
+                    }
+                }
+
+                public var icon: String {
+                    switch self {
+                    case .devices: "nav-devices"
+                    case .ci: "workflow"
+                    case .settings: "nav-settings"
+                    }
+                }
+
+                /// The nav-badges.json destination of its count, nil = none.
+                public var badge: String? {
+                    switch self {
+                    case .ci: "ci"
+                    case .devices, .settings: nil
+                    }
+                }
+            }
+
+            /// The fixture's order (Devices · CI · Settings).
+            public static let all: [Item] = Item.allCases
+
+            /// The rows this app draws: a platform without a row's page
+            /// leaves it out (`available` = the pages it has).
+            public static func items(available: Set<Item>) -> [Item] {
+                all.filter(available.contains)
+            }
+        }
+
         /// `shell.pages`: the tab a page lights; every listed page shows
         /// the bar.
         public enum Page: String, CaseIterable, Sendable {
@@ -307,7 +351,7 @@ public enum Chats {
                 case .chats: .chats
                 case .teams, .team, .folder, .board, .teamSettings: .teams
                 case .assistant: .assistant
-                case .settings, .settingsPage, .devices, .device: .settings
+                case .settings, .settingsPage, .devices, .device: .more
                 }
             }
 

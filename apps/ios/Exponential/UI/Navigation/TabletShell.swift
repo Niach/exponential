@@ -22,7 +22,8 @@ enum SidebarItem: Hashable {
         case .agent, .needsYou, .chats, .chat, .drafts: .chats
         case .agentChannel: .chats
         case .app, .board: .teams
-        case .devices, .settings: .settings
+        case .devices: .devices
+        case .settings: .settings
         }
     }
 
@@ -32,6 +33,7 @@ enum SidebarItem: Hashable {
         case .chats, .teams: self = .chats
         case .assistant: self = assistantId.map { .agentChannel($0) } ?? .chats
         case .settings: self = .settings
+        case .devices: self = .devices
         }
     }
 
@@ -242,7 +244,17 @@ struct TabletSidebar: View {
                                 teams: teamState.orderedTeams,
                                 compact: true,
                                 isSelected: { item($0) == selection },
-                                onOpen: { if let item = item($0) { onSelect(item) } }
+                                onOpen: { node in
+                                    if let item = item(node) {
+                                        onSelect(item)
+                                    } else if node.kind == .item(.repository) {
+                                        // #EXP-2171: the repository page, in the detail.
+                                        pushRoute(.repo(
+                                            accountId: accountId, teamId: node.teamId, repositoryId: node.id,
+                                            isOwner: tree.isOwner(node.teamId)
+                                        ))
+                                    }
+                                }
                             ))])
                         }
                         if !activeRows.isEmpty {
@@ -316,7 +328,7 @@ struct TabletSidebar: View {
     /// The entry a tree leaf selects.
     private func item(_ node: SidebarTree.PhoneRow) -> SidebarItem? {
         switch node.kind {
-        case .team, .folder: nil
+        case .team, .folder, .item(.repository): nil
         case .item(.board): .board(node.id)
         case .item(.agent): .agentChannel(node.id)
         case .item(.app): .app(node.id)

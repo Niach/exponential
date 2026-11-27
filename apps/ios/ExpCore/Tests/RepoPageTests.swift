@@ -21,6 +21,7 @@ final class RepoPageTests: XCTestCase {
     private struct CopyJSON: Decodable {
         let provider: [String: String]
         let add: [String: String]
+        let new: [String: String]
         let pulls: [String: String]
         let runs: [String: String]
         let branches: [String: String]
@@ -151,6 +152,12 @@ final class RepoPageTests: XCTestCase {
             "mirrorUrl": RepoPage.Copy.Add.mirrorUrl,
             "cancel": RepoPage.Copy.Add.cancel,
             "create": RepoPage.Copy.Add.create,
+        ])
+        typealias N = RepoPage.Copy.New
+        XCTAssertEqual(f.copy.new, [
+            "title": N.title, "hosted": N.hosted, "hostedHint": N.hostedHint, "github": N.github,
+            "githubHint": N.githubHint, "description": N.description, "runCi": N.runCi, "create": N.create,
+            "link": N.link, "connectGithub": N.connectGithub,
         ])
         XCTAssertEqual(f.copy.pulls, ["empty": RepoPage.Copy.Pulls.empty])
         XCTAssertEqual(f.copy.runs, ["empty": RepoPage.Copy.Runs.empty])
