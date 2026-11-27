@@ -427,6 +427,8 @@ pub struct SurfaceView {
     wheel_swipe: Option<swipe::WheelSwipe>,
     swipe_hits: Rc<RefCell<Vec<u32>>>,
     wheel_momentum: Option<Instant>,
+    /// A Box's `scroll` event: the smooth (touchpad) pixels not yet a step.
+    wheel_pending: HashMap<u32, (f32, f32)>,
     wheel_watchdog: Option<Task<()>>,
     /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
     sticky: HashMap<u32, (f32, f32)>,
@@ -694,6 +696,7 @@ impl SurfaceView {
             wheel_swipe: None,
             swipe_hits: Rc::new(RefCell::new(Vec::new())),
             wheel_momentum: None,
+            wheel_pending: HashMap::new(),
             wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
@@ -1574,6 +1577,7 @@ impl SurfaceView {
             world.cache.ids.push(SharedString::from(n.id.clone()));
             world.cache.hover_styled.push(false);
             world.cache.hover_fires.push(false);
+            world.cache.pointer_fires.push((false, false));
             world.cache.nodes.push(n);
             world.frames.push(*frame);
             world.styles.push(styles.get(slot).cloned().unwrap_or_default());

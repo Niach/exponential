@@ -56,7 +56,9 @@ pub fn open_shell_window(cx: &mut App) {
             // #EDE-64: on Exponential Desktop the window fills the ground
             // panel (the compositor honours a maximize asked before the first
             // frame); un-maximized it floats at the saved size.
-            window_bounds: Some(if on_exponential_desktop() { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
+            // #EDE-237: eDE mode's page windows float like any program's,
+            // cascaded at the saved size.
+            window_bounds: Some(if on_exponential_desktop() && !ui::ede_component::is_component() { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
             window_min_size: Some(min_size),
             kind: WindowKind::Normal,
             // Associate the window with our `.desktop` entry so Linux
@@ -141,7 +143,11 @@ pub fn open_shell_window(cx: &mut App) {
         ui::macos_blur::ensure_window_blur();
 
         window.update(cx, |_, window, cx| {
-            window.set_window_title(crate::channel::APP_NAME);
+            // #EDE-237: eDE mode's windows wear their page's title (`ui`'s
+            // `ede_windows::publish`).
+            if !ui::ede_component::is_component() {
+                window.set_window_title(crate::channel::APP_NAME);
+            }
             window.activate_window();
             let _ = cx;
         })?;

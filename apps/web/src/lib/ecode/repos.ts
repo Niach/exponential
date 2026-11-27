@@ -177,6 +177,6 @@ export async function restoreEcodeBackup(userId: string, input: { repositoryId: 
   const backup = (await listBundles(repo.id)).find((b) => b.id === input.backupId)
   if (!backup) fail(`NOT_FOUND`, `Backup not found`)
   const commandId = await queueMaintenance(repo, { op: `restore`, bundle: backup.key })
-  if (!commandId) fail(`PRECONDITION_FAILED`, `No team device with eCode jobs is online to restore ${repo.fullName}`)
+  if (!commandId) fail(`PRECONDITION_FAILED`, `No CI runner of the team is online to restore ${repo.fullName}`)
   return { commandId }
 }

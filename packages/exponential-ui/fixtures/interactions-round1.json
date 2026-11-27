@@ -5958,5 +5958,236 @@
       {"name": "a literal open: true shows it at once; Escape closes it", "surface": "literal", "data": {}, "steps": [{"do": "none", "shown": true, "changes": []}, {"do": "escape", "shown": false, "changes": [false]}]},
       {"name": "unbound: closed, the trigger opens it and fires change", "surface": "unbound", "data": {}, "steps": [{"do": "none", "shown": false, "changes": []}, {"do": "pressTrigger", "shown": true, "changes": [true]}, {"do": "pick", "shown": false, "changes": [false], "selects": ["move"]}]}
     ]
+  },
+  "boxPointer": {
+    "$comment": "#EDE-247 (eDE's tray, Cinnamon's click semantics): a Box's `auxPress` fires on a mouse button other than the primary one, payload {button: middle (on press) | right (on release)}; its `scroll` fires once per wheel step, payload {direction: up | down | left | right} (a notch is one step; a smooth device's pixels count in the renderer's step size). The payload merges into an Event's context. A Box without the handler fires nothing; the primary button stays `press`. Steps: {aux: id, button}, {press: id}, {wheel: id, notches, axis?: x} (notches > 0 = up / left). Replayed on the pointer renderers: React, Solid and gpui (Swift and Compose: #VAPP-306).",
+    "surface": {
+      "id": "tiles",
+      "component": "Box",
+      "style": {
+        "display": "flex",
+        "gap": 8
+      },
+      "children": [
+        {
+          "id": "a",
+          "component": "Box",
+          "style": {
+            "width": 80,
+            "height": 40
+          },
+          "props": {
+            "pressable": true
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "pressed",
+                "context": {
+                  "id": "a"
+                }
+              }
+            },
+            "auxPress": {
+              "event": {
+                "name": "aux",
+                "context": {
+                  "id": "a"
+                }
+              }
+            },
+            "scroll": {
+              "event": {
+                "name": "wheel",
+                "context": {
+                  "id": "a"
+                }
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "a_label",
+              "component": "Text",
+              "props": {
+                "text": "A"
+              }
+            }
+          ]
+        },
+        {
+          "id": "b",
+          "component": "Box",
+          "style": {
+            "width": 80,
+            "height": 40
+          },
+          "props": {
+            "pressable": true
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "pressed",
+                "context": {
+                  "id": "b"
+                }
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "b_label",
+              "component": "Text",
+              "props": {
+                "text": "B"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "cases": [
+      {
+        "name": "the middle button fires auxPress {button: middle}",
+        "steps": [
+          {
+            "aux": "a",
+            "button": "middle"
+          }
+        ],
+        "events": [
+          {
+            "name": "aux",
+            "context": {
+              "id": "a",
+              "button": "middle"
+            }
+          }
+        ]
+      },
+      {
+        "name": "the right button fires auxPress {button: right}; the primary one stays press",
+        "steps": [
+          {
+            "aux": "a",
+            "button": "right"
+          },
+          {
+            "press": "a"
+          }
+        ],
+        "events": [
+          {
+            "name": "aux",
+            "context": {
+              "id": "a",
+              "button": "right"
+            }
+          },
+          {
+            "name": "pressed",
+            "context": {
+              "id": "a"
+            }
+          }
+        ]
+      },
+      {
+        "name": "a wheel notch is one scroll step",
+        "steps": [
+          {
+            "wheel": "a",
+            "notches": 1
+          },
+          {
+            "wheel": "a",
+            "notches": -2
+          }
+        ],
+        "events": [
+          {
+            "name": "wheel",
+            "context": {
+              "id": "a",
+              "direction": "up"
+            }
+          },
+          {
+            "name": "wheel",
+            "context": {
+              "id": "a",
+              "direction": "down"
+            }
+          },
+          {
+            "name": "wheel",
+            "context": {
+              "id": "a",
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
+        "name": "a horizontal notch is left or right",
+        "steps": [
+          {
+            "wheel": "a",
+            "notches": 1,
+            "axis": "x"
+          },
+          {
+            "wheel": "a",
+            "notches": -1,
+            "axis": "x"
+          }
+        ],
+        "events": [
+          {
+            "name": "wheel",
+            "context": {
+              "id": "a",
+              "direction": "left"
+            }
+          },
+          {
+            "name": "wheel",
+            "context": {
+              "id": "a",
+              "direction": "right"
+            }
+          }
+        ]
+      },
+      {
+        "name": "a Box without the handlers fires nothing on them",
+        "steps": [
+          {
+            "aux": "b",
+            "button": "middle"
+          },
+          {
+            "aux": "b",
+            "button": "right"
+          },
+          {
+            "wheel": "b",
+            "notches": 1
+          },
+          {
+            "press": "b"
+          }
+        ],
+        "events": [
+          {
+            "name": "pressed",
+            "context": {
+              "id": "b"
+            }
+          }
+        ]
+      }
+    ]
   }
 }

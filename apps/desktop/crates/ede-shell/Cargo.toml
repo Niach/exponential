@@ -66,6 +66,10 @@ png = "0.17"
 # #EDE-242: an X11 window's _NET_WM_PID and _NET_WM_ICON from Xwayland (pure Rust, already in the tree).
 x11rb = "0.13"
 base64 = "0.22"
+# #EDE-247: the tray's icons rasterized at the panel's device size (SVG by
+# gpui's own renderer, pixmaps and PNGs resampled once); both already in the tree.
+resvg = { version = "0.45", default-features = false }
+image = { workspace = true, features = ["png"] }
 # #EDE-65 lane L: the chat composer's uploads (api::attachment_upload).
 anyhow.workspace = true
 # Notifications and the tray over the session bus (zbus like the IDE's voice tray; blocking calls from the main loop).

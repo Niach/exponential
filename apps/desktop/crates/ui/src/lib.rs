@@ -220,6 +220,8 @@ mod session;
 mod session_holder;
 /// #EDE-227: eDE's component and the session bus.
 pub mod ede_component;
+/// #EDE-237: eDE mode's page windows.
+pub mod ede_windows;
 #[cfg(target_os = "linux")]
 pub mod session_bus;
 mod session_extras;

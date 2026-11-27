@@ -164,6 +164,59 @@ struct WgpuBindGroupLayouts {
     surfaces: wgpu::BindGroupLayout,
 }
 
+/// Exponential patch (#EDE-237): one device's render pipelines and bind
+/// group layouts, shared by every window that draws with it. Each window
+/// used to compile its own set (twice: again once it learned its alpha
+/// mode), which on a software Vulkan driver costs ~18 MB of memory per
+/// window; a holder showing ten pages as ten windows compiled ten. A set is
+/// keyed by everything [`WgpuRendererCore::create_pipelines`] reads; the
+/// cache lives as long as the device ([`WgpuContext`]), so a recovered
+/// device starts a fresh one.
+#[derive(Default)]
+pub(crate) struct PipelineCache {
+    layouts: std::sync::Mutex<Vec<(bool, Arc<WgpuBindGroupLayouts>)>>,
+    pipelines: std::sync::Mutex<Vec<(PipelineKey, Arc<WgpuPipelines>)>>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct PipelineKey {
+    format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+    path_sample_count: u32,
+    dual_source_blending: bool,
+    uses_webgl_instance_data: bool,
+}
+
+impl PipelineCache {
+    fn layouts(&self, device: &wgpu::Device, uses_webgl_instance_data: bool) -> Arc<WgpuBindGroupLayouts> {
+        let mut layouts = self.layouts.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((_, found)) = layouts.iter().find(|(webgl, _)| *webgl == uses_webgl_instance_data) {
+            return Arc::clone(found);
+        }
+        let made = Arc::new(WgpuRendererCore::create_bind_group_layouts(device, uses_webgl_instance_data));
+        layouts.push((uses_webgl_instance_data, Arc::clone(&made)));
+        made
+    }
+
+    fn pipelines(&self, device: &wgpu::Device, layouts: &WgpuBindGroupLayouts, key: PipelineKey) -> Arc<WgpuPipelines> {
+        let mut pipelines = self.pipelines.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((_, found)) = pipelines.iter().find(|(k, _)| *k == key) {
+            return Arc::clone(found);
+        }
+        let made = Arc::new(WgpuRendererCore::create_pipelines(
+            device,
+            layouts,
+            key.format,
+            key.alpha_mode,
+            key.path_sample_count,
+            key.dual_source_blending,
+            key.uses_webgl_instance_data,
+        ));
+        pipelines.push((key, Arc::clone(&made)));
+        made
+    }
+}
+
 /// Shared GPU context reference, used to coordinate device recovery across multiple windows.
 pub type GpuContext = Rc<RefCell<Option<WgpuContext>>>;
 
@@ -183,8 +236,10 @@ enum InstanceData {
 struct WgpuResources {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    pipelines: WgpuPipelines,
-    bind_group_layouts: WgpuBindGroupLayouts,
+    // Exponential patch (#EDE-237): shared through the device's PipelineCache.
+    pipelines: Arc<WgpuPipelines>,
+    bind_group_layouts: Arc<WgpuBindGroupLayouts>,
+    pipeline_cache: Arc<PipelineCache>,
     atlas_sampler: wgpu::Sampler,
     atlas_texture_bind_groups: FxHashMap<AtlasTextureId, CachedTextureBindGroup>,
     globals_buffer: wgpu::Buffer,
@@ -1098,14 +1153,17 @@ impl WgpuRenderer {
             return;
         };
         let resources = &mut core.resources;
-        resources.pipelines = WgpuRendererCore::create_pipelines(
+        // Exponential patch (#EDE-237): the device's shared set.
+        resources.pipelines = resources.pipeline_cache.pipelines(
             &resources.device,
             &resources.bind_group_layouts,
-            format,
-            new_alpha_mode,
-            core.rendering_params.path_sample_count,
-            core.dual_source_blending,
-            core.uses_webgl_instance_data,
+            PipelineKey {
+                format,
+                alpha_mode: new_alpha_mode,
+                path_sample_count: core.rendering_params.path_sample_count,
+                dual_source_blending: core.dual_source_blending,
+                uses_webgl_instance_data: core.uses_webgl_instance_data,
+            },
         );
 
         if let RendererState::Ready { surface, core } = &self.state {
@@ -1250,15 +1308,19 @@ impl WgpuRendererCore {
         let uses_webgl_instance_data = context.uses_webgl_instance_data();
         let dual_source_blending =
             context.supports_dual_source_blending() && !uses_webgl_instance_data;
-        let bind_group_layouts = Self::create_bind_group_layouts(&device, uses_webgl_instance_data);
-        let pipelines = Self::create_pipelines(
+        // Exponential patch (#EDE-237): the device's shared set.
+        let pipeline_cache = Arc::clone(&context.pipelines);
+        let bind_group_layouts = pipeline_cache.layouts(&device, uses_webgl_instance_data);
+        let pipelines = pipeline_cache.pipelines(
             &device,
             &bind_group_layouts,
-            target_format,
-            alpha_mode,
-            rendering_params.path_sample_count,
-            dual_source_blending,
-            uses_webgl_instance_data,
+            PipelineKey {
+                format: target_format,
+                alpha_mode,
+                path_sample_count: rendering_params.path_sample_count,
+                dual_source_blending,
+                uses_webgl_instance_data,
+            },
         );
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas_sampler"),
@@ -1368,6 +1430,7 @@ impl WgpuRendererCore {
                 queue,
                 pipelines,
                 bind_group_layouts,
+                pipeline_cache,
                 atlas_sampler,
                 atlas_texture_bind_groups: FxHashMap::default(),
                 globals_buffer,

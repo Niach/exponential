@@ -804,33 +804,60 @@ fn kill_terminals(dropped: &[TabEntry], window: &mut Window, cx: &mut App) {
     }
 }
 
+/// #EDE-237: one page view of the panel. In eDE mode a window holds one
+/// page, so each is built the first time it shows (a window carrying every
+/// page's view cost ~50 MB, the whole Settings view among them); the
+/// standalone app builds them all with the panel, as before.
+struct PageView<T: 'static> {
+    view: Option<Entity<T>>,
+    build: fn(&mut Window, &mut gpui::Context<T>) -> T,
+}
+
+impl<T: 'static> PageView<T> {
+    fn new(build: fn(&mut Window, &mut gpui::Context<T>) -> T, window: &mut Window, cx: &mut gpui::Context<ScreensPanel>) -> Self {
+        let view = (!crate::ede_component::is_component()).then(|| cx.new(|cx| build(window, cx)));
+        Self { view, build }
+    }
+
+    /// The view, built now if it was not.
+    fn get(&mut self, window: &mut Window, cx: &mut gpui::Context<ScreensPanel>) -> Entity<T> {
+        let build = self.build;
+        self.view.get_or_insert_with(|| cx.new(|cx| build(window, cx))).clone()
+    }
+
+    /// The view, if it was built.
+    fn built(&self) -> Option<&Entity<T>> {
+        self.view.as_ref()
+    }
+}
+
 pub struct ScreensPanel {
     focus_handle: FocusHandle,
     nav: Entity<Navigation>,
-    issue_detail: Entity<IssueDetailView>,
-    settings: Entity<crate::settings::SettingsView>,
-    source_control: Entity<crate::source_control::SourceControlView>,
-    file_viewer: Entity<crate::file_viewer::FileViewerView>,
+    issue_detail: PageView<IssueDetailView>,
+    settings: PageView<crate::settings::SettingsView>,
+    source_control: PageView<crate::source_control::SourceControlView>,
+    file_viewer: PageView<crate::file_viewer::FileViewerView>,
     /// The Devices page (EXP-686 — the user's machines; the same tab-less
     /// full-page mode).
     /// #EXP-2027: a device's page, its settings page, a creation page (one
     /// view each, re-pointed on entry).
-    device_page: Entity<crate::device_page::DevicePageView>,
-    device_settings_page: Entity<crate::device_page::DeviceSettingsPage>,
-    new_item: Entity<crate::new_item_page::NewItemPage>,
+    device_page: PageView<crate::device_page::DevicePageView>,
+    device_settings_page: PageView<crate::device_page::DeviceSettingsPage>,
+    new_item: PageView<crate::new_item_page::NewItemPage>,
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
-    drafts: Entity<crate::drafts_view::DraftsView>,
-    needs_you: Entity<crate::needs_you::NeedsYouView>,
+    drafts: PageView<crate::drafts_view::DraftsView>,
+    needs_you: PageView<crate::needs_you::NeedsYouView>,
     /// EXP-1170: the New issue page — ONE shared view re-pointed per draft
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
     /// pays the draft out.
-    issue_draft: Entity<crate::issue_draft_screen::IssueDraftView>,
+    issue_draft: PageView<crate::issue_draft_screen::IssueDraftView>,
     /// HOME (EXP-772's Chat page — the centred prompt box; the same tab-less
     /// full-page mode).
-    chat: Entity<crate::chat_screen::ChatScreenView>,
+    chat: PageView<crate::chat_screen::ChatScreenView>,
     /// EXP-1294: the Chats page (the same tab-less full-page mode).
-    chats_page: Entity<crate::chats_view::ChatsView>,
+    chats_page: PageView<crate::chats_view::ChatsView>,
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     eui_core: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
@@ -857,10 +884,10 @@ pub struct ScreensPanel {
     /// #EXP-1493: the plan page a tab SHOWS, keyed by `(session, message)`;
     /// dropped when its tab moves off it or closes (like a session view).
     /// EXP-851: the board list screen's view, full width.
-    list: Entity<ListPanel>,
+    list: PageView<ListPanel>,
     /// EXP-851: the Source Control screen's commit history (it lived on the
     /// retired tool column). Its diff is [`Self::source_control`].
-    history: Entity<crate::source_control::HistoryList>,
+    history: PageView<crate::source_control::HistoryList>,
     /// The window's shared rail state (EXP-288): the file selection
     /// re-points the viewer, and the SC selection the diff.
     rail: Entity<RailShared>,
@@ -1107,23 +1134,22 @@ impl ScreensPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // Full-page issue detail (§4.2): one instance, re-pointed on
         // navigation (its local edit state resets per issue, web parity).
-        let issue_detail = cx.new(|cx| IssueDetailView::new(window, cx));
-        let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
-        let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
-        let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
-        let device_page = cx.new(|cx| crate::device_page::DevicePageView::new(window, cx));
-        let device_settings_page = cx.new(|cx| crate::device_page::DeviceSettingsPage::new(window, cx));
-        let new_item = cx.new(|cx| crate::new_item_page::NewItemPage::new(window, cx));
-        let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
-        let needs_you = cx.new(|cx| crate::needs_you::NeedsYouView::new(window, cx));
-        let issue_draft =
-            cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
-        let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
-        let chats_page = cx.new(|cx| crate::chats_view::ChatsView::new(window, cx));
+        let issue_detail = PageView::new(|window, cx| IssueDetailView::new(window, cx), window, cx);
+        let settings = PageView::new(|window, cx| crate::settings::SettingsView::new(window, cx), window, cx);
+        let source_control = PageView::new(|window, cx| crate::source_control::SourceControlView::new(window, cx), window, cx);
+        let file_viewer = PageView::new(|window, cx| crate::file_viewer::FileViewerView::new(window, cx), window, cx);
+        let device_page = PageView::new(|window, cx| crate::device_page::DevicePageView::new(window, cx), window, cx);
+        let device_settings_page = PageView::new(|window, cx| crate::device_page::DeviceSettingsPage::new(window, cx), window, cx);
+        let new_item = PageView::new(|window, cx| crate::new_item_page::NewItemPage::new(window, cx), window, cx);
+        let drafts = PageView::new(|window, cx| crate::drafts_view::DraftsView::new(window, cx), window, cx);
+        let needs_you = PageView::new(|window, cx| crate::needs_you::NeedsYouView::new(window, cx), window, cx);
+        let issue_draft = PageView::new(|window, cx| crate::issue_draft_screen::IssueDraftView::new(window, cx), window, cx);
+        let chat = PageView::new(|window, cx| crate::chat_screen::ChatScreenView::new(window, cx), window, cx);
+        let chats_page = PageView::new(|window, cx| crate::chats_view::ChatsView::new(window, cx), window, cx);
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
-        let list = cx.new(|cx| ListPanel::new(window, cx));
-        let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
+        let list = PageView::new(|window, cx| ListPanel::new(window, cx), window, cx);
+        let history = PageView::new(|window, cx| crate::source_control::HistoryList::new(window, cx), window, cx);
 
         let mut subscriptions = Vec::new();
         // Navigation changes open/focus tabs and retarget the shared views
@@ -1250,10 +1276,14 @@ impl ScreensPanel {
                 draft_id,
                 board_id,
                 status_id,
-            }) => self.issue_draft.update(cx, |view, cx| {
+            }) => self.issue_draft.get(window, cx).update(cx, |view, cx| {
                 view.set_draft(draft_id, board_id, status_id, window, cx);
             }),
-            _ => self.issue_draft.update(cx, |view, cx| view.leave(cx)),
+            _ => {
+                if let Some(view) = self.issue_draft.built() {
+                    view.update(cx, |view, cx| view.leave(cx));
+                }
+            }
         }
     }
 
@@ -1326,8 +1356,9 @@ impl ScreensPanel {
             let entered_settings = matches!(screen, Some(Screen::Settings));
             self.active_screen = screen;
             if entered_settings {
-                self.settings
-                    .update(cx, |settings, cx| settings.mark_personal_stale(cx));
+                if let Some(settings) = self.settings.built() {
+                    settings.update(cx, |settings, cx| settings.mark_personal_stale(cx));
+                }
             }
         }
     }
@@ -1340,10 +1371,12 @@ impl ScreensPanel {
             .read(cx)
             .selected_file()
             .map(str::to_string);
-        self.file_viewer.update(cx, |viewer, cx| match selected {
-            Some(path) => viewer.set_path(path, cx),
-            None => viewer.clear(cx),
-        });
+        if let Some(viewer) = self.file_viewer.built() {
+            viewer.update(cx, |viewer, cx| match selected {
+                Some(path) => viewer.set_path(path, cx),
+                None => viewer.clear(cx),
+            });
+        }
     }
 
     /// Reconcile tabs with the navigation state: swap the strip to the new
@@ -1373,8 +1406,9 @@ impl ScreensPanel {
             }
             // Parking the tabs tears the issue detail down without a blur —
             // flush a pending description edit first (EXP-68).
-            self.issue_detail
-                .update(cx, |detail, cx| detail.flush_description(cx));
+            if let Some(detail) = self.issue_detail.built() {
+                detail.update(cx, |detail, cx| detail.flush_description(cx));
+            }
             // EXP-1250: the leaving team's tabs are PARKED and the arriving
             // team's come back (EXP-769: terminals stay put throughout).
             let previous = self.tabs_team.take();
@@ -1484,7 +1518,7 @@ impl ScreensPanel {
         }
         match screen {
             Screen::IssueDetail { issue_id } => {
-                self.issue_detail.update(cx, |detail, cx| {
+                self.issue_detail.get(window, cx).update(cx, |detail, cx| {
                     detail.set_issue(issue_id, window, cx);
                 });
             }
@@ -1627,6 +1661,12 @@ impl ScreensPanel {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // #EDE-237: in eDE mode the tab IS the window: a missing issue's
+        // page shows its own not-found state (and keeps its window, so a
+        // restore that lands before its account's rows does not lose it).
+        if crate::ede_component::is_component() {
+            return;
+        }
         let missing: Vec<usize> = {
             let issues = Store::global(cx).collections().issues.read(cx);
             if !issues.is_ready() {
@@ -1740,12 +1780,12 @@ impl ScreensPanel {
         // description editor without a blur — flush the pending edit so it
         // is written before teardown (EXP-68).
         if let Screen::IssueDetail { .. } = &self.tabs[ix].screen {
-            self.issue_detail.update(cx, |detail, cx| {
+            if let Some(detail) = self.issue_detail.built() { detail.update(cx, |detail, cx| {
                 // EXP-781: the title saves on blur too, so closing straight
                 // from a half-typed title dropped it.
                 detail.flush_title(cx);
                 detail.flush_description(cx);
-            });
+            }); }
         }
         // EXP-923: the strip is tab order, so the chip's display position IS
         // its index.
@@ -1806,8 +1846,9 @@ impl ScreensPanel {
             .iter()
             .any(|tab| goes(tab) && matches!(tab.screen, Screen::IssueDetail { .. }))
         {
-            self.issue_detail
-                .update(cx, |detail, cx| detail.flush_description(cx));
+            if let Some(detail) = self.issue_detail.built() {
+                detail.update(cx, |detail, cx| detail.flush_description(cx));
+            }
         }
         let dropped: Vec<TabEntry> = self.tabs.iter().filter(|tab| goes(tab)).cloned().collect();
         self.tabs.retain(|tab| !goes(tab));
@@ -1831,8 +1872,9 @@ impl ScreensPanel {
             .iter()
             .any(|tab| goes(tab) && matches!(tab.screen, Screen::IssueDetail { .. }))
         {
-            self.issue_detail
-                .update(cx, |detail, cx| detail.flush_description(cx));
+            if let Some(detail) = self.issue_detail.built() {
+                detail.update(cx, |detail, cx| detail.flush_description(cx));
+            }
         }
         let dropped: Vec<TabEntry> = self.tabs.iter().filter(|tab| goes(tab)).cloned().collect();
         self.tabs.retain(|tab| !goes(tab));
@@ -1883,8 +1925,9 @@ impl ScreensPanel {
         }
         // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
         if let Some(issue_id) = tab.issue_id() {
-            self.issue_detail
-                .update(cx, |detail, _| detail.forget_tab_state(issue_id));
+            if let Some(detail) = self.issue_detail.built() {
+                detail.update(cx, |detail, _| detail.forget_tab_state(issue_id));
+            }
         }
         self.shutdown_session_view(&tab.screen, cx);
     }
@@ -2170,7 +2213,12 @@ impl ScreensPanel {
     /// viewer. It was a tool column plus a tool-default centre; one screen
     /// now, with the tree as its own list. EXP-1156: the `files` panel — its
     /// right edge drags.
-    fn render_files_screen(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_files_screen(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        // #EDE-237: a viewer built now shows the rail's selection at once.
+        if self.file_viewer.built().is_none() {
+            self.file_viewer.get(window, cx);
+            self.sync_file_viewer(cx);
+        }
         let file_tree = self.rail.read(cx).file_tree();
         let refresh_tree = file_tree.clone();
         let panel = crate::resize_edge::SidebarPanel::Files;
@@ -2213,7 +2261,7 @@ impl ScreensPanel {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(self.file_viewer.clone()),
+                    .child(self.file_viewer.get(window, cx)),
             )
             .child(self.screen_list_handle(panel, list_w, extent, cx))
             .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
@@ -2284,7 +2332,7 @@ impl ScreensPanel {
                             .w_full()
                             .flex()
                             .flex_col()
-                            .child(self.history.clone()),
+                            .child(self.history.get(window, cx)),
                     ),
             )
             .child(
@@ -2292,7 +2340,7 @@ impl ScreensPanel {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(self.source_control.clone()),
+                    .child(self.source_control.get(window, cx)),
             )
             .child(self.screen_list_handle(panel, list_w, extent, cx))
             .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
@@ -2847,8 +2895,8 @@ impl Render for ScreensPanel {
         self.fire_dev_dialog(window, cx);
 
         let content = match &screen {
-            Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
-            Some(Screen::Settings) => self.settings.clone().into_any_element(),
+            Some(Screen::IssueDetail { .. }) => self.issue_detail.get(window, cx).into_any_element(),
+            Some(Screen::Settings) => self.settings.get(window, cx).into_any_element(),
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
             // EXP-1316 (1b): a chat's session renders inside its chat.
@@ -2874,29 +2922,32 @@ impl Render for ScreensPanel {
                 }
             }
             // EXP-851: a board's list, full width.
-            Some(Screen::BoardIssues { .. }) => self.list.clone().into_any_element(),
-            Some(Screen::Files) => self.render_files_screen(cx),
+            Some(Screen::BoardIssues { .. }) => self.list.get(window, cx).into_any_element(),
+            Some(Screen::Files) => self.render_files_screen(window, cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Device { device_id }) => {
                 let id = device_id.clone();
-                self.device_page.update(cx, |page, cx| page.set_device(id, window, cx));
-                self.device_page.clone().into_any_element()
+                let page = self.device_page.get(window, cx);
+                page.update(cx, |page, cx| page.set_device(id, window, cx));
+                page.into_any_element()
             }
             Some(Screen::DeviceSettings { device_id }) => {
                 let id = device_id.clone();
-                self.device_settings_page.update(cx, |page, cx| page.set_device(id, window, cx));
-                self.device_settings_page.clone().into_any_element()
+                let page = self.device_settings_page.get(window, cx);
+                page.update(cx, |page, cx| page.set_device(id, window, cx));
+                page.into_any_element()
             }
             Some(Screen::NewItem { team_id, kind }) => {
                 let (team, kind) = (team_id.clone(), *kind);
-                self.new_item.update(cx, |page, cx| page.set_target(team, kind, window, cx));
-                self.new_item.clone().into_any_element()
+                let page = self.new_item.get(window, cx);
+                page.update(cx, |page, cx| page.set_target(team, kind, window, cx));
+                page.into_any_element()
             }
-            Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
-            Some(Screen::NeedsYou) => self.needs_you.clone().into_any_element(),
-            Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
-            Some(Screen::Home) => self.chat.clone().into_any_element(),
-            Some(Screen::Chats) => self.chats_page.clone().into_any_element(),
+            Some(Screen::Drafts) => self.drafts.get(window, cx).into_any_element(),
+            Some(Screen::NeedsYou) => self.needs_you.get(window, cx).into_any_element(),
+            Some(Screen::IssueDraft { .. }) => self.issue_draft.get(window, cx).into_any_element(),
+            Some(Screen::Home) => self.chat.get(window, cx).into_any_element(),
+            Some(Screen::Chats) => self.chats_page.get(window, cx).into_any_element(),
             // VAPP-110 + VAPP-242: built by `sync_app_editor` on entry.
             Some(Screen::App { .. } | Screen::AppRun { .. }) => self
                 .app_editor

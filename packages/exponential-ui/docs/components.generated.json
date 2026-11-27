@@ -27,7 +27,9 @@
       "events": [
         "press",
         "toggle",
-        "hover"
+        "hover",
+        "auxPress",
+        "scroll"
       ],
       "basic": [],
       "props": [

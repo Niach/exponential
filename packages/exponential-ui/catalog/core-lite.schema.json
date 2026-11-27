@@ -45,7 +45,9 @@
             "events": [
               "press",
               "toggle",
-              "hover"
+              "hover",
+              "auxPress",
+              "scroll"
             ]
           }
         }
@@ -22649,6 +22651,12 @@
           "$ref": "#/$defs/EuiAction"
         },
         "hover": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "auxPress": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "scroll": {
           "$ref": "#/$defs/EuiAction"
         }
       },

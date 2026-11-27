@@ -9,7 +9,9 @@
 # previews), the context menu pins and unpins ("Pinned to the taskbar", a checkbox row) and closes
 # (ede_taskbar_menu), hovering a running app opens
 # its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a
-# click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
+# click focuses; each thumbnail heads with its window's icon and title, Cinnamon's: an app's icon, and
+# for the Exponential app's windows, #EDE-237, every page its own window, the page's concept icon the
+# holder tells over the session bus). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
 # document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on
 # the person across the signed-in accounts' teams, /needsYou/count as its badge, or
 # this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), Agent spaces (#EXP-2024: only while an agent space exists on this machine,
@@ -26,7 +28,11 @@
 # menu), on Start (Settings, Version history: ede_panel_menu), on the clock (Date and time
 # settings, Cinnamon's calendar applet) or on a tray item opens one; a tray item's menu is its dbusmenu (/tray/*/menu, read
 # again while the pointer is on it); a left click activates it, or opens the same menu for an item
-# that is only a menu (ItemIsMenu: /tray/*/menuOnPress), as Cinnamon's tray does.
+# that is only a menu (ItemIsMenu, or an AppIndicator: /tray/*/menuOnPress), as Cinnamon's tray does.
+# #EDE-247: a tray slot is Cinnamon's applet box: the icon 24 px (a symbolic one 16 px, centred; the
+# shell draws it at the output's device size, tray_icon.rs), 5 px either side, the hover colour while
+# hovered or pressed; the middle button = SecondaryActivate, a right click on an item without a menu =
+# ContextMenu, the wheel = Scroll (ede_tray_input, Box auxPress / scroll).
 # #EDE-245: the right side in Cinnamon's order (Mint 22's enabled-applets): the status icons (the tray, then
 # Bluetooth, Needs you and Agent spaces as status icons), notifications (hidden while empty, Cinnamon's
 # showEmptyTray false), printers (only while CUPS lists one), removable drives (only while one is mounted),
@@ -35,7 +41,7 @@
 # #EDE-253: the keyboard applet (keyboard@cinnamon.org) left of the network one, only with more than one
 # layout (/keyboard/show): the active layout's short label (us, de), its menu the layouts (the active one
 # checked; a pick switches: ede_keyboard_layout) and Keyboard settings.
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop"]}})
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
@@ -71,7 +77,9 @@ previews = Popover(side="top", align="center", openOn="hover", children=[preview
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
 preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})
 preview_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
-preview_head = Stack(direction="horizontal", gap="xs", align="center", children=[preview_title, preview_close])
+preview_head = Stack(direction="horizontal", gap="xs", align="center", children=[preview_page_icon, preview_app_icon, preview_title, preview_close])
+preview_page_icon = Icon(name=$concept, size="sm", visible=cond(if=$page, then=true, else=false))
+preview_app_icon = Image(src=$icon, alt=$title, fit="contain", width=16, height=16, fallback="nav-apps", visible=not(value=cond(if=$page, then=true, else=false)))
 preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
 preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
 preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")
@@ -83,17 +91,17 @@ running_focused = Box(style={height: 2, width: 20, marginTop: 3, borderRadius: "
 running = Box(style={height: 2, width: 8, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.mutedForeground"}, visible=and(values=[cond(if=$running, then=true, else=false), not(value=cond(if=$focused, then=true, else=false))]))
 not_running = Box(style={height: 2, marginTop: 3}, visible=not(value=cond(if=$running, then=true, else=false)))
 right = Stack(direction="horizontal", gap="xs", align="center", children=[tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
-tray = Stack(direction="horizontal", gap="xs", align="center", children=_template($/tray, tray_entry, key="service"))
+tray = Stack(direction="horizontal", gap="none", align="center", children=_template($/tray, tray_entry, key="service"))
 tray_entry = Box(style={display: "flex", alignItems: "center"}, children=[tray_item, tray_menu])
-tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "$radius.sm"}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service)}, visible=not(value=cond(if=$hasMenu, then=true, else=false)))
-tray_icon = Image(src=$icon, alt=$title, fit="contain", width=18, height=18, fallback="nav-apps")
+tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 40, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service), auxPress: Event("ede_tray_input", {service: $service}), scroll: Event("ede_tray_input", {service: $service})}, visible=not(value=cond(if=$hasMenu, then=true, else=false)))
+tray_icon = Image(src=$icon, alt=$title, fit="contain", width=24, height=24, fallback="nav-apps")
 tray_menu = Menu(items=$menu, openOn="contextmenu", children=[tray_menu_target], on={select: ede_tray_menu(id=$value, service=$service)}, visible=cond(if=$hasMenu, then=true, else=false))
 tray_menu_target = Box(style={display: "flex", alignItems: "center"}, children=[tray_menu_press, tray_activate])
-tray_activate = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "$radius.sm"}, pressable=true, children=[tray_activate_icon], on={press: ede_tray(service=$service), hover: ede_tray(service=$service, refresh=true)}, visible=not(value=cond(if=$menuOnPress, then=true, else=false)))
-tray_activate_icon = Image(src=$icon, alt=$title, fit="contain", width=18, height=18, fallback="nav-apps")
+tray_activate = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 40, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[tray_activate_icon], on={press: ede_tray(service=$service), hover: ede_tray(service=$service, refresh=true), auxPress: Event("ede_tray_input", {service: $service}), scroll: Event("ede_tray_input", {service: $service})}, visible=not(value=cond(if=$menuOnPress, then=true, else=false)))
+tray_activate_icon = Image(src=$icon, alt=$title, fit="contain", width=24, height=24, fallback="nav-apps")
 tray_menu_press = Menu(items=$menu, side="top", align="end", children=[tray_menu_button], on={select: ede_tray_menu(id=$value, service=$service)}, visible=cond(if=$menuOnPress, then=true, else=false))
-tray_menu_button = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "$radius.sm"}, pressable=true, children=[tray_menu_icon], on={hover: ede_tray(service=$service, refresh=true)})
-tray_menu_icon = Image(src=$icon, alt=$title, fit="contain", width=18, height=18, fallback="nav-apps")
+tray_menu_button = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 40, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[tray_menu_icon], on={hover: ede_tray(service=$service, refresh=true), auxPress: Event("ede_tray_input", {service: $service}), scroll: Event("ede_tray_input", {service: $service})})
+tray_menu_icon = Image(src=$icon, alt=$title, fit="contain", width=24, height=24, fallback="nav-apps")
 applet_keyboard = Menu(items=$/keyboard/items, open=$/keyboard/open, side="top", align="end", children=[applet_keyboard_button], on={select: ede_keyboard_layout(value=$value)}, visible=cond(if=$/keyboard/show, then=true, else=false))
 applet_keyboard_button = Button(label=$/keyboard/label, variant="ghost", size="sm")
 applet_network = Button(label="Network", icon=$/applets/network/icon, variant="ghost", size="icon", on={press: Event("applet")})
