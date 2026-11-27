@@ -140,6 +140,11 @@ extension SurfaceModel {
         keyRecorderBlurOthers(pressing: index)
         // EXP-1605: a Motion's state machine gets the click first.
         motionDrivers[n.id]?.post("click")
+        // #EXP-2204: an anchored CodeBlock line number: Shift extends the range.
+        if n.recipeComponent == "CodeBlock", n.part == "lineNumber" {
+            fire(index, "press", payload: .object(["shift": .bool(CiLook.shift)]))
+            return
+        }
         fire(index, "press")
     }
 

@@ -206,4 +206,8 @@ fn code_block_blame_adds_the_author_column_before_the_numbers() {
     assert_eq!(frame(&mut s, "code.blame.1").0, 200.0);
     assert_eq!(node(&mut s, "code.line.2").props.get("blameBorder"), Some(&json!(true)));
     assert_eq!(node(&mut s, "code.line.0").props.get("blameBorder"), None);
+    let i = s.index_of("code.line.2").unwrap();
+    let v = s.visual(i).expect("visual").clone();
+    assert_eq!(v.border_widths.map(|w| w[0] > 0.0), Some(true), "{v:?}");
+    assert!(v.border_color.is_some(), "{v:?}");
 }

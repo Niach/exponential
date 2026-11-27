@@ -114,6 +114,8 @@ impl Builder<'_, '_> {
                 }
                 if at.border {
                     self.nodes[row as usize].props.insert("blameBorder".into(), Value::Bool(true));
+                    // In the query too: the style memo keys on it.
+                    self.query_prop(row, "blameBorder", Value::Bool(true));
                 }
             }
             if numbers {

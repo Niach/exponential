@@ -18,6 +18,8 @@ struct ScrollContainer: View {
     let origin: CGPoint
     /// The last offset reported (a reference: scrolling never re-renders).
     @State private var tracker = ScrollTracker()
+    /// #EXP-2204: a windowed CodeBlock body's vertical offset (it re-windows).
+    @State private var windowY: CGFloat = 0
 
     var body: some View {
         let info = model.scroll(index)
@@ -38,7 +40,7 @@ struct ScrollContainer: View {
         ScrollViewReader { proxy in
             ScrollView(axes, showsIndicators: true) {
                 ZStack(alignment: .topLeading) {
-                    ChildrenLayout(size: content, kids: kids, origin: origin, model: model)
+                    ChildrenLayout(size: content, kids: CodeWindow.kids(node: node, kids: kids, origin: origin, height: size.height, offset: windowY, model: model), origin: origin, model: model)
                     // The target of a programmatic jump: a point PADDED to
                     // the core's offset (iOS 17 scrolls to views, not offsets).
                     Color.clear
@@ -50,8 +52,9 @@ struct ScrollContainer: View {
                         .allowsHitTesting(false)
                     if let follow {
                         Color.clear
-                            .frame(width: follow.width, height: 1)
+                            .frame(width: follow.width, height: node.ownerComponent == "CodeBlock" ? max(1, follow.height) : 1)
                             .padding(.leading, follow.minX)
+                            .padding(.top, follow.minY)
                             .id(followAnchor)
                             .accessibilityHidden(true)
                             .allowsHitTesting(false)
@@ -99,6 +102,7 @@ struct ScrollContainer: View {
         )
         if clamped == tracker.reported { return }
         tracker.reported = clamped
+        if CodeWindow.windows(node: node, kids: kids, model: model), abs(clamped.y - windowY) >= 1 { windowY = clamped.y }
         model.scrollReported(index, offset: clamped)
     }
 }
@@ -132,6 +136,13 @@ private struct PaddingBox: Shape {
 @MainActor
 enum ThumbnailFollow {
     static func target(node: NodeInfo, index: Int, model: SurfaceModel) -> CGRect? {
+        // #EXP-2204: a CodeBlock that scrolls itself keeps its first
+        // selected line (`selection`) in view.
+        if node.ownerComponent == "CodeBlock", node.part == "body" {
+            guard let line = (model.children[safe: index] ?? []).first(where: { model.node($0)?.props["selected"]?.bool == true }) else { return nil }
+            let f = model.frame(line), b = model.frame(index)
+            return CGRect(x: 0, y: f.minY - b.minY, width: 1, height: f.height)
+        }
         guard node.ownerComponent == "Carousel", node.part == "thumbnails", let owner = node.owner,
               let page = node.props.num("page"), let i = model.index(of: "\(owner).thumbnail.\(Int(page))") else { return nil }
         let f = model.frame(i)
@@ -146,4 +157,27 @@ private final class ScrollTracker {
 private struct ScrollOffsetKey: PreferenceKey {
     static let defaultValue: CGPoint = .zero
     static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
+}
+
+/// #EXP-2204 (contract §6): a CodeBlock body that scrolls itself with more
+/// than `windowThreshold` uniform (`wrap: false`) lines builds only the lines
+/// in view ± `windowOverscan` (layout.json).
+@MainActor
+enum CodeWindow {
+    static let threshold = 50
+    static let overscan: CGFloat = 5
+
+    static func windows(node: NodeInfo, kids: [Int], model: SurfaceModel) -> Bool {
+        node.ownerComponent == "CodeBlock" && node.part == "body" && kids.count > threshold && model.ownerProps(node.index)["wrap"]?.bool != true
+    }
+
+    static func kids(node: NodeInfo, kids: [Int], origin: CGPoint, height: CGFloat, offset: CGFloat, model: SurfaceModel) -> [Int] {
+        guard windows(node: node, kids: kids, model: model), let first = kids.first else { return kids }
+        let lh = max(1, model.frame(first).height)
+        let lo = offset - overscan * lh, hi = offset + height + overscan * lh
+        return kids.filter { k in
+            let f = model.frame(k)
+            return f.maxY - origin.y >= lo && f.minY - origin.y <= hi
+        }
+    }
 }
