@@ -3542,6 +3542,11 @@ export const ciRuns = pgTable(
     externalUrl: text(`external_url`),
     externalAttempt: integer(`external_attempt`),
     externalAccess: varchar(`external_access`, { length: 8 }),
+    // #EXP-2172 (the approved CI redesign): what the run is about, the CI
+    // list's and the run page's title: the head commit's first line or the
+    // pull request's title (GitHub: the run's `display_title`). Null = not
+    // known (a hosted push): the clients fall back to the pipeline's name.
+    title: varchar({ length: 255 }),
     ...timestamps,
   },
   (table) => [

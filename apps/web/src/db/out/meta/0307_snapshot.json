@@ -1,5 +1,5 @@
 {
-  "id": "9376f6e3-8033-4cb1-aa5c-05003166ebd4",
+  "id": "cea0a964-44f6-43e0-89b6-78cf598de735",
   "prevId": "d4064d17-e770-481e-b430-9a0516484ae7",
   "version": "7",
   "dialect": "postgresql",
@@ -3120,6 +3120,12 @@
         "external_access": {
           "name": "external_access",
           "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
         },

@@ -58,6 +58,7 @@ const RUN = {
   head_branch: `main`,
   head_sha: `f`.repeat(40),
   html_url: `https://github.com/org/x/actions/runs/9000001`,
+  display_title: `Bump the widget to 2.4.1\n\nlonger body`,
   run_started_at: `2026-11-27T10:00:00Z`,
   updated_at: `2026-11-27T10:00:00Z`,
 }
@@ -67,7 +68,7 @@ describe.skipIf(!ready.ok)(`GitHub Actions ingest`, { timeout: 30_000 }, () => {
     const f = await fixture()
     const [runId] = await gh.ingestWorkflowRun({ fullName: f.fullName, installationId: null, run: RUN })
     const [run] = await db.select().from(ciRuns).where(eq(ciRuns.id, runId!))
-    expect(run).toMatchObject({ provider: `github`, externalId: `9000001`, number: 1207, name: `CI`, ref: `main`, trigger: `push`, state: `pending`, externalAttempt: 1 })
+    expect(run).toMatchObject({ provider: `github`, externalId: `9000001`, number: 1207, name: `CI`, ref: `main`, trigger: `push`, state: `pending`, externalAttempt: 1, title: `Bump the widget to 2.4.1` })
 
     const job = {
       id: 77,

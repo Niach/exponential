@@ -21,6 +21,7 @@ import { githubFetch } from "@/lib/integrations/github-client"
 import { githubErrorMessage } from "@/lib/integrations/github-error"
 import { resolveAppUserForGithubActor, type GithubActorRef } from "@/lib/integrations/github-identity"
 import { pullRequestsForCheck } from "@/lib/integrations/pr-checks"
+import { runTitle } from "@/lib/ci/runs"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 export const GITHUB_CI = `github`
@@ -37,6 +38,9 @@ export interface GithubWorkflowRun {
   head_branch?: string | null
   head_sha?: string | null
   html_url?: string | null
+  /** The commit message's first line or the PR's title. */
+  display_title?: string | null
+  head_commit?: { message?: string | null } | null
   run_started_at?: string | null
   created_at?: string | null
   updated_at?: string | null
@@ -180,6 +184,7 @@ export async function ingestWorkflowRun(args: {
       externalUrl: run.html_url ?? null,
       externalAttempt: attempt,
       externalAccess: access,
+      title: runTitle(run.display_title) ?? runTitle(run.head_commit?.message),
     }
     const id = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`ci_runs:gh:${repo.id}:${externalId}`}))`)

@@ -130,6 +130,15 @@ export interface StartRunInput {
   rerunOf?: string | null
   /** A file already read (tests, a re-run): skips the forge read. */
   file?: unknown
+  /** #EXP-2172: the head commit's message (its first line is kept); a pull
+   *  request run takes its PR's title. */
+  title?: string | null
+}
+
+/** A commit message's first line, as a run's title (null when empty). */
+export function runTitle(text: string | null | undefined): string | null {
+  const line = (text ?? ``).split(`\n`)[0]?.trim() ?? ``
+  return line ? line.slice(0, 255) : null
 }
 
 export type StartRunResult =
@@ -289,6 +298,10 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
   if (errors.length === 0 && !plan) return { started: false, reason: `not_triggered` }
 
   const now = new Date()
+  const prTitle = input.pullRequestId
+    ? ((await db.select({ title: pullRequests.title }).from(pullRequests).where(eq(pullRequests.id, input.pullRequestId)).limit(1))[0]?.title ?? null)
+    : null
+  const title = runTitle(prTitle) ?? runTitle(input.title)
   const runId = await db.transaction(async (tx) => {
     const number = await nextRunNumber(tx, repo.id)
     const [run] = await tx
@@ -307,6 +320,7 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
         rerunOf: input.rerunOf ?? null,
         createdByUserId: input.createdByUserId ?? null,
         completedAt: errors.length > 0 ? now : null,
+        title,
       })
       .returning({ id: ciRuns.id })
     if (!plan) return run.id
@@ -975,6 +989,7 @@ export async function rerunRun(args: { runId: string; failedOnly: boolean; userI
         state: `pending`,
         rerunOf: run.id,
         createdByUserId: args.userId,
+        title: run.title,
       })
       .returning({ id: ciRuns.id })
     const ids = new Map(old.map((job) => [job.id, crypto.randomUUID()]))
@@ -1029,6 +1044,7 @@ export async function rerunRun(args: { runId: string; failedOnly: boolean; userI
       pullRequestId: run.pullRequestId,
       createdByUserId: args.userId,
       rerunOf: run.id,
+      title: run.title,
     })
     if (!result.started) throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The pipeline file is gone` })
     return result.runId
