@@ -19,7 +19,7 @@ mod containers;
 pub mod fields;
 mod misc;
 mod overlays;
-pub use misc::log_lines_height;
+pub use misc::{log_lines_height, log_toolbar_height};
 pub use overlays::is_context_menu;
 pub mod search;
 mod table;

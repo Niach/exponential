@@ -81,6 +81,23 @@ fn log_lines_is_one_leaf_toolbar_plus_max_lines_tall_with_the_state_resolved() {
 }
 
 #[test]
+fn log_lines_is_compact_below_md_with_a_two_row_toolbar_and_the_same_body() {
+    let body = 8.0 * 22.75 + 2.0 * (8.0 + 1.0);
+    let mut s = surface(log_view(json!({"maxLines": 8})), 1024.0, Value::Null);
+    let id = lines_id(&mut s);
+    assert_eq!(frame(&mut s, &id).1, 36.0 + 8.0 + body, "wide: one toolbar row");
+    assert_eq!(node(&mut s, &id).props["compact"], json!(false));
+    let mut s = surface(log_view(json!({"maxLines": 8})), 390.0, Value::Null);
+    let id = lines_id(&mut s);
+    assert_eq!(frame(&mut s, &id).1, 36.0 + 8.0 + 36.0 + 8.0 + body, "compact: two rows $spacing.sm apart, the body keeps maxLines");
+    assert_eq!(node(&mut s, &id).props["compact"], json!(true));
+    // A resize across md rebuilds it.
+    s.set_viewport(1024.0, 0.0, None);
+    assert_eq!(frame(&mut s, &id).1, 36.0 + 8.0 + body);
+    assert_eq!(node(&mut s, &id).props["compact"], json!(false));
+}
+
+#[test]
 fn log_lines_writes_its_state_locally_and_fires() {
     let mut s = surface(log_view(json!({})), 800.0, Value::Null);
     let id = lines_id(&mut s);

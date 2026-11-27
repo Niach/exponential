@@ -133,6 +133,13 @@ class CiComponentsTest {
         m.setNested(specimen("exponential-ui-log-view").json)
         show(m)
         save("android-log-view.png")
+        // Below md the core makes it `compact`: two toolbar rows ($control.input
+        // 36 each, $spacing.sm 8 apart) and the body still maxLines lines tall.
+        for (log in m.nodes.filter { it.component == "LogLines" }) {
+            assertEquals(true, log.props["compact"]?.bool)
+            val lines = log.props["maxLines"]?.number?.toFloat() ?: 24f
+            assertEquals("two rows + gap + the body", 2 * 36f + 8f + 8f + lines * 22.75f + 2 * (8f + 1f), m.frame(log.index).height, 0.5f)
+        }
         // The query `store` counts its matches (5, contract fixtures).
         compose.onAllNodesWithContentDescription("Search log", useUnmergedTree = true).fetchSemanticsNodes().let { assertEquals(2, it.size) }
         // A step row is a button named by its title and status.
@@ -158,6 +165,19 @@ class CiComponentsTest {
         compose.waitForIdle()
         val find = host.actions.lastOrNull { it.name == "find" }
         assertEquals("cart", find?.let { payload(it)["query"]?.string })
+    }
+
+    @Test
+    @Config(qualifiers = "w1000dp-h1200dp-mdpi")
+    fun theWideLogViewKeepsOneToolbarRow() {
+        val m = model(CiHost())
+        m.setNested(specimen("exponential-ui-log-view").json)
+        show(m)
+        for (log in m.nodes.filter { it.component == "LogLines" }) {
+            assertEquals(false, log.props["compact"]?.bool)
+            val lines = log.props["maxLines"]?.number?.toFloat() ?: 24f
+            assertEquals("one row + gap + the body", 36f + 8f + lines * 22.75f + 2 * (8f + 1f), m.frame(log.index).height, 0.5f)
+        }
     }
 
     @Test

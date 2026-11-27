@@ -34,8 +34,8 @@ export interface NodeDeps {
 const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`, `VoiceWave`, `Embed`])
 
 /** #EXP-2204: the natives that read `ctx.breakpoint` while painting
- *  (JobGraph's list below `md`). */
-const BREAKPOINT_READERS = new Set([`JobGraph`])
+ *  (JobGraph's list, LogLines' two-row toolbar below `md`). */
+const BREAKPOINT_READERS = new Set([`JobGraph`, `LogLines`])
 
 /** The client functions that read nothing but their arguments. */
 const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `formatString`))

@@ -268,7 +268,7 @@ internal fun LogLinesLeaf(cx: LeafContext) {
     val root = cx.part("LogLines", "root", emptyMap())
     val gap = if (root.style.gap > 0f) root.style.gap else cx.spacing("sm")
     Column(Modifier.size(cx.size.width.dp, cx.size.height.dp)) {
-        LogToolbar(cx, query, total, current, follow, timestamps, gap, ::step) { e, v -> fire(e, v) }
+        LogToolbar(cx, query, total, current, follow, timestamps, p.flag("compact"), ::step) { e, v -> fire(e, v) }
         Spacer(Modifier.height(gap.dp))
         Box(Modifier.fillMaxWidth().weight(1f)) {
             LogBody(
@@ -291,8 +291,9 @@ internal fun LogLinesLeaf(cx: LeafContext) {
 
 /**
  * The toolbar: find (search, `n of m`, prev, next) then the Follow and
- * Timestamps toggles, end-aligned; the toggles take a second row when the
- * box is too narrow (a phone).
+ * Timestamps toggles, end-aligned. The core's `compact` (the surface below
+ * `md`; it sized the leaf for it) = two rows `$spacing.sm` apart: the search
+ * fills row 1, the toggles take row 2.
  */
 @Composable
 private fun LogToolbar(
@@ -302,11 +303,10 @@ private fun LogToolbar(
     current: Int,
     follow: Boolean,
     timestamps: Boolean,
-    gap: Float,
+    compact: Boolean,
     step: (Int) -> Unit,
     fire: (String, Map<String, JsonValue>) -> Unit,
 ) {
-    val shaper = cx.model.textShaper()
     val toolbar = cx.part("LogLines", "toolbar", emptyMap())
     val barGap = if (toolbar.style.gap > 0f) toolbar.style.gap else cx.spacing("sm")
     val barHeight = toolbar.height ?: cx.control("input", 36f)
@@ -314,19 +314,11 @@ private fun LogToolbar(
     val cts = partText(countPart, cx.textStyle, tabular = true)
     val shown = if (total == 0) 0 else min(current, total - 1) + 1
     val countText = cx.string("matchCount", mapOf("current" to shown, "total" to total))
-    val stepSide = cx.part("LogLines", "prev", emptyMap()).width ?: cx.control("buttonSm", 32f)
-    fun toggleWidth(part: String): Float {
-        val look = cx.part("LogLines", part, emptyMap())
-        return shaper.maxContent(cx.string(part), partText(look, cx.textStyle)) + 2 * look.style.paddingHorizontal + 2 * look.style.borderWidth
-    }
-    val toggles = toggleWidth("follow") + barGap + toggleWidth("timestamps")
-    val countWidth = if (query.isEmpty()) 0f else shaper.maxContent(countText, cts) + barGap
-    val findMin = 120f + barGap + countWidth + 2 * (stepSide + barGap)
-    // (a margin for the shaping slack: the toggles never squeeze the find group)
-    val twoRows = findMin + toggles + 2 * barGap > cx.size.width
     val find: @Composable RowScope.() -> Unit = {
-        // The search field: style.json `logView.searchWidth`, shrinking to what is left.
-        LogSearchField(cx, query, barHeight, Modifier.weight(1f, fill = false).widthIn(max = CiLog.SEARCH_WIDTH.toFloat().dp).fillMaxWidth(), step, fire)
+        // The search field: compact = the rest of row 1; else style.json
+        // `logView.searchWidth`, shrinking to what is left.
+        val field = if (compact) Modifier.weight(1f, fill = true) else Modifier.weight(1f, fill = false).widthIn(max = CiLog.SEARCH_WIDTH.toFloat().dp).fillMaxWidth()
+        LogSearchField(cx, query, barHeight, field, step, fire)
         if (query.isNotEmpty()) {
             BasicText(countText, style = cx.composeTextStyle(ts = cts, color = countPart.color ?: cx.ink), maxLines = 1, softWrap = false)
         }
@@ -337,9 +329,9 @@ private fun LogToolbar(
         LogToggle(cx, "follow", follow) { fire("follow", mapOf("follow" to JsonValue.Bool(!follow))) }
         LogToggle(cx, "timestamps", timestamps) { fire("timestamps", mapOf("timestamps" to JsonValue.Bool(!timestamps))) }
     }
-    if (twoRows) {
+    if (compact) {
         Row(Modifier.fillMaxWidth().height(barHeight.dp), horizontalArrangement = Arrangement.spacedBy(barGap.dp), verticalAlignment = Alignment.CenterVertically) { find() }
-        Spacer(Modifier.height(gap.dp))
+        Spacer(Modifier.height(cx.spacing("sm").dp))
         Row(Modifier.fillMaxWidth().height(barHeight.dp), horizontalArrangement = Arrangement.spacedBy(barGap.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) { toggleRow() }
     } else {
         Row(Modifier.fillMaxWidth().height(barHeight.dp), horizontalArrangement = Arrangement.spacedBy(barGap.dp), verticalAlignment = Alignment.CenterVertically) {

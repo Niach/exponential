@@ -38,6 +38,8 @@ function StatusGlyph(props: { part: Attrs; status: unknown }): JSX.Element {
 
 export function LogLinesNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
+  // The surface below `md` (JobGraph's list rule): the toolbar's two rows.
+  const compact = () => ciCompact(ctx.breakpoint, props.tokens.breakpoint as Record<string, number> | undefined)
   const part = parts(props)
   const node = () => props.node
   const scope = () => props.scope
@@ -273,7 +275,7 @@ export function LogLinesNative(props: NativeProps): JSX.Element {
   const rowsStyle = () => css({ "--xui-log-cols": cols(), ...(view().width ? { "--xui-log-width": `${view().width}px` } : {}) })
   return (
     <div {...props.rootProps}>
-      <div {...part(`toolbar`)}>
+      <div {...part(`toolbar`)} data-xui-compact={compact() ? `true` : undefined}>
         <span class="xui-log-find">
         <input
           type="search"

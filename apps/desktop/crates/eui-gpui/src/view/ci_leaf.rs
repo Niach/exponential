@@ -660,7 +660,11 @@ impl SurfaceView {
         let (w, h) = (lcx.w, lcx.h);
         let bar_h = toolbar.px("height").unwrap_or_else(|| control(lcx.theme, "input", 36.0));
         let gap = root.gap(sm);
-        let body_h = (h - bar_h - gap).max(0.0);
+        // The core's `compact` (the surface below `md`): the toolbar's two
+        // rows, `$spacing.sm` apart (the core sized the leaf for them).
+        let compact = n.props.get("compact").and_then(Value::as_bool) == Some(true);
+        let bar_total = if compact { 2.0 * bar_h + sm } else { bar_h };
+        let body_h = (h - bar_total - gap).max(0.0);
         let bw = body.border();
         let pad_v = body.pad_v();
         let view_w = (w - 2.0 * bw).max(0.0);
@@ -862,7 +866,7 @@ impl SurfaceView {
         // The toolbar.
         let total = leaf.matches.len();
         let shown = if total == 0 { 0 } else { leaf.current.min(total - 1) + 1 };
-        let bar = self.log_toolbar(lcx, &t, &*leaf, &id, w, bar_h, follow, timestamps, &query, (shown, total), window, cx);
+        let bar = self.log_toolbar(lcx, &t, &*leaf, &id, w, bar_h, compact, follow, timestamps, &query, (shown, total), window, cx);
         leaf.last = LogLinesState { built, rows: rows.len(), scroll: leaf.scroll, max_scroll: leaf.max, current: leaf.current, matches: total, marked };
         drop(leaf);
         let wid = id.clone();
@@ -871,7 +875,7 @@ impl SurfaceView {
                 .id(SharedString::from(format!("{id}.body")))
                 .absolute()
                 .left_0()
-                .top(px(bar_h + gap))
+                .top(px(bar_total + gap))
                 .w(px(w))
                 .h(px(body_h))
                 .overflow_hidden()
@@ -892,12 +896,13 @@ impl SurfaceView {
                 })),
             &body.s,
         )
-        .child(div().absolute().left(px(0.0)).top(px(0.0)).w(px(view_w)).h(px(view_h)).overflow_hidden().children(row_els));
+        .child(div().absolute().left(px(0.0)).top(px(0.0)).w(px(view_w)).h(px(view_h)).overflow_hidden().children(row_els))
+        .children(self.probe(format!("{id}.body")));
         div().size_full().relative().child(bar).child(body_el).into_any_element()
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn log_toolbar(&self, lcx: &LeafCx, t: &Theme, leaf: &LogLeaf, id: &str, w: f32, bar_h: f32, follow: bool, timestamps: bool, query: &str, (shown, total): (usize, usize), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn log_toolbar(&self, lcx: &LeafCx, t: &Theme, leaf: &LogLeaf, id: &str, w: f32, bar_h: f32, compact: bool, follow: bool, timestamps: bool, query: &str, (shown, total): (usize, usize), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let empty = Map::new();
         let ink = lcx.ink;
         let sm = spacing(lcx.theme, "sm");
@@ -907,8 +912,12 @@ impl SurfaceView {
         let search = t.look("LogLines", "search", &empty, if focused { &["focus"] } else { &[] });
         let search_h = search.px("height").unwrap_or(bar_h);
         let fsize = search.px("fontSize").unwrap_or(14.0);
-        let mut bar = div().absolute().top_0().left_0().w(px(w)).h(px(bar_h)).flex().flex_row().items_center().gap(px(toolbar.gap(sm)));
-        let mut field = boxed(div().id(SharedString::from(format!("{id}.search"))).flex_shrink(1.0).min_w(px(48.0)).w(px(ci_log::LOG_SEARCH_WIDTH)).h(px(search_h)).px(px(search.pad_h())).flex().items_center().overflow_hidden(), &search.s);
+        let row = || div().w(px(w)).h(px(bar_h)).flex().flex_row().items_center().gap(px(toolbar.gap(sm)));
+        let mut bar = row();
+        // Compact: the search fills row 1; wide: 240, shrinking.
+        let field = div().id(SharedString::from(format!("{id}.search"))).min_w(px(48.0));
+        let field = if compact { field.flex_1() } else { field.flex_shrink(1.0).w(px(ci_log::LOG_SEARCH_WIDTH)) };
+        let mut field = boxed(field.h(px(search_h)).px(px(search.pad_h())).flex().items_center().overflow_hidden(), &search.s);
         match &leaf.search {
             Some((state, _)) => {
                 field = field.child(Input::new(state).appearance(false).font(sans(&search, 400)).text_size(px(fsize)).text_color(search.s.color.unwrap_or(ink)).px_0().py_0().w_full().h(px(search_h - 2.0 * search.border())));
@@ -917,6 +926,9 @@ impl SurfaceView {
                 let muted = lcx.theme_color("mutedForeground").unwrap_or(ink);
                 field = field.child(div().text_size(px(fsize)).text_color(muted).child(SharedString::from(self.builtin_string("searchLog"))));
             }
+        }
+        if let Some(p) = self.probe(format!("{id}.search")) {
+            field = field.child(p);
         }
         bar = bar.child(field);
         if !query.is_empty() {
@@ -944,7 +956,9 @@ impl SurfaceView {
             }
             bar = bar.child(b);
         }
-        bar = bar.child(div().flex_1());
+        // Wide: a spacer pushes the toggles to the end of the one row;
+        // compact: they take row 2, end-aligned.
+        let (find, mut bar) = if compact { (Some(bar), row().justify_end()) } else { (None, bar.child(div().flex_1())) };
         for (part, on) in [("follow", follow), ("timestamps", timestamps)] {
             let hover = leaf.hovered == Some(LogHover::Button(part));
             let mut states: Vec<&str> = Vec::new();
@@ -972,7 +986,10 @@ impl SurfaceView {
             }
             bar = bar.child(b);
         }
-        bar.into_any_element()
+        match find {
+            Some(find) => div().absolute().top_0().left_0().w(px(w)).flex().flex_col().gap(px(sm)).child(find).child(bar).into_any_element(),
+            None => bar.absolute().top_0().left_0().into_any_element(),
+        }
     }
 
     // ------------------------------------------------------------------

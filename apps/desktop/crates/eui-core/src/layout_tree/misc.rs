@@ -155,10 +155,16 @@ impl Builder<'_, '_> {
     /// #EXP-2204 LogLines: ONE leaf the platform paints (toolbar + the
     /// windowed rows of `ci_log::log_rows`). The state reaches the painter
     /// resolved: `open` (default `log_open_default`), `query` (""),
-    /// `follow` (true), `timestamps` (false), `maxLines` (24). Its height =
-    /// the toolbar (`$control.input`) + `$spacing.sm` + maxLines × the code
-    /// line height, unless the node style sets a height or flex.
+    /// `follow` (true), `timestamps` (false), `maxLines` (24), `compact`
+    /// (the surface below `md`, as JobGraph's list; a breakpoint change
+    /// rebuilds): the toolbar's two rows (search · count · prev · next, then
+    /// Follow · Timestamps end-aligned, `$spacing.sm` apart). Its height =
+    /// the toolbar (one or two `$control.input` rows) + `$spacing.sm` +
+    /// maxLines × the code line height + the body's inset, unless the node
+    /// style sets a height or flex: the body keeps maxLines in both modes.
     pub(crate) fn log_lines(&mut self, index: u32) {
+        self.responsive = true;
+        let compact = !self.ctx.wide;
         let props = self.nodes[index as usize].props.clone();
         let model = crate::ci_log::log_model(props.get("lines"), props.get("sections"));
         let open: Vec<usize> = match props.get("open") {
@@ -174,13 +180,14 @@ impl Builder<'_, '_> {
             p.insert("timestamps".into(), json!(props.get("timestamps").and_then(Value::as_bool).unwrap_or(false)));
             p.insert("maxLines".into(), json!(max_lines));
             p.insert("lineCount".into(), json!(model.lines.len()));
+            p.insert("compact".into(), json!(compact));
         }
         let label = self.string("logView");
         self.default_a11y(index, "label", json!(label));
         let mut defaults = vec![("minWidth", json!(0))];
         if !self.sized_by_style(index) {
             let sm = (self.ctx.gap_px)("sm");
-            defaults.push(("height", json!(log_lines_height(self.ctx.control_input, sm, max_lines, sm + self.ctx.hairline))));
+            defaults.push(("height", json!(log_lines_height(log_toolbar_height(compact, self.ctx.control_input, sm), sm, max_lines, sm + self.ctx.hairline))));
         }
         self.style_default(index, &defaults);
     }
@@ -252,6 +259,12 @@ impl Builder<'_, '_> {
         self.nodes[index as usize].base_style.entry("minWidth".to_string()).or_insert(json!(0));
         let _ = js;
     }
+}
+
+/// #EXP-2204: the LogLines toolbar's height: one `control` row (wide) or
+/// two `gap` apart (compact, the surface below `md`).
+pub fn log_toolbar_height(compact: bool, control: f32, gap: f32) -> f32 {
+    if compact { 2.0 * control + gap } else { control }
 }
 
 /// #EXP-2204: a LogLines leaf's default height: the toolbar, the gap, then

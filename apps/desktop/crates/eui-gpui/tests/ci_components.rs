@@ -132,6 +132,45 @@ fn log_lines_paints_a_window_of_its_rows_and_follows_the_end(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn the_toolbar_is_one_row_from_md(cx: &mut TestAppContext) {
+    // Wide: one row, the search 240 wide, Follow on the search's row.
+    let (view, _log, cx) = surface(cx, 900.0, log_view(json!({})), None);
+    let id = lines_id(&view, cx);
+    let (search, follow, body) = (bounds(&view, cx, &format!("{id}.search")), bounds(&view, cx, &format!("{id}.follow")), bounds(&view, cx, &format!("{id}.body")));
+    near(f32::from(search.size.width), 240.0, "the search: logView.searchWidth");
+    assert_eq!(search.center().y, follow.center().y, "one row");
+    near(f32::from(body.origin.y - search.origin.y), 36.0 + 8.0, "the body under one row");
+    near(f32::from(body.size.height), LOG_BODY_10, "the body: maxLines lines");
+}
+
+/// Within the body's hairline (the probe may sit inside its border).
+fn near(got: f32, want: f32, what: &str) {
+    assert!((got - want).abs() <= 2.0 + 0.01, "{what}: {got} vs {want}");
+}
+
+/// The body of a 10-line LogLines: the lines + 2 × (padding + hairline).
+const LOG_BODY_10: f32 = 10.0 * 22.75 + 2.0 * (8.0 + 1.0);
+
+#[gpui::test]
+fn the_toolbar_takes_two_rows_below_md_and_the_body_keeps_its_lines(cx: &mut TestAppContext) {
+    // Compact (the core's `compact`, the surface below md): row 1 = the
+    // search filling the width with prev/next, row 2 = the toggles at the end.
+    let (view, _log, cx) = surface(cx, 390.0, log_view(json!({})), None);
+    let id = lines_id(&view, cx);
+    let leaf = view.read_with(cx, |v, _| v.placed_nodes().iter().find(|n| n.id == id).map(|n| n.props.get("compact").cloned())).flatten();
+    assert_eq!(leaf, Some(json!(true)));
+    let get = |k: &str, cx: &mut VisualTestContext| bounds(&view, cx, &format!("{id}.{k}"));
+    let (search, next, follow, stamps, body) = (get("search", cx), get("next", cx), get("follow", cx), get("timestamps", cx), get("body", cx));
+    assert_eq!(search.center().y, next.center().y, "search, prev, next share row 1");
+    assert_eq!(f32::from(follow.center().y - search.center().y), 36.0 + 8.0, "the toggles one row + $spacing.sm below");
+    assert!(f32::from(search.size.width) > 240.0, "the search fills row 1: {search:?}");
+    near(f32::from(stamps.right()), f32::from(next.right()), "both rows end at the toolbar's end");
+    assert!(follow.right() <= stamps.left());
+    near(f32::from(body.origin.y - search.origin.y), 2.0 * 36.0 + 8.0 + 8.0, "the body under two rows");
+    near(f32::from(body.size.height), LOG_BODY_10, "the body keeps maxLines lines");
+}
+
+#[gpui::test]
 fn a_section_row_folds_through_the_core(cx: &mut TestAppContext) {
     let (view, log, cx) = surface(cx, 900.0, log_view(json!({"follow": false})), None);
     let id = lines_id(&view, cx);

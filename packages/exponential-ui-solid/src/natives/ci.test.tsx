@@ -143,6 +143,18 @@ describe(`LogLines`, () => {
     expect(now[0]).toBeLessThan(1000 / 22.75)
     expect(now.at(-1)).toBeGreaterThan(1000 / 22.75)
   })
+  it(`the toolbar is compact (two rows: find, then the toggles) below md, one row from md`, () => {
+    const toolbar = (width: number) => {
+      const m = mount(logTree(), {}, width)
+      const t = m.q(`.xui-LogLines-toolbar`)
+      const groups = [...t.children].map((c) => c.className)
+      const out = { compact: t.getAttribute(`data-xui-compact`), groups }
+      cleanup()
+      return out
+    }
+    expect(toolbar(390)).toEqual({ compact: `true`, groups: [`xui-log-find`, `xui-log-toggles`] })
+    expect(toolbar(1280)).toEqual({ compact: null, groups: [`xui-log-find`, `xui-log-toggles`] })
+  })
   it(`a11y: the log region, the polite log body, named toolbar controls`, () => {
     const m = mount(logTree())
     expect(m.q(`[data-xui-id="log"]`).getAttribute(`role`)).toBe(`region`)

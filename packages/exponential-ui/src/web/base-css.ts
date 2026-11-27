@@ -33,15 +33,18 @@ const SHIMMER_CSS = `@keyframes xui-shimmer{from{background-position:100% 0}to{b
  *  JobGraph (absolute nodes over the hover connectors, the list below md)
  *  and THE running glyph's spin (one linear turn per `ciStatus.spinMs`). */
 const CI_CSS = `[data-xui-c="LogLines"].xui-el{flex-direction:column;min-width:0;min-height:0;flex:1 1 auto}
-.xui-LogLines-toolbar{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:var(--xui-spacing-sm);min-width:0;flex-shrink:0;height:auto !important;min-height:var(--xui-control-input)}
+.xui-LogLines-toolbar{display:flex;flex-direction:row;align-items:center;row-gap:var(--xui-spacing-sm);min-width:0;flex-shrink:0;height:auto !important;min-height:var(--xui-control-input)}
+.xui-LogLines-toolbar[data-xui-compact]{flex-direction:column;align-items:stretch}
 .xui-LogLines-search{flex:0 1 auto;width:${LOG_VIEW.searchWidth}px;min-width:0;margin:0;outline:none;appearance:none;-webkit-appearance:none}
 .xui-LogLines-search::-webkit-search-cancel-button{display:none}
 .xui-LogLines-count{flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
 .xui-LogLines-prev,.xui-LogLines-next,.xui-LogLines-follow,.xui-LogLines-timestamps{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;white-space:nowrap;cursor:pointer;user-select:none}
 .xui-LogLines-prev:disabled,.xui-LogLines-next:disabled{cursor:default;pointer-events:none}
 .xui-LogLines-prev>svg,.xui-LogLines-next>svg{width:16px;height:16px}
-.xui-log-find{display:flex;flex-direction:row;align-items:center;gap:var(--xui-spacing-sm);flex:1 1 auto;min-width:0}
-.xui-log-toggles{display:flex;flex-direction:row;align-items:center;gap:var(--xui-spacing-sm);flex-shrink:0;margin-inline-start:auto}
+.xui-log-find{display:flex;flex-direction:row;align-items:center;gap:var(--xui-spacing-sm);flex:1 1 auto;min-width:0;min-height:var(--xui-control-input)}
+.xui-log-toggles{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:var(--xui-spacing-sm);flex-shrink:0;margin-inline-start:auto;min-height:var(--xui-control-input)}
+[data-xui-compact]>.xui-log-find>.xui-LogLines-search{flex:1 1 auto;width:auto}
+[data-xui-compact]>.xui-log-toggles{margin-inline-start:0}
 .xui-LogLines-body{display:block;box-sizing:content-box;height:calc(var(--xui-log-lines) * 1lh);flex:1 1 auto;min-height:0;min-width:0;overflow:auto;outline:none;white-space:pre;tab-size:2}
 .xui-log-rows{display:block;width:max-content;min-width:100%}
 .xui-log-gap{display:block}

@@ -312,7 +312,7 @@ impl FixedMeasure {
             }
             // #EXP-2204: the core sizes both (layout_tree::misc): a LogLines
             // fills its box; a JobGraph is its graph's width (list: none).
-            "LogLines" => (320.0, crate::layout_tree::log_lines_height(36.0, 8.0, leaf.props.get("maxLines").and_then(Value::as_f64).unwrap_or(24.0) as f32, 9.0)),
+            "LogLines" => (320.0, crate::layout_tree::log_lines_height(crate::layout_tree::log_toolbar_height(leaf.props.get("compact").and_then(Value::as_bool) == Some(true), 36.0, 8.0), 8.0, leaf.props.get("maxLines").and_then(Value::as_f64).unwrap_or(24.0) as f32, 9.0)),
             "JobGraph" => {
                 let compact = leaf.props.get("compact").and_then(Value::as_bool) == Some(true);
                 let l = crate::job_graph::job_graph_layout(leaf.props.get("jobs"), compact, &crate::job_graph::JOB_GRAPH);

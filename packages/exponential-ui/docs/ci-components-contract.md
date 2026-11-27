@@ -122,6 +122,14 @@ LogLines paints, top to bottom:
    disabled without matches), a flexible spacer, then two toggle buttons
    `follow` (`$string.follow`) and `timestamps` (`$string.timestamps`),
    the Toggle outline look, `selected` state when on.
+   **Compact** (ONE rule ×5, decided by the core): LogLines is `compact`
+   when the SURFACE breakpoint is below `md`, the same signal as
+   JobGraph's list mode (web `ciCompact`; Rust `!ctx.wide`; a breakpoint
+   change rebuilds). The core passes it as the leaf prop `compact`. A
+   compact toolbar is two rows, `$spacing.sm` apart: row 1 = `search`
+   (fills the width) · `count` · `prev` · `next`; row 2 = `follow` ·
+   `timestamps`, end-aligned. Wide = the one row above. No renderer wraps
+   or squeezes on its own (no width heuristic).
 2. **body** (`maxLines` × the line height tall, default 24 lines; a node
    style height or flex wins: it fills): the rows of `logRows`, WINDOWED
    (only rows intersecting the viewport ± `windowOverscan` are built),
@@ -300,6 +308,13 @@ input order) in both modes; `edges` in that node order, needs in order;
 List mode: `width` 0 (rows fill the box), every node `x` 0, `width` 0,
 `height` = `rowHeight`, `y` = index × rowHeight, no stages or edges.
 
+**Leaf sizes (the core).** A LogLines leaf without a node height or flex
+is `toolbar + $spacing.sm + maxLines × lineHeight + 2 × ($spacing.sm +
+$border.hairline)` tall, where `toolbar` = `$control.input` (wide) or `2 ×
+$control.input + $spacing.sm` (compact): the body keeps `maxLines` lines in
+both modes. Its resolved props add `compact` (bool). A JobGraph leaf is its
+layout's height and carries `compact` likewise.
+
 **Catalog.** LogView/LogLines `sections` is `[object]` (`{status,
 duration}`), no named shape (the prompt budget). LogView's macro parts:
 `root` (the region Box) and `log` (the LogLines node). The prompt keeps
@@ -355,8 +370,11 @@ fixed rows, `ciRevealOffset` = the top third, `ciCompact` = below `md`).
   padding. A match across tokens wraps them in ONE `match` box; a
   prefixed line's tokens take the line's `kind`.
 - The toolbar is two groups (find: search, count, prev, next; toggles:
-  Follow, Timestamps, end-aligned) and wraps the toggles onto a second row
-  when the box is too narrow (a phone).
+  Follow, Timestamps, end-aligned). `ciCompact` (below `md`) sets
+  `data-xui-compact` on the toolbar: the groups stack (`$spacing.sm`
+  apart, each `$control.input` tall), the search fills the find row
+  (React: LogLines is a breakpoint reader in `live.ts`, as JobGraph).
+  Never a flex-wrap.
 - A step row stays the body's width (sticky at the inline start) while
   long lines scroll sideways; every line row is as wide as the widest line
   (`ciColumns`), so the horizontal scroll never changes with the window.
