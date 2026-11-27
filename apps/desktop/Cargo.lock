@@ -2964,7 +2964,7 @@ dependencies = [
 
 [[package]]
 name = "ede-observability"
-version = "0.2.32"
+version = "0.2.41"
 dependencies = [
  "crash-monitor",
  "reqwest",
@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "ede-services"
-version = "0.2.32"
+version = "0.2.41"
 dependencies = [
  "ede-observability",
  "ede-protocol",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "ede-theme"
-version = "0.2.32"
+version = "0.2.41"
 dependencies = [
  "serde_json",
  "toml 0.8.23",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "ede-ui"
-version = "0.2.32"
+version = "0.2.41"
 dependencies = [
  "ede-protocol",
  "eui-core",
