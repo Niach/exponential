@@ -952,6 +952,10 @@ pub struct WindowInfo {
     /// geometry kept for the restore.
     #[serde(default)]
     pub minimized: bool,
+    /// #EDE-254: maximized (the taskbar menu's Unmaximize). Absent on the
+    /// wire when false: a reply reads as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub maximized: bool,
     /// The agent space it lives in; `None` = the person's desk (#EDE-91).
     /// Absent on the wire when `None`: a reply reads as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1978,7 +1982,7 @@ mod tests {
     }
 
     fn window(space: Option<&str>) -> WindowInfo {
-        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
+        WindowInfo { id: WindowId::new("w1").unwrap(), title: Some("a".into()), app_id: None, x: 0, y: 0, width: 1, height: 1, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, maximized: false, space: space.map(|s| SpaceId::new(s).unwrap()) }
     }
 
     fn output(space: Option<&str>) -> OutputInfo {

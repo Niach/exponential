@@ -1561,6 +1561,7 @@ impl Ede {
                     x11: is_x11(w),
                     workspace: st.workspace,
                     minimized: st.minimized,
+                    maximized: st.tile == Some(crate::layout::Tile::Maximized),
                     // #EDE-91: every window is on the person's desk until spaces land.
                     space: None,
                 })

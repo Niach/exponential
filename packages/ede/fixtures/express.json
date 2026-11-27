@@ -155,6 +155,10 @@
     "ede_taskbar": [
       "app"
     ],
+    "ede_taskbar_input": [
+      "app",
+      "button"
+    ],
     "ede_taskbar_menu": [
       "app",
       "value"

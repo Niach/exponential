@@ -115,7 +115,7 @@ mod tests {
     use ede_protocol::{WindowId, WindowInfo};
 
     fn window(id: &str, app: Option<&str>, workspace: usize, focused: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, space: None }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, maximized: false, space: None }
     }
 
     #[test]
