@@ -351,7 +351,6 @@ describe(`#EXP-2124 the root rows' menus`, () => {
         needsYou={0}
         drafts={0}
         chatsBadge={{ count: 0, tone: `muted` }}
-      ciBadge={{ count: 0, tone: `muted` }}
         ciBadge={{ count: 0, tone: `muted` }}
         devices={[]}
         teams={teams}
