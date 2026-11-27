@@ -20,7 +20,7 @@
 # holder tells over the session bus). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
 # document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on
 # the person across the signed-in accounts' teams, /needsYou/count as its badge, or
-# this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), the computer-use status icon (#EDE-266: only while an agent space exists on this machine, /cuTray/count;
+# this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), the computer-use status icon (#EDE-266: only while an agent space exists on this machine or, #EDE-272, a stopped session waits for Allow computer use again, /cuTray/shown;
 # Cinnamon's applet: a left click opens its popup, cu-tray.express anchored here: the space's live tile,
 # its session's steps, Stop, Pause, Watch, Take over; a right click the applet menu, /cuTray/menu, the
 # same actions: ede_cu {action}; it replaces the Agent spaces list of #EXP-2024), the Voice status icon
@@ -65,6 +65,7 @@ $/applets/network/icon = "ede-wifi"
 $/applets/printers/show = false
 $/applets/sound/icon = "media-volume-up"
 $/cuTray/count = 0
+$/cuTray/shown = false
 $/cuTray/menu = []
 $/voice/dot = "none"
 $/voice/menu = []
@@ -137,7 +138,7 @@ applet_drives = Button(label="Removable drives", icon="hard-drive", variant="gho
 applet_battery = Button(label="Battery", icon=$/applets/battery/icon, variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/battery/show, then=true, else=false))
 needs_you = Button(label="Needs you", icon="nav-needs-you", variant="ghost", size="icon", on={press: Event("needs_you")}, visible=or(values=[not(value=eq(a=$/needsYou/count, b=0)), cond(if=$/installs/waiting, then=true, else=false)]))
 needs_you_count = CountBadge(count=$/needsYou/count, tone="attention", visible=not(value=eq(a=$/needsYou/count, b=0)))
-cu_tray_menu = Menu(items=$/cuTray/menu, side="top", align="end", openOn="contextmenu", children=[cu_tray], on={select: Event("ede_cu")}, visible=not(value=eq(a=$/cuTray/count, b=0)))
+cu_tray_menu = Menu(items=$/cuTray/menu, side="top", align="end", openOn="contextmenu", children=[cu_tray], on={select: Event("ede_cu")}, visible=$/cuTray/shown)
 cu_tray = Button(label="Computer use", icon="nav-computer", variant="ghost", size="icon", on={press: Event("cu_tray")})
 voice_tray_menu = Menu(items=$/voice/menu, side="top", align="end", openOn="contextmenu", children=[voice_tray_box], on={select: Event("ede_voice")}, visible=cond(if=$/voice/show, then=true, else=false))
 voice_tray_box = Box(style={position: "relative", display: "flex", alignItems: "center"}, children=[voice_tray, voice_dot_listening, voice_dot_recording])

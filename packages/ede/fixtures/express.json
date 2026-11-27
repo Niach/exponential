@@ -39,7 +39,8 @@
     ],
     "ede_cu": [
       "action",
-      "space"
+      "space",
+      "session"
     ],
     "ede_focus": [
       "window"

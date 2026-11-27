@@ -94,6 +94,9 @@ pub enum Out {
     Failing { space: String, view: bool },
     /// The compositor knows no such space any more.
     Gone { space: String },
+    /// #EDE-272: the sessions whose computer use the person stopped
+    /// (`park_session`), when they changed.
+    Parked(Vec<String>),
 }
 
 /// What the shell asks the loop to do on its connection.
@@ -106,6 +109,9 @@ pub enum Ask {
     /// #EDE-266: who drives a space (the computer-use tray's Pause, Resume,
     /// Take over and Hand back), with the view's picture rect for `person`.
     Control { space: String, control: ede_protocol::SpaceControl, view: Option<ede_protocol::SpaceViewRect> },
+    /// #EDE-272: park a session's computer use (the tray's Stop, before its
+    /// Close) or let it go (Allow computer use again).
+    Park { session: String, parked: bool },
 }
 
 /// What the shell's thread and the loop share.
@@ -414,6 +420,10 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
     let mut attempts = 0u32;
     let mut retry_at = Instant::now();
     let mut spaces: Option<Vec<SpaceInfo>> = None;
+    // #EDE-272: the parked sessions last told; `None` = not read yet, and
+    // the read stops for good on a compositor that does not know the op.
+    let mut parked: Option<Vec<String>> = None;
+    let mut parks = true;
     let mut space_targets = false;
     let mut window_targets = false;
     // Asks wait for a connection.
@@ -499,6 +509,28 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
                     schedule.list_now(now);
                 }
                 Ask::List => schedule.list_now(now),
+                Ask::Park { session, parked: park } => {
+                    let Ok(id) = ede_protocol::SessionId::new(&session) else { continue };
+                    match client.park_session(Some((id, park))) {
+                        Ok(list) => {
+                            tracing::info!(park, "computer use park");
+                            let list: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+                            if parked.as_ref() != Some(&list) {
+                                parked = Some(list.clone());
+                                if tx.send(Out::Parked(list)).is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                        Err(ede_protocol::Error::Io(_)) => {
+                            lost = true;
+                            asks.push(Ask::Park { session, parked: park });
+                            asks.extend(pending.by_ref());
+                            break;
+                        }
+                        Err(e) => tracing::warn!("computer use park: {e}"),
+                    }
+                }
                 Ask::Control { space, control, view } => {
                     let Ok(id) = SpaceId::new(&space) else { continue };
                     match client.control_space(id, control, view.clone()) {
@@ -529,6 +561,25 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
                             spaces = Some(list.clone());
                             if tx.send(Out::Spaces(list)).is_err() {
                                 return;
+                            }
+                        }
+                        // #EDE-272: with every list, the parked sessions.
+                        if parks {
+                            match client.park_session(None) {
+                                Ok(list) => {
+                                    let list: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+                                    if parked.as_ref() != Some(&list) {
+                                        parked = Some(list.clone());
+                                        if tx.send(Out::Parked(list)).is_err() {
+                                            return;
+                                        }
+                                    }
+                                }
+                                Err(ede_protocol::Error::Io(_)) => lost = true,
+                                Err(e) => {
+                                    tracing::info!("no computer-use park on this compositor: {e}");
+                                    parks = false;
+                                }
                             }
                         }
                     }
@@ -743,6 +794,7 @@ mod tests {
         serial: AtomicU64,
         ops: Mutex<Vec<String>>,
         hellos: AtomicU64,
+        parked: Mutex<Vec<String>>,
     }
 
     impl Fake {
@@ -781,6 +833,17 @@ mod tests {
                         self.ops.lock().unwrap().push(format!("destroy {space}"));
                         self.spaces.lock().unwrap().retain(|s| *s != space.as_str());
                         Value::Null
+                    }
+                    Request::ParkSession { session, parked } => {
+                        if let (Some(session), Some(parked)) = (session, parked) {
+                            self.ops.lock().unwrap().push(format!("park {session} {parked}"));
+                            let mut list = self.parked.lock().unwrap();
+                            list.retain(|s| *s != session.as_str());
+                            if parked {
+                                list.push(session.to_string());
+                            }
+                        }
+                        serde_json::to_value(self.parked.lock().unwrap().clone()).unwrap()
                     }
                     Request::Capture { target: CaptureTarget::Space { space }, since } => {
                         self.ops.lock().unwrap().push(format!("capture {space}"));
@@ -876,6 +939,29 @@ mod tests {
         std::thread::sleep(Duration::from_millis(400));
         assert!(until(&rx, Duration::from_secs(3), picture).is_some(), "pictures again after the reconnect");
         assert!(fake.hellos.load(Ordering::SeqCst) >= 2, "a second connection");
+        shared.stop();
+        handle.join().unwrap();
+    }
+
+    /// #EDE-272: the tray's Stop parks the session before the space closes,
+    /// Allow lets it go; each change and the list's read say the parked
+    /// sessions, in that order on the compositor.
+    #[test]
+    fn stop_parks_then_closes_and_allow_lets_go() {
+        let fake = Arc::new(Fake::default());
+        fake.spaces.lock().unwrap().push(SPACE.into());
+        fake.parked.lock().unwrap().push("s0".into());
+        let (shared, rx, handle) = start(&fake);
+        assert!(until(&rx, Duration::from_secs(2), |o| *o == Out::Parked(vec!["s0".into()])).is_some(), "the list reads the park");
+        shared.ask(Ask::Park { session: "s1".into(), parked: true });
+        shared.ask(Ask::Close(SPACE.into()));
+        assert!(until(&rx, Duration::from_secs(2), |o| *o == Out::Parked(vec!["s0".into(), "s1".into()])).is_some(), "parked");
+        assert!(until(&rx, Duration::from_secs(2), |o| matches!(o, Out::Spaces(l) if l.is_empty())).is_some(), "closed");
+        let ops = fake.ops.lock().unwrap().clone();
+        let (park, close) = (ops.iter().position(|o| o == "park s1 true").unwrap(), ops.iter().position(|o| *o == format!("destroy {SPACE}")).unwrap());
+        assert!(park < close, "parked before it closes: {ops:?}");
+        shared.ask(Ask::Park { session: "s1".into(), parked: false });
+        assert!(until(&rx, Duration::from_secs(2), |o| *o == Out::Parked(vec!["s0".into()])).is_some(), "allowed again");
         shared.stop();
         handle.join().unwrap();
     }
