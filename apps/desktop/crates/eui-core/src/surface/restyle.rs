@@ -177,6 +177,18 @@ impl Surface {
                 }
             }
         }
+        // #EXP-2204: a blame block after the first draws a hairline across
+        // its first line in the `CodeBlock/blame` borderColor.
+        if n.owner_component.as_deref() == Some("CodeBlock") && n.part.as_deref() == Some("line") && n.props.get("blameBorder").and_then(Value::as_bool) == Some(true) {
+            if let (Some(theme), Some(q)) = (&self.effective, &n.part_query) {
+                let blame = resolve_recipe(theme, &RecipeQuery::new("CodeBlock", "blame", q.props.clone(), Vec::new()), self.mode);
+                let hairline = theme.tokens.border.get("hairline").copied().unwrap_or(1.0);
+                flat.entry("borderTopWidth".to_string()).or_insert(json!(hairline));
+                if let Some(c) = blame.get("borderColor") {
+                    flat.entry("borderColor".to_string()).or_insert(c.clone());
+                }
+            }
+        }
         if n.hidden {
             flat.insert("display".into(), json!("none"));
         }

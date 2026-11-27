@@ -25,7 +25,11 @@ impl Builder<'_, '_> {
         self.nodes[index as usize].kind = NodeKind::Container;
         let code = str_prop(&owner.props, "code").unwrap_or("").to_string();
         let language = str_prop(&owner.props, "language").unwrap_or("plain").to_string();
-        let numbers = bool_prop(&owner.props, "lineNumbers");
+        // #EXP-2204: `anchors` turns the numbers on and makes them pressable.
+        let anchors = bool_prop(&owner.props, "anchors");
+        let numbers = bool_prop(&owner.props, "lineNumbers") || anchors;
+        let selection = crate::ci_log::parse_line_anchor_value(owner.props.get("selection"));
+        let blame = (str_prop(&owner.props, "gutter") == Some("blame")).then(|| owner.props.get("blame").cloned().unwrap_or(Value::Null));
         let wrap = bool_prop(&owner.props, "wrap");
         let copyable = owner.props.get("copyable").and_then(Value::as_bool).unwrap_or(true);
         let highlight: Vec<u64> = owner.props.get("highlight").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
@@ -72,6 +76,8 @@ impl Builder<'_, '_> {
         self.nodes[body as usize].part_query = None;
         let lines = tokenize_code(&code, &language);
         let digits = lines.len().to_string().len();
+        let blocks = blame.as_ref().map(|b| crate::ci_log::blame_blocks(Some(b), lines.len()));
+        let blame_width = crate::ci_log::CODE_BLAME_WIDTH;
         for (i, tokens) in lines.iter().enumerate() {
             let suffix = format!(".{i}");
             let text: String = tokens.iter().map(|t| t.text.as_str()).collect();
@@ -83,16 +89,46 @@ impl Builder<'_, '_> {
             let mut row_style = if wrap { json!({"display": "flex", "flexDirection": "row", "alignSelf": "stretch"}) } else { json!({"display": "flex", "flexDirection": "row", "flexShrink": 0, "alignSelf": "stretch"}) };
             row_style["minHeight"] = json!(line_height);
             let row = self.part_in(body, &owner, "line", "Box", NodeKind::Container, row_style, json!({"line": i + 1}), &suffix);
-            if highlight.contains(&((i + 1) as u64)) {
+            let selected = selection.is_some_and(|r| r.contains((i + 1) as u64));
+            if highlight.contains(&((i + 1) as u64)) || selected {
                 self.add_state(row, "selected");
                 self.query_prop(row, "highlighted", Value::Bool(true));
+            }
+            if selected {
+                self.nodes[row as usize].props.insert("selected".into(), Value::Bool(true));
+            }
+            // #EXP-2204 `gutter: blame`: the author column before the numbers;
+            // a block's first line names its author and age, every block after
+            // the first draws a hairline across the line (restyle: the
+            // `CodeBlock/blame` borderColor).
+            if let Some(blocks) = &blocks {
+                let at = blocks[i];
+                let cell = self.part_in(row, &owner, "blame", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "width": blame_width, "flexShrink": 0, "minWidth": 0}), json!({"block": at.block, "first": at.first}), &suffix);
+                if at.first && at.block >= 0 {
+                    let entry = blame.as_ref().and_then(|b| b.get(at.block as usize)).cloned().unwrap_or(Value::Null);
+                    let author = entry.get("author").and_then(Value::as_str).unwrap_or("").to_string();
+                    let age = entry.get("age").and_then(Value::as_str).unwrap_or("").to_string();
+                    let a = self.part_in(cell, &owner, "blameAuthor", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({"text": author, "lines": 1, "truncate": "end"}), &suffix);
+                    let _ = a;
+                    self.part_in(cell, &owner, "blameAge", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "textAlign": "end"}), json!({"text": age, "lines": 1}), &suffix);
+                }
+                if at.border {
+                    self.nodes[row as usize].props.insert("blameBorder".into(), Value::Bool(true));
+                }
             }
             if numbers {
                 // Round 2: the gutter's padding comes from `CodeBlock/gutter`
                 // (margins of the number, resolved at restyle); `digits`
                 // lets a painter size every number like the widest one.
-                let n = self.part_in(row, &owner, "lineNumber", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "textAlign": "end"}), json!({"text": (i + 1).to_string(), "lines": 1, "digits": digits}), &suffix);
-                let _ = n;
+                let n = self.part_in(row, &owner, "lineNumber", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "textAlign": "end"}), json!({"text": (i + 1).to_string(), "lines": 1, "digits": digits, "line": i + 1}), &suffix);
+                // #EXP-2204: an anchored number is a link (`Line {line}`)
+                // pressing selects its line (Shift extends: `select`).
+                if anchors {
+                    self.nodes[n as usize].pressable = true;
+                    let label = self.string_with("lineAnchor", &[("line", &(i + 1).to_string())]);
+                    self.default_a11y(n, "role", json!("link"));
+                    self.default_a11y(n, "label", json!(label));
+                }
             }
             let tokens = serde_json::to_value(tokens).unwrap_or(Value::Null);
             let mut props = json!({"text": text, "tokens": tokens, "language": language});
@@ -105,6 +141,66 @@ impl Builder<'_, '_> {
             // painter colours each token with `CodeBlock/token {kind}`.
             self.nodes[code_leaf as usize].part_query = Some(RecipeQuery::new("CodeBlock", "token", self.ctx.recipes.native_recipe_props("CodeBlock", &owner.props), Vec::new()));
         }
+    }
+
+    /// #EXP-2204: whether the node's style decides its height (a `height`,
+    /// or a flex that fills).
+    fn sized_by_style(&self, index: u32) -> bool {
+        let st = &self.nodes[index as usize].base_style;
+        st.contains_key("height") || st.contains_key("flexBasis") || st.get("flexGrow").and_then(Value::as_f64).is_some_and(|g| g > 0.0)
+    }
+
+    /// #EXP-2204 LogLines: ONE leaf the platform paints (toolbar + the
+    /// windowed rows of `ci_log::log_rows`). The state reaches the painter
+    /// resolved: `open` (default `log_open_default`), `query` (""),
+    /// `follow` (true), `timestamps` (false), `maxLines` (24). Its height =
+    /// the toolbar (`$control.input`) + `$spacing.sm` + maxLines × the code
+    /// line height, unless the node style sets a height or flex.
+    pub(crate) fn log_lines(&mut self, index: u32) {
+        let props = self.nodes[index as usize].props.clone();
+        let model = crate::ci_log::log_model(props.get("lines"), props.get("sections"));
+        let open: Vec<usize> = match props.get("open") {
+            Some(v @ Value::Array(_)) => crate::ci_log::open_set(Some(v), &model),
+            _ => crate::ci_log::log_open_default(&model),
+        };
+        let max_lines = props.get("maxLines").and_then(Value::as_f64).filter(|m| m.is_finite() && *m >= 1.0).map_or(crate::ci_log::LOG_MAX_LINES, |m| m.floor() as f32);
+        {
+            let p = &mut self.nodes[index as usize].props;
+            p.insert("open".into(), json!(open));
+            p.insert("query".into(), json!(props.get("query").and_then(Value::as_str).unwrap_or("")));
+            p.insert("follow".into(), json!(props.get("follow").and_then(Value::as_bool).unwrap_or(true)));
+            p.insert("timestamps".into(), json!(props.get("timestamps").and_then(Value::as_bool).unwrap_or(false)));
+            p.insert("maxLines".into(), json!(max_lines));
+            p.insert("lineCount".into(), json!(model.lines.len()));
+        }
+        let label = self.string("logView");
+        self.default_a11y(index, "label", json!(label));
+        let mut defaults = vec![("minWidth", json!(0))];
+        if !self.sized_by_style(index) {
+            defaults.push(("height", json!(log_lines_height(self.ctx.control_input, (self.ctx.gap_px)("sm"), max_lines))));
+        }
+        self.style_default(index, &defaults);
+    }
+
+    /// #EXP-2204 JobGraph: ONE leaf the platform paints from
+    /// `job_graph::job_graph_layout`; `compact` (the surface below `md`,
+    /// a breakpoint change rebuilds) = the status list. Its height = the
+    /// layout's (list rows `$control.row` tall), unless the node style sets
+    /// a height or flex.
+    pub(crate) fn job_graph(&mut self, index: u32) {
+        self.responsive = true;
+        let compact = !self.ctx.wide;
+        let props = self.nodes[index as usize].props.clone();
+        let geometry = crate::job_graph::JobGraphGeometry { row_height: self.ctx.row_extent as f64, ..crate::job_graph::JOB_GRAPH };
+        let layout = crate::job_graph::job_graph_layout(props.get("jobs"), compact, &geometry);
+        self.nodes[index as usize].props.insert("compact".into(), json!(compact));
+        let label = self.string("jobGraph");
+        self.default_a11y(index, "label", json!(label));
+        let mut defaults = vec![("minWidth", json!(0))];
+        if !self.sized_by_style(index) {
+            defaults.push(("height", json!(layout.height)));
+        }
+        self.style_default(index, &defaults);
     }
 
     /// Chart: one leaf; `props.chart` carries the shared numbers.
@@ -153,4 +249,10 @@ impl Builder<'_, '_> {
         self.nodes[index as usize].base_style.entry("minWidth".to_string()).or_insert(json!(0));
         let _ = js;
     }
+}
+
+/// #EXP-2204: a LogLines leaf's default height: the toolbar, the gap, then
+/// `max_lines` code lines.
+pub fn log_lines_height(toolbar: f32, gap: f32, max_lines: f32) -> f32 {
+    toolbar + gap + max_lines * CODE_LINE_HEIGHT
 }

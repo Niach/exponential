@@ -19,6 +19,7 @@ mod containers;
 pub mod fields;
 mod misc;
 mod overlays;
+pub use misc::log_lines_height;
 pub use overlays::is_context_menu;
 pub mod search;
 mod table;
@@ -463,6 +464,8 @@ pub struct BuildContext<'a> {
     /// EXP-1548: `$control.checkbox`, the width of a Table's selection
     /// column (part of the table's minimum width).
     pub checkbox: f32,
+    /// #EXP-2204: `$control.input`, the LogLines toolbar's height.
+    pub control_input: f32,
     /// The theme's default gap for `List` items per `gap` enum, in px.
     pub gap_px: &'a dyn Fn(&str) -> f32,
     /// Expand form controls into label/field/description parts (a themed
@@ -1137,6 +1140,8 @@ impl<'a, 'b> Builder<'a, 'b> {
             "SearchList" if expand => self.search_list(index),
             "Skeleton" => self.skeleton_rows(index),
             "Chart" => self.chart(index),
+            "LogLines" => self.log_lines(index),
+            "JobGraph" => self.job_graph(index),
             "Composer" if node.slots.is_some() => self.composer_slots(index, node, layer, scope),
             _ => {
                 if let Some(slots) = &node.slots {
@@ -1187,6 +1192,19 @@ impl<'a, 'b> Builder<'a, 'b> {
         if component == "Checkbox" {
             if let Some(v) = local.field_values.get(&format!("{id}.indeterminate")) {
                 props.insert("indeterminate".into(), v.clone());
+            }
+        }
+        // #EXP-2204: the unbound LogLines / JobGraph / CodeBlock state an
+        // event left (`<id>.<prop>`, Surface::ci_write).
+        let kept: &[&str] = match component {
+            "LogLines" => &["open", "query", "selection", "follow", "timestamps"],
+            "JobGraph" => &["value"],
+            "CodeBlock" => &["selection"],
+            _ => &[],
+        };
+        for k in kept {
+            if let Some(v) = local.field_values.get(&format!("{id}.{k}")) {
+                props.insert((*k).into(), v.clone());
             }
         }
         // VAPP-162: a held `hold` Button paints its `holdingLabel`.

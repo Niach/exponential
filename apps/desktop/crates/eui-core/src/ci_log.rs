@@ -60,6 +60,15 @@ pub fn ci_status_entry(value: Option<&Value>) -> CiStatusEntry {
     TABLE.iter().find(|e| e.status == s).copied().unwrap_or(TABLE[3])
 }
 
+/// style.json `logView.searchWidth`: the toolbar's search field (shrinking).
+pub const LOG_SEARCH_WIDTH: f32 = 240.0;
+/// style.json `logView.indent`: a line inside a section.
+pub const LOG_INDENT: f32 = 16.0;
+/// style.json `logView.maxLines`: the body's height in lines by default.
+pub const LOG_MAX_LINES: f32 = 24.0;
+/// style.json `codeBlock.blameWidth`: the `gutter: blame` column.
+pub const CODE_BLAME_WIDTH: f32 = 200.0;
+
 // ---------------------------------------------------------------------------
 // §2 Line anchors
 // ---------------------------------------------------------------------------
@@ -530,4 +539,23 @@ pub fn blame_blocks(blame: Option<&Value>, line_count: usize) -> Vec<BlameLine> 
         out.push(BlameLine { block: if at >= 0 { entries[at as usize].0 as i64 } else { -1 }, first, border: first && n != first_shown });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_constants_are_style_json() {
+        let style: Value = serde_json::from_str(crate::generated::catalog::STYLE_JSON).unwrap();
+        assert_eq!(style["logView"]["searchWidth"].as_f64(), Some(LOG_SEARCH_WIDTH as f64));
+        assert_eq!(style["logView"]["indent"].as_f64(), Some(LOG_INDENT as f64));
+        assert_eq!(style["logView"]["maxLines"].as_f64(), Some(LOG_MAX_LINES as f64));
+        assert_eq!(style["codeBlock"]["blameWidth"].as_f64(), Some(CODE_BLAME_WIDTH as f64));
+        assert_eq!(style["ciStatus"]["spinMs"].as_u64(), Some(CI_STATUS_SPIN_MS as u64));
+        for e in TABLE {
+            assert_eq!(style["ciStatus"][e.status]["icon"].as_str(), Some(e.icon));
+            assert_eq!(style["ciStatus"][e.status]["spin"].as_bool(), Some(e.spin));
+        }
+    }
 }

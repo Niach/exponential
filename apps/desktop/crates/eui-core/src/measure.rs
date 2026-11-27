@@ -306,7 +306,17 @@ impl FixedMeasure {
                 let code = str_prop("code");
                 let lines = code.split('\n').count().max(1) as f32;
                 let widest = code.split('\n').map(Self::chars).fold(0.0, f32::max);
-                (FIXED_CHAR_WIDTH * widest, FIXED_LINE_HEIGHT * lines)
+                // #EXP-2204: the blame column before the code.
+                let blame = if str_prop("gutter") == "blame" { crate::ci_log::CODE_BLAME_WIDTH } else { 0.0 };
+                (FIXED_CHAR_WIDTH * widest + blame, FIXED_LINE_HEIGHT * lines)
+            }
+            // #EXP-2204: the core sizes both (layout_tree::misc): a LogLines
+            // fills its box; a JobGraph is its graph's width (list: none).
+            "LogLines" => (320.0, crate::layout_tree::log_lines_height(36.0, 8.0, leaf.props.get("maxLines").and_then(Value::as_f64).unwrap_or(24.0) as f32)),
+            "JobGraph" => {
+                let compact = leaf.props.get("compact").and_then(Value::as_bool) == Some(true);
+                let l = crate::job_graph::job_graph_layout(leaf.props.get("jobs"), compact, &crate::job_graph::JOB_GRAPH);
+                (l.width as f32, l.height as f32)
             }
             "Chart" => (320.0, leaf.props.get("height").and_then(Value::as_f64).unwrap_or(200.0) as f32),
             // EXP-1280: an unexpanded ChoiceTiles (geometry mode) = its grid
@@ -367,7 +377,7 @@ impl FixedMeasure {
     pub fn baseline(&self, leaf: &LeafRequest, height: f32) -> Option<f32> {
         match leaf.component {
             "Text" | "Link" | "Markdown" | "CodeBlock" => Some(leaf.control.padding[0] + FIXED_ASCENT),
-            "Checkbox" | "Radio" | "Switch" | "Avatar" | "Icon" | "Image" | "Video" | "Slider" | "Spinner" | "Ring" | "Skeleton" | "Chart" | "Motion" | "Canvas" => None,
+            "Checkbox" | "Radio" | "Switch" | "Avatar" | "Icon" | "Image" | "Video" | "Slider" | "Spinner" | "Ring" | "Skeleton" | "Chart" | "Motion" | "Canvas" | "LogLines" | "JobGraph" => None,
             _ if leaf.text().is_empty() => None,
             _ => Some(((height - FIXED_LINE_HEIGHT) / 2.0).max(0.0) + FIXED_ASCENT),
         }
