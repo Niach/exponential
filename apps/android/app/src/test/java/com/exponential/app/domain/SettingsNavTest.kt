@@ -151,7 +151,7 @@ class SettingsNavTest {
         assertEquals(phone.getValue("settings").jsonArray.map { it.jsonPrimitive.content }, SettingsNavGroups.PHONE_SETTINGS)
         assertEquals(phone.getValue("team").jsonArray.map { it.jsonPrimitive.content }, SettingsNavGroups.PHONE_TEAM)
         assertEquals(
-            listOf(listOf("account", "assistant", "notifications", "security"), listOf("devices"), listOf("about")),
+            listOf(listOf("account", "assistant", "notifications", "security"), listOf("about")),
             SettingsNavGroups.phoneSettingsGroups(),
         )
         assertEquals(SettingsNavGroups.PHONE_TEAM, SettingsNavGroups.phoneTeamRows(isOwner = true).map { it.id })

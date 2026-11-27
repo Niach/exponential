@@ -19,6 +19,7 @@ import coil3.memory.MemoryCache
 import com.exponential.app.domain.TeamImage
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PhoneDock
+import com.exponential.app.ui.components.PhoneMoreMenu
 import com.exponential.app.ui.components.PhoneNewMenu
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TeamImageRow
@@ -337,10 +338,11 @@ private val SPECIMEN_BOARDS = listOf(
 )
 
 @Composable
-private fun SpecimenDock(selected: String, modifier: Modifier = Modifier, newOpen: Boolean = false) {
+private fun SpecimenDock(selected: String, modifier: Modifier = Modifier, newOpen: Boolean = false, moreOpen: Boolean = false) {
     PhoneDock(
         selected = selected,
         newOpen = newOpen,
+        moreOpen = moreOpen,
         badges = mapOf(
             "chats" to NavBadges.Badge(2, NavBadges.Tone.Attention),
             "teams" to NavBadges.Badge(1, NavBadges.Tone.Attention),
@@ -377,6 +379,11 @@ fun PhoneTabBarSpecimenScreen() {
             Box(Modifier.fillMaxWidth().height(230.dp)) {
                 PhoneNewMenu(issueEnabled = true, onPick = {}, onDismiss = {}, insetBottom = 0.dp)
                 SpecimenDock("chats", newOpen = true, modifier = Modifier.align(Alignment.BottomCenter))
+            }
+            Caption("More open")
+            Box(Modifier.fillMaxWidth().height(230.dp)) {
+                PhoneMoreMenu(onPick = {}, onDismiss = {}, insetBottom = 0.dp)
+                SpecimenDock("chats", moreOpen = true, modifier = Modifier.align(Alignment.BottomCenter))
             }
         }
     }

@@ -1313,3 +1313,25 @@ internal suspend fun agentChatLookup(
     if (userId.isNullOrEmpty()) return null
     return own(agentId, userId)
 }
+
+/** #EXP-2171: the synced `repositories` shape (a team's repositories). */
+@Dao
+interface RepositoryDao {
+    @Query("SELECT * FROM repositories ORDER BY sort_order, full_name COLLATE NOCASE, id")
+    fun observeAll(): Flow<List<RepositoryEntity>>
+
+    @Query("SELECT * FROM repositories WHERE team_id = :teamId ORDER BY sort_order, full_name COLLATE NOCASE, id")
+    fun observeByTeam(teamId: String): Flow<List<RepositoryEntity>>
+
+    @Query("SELECT * FROM repositories WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<RepositoryEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: RepositoryEntity)
+
+    @Query("DELETE FROM repositories WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM repositories")
+    suspend fun clear()
+}
