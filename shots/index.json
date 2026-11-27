@@ -1732,16 +1732,16 @@
       "web": {
         "file": "shots/ci/web.webp",
         "width": 1800,
-        "height": 1125,
-        "bytes": 90202,
-        "sha256": "de262e787617b2cbc14a9c78ef35d44137e3d36f370a6631ac457699127f9561"
+        "height": 1200,
+        "bytes": 82638,
+        "sha256": "dcf5f17be6a7812723d8afc9465a286e74e68281b65f9e9f0e09c1fceaa988d0"
       },
       "web-mobile": {
         "file": "shots/ci/web-mobile.webp",
-        "width": 832,
+        "width": 828,
         "height": 1800,
-        "bytes": 75290,
-        "sha256": "cda3d8fe78c17de19da08fea1338dc531c7246305fccac01ba8915bf4ca55f9f"
+        "bytes": 57804,
+        "sha256": "156421e59d2ad202a55e6a8b9eecf71078758aab9637c7f343371bc48ab24243"
       }
     },
     "ci-run": {
@@ -1770,15 +1770,15 @@
         "file": "shots/ci-run/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 65486,
-        "sha256": "873966dec8c3a5db62f09e1842bddf24434beaeffccd9ab64c56791e3e328de2"
+        "bytes": 76048,
+        "sha256": "c4c4b2951f945bfdcebbe825e62e01ad3051639b8e560505cca92587e69e63b7"
       },
       "web-mobile": {
         "file": "shots/ci-run/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 49928,
-        "sha256": "4e2c3fca9e88a1f321c030f044cce924e9ff3295c6a415468c95467d6090332e"
+        "bytes": 31250,
+        "sha256": "44b998112720a548801111163b13138f485e49ba1e32f2988cdc15e43802c3f9"
       }
     },
     "code-block": {
@@ -6772,15 +6772,15 @@
         "file": "shots/repo/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 52448,
-        "sha256": "3863ed372e955ca61d2da09e2e8c7d1a477a9fc22c63dc3c41a06506a79cf2d9"
+        "bytes": 54222,
+        "sha256": "f8ecc77c6a028bb00a6ac3a849a909ff6dc7e4f4fcceea6dd44e19c47600c935"
       },
       "web-mobile": {
         "file": "shots/repo/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 26788,
-        "sha256": "bd2d1bf3ec4c8cf7aed477636e78a0d3bdf5f6dc0387fafa34407d631dd312ce"
+        "bytes": 27076,
+        "sha256": "a4de13027355f1232e00c30189bbfb4199b216e2ec33883cb766953f10ef56de"
       }
     },
     "repo-ci": {
@@ -6846,15 +6846,15 @@
         "file": "shots/repo-runs/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 60518,
-        "sha256": "edcda0c4d3eb9e76cfd5680338c10fbff31fb70a2ff27b15bcaeb7c152072bd0"
+        "bytes": 65640,
+        "sha256": "c2bae6e9a827da4955a823453fb36e32e177d155eaa76a2d37b96ba1659e13a2"
       },
       "web-mobile": {
         "file": "shots/repo-runs/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 33290,
-        "sha256": "3e65322b8a24cae28297b0c3f71267a9fe44c85fc8239e03772905b1c3f1a83d"
+        "bytes": 37816,
+        "sha256": "1ba132af7d632a26dd3def60529bbb988cee33f71edf432f680e2889ea9cf38c"
       }
     },
     "results-tab": {
