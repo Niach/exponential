@@ -153,18 +153,6 @@ export interface CiRunFilter {
   source: CiSource | null
 }
 
-function triggerText(run: CiPageRun, pullRequests: readonly CiPagePr[]): string {
-  if (run.trigger === `pull_request` && run.pullRequestId) {
-    const pr = pullRequests.find((p) => p.id === run.pullRequestId)
-    if (pr) return CI_PAGE_COPY.pullRequest.replace(`{number}`, String(pr.number))
-  }
-  return (CI_PAGE_COPY.triggers as Record<string, string>)[run.trigger] ?? run.trigger
-}
-
-export function repoName(repos: readonly CiPageRepo[], id: string): string {
-  return repos.find((repo) => repo.id === id)?.fullName ?? CI_PAGE_COPY.unknownRepository
-}
-
 export interface CiRunListRow {
   id: string
   status: CiRunStatus
