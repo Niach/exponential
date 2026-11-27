@@ -9,7 +9,9 @@
 # previews), the context menu pins and unpins ("Pinned to the taskbar", a checkbox row) and closes
 # (ede_taskbar_menu), hovering a running app opens
 # its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a
-# click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
+# click focuses; each thumbnail heads with its window's icon and title, Cinnamon's: an app's icon, and
+# for the Exponential app's windows, #EDE-237, every page its own window, the page's concept icon the
+# holder tells over the session bus). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
 # document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on
 # the person across the signed-in accounts' teams, /needsYou/count as its badge, or
 # this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), Agent spaces (#EXP-2024: only while an agent space exists on this machine,
@@ -64,7 +66,9 @@ previews = Popover(side="top", align="center", openOn="hover", children=[preview
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
 preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})
 preview_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
-preview_head = Stack(direction="horizontal", gap="xs", align="center", children=[preview_title, preview_close])
+preview_head = Stack(direction="horizontal", gap="xs", align="center", children=[preview_page_icon, preview_app_icon, preview_title, preview_close])
+preview_page_icon = Icon(name=$concept, size="sm", visible=cond(if=$page, then=true, else=false))
+preview_app_icon = Image(src=$icon, alt=$title, fit="contain", width=16, height=16, fallback="nav-apps", visible=not(value=cond(if=$page, then=true, else=false)))
 preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
 preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
 preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")

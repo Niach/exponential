@@ -29,6 +29,12 @@ pub fn install(role: Role, cx: &mut App) {
             Request::Holder { command } => Event::Holder(command),
             Request::Handover if role == Role::Component => return Reply::Refused { message: "the session's component holds the login".into() },
             Request::Handover => Event::Handover,
+            // #EDE-237: what the holder's windows are, held on this bus
+            // thread until they change.
+            Request::Windows { after } => {
+                let (generation, windows) = crate::ede_windows::window_board().wait(after, api::bus::WINDOWS_WAIT);
+                return Reply::Windows { generation, app_id: crate::ede_windows::app_id(), windows };
+            }
         };
         log::info!("[bus] a request of pid {}", peer.pid);
         match tx.send(event) {
@@ -69,6 +75,11 @@ fn open(link: Option<String>, activation_token: Option<String>, cx: &mut App) {
         gpui_linux::hand_activation_token(token);
     }
     cx.activate(true);
+    // #EDE-237: in eDE mode the link lands on its page's own window.
+    if crate::ede_component::is_component() {
+        crate::ede_windows::open_from_bus(link, cx);
+        return;
+    }
     match crate::os_notifications::shell_window(cx) {
         Some(window) => {
             let _ = window.update(cx, |_, window, _| window.activate_window());

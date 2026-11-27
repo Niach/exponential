@@ -18,8 +18,14 @@
 //!   holder hands it to xdg-activation, so its window takes the keyboard
 //!   the way a launched app's does.
 //!
-//! Later phases ride the same socket (window metadata, the shell's feeds):
-//! new ops, new replies.
+//! - **Windows (#EDE-237):** in eDE mode every page of the app is a window
+//!   of its own; [`Request::Windows`] long-polls what each one is (kind,
+//!   concept icon, title, team: [`WindowMeta`]), so the shell's taskbar
+//!   thumbnails and window list wear them. The holder keeps them on a
+//!   [`WindowBoard`].
+//!
+//! Later phases ride the same socket (the shell's feeds): new ops, new
+//! replies.
 
 use std::{
     io::{self, BufRead, BufReader, Read as _, Write},
@@ -38,13 +44,21 @@ use serde::{Deserialize, Serialize};
 pub const SOCKET: &str = "exp-desktop.bus";
 
 /// This end's version of the bus (in [`Reply::Hello`]).
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The longest line either end reads (a link, a command, a token).
 pub const MAX_LINE: usize = 64 * 1024;
 
 /// How long a client waits for the holder to take and answer a request.
 pub const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// How long the holder holds a [`Request::Windows`] that is up to date
+/// before it answers with the same generation (a client's read timeout must
+/// be longer: [`WINDOWS_TIMEOUT`]).
+pub const WINDOWS_WAIT: Duration = Duration::from_secs(25);
+
+/// A [`Request::Windows`] client's read timeout.
+pub const WINDOWS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The bus socket of the app whose data directory is `data_dir`.
 pub fn socket_path(data_dir: &Path) -> PathBuf {
@@ -57,8 +71,9 @@ pub fn socket_path(data_dir: &Path) -> PathBuf {
 pub enum Request {
     /// Who answers: [`Reply::Hello`].
     Hello,
-    /// Open `link` (an `exponential://` link), or with none bring a window
-    /// up; the window it lands in comes to the front with
+    /// Open `link` (an `exponential://` link; #EDE-237: in eDE mode also an
+    /// in-app URL, `https://<instance>/t/<team>/…`, landing on its page's
+    /// own window), or with none bring a window up; the window it lands in comes to the front with
     /// `activation_token` (an xdg-activation token, one-shot).
     Open {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,6 +88,34 @@ pub enum Request {
     /// replies [`Reply::Done`] and quits; the component then takes the lock.
     /// The component itself refuses it.
     Handover,
+    /// #EDE-237: the holder's windows ([`Reply::Windows`]). With `after` (a
+    /// generation the client has) the holder answers once the windows
+    /// changed past it, or after [`WINDOWS_WAIT`] with the same generation.
+    Windows {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<u64>,
+    },
+}
+
+/// #EDE-237: what one window of the holder is. Its toplevel's title is
+/// `title` and its app id the reply's `app_id`: that is how the shell finds
+/// the window it describes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowMeta {
+    /// The page the window holds (`issue:<id>`, `board:<id>`, `home`, …):
+    /// one window per key.
+    pub key: String,
+    /// The page's kind (`issue`, `board`, `chat`, `device`, …).
+    pub kind: String,
+    /// The kind's concept icon (`packages/icons`, e.g. `ui-issue`).
+    pub icon: String,
+    pub title: String,
+    /// The team the page is in, by name and id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
 }
 
 /// Who holds the bus.
@@ -96,6 +139,45 @@ pub enum Reply {
     Refused { message: String },
     /// An op this holder does not know.
     Unsupported,
+    /// #EDE-237: the holder's windows at `generation`, oldest first; its
+    /// toplevels carry the app id `app_id`.
+    Windows { generation: u64, #[serde(rename = "appId")] app_id: String, windows: Vec<WindowMeta> },
+}
+
+/// #EDE-237: the holder's windows as the bus hands them out: the
+/// foreground [`WindowBoard::set`]s them, a [`Request::Windows`] waits on
+/// them from a bus thread.
+#[derive(Default)]
+pub struct WindowBoard {
+    state: std::sync::Mutex<(u64, Vec<WindowMeta>)>,
+    changed: std::sync::Condvar,
+}
+
+impl WindowBoard {
+    /// The windows now; a change bumps the generation and wakes the waits.
+    pub fn set(&self, windows: Vec<WindowMeta>) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.1 == windows {
+            return;
+        }
+        state.0 += 1;
+        state.1 = windows;
+        self.changed.notify_all();
+    }
+
+    /// The generation and the windows, once the generation is past `after`
+    /// (`None` = at once) or `wait` ran out.
+    pub fn wait(&self, after: Option<u64>, wait: Duration) -> (u64, Vec<WindowMeta>) {
+        let Ok(state) = self.state.lock() else { return (0, Vec::new()) };
+        let state = match after {
+            Some(after) => match self.changed.wait_timeout_while(state, wait, |state| state.0 <= after) {
+                Ok((state, _)) => state,
+                Err(poisoned) => poisoned.into_inner().0,
+            },
+            None => state,
+        };
+        (state.0, state.1.clone())
+    }
 }
 
 /// The other end of a bus connection, as the kernel says.
@@ -284,13 +366,47 @@ mod tests {
         assert_eq!(client.call(&open).unwrap(), Reply::Done);
         assert_eq!(client.call(&Request::Handover).unwrap(), Reply::Refused { message: "no".into() });
         // A newer client's op: answered, the connection stays.
-        write_line(&mut client.writer, &serde_json::json!({"op": "windows"})).unwrap();
+        write_line(&mut client.writer, &serde_json::json!({"op": "feeds"})).unwrap();
         assert_eq!(read_line::<Reply>(&mut client.reader).unwrap().unwrap().unwrap(), Reply::Unsupported);
         assert_eq!(client.call(&Request::Hello).unwrap(), Reply::Hello { version: VERSION, pid: std::process::id(), role: Role::Standalone });
         assert_eq!(seen.lock().unwrap().len(), 4, "the unknown op never reached the handler");
         // A one-shot call.
         assert_eq!(call(&path, &open).unwrap(), Reply::Done);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn meta(key: &str) -> WindowMeta {
+        WindowMeta { key: key.into(), kind: "issue".into(), icon: "ui-issue".into(), title: key.into(), team: Some("Exponential".into()), team_id: Some("t1".into()) }
+    }
+
+    #[test]
+    fn windows_keep_their_wire_shape() {
+        assert_eq!(serde_json::to_value(Request::Windows { after: None }).unwrap(), serde_json::json!({"op": "windows"}));
+        assert_eq!(serde_json::to_value(Request::Windows { after: Some(3) }).unwrap(), serde_json::json!({"op": "windows", "after": 3}));
+        let reply = Reply::Windows { generation: 4, app_id: "at.exponential.Desktop".into(), windows: vec![meta("issue:i1")] };
+        assert_eq!(
+            serde_json::to_value(&reply).unwrap(),
+            serde_json::json!({"reply": "windows", "generation": 4, "appId": "at.exponential.Desktop", "windows": [{"key": "issue:i1", "kind": "issue", "icon": "ui-issue", "title": "issue:i1", "team": "Exponential", "teamId": "t1"}]})
+        );
+    }
+
+    #[test]
+    fn a_windows_wait_answers_on_a_change_or_when_it_runs_out() {
+        let board = Arc::new(WindowBoard::default());
+        assert_eq!(board.wait(None, Duration::ZERO), (0, Vec::new()));
+        board.set(vec![meta("a")]);
+        board.set(vec![meta("a")]);
+        assert_eq!(board.wait(None, Duration::ZERO).0, 1, "the same windows are no change");
+        // Up to date: held until the wait runs out, same generation.
+        let started = std::time::Instant::now();
+        assert_eq!(board.wait(Some(1), Duration::from_millis(50)).0, 1);
+        assert!(started.elapsed() >= Duration::from_millis(50));
+        // A change wakes a held wait.
+        let waiter = { let board = board.clone(); std::thread::spawn(move || board.wait(Some(1), Duration::from_secs(10))) };
+        std::thread::sleep(Duration::from_millis(30));
+        board.set(vec![meta("a"), meta("b")]);
+        let (generation, windows) = waiter.join().unwrap();
+        assert_eq!((generation, windows.len()), (2, 2));
     }
 
     #[test]
