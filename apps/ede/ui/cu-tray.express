@@ -1,0 +1,50 @@
+# Exponential Desktop's factory computer-use tray (#EDE-266, part of #EDE-240): the popup of the
+# taskbar's computer-use status icon (taskbar.express `cu_tray`, Cinnamon's applet left click), above it
+# at its right end. It replaces the Agent spaces list (#EXP-2024) and folds the same /spaces rows
+# (uicore spaces.json `tray` over the holder's `sessions` feed, /cuTray): the header with the space
+# count; with more than one space a row per space (a press picks it: ede_cu {action: select, space});
+# the picked space's live tile (the shell's capture loop, at the view's rate while the pinned view is
+# shut) under its state badge (Live, Paused, Taken over); its session (title, a child's chat as the
+# second line); the running step as the now line and the session's last steps (the holder's trace);
+# then Stop (ends the space, never its session), Pause / Resume, Watch / Stop watching (the pinned view,
+# space-view.express) and Take over / Hand back. Take over pins the view and lets the person drive the
+# space through its picture (the compositor routes their pointer there and, after a press in it, their
+# keys); closing the view while taken over pauses the agent. A space never takes the hold. Its
+# namespace is black in every capture of the person's output, as the view's is.
+surface("cu-tray", extensions={ede: {popup: {parent: "taskbar", anchor: "cu_tray", placement: "top-end", size: {width: 480, height: 600}}, functions: ["ede_cu"]}})
+$/cuTray/badge = ""
+$/cuTray/count = 0
+$/cuTray/list = false
+$/cuTray/picture = ""
+$/cuTray/rows = []
+$/cuTray/selected = null
+root = Box(style={display: "flex", flexDirection: "column", width: 480, height: 600, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.xl", overflow: "hidden"}, children=[head, spaces_scroll, tile_box, body, foot])
+head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", padding: "$spacing.md", flexShrink: 0}, children=[head_icon, head_title, head_fill, head_badge])
+head_icon = Icon(name="nav-computer", size="default", style={color: "$color.ring"})
+head_title = Heading(text="Background computer use", level="h4")
+head_fill = Box(style={flexGrow: 1})
+head_badge = Badge(text=$/cuTray/badge, variant="secondary")
+spaces_scroll = ScrollArea(maxHeight=132, style={flexShrink: 0, marginLeft: "$spacing.md", marginRight: "$spacing.md", marginBottom: "$spacing.sm"}, children=[spaces_list], visible=cond(if=$/cuTray/list, then=true, else=false))
+spaces_list = List(gap="none", divided=true, children=_template($/cuTray/rows, space_row, key="id"))
+space_row = Row(title=$title, subtitle=$subtitle, density="compact", selected=$selected, pressable=true, on={press: ede_cu(action="select", space=$id)})
+tile_box = Box(style={position: "relative", flexShrink: 0, marginLeft: "$spacing.md", marginRight: "$spacing.md", borderRadius: "$radius.lg", overflow: "hidden", borderWidth: 1, borderColor: "$color.border"}, children=[tile, tile_state])
+tile = Image(src=$/cuTray/picture, alt="The agent's space, live", fit="contain", width=446, height=250, fallback="nav-computer")
+tile_state = Box(style={position: "absolute", top: 8, left: 8}, children=[state_live, state_paused, state_person])
+state_live = Badge(text=$/cuTray/selected/state/label, icon="circle-dot", variant="destructive", visible=eq(a=$/cuTray/selected/control, b="agent"))
+state_paused = Badge(text=$/cuTray/selected/state/label, icon="pause", variant="secondary", visible=eq(a=$/cuTray/selected/control, b="paused"))
+state_person = Badge(text=$/cuTray/selected/state/label, icon="hand", visible=eq(a=$/cuTray/selected/control, b="person"))
+body = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.md", flexGrow: 1, minHeight: 0}, children=[who, now, steps_scroll])
+who = Row(title=$/cuTray/selected/title, subtitle=$/cuTray/selected/subtitle, density="compact", icon="nav-computer")
+now = Text(text=$/cuTray/selected/now, variant="body", lines=1, visible=not(value=eq(a=$/cuTray/selected/now, b=null)))
+steps_scroll = ScrollArea(style={flexGrow: 1, minHeight: 0}, children=[steps])
+steps = Trace(size="sm", children=_template($/cuTray/selected/trace, step))
+step = Box(style={display: "flex", flexDirection: "column"}, children=[step_running, step_done, step_error])
+step_running = TraceItem(title=$title, icon="trace-tool", status="running", size="sm", visible=eq(a=$status, b="running"))
+step_done = TraceItem(title=$title, icon="trace-tool", status="done", size="sm", visible=eq(a=$status, b="done"))
+step_error = TraceItem(title=$title, icon="trace-tool", status="error", size="sm", visible=eq(a=$status, b="error"))
+foot = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", padding: "$spacing.md", borderTopWidth: 1, borderColor: "$color.border", flexShrink: 0}, children=[stop, pause, foot_fill, watch, take])
+stop = Button(label="Stop", icon="ui-stop", variant="ghost", size="sm", on={press: ede_cu(action="stop", space=$/cuTray/selected/id)})
+pause = Button(label=$/cuTray/selected/pause/label, icon=$/cuTray/selected/pause/icon, variant="ghost", size="sm", on={press: ede_cu(action=$/cuTray/selected/pause/value, space=$/cuTray/selected/id)}, visible=not(value=eq(a=$/cuTray/selected/pause, b=null)))
+foot_fill = Box(style={flexGrow: 1})
+watch = Button(label=$/cuTray/selected/watch/label, icon=$/cuTray/selected/watch/icon, variant="outline", size="sm", on={press: ede_cu(action=$/cuTray/selected/watch/value, space=$/cuTray/selected/id)})
+take = Button(label=$/cuTray/selected/take/label, icon=$/cuTray/selected/take/icon, size="sm", on={press: ede_cu(action=$/cuTray/selected/take/value, space=$/cuTray/selected/id)})

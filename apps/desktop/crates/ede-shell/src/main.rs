@@ -60,7 +60,12 @@
 //! #EXP-2024: `/spaces` (the machine's agent spaces: the taskbar's Agent
 //! spaces button and list) and `/spaceView` (the ONE pinned view),
 //! `ede_space {session | null, size?}` (pins a session's view, sizes it,
-//! or unpins) and `ede_space_close {space}` (ends a space, not its session).
+//! or unpins) and `ede_space_close {space}` (ends a space, not its session);
+//! #EDE-266: `/cuTray` (the taskbar's computer-use status icon and its
+//! popup, cu-tray.express: uicore spaces.json `tray` over the holder's
+//! `sessions`) and `ede_cu {action, space?}` (select, watch, unwatch,
+//! pause, resume, takeOver, handBack, stop: the compositor's `control_space`
+//! and `destroy_space` on the capture loop's connection).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -912,6 +917,12 @@ impl HostPlugin for Host {
                     }
                     spaces_changed(&shell, cx);
                 });
+            }
+            // #EDE-266: the computer-use tray's presses (spaces.json `tray`).
+            "ede_cu" => {
+                if let Some((press, space)) = spaces::tray_press(args) {
+                    cx.defer(move |cx| cu_press(&shell, press, space, cx));
+                }
             }
             // #EXP-2024: a row's Close ends that space (never its session), on the capture loop's connection.
             "ede_space_close" => {
@@ -2212,6 +2223,9 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
         // #EDE-239: the taskbar's session area over the holder's sessions.
         let sessions = sessions_area::feed(&s.holder_feeds, popup_output_size(&s).0);
         s.feed.set("/sessions", sessions);
+        // #EDE-266: the computer-use tray's steps come from the same feed.
+        let tray = cu_tray_feed(&s);
+        s.feed.set("/cuTray", tray);
     }
     refresh(shell, cx);
 }
@@ -3102,7 +3116,7 @@ fn spaces_pause(s: &Shell) -> spaces::Pause {
 /// nothing while locked; the loop wakes only when it moved.
 fn thumbnails_retarget(shell: &SharedShell) {
     let s = shell.borrow();
-    let plan = spaces::plan(thumbnail_windows(&s), &s.spaces, s.surfaces.is_open(spaces::VIEW), spaces_list_open(&s), spaces_pause(&s), first_display(&s));
+    let plan = spaces::plan(thumbnail_windows(&s), &s.spaces, s.surfaces.is_open(spaces::VIEW), spaces_list_open(&s), s.surfaces.is_open(spaces::TRAY), spaces_pause(&s), first_display(&s));
     s.captures.set_plan(plan);
 }
 
@@ -3140,13 +3154,103 @@ fn capture_out(shell: &SharedShell, out: captures::Out, cx: &mut App) {
     }
 }
 
-/// `/spaces` and `/spaceView` from what the shell knows now.
+/// `/spaces`, `/spaceView` and `/cuTray` from what the shell knows now.
 fn spaces_feed(shell: &SharedShell) {
     let mut s = shell.borrow_mut();
     let display = first_display(&s);
-    let (list, view) = (s.spaces.feed(), s.spaces.view_feed(display));
+    let (list, view, tray) = (s.spaces.feed(), s.spaces.view_feed(display), cu_tray_feed(&s));
     s.feed.set("/spaces", list);
     s.feed.set("/spaceView", view);
+    s.feed.set("/cuTray", tray);
+}
+
+/// #EDE-266: the computer-use tray over the holder's `sessions` feed (each
+/// chat's working sessions and their steps).
+fn cu_tray_feed(s: &Shell) -> Value {
+    let sessions: Vec<uicore_model::spaces::TraySession> =
+        s.holder_feeds.feeds["sessions"].as_array().into_iter().flatten().filter_map(|e| serde_json::from_value(e.clone()).ok()).collect();
+    let sessions = if s.spaces.demo && sessions.is_empty() { spaces::demo_tray_sessions() } else { sessions };
+    s.spaces.tray_feed(&sessions, s.surfaces.is_open(spaces::VIEW))
+}
+
+/// #EDE-266: a press in the computer-use tray, on the space it names (else
+/// the tray's selected one).
+fn cu_press(shell: &SharedShell, press: spaces::TrayPress, space: Option<String>, cx: &mut App) {
+    let target = {
+        let s = shell.borrow();
+        let id = space.clone().or_else(|| s.spaces.tray_space().map(|sp| sp.id.to_string()));
+        id.and_then(|id| s.spaces.list.iter().find(|sp| sp.id.as_str() == id).map(|sp| (id, sp.session_id.to_string())))
+    };
+    match press {
+        spaces::TrayPress::Select(id) => shell.borrow_mut().spaces.selected = Some(id),
+        spaces::TrayPress::Watch => {
+            if let Some((_, session)) = target {
+                shell.borrow_mut().spaces.pin(Some(&session), None);
+            }
+        }
+        spaces::TrayPress::Unwatch => shell.borrow_mut().spaces.pin(None, None),
+        spaces::TrayPress::Stop => {
+            if let Some((id, _)) = target {
+                shell.borrow().captures.ask(captures::Ask::Close(id));
+            }
+        }
+        spaces::TrayPress::Control(control) => {
+            let Some((id, session)) = target else { return };
+            // Take over drives through the pinned view: pin it first.
+            if control == uicore_model::spaces::SpaceControl::Person {
+                shell.borrow_mut().spaces.pin(Some(&session), None);
+            }
+            shell.borrow_mut().spaces.asked.insert(id, control);
+        }
+    }
+    spaces_changed(shell, cx);
+}
+
+/// #EDE-266: what the compositor is told of who drives each space: a space
+/// the person drives gets its pinned view's picture rect (again when the
+/// view grows or shrinks); one whose view went (closed, pinned elsewhere)
+/// is paused, never handed back unasked; the rest as the tray asked.
+fn cu_control_sync(shell: &SharedShell) {
+    let asks = {
+        let mut s = shell.borrow_mut();
+        let display = first_display(&s);
+        let view_open = s.surfaces.is_open(spaces::VIEW);
+        let viewed = s.spaces.view(display).filter(|_| view_open).map(|(space, view)| (space.id.to_string(), view));
+        // spaces.json `constants`: the view's border and header over its picture.
+        let (border, header) = (1, 40);
+        let mut asks = Vec::new();
+        for (space, control) in s.spaces.controls() {
+            let (control, view) = match control {
+                uicore_model::spaces::SpaceControl::Person => match viewed.as_ref().filter(|(id, _)| *id == space) {
+                    Some((_, view)) => {
+                        let rect = ede_protocol::SpaceViewRect { namespace: ede_protocol::SPACE_VIEW_NAMESPACE.into(), x: border, y: border + header, width: view.picture.width as i32, height: view.picture.height as i32 };
+                        (control, Some(rect))
+                    }
+                    // The view went (closed, pinned elsewhere): the agent waits.
+                    None => (uicore_model::spaces::SpaceControl::Paused, None),
+                },
+                other => (other, None),
+            };
+            let wanted = (control, view.clone());
+            // What the compositor already says needs no ask.
+            let listed = s.spaces.list.iter().find(|sp| sp.id.as_str() == space).map(|sp| spaces::control_of(sp.control));
+            if !s.spaces.sent.contains_key(&space) && view.is_none() && listed == Some(control) {
+                s.spaces.sent.insert(space, wanted);
+                continue;
+            }
+            if s.spaces.sent.get(&space) != Some(&wanted) {
+                s.spaces.sent.insert(space.clone(), wanted);
+                if control != uicore_model::spaces::SpaceControl::Person || view.is_some() {
+                    s.spaces.asked.insert(space.clone(), control);
+                }
+                asks.push(captures::Ask::Control { space, control: spaces::wire_control(control), view });
+            }
+        }
+        asks
+    };
+    for ask in asks {
+        shell.borrow().captures.ask(ask);
+    }
 }
 
 /// The spaces, the titles or the pin moved: the feeds, the pinned view's
@@ -3184,6 +3288,8 @@ fn spaces_changed(shell: &SharedShell, cx: &mut App) {
         }
         _ => {}
     }
+    cu_control_sync(shell);
+    spaces_feed(shell);
     // The last space ended: the list closes with its button.
     if none {
         let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
@@ -5004,11 +5110,11 @@ mod layer_sizes {
 
     /// #EXP-2024 (section 8, 6d): the pinned view of an agent space is an
     /// on-demand top layer at the bottom right, above the taskbar, that
-    /// never takes the keyboard; the taskbar lists the spaces in a hosted
-    /// Popover (never a popup document: those take the keyboard) and may
-    /// call the two functions the view and the list use.
+    /// never takes the keyboard. #EDE-266: the taskbar's computer-use status
+    /// icon is a Menu (the applet menu on a right click) around the button
+    /// its popup document anchors at, and the taskbar may call `ede_cu`.
     #[test]
-    fn the_space_view_takes_no_keyboard_and_the_list_is_hosted() {
+    fn the_space_view_takes_no_keyboard_and_the_tray_is_an_applet() {
         let view = factory(spaces::VIEW);
         let SurfaceHeader::Layer { layer, anchor, keyboard, on_demand, functions, margin, .. } = &view.surface else { panic!("a layer") };
         assert_eq!((*layer, *keyboard, *on_demand), (DocLayer::Top, ede_ui::surface::Keyboard::None, true));
@@ -5026,12 +5132,33 @@ mod layer_sizes {
                 _ => None,
             }
         }
-        let list = node(&taskbar["root"], spaces::LIST).expect("the Agent spaces list");
-        assert_eq!(list["component"], "Popover", "the list is a hosted Popover of the taskbar");
-        assert_eq!(list["slots"]["trigger"]["props"]["label"], "Agent spaces");
-        assert!(!uicore_docs::DOCS.iter().any(|d| d.json()["surface"]["popup"]["anchor"] == "agent_spaces"), "no popup document anchors at it");
+        assert!(node(&taskbar["root"], spaces::LIST).is_none(), "the Agent spaces list is gone");
+        let menu = node(&taskbar["root"], "cu_tray_menu").expect("the computer-use applet menu");
+        assert_eq!((menu["component"].as_str(), menu["props"]["openOn"].as_str()), (Some("Menu"), Some("contextmenu")));
+        let button = node(&taskbar["root"], "cu_tray").expect("the computer-use status icon");
+        assert_eq!(button["props"]["label"], "Computer use");
+        let tray = factory(spaces::TRAY);
+        let SurfaceHeader::Popup { popup, functions, .. } = &tray.surface else { panic!("a popup") };
+        assert_eq!((popup.parent.as_str(), popup.anchor.as_str()), ("taskbar", "cu_tray"));
+        assert_eq!(functions, &vec!["ede_cu".to_string()]);
         let functions: Vec<&str> = taskbar["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-        assert!(functions.contains(&"ede_space") && functions.contains(&"ede_space_close"));
+        assert!(functions.contains(&"ede_cu"));
+    }
+
+    /// #EDE-266: the tray's presses (spaces.json `tray` values).
+    #[test]
+    fn the_trays_presses_parse() {
+        use spaces::TrayPress;
+        use uicore_model::spaces::SpaceControl;
+        let press = |v: Value| spaces::tray_press(&v).map(|(p, s)| (p, s));
+        assert_eq!(press(json!({"action": "takeOver", "space": "space-1"})), Some((TrayPress::Control(SpaceControl::Person), Some("space-1".into()))));
+        assert_eq!(press(json!({"action": "handBack"})), Some((TrayPress::Control(SpaceControl::Agent), None)));
+        assert_eq!(press(json!({"action": "pause"})), Some((TrayPress::Control(SpaceControl::Paused), None)));
+        assert_eq!(press(json!({"action": "resume"})), Some((TrayPress::Control(SpaceControl::Agent), None)));
+        assert_eq!(press(json!({"action": "select", "space": "space-2"})), Some((TrayPress::Select("space-2".into()), Some("space-2".into()))));
+        assert_eq!(press(json!({"action": "select"})), None, "a pick names its space");
+        assert_eq!(press(json!({"action": "stop"})), Some((TrayPress::Stop, None)));
+        assert_eq!(press(json!({"action": "nonsense"})), None);
     }
 
     /// #EDE-65: Settings open into the sidebar like the IDE's: over the

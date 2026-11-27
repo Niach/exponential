@@ -36,3 +36,15 @@ fn every_view_case_replays() {
         assert_eq!(json!(space_view(space, display, large)), case["expected"], "{name}");
     }
 }
+
+#[test]
+fn every_tray_case_replays() {
+    let f = fixture();
+    let cases = f["tray"].as_array().expect("tray cases");
+    assert!(cases.len() >= 8, "{} tray cases", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or("?");
+        let input: uicore_model::spaces::TrayInput = serde_json::from_value(case["input"].clone()).unwrap_or_else(|e| panic!("{name}: input: {e}"));
+        assert_eq!(json!(uicore_model::spaces::cu_tray(&input)), case["expected"], "{name}");
+    }
+}

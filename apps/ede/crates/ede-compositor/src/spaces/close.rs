@@ -284,6 +284,8 @@ impl Ede {
     /// tags never fall back to the person's.
     pub fn close_space(&mut self, id: DeskId) -> bool {
         let Some(at) = self.spaces.list.iter().position(|s| s.desk.id == id && id != DeskId::PERSON) else { return false };
+        // #EDE-266: the person's hand on it lets go first.
+        self.space_person_end(id);
         // #EDE-183: what it started outside its slice and its launches'
         // groups, found while its launches still run (their descendants
         // still descend from them).

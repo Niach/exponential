@@ -1014,6 +1014,11 @@ impl Ede {
                 self.space_destroy(None, &space)?;
                 json(serde_json::Value::Null)
             }
+            // #EDE-266: the computer-use tray's Pause, Take over and Hand back.
+            Request::ControlSpace { space, control, view } => {
+                self.space_control(&space, control, view)?;
+                json(serde_json::Value::Null)
+            }
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
@@ -1142,6 +1147,8 @@ impl Ede {
             Request::PickRegion { .. } => true,
             // #EDE-172 (P13): the services are the shell's buttons.
             Request::OpenServices { .. } => true,
+            // #EDE-266: who drives a space is the person's say, in the shell's tray.
+            Request::ControlSpace { .. } => true,
             Request::Input { bindings, .. } => *bindings,
             _ => false,
         };

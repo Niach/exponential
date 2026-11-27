@@ -1822,7 +1822,7 @@ mod tests {
                             Request::ListSpaces if is_root => {
                                 log.lock().unwrap().push(op);
                                 let mine: Vec<SpaceInfo> = spaces.lock().unwrap().1.values().cloned().collect();
-                                let others = (0..fake.others).map(|n| SpaceInfo { id: SpaceId::new(format!("space-o{n}")).unwrap(), session_id: SessionId::new(format!("other-{n}")).unwrap(), output: format!("space-o{n}"), width: 640, height: 480, wayland_display: "/nonexistent/wayland-0".into() });
+                                let others = (0..fake.others).map(|n| SpaceInfo { id: SpaceId::new(format!("space-o{n}")).unwrap(), session_id: SessionId::new(format!("other-{n}")).unwrap(), output: format!("space-o{n}"), width: 640, height: 480, wayland_display: "/nonexistent/wayland-0".into(), control: Default::default() });
                                 Ok(serde_json::to_value(mine.into_iter().chain(others).collect::<Vec<_>>()).unwrap())
                             }
                             Request::CreateSpace { width, height } => {
@@ -1830,7 +1830,7 @@ mod tests {
                                 let mut spaces = spaces.lock().unwrap();
                                 spaces.0 += 1;
                                 let name = format!("space-{}", spaces.0);
-                                let info = SpaceInfo { id: SpaceId::new(&name).unwrap(), session_id: me.clone(), output: name, width, height, wayland_display: "/nonexistent/wayland-0".into() };
+                                let info = SpaceInfo { id: SpaceId::new(&name).unwrap(), session_id: me.clone(), output: name, width, height, wayland_display: "/nonexistent/wayland-0".into(), control: Default::default() };
                                 spaces.1.insert(me.as_str().to_string(), info.clone());
                                 Ok(serde_json::to_value(info).unwrap())
                             }

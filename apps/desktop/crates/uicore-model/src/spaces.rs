@@ -157,3 +157,174 @@ pub fn space_view(space: Extent, display: Display, large: bool) -> SpaceView {
     let pixels = Extent { width: device(picture.width, space.width), height: device(picture.height, space.height) };
     SpaceView { width: width + 2 * border, height: header + picture.height + 2 * border, picture, pixels, large, can_grow }
 }
+
+/// #EDE-266: who drives a space (the compositor's `control`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpaceControl {
+    #[default]
+    Agent,
+    Paused,
+    Person,
+}
+
+impl SpaceControl {
+    fn key(self) -> &'static str {
+        match self {
+            SpaceControl::Agent => "agent",
+            SpaceControl::Paused => "paused",
+            SpaceControl::Person => "person",
+        }
+    }
+}
+
+/// A trace line of the holder's session feed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceLine {
+    pub title: String,
+    pub icon: String,
+    pub status: String,
+}
+
+/// An entry of the holder's `sessions` feed: the chat `id`, its working
+/// sessions (`stop`) and their `trace`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraySession {
+    pub id: String,
+    #[serde(default)]
+    pub stop: Vec<String>,
+    #[serde(default)]
+    pub trace: Vec<TraceLine>,
+}
+
+/// What the computer-use tray folds (`cuTray`'s input).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayInput {
+    pub rows: Vec<SpaceRow>,
+    #[serde(default)]
+    pub selected: Option<String>,
+    #[serde(default)]
+    pub controls: HashMap<String, SpaceControl>,
+    #[serde(default)]
+    pub sessions: Vec<TraySession>,
+    #[serde(default)]
+    pub watching: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayAction {
+    pub label: String,
+    pub icon: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayState {
+    pub label: String,
+    pub icon: String,
+    pub variant: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraySelected {
+    pub id: String,
+    pub session: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub control: SpaceControl,
+    pub state: TrayState,
+    pub now: Option<String>,
+    pub trace: Vec<TraceLine>,
+    pub watching: bool,
+    pub watch: TrayAction,
+    pub pause: Option<TrayAction>,
+    pub take: TrayAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayRow {
+    #[serde(flatten)]
+    pub row: SpaceRow,
+    pub selected: bool,
+}
+
+/// The computer-use tray: its popup and its applet menu (a Menu's items).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Tray {
+    pub count: usize,
+    pub badge: String,
+    pub list: bool,
+    pub rows: Vec<TrayRow>,
+    pub selected: Option<TraySelected>,
+    pub menu: Vec<Value>,
+}
+
+fn copy(key: &str) -> String {
+    fixture()["copy"][key].as_str().unwrap_or_else(|| panic!("spaces.json copy.{key}")).to_string()
+}
+
+fn tray_action(key: &str) -> TrayAction {
+    let icon = fixture()["constants"]["trayIcons"][key].as_str().unwrap_or_else(|| panic!("spaces.json trayIcons.{key}"));
+    TrayAction { label: copy(key), icon: icon.to_string(), value: key.to_string() }
+}
+
+/// #EDE-266: the computer-use tray (`cuTray`).
+pub fn cu_tray(input: &TrayInput) -> Tray {
+    let rows = &input.rows;
+    let pick = rows.iter().find(|r| Some(&r.id) == input.selected.as_ref()).or(rows.first());
+    let count = rows.len();
+    let badge = match count {
+        0 => String::new(),
+        1 => copy("spaceOne"),
+        n => copy("spaceMany").replace("{n}", &n.to_string()),
+    };
+    let selected = pick.map(|pick| {
+        let control = input.controls.get(&pick.id).copied().unwrap_or_default();
+        let entry = input.sessions.iter().find(|s| s.id == pick.session || s.stop.contains(&pick.session));
+        let keep = constant("trayTrace") as usize;
+        let trace: Vec<TraceLine> = entry.map(|e| e.trace[e.trace.len().saturating_sub(keep)..].to_vec()).unwrap_or_default();
+        let now = trace.iter().rev().find(|line| line.status == "running").map(|line| line.title.clone());
+        let watching = input.watching.as_deref() == Some(pick.session.as_str());
+        let key = control.key();
+        let constants = &fixture()["constants"];
+        let state = TrayState {
+            label: copy(key),
+            icon: constants["trayIcons"][key].as_str().unwrap_or_default().to_string(),
+            variant: constants["trayVariants"][key].as_str().unwrap_or_default().to_string(),
+        };
+        TraySelected {
+            id: pick.id.clone(),
+            session: pick.session.clone(),
+            title: pick.title.clone(),
+            subtitle: pick.subtitle.clone(),
+            control,
+            state,
+            now,
+            trace,
+            watching,
+            watch: tray_action(if watching { "unwatch" } else { "watch" }),
+            pause: match control {
+                SpaceControl::Agent => Some(tray_action("pause")),
+                SpaceControl::Paused => Some(tray_action("resume")),
+                SpaceControl::Person => None,
+            },
+            take: tray_action(if control == SpaceControl::Person { "handBack" } else { "takeOver" }),
+        }
+    });
+    let item = |a: &TrayAction| serde_json::json!({"label": a.label, "value": a.value, "icon": a.icon});
+    let menu = match &selected {
+        None => Vec::new(),
+        Some(s) => {
+            let mut menu = vec![item(&s.watch)];
+            menu.extend(s.pause.as_ref().map(item));
+            menu.push(item(&s.take));
+            menu.push(serde_json::json!({"kind": "separator"}));
+            let mut stop = item(&tray_action("stop"));
+            stop["destructive"] = Value::Bool(true);
+            menu.push(stop);
+            menu
+        }
+    };
+    let rows = rows.iter().map(|r| TrayRow { row: r.clone(), selected: selected.as_ref().is_some_and(|s| s.id == r.id) }).collect();
+    Tray { count, badge, list: count > 1, rows, selected, menu }
+}

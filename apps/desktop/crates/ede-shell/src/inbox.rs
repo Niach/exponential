@@ -711,7 +711,7 @@ mod tests {
         }
 
         fn space(id: &str, session: &str) -> ede_protocol::SpaceInfo {
-            ede_protocol::SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new() }
+            ede_protocol::SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new(), control: Default::default() }
         }
 
         /// The opener the shell reads the titles with, over `data_dir`.

@@ -25,7 +25,7 @@ macro_rules! docs {
     };
 }
 
-docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-drives", "applet-network", "applet-printers", "applet-sound", "chat", "connect", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "sessions-panel", "settings", "sidebar", "space-view", "start-menu", "switcher", "taskbar", "window-menu"];
+docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-drives", "applet-network", "applet-printers", "applet-sound", "chat", "connect", "cu-tray", "expo", "ground", "history", "needs-you", "notification-center", "notifications", "osd", "scale", "sessions-panel", "settings", "sidebar", "space-view", "start-menu", "switcher", "taskbar", "window-menu"];
 
 /// #EDE-235: eDE's factory theme (`apps/ede/ui/theme.json`: the Rerusted
 /// palette and eDE's spacing scale), installed beside the documents.
