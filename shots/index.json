@@ -2271,8 +2271,8 @@
         "file": "shots/ede-panel/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 6440,
-        "sha256": "d9c8e993d1ffa1a9b16dc649adfde6e92d79032aecb882460a5c867da678f08e"
+        "bytes": 6490,
+        "sha256": "ed278c8f5255044d533f9d2eb9f8bb5385f940d1438ca1e64756148fbd05bed9"
       }
     },
     "ede-panel-menu": {
@@ -2343,8 +2343,8 @@
         "file": "shots/ede-window-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11520,
-        "sha256": "ca7aa6d723cf06a6c9d67e83aa55632b53e6ef97c3f3db8bfdbccf3f66557068"
+        "bytes": 11578,
+        "sha256": "878b29bc8f58549fbc241f05d7c9aee43208e43c854785a0e733e9c735aeff94"
       }
     },
     "elicitation-card": {
