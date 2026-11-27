@@ -80,6 +80,29 @@ pub(crate) fn scratch(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("ecode-{}-{n}-{name}", std::process::id()))
 }
 
+/// #EXP-2198: a bucket transfer that failed in transit (a dropped
+/// connection: `Http { status: 0 }`) or on the store's side (5xx) is tried
+/// again, 3 tries in all; one blip on a presigned URL used to fail the whole
+/// CI run or train. Anything else (a 4xx, a local file error) fails at once.
+fn with_transfer_retry<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
+    with_transfer_retry_after(&TRANSFER_RETRY_DELAYS, &mut attempt)
+}
+
+const TRANSFER_RETRY_DELAYS: [std::time::Duration; 2] = [std::time::Duration::from_millis(500), std::time::Duration::from_secs(2)];
+
+fn with_transfer_retry_after<T>(delays: &[std::time::Duration], attempt: &mut impl FnMut() -> Result<T>) -> Result<T> {
+    let mut waits = delays.iter();
+    loop {
+        match attempt() {
+            Err(Error::Http { status, detail }) if status == 0 || status >= 500 => match waits.next() {
+                Some(wait) => std::thread::sleep(*wait),
+                None => return Err(Error::Http { status, detail }),
+            },
+            other => return other,
+        }
+    }
+}
+
 struct Scratch(PathBuf);
 impl Drop for Scratch {
     fn drop(&mut self) {
@@ -141,13 +164,15 @@ impl ExpGit {
 
     /// Downloads a presigned URL into `path`.
     pub fn download(&self, url: &str, path: &Path) -> Result<()> {
-        let mut response = self.transfer.get(url).send().map_err(net_error)?;
-        if !response.status().is_success() {
-            return Err(Error::Http { status: response.status().as_u16(), detail: "download from the bucket failed".into() });
-        }
-        let mut file = std::fs::File::create(path).map_err(|e| Error::git("write pack", e))?;
-        response.copy_to(&mut file).map_err(net_error)?;
-        Ok(())
+        with_transfer_retry(|| {
+            let mut response = self.transfer.get(url).send().map_err(net_error)?;
+            if !response.status().is_success() {
+                return Err(Error::Http { status: response.status().as_u16(), detail: "download from the bucket failed".into() });
+            }
+            let mut file = std::fs::File::create(path).map_err(|e| Error::git("write pack", e))?;
+            response.copy_to(&mut file).map_err(net_error)?;
+            Ok(())
+        })
     }
 
     /// Uploads `path` as a new `kind` (`pack` | `bundle`) object; its key.
@@ -157,18 +182,21 @@ impl ExpGit {
         let (Some(key), Some(url)) = (grant["key"].as_str(), grant["url"].as_str()) else {
             return Err(Error::Http { status: 200, detail: "upload: no key".into() });
         };
-        let file = std::fs::File::open(path).map_err(|e| Error::git("read upload", e))?;
-        let response = self
-            .transfer
-            .put(url)
-            .header("content-type", "application/octet-stream")
-            .header("content-length", bytes)
-            .body(reqwest::blocking::Body::sized(file, bytes))
-            .send()
-            .map_err(net_error)?;
-        if !response.status().is_success() {
-            return Err(Error::Http { status: response.status().as_u16(), detail: "upload to the bucket failed".into() });
-        }
+        with_transfer_retry(|| {
+            let file = std::fs::File::open(path).map_err(|e| Error::git("read upload", e))?;
+            let response = self
+                .transfer
+                .put(url)
+                .header("content-type", "application/octet-stream")
+                .header("content-length", bytes)
+                .body(reqwest::blocking::Body::sized(file, bytes))
+                .send()
+                .map_err(net_error)?;
+            if !response.status().is_success() {
+                return Err(Error::Http { status: response.status().as_u16(), detail: "upload to the bucket failed".into() });
+            }
+            Ok(())
+        })?;
         Ok(key.to_string())
     }
 
@@ -356,4 +384,32 @@ pub(crate) fn mirror_refs(git_dir: &Path, refs: &BTreeMap<String, String>) -> Re
     let input = Scratch(scratch("update-ref"));
     std::fs::write(&input.0, script).map_err(|e| Error::git("update-ref", e))?;
     git_at(git_dir).args(["update-ref", "--stdin"]).run_files(Some(&input.0), None)
+}
+
+#[cfg(test)]
+mod transfer_retry_tests {
+    use super::*;
+
+    #[test]
+    fn a_dropped_transfer_is_tried_again_but_a_refusal_is_not() {
+        let delays = [std::time::Duration::ZERO; 2];
+        let mut calls = 0;
+        let ok = with_transfer_retry_after(&delays, &mut || {
+            calls += 1;
+            if calls < 3 { Err(Error::Http { status: 0, detail: "reset".into() }) } else { Ok(calls) }
+        });
+        assert_eq!(ok.unwrap(), 3);
+        let mut calls = 0;
+        let gone = with_transfer_retry_after(&delays, &mut || -> Result<()> {
+            calls += 1;
+            Err(Error::Http { status: 503, detail: "slow down".into() })
+        });
+        assert!(matches!(gone, Err(Error::Http { status: 503, .. })) && calls == 3, "{calls}");
+        let mut calls = 0;
+        let refused = with_transfer_retry_after(&delays, &mut || -> Result<()> {
+            calls += 1;
+            Err(Error::Http { status: 403, detail: "expired".into() })
+        });
+        assert!(matches!(refused, Err(Error::Http { status: 403, .. })) && calls == 1);
+    }
 }
