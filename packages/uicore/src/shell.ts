@@ -305,14 +305,103 @@ export function taskbarButtons(state: ShellState): TaskbarButton[] {
   })
 }
 
-export type TaskbarPress = { action: `launch` } | { action: `minimize`; id: string } | { action: `focus`; id: string } | { action: `previews` }
+export type TaskbarPress = { action: `launch` } | { action: `minimize`; id: string } | { action: `focus`; id: string }
 
-/** Mint's click on a button: launch, minimize the focused single window, focus it otherwise, or open the previews of a group. */
-export function taskbarPress(state: ShellState, app: string): TaskbarPress {
+/** #EDE-254: the group's last focused window: of the app's active-workspace windows the one earliest in the mru, else the first. */
+export function lastFocused(state: ShellState, app: string): ShellWindow | null {
   const ws = onActive(state).filter((w) => w.app === app)
-  if (ws.length === 0) return { action: `launch` }
-  if (ws.length === 1) return ws[0].focused && !ws[0].minimized ? { action: `minimize`, id: ws[0].id } : { action: `focus`, id: ws[0].id }
-  return { action: `previews` }
+  for (const id of state.mru) {
+    const hit = ws.find((w) => w.id === id)
+    if (hit) return hit
+  }
+  return ws[0] ?? null
+}
+
+/** Mint's click on a button (grouped-window-list's left-click-action 2): launch, else toggle the group's last focused window (minimize it while it has the focus, focus it otherwise). */
+export function taskbarPress(state: ShellState, app: string): TaskbarPress {
+  const w = lastFocused(state, app)
+  if (!w) return { action: `launch` }
+  return w.focused && !w.minimized ? { action: `minimize`, id: w.id } : { action: `focus`, id: w.id }
+}
+
+/** #EDE-254: the middle button (middle-click-action 3): the group's last focused window closes. */
+export function taskbarMiddle(state: ShellState, app: string): { action: `close`; id: string } | null {
+  const w = lastFocused(state, app)
+  return w ? { action: `close`, id: w.id } : null
+}
+
+export interface MenuRow {
+  kind?: `separator` | `submenu` | `checkbox`
+  label?: string
+  value?: string
+  icon?: string
+  checked?: boolean
+  disabled?: boolean
+  items?: MenuRow[]
+}
+
+export interface TaskbarMenuContext {
+  outputs?: number
+  windows?: Record<string, { output?: number; maximized?: boolean }>
+  recent?: { name: string; uri: string }[]
+  actions?: { id: string; name: string }[]
+  entry?: boolean
+}
+
+const RECENT_MAX = 10
+
+/** #EDE-254: a group's right-click menu, grouped-window-list's menus.js in its order (shell.json's $comment). */
+export function taskbarMenu(state: ShellState, app: string, context: TaskbarMenuContext = {}): MenuRow[] {
+  const outputs = context.outputs ?? 1
+  const ws = onActive(state).filter((w) => w.app === app)
+  const w = lastFocused(state, app)
+  const facts = (w && context.windows?.[w.id]) || {}
+  const rows: MenuRow[] = []
+  const sep = () => rows.push({ kind: `separator` })
+  if (w) {
+    if (outputs >= 2) {
+      const own = facts.output ?? 0
+      for (let i = 0; i < outputs; i++) if (i !== own) rows.push({ label: outputs === 2 ? `Move to the other monitor` : `Move to monitor ${i + 1}`, value: `monitor:${i}` })
+    }
+    const count = state.workspaces.count
+    if (count >= 2) {
+      const items: MenuRow[] = []
+      for (let i = 0; i < count; i++) items.push(i === w.workspace ? { label: `Workspace ${i + 1}`, value: `workspace:${i}`, disabled: true } : { label: `Workspace ${i + 1}`, value: `workspace:${i}` })
+      rows.push({ kind: `submenu`, label: `Move to another workspace`, items })
+    }
+    sep()
+  }
+  rows.push({ kind: `submenu`, label: `Applet preferences`, items: [{ label: `About...`, value: `about`, icon: `ui-help` }, { label: `Configure...`, value: `configure`, icon: `nav-settings` }] })
+  sep()
+  const recent = context.recent ?? []
+  if (recent.length > 0) {
+    rows.push({ kind: `submenu`, label: `Recent`, items: recent.slice(0, RECENT_MAX).map((r) => ({ label: r.name, value: `recent:${r.uri}`, icon: `ui-add` })) })
+    sep()
+  }
+  if (context.entry ?? true) {
+    sep()
+    for (const a of context.actions ?? []) rows.push({ label: a.name, value: `action:${a.id}`, icon: `nav-apps` })
+    sep()
+    rows.push({ kind: `checkbox`, label: `Pinned to the taskbar`, value: `pin`, icon: `ui-pin`, checked: state.taskbar.pinned.includes(app) })
+  } else {
+    sep()
+  }
+  sep()
+  if (w) {
+    rows.push(w.minimized ? { label: `Restore`, value: `restore`, icon: `ui-redock` } : { label: `Minimize`, value: `minimize`, icon: `ui-minimize` })
+    rows.push(facts.maximized ? { label: `Unmaximize`, value: `unmaximize`, icon: `ui-fullscreen-exit` } : { label: `Maximize`, value: `maximize`, icon: `ui-maximize` })
+    if (ws.length > 1) rows.push({ label: `Close others`, value: `close-others`, icon: `ui-close` }, { label: `Close all`, value: `close-all`, icon: `nav-sign-out` })
+    else rows.push({ label: `Close`, value: `close`, icon: `ui-close` })
+    sep()
+  }
+  // Cinnamon's PopupMenu hides a leading, a trailing and a doubled separator.
+  const out: MenuRow[] = []
+  for (const r of rows) {
+    if (r.kind === `separator` && (out.length === 0 || out[out.length - 1].kind === `separator`)) continue
+    out.push(r)
+  }
+  while (out.length > 0 && out[out.length - 1].kind === `separator`) out.pop()
+  return out
 }
 
 /** Mint's scroll on a button: cycles the group's windows from the focused one (down = next, up = previous, wrapping); none focused = the first (down) or the last (up). */

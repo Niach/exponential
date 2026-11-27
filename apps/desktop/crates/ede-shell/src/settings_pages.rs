@@ -572,7 +572,7 @@ pub fn parse_mimeapps(text: &str) -> BTreeMap<String, String> {
     out
 }
 
-fn mimeapps_defaults() -> BTreeMap<String, String> {
+pub fn mimeapps_defaults() -> BTreeMap<String, String> {
     let mut files = vec![config_home().join("mimeapps.list")];
     files.extend(config_dirs().into_iter().map(|d| d.join("mimeapps.list")));
     files.extend(data_dirs().into_iter().map(|d| d.join("applications/mimeapps.list")));

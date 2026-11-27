@@ -5,9 +5,15 @@
 # (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one
 # icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running
 # ones), a dot under a running app, a wider one under the focused app, dimmed when every window is
-# minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's
-# previews), the context menu pins and unpins ("Pinned to the taskbar", a checkbox row) and closes
-# (ede_taskbar_menu), hovering a running app opens
+# minimized; a click does what Mint's does (#EDE-254, grouped-window-list's defaults; ede_taskbar:
+# launch, else focus the group's last focused window, or minimize it while it has the focus), the
+# middle button closes that window (ede_taskbar_input, Box auxPress), a group of two or more windows
+# wears its window count top-left (/shell/taskbar/buttons/*/count) and an app with desktop
+# notifications their count top-right; the context menu is Cinnamon's (the shell builds each group's
+# /shell/taskbar/buttons/*/menu, shell.json's taskbarMenu: monitor and workspace moves, Applet
+# preferences, Recent, the desktop entry's actions, "Pinned to the taskbar" (a checkbox row),
+# Restore/Minimize, Maximize/Unmaximize, Close others and Close all or Close; ede_taskbar_menu),
+# hovering a running app opens
 # its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a
 # click focuses; each thumbnail heads with its window's icon and title, Cinnamon's: an app's icon, and
 # for the Exponential app's windows, #EDE-237, every page its own window, the page's concept icon the
@@ -47,7 +53,7 @@
 # while it runs, the attention dot while it needs you), then `+N`. A left click opens its panel
 # (sessions-panel.express anchored here: per session the trace, Stop, the waiting card's answers in place,
 # Open), a right click the applet menu (All chats, Needs you: ede_sessions {menu}).
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
@@ -82,7 +88,7 @@ start = Button(label="Start", icon="brand-exponential", variant="ghost", size="i
 chat = Button(label="Assistant", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
 new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
 buttons = Stack(direction="horizontal", gap="xs", align="center", children=_template($/shell/taskbar/buttons, group, key="app"))
-group = Menu(items=[{kind: "checkbox", label: "Pinned to the taskbar", value: "pin", icon: "ui-pin", checked: $pinned}, {kind: "separator"}, {label: "Close all windows", value: "close", icon: "ui-close"}], side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {app: $app})})
+group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {app: $app})})
 previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {app: $app})})
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
 preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})
@@ -93,13 +99,17 @@ preview_app_icon = Image(src=$icon, alt=$title, fit="contain", width=16, height=
 preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
 preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
 preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")
-button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, button_icon, button_icon_dim, running_focused, running, not_running], on={press: ede_taskbar(app=$app)})
+button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, button_icon, button_icon_dim, running_focused, running, not_running, window_count, notification_count], on={press: ede_taskbar(app=$app), auxPress: Event("ede_taskbar_input", {app: $app})})
 focus_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
 button_icon = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", visible=not(value=cond(if=$minimized, then=true, else=false)))
 button_icon_dim = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", style={opacity: 0.5}, visible=cond(if=$minimized, then=true, else=false))
 running_focused = Box(style={height: 2, width: 20, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.primary"}, visible=cond(if=$focused, then=true, else=false))
 running = Box(style={height: 2, width: 8, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.mutedForeground"}, visible=and(values=[cond(if=$running, then=true, else=false), not(value=cond(if=$focused, then=true, else=false))]))
 not_running = Box(style={height: 2, marginTop: 3}, visible=not(value=cond(if=$running, then=true, else=false)))
+window_count = Box(style={position: "absolute", top: 0, left: 0}, children=[window_count_badge], visible=lt(a=1, b=$count))
+window_count_badge = CountBadge(count=$count, tone="muted")
+notification_count = Box(style={position: "absolute", top: 0, right: 0}, children=[notification_count_badge], visible=lt(a=0, b=$notifications))
+notification_count_badge = CountBadge(count=$notifications, tone="attention")
 right = Stack(direction="horizontal", gap="xs", align="center", children=[sessions, tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
 tray = Stack(direction="horizontal", gap="none", align="center", children=_template($/tray, tray_entry, key="service"))
 tray_entry = Box(style={display: "flex", alignItems: "center"}, children=[tray_item, tray_menu])
