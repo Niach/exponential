@@ -1,4 +1,4 @@
-# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155, #EDE-237)
+# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155, #EDE-237, #EXP-2211)
 
 Source: the `gpui-pre-wgpu` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_wgpu` crate (`crates/gpui_wgpu`) of
@@ -75,3 +75,16 @@ starts afresh) hands out one `Arc` set per key, the key being everything
 dual-source blending, the WebGL instance path); the layouts are shared per
 instance path, so every window's bind groups match the shared pipelines.
 Measured in a private headless eDE: ten page windows of one holder.
+
+## #EXP-2211: lavapipe before Mesa 24 yields to the other adapters
+
+In `src/wgpu_context.rs`, marked `Exponential patch (#EXP-2211)`: lavapipe
+(Mesa's software Vulkan, driver `llvmpipe`) from a Mesa before 24.0 presents
+only black to an X11 window with a 32-bit ARGB visual, which gpui's X11
+windows always take when the server offers one, and no Vulkan call reports an
+error. Ubuntu 22.04's Mesa 23.2.1 under Xvfb (the AppImage catalog's test) hit
+it; Mesa 24.0.5 does not, and neither does a 24-bit visual (Xvfb
+`-extension Composite`). `select_adapter_and_device` moves such an adapter
+behind the others (llvmpipe over GL paints the same windows) with a warning
+naming it; it stays the last resort. `is_black_presenting_lavapipe` and
+`mesa_version` are public for `apps/desktop/crates/eui-gpui/tests/software_adapters.rs`.
