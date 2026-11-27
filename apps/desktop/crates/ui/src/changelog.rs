@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-session-area",
+    date: "2026-11-27",
+    title: "Your running sessions in the taskbar",
+    summary: "On Exponential Desktop the taskbar shows the sessions your sidebar's Active list shows; approve, stop or open them from there, and the Assistant is one window on Super+A.",
+    body: r##"- **Sessions in the taskbar**: the sessions running or waiting on you sit as chips at the right of the taskbar, the same ones as the sidebar's Active list.
+- **Answer in place**: click the chips for each session's latest steps, Stop, Open, and Approve or Decline a waiting plan or pick a question's answer; right click for All chats and Needs you.
+- **One Assistant window**: Super+A or the taskbar's Assistant button brings up the Assistant, and the start menu's composer sends into it. It comes back after a restart.
+- **The start menu fits**: on small screens it shrinks to the screen and its lists scroll."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_377: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ci-runner-in-the-app",
     date: "2026-11-27",
     title: "The desktop app runs your CI on Linux",

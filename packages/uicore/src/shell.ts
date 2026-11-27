@@ -43,7 +43,6 @@ export interface ShellState {
   workspaces: { active: number; count: number }
   taskbar: { pinned: string[]; hover: string | null; previews: string | null; menu: string | null }
   startMenu: { open: boolean; query: string; category: string }
-  chat: { open: boolean }
   altTab: { open: boolean; selected: number; shown: boolean; app: string | null }
 }
 
@@ -70,7 +69,6 @@ export type ShellEvent =
   | { kind: `startMenu.close` }
   | { kind: `startMenu.query`; query: string }
   | { kind: `startMenu.category`; category: string }
-  | { kind: `chat.toggle` }
   | { kind: `altTab.next` }
   | { kind: `altTab.prev` }
   | { kind: `altTab.nextApp` }
@@ -229,9 +227,6 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       break
     case `startMenu.category`:
       s.startMenu.category = e.category as string
-      break
-    case `chat.toggle`:
-      s.chat.open = !s.chat.open
       break
     case `altTab.next`:
     case `altTab.prev`:
@@ -811,4 +806,111 @@ export function startMenuNav(
     assistant: false,
     rows: [...headed(placeRows, `Places`), ...headed(settingRows, `Settings`), ...headed(appRows, `Apps`), ...headed(issueRows, `Issues`)],
   }
+}
+
+/** #EDE-239: one session of the taskbar's session area as the holder publishes it (the feeds' `sessions`: the IDE sidebar's Active band, in its order). */
+export interface SessionAreaInput {
+  id: string
+  title: string
+  /** The sidebar's run mark's agent (`claude`, `codex`), null = none known. */
+  agent: string | null
+  state: `running` | `needs` | `idle`
+  team: string | null
+  device: string | null
+  /** The chat's page (`chat:<root>`). */
+  key: string
+  /** The working sessions Stop stops. */
+  stop: string[]
+  /** The waiting card answered in place: a plan's decisions or a question's options (none = Open only). */
+  ask: { messageId: string; kind: `plan` | `question`; title: string; options: ({ decision: `approved` | `rejected` } | { answer: string })[] } | null
+  trace: { title: string; icon: string; status: `running` | `done` | `error` }[]
+}
+
+export interface SessionAreaChip {
+  id: string
+  title: string
+  icon: string
+  running: boolean
+  needs: boolean
+}
+
+export interface SessionAreaAction {
+  id: string
+  label: string
+  primary: boolean
+  messageId: string
+  decision: `approved` | `rejected` | null
+  answer: string | null
+}
+
+export interface SessionAreaRow {
+  id: string
+  title: string
+  subtitle: string
+  icon: string
+  running: boolean
+  needs: boolean
+  badge: string | null
+  trace: SessionAreaInput[`trace`]
+  question: string | null
+  actions: SessionAreaAction[]
+  stop: boolean
+  key: string
+}
+
+export interface SessionArea {
+  count: number
+  needs: number
+  chips: SessionAreaChip[]
+  more: number
+  rows: SessionAreaRow[]
+}
+
+const AREA = fixture.sessionArea
+
+const sessionIcon = (agent: string | null): string => (agent === `codex` ? `brand-codex` : agent === `claude` ? `brand-claude` : `action-chat`)
+
+/** #EDE-239: the taskbar's session area over the holder's `sessions`: the first `chipsMax` as chips (the band's order), the rest a count; every session a row of the panel. */
+export function sessionArea(sessions: SessionAreaInput[]): SessionArea {
+  const rows = sessions.map((s): SessionAreaRow => {
+    const title = s.title.trim() || AREA.copy.untitled
+    const agent = s.agent ? (AREA.copy.agents as Record<string, string>)[s.agent] ?? null : null
+    const subtitle = [agent, s.team, s.device].map((p) => (p ?? ``).trim()).filter((p) => p !== ``).join(` · `)
+    const needs = s.state === `needs`
+    const running = s.state === `running`
+    const ask = needs ? s.ask : null
+    const options = ask ? ask.options : []
+    const plan = options.filter((o): o is { decision: `approved` | `rejected` } => `decision` in o)
+    const ordered = plan.length > 0
+      ? [...plan.filter((o) => o.decision === `rejected`), ...plan.filter((o) => o.decision === `approved`)]
+      : options.slice(0, AREA.optionsMax)
+    const actions = ordered.map((o, i): SessionAreaAction => {
+      const decision = `decision` in o ? o.decision : null
+      const answer = `answer` in o ? o.answer : null
+      return {
+        id: `${s.id}:${i}`,
+        label: decision === `approved` ? AREA.copy.approve : decision === `rejected` ? AREA.copy.decline : (answer ?? ``),
+        primary: decision ? decision === `approved` : i === 0,
+        messageId: ask?.messageId ?? ``,
+        decision,
+        answer,
+      }
+    })
+    return {
+      id: s.id,
+      title,
+      subtitle,
+      icon: sessionIcon(s.agent),
+      running,
+      needs,
+      badge: needs ? AREA.copy.needsYou : running ? AREA.copy.running : null,
+      trace: s.trace.slice(-AREA.traceMax),
+      question: ask ? ask.title.trim() || null : null,
+      actions,
+      stop: s.stop.length > 0,
+      key: s.key,
+    }
+  })
+  const chips = rows.slice(0, AREA.chipsMax).map((r) => ({ id: r.id, title: r.title, icon: r.icon, running: r.running, needs: r.needs }))
+  return { count: rows.length, needs: rows.filter((r) => r.needs).length, chips, more: rows.length - chips.length, rows }
 }

@@ -1,0 +1,39 @@
+# Exponential Desktop's factory session panel (#EDE-239): the popup of the taskbar's session area
+# (taskbar.express `sessions_box`, Cinnamon's applet left click), above it at its right end. Its rows are
+# THE IDE sidebar's Active band (uicore shell.json sessionArea over the holder's `sessions` feed,
+# /sessions/rows, the band's order): per session its agent mark, title and subtitle (agent · team ·
+# device), Running or Needs you, the working session's last trace lines, and its buttons: Stop (the
+# bus's `stop`, while a session of the chat works), the waiting card's answers in place (a plan's Decline
+# and Approve, a question's options: the bus's `answer`, as the IDE's card buttons send them) and Open (the
+# chat's window, `page`). The header's All chats opens the Chats page.
+surface("sessions-panel", extensions={ede: {popup: {parent: "taskbar", anchor: "sessions_box", placement: "top-end", size: {width: 460, height: 520}}, functions: ["ede_sessions"]}})
+$/sessions/count = 0
+$/sessions/rows = []
+root = Box(style={display: "flex", flexDirection: "column", width: 460, height: 520, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.xl", overflow: "hidden"}, children=[head, list_scroll])
+head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", padding: "$spacing.md", borderBottomWidth: 1, borderColor: "$color.border"}, children=[head_title, head_count, head_fill, head_all])
+head_title = Heading(text="Sessions", level="h4")
+head_count = CountBadge(count=$/sessions/count, tone="muted")
+head_fill = Box(style={flexGrow: 1})
+head_all = Button(label="All chats", variant="ghost", size="sm", on={press: ede_sessions(menu="chats")})
+list_scroll = ScrollArea(direction="vertical", style={flexGrow: 1, minHeight: 0}, children=[list, empty])
+list = Stack(direction="vertical", gap="sm", style={padding: "$spacing.sm"}, children=_template($/sessions/rows, item, key="id"))
+item = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.sm", borderRadius: "$radius.lg", borderWidth: 1, borderColor: "$color.border"}, children=[item_row, item_question, item_trace, item_actions])
+item_row = Row(title=$title, subtitle=$subtitle, density="compact", pressable=true, slots={leading: "item_icon", trailing: "item_badge"}, on={press: ede_sessions(open=$key)})
+item_icon = Icon(name=$icon, size="default")
+item_badge = Box(style={display: "flex", alignItems: "center"}, children=[item_running, item_needs])
+item_running = Badge(text=$badge, variant="outline", icon="loader-circle", visible=cond(if=$running, then=true, else=false))
+item_needs = Badge(text=$badge, icon="nav-needs-you", visible=cond(if=$needs, then=true, else=false))
+item_question = Text(text=$question, variant="muted", lines=2, visible=cond(if=$question, then=true, else=false))
+item_trace = Trace(size="sm", children=_template($trace, trace_line))
+trace_line = Box(style={display: "flex", flexDirection: "column"}, children=[trace_running, trace_done, trace_error])
+trace_running = TraceItem(title=$title, icon="trace-tool", status="running", size="sm", visible=eq(a=$status, b="running"))
+trace_done = TraceItem(title=$title, icon="trace-tool", status="done", size="sm", visible=eq(a=$status, b="done"))
+trace_error = TraceItem(title=$title, icon="trace-tool", status="error", size="sm", visible=eq(a=$status, b="error"))
+item_actions = Stack(direction="horizontal", gap="xs", justify="end", children=[item_stop, item_answers, item_open])
+item_stop = Button(label="Stop", icon="ui-stop", variant="ghost", size="sm", visible=cond(if=$stop, then=true, else=false), on={press: ede_sessions(stop=$id)})
+item_answers = Stack(direction="horizontal", gap="xs", children=_template($actions, action, key="id"))
+action = Box(style={display: "flex"}, children=[action_primary, action_other])
+action_primary = Button(label=$label, size="sm", visible=cond(if=$primary, then=true, else=false), on={press: ede_sessions(answer=$messageId, decision=$decision, text=$answer)})
+action_other = Button(label=$label, variant="outline", size="sm", visible=not(value=cond(if=$primary, then=true, else=false)), on={press: ede_sessions(answer=$messageId, decision=$decision, text=$answer)})
+item_open = Button(label="Open", variant="outline", size="sm", on={press: ede_sessions(open=$key)})
+empty = EmptyState(icon="nav-chats", title="No running sessions", size="list", visible=eq(a=$/sessions/count, b=0))

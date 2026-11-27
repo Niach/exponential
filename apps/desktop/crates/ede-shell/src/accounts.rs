@@ -255,10 +255,6 @@ impl Workspaces {
         api::TrpcClient::new(&account.instance_url, self.auth.token_provider(&account.id))
     }
 
-    /// The account's attachment uploads (#EDE-65 lane L: the chat composer's files).
-    pub fn attachments(&self, account: &api::accounts::Account) -> api::attachment_upload::HttpAttachmentTransport {
-        api::attachment_upload::HttpAttachmentTransport::new(&account.instance_url, self.auth.token_provider(&account.id))
-    }
 
     /// The entry the desktops index says is current (a Local desktop).
     pub fn current_local(&self) -> Option<SwitcherEntry> {
@@ -412,11 +408,6 @@ pub fn connection_json(current: &SwitcherEntry, accounts: &[(String, String)]) -
 /// #EDE-65: the deep link that brings the Exponential app onto a team.
 pub fn team_deep_link(team_id: &str) -> String {
     format!("{}://team/{team_id}", api::login::OAUTH_CALLBACK_SCHEME)
-}
-
-/// #EDE-65: the rail's chat on a team: the Exponential app opens the session.
-pub fn session_deep_link(session_id: &str) -> String {
-    format!("{}://session/{session_id}", api::login::OAUTH_CALLBACK_SCHEME)
 }
 
 /// #EDE-65: the new-issue button: the Exponential app's new issue, on the team when one is current.
@@ -607,7 +598,6 @@ mod tests {
 
     #[test]
     fn the_hand_off_links_are_the_ones_the_app_parses() {
-        assert_eq!(session_deep_link("s1"), "exponential://session/s1");
         assert_eq!(new_issue_deep_link(Some("t1")), "exponential://new-issue/t1");
         assert_eq!(new_issue_deep_link(None), "exponential://new-issue");
     }
@@ -621,10 +611,10 @@ mod tests {
         assert!(!SHAPES.contains(&"conversations"), "#EXP-1730: never read");
     }
 
-    /// #EDE-134: every shape the team chat reads or repaints on is synced.
+    /// #EDE-134: every shape the tray reads is synced.
     #[test]
-    fn what_the_team_chat_reads_is_synced() {
-        for shape in crate::team_chat::SHAPES.iter().chain(crate::inbox::SHAPES).chain(&["team_members"]) {
+    fn what_the_tray_reads_is_synced() {
+        for shape in crate::inbox::SHAPES.iter().chain(&["team_members"]) {
             assert!(SHAPES.contains(shape), "{shape}");
             assert!(sync::shapes::shape_by_name(shape).is_some(), "{shape} is a synced shape");
         }

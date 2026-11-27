@@ -13,6 +13,7 @@ pub mod chat;
 pub mod chats;
 pub mod ide;
 pub mod layout;
+pub mod session_area;
 pub mod spaces;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,11 +107,6 @@ pub struct StartMenu {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Chat {
-    pub open: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AltTab {
     pub open: bool,
     pub selected: usize,
@@ -136,7 +132,6 @@ pub struct ShellState {
     pub workspaces: Workspaces,
     pub taskbar: Taskbar,
     pub start_menu: StartMenu,
-    pub chat: Chat,
     pub alt_tab: AltTab,
 }
 
@@ -153,7 +148,6 @@ impl Default for ShellState {
             workspaces: Workspaces { active: 0, count: 1 },
             taskbar: Taskbar { pinned: Vec::new(), hover: None, previews: None, menu: None },
             start_menu: StartMenu { open: false, query: String::new(), category: String::new() },
-            chat: Chat { open: false },
             alt_tab: AltTab::closed(),
         }
     }
@@ -219,8 +213,6 @@ pub enum ShellEvent {
     StartMenuQuery { query: String },
     #[serde(rename = "startMenu.category")]
     StartMenuCategory { category: String },
-    #[serde(rename = "chat.toggle")]
-    ChatToggle,
     #[serde(rename = "altTab.next")]
     AltTabNext,
     #[serde(rename = "altTab.prev")]
@@ -390,7 +382,6 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
         ShellEvent::StartMenuClose => s.start_menu = closed_start_menu(),
         ShellEvent::StartMenuQuery { query } => s.start_menu.query = query.clone(),
         ShellEvent::StartMenuCategory { category } => s.start_menu.category = category.clone(),
-        ShellEvent::ChatToggle => s.chat.open = !s.chat.open,
         ShellEvent::AltTabNext | ShellEvent::AltTabPrev | ShellEvent::AltTabNextApp | ShellEvent::AltTabPrevApp => {
             let forward = matches!(event, ShellEvent::AltTabNext | ShellEvent::AltTabNextApp);
             if s.alt_tab.open {

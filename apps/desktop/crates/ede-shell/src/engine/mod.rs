@@ -14,7 +14,11 @@
 //! `windows`, `focus` and `launch` over ede-protocol ([`capabilities`]).
 
 pub mod capabilities;
+// #EDE-239: the Local desktop agent's MCP tools (#EDE-58); its runner went
+// with the chat overlay, the tools stay for its return.
+#[allow(dead_code)]
 pub mod exposes;
+#[allow(dead_code)]
 pub mod shell_edit;
 pub mod synced;
 
