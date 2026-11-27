@@ -372,6 +372,55 @@ pub struct SidebarLayoutRow {
     pub updated_at: Option<String>,
 }
 
+/// `repositories` shape row (#EXP-2171, the 34th web shape): one of the
+/// team's (unarchived) repositories, an item kind of the sidebar's team
+/// list (sidebar-tree.json `teamItems`). `provider` = github | ecode,
+/// `slug` = the repo page's route key (repo-page.json), `sync` = jsonb
+/// `{mode, url?, lastSyncedAt?, lastError?}`. Every non-key field tolerant.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RepositoryRow {
+    pub id: String,
+    pub team_id: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub full_name: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub sync: Option<serde_json::Value>,
+    #[serde(default)]
+    pub default_branch: Option<String>,
+    #[serde(default)]
+    pub default_branch_override: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub private: Option<bool>,
+    #[serde(default)]
+    pub inaccessible_at: Option<String>,
+    #[serde(default)]
+    pub shared_by_user_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl RepositoryRow {
+    /// `github` | `ecode` (absent = github, the older rows).
+    pub fn provider(&self) -> &str {
+        self.provider.as_deref().unwrap_or("github")
+    }
+
+    /// The branch the repo page and new chats start from.
+    pub fn effective_default_branch(&self) -> &str {
+        self.default_branch_override.as_deref().or(self.default_branch.as_deref()).unwrap_or("main")
+    }
+}
+
 /// `composer_drafts` shape row (#FEED-219, composer-draft.json) — one
 /// composer's synced draft, from a STATIC per-user shape (`user_id = me`).
 /// `key` = `<kind>:<id>` ([`crate::composer_draft::parse_key`]); a row whose

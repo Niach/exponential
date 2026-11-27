@@ -125,6 +125,10 @@ object Routes {
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
     /** #EXP-1616 (repo-page.json): one repository's page; `tab` = repoTab. */
     const val REPO_PATTERN = "team/{teamId}/repo/{repositoryId}?tab={tab}"
+
+    /** #EXP-2171 (repo-page.json NEW › REPOSITORY): New › Repository (owners). */
+    const val NEW_REPOSITORY_PATTERN = "team/{teamId}/new-repository"
+    fun newRepository(teamId: String): String = "team/$teamId/new-repository"
     fun repo(teamId: String, repositoryId: String, tab: String? = null): String =
         "team/$teamId/repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
 

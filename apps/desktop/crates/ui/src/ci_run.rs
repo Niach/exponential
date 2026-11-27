@@ -584,7 +584,7 @@ impl CiRunView {
             .and_then(|id| crate::ci_page::repo_full_name(id, cx))
             .unwrap_or_else(|| domain::ci_page::copy("unknownRepository").to_string());
         let text = model::ci_fix_prompt(&run, &repository, failing.map(|job| job.check.as_str()), log.as_deref());
-        let seed = crate::navigation::ChatSeed { team_id: run.team_id.clone(), repo_id: run.repository_id.clone(), text: Some(text), ..Default::default() };
+        let seed = crate::navigation::ChatSeed { team_id: run.team_id.clone(), repository_id: run.repository_id.clone(), text: Some(text), ..Default::default() };
         crate::navigation::on_active_window(cx, move |window, cx| crate::navigation::navigate_to_chat(window, cx, seed));
     }
 

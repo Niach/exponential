@@ -60,6 +60,10 @@ object CodingReadiness {
         /** Own devices + servers shared with the team; null while loading. */
         val devices: List<Device>?,
         val nowMs: Long,
+        /** #EXP-2171: the team's repositories (the synced shape). The board's
+         * repository is a DEFAULT: a team with a repository can code on any of
+         * its issues (the composer asks which when nothing resolves one). */
+        val teamRepositoryCount: Int = 0,
     )
 
     data class Step(
@@ -202,7 +206,7 @@ object CodingReadiness {
     }
 
     fun derive(input: Input): Readiness {
-        val hasRepository = input.boardRepository != null
+        val hasRepository = input.boardRepository != null || input.teamRepositoryCount > 0
         val visible = input.isMember && input.remoteStartEnabled != false
         val loading = input.remoteStartEnabled == null ||
             input.devices == null ||
@@ -295,5 +299,24 @@ object CodingReadiness {
             summary = summary(metCount, order.size),
             caption = if (!visible || loading || firstMissing == null) null else caption(firstMissing),
         )
+    }
+
+    // ── #EXP-2171: a chat's repository (fixture `chatRepo`) ─────────────
+
+    /** [livePrRepositoryIds] = the repositories of its live (open or draft)
+     *  PRs, newest PR first. */
+    data class ChatRepoIssue(val livePrRepositoryIds: List<String>, val boardRepositoryId: String?)
+
+    /** The repository a chat starts on: the pick, else the issue's own live
+     *  PR's repository, else its board's default, else the team's only
+     *  repository, else none. A candidate the team no longer has is skipped. */
+    fun chatRepository(pick: String?, issue: ChatRepoIssue?, teamRepositoryIds: List<String>): String? {
+        val team = teamRepositoryIds.toSet()
+        return listOf(
+            pick,
+            issue?.livePrRepositoryIds?.firstOrNull(),
+            issue?.boardRepositoryId,
+            teamRepositoryIds.singleOrNull(),
+        ).firstOrNull { it != null && it in team }
     }
 }

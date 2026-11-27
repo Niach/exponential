@@ -2,8 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type * as React from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import type { App, Board, Device, Issue } from "@/db/schema"
-import { appCollection, deviceCollection, issueCollection, sessionCollection } from "@/lib/collections"
+import type { App, Board, Device, Issue, SyncedRepository } from "@/db/schema"
+import {
+  appCollection,
+  deviceCollection,
+  issueCollection,
+  repositoryCollection,
+  sessionCollection,
+} from "@/lib/collections"
 import {
   AgentRunMark,
   conceptIcon,
@@ -18,7 +24,7 @@ import {
   type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
-import { SIDEBAR_TREE_COPY, sidebarTeams } from "@exp/domain-contract/sidebar-tree"
+import { repositoryName, SIDEBAR_TREE_COPY, sidebarTeams } from "@exp/domain-contract/sidebar-tree"
 import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import type { Team } from "@/db/schema"
@@ -72,7 +78,8 @@ import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 //     the session's name); #EXP-2124: pages too — Home (the New session
 //     tab: the Home nav icon + `Home`), Needs you, Chats, Drafts (their nav
 //     icon + label), a device (its glyph + name), a board (its icon in its
-//     color + name) and an app (its icon + name);
+//     color + name), an app (its icon + name) and (#EXP-2171) a repository
+//     (the repository glyph, muted, + its name);
 //   * the ACTIVE chip is derived from the URL — never stored;
 //   * every chip closes — its ×, a middle click, and Close / Close others /
 //     Close all all reach it;
@@ -95,6 +102,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 // sidebar's).
 const NewRunIcon = conceptIcon(`nav-home`)
 const DeviceDefaultIcon = conceptIcon(`ui-device-default`)
+const RepositoryIcon = conceptIcon(`action-repository`)
 
 /** The page tabs' leads + titles: the sidebar's nav entries. */
 const PAGE_CHIPS: Record<WorkTabPage, { icon: React.ComponentType<{ className?: string }>; title: string }> = {
@@ -212,6 +220,24 @@ export function WorkTabsStrip({
     () => new Map(((appRows ?? []) as App[]).filter((row) => !row.deletedAt).map((row) => [row.id, row])),
     [appRows]
   )
+  const repositoryIds = useMemo(
+    () =>
+      [
+        ...new Set(state.tabs.flatMap((tab) => (tab.kind === `repository` ? [tab.repositoryId] : []))),
+      ].sort(),
+    [state.tabs]
+  )
+  const { data: repositoryRows } = useLiveQuery(
+    (query) =>
+      repositoryIds.length > 0
+        ? query.from({ r: repositoryCollection }).where(({ r }) => inArray(r.id, repositoryIds))
+        : undefined,
+    [repositoryIds.join(`,`)]
+  )
+  const repositoriesById = useMemo(
+    () => new Map(((repositoryRows ?? []) as SyncedRepository[]).map((row) => [row.id, row])),
+    [repositoryRows]
+  )
   const hasDeviceTabs = state.tabs.some((tab) => tab.kind === `device`)
   const { data: deviceRows } = useLiveQuery(
     (query) => (hasDeviceTabs ? query.from({ d: deviceCollection }) : undefined),
@@ -321,12 +347,18 @@ export function WorkTabsStrip({
             appsById.get(tab.appId)?.slug === path.appSlug &&
             tabTeamSlug(tab) === path.teamSlug
           )
+        case `repository`:
+          return (
+            tab.kind === `repository` &&
+            repositoriesById.get(tab.repositoryId)?.slug === path.repoSlug &&
+            tabTeamSlug(tab) === path.teamSlug
+          )
       }
     })
     return match ? tabKey(match) : null
     // `tabTeamSlug` reads `slugByTeam`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, tabs, issuesById, boardSlugById, slugByTeam, devicesById, appsById])
+  }, [pathname, tabs, issuesById, boardSlugById, slugByTeam, devicesById, appsById, repositoriesById])
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
@@ -388,6 +420,20 @@ export function WorkTabsStrip({
           identifier: null,
           title: app ? app.name : null,
           lead: app ? <AppIcon app={app} className="size-3.5" /> : <LiveDot tone="muted" />,
+        }
+      }
+      case `repository`: {
+        const repository = repositoriesById.get(tab.repositoryId)
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: repository ? repositoryName(repository.fullName) : null,
+          lead: repository ? (
+            <RepositoryIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <LiveDot tone="muted" />
+          ),
         }
       }
       case `chat`: {
@@ -545,7 +591,8 @@ export function WorkTabsStrip({
       },
       (teamId) => slugByTeam.get(teamId) ?? null,
       (boardId) => boardSlugById.get(boardId) ?? null,
-      (appId) => appsById.get(appId)?.slug ?? null
+      (appId) => appsById.get(appId)?.slug ?? null,
+      (repositoryId) => repositoriesById.get(repositoryId)?.slug ?? null
     )
     if (href) void navigate(href as never)
   }

@@ -26,16 +26,11 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertFalse(AgentComposerSeed(teamId: "team-2").hasSubject)
     }
 
-    // #EXP-2172: Fix with an agent seeds the run's repository; it wins over
-    // the default once the team's list holds it, else the default stays.
-    func testASeededRepositoryWinsWhenTheTeamHasIt() {
+    // #EXP-2172: Fix with an agent seeds the run's repository (the
+    // composer's #EXP-2171 pick); no subject of its own.
+    func testASeededRepositoryIsNoSubject() {
         XCTAssertNil(AgentComposerSeed.empty.repositoryId)
         XCTAssertFalse(AgentComposerSeed(text: "fix", teamId: "t", repositoryId: "r2").hasSubject)
-        XCTAssertEqual(AgentComposerSeed.chatRepo(seeded: "r2", current: "", repoIds: ["r1", "r2"]), "r2")
-        XCTAssertEqual(AgentComposerSeed.chatRepo(seeded: "r2", current: "r1", repoIds: ["r1", "r2"]), "r2")
-        XCTAssertEqual(AgentComposerSeed.chatRepo(seeded: "gone", current: "", repoIds: ["r1", "r2"]), "r1")
-        XCTAssertEqual(AgentComposerSeed.chatRepo(seeded: nil, current: "r2", repoIds: ["r1", "r2"]), "r2")
-        XCTAssertEqual(AgentComposerSeed.chatRepo(seeded: nil, current: "", repoIds: []), "")
     }
 
     func testIssuesAreASubjectInPickOrder() {

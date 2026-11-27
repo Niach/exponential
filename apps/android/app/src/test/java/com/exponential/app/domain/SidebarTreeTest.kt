@@ -60,6 +60,9 @@ class SidebarTreeTest {
             val actual = SidebarTree.teamItems(
                 teamId = case.str("teamId")!!,
                 boards = sortables("boards"),
+                repositories = case["repositories"]?.jsonArray?.map { it.jsonObject }.orEmpty().map {
+                    SidebarTree.Repo(it.str("id")!!, it.getValue("sortOrder").jsonPrimitive.double, it.str("fullName")!!)
+                },
                 agents = sortables("agents"),
                 apps = case.list("apps").map { SidebarTree.Named(it.str("id")!!, it.str("name")!!) },
                 sessions = case.list("sessions").map { SidebarTree.SessionLike(it.str("id")!!, it.str("teamId")!!, it.str("parentId")) },
@@ -99,6 +102,28 @@ class SidebarTreeTest {
     }
 
     @Test
+    fun `repository row replay (#EXP-2171)`() {
+        val row = fixture.getValue("repositoryRow").jsonObject
+        assertEquals(row.str("glyph"), SidebarTree.REPOSITORY_GLYPH)
+        assertEquals(row.str("github"), SidebarTree.REPOSITORY_GITHUB_ICON)
+        val cases = row.list("cases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val expected = (case["expected"] as? JsonObject)?.let { SidebarTree.RepositoryTrailing(it.str("kind")!!, it.str("state")) }
+            assertEquals(case.str("name"), expected, SidebarTree.repositoryTrailing(case.str("provider")!!, case.str("checks")))
+        }
+        for (case in row.list("cloneUrl")) {
+            assertEquals(case.str("name"), case.str("expected"), SidebarTree.repositoryCloneUrl(case.str("provider")!!, case.str("fullName")!!))
+        }
+        for (case in row.list("nameCases")) {
+            assertEquals(case.str("expected"), SidebarTree.repositoryName(case.str("fullName")!!))
+        }
+        for (concept in listOf(SidebarTree.REPOSITORY_GLYPH, SidebarTree.REPOSITORY_GITHUB_ICON)) {
+            assertTrue(concept, com.exponential.app.ui.icons.ExpIcons.byConcept(concept) != null)
+        }
+    }
+
+    @Test
     fun `phone empty replay`() {
         val cases = fixture.getValue("phone").jsonObject.list("empty")
         assertTrue(cases.isNotEmpty())
@@ -121,5 +146,6 @@ class SidebarTreeTest {
         assertEquals(copy.str("settings"), SidebarTree.Copy.SETTINGS)
         assertEquals(copy.str("newTeam"), SidebarTree.Copy.NEW_TEAM)
         assertEquals(copy.str("joinTeam"), SidebarTree.Copy.JOIN_TEAM)
+        assertEquals(copy.str("repository"), SidebarTree.Copy.REPOSITORY)
     }
 }

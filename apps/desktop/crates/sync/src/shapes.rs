@@ -1,4 +1,4 @@
-//! The 37 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 38 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -88,13 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 37 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// The 38 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
 /// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
-/// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`). Column sets mirror `packages/db-schema`
+/// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`; #EXP-2171 appended `repositories`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 37] = [
+pub const SHAPES: [ShapeSpec; 38] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -1056,10 +1056,38 @@ pub const SHAPES: [ShapeSpec; 37] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "repositories",
+        path: "/api/shapes/repositories",
+        // #EXP-2171: the team's (unarchived) repositories, an item kind of
+        // the sidebar's team list (sidebar-tree.json `teamItems`).
+        // Member-only by `team_id`; byte-matches the proxy's
+        // REPOSITORY_COLUMNS (apps/web routes/api/shapes/repositories.ts:
+        // `provider_config`, `remote_url`, `ci_config` stay behind it); an
+        // older server 404s it ([`ShapeSpec::may_be_absent`]).
+        columns: &[
+            "id",
+            "team_id",
+            "provider",
+            "full_name",
+            "slug",
+            "description",
+            "sync",
+            "default_branch",
+            "default_branch_override",
+            "private",
+            "inaccessible_at",
+            "shared_by_user_id",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Shapes a server older than this build may not serve (#FEED-219).
-pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs", "sidebar_layout"];
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs", "sidebar_layout", "repositories"];
 
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
@@ -1071,8 +1099,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_37_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 37);
+    fn registry_has_38_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 38);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1118,6 +1146,8 @@ mod tests {
             ("ci_runs", "ci-runs.ts", "CI_RUN_COLUMNS"),
             ("ci_jobs", "ci-jobs.ts", "CI_JOB_COLUMNS"),
             ("sidebar_layout", "sidebar-layout.ts", "SIDEBAR_LAYOUT_COLUMNS"),
+            // #EXP-2171: `repositories` the same way.
+            ("repositories", "repositories.ts", "REPOSITORY_COLUMNS"),
         ] {
             let spec = shape_by_name(name).unwrap();
             assert_eq!(spec.pk, PkKind::Id);

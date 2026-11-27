@@ -2206,10 +2206,12 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), NAV_TIMEOUT)
     }
 
+    /** #EXP-2171: More (the last tab) › Settings. */
     private fun openSettingsRoot() {
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_SETTINGS)).performClick()
-        flow.settle()
-        if (!flow.exists(hasTestTag("settings-tab"))) composeRule.onNode(hasTestTag(Chats.TestIds.TAB_SETTINGS)).performClick()
+        val row = hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-settings")
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_MORE)).performClick()
+        flow.waitFor(row, NAV_TIMEOUT)
+        composeRule.onNode(row).performClick()
         flow.waitFor(hasTestTag("settings-tab"), NAV_TIMEOUT)
     }
 
@@ -2452,11 +2454,12 @@ class StyleguideScreenshotsTest {
         flow.settle()
     }
 
-    /** #EXP-2109: Devices = a Settings row, pushed. */
+    /** #EXP-2171: Devices = More › Devices. */
     private fun openDevices() {
-        openSettingsRoot()
-        composeRule.onAllNodes(hasTestTag("settings-${SettingsNav.DEVICES}")).onFirst().performScrollTo()
-            .performSemanticsAction(SemanticsActions.OnClick)
+        val row = hasTestTag("${Chats.TestIds.MORE_MENU_ROW}-devices")
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_MORE)).performClick()
+        flow.waitFor(row, NAV_TIMEOUT)
+        composeRule.onNode(row).performClick()
         flow.waitFor(hasText(Chats.Copy.HEADERS.getValue("devices")), NAV_TIMEOUT)
     }
 }

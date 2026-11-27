@@ -169,12 +169,12 @@ export function BoardRepoField({
   return (
     <div className="space-y-2">
       <GlassGroup>
-        {/* Picker is the only picker: the Repository row and the Branch
+        {/* Picker is the only picker: the Default repository row and the Branch
             row below share ONE row trigger (label leading, value trailing,
             chevron-right). */}
         <Picker
           mode="single"
-          mobileTitle="Repository"
+          mobileTitle="Default repository"
           width="md"
           value={value}
           disabled={disabled || loading}
@@ -199,8 +199,8 @@ export function BoardRepoField({
             <PickerTrigger
               id="board-repository"
               variant="row"
-              label="Repository"
-              aria-label="Repository"
+              label="Default repository"
+              aria-label="Default repository"
               value={triggerLabel}
             />
           }

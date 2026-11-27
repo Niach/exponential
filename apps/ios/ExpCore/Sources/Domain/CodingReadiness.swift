@@ -83,6 +83,9 @@ public enum CodingReadiness {
         /// The board's repository full name (`owner/name`), nil = none. A
         /// board with a `repositoryId` whose row has not resolved yet passes "".
         public let boardRepository: String?
+        /// #EXP-2171: the team's repositories (the synced shape). The board's
+        /// repository is a DEFAULT: a team with one can code on any issue.
+        public let teamRepositoryCount: Int
         /// Asked only while the board has no repository: does the team have a
         /// GitHub installation or repository? nil = still loading.
         public let github: Github?
@@ -98,8 +101,10 @@ public enum CodingReadiness {
             boardRepository: String?,
             github: Github?,
             devices: [Device]?,
-            nowMs: Int64
+            nowMs: Int64,
+            teamRepositoryCount: Int = 0
         ) {
+            self.teamRepositoryCount = teamRepositoryCount
             self.isMember = isMember
             self.remoteStartEnabled = remoteStartEnabled
             self.teamName = teamName
@@ -284,7 +289,7 @@ public enum CodingReadiness {
     }
 
     public static func derive(_ input: Input) -> Readiness {
-        let hasRepository = input.boardRepository != nil
+        let hasRepository = input.boardRepository != nil || input.teamRepositoryCount > 0
         let visible = input.isMember && input.remoteStartEnabled != false
         let loading = input.remoteStartEnabled == nil
             || input.devices == nil
@@ -380,5 +385,33 @@ public enum CodingReadiness {
             summary: summary(met: metCount, total: order.count),
             caption: (!visible || loading || firstMissing == nil) ? nil : firstMissing.map(caption)
         )
+    }
+
+    // MARK: - #EXP-2171: a chat's repository (fixture `chatRepo`)
+
+    /// The repository a chat starts on (TS `chatRepository`): the pick, else
+    /// the issue's own newest live PR's repository, else its board's default,
+    /// else the team's only repository, else none. A candidate the team no
+    /// longer has is skipped.
+    public struct ChatRepoIssue: Equatable, Sendable {
+        /// The repositories of its live (open | draft) PRs, newest PR first.
+        public let livePrRepositoryIds: [String]
+        public let boardRepositoryId: String?
+
+        public init(livePrRepositoryIds: [String], boardRepositoryId: String?) {
+            self.livePrRepositoryIds = livePrRepositoryIds
+            self.boardRepositoryId = boardRepositoryId
+        }
+    }
+
+    public static func chatRepository(pick: String?, issue: ChatRepoIssue?, teamRepositoryIds: [String]) -> String? {
+        let team = Set(teamRepositoryIds)
+        let candidates: [String?] = [
+            pick,
+            issue?.livePrRepositoryIds.first,
+            issue?.boardRepositoryId,
+            teamRepositoryIds.count == 1 ? teamRepositoryIds[0] : nil,
+        ]
+        return candidates.lazy.compactMap { $0 }.first { team.contains($0) }
     }
 }

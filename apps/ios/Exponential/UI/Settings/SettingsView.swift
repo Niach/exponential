@@ -49,7 +49,7 @@ struct SettingsRowGlyph: View {
 
 /// #EXP-2109 (settings-nav.json `nav.phone.settings`): the SETTINGS TAB: the
 /// viewer's card (opens Account), account / assistant / notifications /
-/// security, Devices, About, then the app's own rows (each server's signed-in
+/// security, About (#EXP-2171: More › Settings), then the app's own rows (each server's signed-in
 /// account and Add server, Getting started for the first team, the staging
 /// Sync diagnostics, the device's Keep tool steps).
 struct SettingsTabView: View {
@@ -72,7 +72,8 @@ struct SettingsTabView: View {
     private var account: ServerAccount? { deps.auth.accounts.first { $0.id == accountId } }
 
     /// `phone.settings` split into its cards.
-    private static let groups = [["account", "assistant", "notifications", "security"], ["devices"], ["about"]]
+    /// #EXP-2171: Devices left for the More menu (chats.json `shell.moreMenu`).
+    private static let groups = [["account", "assistant", "notifications", "security"], ["about"]]
 
     var body: some View {
         ZStack {
@@ -195,9 +196,6 @@ struct SettingsTabView: View {
         case "security":
             link(.securitySettings(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
                 .accessibilityIdentifier("settings-security-row")
-        case "devices":
-            link(.devices(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
-                .accessibilityIdentifier("settings-devices-row")
         case "about":
             link(.about, id) { SettingsRowGlyph(icon: icon(id)) }
         default:

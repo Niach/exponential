@@ -254,6 +254,17 @@ struct TeamTreeList: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             chevron(row)
+        case .item(.repository):
+            // sidebar-tree.json `repositoryRow`: the checks Chip{dot} (phones
+            // the dot alone), else GitHub's mark, never a count.
+            switch tree.repositoryTrailing(row.id) {
+            case let .checks(state)?: RepoChecksPill(state: state, dotOnly: !compact)
+            case .github?:
+                AppIcon(AppIcons.conceptOrName(SidebarTree.repositoryGithubIcon) ?? AppIcons.uiGithub, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityHidden(true)
+            case nil: EmptyView()
+            }
         case .item:
             CountBadge(badge(row))
         }
@@ -351,6 +362,7 @@ struct TeamTreeList: View {
         case .team: .team
         case .folder: .folder
         case .item(.board): .board
+        case .item(.repository): .repository
         case .item(.agent): .agent
         case .item(.app): .app
         case .item(.session): .session
@@ -440,8 +452,23 @@ struct TeamTreeList: View {
             write("save", "the sidebar") { try await tree.remove(row.id, teamId: row.teamId, deps: deps, accountId: accountId) }
         case .settings: openSettings(row)
         case .archive: archiving = teamState.boards.first { $0.id == row.id }
+        case .newRepoChat:
+            pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(teamId: row.teamId, repositoryId: row.id)))
+        case .pullRequests: openRepository(row, tab: .pulls)
+        case .runs: openRepository(row, tab: .runs)
+        case .copyCloneUrl:
+            guard let repo = tree.repository(row.id) else { return }
+            UIPasteboard.general.string = repo.cloneUrl
+            toaster.success(SidebarMenus.cloneUrlCopied)
         default: break
         }
+    }
+
+    /// #EXP-2171: the repository's page on one of its tabs.
+    private func openRepository(_ row: SidebarTree.PhoneRow, tab: RepoPage.Tab) {
+        pushRoute(.repo(
+            accountId: accountId, teamId: row.teamId, repositoryId: row.id, isOwner: tree.isOwner(row.teamId), tab: tab
+        ))
     }
 
     private func runNew(_ kind: SidebarMenus.NewKind, _ teamId: String) {
@@ -450,6 +477,7 @@ struct TeamTreeList: View {
         case .board: createBoardIn = .init(id: teamId)
         case .agent: newAgentIn = .init(id: teamId)
         case .app: newAppIn = .init(id: teamId)
+        case .repository: pushRoute(.newRepository(accountId: accountId, teamId: teamId))
         }
     }
 
@@ -485,6 +513,7 @@ struct TeamTreeList: View {
         case .item(.board): pushRoute(.teamSettingsSection(accountId: accountId, teamId: row.teamId, section: .boards))
         case .item(.agent): pushRoute(.agentChannel(accountId: accountId, agentId: row.id, settings: true))
         case .item(.app): pushRoute(.app(accountId: accountId, appId: row.id))
+        case .item(.repository): openRepository(row, tab: .settings)
         default: break
         }
     }
@@ -564,6 +593,7 @@ enum TeamTreeRowValues {
         case .team: teamState.team(row.id)?.name ?? ""
         case .folder: row.name ?? SidebarFolders.defaultFolderName
         case .item(.board): teamState.boards.first { $0.id == row.id }?.name ?? ""
+        case .item(.repository): tree.repository(row.id)?.name ?? ""
         case .item(.agent): tree.agent(row.id)?.name ?? ""
         case .item(.app): tree.app(row.id)?.name ?? ""
         case .item(.session): lists.chatRoots[row.id]?.title ?? ""
@@ -592,6 +622,9 @@ struct TeamTreeGlyph: View {
                 AppIcon(BoardTypeDisplay.iconName(for: board), size: size)
                     .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
             }
+        case .item(.repository):
+            AppIcon(AppIcons.conceptOrName(SidebarTree.repositoryGlyph) ?? AppIcons.settingsRepositories, size: size)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
         case .item(.agent):
             let agent = tree.agent(row.id)
             AppIcon(

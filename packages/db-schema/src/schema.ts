@@ -430,13 +430,15 @@ export const boards = pgTable(
     // Curated display icon (boardIconValues in domain.ts / the domain
     // contract). NULL = clients derive a fallback from repo presence.
     icon: text(),
-    // A repo-backed board is backed by exactly one repo from the team
-    // registry; the desktop launcher clones this. Nullable: boards need no
-    // repo. `restrict` (not cascade): a repo that still backs a board can't
-    // be deleted — retarget or delete the boards first. One repo may back
-    // several boards (monorepo); plan limits still count registry rows.
+    // #EXP-2171: the board's DEFAULT repository (Board settings › Default
+    // repository): a chat started from one of its issues with no pick, no
+    // live PR of the issue elsewhere, uses it (coding-readiness.json
+    // `chatRepo`). Not a link: an issue's PRs may live in any repository of
+    // the team. Nullable; `set null`: removing a repository clears the
+    // default of the boards naming it (after a confirm). One repo may be
+    // several boards' default (monorepo).
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
-      onDelete: `restrict`,
+      onDelete: `set null`,
     }),
     // EXP-712: the branch THIS board's coding sessions branch from and its PRs
     // target. NULL = follow the repo (its team-pinned `default_branch_override`,
@@ -1445,6 +1447,14 @@ export interface DeviceRunnerSettings {
 }
 
 // #EXP-1617: `repositories.ci_config`.
+/** #EXP-2171: `repositories.sync`. */
+export interface RepositorySync {
+  mode: `none` | `mirror` | `import`
+  url?: string | null
+  lastSyncedAt?: string | null
+  lastError?: string | null
+}
+
 export interface RepositoryCiConfig {
   /** Our CI plans runs at all: opt-in on GitHub repos (unset = off there),
    *  on by default for ecode repos (unset = on). `ciEnabled` reads it. */
@@ -3817,7 +3827,7 @@ export const composerDrafts = pgTable(
 // a per-kind FOLDER links the team folder it mirrors in `target_id`). Per USER like the drafts (the shape is the static
 // `user_id = me`), team-scoped for the cascade and for grouping. One row per
 // node: a FOLDER (`name`, top level only: two layers max) or an ITEM placing
-// `target_id` (a board / agent / app id; no FK, the section names the table:
+// `target_id` (a board / repository / agent / app / session id; no FK, the section names the table:
 // a row whose target is gone simply never resolves) at the top level or in a
 // folder (`parent_id`). A target with no row keeps the default order, so
 // nothing moves until the member drags. `sort_order` = position in its
@@ -3842,7 +3852,7 @@ export const sidebarLayout = pgTable(
     ...timestamps,
   },
   (table) => [
-    check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app')`),
+    check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app', 'repository')`),
     check(
       `sidebar_layout_kind_check`,
       sql`(kind = 'folder' AND parent_id IS NULL AND (target_id IS NULL OR section <> 'team')) OR (kind = 'item' AND target_id IS NOT NULL)`
@@ -3903,9 +3913,11 @@ export const issueEvents = pgTable(
   ]
 )
 
-// Team repository registry (SERVER-ONLY, tRPC-managed — never an Electric
-// shape). One row per connected GitHub repo; the desktop "Start coding"
-// launcher resolves its clone target through the board's `repositoryId`.
+// Team repository registry (tRPC-managed). #EXP-2171: synced as the 34th
+// shape (`routes/api/shapes/repositories.ts`) behind a column allowlist:
+// `provider_config`, `ci_config`, `pr_sequence` and `remote_url` stay on
+// the server. One row per GitHub repo or hosted (`ecode`) repo; the sidebar
+// lists them as an item kind (sidebar-tree.json `teamItems`).
 // GitHub itself stays storage-free (App JWT → JIT installation token on demand).
 export const repositories = pgTable(
   `repositories`,
@@ -3918,6 +3930,23 @@ export const repositories = pgTable(
     provider: repositoryProviderEnum().notNull().default(`github`),
     // The repo's name on its forge (`owner/name` on GitHub).
     fullName: text(`full_name`).notNull(),
+    // #EXP-2171: the route key (`/t/$teamSlug/repos/$slug`), unique per
+    // team. Written by the `populate_repository_slug` trigger when an insert
+    // leaves it '' (the default): the name's last segment, the whole
+    // owner/name on a clash (repo-page.json `slug`).
+    slug: varchar({ length: 100 }).notNull().default(``),
+    // #EXP-2171: a line of prose under the name (repository page, New
+    // repository). NULL = none.
+    description: text(),
+    // #EXP-2171: moved out of `provider_config` (`mirrorUrl`/`mirrorEnabled`):
+    // `mode` none | mirror (Exponential is the source, pushed after each
+    // landing) | import (a one-time copy); `url` the other side;
+    // `lastSyncedAt` / `lastError` its last outcome. Synced (the URL is a
+    // remote, never a credential: tokens are minted per push).
+    sync: jsonb()
+      .$type<RepositorySync>()
+      .notNull()
+      .default({ mode: `none` }),
     // The git remote devices fetch and push (`repositories.credentials`
     // hands it out). NULL = the provider's default (GitHub:
     // `https://github.com/<full_name>.git`).
@@ -3964,6 +3993,7 @@ export const repositories = pgTable(
   },
   (table) => [
     unique().on(table.teamId, table.fullName),
+    unique(`repositories_team_slug_unique`).on(table.teamId, table.slug),
     index(`idx_repositories_team`).on(table.teamId),
     // EXP-835: the admin console's per-user correlated subqueries filter on
     // the sharer alone — without this they seq-scan the whole registry.
@@ -5183,6 +5213,22 @@ export const selectIssueEventSchema = createSelectSchema(issueEvents, {
 
 
 export const selectRepositorySchema = createSelectSchema(repositories)
+// #EXP-2171: the 34th shape's projection (routes/api/shapes/repositories.ts):
+// the server's columns stay behind the allowlist. A tolerant `sync` read (a
+// future mode must never brick the collection).
+export const selectSyncedRepositorySchema = createSelectSchema(repositories, {
+  sync: z.custom<RepositorySync>((value) => typeof value === `object` && value !== null),
+}).omit({
+  providerConfig: true,
+  remoteUrl: true,
+  ciConfig: true,
+  prSequence: true,
+  archivedAt: true,
+})
+export type SyncedRepository = Omit<
+  InferSelectModel<typeof repositories>,
+  `providerConfig` | `remoteUrl` | `ciConfig` | `prSequence` | `archivedAt`
+>
 
 // EXP-1291: the synced projections of the session tree. Tolerant jsonb reads
 // (a future card kind or trigger must never brick a collection).

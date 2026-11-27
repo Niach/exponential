@@ -216,7 +216,7 @@ export const makeMemberPrompt = (name: string) =>
   })
 
 export const removeRepositoryPrompt = (fullName: string) =>
-  copyOf(P[`remove-repository`], P[`remove-repository`].title, undefined, {
+  copyOf(P[`remove-repository`], P[`remove-repository`].title, P[`remove-repository`].body, {
     fullName,
   })
 

@@ -1425,3 +1425,37 @@ UPDATE devices d
     SELECT 1 FROM unnest(d.shared_team_ids) AS s(id)
     LEFT JOIN teams t ON t.id = s.id
     WHERE t.id IS NULL);
+
+-- #EXP-2171 (repo-page.json `slug`): a repository's route key, unique per
+-- team. An insert that names no slug ('' or NULL) takes the name's last
+-- segment, slugged ([a-z0-9._-], runs of anything else = one '-'); a clash
+-- inside the team takes the whole owner/name slugged, a clash left after
+-- that the id's first 8. The migration backfill (0309) is the same rule.
+CREATE OR REPLACE FUNCTION repository_slug_part(input text)
+RETURNS text AS $$
+  SELECT coalesce(nullif(left(trim(both '-' from regexp_replace(lower(input), '[^a-z0-9._-]+', '-', 'g')), 100), ''), 'repo');
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION populate_repository_slug()
+RETURNS TRIGGER AS $$
+DECLARE
+  candidate text;
+BEGIN
+  IF NEW.slug IS NOT NULL AND NEW.slug <> '' THEN
+    RETURN NEW;
+  END IF;
+  candidate := repository_slug_part(regexp_replace(NEW.full_name, '^.*/', ''));
+  IF EXISTS (SELECT 1 FROM repositories WHERE team_id = NEW.team_id AND slug = candidate AND id <> NEW.id) THEN
+    candidate := repository_slug_part(NEW.full_name);
+  END IF;
+  IF EXISTS (SELECT 1 FROM repositories WHERE team_id = NEW.team_id AND slug = candidate AND id <> NEW.id) THEN
+    candidate := left(candidate, 91) || '-' || left(NEW.id::text, 8);
+  END IF;
+  NEW.slug := candidate;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_repository_slug
+  BEFORE INSERT ON repositories
+  FOR EACH ROW EXECUTE FUNCTION populate_repository_slug();

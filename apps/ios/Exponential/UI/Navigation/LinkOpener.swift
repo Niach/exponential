@@ -393,7 +393,7 @@ enum LinkOpener {
             // EXP-1373: the Inbox is a page pushed over the Chats tab.
             return Target(teamId: teamId, destination: .push(.myWork, over: .chats))
         case .devices:
-            return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
+            return Target(teamId: teamId, destination: .tab(.devices))
         case let .settings(_, section):
             if section.isEmpty {
                 return Target(teamId: teamId, destination: .push(.teamSettings(accountId: accountId, teamId: teamId), over: .teams))
@@ -404,7 +404,7 @@ enum LinkOpener {
                 return Target(teamId: teamId, destination: .push(.assistantSettings(accountId: accountId), over: .settings))
             }
             if section == "devices" {
-                return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
+                return Target(teamId: teamId, destination: .tab(.devices))
             }
             // A category with no phone page (billing, statuses…) is web-only.
             guard let page = TeamSettingsSection(rawValue: section) else {

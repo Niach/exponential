@@ -52,7 +52,7 @@ class AgentComposerSeedRouteTest {
     }
 
     @Test
-    fun `a repository rides and drops a bad id`() {
+    fun `a repository pick rides and drops a bad id (#EXP-2171)`() {
         val route = agentRoute(AgentComposerSeed(teamId = issueA, repositoryId = issueA))
         assertEquals("agent?team=$issueA&repo=$issueA", route)
         assertEquals(issueA, AgentComposerSeed.fromArgs(argsOf(route)).repositoryId)

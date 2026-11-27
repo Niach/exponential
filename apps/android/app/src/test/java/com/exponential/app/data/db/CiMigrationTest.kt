@@ -95,12 +95,12 @@ class CiMigrationTest {
     }
 
     @Test
-    fun `v136 adds the GitHub columns to ci_runs and ci_jobs and refetches only those shapes`() {
-        assertEquals(135, MIGRATION_135_136.startVersion)
-        assertEquals(136, MIGRATION_135_136.endVersion)
+    fun `v137 adds the GitHub columns and the title, and refetches only the ci shapes`() {
+        assertEquals(136, MIGRATION_136_137.startVersion)
+        assertEquals(137, MIGRATION_136_137.endVersion)
         val statements = mutableListOf<String>()
-        MIGRATION_135_136.migrate(recording(statements))
-        for (column in listOf("provider", "external_id", "external_url", "external_attempt", "external_access")) {
+        MIGRATION_136_137.migrate(recording(statements))
+        for (column in listOf("provider", "external_id", "external_url", "external_attempt", "external_access", "title")) {
             assertTrue(column, statements.any { it.startsWith("ALTER TABLE `ci_runs` ADD COLUMN `$column`") })
         }
         for (column in listOf("provider", "external_id", "external_url")) {
@@ -109,18 +109,6 @@ class CiMigrationTest {
         val refetches = statements.filter { it.contains("electric_offsets") }
         assertEquals(1, refetches.size)
         assertTrue(refetches.single().endsWith("WHERE `shape` IN ('ci_runs', 'ci_jobs')"))
-    }
-
-    @Test
-    fun `v137 adds ci_runs title and refetches only ci_runs`() {
-        assertEquals(136, MIGRATION_136_137.startVersion)
-        assertEquals(137, MIGRATION_136_137.endVersion)
-        val statements = mutableListOf<String>()
-        MIGRATION_136_137.migrate(recording(statements))
-        assertEquals("ALTER TABLE `ci_runs` ADD COLUMN `title` TEXT", statements.first())
-        val refetches = statements.filter { it.contains("electric_offsets") }
-        assertEquals(1, refetches.size)
-        assertTrue(refetches.single().endsWith("WHERE `shape` = 'ci_runs'"))
         val row = json.decodeFromString(CiRunEntity.serializer(), """{"id": "r1", "state": "pending", "title": "Mirror prunes deleted branches"}""")
         assertEquals("Mirror prunes deleted branches", row.title)
     }

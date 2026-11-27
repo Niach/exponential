@@ -169,12 +169,12 @@ class NavBadgesTest {
         assertEquals(
             listOf(
                 "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab",
-                "chats", "chat-row", "inbox", "drafts", "ci", "app-icon",
+                "chats", "chat-row", "inbox", "drafts", "ci", "app-icon", "more",
             ),
             rows.filter { it.bool("badge") }.map { it.str("id") },
         )
         assertEquals(
-            listOf("home", "devices", "device", "board", "app", "new", "settings", "search", "work-tab", "active-row"),
+            listOf("home", "devices", "device", "board", "repository", "app", "new", "settings", "search", "work-tab", "active-row"),
             rows.filter { !it.bool("badge") }.map { it.str("id") },
         )
     }

@@ -24,6 +24,7 @@ import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -489,9 +490,6 @@ class AgentComposerViewModel @Inject constructor(
      * shown.
      */
     private val _chatRepoId = MutableStateFlow("")
-
-    /** #EXP-2172: (team, repository) a seed named; survives that team's reseed. */
-    private var seededRepo: Pair<String?, String>? = null
     /** S-3: the + menu's Repository › (a team with more than one). */
     val chatRepoId: StateFlow<String> = _chatRepoId
 
@@ -742,13 +740,6 @@ class AgentComposerViewModel @Inject constructor(
             _teamsPick.value = listOf(id)
             _plainPick.value = listOf(id)
         }
-        // #EXP-2172: a CI run's Fix with an agent names its repository (of
-        // the seeded team: the per-team reseed keeps it while that team is
-        // the pick).
-        seed.repositoryId?.let { id ->
-            seededRepo = seed.teamId to id
-            _chatRepoId.value = id
-        }
         val text = seed.text
         if (!text.isNullOrEmpty() && _draft.value.isBlank()) _draft.value = text
     }
@@ -814,13 +805,22 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /**
-     * EXP-993: a chat takes the team's FIRST repository. With no picker on
-     * this client the alternative was a scratch-dir run on a team that has a
-     * repo, which is never what someone typing into the composer meant; a
-     * team with none still runs repo-less.
+     * #EXP-2171 (coding-readiness.json `chatRepo`, issue = null): a chat
+     * starts on the seed's repository (a repository row's New chat in this
+     * repository), else the team's ONLY repository, else none (the + menu's
+     * Repository › asks). A pick the team does not have is skipped.
      */
     fun defaultChatRepo(repoIds: List<String>) {
-        if (_chatRepoId.value.isEmpty()) _chatRepoId.value = repoIds.firstOrNull().orEmpty()
+        if (_chatRepoId.value.isEmpty()) {
+            _chatRepoId.value = CodingReadiness.chatRepository(seed.repositoryId, null, repoIds).orEmpty()
+        }
+    }
+
+    /** #EXP-2171: the picked issues default to DIFFERENT repositories (their
+     *  boards'): the + menu's repository pick decides, it rides the send. */
+    fun issuesSpanRepos(ids: List<String>): Boolean {
+        val picked = ids.toSet()
+        return startCandidates.value.filter { it.id in picked }.mapNotNull { it.repositoryId }.toSet().size > 1
     }
 
     fun setResume(value: Boolean) {
@@ -975,7 +975,7 @@ class AgentComposerViewModel @Inject constructor(
                 _mcpServers.value = emptyList()
                 _mcpServerIds.value = emptyList()
                 _skillPick.value = null
-                _chatRepoId.value = seededRepo?.takeIf { it.first == null || it.first == team }?.second.orEmpty()
+                _chatRepoId.value = ""
                 val accountId = auth.activeAccountId.value
                 if (team == null || accountId == null) return@collectLatest
                 val servers = runCatching { mcpServersApi.list(accountId, team) }
@@ -1033,8 +1033,11 @@ class AgentComposerViewModel @Inject constructor(
             issueIds = (subject as? ComposerSubject.Issues)?.ids,
             promptId = (subject as? ComposerSubject.Prompt)?.id,
             // EXP-993: a chat (no subject) runs in the picked repo, never a
-            // scratch dir by accident; a subject resolves its own repo.
-            repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
+            // scratch dir by accident; a subject resolves its own repo
+            // (#EXP-2171: issues defaulting to different ones ride the pick).
+            repositoryId = _chatRepoId.value.takeIf {
+                it.isNotEmpty() && (subject == null || (subject is ComposerSubject.Issues && issuesSpanRepos(subject.ids)))
+            },
             cli = agent,
             account = draft.wireAccount,
             model = draft.model.takeIf { it.isNotEmpty() },

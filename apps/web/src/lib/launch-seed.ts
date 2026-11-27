@@ -14,9 +14,6 @@ export interface LaunchSeed {
   /** EXP-1635: the agent row's pick (an agent id or `TEMPORARY_PICK`); absent
    *  = `seedPick`. */
   pick?: string
-  /** #EXP-2172: the repository to pick (Fix with an agent); one of the
-   *  team's, else the default stays. */
-  repositoryId?: string
 }
 
 /** The route's validated search params (all optional strings). */
@@ -24,8 +21,6 @@ export interface AgentSearch {
   issues?: string
   device?: string
   text?: string
-  /** #EXP-2172: a repository id. */
-  repo?: string
 }
 
 const UUID_RE =
@@ -51,13 +46,11 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
     issueIds,
     deviceId: search.device || undefined,
     text: search.text || undefined,
-    repositoryId: search.repo && UUID_RE.test(search.repo) ? search.repo : undefined,
   }
   const empty =
     seed.issueIds.length === 0 &&
     !seed.deviceId &&
-    !seed.text &&
-    !seed.repositoryId
+    !seed.text
   return empty ? null : seed
 }
 
@@ -68,6 +61,5 @@ export function searchFromSeed(seed: Partial<LaunchSeed>): AgentSearch {
   if (seed.issueIds && seed.issueIds.length > 0) out.issues = seed.issueIds.join(`,`)
   if (seed.deviceId) out.device = seed.deviceId
   if (seed.text) out.text = seed.text
-  if (seed.repositoryId) out.repo = seed.repositoryId
   return out
 }

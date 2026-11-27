@@ -79,7 +79,7 @@ fn bound(badge: IdeCount) -> (Option<String>, Option<IdeTone>) {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeItemInput {
-    /// `board` | `agent` | `app` | `session`.
+    /// `board` | `repository` | `agent` | `app` | `session`.
     pub kind: String,
     pub id: String,
     pub name: String,
@@ -482,7 +482,8 @@ fn nav(id: &str, icon: &str, selected: bool, count: usize, tone: IdeTone) -> Ide
 }
 
 /// THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`:
-/// a chat for every member, then agent, app and board for owners), the team
+/// a chat for every member, then agent, app, board and repository for
+/// owners), the team
 /// menu's New submenu and the new-tab menu's team submenus.
 pub fn new_items(owner: bool) -> Vec<IdeMenuEntry> {
     let entry = |value: &str, icon: &str| IdeMenuEntry { label: copy(value), value: value.into(), icon: icon.into() };
@@ -491,6 +492,7 @@ pub fn new_items(owner: bool) -> Vec<IdeMenuEntry> {
         out.push(entry("agent", "settings-agents"));
         out.push(entry("app", "nav-apps"));
         out.push(entry("board", "nav-boards"));
+        out.push(entry("repository", "action-repository"));
     }
     out
 }
@@ -559,6 +561,8 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
                     let (count, tone) = bound(counts.get(&item.id).copied().unwrap_or_default());
                     let selected = match item.kind.as_str() {
                         "app" => on("app", &item.id) || item.slug.as_deref().is_some_and(|slug| on("app", slug)),
+                        // #EXP-2171: a repository lights on its page.
+                        "repository" => on("repo", &item.id),
                         "session" => on("chat", &item.id) || on("session", &item.id) || item.session_ids.iter().any(|id| on("session", id)),
                         kind => on(kind, &item.id),
                     };

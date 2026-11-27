@@ -71,6 +71,7 @@ private data class CiRepoInput(@SerialName("repositoryId") val repositoryId: Str
 @Serializable
 private data class CiSetRepoConfigInput(
     @SerialName("repositoryId") val repositoryId: String,
+    @SerialName("enabled") val enabled: Boolean? = null,
     @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
     @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
     @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
@@ -159,10 +160,19 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
         githubStatuses: Boolean? = null,
         actionsRunners: Boolean? = null,
         pullRequestSecrets: Boolean? = null,
+        /** #EXP-2171: New › Repository's Run CI. */
+        enabled: Boolean? = null,
     ) = trpc.mutationUnit(
         accountId,
         path = "ci.setRepoConfig",
-        input = CiSetRepoConfigInput(repositoryId, requiredChecks, githubStatuses, actionsRunners, pullRequestSecrets),
+        input = CiSetRepoConfigInput(
+            repositoryId = repositoryId,
+            enabled = enabled,
+            requiredChecks = requiredChecks,
+            githubStatuses = githubStatuses,
+            actionsRunners = actionsRunners,
+            pullRequestSecrets = pullRequestSecrets,
+        ),
         inputSerializer = CiSetRepoConfigInput.serializer(),
     )
 

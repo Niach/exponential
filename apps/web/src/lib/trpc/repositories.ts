@@ -68,13 +68,6 @@ export function isForeignKeyViolation(err: unknown): boolean {
   return code === `23503` || causeCode === `23503`
 }
 
-// "repository backs N boards" — the CONFLICT message when a delete is blocked
-// by a board still pointing at the repo. A trashed board keeps its repo FK
-// (restrict) but is hidden from the synced "in use by" chips, so name that case.
-export function repoInUseMessage(count: number): string {
-  return `Can't remove this repository. It backs ${count} board${count === 1 ? `` : `s`}. Retarget or delete those boards first (a board in the trash may still use it).`
-}
-
 const fullNameSchema = z
   .string()
   .min(1)
@@ -846,8 +839,9 @@ export const repositoriesRouter = router({
       return { repository }
     }),
 
-  // Sharer or owner: hard-delete. Blocked (CONFLICT) while any board still
-  // points at the repo — the `boards.repository_id` FK is `restrict`.
+  // Sharer or owner: hard-delete. #EXP-2171: a board naming it as its
+  // DEFAULT loses the default (`boards.repository_id` is `set null`); the
+  // clients confirm first, naming those boards.
   remove: authedProcedure
     .input(z.object({ repositoryId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -859,23 +853,7 @@ export const repositoriesRouter = router({
         return { ok: true as const }
       }
       await assertRepoManager(ctx.session.user.id, repo)
-      try {
-        await ctx.db
-          .delete(repositories)
-          .where(eq(repositories.id, input.repositoryId))
-      } catch (err) {
-        if (isForeignKeyViolation(err)) {
-          const backing = await ctx.db
-            .select({ id: boards.id })
-            .from(boards)
-            .where(eq(boards.repositoryId, input.repositoryId))
-          throw new TRPCError({
-            code: `CONFLICT`,
-            message: repoInUseMessage(backing.length),
-          })
-        }
-        throw err
-      }
+      await ctx.db.delete(repositories).where(eq(repositories.id, input.repositoryId))
       return { ok: true as const }
     }),
 
@@ -1000,6 +978,8 @@ export const repositoriesRouter = router({
         name: ecodeRepoName,
         defaultBranch: branchName.optional(),
         mirrorUrl: z.string().max(400).nullable().optional(),
+        // #EXP-2171 (New › Repository): a line under the name.
+        description: z.string().max(400).nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

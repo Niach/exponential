@@ -43,7 +43,8 @@ data class AgentComposerSeed(
     val chatId: String? = null,
     /** #EXP-2109: the team the Teams pick starts on (a team's New › Chat). */
     val teamId: String? = null,
-    /** #EXP-2172: the chat's repository (a CI run's Fix with an agent). */
+    /** #EXP-2171: the repository a chat starts on (a repository row's New
+     *  chat in this repository; coding-readiness.json `chatRepo`'s pick). */
     val repositoryId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */

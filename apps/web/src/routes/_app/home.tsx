@@ -30,7 +30,7 @@ import { pageTitle } from "@/lib/page-title"
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
 
-type HomeSearch = AgentSearch & { dev?: DevView; share?: string; team?: string }
+type HomeSearch = AgentSearch & { dev?: DevView; share?: string; team?: string; repo?: string }
 
 export const Route = createFileRoute(`/_app/home`)({
   head: () => ({ meta: [{ title: pageTitle(`Home`) }] }),
@@ -38,9 +38,9 @@ export const Route = createFileRoute(`/_app/home`)({
     issues: str(search.issues),
     device: str(search.device),
     text: str(search.text),
-    repo: str(search.repo),
     share: str(search.share),
     team: str(search.team),
+    repo: str(search.repo),
     dev: devView(search.dev),
   }),
   component: HomeRoute,
@@ -76,12 +76,14 @@ function HomePage() {
   const { seed, onSeedConsumed } = useHomeSeed(search, stripSeedKeys)
   // `?team=` is one-shot like the seed keys: held here (a fresh object per
   // link), then stripped.
-  const [seedTeam, setSeedTeam] = useState<{ id: string } | null>(null)
+  // #EXP-2171: `&repo=` (a repository row's New chat in this repository)
+  // picks that repository too.
+  const [seedTeam, setSeedTeam] = useState<{ id: string; repositoryId?: string } | null>(null)
   useEffect(() => {
     if (!search.team) return
-    setSeedTeam({ id: search.team })
+    setSeedTeam({ id: search.team, ...(search.repo ? { repositoryId: search.repo } : {}) })
     stripSeedKeys()
-  }, [search.team, stripSeedKeys])
+  }, [search.team, search.repo, stripSeedKeys])
   const home = useMemo<LaunchComposerHome>(
     () => ({
       teams: memberTeams.teams.map((row) => ({ id: row.id, name: row.name, iconUrl: row.iconUrl ?? null })),

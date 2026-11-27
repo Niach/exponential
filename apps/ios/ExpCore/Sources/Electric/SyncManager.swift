@@ -618,6 +618,13 @@ public final class SyncManager: @unchecked Sendable {
             type: SidebarLayoutEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
+        // #EXP-2171: the team's repositories, member-only by team (39th
+        // shape): the Teams tab's repository rows and the repo pages' slugs.
+        tasks.append(makeShapeTask(
+            name: "repositories", path: "/api/shapes/repositories", table: "repositories",
+            type: RepositoryEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
 
         lock.withLock { pipelines[accountId] = tasks }
     }

@@ -780,6 +780,28 @@ extension XCTestCase {
         expect(page, within: Wait.nav, "\(identifier) never showed its root")
     }
 
+    /// #EXP-2171 (chats.json `shell.moreMenu`): a More page on a phone (the
+    /// More cell's menu › `item`); the iPad's sidebar has the entry itself.
+    @MainActor
+    func showMore(_ app: XCUIApplication, _ item: String, root: String) {
+        let cell = shellEntry(app, "tab-more", within: Wait.nav)
+        expect(cell, within: 1, "The bar has no More")
+        let page = anyElement(app, identified: root)
+        if page.exists, page.isHittable { return }
+        cell.tap()
+        let row = moreRow(app, item)
+        if row.waitForExistence(timeout: 2) { row.tap() }
+        expect(page, within: Wait.nav, "More › \(item) never showed its root")
+    }
+
+    /// A More menu row (`more-menu-row`) by its item: Devices, Settings.
+    @MainActor
+    func moreRow(_ app: XCUIApplication, _ item: String) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(format: "identifier == 'more-menu-row' AND label ==[c] %@", item)
+        ).firstMatch
+    }
+
     /// The Teams tab with the seeded team's tree unfolded.
     @MainActor
     func showTeam(_ app: XCUIApplication, _ name: String = "Acme") {

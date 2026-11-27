@@ -84,6 +84,9 @@ final class SidebarTreeTests: XCTestCase {
                 boards: try XCTUnwrap(c["boards"] as? [[String: Any]]).map {
                     (id: try string($0, "id"), sortOrder: try sort($0))
                 },
+                repositories: try ((c["repositories"] as? [[String: Any]]) ?? []).map {
+                    (id: try string($0, "id"), sortOrder: try sort($0), fullName: try string($0, "fullName"))
+                },
                 agents: try XCTUnwrap(c["agents"] as? [[String: Any]]).map {
                     SidebarTree.Agent(id: try string($0, "id"), sortOrder: try sort($0), role: try string($0, "role"))
                 },
@@ -137,5 +140,35 @@ final class SidebarTreeTests: XCTestCase {
     func testTeamOpenKey() throws {
         let keys = try XCTUnwrap(try fixture()["openKeys"] as? [String: String])
         XCTAssertEqual(SidebarTree.teamOpenKey("t"), keys["team"]?.replacingOccurrences(of: "{teamId}", with: "t"))
+    }
+
+    /// #EXP-2171 `repositoryRow`: the glyph, `cases`, `cloneUrl`, `nameCases`.
+    func testRepositoryRow() throws {
+        let row = try XCTUnwrap(try fixture()["repositoryRow"] as? [String: Any])
+        XCTAssertEqual(row["glyph"] as? String, SidebarTree.repositoryGlyph)
+        XCTAssertEqual(row["github"] as? String, SidebarTree.repositoryGithubIcon)
+        for c in try cases(row["cases"]) {
+            let got = SidebarTree.repositoryTrailing(provider: try string(c, "provider"), checks: c["checks"] as? String)
+            let gotValue: NSDictionary? = got.map {
+                switch $0 {
+                case let .checks(state): ["kind": "checks", "state": state]
+                case .github: ["kind": "github", "state": NSNull()]
+                }
+            }
+            let name = try string(c, "name")
+            XCTAssertEqual(gotValue, c["expected"] as? NSDictionary, name)
+        }
+        for c in try cases(row["cloneUrl"]) {
+            let got = SidebarTree.repositoryCloneUrl(provider: try string(c, "provider"), fullName: try string(c, "fullName"))
+            let expected = try string(c, "expected"), name = try string(c, "name")
+            XCTAssertEqual(got, expected, name)
+        }
+        for c in try cases(row["nameCases"]) {
+            let got = SidebarTree.repositoryName(try string(c, "fullName"))
+            let expected = try string(c, "expected")
+            XCTAssertEqual(got, expected)
+        }
+        let copy = try XCTUnwrap(try fixture()["copy"] as? [String: String])
+        XCTAssertEqual(copy["repository"], SidebarTree.Copy.repository)
     }
 }

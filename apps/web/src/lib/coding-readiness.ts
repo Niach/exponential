@@ -43,6 +43,11 @@ export interface CodingReadinessInput {
   /** The board's repository full name (`owner/name`), null = none. A board
    * with a `repositoryId` whose row has not resolved yet passes `""`. */
   boardRepository: string | null
+  /** #EXP-2171: the team's repositories (the synced shape). The board's
+   * repository is a DEFAULT: a team with a repository can code on any of
+   * its issues (the composer asks which when nothing resolves one).
+   * Absent = 0. */
+  teamRepositoryCount?: number
   /** Asked only while the board has no repository: does the team have a
    * GitHub installation or repository? null = still loading. `label` = the
    * connected account (`acme-inc`) for the met row's detail. */
@@ -157,7 +162,7 @@ function lastSeenDevice(devices: ReadinessDevice[]): ReadinessDevice | null {
 }
 
 export function codingReadiness(input: CodingReadinessInput): CodingReadiness {
-  const hasRepository = input.boardRepository !== null
+  const hasRepository = input.boardRepository !== null || (input.teamRepositoryCount ?? 0) > 0
   const visible = input.isMember && input.remoteStartEnabled !== false
   const loading =
     input.remoteStartEnabled === null ||
@@ -273,6 +278,32 @@ export function codingReadiness(input: CodingReadinessInput): CodingReadiness {
     caption:
       !visible || loading || firstMissing === null ? null : CAPTIONS[firstMissing],
   }
+}
+
+// ── #EXP-2171: a chat's repository (fixture `chatRepo`) ────────────────
+
+export interface ChatRepoInput {
+  /** The composer's explicit pick (a repository of the team), else null. */
+  pick: string | null
+  /** The chat's first issue, null = a chat without issues. `livePrRepositoryIds`
+   * = the repositories of its live (open or draft) PRs, newest PR first. */
+  issue: { livePrRepositoryIds: readonly string[]; boardRepositoryId: string | null } | null
+  /** The team's repositories (unarchived). */
+  teamRepositoryIds: readonly string[]
+}
+
+/** The repository a chat starts on: the pick, else the issue's own live
+ * PR's repository, else its board's default, else the team's only
+ * repository, else none. A candidate the team no longer has is skipped. */
+export function chatRepository(input: ChatRepoInput): string | null {
+  const team = new Set(input.teamRepositoryIds)
+  const candidates = [
+    input.pick,
+    ...(input.issue?.livePrRepositoryIds ?? []).slice(0, 1),
+    input.issue?.boardRepositoryId ?? null,
+    input.teamRepositoryIds.length === 1 ? input.teamRepositoryIds[0] : null,
+  ]
+  return candidates.find((id): id is string => id !== null && team.has(id)) ?? null
 }
 
 // ── The inline repository picker (×4, fixture `picker`) ─────────────────

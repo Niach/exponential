@@ -24,7 +24,9 @@ enum SidebarItem: Hashable {
         case .agent, .needsYou, .chats, .chat, .drafts: .chats
         case .agentChannel: .chats
         case .app, .board: .teams
-        case .devices, .ci, .settings: .settings
+        case .devices: .devices
+        case .settings: .settings
+        case .ci: .devices
         }
     }
 
@@ -34,6 +36,7 @@ enum SidebarItem: Hashable {
         case .chats, .teams: self = .chats
         case .assistant: self = assistantId.map { .agentChannel($0) } ?? .chats
         case .settings: self = .settings
+        case .devices: self = .devices
         }
     }
 
@@ -246,7 +249,17 @@ struct TabletSidebar: View {
                                 teams: teamState.orderedTeams,
                                 compact: true,
                                 isSelected: { item($0) == selection },
-                                onOpen: { if let item = item($0) { onSelect(item) } }
+                                onOpen: { node in
+                                    if let item = item(node) {
+                                        onSelect(item)
+                                    } else if node.kind == .item(.repository) {
+                                        // #EXP-2171: the repository page, in the detail.
+                                        pushRoute(.repo(
+                                            accountId: accountId, teamId: node.teamId, repositoryId: node.id,
+                                            isOwner: tree.isOwner(node.teamId)
+                                        ))
+                                    }
+                                }
                             ))])
                         }
                         if !activeRows.isEmpty {
@@ -326,7 +339,7 @@ struct TabletSidebar: View {
     /// The entry a tree leaf selects.
     private func item(_ node: SidebarTree.PhoneRow) -> SidebarItem? {
         switch node.kind {
-        case .team, .folder: nil
+        case .team, .folder, .item(.repository): nil
         case .item(.board): .board(node.id)
         case .item(.agent): .agentChannel(node.id)
         case .item(.app): .app(node.id)
@@ -455,7 +468,7 @@ struct TabletSidebar: View {
         case .devices: "sidebar-devices"
         case .ci: "sidebar-ci"
         case .drafts: "sidebar-drafts"
-        case .settings: Chats.TestIds.tabSettings
+        case .settings: Chats.TestIds.tabMore
         case let .agentChannel(id): lists.assistant?.agentId == id ? Chats.TestIds.tabAssistant : "sidebar-agent-\(id)"
         case let .app(id): "sidebar-app-\(id)"
         case let .chat(id): "sidebar-chat-\(id)"
@@ -498,7 +511,7 @@ struct TabletSidebar: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
-        .accessibilityIdentifier(Chats.TestIds.tabSettings)
+        .accessibilityIdentifier(Chats.TestIds.tabMore)
     }
 }
 

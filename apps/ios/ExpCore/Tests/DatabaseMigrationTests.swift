@@ -150,7 +150,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_ci_external", "v117_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
         )
     }
 
@@ -222,7 +222,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_ci_external", "v117_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
         )
     }
 
@@ -766,7 +766,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_ci_external", "v117_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -886,7 +886,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_ci_external", "v117_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1834,7 +1834,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "issue_events", "issue_statuses",
                       "issue_drafts", "sessions", "session_issues", "messages",
                       "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
-                      "sidebar_layout", "electric_offsets"] {
+                      "sidebar_layout", "repositories", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1997,6 +1997,13 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "sidebar_layout"),
             ["id", "user_id", "team_id", "section", "kind", "target_id", "parent_id", "name",
              "sort_order", "created_at", "updated_at"]
+        )
+        // #EXP-2171: the repositories allowlist, column for column.
+        XCTAssertEqual(
+            try columnNames(pool, "repositories"),
+            ["id", "team_id", "provider", "full_name", "slug", "description", "sync", "default_branch",
+             "default_branch_override", "private", "inaccessible_at", "shared_by_user_id", "sort_order",
+             "created_at", "updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),
@@ -4167,7 +4174,7 @@ final class DatabaseMigrationTests: XCTestCase {
             }
         }
         XCTAssertFalse(try columnNames(pool, "ci_runs").contains("external_url"))
-        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v116_ci_external"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v117_ci_external"))
         try pool.read { db in
             let reset = try String.fetchAll(
                 db,
@@ -4207,7 +4214,7 @@ final class DatabaseMigrationTests: XCTestCase {
     func testCiRunTitleAdded() throws {
         let pool = try makePool("exp2172-ci-run-title")
         let migrator = DatabaseManager.makeMigrator()
-        try migrator.migrate(pool, upTo: "v116_ci_external")
+        try migrator.migrate(pool, upTo: "v117_ci_external")
         try pool.write { db in
             try db.execute(sql: """
                 INSERT INTO "ci_runs" ("id", "team_id", "number", "created_at", "updated_at")
@@ -4221,7 +4228,7 @@ final class DatabaseMigrationTests: XCTestCase {
             }
         }
         XCTAssertFalse(try columnNames(pool, "ci_runs").contains("title"))
-        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v117_ci_run_title"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v118_ci_run_title"))
         try pool.read { db in
             let reset = try String.fetchAll(
                 db,
