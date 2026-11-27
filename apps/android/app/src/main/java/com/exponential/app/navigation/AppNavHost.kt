@@ -1359,6 +1359,27 @@ private fun AuthenticatedNav(
                 onOpenRun = { id ->
                     navController.navigate(Routes.ciRun(id)) { popUpTo(Routes.CI_RUN_PATTERN) { inclusive = true } }
                 },
+                // #EXP-2172: Fix with an agent = the new-chat composer, seeded.
+                onFix = { seed -> navController.navigateDeepLink(agentRoute(seed)) },
+            )
+        }
+        // #EXP-2172 (ci-page.json): THE CI page across every team: a run
+        // opens its run page, a train row its PR's chat (else the PR on
+        // GitHub), a runner its device page.
+        composable(Routes.CI) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            com.exponential.app.ui.ci.CiPageScreen(
+                onBack = { navController.popBackStack() },
+                onOpen = { target ->
+                    when (target) {
+                        is com.exponential.app.ui.ci.CiPageTarget.Run -> navController.navigate(Routes.ciRun(target.runId))
+                        is com.exponential.app.ui.ci.CiPageTarget.PullRequest -> when {
+                            target.rootSessionId != null -> navController.navigate(Routes.chat(target.rootSessionId))
+                            target.url.isNotEmpty() -> runCatching { uriHandler.openUri(target.url) }
+                        }
+                        is com.exponential.app.ui.ci.CiPageTarget.Runner -> navController.navigate(Routes.deviceSettings(target.deviceRowId))
+                    }
+                },
             )
         }
         // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads

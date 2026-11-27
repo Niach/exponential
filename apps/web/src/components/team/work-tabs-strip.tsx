@@ -59,7 +59,8 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { ChatRunMark, chatRunMarkState } from "@/components/team/sidebar-running"
 import { AgentIcon } from "@/components/team/sidebar-agents"
 import { AppIcon } from "@/components/team/sidebar-apps"
-import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { DRAFTS_LABEL, NavCiIcon, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { CI_PAGE_COPY } from "@exp/domain-contract/ci-page"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import type { WorkTabsTeam } from "@/components/team/work-tabs-sync"
 
@@ -108,6 +109,7 @@ const PAGE_CHIPS: Record<WorkTabPage, { icon: React.ComponentType<{ className?: 
   "needs-you": { icon: conceptIcon(`nav-needs-you`), title: NEEDS_YOU_COPY.entry },
   chats: { icon: conceptIcon(`nav-chats`), title: CHATS_COPY.title },
   drafts: { icon: NavDraftsIcon, title: DRAFTS_LABEL },
+  ci: { icon: NavCiIcon, title: CI_PAGE_COPY.title },
 }
 
 /** EXP-1255: the New session chip's title (#EXP-2124: Home's). */

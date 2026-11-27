@@ -27,6 +27,7 @@ export function taskStateOf(row: TaskRow): TaskState {
     principal: row.principal,
     watch: row.kind,
     sessionId: row.kind === `session` ? row.ref : null,
+    transferId: row.kind === `transfer` ? row.ref : null,
     status: row.status,
     statusMessage: row.statusMessage,
     createdAt: row.createdAt.getTime(),
@@ -140,6 +141,25 @@ export async function fireTaskWatches(
   const event: TaskEvent = { kind: `watch.fire`, at: at.getTime(), text: args.text }
   for (const row of rows) await persist(tx, taskReduce(taskStateOf(row), event))
   await dropTaskWatches(tx, rows.map((row) => row.id))
+  return rows.map((row) => row.id)
+}
+
+/** #FEED-295: `transferId` ended: every live task watching it turns
+ *  completed / failed / cancelled with its end line (tasks.json TRANSFERS). */
+export async function endTransferTasks(
+  tx: Tx,
+  transferId: string,
+  outcome: { status: `done` | `failed` | `cancelled`; text: string },
+  at: Date = new Date()
+): Promise<string[]> {
+  const rows = await tx
+    .select()
+    .from(mcpTasks)
+    .where(and(eq(mcpTasks.kind, `transfer`), eq(mcpTasks.ref, transferId), inArray(mcpTasks.status, LIVE)))
+    .orderBy(asc(mcpTasks.id))
+    .for(`update`)
+  const event: TaskEvent = { kind: `transfer.end`, at: at.getTime(), status: outcome.status, text: outcome.text }
+  for (const row of rows) await persist(tx, taskReduce(taskStateOf(row), event))
   return rows.map((row) => row.id)
 }
 

@@ -73,7 +73,7 @@ import {
 } from "@/components/team/sidebar-repositories"
 import { ChatRunMark } from "@/components/team/sidebar-running"
 import { NavCountBadge } from "@/components/team/sidebar-shared"
-import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { DRAFTS_LABEL, NavCiIcon, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
 import { AssistantMark } from "@/components/team/assistant-mark"
 import {
   headerMenuEntries,
@@ -157,6 +157,7 @@ const ROOT_PAGES = {
   "needs-you": { href: `/needs-you`, title: NEEDS_YOU_COPY.entry, tab: { kind: `page`, page: `needs-you`, from: null } as WorkTab },
   chats: { href: `/chats`, title: CHATS_COPY.title, tab: { kind: `page`, page: `chats`, from: null } as WorkTab },
   drafts: { href: `/drafts`, title: DRAFTS_LABEL, tab: { kind: `page`, page: `drafts`, from: null } as WorkTab },
+  ci: { href: `/ci`, title: SIDEBAR_TREE_COPY.ci, tab: { kind: `page`, page: `ci`, from: null } as WorkTab },
 } as const
 
 /* ─── root rows ─────────────────────────────────────────────────────────── */
@@ -166,6 +167,7 @@ export function SidebarRootRows({
   needsYou,
   drafts,
   chatsBadge,
+  ciBadge,
   devices,
   teams,
   assistant,
@@ -177,6 +179,8 @@ export function SidebarRootRows({
   needsYou: number
   drafts: number
   chatsBadge: CountBadgeValue
+  /** #EXP-2172: nav-badges.json `ci` (ci-page.json `ciBadge`). */
+  ciBadge: CountBadgeValue
   devices: readonly SidebarDevice[]
   /** Member teams by id: a teammate's server wears its team's mark. */
   teams: ReadonlyMap<string, Team>
@@ -300,6 +304,18 @@ export function SidebarRootRows({
             <SidebarMenuTrailing className="pointer-events-none">
               <Badge count={drafts} tone="muted" data-testid="drafts-count-badge" />
             </SidebarMenuTrailing>
+          </SidebarMenuItem>
+        )
+      case `ci`:
+        return (
+          <SidebarMenuItem key={kind}>
+            <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/ci`}>
+              <Link to="/ci" data-testid="nav-ci" {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
+                <NavCiIcon className="h-4 w-4" />
+                <span>{SIDEBAR_TREE_COPY.ci}</span>
+              </Link>
+            </SidebarMenuButton>
+            <NavCountBadge value={ciBadge} data-testid="nav-ci-badge" />
           </SidebarMenuItem>
         )
       case `devices`:

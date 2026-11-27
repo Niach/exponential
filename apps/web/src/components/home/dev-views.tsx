@@ -29,6 +29,7 @@ import {
   SealedLockedSpecimen,
   useIsMobile,
 } from "@exp/ui"
+import { CiPageSpecimen } from "@/components/ci/ci-page"
 import { CiRunSpecimen } from "@/components/ci/ci-run-page"
 import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -75,6 +76,8 @@ export const DEV_VIEWS = [
   `call-pill`,
   `pr-checks`,
   `ci-run`,
+  // #EXP-2172: THE CI page over ci-page.json's scenario.
+  `ci`,
   `runner-settings`,
   `results-tab`,
   `needs-you`,
@@ -122,6 +125,8 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <ChatTranscriptSpecimen single />
       ) : dev === `pr-checks` ? (
         <PrChecksSpecimen />
+      ) : dev === `ci` ? (
+        <CiPageSpecimen />
       ) : dev === `ci-run` ? (
         <CiRunSpecimen />
       ) : dev === `runner-settings` ? (

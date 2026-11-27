@@ -126,7 +126,10 @@ import androidx.room.TypeConverters
     //      the devices shape refetches.
     // v136 (#EXP-2171): the `repositories` table (the 34th shape), explicit
     //      [MIGRATION_135_136]; the new shape starts fresh.
-    version = 136,
+    // v137 (#EXP-2172): ci_runs provider / external_* / title and ci_jobs
+    //      provider / external_* (GitHub Actions runs beside ours), explicit
+    //      [MIGRATION_136_137]; only the ci_runs and ci_jobs shapes refetch.
+    version = 137,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

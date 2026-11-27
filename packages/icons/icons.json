@@ -119,6 +119,7 @@
     "nav-chats": "list-tree",
     "nav-threads": "list-tree",
     "nav-devices": "monitor",
+    "nav-ci": "workflow",
     "nav-apps": "layout-grid",
     "nav-ci": "workflow",
     "app-editor-chat": "message-square",

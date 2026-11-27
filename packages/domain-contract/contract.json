@@ -585,7 +585,7 @@
     "groups": [
       { "id": "work", "label": "Work", "tools": ["issues", "comments", "pr", "sessions_send", "show"]},
       { "id": "tracker", "label": "Tracker", "tools": ["boards", "labels", "statuses", "attachments"]},
-      { "id": "team", "label": "Team", "tools": ["teams", "people", "repositories", "devices"]},
+      { "id": "team", "label": "Team", "tools": ["teams", "people", "repositories", "devices", "transfers"]},
       { "id": "agents", "label": "Agents", "tools": ["agents", "prompts", "skills", "mcp_servers"]},
       { "id": "sessions", "label": "Sessions", "tools": ["sessions", "session_self"]},
       { "id": "apps", "label": "Apps", "tools": ["apps"]},
@@ -1338,6 +1338,50 @@
         "progressiveMany": "Signing in {n} accounts",
         "doneMany": "Signed in {n} accounts",
         "subjectKey": "deviceId",
+        "result": "none"
+      },
+      {
+        "name": "transfers_send",
+        "title": "Transfer files",
+        "blurb": "Copies a file or folder between two of your own machines over P2P.",
+        "progressive": "Starting a transfer",
+        "done": "Started a transfer",
+        "progressiveMany": "Starting {n} transfers",
+        "doneMany": "Started {n} transfers",
+        "subjectKey": "destPath",
+        "result": "none"
+      },
+      {
+        "name": "transfers_list",
+        "title": "List transfers",
+        "blurb": "Lists your device-to-device transfers, newest first.",
+        "progressive": "Listing transfers",
+        "done": "Listed transfers",
+        "progressiveMany": "Listing transfers {n} times",
+        "doneMany": "Listed transfers {n} times",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "transfers_status",
+        "title": "Read transfer",
+        "blurb": "Reads one transfer's progress.",
+        "progressive": "Reading transfer",
+        "done": "Read transfer",
+        "progressiveMany": "Reading {n} transfers",
+        "doneMany": "Read {n} transfers",
+        "subjectKey": "transferId",
+        "result": "none"
+      },
+      {
+        "name": "transfers_cancel",
+        "title": "Cancel transfer",
+        "blurb": "Cancels a device-to-device transfer.",
+        "progressive": "Cancelling a transfer",
+        "done": "Cancelled a transfer",
+        "progressiveMany": "Cancelling {n} transfers",
+        "doneMany": "Cancelled {n} transfers",
+        "subjectKey": "transferId",
         "result": "none"
       },
       {
@@ -2237,6 +2281,10 @@
       { "name": "repositories_restore", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },
+      { "name": "transfers_send", "refs": "" },
+      { "name": "transfers_list", "refs": "" },
+      { "name": "transfers_status", "refs": "" },
+      { "name": "transfers_cancel", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },
       { "name": "agents_get", "refs": "agent@" },
       { "name": "agents_create", "refs": "agent@" },

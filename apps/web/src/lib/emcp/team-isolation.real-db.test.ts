@@ -500,6 +500,12 @@ const CASES: Record<string, Case> = {
   [`devices.list unfiltered`]: r(`devices.list`, () => ({ op: `list` })),
   [`devices.list teamId`]: r(`devices.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`devices.account_login`]: wr(`devices.account_login`, (w) => ({ op: `account_login`, deviceId: w.b.deviceId, agent: `claude` })),
+  // #FEED-295: b's box is U's own machine, but shared only with team B.
+  [`transfers.send push to B`]: wr(`transfers.send`, (w) => ({ op: `send`, fromDeviceId: w.personal, toDeviceId: w.b.deviceId, srcPath: `~/a`, destPath: `~/b` })),
+  [`transfers.send pull from B`]: wr(`transfers.send`, (w) => ({ op: `send`, fromDeviceId: w.b.deviceId, toDeviceId: w.personal, srcPath: `~/a`, destPath: `~/b` })),
+  [`transfers.list`]: r(`transfers.list`, () => ({ op: `list` })),
+  [`transfers.status`]: r(`transfers.status`, () => ({ op: `status`, transferId: crypto.randomUUID() })),
+  [`transfers.cancel`]: wr(`transfers.cancel`, () => ({ op: `cancel`, transferId: crypto.randomUUID() })),
   // events
   [`events.emit`]: wr(`events.emit`, (w) => ({ op: `emit`, name: `leak`, teamId: w.b.teamId })),
   [`events.list teamId`]: r(`events.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),

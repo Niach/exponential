@@ -289,6 +289,11 @@ enum LinkOpener {
     }
 
     private static func resolve(_ link: AppLink, card: String?, accountId: String, deps: AppDependencies) async -> Resolution {
+        // #EXP-2172 (ci-page.json): `/ci` = THE CI page, across every team.
+        if case let .app(path) = link, CiPage.isPagePath(path) {
+            let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: false)
+            return Resolution(outcome: outcome, landing: LinkLanding(accountId: accountId, destination: .push(.ci(accountId: accountId), over: nil)))
+        }
         guard let slug = link.teamSlug else {
             // No team to be a member of (`/admin`, the root): a web page.
             let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: true)

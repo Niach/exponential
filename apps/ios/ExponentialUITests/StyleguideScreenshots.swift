@@ -1238,7 +1238,7 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
-        // sg_ci-run · sg_runner-settings (#EXP-1804) ·
+        // sg_ci-run · sg_runner-settings (#EXP-1804) · sg_ci (#EXP-2172) ·
         // sg_repo-runs · sg_repo-ci (#EXP-1617) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
@@ -1325,7 +1325,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness",
-        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
+        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "ci", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states", "elicitation-card",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
@@ -1399,6 +1399,8 @@ final class StyleguideScreenshots: XCTestCase {
             // #EXP-1804: the CI run page + the CI runner section (fixtures'
             // `specimen`s).
             case "ci-run": snapshot("sg_ci-run", settle: 2)
+            // #EXP-2172: the CI page, Runs tab (ci-page.json `scenario`).
+            case "ci": snapshot("sg_ci", settle: 2)
             case "runner-settings": snapshot("sg_runner-settings", settle: 2)
             // #EXP-1617: the repo page's Runs tab + the CI section of a
             // GitHub repo (repo-ci.json runRows[0]).

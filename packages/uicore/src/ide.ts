@@ -57,6 +57,8 @@ export interface IdeSidebarInput {
   /** #EXP-2027: the Devices row's children in `sidebarDeviceRows` order, and whether it is open. */
   devices?: { id: string; name: string; icon: string; online: boolean; teamMark?: string | null }[]
   devicesOpen?: boolean
+  /** #EXP-2172: the CI row's badge (nav-badges.json `ci`, ci-page.json `ciBadge`). */
+  ci?: IdeCount
   /** #EXP-2027: one entry per team (`sidebarTeams`). */
   teams?: IdeTeamInput[]
   active: { id: string; title: string; icon: string; sessionIds: string[]; teamMark?: string | null; team?: string | null }[]
@@ -193,6 +195,8 @@ const FOLDER_ICON = `ui-folder`
 export interface IdeSidebar {
   nav: IdeNavRow[]
   devices: IdeDeviceRow[]
+  /** #EXP-2172: THE CI row, after the Devices rows (one row). */
+  ci: IdeNavRow[]
   teams: { id: string; rows: IdeRow[] }[]
   active: { id: string; title: string; icon: string; selected: boolean; teamMark: string | null }[]
   prs: IdePrRow[]
@@ -304,6 +308,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   return {
     nav: rows,
     devices,
+    ci: [nav(`ci`, `nav-ci`, screen === `ci`, (input.ci ?? NONE).count, (input.ci ?? NONE).tone)],
     teams,
     active: input.active.map((a) => ({
       id: a.id,

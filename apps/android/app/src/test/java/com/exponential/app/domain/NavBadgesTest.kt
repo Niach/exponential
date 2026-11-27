@@ -169,7 +169,7 @@ class NavBadgesTest {
         assertEquals(
             listOf(
                 "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab",
-                "chats", "chat-row", "inbox", "drafts", "app-icon", "more",
+                "chats", "chat-row", "inbox", "drafts", "ci", "app-icon", "more",
             ),
             rows.filter { it.bool("badge") }.map { it.str("id") },
         )

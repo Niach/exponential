@@ -148,15 +148,16 @@ public final class CiApi: Sendable {
         try await trpc.query(accountId: accountId, path: "ci.log", input: CiLogInput(jobId: jobId, offset: offset))
     }
 
-    /// `ci.rerun{runId, failedOnly: true}`: the new run's id (the page opens it).
-    public func rerunFailed(accountId: String, runId: String) async throws -> String {
+    /// `ci.rerun{runId, failedOnly}`: the run the page opens (ours: a new
+    /// run; #EXP-2172 a GitHub run: the same run, a new attempt).
+    public func rerun(accountId: String, runId: String, failedOnly: Bool) async throws -> String {
         let result: CiRerunResult = try await trpc.mutation(
-            accountId: accountId, path: "ci.rerun", input: CiRerunInput(runId: runId, failedOnly: true)
+            accountId: accountId, path: "ci.rerun", input: CiRerunInput(runId: runId, failedOnly: failedOnly)
         )
         return result.runId
     }
 
-    /// `ci.cancel{runId}`.
+    /// `ci.cancel{runId}` (ours or, #EXP-2172, a GitHub run).
     public func cancel(accountId: String, runId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "ci.cancel", input: CiRunIdInput(runId: runId))
     }

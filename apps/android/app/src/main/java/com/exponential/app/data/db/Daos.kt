@@ -1069,6 +1069,11 @@ interface CiRunDao {
     @Query("SELECT * FROM ci_runs WHERE id IN (:ids)")
     fun observeByIds(ids: List<String>): Flow<List<CiRunEntity>>
 
+    /** #EXP-2172 (ci-page.json): every run of every member team (the CI page
+     *  and its badge; the rule orders and caps). */
+    @Query("SELECT * FROM ci_runs")
+    fun observeAll(): Flow<List<CiRunEntity>>
+
     /** #EXP-1617 (repo-ci.json): a repository's runs (the Runs tab, the CI section). */
     @Query("SELECT * FROM ci_runs WHERE repository_id = :repositoryId ORDER BY number DESC")
     fun observeByRepository(repositoryId: String): Flow<List<CiRunEntity>>
@@ -1093,6 +1098,10 @@ interface CiJobDao {
     /** #EXP-1617 (repo-ci.json): the jobs of a repository's runs. */
     @Query("SELECT * FROM ci_jobs WHERE run_id IN (SELECT id FROM ci_runs WHERE repository_id = :repositoryId) ORDER BY position, id")
     fun observeByRepository(repositoryId: String): Flow<List<CiJobEntity>>
+
+    /** #EXP-2172 (ci-page.json): every job (run statuses, runner slots). */
+    @Query("SELECT * FROM ci_jobs")
+    fun observeAll(): Flow<List<CiJobEntity>>
 
     @Query("SELECT * FROM ci_jobs WHERE runner_device_id = :deviceRowId ORDER BY started_at DESC LIMIT :limit")
     fun observeByRunner(deviceRowId: String, limit: Int): Flow<List<CiJobEntity>>

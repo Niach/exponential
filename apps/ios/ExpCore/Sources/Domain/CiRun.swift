@@ -14,14 +14,21 @@ public enum CiRun {
         public static let log = "Log"
         public static let rerunFailed = "Re-run failed"
         public static let cancel = "Cancel"
+        public static let rerunAll = "Re-run all jobs"
+        public static let fix = "Fix with an agent"
+        public static let openExternal = "Open on GitHub"
+        public static let breadcrumbRoot = "CI"
+        public static let pullRequest = "Pull request #{number}"
+        public static let sources: [String: String] = ["exponential": "Exponential", "github": "GitHub Actions"]
+        public static let fixPromptHead = "CI run #{number} ({name}) failed on {repository} at {ref} ({sha})."
+        public static let fixPromptJob = "Failing job: {job}."
+        public static let fixPromptRead = "Read its whole log with exponential_repositories {op: \"run_log\", runId: \"{runId}\"}, find the cause, fix it on {ref} and push."
+        public static let fixPromptTail = "The end of its log:"
         public static let emptyLog = "No log yet."
-        public static let failedJobs = "{count} failed"
         public static let pipelineError = "The pipeline file did not plan"
         public static let none = "—"
-        public static let tileStatus = "Status"
-        public static let tileDuration = "Duration"
-        public static let tileRunner = "Runner"
-        public static let tileCommit = "Commit"
+        /// #EXP-2172: the ⋯ menu's label.
+        public static let more = "More actions"
         public static let reasons: [String: String] = [
             "fork": "Not run: a pull request from a fork",
             "paths": "Skipped: no changed path matches",
@@ -29,6 +36,20 @@ public enum CiRun {
             "runner_lost": "The runner stopped answering",
             "reused": "Kept from the run it re-runs",
         ]
+        /// The Jobs section's caption parts (by job status).
+        public static let jobsCaption: [Status: String] = [
+            .failed: "{count} failed", .running: "{count} running", .queued: "{count} queued",
+            .passed: "{count} passed", .cancelled: "{count} skipped",
+        ]
+        /// The selected job's card line.
+        public static let jobSummaryFailed = "Failed after {duration}"
+        public static let jobSummaryRunning = "Running for {duration}"
+        public static let jobSummaryPassed = "Passed in {duration}"
+        public static let jobSummaryQueued = "Waiting for a runner"
+        public static let jobSummarySkipped = "Skipped"
+        public static let jobSummaryOn = " on {runner}"
+        /// The failure summary's title.
+        public static let failureTitle = "Failed in {job}"
 
         public static func title(_ number: Int) -> String {
             title.replacingOccurrences(of: "{number}", with: "\(number)")
@@ -37,17 +58,27 @@ public enum CiRun {
 
     public enum TestIds {
         public static let page = "ci-run"
-        public static let tiles = "ci-run-tiles"
         public static let jobRow = "ci-run-job"
         public static let steps = "ci-run-steps"
         public static let log = "ci-run-log"
         public static let rerun = "ci-run-rerun"
         public static let cancel = "ci-run-cancel"
+        public static let rerunAll = "ci-run-rerun-all"
+        public static let fix = "ci-run-fix"
+        public static let openExternal = "ci-run-open-external"
+        public static let breadcrumb = "ci-run-breadcrumb"
+        public static let source = "ci-run-source"
+        public static let chips = "ci-run-chips"
+        public static let more = "ci-run-more"
+        public static let failure = "ci-run-failure"
+        public static let jobCard = "ci-run-job-card"
     }
 
     public static let liveTailMs = 2000
     public static let logMaxLinesWide = 32
     public static let logMaxLinesPhone = 20
+    /// Fix with an agent quotes this many last log lines.
+    public static let fixLogLines = 40
 
     // MARK: - Rows
 
@@ -60,8 +91,27 @@ public enum CiRun {
         public let sha: String
         public let startedAt: String?
         public let completedAt: String?
+        /// #EXP-2172: the run's ref, source and GitHub handle.
+        public let ref: String?
+        public let provider: String
+        public let externalUrl: String?
+        public let externalAccess: String?
+        /// #EXP-2172 redesign: what the run is about (nil = the pipeline's
+        /// name) and when it was created (the age when it never started).
+        public let title: String?
+        public let createdAt: String?
 
-        public init(id: String, number: Int, name: String, state: String, error: String?, sha: String, startedAt: String?, completedAt: String?) {
+        public init(
+            id: String, number: Int, name: String, state: String, error: String?, sha: String, startedAt: String?,
+            completedAt: String?, ref: String? = nil, provider: String = "exponential", externalUrl: String? = nil,
+            externalAccess: String? = nil, title: String? = nil, createdAt: String? = nil
+        ) {
+            self.title = title
+            self.createdAt = createdAt
+            self.ref = ref
+            self.provider = provider
+            self.externalUrl = externalUrl
+            self.externalAccess = externalAccess
             self.id = id
             self.number = number
             self.name = name
@@ -124,16 +174,7 @@ public enum CiRun {
     }
 
     public enum Status: String, Sendable { case queued, running, passed, failed, cancelled }
-    public enum Tone: String, Sendable { case neutral, primary, success, danger }
     public enum TraceStatus: String, Sendable { case pending, running, done, skipped, error }
-
-    public struct Tile: Equatable, Sendable {
-        public let label: String
-        public let value: String
-        public let tone: Tone
-        /// The Status tile of a failed run: `{count} failed` (red); else nil.
-        public var delta: String? = nil
-    }
 
     public struct JobRow: Equatable, Sendable {
         public let id: String
@@ -142,6 +183,36 @@ public enum CiRun {
         public let glyph: PrChecks.Glyph
         public let tone: PrChecks.Tone
         public let duration: String?
+        /// #EXP-2172: the run page's status and its catalog tone
+        /// (`CiPage.statusTone`); nil on the runner section's rows.
+        public var status: Status? = nil
+        public var statusTone: String? = nil
+    }
+
+    /// The run's pull request (number + base branch).
+    public struct PullRequest: Equatable, Sendable {
+        public let number: Int
+        public let base: String
+
+        public init(number: Int, base: String) {
+            self.number = number
+            self.base = base
+        }
+    }
+
+    /// One chip of the strip under the title.
+    public struct Chip: Equatable, Sendable {
+        /// status | ref | sha | pr | author | duration | runner.
+        public let id: String
+        public let label: String
+        public let icon: String?
+        /// The status chip's dot (a colour token), else nil.
+        public let dot: String?
+    }
+
+    public struct FailureSummary: Equatable, Sendable {
+        public let title: String
+        public let message: String
     }
 
     public struct TraceItem: Equatable, Sendable {
@@ -156,8 +227,17 @@ public enum CiRun {
     }
 
     public struct Actions: Equatable, Sendable {
-        public let rerunFailed: Bool
-        public let cancel: Bool
+        public enum Primary: String, Sendable { case rerunFailed, rerunAll, cancel }
+        public enum MenuItem: String, Sendable { case rerunAll, openExternal }
+
+        /// THE one default button: Cancel while it runs or waits, Re-run
+        /// failed after a failure, Re-run all after a pass; nil when the run
+        /// is not ours to change (a GitHub run without Actions: write).
+        public let primary: Primary?
+        /// Fix with an agent (outline), after a failure.
+        public let fix: Bool
+        /// The ⋯ menu, in order; empty = no menu.
+        public let menu: [MenuItem]
     }
 
     // MARK: - Rules
@@ -176,17 +256,9 @@ public enum CiRun {
         }
     }
 
-    private static func tone(_ status: Status) -> Tone {
-        switch status {
-        case .queued, .cancelled: .neutral
-        case .running: .primary
-        case .passed: .success
-        case .failed: .danger
-        }
-    }
-
-    /// The run's status for its first tile.
-    public static func runStatus(state: String, jobs: [(status: String, conclusion: String?)]) -> (status: Status, tone: Tone) {
+    /// The run's status and its catalog tone (ci-page.json `statusTones`,
+    /// `CiPage.statusTone`: running is the only `info`).
+    public static func runStatus(state: String, jobs: [(status: String, conclusion: String?)]) -> (status: Status, tone: String) {
         let status: Status
         if state == "pending" {
             status = jobs.contains { $0.status == "in_progress" } ? .running : .queued
@@ -196,7 +268,7 @@ public enum CiRun {
             let failing = jobs.filter { isFailing(status: $0.status, conclusion: $0.conclusion) }
             status = !failing.isEmpty && failing.allSatisfy { $0.conclusion == "cancelled" } ? .cancelled : .failed
         }
-        return (status, tone(status))
+        return (status, CiPage.statusTone(status).tone)
     }
 
     static func ms(_ value: String?) -> Double? {
@@ -204,36 +276,89 @@ public enum CiRun {
         return date.timeIntervalSince1970 * 1000
     }
 
-    /// Status, Duration, Runner, Commit.
-    public static func tiles(
-        state: String, sha: String, startedAt: String?, completedAt: String?,
-        jobs: [(status: String, conclusion: String?, runnerLabel: String?)], now: Date
-    ) -> [Tile] {
-        let (status, tone) = runStatus(state: state, jobs: jobs.map { ($0.status, $0.conclusion) })
-        let end = ms(completedAt) ?? now.timeIntervalSince1970 * 1000
+    /// A job's status in the run page's terms.
+    public static func jobStatus(status: String, conclusion: String?) -> Status {
+        if status == "queued" { return .queued }
+        if status != "completed" { return .running }
+        if isFailing(status: status, conclusion: conclusion), conclusion != "cancelled" { return .failed }
+        if conclusion == "success" { return .passed }
+        return .cancelled
+    }
+
+    public static func jobStatus(_ job: Job) -> Status { jobStatus(status: job.status, conclusion: job.conclusion) }
+
+    /// The Jobs section's caption: `1 failed · 3 passed · 1 skipped` (the
+    /// counts that are not zero, in this order).
+    public static func jobsCaption(_ jobs: [Job]) -> String {
+        var counts: [Status: Int] = [:]
+        for job in jobs { counts[jobStatus(job), default: 0] += 1 }
+        let order: [Status] = [.failed, .running, .queued, .passed, .cancelled]
+        return order.compactMap { status -> String? in
+            guard let count = counts[status], count > 0 else { return nil }
+            return Copy.jobsCaption[status]?.replacingOccurrences(of: "{count}", with: String(count))
+        }.joined(separator: " · ")
+    }
+
+    /// The selected job's card line: `Failed after 8m 25s on mint`.
+    public static func jobSummary(_ job: Job, now: Date) -> String {
+        let status = jobStatus(job)
+        let duration = PrChecks.checkDuration(job.asCheck, now: now)
+        let template: String
+        switch status {
+        case .queued: return Copy.jobSummaryQueued
+        case .cancelled: return reasonText(job.reason) ?? Copy.jobSummarySkipped
+        case .failed: template = Copy.jobSummaryFailed
+        case .running: template = Copy.jobSummaryRunning
+        case .passed: template = Copy.jobSummaryPassed
+        }
+        let head = template.replacingOccurrences(of: "{duration}", with: duration ?? Copy.none)
+        guard let runner = job.runnerLabel, !runner.isEmpty else { return head }
+        return head + Copy.jobSummaryOn.replacingOccurrences(of: "{runner}", with: runner)
+    }
+
+    /// The colour token of a status chip's dot, by tone.
+    private static func dot(_ tone: String) -> String {
+        switch tone {
+        case "success": "$color.success"
+        case "danger": "$color.destructive"
+        case "info": "$color.info"
+        default: "$color.mutedForeground"
+        }
+    }
+
+    /// The chip strip under the title: status (with its dot) · ref → base ·
+    /// sha · #PR · author · duration · runners; a chip without data is left out.
+    public static func chips(run: Run, jobs: [Job], pullRequest: PullRequest?, author: String?, now: Date) -> [Chip] {
+        let (status, tone) = runStatus(state: run.state, jobs: jobs.map { ($0.status, $0.conclusion) })
+        let started = ms(run.startedAt)
+        let end = ms(run.completedAt) ?? now.timeIntervalSince1970 * 1000
         var runners: [String] = []
         for job in jobs {
             if let label = job.runnerLabel, !label.isEmpty, !runners.contains(label) { runners.append(label) }
         }
-        let failing = jobs.filter { isFailing(status: $0.status, conclusion: $0.conclusion) }.count
-        let delta = status == .failed && failing > 0 ? Copy.failedJobs.replacingOccurrences(of: "{count}", with: String(failing)) : nil
-        return [
-            Tile(label: Copy.tileStatus, value: statusLabel(status), tone: tone, delta: delta),
-            Tile(
-                label: Copy.tileDuration,
-                value: ms(startedAt).map { PrChecks.formatDuration(ms: end - $0) } ?? Copy.none,
-                tone: .neutral
-            ),
-            Tile(label: Copy.tileRunner, value: runners.isEmpty ? Copy.none : runners.joined(separator: ", "), tone: .neutral),
-            Tile(label: Copy.tileCommit, value: String(sha.prefix(7)), tone: .neutral),
-        ]
+        var chips = [Chip(id: "status", label: statusLabel(status), icon: nil, dot: dot(tone))]
+        if let ref = run.ref, !ref.isEmpty {
+            chips.append(Chip(id: "ref", label: pullRequest.map { "\(ref) → \($0.base)" } ?? ref, icon: "git-branch", dot: nil))
+        }
+        chips.append(Chip(id: "sha", label: String(run.sha.prefix(7)), icon: "hash", dot: nil))
+        if let pullRequest { chips.append(Chip(id: "pr", label: "#\(pullRequest.number)", icon: "git-pull-request", dot: nil)) }
+        if let author, !author.isEmpty { chips.append(Chip(id: "author", label: author, icon: "user", dot: nil)) }
+        if let started { chips.append(Chip(id: "duration", label: PrChecks.formatDuration(ms: end - started), icon: "clock", dot: nil)) }
+        if !runners.isEmpty { chips.append(Chip(id: "runner", label: runners.joined(separator: ", "), icon: "server", dot: nil)) }
+        return chips
     }
 
-    public static func tiles(_ run: Run, jobs: [Job], now: Date) -> [Tile] {
-        tiles(
-            state: run.state, sha: run.sha, startedAt: run.startedAt, completedAt: run.completedAt,
-            jobs: jobs.map { ($0.status, $0.conclusion, $0.runnerLabel) }, now: now
-        )
+    /// The failure summary above the jobs, from the failed job's log as
+    /// read: `Failed in {job}` and its first error line. Nil until such a
+    /// line is read (logs are read on demand; no test counting).
+    public static func failureSummary(check: String?, log: String?) -> FailureSummary? {
+        guard let check, let log, !log.isEmpty else { return nil }
+        let view = logView(log)
+        guard let first = view.highlight.first else { return nil }
+        let lines = view.code.components(separatedBy: "\n")
+        var line = first - 1 < lines.count ? lines[first - 1] : ""
+        if line.hasPrefix("Error: ") { line.removeFirst("Error: ".count) }
+        return FailureSummary(title: Copy.failureTitle.replacingOccurrences(of: "{job}", with: check), message: line)
     }
 
     private static func byPosition(_ jobs: [Job]) -> [Job] {
@@ -254,7 +379,9 @@ public enum CiRun {
                 id: job.id, title: job.check,
                 subtitle: job.status == "completed" ? reasonText(job.reason) : nil,
                 glyph: glyph, tone: tone,
-                duration: PrChecks.checkDuration(job.asCheck, now: now)
+                duration: PrChecks.checkDuration(job.asCheck, now: now),
+                status: jobStatus(job),
+                statusTone: CiPage.statusTone(jobStatus(job)).tone
             )
         }
     }
@@ -310,9 +437,51 @@ public enum CiRun {
         return LogView(code: out.joined(separator: "\n"), highlight: highlight)
     }
 
-    /// Which buttons the run shows.
-    public static func actions(state: String, error: String?) -> Actions {
-        Actions(rerunFailed: state == "failure", cancel: state == "pending")
+    /// Which actions the run offers (#EXP-2172, the approved redesign; a
+    /// GitHub run re-runs and cancels only once its installation accepted
+    /// Actions: write).
+    public static func actions(
+        state: String, error: String?, provider: String? = nil, externalAccess: String? = nil, externalUrl: String? = nil
+    ) -> Actions {
+        let github = provider == "github"
+        let writable = !github || externalAccess == "write"
+        let primary: Actions.Primary? = !writable ? nil : state == "pending" ? .cancel : state == "failure" ? .rerunFailed : .rerunAll
+        var menu: [Actions.MenuItem] = []
+        if writable, primary != .rerunAll { menu.append(.rerunAll) }
+        if github, !(externalUrl ?? "").isEmpty { menu.append(.openExternal) }
+        return Actions(primary: primary, fix: state == "failure", menu: menu)
+    }
+
+    public static func actions(_ run: Run) -> Actions {
+        actions(state: run.state, error: run.error, provider: run.provider, externalAccess: run.externalAccess, externalUrl: run.externalUrl)
+    }
+
+    /// The run's source: `github` for a GitHub run, else ours.
+    public static func source(_ provider: String?) -> String {
+        provider == "github" ? "github" : "exponential"
+    }
+
+    /// The first message of Fix with an agent (the composer's text).
+    public static func fixPrompt(run: Run, repository: String, job: String?, log: String?) -> String {
+        let ref = run.ref ?? Copy.none
+        func fill(_ text: String) -> String {
+            text.replacingOccurrences(of: "{number}", with: String(run.number))
+                .replacingOccurrences(of: "{name}", with: run.name)
+                .replacingOccurrences(of: "{repository}", with: repository)
+                .replacingOccurrences(of: "{ref}", with: ref)
+                .replacingOccurrences(of: "{sha}", with: String(run.sha.prefix(7)))
+                .replacingOccurrences(of: "{runId}", with: run.id)
+                .replacingOccurrences(of: "{job}", with: job ?? "")
+        }
+        var lines = [fill(Copy.fixPromptHead)]
+        if let job, !job.isEmpty { lines.append(fill(Copy.fixPromptJob)) }
+        lines.append(fill(Copy.fixPromptRead))
+        let code = log.map { logView($0).code } ?? ""
+        if !code.isEmpty {
+            let tail = code.components(separatedBy: "\n").suffix(fixLogLines)
+            lines.append(contentsOf: ["", Copy.fixPromptTail, "```text"] + tail + ["```"])
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// `/t/<team>/ci/<runId>` (query + hash ignored) → (team, runId); nil =
@@ -576,8 +745,13 @@ extension CiRun {
     public static let specimenRun = Run(
         id: "r12", number: 12, name: "ci", state: "failure", error: nil,
         sha: "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
-        startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:12:40.000Z"
+        startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:12:40.000Z",
+        ref: "exp/APP-33", provider: "exponential",
+        title: "Mirror prunes deleted branches", createdAt: "2026-11-13T09:59:50.000Z"
     )
+    public static let specimenRepository = "acme/engine"
+    public static let specimenPullRequest = PullRequest(number: 213, base: "main")
+    public static let specimenAuthor = "Mara Lind"
     public static let specimenJobs: [Job] = [
         Job(id: "j1", check: "build", position: 0, status: "completed", conclusion: "success", runnerLabel: "mint", startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:04:10.000Z"),
         Job(

@@ -51,6 +51,7 @@ export const NOUN_READ_OPS: Readonly<Record<string, readonly string[]>> = {
   people: [`list`, `invites_list`],
   repositories: [`list`, `runs`, `run_log`],
   devices: [`list`],
+  transfers: [`list`, `status`],
   agents: [`list`, `get`],
   prompts: [`list`, `get`],
   skills: [`list`, `get`],

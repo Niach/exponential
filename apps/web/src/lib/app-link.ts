@@ -274,6 +274,8 @@ export const ROUTED_APP_PREFIXES: readonly string[] = [
   // #EXP-2027, #EXP-2109: the team-less pages.
   `assistant`,
   `chats`,
+  // #EXP-2172: THE CI page.
+  `ci`,
   `devices`,
   `drafts`,
   `exponential-ui-kitchen-sink`,
