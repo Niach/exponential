@@ -1311,10 +1311,10 @@ final class StyleguideScreenshots: XCTestCase {
     private func openDevices(_ app: XCUIApplication) {
         let sidebar = app.buttons["sidebar-devices"]
         if sidebar.exists, sidebar.isHittable { return sidebar.tap() }
-        let cell = shellEntry(app, "tab-settings", within: Wait.nav)
+        let cell = shellEntry(app, "tab-more", within: Wait.nav)
         expect(cell, within: 1, "The bar has no More")
         cell.tap()
-        let row = app.buttons["more-menu-devices"]
+        let row = moreRow(app, "devices")
         expect(row, within: Wait.nav, "The More menu has no Devices")
         row.tap()
     }

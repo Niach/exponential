@@ -173,6 +173,7 @@ final class RepoPageTests: XCTestCase {
             "restoreConfirm": RepoPage.Copy.Settings.restoreConfirm,
             "mirror": RepoPage.Copy.Settings.mirror,
             "mirrorUrl": RepoPage.Copy.Settings.mirrorUrl,
+            "remove": RepoPage.Copy.Settings.remove,
         ])
         for (state, check) in f.copy.checks {
             let mine = try XCTUnwrap(RepoPage.Copy.checks(state), state)

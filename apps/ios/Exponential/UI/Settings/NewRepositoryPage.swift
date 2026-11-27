@@ -30,6 +30,8 @@ struct NewRepositoryPage: View {
     @State private var mirrorUrl = ""
     @State private var pending = false
     @State private var picking = false
+    /// The GitHub repository the picker linked: its page opens once the sheet is gone.
+    @State private var linked: String?
 
     private typealias C = RepoPage.Copy
 
@@ -56,13 +58,18 @@ struct NewRepositoryPage: View {
         }
         .pageHeader(C.New.title, pushed: true)
         .accessibilityIdentifier("new-repository-page")
-        .sheet(isPresented: $picking) {
+        .sheet(isPresented: $picking, onDismiss: {
+            if let linked {
+                self.linked = nil
+                onCreated(linked)
+            }
+        }) {
             GithubRepoPicker(
                 accountId: accountId,
                 teamId: teamId,
                 integrationsApi: deps.integrationsApi,
                 onAdd: { repo in
-                    try await deps.repositoriesApi.add(
+                    linked = try await deps.repositoriesApi.add(
                         accountId: accountId,
                         teamId: teamId,
                         fullName: repo.fullName,
@@ -153,7 +160,8 @@ struct NewRepositoryPage: View {
 
     // MARK: - Link from GitHub
 
-    /// The existing picker (it walks a missing GitHub connection first).
+    /// The existing picker (it walks a missing GitHub connection first); a
+    /// linked repository opens its page.
     private var github: some View {
         Button { picking = true } label: {
             GlassSubmitLabel(C.New.link, enabled: true) {

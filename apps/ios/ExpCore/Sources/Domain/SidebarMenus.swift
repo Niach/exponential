@@ -82,8 +82,8 @@ public enum SidebarMenus {
         .newFolder: "ui-folder",
         .newIssue: "nav-create-issue",
         .newRepoChat: "action-chat",
-        .pullRequests: "git-pull-request",
-        .runs: "workflow",
+        .pullRequests: "pr-open",
+        .runs: "nav-ci",
         .newTeam: "ui-add",
         .joinTeam: "ui-invite",
         .addDevice: "ui-add",
@@ -113,7 +113,7 @@ public enum SidebarMenus {
         .agent: "settings-agents",
         .app: "nav-apps",
         .board: "nav-boards",
-        .repository: "settings-repositories",
+        .repository: "action-repository",
     ]
     private static let newOwnerOnly: Set<NewKind> = [.agent, .app, .board, .repository]
     /// `phone.drops`: a phone has no tabs.

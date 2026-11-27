@@ -206,8 +206,8 @@ public enum SidebarTree {
     // MARK: - `repositoryRow` (#EXP-2171)
 
     /// The repository row's glyph and a GitHub repository's mark.
-    public static let repositoryGlyph = "git-branch"
-    public static let repositoryGithubIcon = "github"
+    public static let repositoryGlyph = "action-repository"
+    public static let repositoryGithubIcon = "ui-github"
 
     /// A repository row's trailing side (TS `sidebarRepositoryTrailing`).
     public enum RepositoryTrailing: Equatable, Sendable {

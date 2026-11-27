@@ -86,6 +86,8 @@ public enum RepoPage {
             public static let restoreConfirm = "Restore"
             public static let mirror = "Mirror"
             public static let mirrorUrl = "Mirror URL"
+            /// #EXP-2171: the managers' last row (prompts.json `remove-repository`).
+            public static let remove = "Remove repository"
         }
 
         /// `copy.checks[state]`: the chip's label and its dot tone.

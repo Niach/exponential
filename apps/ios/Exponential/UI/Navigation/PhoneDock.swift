@@ -216,10 +216,10 @@ struct PhoneDock: View {
                     moreOpen = false
                     onMore(item)
                 }
-                .accessibilityIdentifier("more-menu-\(item.rawValue)")
+                .accessibilityIdentifier(Chats.TestIds.moreMenuRow)
             }
         }
-        .accessibilityIdentifier("more-menu")
+        .accessibilityIdentifier(Chats.TestIds.moreMenu)
     }
 
     private func popupRow(

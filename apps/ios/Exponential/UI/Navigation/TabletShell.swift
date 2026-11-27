@@ -455,7 +455,7 @@ struct TabletSidebar: View {
         case .needsYou: "sidebar-needs-you"
         case .devices: "sidebar-devices"
         case .drafts: "sidebar-drafts"
-        case .settings: Chats.TestIds.tabSettings
+        case .settings: Chats.TestIds.tabMore
         case let .agentChannel(id): lists.assistant?.agentId == id ? Chats.TestIds.tabAssistant : "sidebar-agent-\(id)"
         case let .app(id): "sidebar-app-\(id)"
         case let .chat(id): "sidebar-chat-\(id)"
@@ -498,7 +498,7 @@ struct TabletSidebar: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
-        .accessibilityIdentifier(Chats.TestIds.tabSettings)
+        .accessibilityIdentifier(Chats.TestIds.tabMore)
     }
 }
 

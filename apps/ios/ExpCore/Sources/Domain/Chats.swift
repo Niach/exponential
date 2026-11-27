@@ -206,9 +206,12 @@ public enum Chats {
         public static let tabTeams = "tab-teams"
         public static let tabAssistant = "tab-assistant"
         public static let tabNew = "tab-new"
-        public static let tabSettings = "tab-settings"
+        public static let tabMore = "tab-more"
         public static let newMenu = "new-menu"
         public static let newMenuRow = "new-menu-row"
+        /// #EXP-2171: the More cell's menu and its rows.
+        public static let moreMenu = "more-menu"
+        public static let moreMenuRow = "more-menu-row"
     }
 
     /// Fixture `shell`.
@@ -233,7 +236,7 @@ public enum Chats {
                 case .teams: "ui-team"
                 case .assistant: "brand-exponential"
                 case .new: "ui-add"
-                case .more: "ellipsis"
+                case .more: "ui-more"
                 }
             }
 
@@ -243,8 +246,7 @@ public enum Chats {
                 case .teams: TestIds.tabTeams
                 case .assistant: TestIds.tabAssistant
                 case .new: TestIds.tabNew
-                // The fixture keeps the cell's test id.
-                case .more: TestIds.tabSettings
+                case .more: TestIds.tabMore
                 }
             }
         }
@@ -313,7 +315,7 @@ public enum Chats {
                 public var icon: String {
                     switch self {
                     case .devices: "nav-devices"
-                    case .ci: "workflow"
+                    case .ci: "nav-ci"
                     case .settings: "nav-settings"
                     }
                 }

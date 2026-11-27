@@ -652,7 +652,8 @@ final class ChatsTests: XCTestCase {
             "chatArchived": T.chatArchived, "selectionBar": T.selectionBar, "appRow": T.appRow,
             "chatMarkTeam": T.chatMarkTeam, "chatMarkUnencrypted": T.chatMarkUnencrypted,
             "tabChats": T.tabChats, "tabTeams": T.tabTeams, "tabAssistant": T.tabAssistant, "tabNew": T.tabNew,
-            "tabSettings": T.tabSettings, "newMenu": T.newMenu, "newMenuRow": T.newMenuRow,
+            "tabMore": T.tabMore, "newMenu": T.newMenu, "newMenuRow": T.newMenuRow,
+            "moreMenu": T.moreMenu, "moreMenuRow": T.moreMenuRow,
         ])
         let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
@@ -699,7 +700,7 @@ final class ChatsTests: XCTestCase {
         }
         XCTAssertNil(Sh.phonePage("issue").tab)
         XCTAssertFalse(Sh.phonePage("issue").bar)
-        XCTAssertEqual(Sh.tabs.map(\.testId), ["tab-chats", "tab-teams", "tab-assistant", "tab-new", "tab-settings"])
+        XCTAssertEqual(Sh.tabs.map(\.testId), ["tab-chats", "tab-teams", "tab-assistant", "tab-new", "tab-more"])
         // #EXP-2171 `moreMenu`: items, icons, badges, copy.
         let more = try XCTUnwrap(shell["moreMenu"] as? [String: Any])
         XCTAssertEqual(more["items"] as? [String], Sh.MoreMenu.all.map(\.rawValue))

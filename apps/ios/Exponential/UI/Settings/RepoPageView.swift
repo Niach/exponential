@@ -382,9 +382,7 @@ private struct RepoSettingsTab: View {
     private var removeSection: some View {
         let copy = Prompts.RemoveRepository.copy(fullName: repo.fullName)
         // THE destructive button, under the page, left-aligned, on no card.
-        return DestructiveButton(
-            copy.actions.first { $0.id == "remove" }?.label ?? "Remove", enabled: !busy, loading: busy
-        ) { confirmRemove = true }
+        return DestructiveButton(RepoPage.Copy.Settings.remove, enabled: !busy, loading: busy) { confirmRemove = true }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("repo-remove")
         .background {
