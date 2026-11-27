@@ -223,6 +223,51 @@ fn a_layer_popup_opened_on_a_hotkey_takes_the_keys_from_the_window_until_it_clos
     assert_eq!(shell.state.keys, [KEY_A]);
 }
 
+/// #EDE-263: Escape closes Expo and Scale, as on Cinnamon: while the
+/// shell's overlay is mapped the compositor keeps Escape (the window under
+/// it never sees it) and tells the shell `overlay.close`. Another client's
+/// layer by that name keeps no key; with the overlay gone Escape is the
+/// window's again.
+#[test]
+fn escape_closes_the_shells_expo_and_scale() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1::Layer, zwlr_layer_surface_v1::KeyboardInteractivity};
+    let h = harness();
+    let (mut app, _a) = focused_app(&h, "terminal", RED);
+    let mut ipc = h.ipc();
+    ipc.subscribe().unwrap();
+    ipc.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+
+    // Not the shell: a client naming the namespace keeps no key.
+    let mut impostor = Session::connect(h.connect());
+    let fake = impostor.keyboard_layer("exponential-shell:expo", Layer::Overlay, (200, 100), KeyboardInteractivity::None);
+    impostor.draw_layer(&fake, BLUE);
+    press(&h, KEY_ESC);
+    wait_for(&mut app, |c| c.state.keys == [KEY_ESC]);
+    assert!(hotkeys(&mut ipc).is_empty());
+    fake.layer.destroy();
+    fake.surface.destroy();
+    impostor.roundtrip();
+
+    let mut shell = Session::connect(h.connect());
+    for namespace in ede_protocol::ESCAPE_CLOSES_NAMESPACES {
+        let pid = std::process::id();
+        h.with(move |ede| ede.shell_stand_in = Some(pid));
+        let l = shell.keyboard_layer(namespace, Layer::Overlay, (200, 100), KeyboardInteractivity::None);
+        h.with(|ede| ede.shell_stand_in = None);
+        shell.draw_layer(&l, GREEN);
+        press(&h, KEY_ESC);
+        assert_eq!(hotkeys(&mut ipc), ["overlay.close"], "{namespace}");
+        app.roundtrip();
+        assert_eq!(app.state.keys, [KEY_ESC], "{namespace}: the window saw the Escape");
+        l.layer.destroy();
+        l.surface.destroy();
+        shell.roundtrip();
+    }
+    press(&h, KEY_ESC);
+    wait_for(&mut app, |c| c.state.keys == [KEY_ESC, KEY_ESC]);
+    assert!(hotkeys(&mut ipc).is_empty());
+}
+
 /// A popup that does not grab (a hover preview of the taskbar) leaves the
 /// keyboard with the window.
 #[test]

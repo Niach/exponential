@@ -63,6 +63,8 @@ pub mod names {
     pub const MEDIA_PREV: &str = "media.prev";
     /// A click outside the shell's open popups, or Escape in one: close them.
     pub const POPUPS_DISMISS: &str = "popups.dismiss";
+    /// #EDE-263: Escape while Expo or Scale is open: close it.
+    pub const OVERLAY_CLOSE: &str = "overlay.close";
 }
 
 /// What a key did, decided inside the keyboard filter.
@@ -89,6 +91,8 @@ pub enum Hotkey {
     Media(&'static str),
     /// Escape in a shell popup.
     PopupsDismiss,
+    /// Escape while Expo or Scale is open (#EDE-263).
+    OverlayClose,
 }
 
 impl Hotkey {
@@ -117,6 +121,7 @@ impl Hotkey {
             Hotkey::Terminal => names::TERMINAL,
             Hotkey::Media(name) => name,
             Hotkey::PopupsDismiss => names::POPUPS_DISMISS,
+            Hotkey::OverlayClose => names::OVERLAY_CLOSE,
         }
     }
 }
@@ -362,6 +367,17 @@ impl Ede {
     /// popup mapped? Escape closes those, wherever the keyboard is.
     pub fn shell_popups_open(&self) -> bool {
         self.layer_popups_open_where(|l| !crate::sealed::layer_origin(l).sealed)
+    }
+
+    /// #EDE-263: is the shell's Expo or Scale mapped (Cinnamon closes
+    /// them on Escape)? Only the shell's own layer counts: another client
+    /// naming the namespace keeps no key.
+    pub fn escape_closing_overlay_open(&self) -> bool {
+        self.desk.space.outputs().any(|o| {
+            let map = smithay::desktop::layer_map_for_output(o);
+            let any = map.layers().any(|l| crate::sealed::layer_origin(l).shell_overlay && ede_protocol::ESCAPE_CLOSES_NAMESPACES.contains(&l.namespace()));
+            any
+        })
     }
 
     fn layer_popups_open_where(&self, which: impl Fn(&smithay::desktop::LayerSurface) -> bool) -> bool {

@@ -454,6 +454,11 @@ pub struct SpaceViewRect {
     pub height: i32,
 }
 
+/// #EDE-263: the shell's overlays Escape closes, as Cinnamon's Expo and
+/// Scale do: while one is mapped the compositor keeps Escape and tells the
+/// shell (`overlay.close`), wherever the keyboard is.
+pub const ESCAPE_CLOSES_NAMESPACES: [&str; 2] = ["exponential-shell:expo", "exponential-shell:scale"];
+
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInfo {

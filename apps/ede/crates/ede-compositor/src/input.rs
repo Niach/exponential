@@ -257,6 +257,7 @@ impl Ede {
         // #EDE-213: Escape also closes a shell popup that never took the
         // keyboard (the Agent spaces list), as a click outside it does.
         let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some()) || self.shell_popups_open();
+        let overlay_open = self.escape_closing_overlay_open();
         let action = keyboard.input::<Action, _>(self, keycode, state, serial, smithay::backend::input::InputTime::from_millis(time), |ede, mods, handle| {
             let decided = (|| {
                 if !bindings {
@@ -277,6 +278,11 @@ impl Ede {
                 }
                 if state == KeyState::Pressed && sym == keysyms::KEY_Escape && popup_focused {
                     ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
+                    return FilterResult::Intercept(Action::Hotkey);
+                }
+                // #EDE-263: Escape closes Expo and Scale, as on Cinnamon.
+                if state == KeyState::Pressed && sym == keysyms::KEY_Escape && overlay_open {
+                    ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::OverlayClose);
                     return FilterResult::Intercept(Action::Hotkey);
                 }
                 // The key above Tab is Alt+`'s by position, whatever the layout makes of it.
