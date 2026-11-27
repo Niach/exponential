@@ -9172,7 +9172,7 @@
       "id": "ede-panel",
       "group": "ede",
       "title": "Exponential Desktop · shell",
-      "blurb": "The IDE look (#EDE-42, #EDE-65): the ground (apps/ede/ui/ground.express, the rounded panel the focused window sits on), the sidebar as the IDE's 56 px icon rail for good, black like the IDE's (sidebar.json: only the chats, each the agent's mark with its needs-you, busy or unread dot; the sample chats in the golden) and Mint's taskbar along the whole bottom edge (taskbar.json: the Exponential start button, the chat button and the new-issue button bottom-left, icon-only grouped buttons with the sample windows, the applets, the bell and the clock) on the headless compositor's 1280×720 output.",
+      "blurb": "The IDE look (#EDE-42, #EDE-65): the ground (apps/ede/ui/ground.express, the rounded panel the focused window sits on; no left rail since #EDE-238, the start menu is the navigation) and Mint's taskbar along the whole bottom edge (taskbar.json: the Exponential start button, the chat button and the new-issue button bottom-left, icon-only grouped buttons with the sample windows, the applets, the bell and the clock) on the headless compositor's 1280×720 output.",
       "order": 1,
       "ede": {
         "size": "1280x720",
@@ -9190,7 +9190,7 @@
       "id": "ede-panel-menu",
       "group": "ede",
       "title": "Exponential Desktop · start menu",
-      "blurb": "The factory start menu (apps/ede/ui/start-menu.express), Mint's layout: the person with the favourites and lock / log out / power, the categories, the app rows (sample entries in the golden) and the search box, open as the taskbar's popup surface, an xdg_popup above the Exponential start button bottom-left, with the keyboard.",
+      "blurb": "The factory start menu (apps/ede/ui/start-menu.express, #EDE-258), Cinnamon's layout carrying the IDE's sidebar tree: the favourites and lock / log out / power on a narrow left bar, the search and the person on top, the categories (the holder's tree: Assistant, Home, Needs you, Chats, Devices, each team, Local, then the app groups) and the selected team's nested boards, folders, agents, apps and sessions (the sample tree in the golden), open as the taskbar's popup surface, an xdg_popup above the Exponential start button bottom-left, with the keyboard.",
       "order": 2,
       "ede": {
         "size": "1280x720",

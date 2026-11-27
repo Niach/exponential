@@ -227,6 +227,9 @@ pub mod ede_windows;
 #[cfg(not(unix))]
 #[path = "ede_windows_stub.rs"]
 pub mod ede_windows;
+/// #EDE-258: the start menu's feeds over the session bus (Linux: eDE's).
+#[cfg(target_os = "linux")]
+pub mod ede_feeds;
 #[cfg(target_os = "linux")]
 pub mod session_bus;
 mod session_extras;
