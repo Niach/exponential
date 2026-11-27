@@ -29,7 +29,7 @@
     "gzip": 352755
   },
   "@exponential_app/eui/host": {
-    "bytes": 686400,
+    "bytes": 686900,
     "gzip": 171600
   },
   "@exponential_app/eui/express/index": {
