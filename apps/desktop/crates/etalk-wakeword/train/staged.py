@@ -255,6 +255,8 @@ def _train(path: str) -> None:
     trainer._train_start = time.time() - state["elapsed"]
 
     stop = {"now": False}
+    pid_file = state_path.with_name("train.pid")  # a watcher stops exactly this process (NEW-129)
+    pid_file.write_text(str(os.getpid()))
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop.update(now=True))
 
