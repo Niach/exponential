@@ -30,7 +30,6 @@ object CiRunView {
         const val CANCEL = "ci-cancel"
         const val FIX = "ci-fix"
         const val OPEN_EXTERNAL = "ci-open-external"
-        const val BREADCRUMB = "ci-breadcrumb"
         const val MENU = "ci-run-menu"
     }
 
@@ -175,17 +174,7 @@ object CiRunView {
         if (phone && jobOpen && pick != null) {
             return stack(ids.PAGE, "vertical", "lg", "stretch", listOf(jobCard(jobs, pick, log, nowMs, phone)))
         }
-        val title = CiRun.Copy.title(run.number)
         val head = mutableListOf<JsonElement>()
-        if (!phone) {
-            head += node(ids.BREADCRUMB, "Breadcrumb", {
-                putJsonArray("items") {
-                    add(buildJsonObject { put("label", CiRun.Copy.BREADCRUMB_ROOT); put("value", "ci") })
-                    if (repository != null) add(buildJsonObject { put("label", repository); put("value", "repository") })
-                    add(buildJsonObject { put("label", title); put("value", "run") })
-                }
-            }) { on("select", Events.BREADCRUMB) }
-        }
         head += node("ci-run-heading", "Heading", { put("text", run.title ?: run.name); put("level", if (phone) "h3" else "h2") })
         if (!phone) {
             head += node("ci-run-name", "Text", {

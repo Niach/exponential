@@ -1,16 +1,27 @@
 package com.exponential.app.ui.ci
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.theme.TextEmphasis
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,7 +38,9 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CiPage
 import com.exponential.app.domain.CiPageView
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedHeaderColumn
 import com.exponential.app.ui.components.rememberTickingNow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
@@ -151,12 +164,16 @@ fun CiPageScreen(
     val live = input?.runs?.any { it.state == "pending" } == true || input?.runners?.isNotEmpty() == true
     val now = rememberTickingNow(live)
     CiPageContent(
-        input = input?.copy(now = Instant.ofEpochMilli(now).toString()),
+        input = input?.copy(now = Instant.ofEpochMilli(now).toString(), utcOffsetMinutes = utcOffsetMinutes(now)),
         state = CiPageView.State(tab = tab, filter = filter, phone = true),
         onBack = onBack,
         onEvent = { name, context, payload -> viewModel.onEvent(name, context, payload)?.let(onOpen) },
     )
 }
+
+/** The viewer's clock offset from UTC at [nowMs] (ci-page.json day sections). */
+internal fun utcOffsetMinutes(nowMs: Long): Int =
+    java.util.TimeZone.getDefault().getOffset(nowMs) / 60_000
 
 /** The stateless page ([input] null = not read yet: nothing below the title). */
 @Composable
@@ -167,19 +184,76 @@ fun CiPageContent(
     onEvent: (name: String, context: JsonObject?, payload: JsonObject?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize().statusBarsPadding()) {
-        PageHeader(title = CiPage.Copy.TITLE, onBack = onBack)
-        if (input == null) return@Column
-        val tree = remember(input, state) { CiPageView.ciPageTree(input, state) }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
-                .testTag(CiPage.TestIds.PAGE),
+    // #EXP-2169 ("one look"): THE Devices page's frame (its More-menu
+    // sibling): the pinned page header over the scrolling body, the same
+    // 16 inset and bottom clearance.
+    Scaffold(modifier = modifier, containerColor = Color.Transparent) { padding ->
+        PinnedHeaderColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            header = { PageHeader(title = CiPage.Copy.TITLE, onBack = onBack) },
         ) {
-            CiSurface(surfaceId = "ci-page", tree = tree, onAction = onEvent)
+            if (input == null) return@PinnedHeaderColumn
+            val tree = remember(input, state) { CiPageView.ciPageTree(input, state) }
+            val counts = remember(input) { CiPage.tabCounts(input) }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset)
+                    .testTag(CiPage.TestIds.PAGE),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                CiTabs(
+                    selected = state.tab,
+                    counts = counts,
+                    onSelect = { tab -> onEvent(CiPageView.Events.TAB, null, buildJsonObject { put("value", tab) }) },
+                )
+                CiSurface(surfaceId = "ci-page", tree = tree, onAction = onEvent)
+            }
         }
     }
 }
+
+/** #EXP-2169 ("one look"): THE tab switcher = the board's segmented control
+ *  (All issues / My issues): copy.tabs, the Merge train and Runners counts
+ *  after the label in muted text (none at zero). */
+@Composable
+private fun CiTabs(selected: String, counts: CiPage.TabCounts, onSelect: (String) -> Unit) {
+    fun label(tab: String) = when (tab) {
+        "train" -> CiPage.Copy.TAB_TRAIN
+        "runners" -> CiPage.Copy.TAB_RUNNERS
+        else -> CiPage.Copy.TAB_RUNS
+    }
+    fun count(tab: String): Int? = when (tab) {
+        "train" -> counts.train
+        "runners" -> counts.runners
+        else -> null
+    }?.takeIf { it > 0 }
+    Box(Modifier.horizontalScroll(rememberScrollState()).testTag(CiPage.TestIds.TABS)) {
+        GlassSegmentedControl(
+            options = CI_TABS,
+            selected = selected,
+            label = ::label,
+            onSelect = onSelect,
+            testTag = { tab -> "${CiPage.TestIds.TABS}-$tab" },
+            trailing = { tab ->
+                count(tab)?.let { n ->
+                    {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "$n",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
+            },
+            description = { tab -> count(tab)?.let { "${label(tab)}, $it" } },
+            hug = true,
+        )
+    }
+}
+
+private val CI_TABS = listOf("runs", "train", "runners")

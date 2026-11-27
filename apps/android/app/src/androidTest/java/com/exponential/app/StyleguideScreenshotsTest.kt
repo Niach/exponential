@@ -2014,7 +2014,8 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_ci")
 
         // --- sg_repo-runs · sg_repo-ci (#EXP-1617, repo-ci.json): the repo
-        // page's Runs tab over runRows[0] (phone Rows) and the Settings tab's
+        // page's Runs tab (#EXP-2169: the CI page's run Sections of acme/engine,
+        // ci-page-view.json `repositoryId` cases) and the Settings tab's
         // CI section of a GitHub repo over the same runs (RepoCi specimen).
         show(RepoRunsSpecimenTestId) { RepoRunsSpecimenScreen() }
         flow.screenshot("sg_repo-runs")
