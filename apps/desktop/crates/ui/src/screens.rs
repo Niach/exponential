@@ -183,6 +183,7 @@ pub(crate) fn build_screen_content(
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
+        Screen::Ci => cx.new(|cx| crate::ci_page::CiPageView::new(window, cx)).into(),
         Screen::NeedsYou => cx
             .new(|cx| crate::needs_you::NeedsYouView::new(window, cx))
             .into(),
@@ -412,6 +413,7 @@ fn stays_across_teams(screen: &Screen) -> bool {
             | Screen::NeedsYou
             | Screen::Chats
             | Screen::Drafts
+            | Screen::Ci
             | Screen::Device { .. }
     )
 }
@@ -720,6 +722,7 @@ fn page_chip_content(screen: &Screen, cx: &App) -> ChipContent {
         Screen::NeedsYou => ChipLead::Glyph(registry::NAV_NEEDS_YOU),
         Screen::Chats => ChipLead::Glyph(registry::NAV_CHATS),
         Screen::Drafts => ChipLead::Glyph(registry::NAV_DRAFTS),
+        Screen::Ci => ChipLead::Glyph(registry::NAV_CI),
         Screen::Device { device_id } => {
             let id = if device_id.is_empty() { crate::device_page::this_device_row_id(cx) } else { Some(device_id.clone()) };
             match id.and_then(|id| crate::entity_preview::find_device(&id, cx)) {
@@ -848,6 +851,8 @@ pub struct ScreensPanel {
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
     drafts: PageView<crate::drafts_view::DraftsView>,
+    /// #EXP-2172: THE CI page.
+    ci_page: PageView<crate::ci_page::CiPageView>,
     needs_you: PageView<crate::needs_you::NeedsYouView>,
     /// EXP-1170: the New issue page — ONE shared view re-pointed per draft
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
@@ -1142,6 +1147,7 @@ impl ScreensPanel {
         let device_settings_page = PageView::new(|window, cx| crate::device_page::DeviceSettingsPage::new(window, cx), window, cx);
         let new_item = PageView::new(|window, cx| crate::new_item_page::NewItemPage::new(window, cx), window, cx);
         let drafts = PageView::new(|window, cx| crate::drafts_view::DraftsView::new(window, cx), window, cx);
+        let ci_page = PageView::new(|window, cx| crate::ci_page::CiPageView::new(window, cx), window, cx);
         let needs_you = PageView::new(|window, cx| crate::needs_you::NeedsYouView::new(window, cx), window, cx);
         let issue_draft = PageView::new(|window, cx| crate::issue_draft_screen::IssueDraftView::new(window, cx), window, cx);
         let chat = PageView::new(|window, cx| crate::chat_screen::ChatScreenView::new(window, cx), window, cx);
@@ -1232,6 +1238,7 @@ impl ScreensPanel {
             device_settings_page,
             new_item,
             drafts,
+            ci_page,
             needs_you,
             issue_draft,
             chat,
@@ -1579,6 +1586,7 @@ impl ScreensPanel {
             Screen::BoardIssues { .. }
             | Screen::Device { .. }
             | Screen::Drafts
+            | Screen::Ci
             | Screen::NeedsYou
             | Screen::Home
             | Screen::Chats
@@ -2944,6 +2952,7 @@ impl Render for ScreensPanel {
                 page.into_any_element()
             }
             Some(Screen::Drafts) => self.drafts.get(window, cx).into_any_element(),
+            Some(Screen::Ci) => self.ci_page.get(window, cx).into_any_element(),
             Some(Screen::NeedsYou) => self.needs_you.get(window, cx).into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.get(window, cx).into_any_element(),
             Some(Screen::Home) => self.chat.get(window, cx).into_any_element(),
@@ -3303,7 +3312,7 @@ mod tests {
     #[test]
     fn a_page_opens_its_tab_once() {
         let mut tabs = vec![issue_tab("i1", None)];
-        for page in [Screen::Home, Screen::Chats, Screen::NeedsYou, Screen::Drafts] {
+        for page in [Screen::Home, Screen::Chats, Screen::NeedsYou, Screen::Drafts, Screen::Ci] {
             assert_eq!(find_tab(&tabs, &page, None), None);
             assert!(push_background_tab(&mut tabs, page.clone(), None));
             assert_eq!(find_tab(&tabs, &page, None), Some(tabs.len() - 1));
@@ -3313,7 +3322,7 @@ mod tests {
         assert!(push_background_tab(&mut tabs, run.clone(), None));
         assert_eq!(find_tab(&tabs, &Screen::App { app: "a1".into() }, None), find_tab(&tabs, &run, None));
         assert_eq!(find_tab(&tabs, &Screen::AppRun { app: "a2".into() }, None), None);
-        assert_eq!(tabs.len(), 6);
+        assert_eq!(tabs.len(), 7);
     }
 
     /// #EXP-2124 (`tabs.background`): Open in new tab APPENDS the page's tab

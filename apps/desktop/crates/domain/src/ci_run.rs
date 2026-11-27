@@ -125,13 +125,19 @@ fn job_failing(job: &CiJobRow) -> bool {
 /// with a job in progress, passed = success, cancelled = a failure whose
 /// failing jobs are ALL cancelled, failed = any other failure.
 pub fn ci_run_status(state: &str, jobs: &[CiJobRow]) -> CiRunStatus {
+    let jobs: Vec<(&str, Option<&str>)> = jobs.iter().map(|job| (job.status.as_str(), job.conclusion.as_deref())).collect();
+    ci_run_status_of(state, &jobs)
+}
+
+/// [`ci_run_status`] over `(status, conclusion)` pairs.
+pub fn ci_run_status_of(state: &str, jobs: &[(&str, Option<&str>)]) -> CiRunStatus {
     match state {
-        "pending" if jobs.iter().any(|job| job.status == "in_progress") => CiRunStatus::Running,
+        "pending" if jobs.iter().any(|(status, _)| *status == "in_progress") => CiRunStatus::Running,
         "pending" => CiRunStatus::Queued,
         "success" => CiRunStatus::Passed,
         _ => {
-            let failing: Vec<&CiJobRow> = jobs.iter().filter(|job| job_failing(job)).collect();
-            if !failing.is_empty() && failing.iter().all(|job| job.conclusion.as_deref() == Some("cancelled")) {
+            let failing: Vec<&(&str, Option<&str>)> = jobs.iter().filter(|(status, conclusion)| is_failing(status, *conclusion)).collect();
+            if !failing.is_empty() && failing.iter().all(|(_, conclusion)| *conclusion == Some("cancelled")) {
                 CiRunStatus::Cancelled
             } else {
                 CiRunStatus::Failed
@@ -376,16 +382,68 @@ pub fn ci_log_view(text: &str) -> CiLogView {
 }
 
 /// Which buttons the run shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CiRunActions {
     pub rerun_failed: bool,
+    pub rerun_all: bool,
     pub cancel: bool,
+    pub fix: bool,
+    pub open_external: bool,
 }
 
 /// `actions`: Re-run failed on a failed run (a pipeline error re-plans too),
-/// Cancel on a pending one.
-pub fn ci_run_actions(state: &str) -> CiRunActions {
-    CiRunActions { rerun_failed: state == "failure", cancel: state == "pending" }
+/// Re-run all on a finished one, Cancel on a pending one, Fix with an agent
+/// on a failed one; #EXP-2172: a GitHub run re-runs and cancels only once its
+/// installation accepted Actions: write, and always offers Open on GitHub
+/// (while it has its URL).
+pub fn ci_run_actions(run: &CiRunRow) -> CiRunActions {
+    let github = run.provider.as_deref() == Some("github");
+    let writable = !github || run.external_access.as_deref() == Some("write");
+    CiRunActions {
+        rerun_failed: writable && run.state == "failure",
+        rerun_all: writable && run.state != "pending",
+        cancel: writable && run.state == "pending",
+        fix: run.state == "failure",
+        open_external: github && run.external_url.as_deref().is_some_and(|url| !url.is_empty()),
+    }
+}
+
+/// `fixLogLines`: how much of the log's end Fix with an agent quotes.
+pub fn fix_log_lines() -> usize {
+    CI_RUN["fixLogLines"].as_u64().unwrap_or(40) as usize
+}
+
+/// `fixPrompt`: the first message of Fix with an agent (the composer's
+/// text): the run, the failing job, how to read its log, its log's end.
+pub fn ci_fix_prompt(run: &CiRunRow, repository: &str, job: Option<&str>, log: Option<&str>) -> String {
+    let none = copy("none");
+    let r#ref = run.r#ref.as_deref().unwrap_or(none);
+    let sha: String = run.sha.chars().take(7).collect();
+    let fill = |text: &str| {
+        text.replace("{number}", &run.number.unwrap_or_default().to_string())
+            .replace("{name}", &run.name)
+            .replace("{repository}", repository)
+            .replace("{ref}", r#ref)
+            .replace("{sha}", &sha)
+            .replace("{runId}", &run.id)
+            .replace("{job}", job.unwrap_or_default())
+    };
+    let mut lines = vec![fill(copy("fixPrompt.head"))];
+    if job.is_some() {
+        lines.push(fill(copy("fixPrompt.job")));
+    }
+    lines.push(fill(copy("fixPrompt.read")));
+    let code = log.map(|log| ci_log_view(log).code).unwrap_or_default();
+    if !code.is_empty() {
+        let all: Vec<&str> = code.split('\n').collect();
+        let tail = &all[all.len().saturating_sub(fix_log_lines())..];
+        lines.push(String::new());
+        lines.push(copy("fixPrompt.tail").to_string());
+        lines.push("```text".into());
+        lines.extend(tail.iter().map(|line| line.to_string()));
+        lines.push("```".into());
+    }
+    lines.join("\n")
 }
 
 /// The run page's link (`details_url`): `/t/<team>/ci/<runId>[?job=<jobId>]`.
@@ -601,6 +659,9 @@ pub fn fixture_jobs(jobs: &Value) -> Vec<CiJobRow> {
                         queued_at: None,
                         started_at: text("startedAt"),
                         completed_at: text("completedAt"),
+                        provider: text("provider"),
+                        external_id: None,
+                        external_url: None,
                         created_at: None,
                         updated_at: None,
                     }
@@ -616,20 +677,25 @@ pub fn fixture_run(run: &Value) -> CiRunRow {
     CiRunRow {
         id: text("id").unwrap_or_default(),
         team_id: None,
-        repository_id: None,
+        repository_id: text("repositoryId"),
         number: run["number"].as_i64(),
         name: text("name").unwrap_or_default(),
         sha: text("sha").unwrap_or_default(),
-        r#ref: None,
-        trigger: None,
-        pull_request_id: None,
+        r#ref: text("ref"),
+        trigger: text("trigger"),
+        pull_request_id: text("pullRequestId"),
         state: text("state").unwrap_or_default(),
         error: text("error"),
         rerun_of: None,
-        created_by_user_id: None,
+        created_by_user_id: text("createdByUserId"),
         started_at: text("startedAt"),
         completed_at: text("completedAt"),
-        created_at: None,
+        provider: text("provider"),
+        external_id: None,
+        external_url: text("externalUrl"),
+        external_attempt: None,
+        external_access: text("externalAccess"),
+        created_at: text("createdAt"),
         updated_at: None,
     }
 }
@@ -745,8 +811,27 @@ mod tests {
     #[test]
     fn actions_match_the_fixture() {
         for case in fixture()["actions"].as_array().unwrap() {
-            let actions = ci_run_actions(case["state"].as_str().unwrap());
-            assert_eq!(json!({"rerunFailed": actions.rerun_failed, "cancel": actions.cancel}), case["expected"], "{}", case["name"]);
+            let actions = ci_run_actions(&fixture_run(case));
+            let got = json!({
+                "rerunFailed": actions.rerun_failed,
+                "rerunAll": actions.rerun_all,
+                "cancel": actions.cancel,
+                "fix": actions.fix,
+                "openExternal": actions.open_external,
+            });
+            assert_eq!(got, case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn fix_prompt_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["fixPrompt"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let got = ci_fix_prompt(&fixture_run(&input["run"]), input["repository"].as_str().unwrap(), input["job"].as_str(), input["log"].as_str());
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 

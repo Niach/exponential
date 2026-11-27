@@ -53,7 +53,7 @@ impl HostPlugin for ActionHost {
 
 /// A document of catalog components in the Exponential theme (dark, the
 /// frame's width), its actions routed to `on_action`.
-fn mount(surface_id: &str, on_action: Rc<dyn Fn(ActionEvent, &mut App)>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+pub(crate) fn mount(surface_id: &str, on_action: Rc<dyn Fn(ActionEvent, &mut App)>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
     let options = SurfaceViewOptions {
         surface_id: surface_id.to_string(),
         theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
@@ -71,7 +71,7 @@ fn mount(surface_id: &str, on_action: Rc<dyn Fn(ActionEvent, &mut App)>, window:
 }
 
 /// Shows `tree` (a nested catalog node) on `view` when it changed.
-fn show(view: &Entity<SurfaceView>, last: &mut Value, tree: Value, cx: &mut App) {
+pub(crate) fn show(view: &Entity<SurfaceView>, last: &mut Value, tree: Value, cx: &mut App) {
     if *last == tree {
         return;
     }
@@ -134,6 +134,10 @@ fn row_props(row: &CiJobListRow) -> serde_json::Map<String, Value> {
 pub(crate) const EVENT_SELECT: &str = "ci-select-job";
 pub(crate) const EVENT_RERUN: &str = "ci-rerun";
 pub(crate) const EVENT_CANCEL: &str = "ci-cancel";
+pub(crate) const EVENT_RERUN_ALL: &str = "ci-rerun-all";
+pub(crate) const EVENT_FIX: &str = "ci-fix";
+pub(crate) const EVENT_OPEN_EXTERNAL: &str = "ci-open-external";
+pub(crate) const EVENT_BREADCRUMB: &str = "ci-breadcrumb";
 
 /// The run page's input (ci-run-view.json `ciRun`).
 pub(crate) struct PageInput<'a> {
@@ -145,8 +149,12 @@ pub(crate) struct PageInput<'a> {
     pub log: Option<&'a str>,
     pub now_ms: i64,
     pub phone: bool,
-    /// The button in flight: `rerun` | `cancel`.
+    /// The button in flight: `rerun` | `rerunAll` | `cancel`.
     pub busy: Option<&'a str>,
+    /// #EXP-2172: the repository's full name (`None` while not synced).
+    pub repository: Option<&'a str>,
+    /// The run's pull request number, when known.
+    pub pull_request_number: Option<i64>,
     pub runner_label: &'a dyn Fn(&CiJobRow) -> Option<String>,
 }
 
@@ -205,7 +213,7 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
     let id = model::test_id;
     let run = input.run;
     let tiles = model::ci_run_tiles(run, input.jobs, input.runner_label, input.now_ms);
-    let actions = model::ci_run_actions(&run.state);
+    let actions = model::ci_run_actions(run);
     let tiles: Vec<Value> = tiles
         .iter()
         .enumerate()
@@ -220,45 +228,86 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
             })
         })
         .collect();
+    let title = model::run_title(run.number.unwrap_or_default());
+    let source = if run.provider.as_deref() == Some("github") { "github" } else { "exponential" };
+    let mut head = Vec::new();
+    // #EXP-2172: wide, the way back to the CI page and the repository.
+    if !input.phone {
+        let mut items = vec![json!({"label": model::copy("breadcrumbRoot"), "value": "ci"})];
+        if let Some(repository) = input.repository {
+            items.push(json!({"label": repository, "value": "repository"}));
+        }
+        items.push(json!({"label": title, "value": "run"}));
+        head.push(json!({
+            "id": id("breadcrumb"),
+            "component": "Breadcrumb",
+            "props": {"items": items},
+            "on": {"select": {"event": {"name": EVENT_BREADCRUMB}}},
+        }));
+    }
+    let mut heading = vec![
+        json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": title, "level": "h2"}}),
+        json!({"id": id("source"), "component": "Badge", "props": {"text": model::copy(&format!("sources.{source}")), "variant": "secondary"}}),
+    ];
+    if let Some(number) = input.pull_request_number {
+        heading.push(json!({
+            "id": "ci-run-pull-request",
+            "component": "Badge",
+            "props": {"text": model::copy("pullRequest").replace("{number}", &number.to_string()), "variant": "outline"},
+        }));
+    }
+    head.push(json!({
+        "id": "ci-run-heading-row",
+        "component": "Stack",
+        "props": {"direction": "horizontal", "gap": "sm", "align": "center"},
+        "children": heading,
+    }));
+    let name = match run.r#ref.as_deref() {
+        Some(r#ref) => format!("{} · {}", run.name, r#ref),
+        None => run.name.clone(),
+    };
+    head.push(json!({"id": "ci-run-name", "component": "Text", "props": {"text": name, "variant": "muted"}}));
     let mut children = vec![
         json!({
             "id": "ci-run-title",
             "component": "Stack",
             "props": {"direction": "vertical", "gap": "xs", "align": "stretch"},
-            "children": [
-                {"id": "ci-run-heading", "component": "Heading", "props": {"text": model::run_title(run.number.unwrap_or_default()), "level": "h2"}},
-                {"id": "ci-run-name", "component": "Text", "props": {"text": run.name, "variant": "muted"}},
-            ],
+            "children": head,
         }),
         json!({"id": id("tiles"), "component": "Grid", "props": {"columns": if input.phone { 2 } else { 4 }, "gap": "md"}, "children": tiles}),
     ];
-    if actions.rerun_failed || actions.cancel {
-        let mut buttons = Vec::new();
-        let busy = input.busy.is_some();
-        if actions.rerun_failed {
-            buttons.push(json!({
-                "id": id("rerun"),
-                "component": "Button",
-                "props": {"label": model::copy("rerunFailed"), "loading": input.busy == Some("rerun"), "disabled": busy},
-                "on": {"press": {"event": {"name": EVENT_RERUN}}},
-            }));
+    let button = |key: &str, label: &str, event: &str, busy: Option<&str>, extra: Value| -> Value {
+        let mut props = json!({"label": label});
+        if let Value::Object(extra) = extra {
+            props.as_object_mut().unwrap().extend(extra);
         }
-        if actions.cancel {
-            // ci-run.json: destructive-outline; the catalog's `variant` has
-            // `destructive` as its one danger form.
-            buttons.push(json!({
-                "id": id("cancel"),
-                "component": "Button",
-                "props": {"label": model::copy("cancel"), "variant": "destructive", "loading": input.busy == Some("cancel"), "disabled": busy},
-                "on": {"press": {"event": {"name": EVENT_CANCEL}}},
-            }));
+        if let Some(busy) = busy {
+            props["loading"] = json!(input.busy == Some(busy));
         }
-        children.push(json!({
-            "id": "ci-run-actions",
-            "component": "Stack",
-            "props": {"direction": "horizontal", "gap": "sm", "align": "center"},
-            "children": buttons,
-        }));
+        props["disabled"] = json!(input.busy.is_some());
+        json!({"id": id(key), "component": "Button", "props": props, "on": {"press": {"event": {"name": event}}}})
+    };
+    let mut buttons = Vec::new();
+    if actions.rerun_failed {
+        buttons.push(button("rerun", model::copy("rerunFailed"), EVENT_RERUN, Some("rerun"), json!({})));
+    }
+    if actions.rerun_all {
+        let extra = if actions.rerun_failed { json!({"variant": "outline"}) } else { json!({}) };
+        buttons.push(button("rerunAll", model::copy("rerunAll"), EVENT_RERUN_ALL, Some("rerunAll"), extra));
+    }
+    // ci-run.json: destructive-outline; the catalog's `variant` has
+    // `destructive` as its one danger form.
+    if actions.cancel {
+        buttons.push(button("cancel", model::copy("cancel"), EVENT_CANCEL, Some("cancel"), json!({"variant": "destructive"})));
+    }
+    if actions.fix {
+        buttons.push(button("fix", model::copy("fix"), EVENT_FIX, None, json!({"variant": "outline", "icon": "bot"})));
+    }
+    if actions.open_external {
+        buttons.push(button("openExternal", model::copy("openExternal"), EVENT_OPEN_EXTERNAL, None, json!({"variant": "outline", "icon": "github"})));
+    }
+    if !buttons.is_empty() {
+        children.push(json!({"id": "ci-run-actions", "component": "Toolbar", "children": buttons}));
     }
     if let Some(error) = run.error.as_ref().filter(|error| !error.is_empty()) {
         children.push(json!({
@@ -343,6 +392,30 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
     })
 }
 
+/// The specimen's data: ci-run.json `specimen`; DEV-ONLY
+/// `EXP_DEV_CI_RUN_SOURCE=github` = ci-run-view.json's GitHub run (the
+/// grant not accepted: Open on GitHub and Fix), for its picture.
+fn specimen_model() -> &'static Value {
+    static GITHUB: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+        let view: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/ci-run-view.json")).unwrap_or_default();
+        let case = view["ciRun"]
+            .as_array()
+            .and_then(|cases| cases.iter().find(|case| case["model"]["run"]["provider"] == "github" && case["phone"] != true))
+            .cloned()
+            .unwrap_or_default();
+        let mut model = case["model"].clone();
+        for key in ["selected", "log", "now"] {
+            model[key] = case[key].clone();
+        }
+        model
+    });
+    if std::env::var("EXP_DEV_CI_RUN_SOURCE").as_deref() == Ok("github") && GITHUB.is_object() {
+        &GITHUB
+    } else {
+        &model::CI_RUN["specimen"]
+    }
+}
+
 /// Where the page's data comes from.
 #[derive(Clone, PartialEq)]
 enum Source {
@@ -385,8 +458,9 @@ impl CiRunView {
     /// ci-run.json `specimen`, no server.
     pub(crate) fn specimen(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut this = Self::build(Source::Specimen, None, window, cx);
-        let log = model::CI_RUN["specimen"]["log"].as_str().unwrap_or_default().to_string();
-        let selected = model::CI_RUN["specimen"]["selected"].as_str().unwrap_or_default().to_string();
+        let specimen = specimen_model();
+        let log = specimen["log"].as_str().unwrap_or_default().to_string();
+        let selected = specimen["selected"].as_str().unwrap_or_default().to_string();
         this.logs.insert(selected, LogState { next_offset: log.len() as u64, text: log, complete: true });
         this
     }
@@ -423,8 +497,32 @@ impl CiRunView {
                     cx.notify();
                 }
             }
-            EVENT_RERUN if self.busy.is_none() => self.rerun(cx),
+            EVENT_RERUN if self.busy.is_none() => self.rerun(true, cx),
+            EVENT_RERUN_ALL if self.busy.is_none() => self.rerun(false, cx),
             EVENT_CANCEL if self.busy.is_none() => self.cancel(cx),
+            EVENT_FIX => self.fix(cx),
+            EVENT_OPEN_EXTERNAL => {
+                if let Some(url) = self.live_run(cx).and_then(|run| run.external_url).filter(|url| !url.is_empty()) {
+                    cx.open_url(&url);
+                }
+            }
+            EVENT_BREADCRUMB => {
+                let value = event.payload.as_ref().and_then(|payload| payload["value"].as_str()).unwrap_or_default().to_string();
+                let Some(run) = self.live_run(cx) else { return };
+                match value.as_str() {
+                    "ci" => crate::navigation::on_active_window(cx, |window, cx| {
+                        crate::navigation::navigate(window, cx, crate::navigation::Screen::Ci);
+                    }),
+                    "repository" => {
+                        let (Some(repository_id), team) = (run.repository_id.clone(), run.team_id.clone()) else { return };
+                        crate::navigation::on_active_window(cx, move |window, cx| {
+                            crate::navigation::open_settings(window, cx, team);
+                            crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Repository(repository_id));
+                        });
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -436,12 +534,39 @@ impl CiRunView {
         }
     }
 
-    fn rerun(&mut self, cx: &mut Context<Self>) {
+    /// The synced run this page shows (`None` = the specimen, or not synced).
+    fn live_run(&self, cx: &App) -> Option<CiRunRow> {
+        let run_id = self.run_id()?;
+        Store::try_global(cx)?.collections().ci_runs.read(cx).get(&run_id).cloned()
+    }
+
+    /// #EXP-2172 Fix with an agent: the new-chat composer on the run's team
+    /// and repository, its text `ciFixPrompt` over the selected failing job
+    /// and its log as read so far.
+    fn fix(&mut self, cx: &mut Context<Self>) {
+        let Some(run) = self.live_run(cx) else { return };
+        let Some(store) = Store::try_global(cx) else { return };
+        let jobs: Vec<CiJobRow> = store.collections().ci_jobs.read(cx).iter().filter(|job| job.run_id == run.id).cloned().collect();
+        let selected = model::ci_default_job(&jobs, self.requested.as_deref());
+        let job = selected.as_ref().and_then(|id| jobs.iter().find(|job| &job.id == id));
+        let failing = job.filter(|job| domain::pr_checks::is_failing(&job.status, job.conclusion.as_deref()));
+        let log = failing.and_then(|job| self.logs.get(&job.id)).map(|log| log.text.clone());
+        let repository = run
+            .repository_id
+            .as_deref()
+            .and_then(|id| crate::ci_page::repo_full_name(id, cx))
+            .unwrap_or_else(|| domain::ci_page::copy("unknownRepository").to_string());
+        let text = model::ci_fix_prompt(&run, &repository, failing.map(|job| job.check.as_str()), log.as_deref());
+        let seed = crate::navigation::ChatSeed { team_id: run.team_id.clone(), repo_id: run.repository_id.clone(), text: Some(text), ..Default::default() };
+        crate::navigation::on_active_window(cx, move |window, cx| crate::navigation::navigate_to_chat(window, cx, seed));
+    }
+
+    fn rerun(&mut self, failed_only: bool, cx: &mut Context<Self>) {
         let (Some(run_id), Some(trpc)) = (self.run_id(), queries::trpc_client(cx)) else { return };
-        self.busy = Some("rerun");
+        self.busy = Some(if failed_only { "rerun" } else { "rerunAll" });
         cx.notify();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let result = cx.background_executor().spawn(async move { api::ci::rerun(&trpc, &run_id, true) }).await;
+            let result = cx.background_executor().spawn(async move { api::ci::rerun(&trpc, &run_id, failed_only) }).await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
                 cx.notify();
@@ -526,7 +651,7 @@ impl CiRunView {
     fn page(&mut self, cx: &mut Context<Self>) -> Option<Value> {
         match self.source.clone() {
             Source::Specimen => {
-                let specimen = &model::CI_RUN["specimen"];
+                let specimen = specimen_model();
                 let now = specimen["now"].as_str().and_then(domain::instant::parse_instant).unwrap_or_default();
                 let run = model::fixture_run(&specimen["run"]);
                 let jobs = model::fixture_jobs(&specimen["jobs"]);
@@ -540,6 +665,8 @@ impl CiRunView {
                     now_ms: now,
                     phone: false,
                     busy: self.busy,
+                    repository: specimen["repository"].as_str(),
+                    pull_request_number: specimen["pullRequestNumber"].as_i64(),
                     runner_label: &|job| job.runner_device_id.clone(),
                 }))
             }
@@ -548,13 +675,18 @@ impl CiRunView {
                 let collections = store.collections().clone();
                 let run = collections.ci_runs.read(cx).get(&run_id).cloned()?;
                 let jobs: Vec<CiJobRow> = collections.ci_jobs.read(cx).iter().filter(|job| job.run_id == run_id).cloned().collect();
+                let selected = model::ci_default_job(&jobs, self.requested.as_deref());
+                let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
+                let pull_request_number = run
+                    .pull_request_id
+                    .as_deref()
+                    .and_then(|id| collections.pull_requests.read(cx).get(id).and_then(|pr| pr.number));
+                let repository = run.repository_id.as_deref().and_then(|id| crate::ci_page::repo_full_name(id, cx));
                 let devices = collections.devices.read(cx);
                 let label = |job: &CiJobRow| {
                     let device = devices.get(job.runner_device_id.as_deref()?)?;
                     device.label.clone()
                 };
-                let selected = model::ci_default_job(&jobs, self.requested.as_deref());
-                let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
                 let page = page_tree(&PageInput {
                     run: &run,
                     jobs: &jobs,
@@ -563,6 +695,8 @@ impl CiRunView {
                     now_ms: crate::session_data::now_ms(),
                     phone: false,
                     busy: self.busy,
+                    repository: repository.as_deref(),
+                    pull_request_number,
                     runner_label: &label,
                 });
                 if let Some(job) = selected.as_ref().and_then(|id| jobs.iter().find(|job| &job.id == id)) {
@@ -1047,6 +1181,8 @@ mod tests {
             now_ms: now,
             phone: case["phone"].as_bool() == Some(true),
             busy: case["busy"].as_str(),
+            repository: model_json["repository"].as_str(),
+            pull_request_number: model_json["pullRequestNumber"].as_i64(),
             runner_label: &|job| job.runner_device_id.clone(),
         })
     }

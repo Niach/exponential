@@ -36,6 +36,8 @@ pub struct SidebarTreeCopy {
     pub chats: String,
     pub drafts: String,
     pub devices: String,
+    /// #EXP-2172: THE CI page's root row.
+    pub ci: String,
     pub teams: String,
     pub add_device: String,
     pub device_settings: String,
@@ -69,6 +71,8 @@ pub enum SidebarRootRow {
     Chats,
     Drafts,
     Devices,
+    /// #EXP-2172: THE CI page, one root row across every team.
+    Ci,
 }
 
 impl SidebarRootRow {
@@ -80,6 +84,7 @@ impl SidebarRootRow {
             SidebarRootRow::Chats => "chats",
             SidebarRootRow::Drafts => "drafts",
             SidebarRootRow::Devices => "devices",
+            SidebarRootRow::Ci => "ci",
         }
     }
 }
@@ -96,6 +101,7 @@ pub fn sidebar_root_rows(needs_you: usize, drafts: usize, assistant: bool) -> Ve
         rows.push(SidebarRootRow::Drafts);
     }
     rows.push(SidebarRootRow::Devices);
+    rows.push(SidebarRootRow::Ci);
     rows
 }
 

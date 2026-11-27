@@ -209,6 +209,9 @@ pub struct IdeSidebarInput {
     pub devices: Vec<IdeDeviceInput>,
     #[serde(default = "yes")]
     pub devices_open: bool,
+    /// #EXP-2172: the CI row's badge (nav-badges.json `ci`).
+    #[serde(default)]
+    pub ci: IdeCount,
     /// #EXP-2027: one entry per team (`sidebarTeams`).
     #[serde(default)]
     pub teams: Vec<IdeTeamInput>,
@@ -460,6 +463,8 @@ pub struct IdePrRow {
 pub struct IdeSidebar {
     pub nav: Vec<IdeNavRow>,
     pub devices: Vec<IdeDeviceRow>,
+    /// #EXP-2172: THE CI row, after the Devices rows (one row).
+    pub ci: Vec<IdeNavRow>,
     pub teams: Vec<IdeTeamList>,
     pub active: Vec<IdeActiveRow>,
     pub prs: Vec<IdePrRow>,
@@ -595,6 +600,7 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     IdeSidebar {
         nav: rows,
         devices,
+        ci: vec![nav("ci", "nav-ci", screen == "ci", input.ci.count, input.ci.tone)],
         teams,
         active: input
             .active

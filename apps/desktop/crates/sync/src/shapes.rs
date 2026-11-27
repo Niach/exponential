@@ -984,6 +984,11 @@ pub const SHAPES: [ShapeSpec; 37] = [
             "created_by_user_id",
             "started_at",
             "completed_at",
+            "provider",
+            "external_id",
+            "external_url",
+            "external_attempt",
+            "external_access",
             "created_at",
             "updated_at",
         ],
@@ -1017,6 +1022,9 @@ pub const SHAPES: [ShapeSpec; 37] = [
             "queued_at",
             "started_at",
             "completed_at",
+            "provider",
+            "external_id",
+            "external_url",
             "created_at",
             "updated_at",
         ],
@@ -1097,6 +1105,8 @@ mod tests {
             let start = source.find(&format!("export const {constant} = [")).expect("the constant");
             let body = &source[start..];
             let body = &body[body.find('[').unwrap() + 1..body.find(']').unwrap()];
+            // #EXP-2172: the proxies comment their column groups.
+            let body: String = body.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
             body.split(',')
                 .map(|item| item.trim().trim_matches('`').to_string())
                 .filter(|item| !item.is_empty())

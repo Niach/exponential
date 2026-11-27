@@ -419,6 +419,8 @@ pub(crate) struct ChatScreenView {
     repos_team: Option<String>,
     /// EXP-822: the session's optional repository anchor (no-subject only).
     chat_repo: Option<ActionRepoRow>,
+    /// #EXP-2172: a seed's repository, picked once the team's list holds it.
+    seed_repo: Option<String>,
     /// The ONE launch cluster's state (agent, model, effort, toggles, MCP,
     /// account). Built once the coding hub exists (the page can render
     /// before it does).
@@ -605,6 +607,7 @@ impl ChatScreenView {
             team_repos: Vec::new(),
             repos_team: None,
             chat_repo: None,
+            seed_repo: None,
             launch: None,
             device: DevicePick::default(),
             mcp: None,
@@ -921,6 +924,13 @@ impl ChatScreenView {
             // the request has to outrank it.
             self.device.requested = Some(device_id);
             self.settle_device(window, cx);
+        }
+        if let Some(repo_id) = seed.repo_id {
+            if let Some(row) = self.team_repos.iter().find(|row| row.id == repo_id) {
+                self.chat_repo = Some(row.clone());
+            } else {
+                self.seed_repo = Some(repo_id);
+            }
         }
         if let Some(text) = seed.text {
             if self.input.read(cx).value().trim().is_empty() {
@@ -1380,7 +1390,10 @@ impl ChatScreenView {
                 if this.repos_team.as_deref() != Some(team.as_str()) {
                     return;
                 }
-                this.chat_repo = action_run::preselect_repo(&rows);
+                this.chat_repo = match this.seed_repo.take().and_then(|id| rows.iter().find(|row| row.id == id).cloned()) {
+                    Some(seeded) => Some(seeded),
+                    None => action_run::preselect_repo(&rows),
+                };
                 this.team_repos = rows;
                 cx.notify();
             });

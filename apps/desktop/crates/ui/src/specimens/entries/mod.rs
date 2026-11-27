@@ -11,6 +11,7 @@ pub(crate) mod chat_list;
 pub(crate) mod chat_menus;
 pub(crate) mod chat_selection;
 pub(crate) mod chat_transcript;
+pub(crate) mod ci;
 pub(crate) mod ci_run;
 pub(crate) mod code_block;
 pub(crate) mod device_readiness;
@@ -66,6 +67,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: chat_selection::ID, owner: chat_selection::OWNER, render: chat_selection::render },
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: ci_run::ID, owner: ci_run::OWNER, render: ci_run::render },
+    Entry { id: ci::ID, owner: ci::OWNER, render: ci::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },

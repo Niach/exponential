@@ -169,6 +169,10 @@ pub enum Screen {
     /// [`crate::ci_run::CiRunView`]). `job` = the job asked for. Tab-less
     /// full-page mode like Devices.
     CiRun { run_id: String, job: Option<String> },
+    /// #EXP-2172 (ci-page.json): THE CI page ([`crate::ci_page::CiPageView`]),
+    /// the sidebar's root row after Devices, across every member team. A
+    /// work-tab page like Chats and Drafts.
+    Ci,
 }
 
 impl Screen {
@@ -214,6 +218,7 @@ impl Screen {
                 | Screen::NeedsYou
                 | Screen::Chats
                 | Screen::Drafts
+                | Screen::Ci
                 | Screen::Device { .. }
                 | Screen::BoardIssues { .. }
                 | Screen::AppRun { .. }
@@ -415,6 +420,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::DeviceSettings { .. } => domain::sidebar_tree::sidebar_tree_copy().device_settings.clone().into(),
         Screen::NewItem { kind, .. } => crate::new_item_page::new_item_title(*kind).into(),
         Screen::Drafts => "Drafts".into(),
+        Screen::Ci => domain::ci_page::copy("title").into(),
         Screen::NeedsYou => domain::needs_you::NEEDS_YOU.copy.entry.clone().into(),
         // EXP-1170: the draft page names itself by the contract's header.
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
@@ -496,6 +502,9 @@ pub(crate) struct ChatSeed {
     pub(crate) text: Option<String>,
     /// #EXP-2027: a team menu's New › Session: the composer's Teams pick.
     pub(crate) team_id: Option<String>,
+    /// #EXP-2172 (web's `repo` seed): the Repository pick, applied when it
+    /// is one of the team's (Fix with an agent: the run's repository).
+    pub(crate) repo_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -889,6 +898,8 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" | "device" => Some(Screen::Device { device_id: String::new() }),
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
+        // #EXP-2172: THE CI page.
+        "ci" => Some(Screen::Ci),
         "needs-you" => Some(Screen::NeedsYou),
         // EXP-1170: a fresh New issue page on the window's active board.
         "draft" => Some(Screen::IssueDraft {
