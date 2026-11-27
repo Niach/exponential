@@ -34,14 +34,6 @@ public enum RepoCiView {
     /// At most this many required checks (`ci.setRepoConfig`'s cap).
     public static let maxRequired = 64
 
-    private static func iconTone(_ tone: PrChecks.Tone) -> String {
-        switch tone {
-        case .muted: "neutral"
-        case .green: "success"
-        case .red: "danger"
-        }
-    }
-
     /// repo-page.json `copy.checks[state].tone` → the Chip's dot token (web `DOT`).
     private static func dot(_ state: String) -> String {
         switch RepoPage.Copy.checks(state)?.tone {
@@ -74,26 +66,6 @@ public enum RepoCiView {
 
     private static func stack(_ id: String, _ children: [CardJSON]) -> CardJSON {
         node(id, "Stack", props: ["direction": .string("vertical"), "gap": .string("none"), "align": .string("stretch")], children: children)
-    }
-
-    /// PHONES: one `Row` per run (leading glyph tinted, `#n`, the name,
-    /// `ref · sha7 · trigger`, the duration); a press opens the run page.
-    public static func runsTree(_ rows: [RepoCi.RunRow]) -> CardJSON {
-        let ids = RepoCi.TestIds.self
-        return node(ids.runs, "Section", children: rows.map { row in
-            var props: [String: CardJSON] = [
-                "identifier": .string(row.identifier),
-                "title": .string(row.title),
-                "subtitle": .string(row.subtitle),
-                "pressable": .bool(true),
-            ]
-            if let duration = row.duration { props["meta"] = .string(duration) }
-            var extra = on("press", Events.openRun, context: ["run": .string(row.id)])
-            extra["slots"] = .object(["leading": node("\(ids.runRow).\(row.id).glyph", "Icon", props: [
-                "name": .string(row.glyph.rawValue), "tone": .string(iconTone(row.tone)), "size": .string("sm"),
-            ])])
-            return node("\(ids.runRow).\(row.id)", "Row", props: props, extra: extra)
-        })
     }
 
     /// The CI section, PHONE layout (web `repoCiSectionTree`): a `Section` CI

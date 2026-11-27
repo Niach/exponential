@@ -36,6 +36,17 @@ struct ChatCardsScreen: View {
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat-cards-screen")
+        } else if ["ci", "ci-run", "ci-run-github", "repo-runs"].contains(kind) {
+            // #EXP-2169: whole pushed pages under the route's own header.
+            Group {
+                switch kind {
+                case "ci": CiPageSpecimens()
+                case "repo-runs": RepoRunsSpecimens()
+                default: CiRunSpecimens(github: kind == "ci-run-github")
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("chat-cards-screen")
         } else if kind == "app-consent" {
             // VAPP-120: the consent card over a stand-in surface.
             AppConsentSpecimens()
@@ -106,15 +117,9 @@ struct ChatCardsScreen: View {
                     case "pr-row": PrRowSpecimens()
                     case "session-row": SessionRowSpecimens()
                     case "pr-checks": PrChecksSpecimens()
-                    // #EXP-1804: the CI run page and the CI runner section.
-                    case "ci-run": CiRunSpecimens()
-                    // #EXP-2172: the CI page over ci-page.json `scenario`;
-                    // `ci-run-github` = the run page of a GitHub run (capture only).
-                    case "ci": CiPageSpecimens()
-                    case "ci-run-github": CiRunSpecimens(github: true)
+                    // #EXP-1804: the CI runner section.
                     case "runner-settings": RunnerSettingsSpecimens()
-                    // #EXP-1617: the repo page's Runs tab + its CI section.
-                    case "repo-runs": RepoRunsSpecimens()
+                    // #EXP-1617: the repo page's Settings › CI section.
                     case "repo-ci": RepoCiSpecimens()
                     default: workCards
                     }

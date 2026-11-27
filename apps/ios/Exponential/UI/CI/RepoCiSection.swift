@@ -4,30 +4,12 @@ import GRDB
 import SwiftUI
 
 // #EXP-1617 E4 part 4 (fixtures/repo-ci.json, views `repo-runs` / `repo-ci`):
-// the repo page's Runs tab and the CI section of its Settings tab, phone
-// layout, as the genUI trees web builds (`RepoCiView`, web
-// `lib/repo-ci-view.ts`, Android `RepoCiSection.kt`), painted by `CiSurface`
+// the CI section of the repo page's Settings tab (#EXP-2169: the Runs tab
+// is `CiPageView.ciRepoRunsTree`, `RepoRunsView`), phone layout, as the
+// genUI tree web builds (`RepoCiView`, web `lib/repo-ci-view.ts`, Android `RepoCiSection.kt`), painted by `CiSurface`
 // like the run page and the runner section. The two overlays stay E3's:
 // Delete's AlertDialog = `GlassAlert`, Add secret's phone Drawer = THE sheet
 // (`AddSecretSheet`).
-
-/// RUNS: `runRows` newest first (one Row per run); none = the EmptyState.
-struct RepoRunsTab: View {
-    let rows: [RepoCi.RunRow]
-    var onOpenRun: (String) -> Void = { _ in }
-
-    var body: some View {
-        if rows.isEmpty {
-            EmptyState(title: RepoPage.Copy.Runs.empty, size: .list)
-        } else {
-            CiSurface(surfaceId: "repo-runs", tree: RepoCiView.runsTree(rows)) { name, context, _ in
-                if name == RepoCiView.Events.openRun, case let .string(runId)? = context?["run"] { onOpenRun(runId) }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(RepoCi.TestIds.runs)
-        }
-    }
-}
 
 /// SETTINGS › CI (`RepoCiView.sectionTree`). `settings` nil = still loading
 /// (the secrets block waits). `manager` false = every control disabled, the
@@ -263,25 +245,6 @@ final class RepoCiModel {
 
     func reload(api: CiApi, accountId: String, repositoryId: String) async {
         if let fresh = try? await api.repoSettings(accountId: accountId, repositoryId: repositoryId) { settings = fresh }
-    }
-}
-
-/// A run's live duration ticks while one is running.
-struct RepoRunsLive: View {
-    let model: RepoCiModel
-    var onOpenRun: (String) -> Void
-
-    @State private var now = Date()
-
-    var body: some View {
-        let running = model.runs.contains { $0.state == "pending" && $0.startedAt != nil }
-        RepoRunsTab(rows: RepoCi.runRows(model.runs, jobs: model.jobs, now: now), onOpenRun: onOpenRun)
-            .task(id: running) {
-                while running, !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(1))
-                    now = Date()
-                }
-            }
     }
 }
 

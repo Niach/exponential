@@ -97,34 +97,35 @@ public enum CiPageView {
         .object(["label": .string(label), "value": .string(value)])
     }
 
+    /// The filter bar (#EXP-2169 "one look"): ONE Toolbar of three
+    /// `Select{button}` pickers (status, repository, source); wide adds the
+    /// runner Chip at its end.
     private static func filters(_ input: CiPage.Input, _ state: State) -> CardJSON {
         let ids = CiPage.TestIds.self
         let copy = CiPage.Copy.self
-        var statusProps: [String: CardJSON] = [
-            "items": .array(CiPage.Filter.allCases.map { option(copy.filters[$0.rawValue] ?? $0.rawValue, $0.rawValue) }),
-            "value": .string(state.filter.status.rawValue),
-            "size": .string("sm"),
-        ]
-        if state.phone { statusProps["fill"] = .bool(true) }
-        let status = node(ids.statusFilter, "Segmented", props: statusProps, on: ("change", Events.status, nil))
-        let repository = node(ids.repoFilter, "Select", props: [
-            "name": .string(ids.repoFilter),
-            "triggerVariant": .string("pill"),
-            "value": .string(state.filter.repositoryId ?? "all"),
-            "options": .array(CiPage.repoOptions(input).map { option($0.label, $0.value) }),
-        ], on: ("change", Events.repository, nil))
-        let source = node(ids.sourceFilter, "Select", props: [
-            "name": .string(ids.sourceFilter),
-            "triggerVariant": .string("pill"),
-            "value": .string(state.filter.source?.rawValue ?? "all"),
-            "options": .array(["all", "exponential", "github"].map { option(copy.sources[$0] ?? $0, $0) }),
-        ], on: ("change", Events.source, nil))
-        if state.phone {
-            return stack(ids.filters, "vertical", "sm", [
-                status, node("\(ids.filters).picks", "Toolbar", children: [repository, source]),
-            ])
+        func picker(_ id: String, _ label: String, _ value: String, _ options: [CardJSON], _ event: String) -> CardJSON {
+            node(id, "Select", props: [
+                "name": .string(id),
+                "label": .string(label),
+                "triggerVariant": .string("button"),
+                "value": .string(value),
+                "options": .array(options),
+            ], on: ("change", event, nil))
         }
-        let runners = CiPage.runnerChip(input).map { chip in
+        let status = picker(
+            ids.statusFilter, copy.filterLabels["status"] ?? "", state.filter.status.rawValue,
+            CiPage.Filter.allCases.map { option(copy.filters[$0.rawValue] ?? $0.rawValue, $0.rawValue) }, Events.status
+        )
+        let repository = picker(
+            ids.repoFilter, copy.filterLabels["repository"] ?? "", state.filter.repositoryId ?? "all",
+            CiPage.repoOptions(input).map { option($0.label, $0.value) }, Events.repository
+        )
+        let source = picker(
+            ids.sourceFilter, copy.filterLabels["source"] ?? "", state.filter.source?.rawValue ?? "all",
+            ["all", "exponential", "github"].map { option(copy.sources[$0] ?? $0, $0) }, Events.source
+        )
+        let chip = state.phone ? nil : CiPage.runnerChip(input)
+        let runners = chip.map { chip in
             node(ids.runnerChip, "Chip", props: [
                 "label": .string(chip.label),
                 "dot": .string(chip.online ? "$color.success" : "$color.mutedForeground"),
@@ -176,24 +177,36 @@ public enum CiPageView {
         ], on: press)
     }
 
-    private static func runsPanel(_ input: CiPage.Input, _ state: State) -> CardJSON {
+    /// The runs as day Sections (or the EmptyState): the Runs tab's body
+    /// and the repo page's Runs tab (`ciRepoRunsTree`).
+    private static func runSections(_ input: CiPage.Input, filter: CiPage.RunFilter, phone: Bool, filtered: Bool) -> CardJSON {
         let ids = CiPage.TestIds.self
         let copy = CiPage.Copy.self
-        let groups = CiPage.runGroups(input, filter: state.filter)
-        var children: [CardJSON] = [filters(input, state)]
-        let filtered = state.filter.status != .all || state.filter.repositoryId != nil || state.filter.source != nil
+        let groups = CiPage.runGroups(input, filter: filter)
         if groups.isEmpty {
-            children.append(node(ids.runs, "EmptyState", props: [
+            return node(ids.runs, "EmptyState", props: [
                 "icon": .string("nav-ci"), "title": .string(filtered ? copy.Empty.filtered : copy.Empty.runs), "size": .string("list"),
-            ]))
-        } else {
-            children.append(stack(ids.runs, "vertical", "md", groups.map { group in
-                var props: [String: CardJSON] = ["title": .string(group.title)]
-                if let count = group.count { props["count"] = .number(Double(count)) }
-                return node("\(ids.runs).\(group.id)", "Section", props: props, children: group.rows.map { runRow($0, phone: state.phone) })
-            }))
+            ])
         }
-        return stack("\(ids.page).runs", "vertical", "md", children)
+        return stack(ids.runs, "vertical", "md", groups.map { group in
+            var props: [String: CardJSON] = ["title": .string(group.title)]
+            if let count = group.count { props["count"] = .number(Double(count)) }
+            return node("\(ids.runs).\(group.id)", "Section", props: props, children: group.rows.map { runRow($0, phone: phone) })
+        })
+    }
+
+    private static func runsPanel(_ input: CiPage.Input, _ state: State) -> CardJSON {
+        let filtered = state.filter.status != .all || state.filter.repositoryId != nil || state.filter.source != nil
+        return stack("\(CiPage.TestIds.page).runs", "vertical", "md", [
+            filters(input, state), runSections(input, filter: state.filter, phone: state.phone, filtered: filtered),
+        ])
+    }
+
+    /// THE REPO PAGE'S RUNS TAB (#EXP-2169 "one look"): the CI page's runs of
+    /// ONE repository, the same day Sections and rows, no filter bar. Events:
+    /// the page's `ci-open-run {run}`.
+    public static func ciRepoRunsTree(_ input: CiPage.Input, repositoryId: String, phone: Bool) -> CardJSON {
+        runSections(input, filter: CiPage.RunFilter(status: .all, repositoryId: repositoryId, source: nil), phone: phone, filtered: false)
     }
 
     private static func trainPanel(_ input: CiPage.Input) -> CardJSON {
@@ -239,34 +252,16 @@ public enum CiPageView {
         })
     }
 
-    /// The CI page (ci-page.json LAYOUT): the tab strip, then the current
-    /// tab's panel (the others are empty stacks).
+    /// The CI page's body (ci-page.json LAYOUT): the CURRENT tab's panel.
+    /// The tab switcher is the platform's own segmented control (#EXP-2169
+    /// "one look": the board's switcher, counts from `CiPage.tabCounts`),
+    /// drawn by the host above this tree.
     public static func ciPageTree(_ input: CiPage.Input, state: State) -> CardJSON {
-        let ids = CiPage.TestIds.self
-        let copy = CiPage.Copy.self
-        let counts = CiPage.tabCounts(input)
-        func tab(_ value: CiPage.Tab, _ count: Int?) -> CardJSON {
-            var out: [String: CardJSON] = ["label": .string(copy.tabs[value.rawValue] ?? value.rawValue), "value": .string(value.rawValue)]
-            if let count, count > 0 { out["count"] = .number(Double(count)) }
-            return .object(out)
+        switch state.tab {
+        case .runs: runsPanel(input, state)
+        case .train: trainPanel(input)
+        case .runners: runnersPanel(input)
         }
-        func panel(_ value: CiPage.Tab) -> CardJSON {
-            guard value == state.tab else { return stack("\(ids.page).\(value.rawValue)", "vertical", "md", []) }
-            switch value {
-            case .runs: return runsPanel(input, state)
-            case .train: return trainPanel(input)
-            case .runners: return runnersPanel(input)
-            }
-        }
-        var tabsProps: [String: CardJSON] = [
-            "tabs": .array([tab(.runs, nil), tab(.train, counts.train), tab(.runners, counts.runners)]),
-            "value": .string(state.tab.rawValue),
-            "variant": .string("strip"),
-        ]
-        if state.phone { tabsProps["fill"] = .bool(true) }
-        return stack(ids.page, "vertical", "lg", [
-            node(ids.tabs, "Tabs", props: tabsProps, children: [panel(.runs), panel(.train), panel(.runners)], on: ("change", Events.tab, nil)),
-        ])
     }
 
     /// A control event's next state (`ci-tab` and the filters carry the

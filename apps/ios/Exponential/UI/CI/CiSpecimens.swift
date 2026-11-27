@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import SwiftUI
 
 // #EXP-1804 (`sg_ci-run`, `sg_runner-settings`): the fixtures' `specimen`s
@@ -25,26 +26,56 @@ struct CiRunSpecimens: View {
     }
 
     var body: some View {
-        CiRunPage(
-            model: model,
-            selected: CiRun.specimenSelected,
-            log: CiRun.specimenLog,
-            now: WireTimestamps.parse(CiRun.specimenNow) ?? Date()
-        )
-        .padding(.horizontal, -16)
+        PushedSpecimen {
+            ZStack {
+                AppBackground()
+                CiRunPage(
+                    model: model,
+                    selected: CiRun.specimenSelected,
+                    log: CiRun.specimenLog,
+                    now: WireTimestamps.parse(CiRun.specimenNow) ?? Date()
+                )
+            }
+            .modifier(CiRunHeader(model: model))
+        }
         .accessibilityIdentifier("ci-run-specimen")
     }
 }
 
 /// #EXP-2172 (`sg_ci`): ci-page.json `scenario`, the Runs tab, as a phone
-/// draws it; the tabs and filters work.
+/// draws it under the route's own pushed header (#EXP-2169: Devices' header);
+/// the tabs and filters work.
 struct CiPageSpecimens: View {
     @State private var state = CiPageView.State(phone: true)
 
     var body: some View {
-        CiPagePage(input: CiPage.specimen, state: state, onState: { state = $0 })
-            .padding(.horizontal, -16)
-            .accessibilityIdentifier("ci-page-specimen")
+        PushedSpecimen {
+            ZStack {
+                AppBackground()
+                CiPagePage(input: CiPage.specimen, state: state, onState: { state = $0 })
+            }
+            .pageHeader(CiPage.Copy.title, pushed: true)
+        }
+        .accessibilityIdentifier("ci-page-specimen")
+    }
+}
+
+/// #EXP-2169: a specimen page one push deep, so it wears the route's pushed
+/// header (THE round back, the title left) as the live screen does.
+struct PushedSpecimen<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        NavigationStack(path: .constant(["page"])) {
+            Color.clear
+                .navigationDestination(for: String.self) { _ in
+                    content()
+                        // A preset path skips the push: pin the inline title.
+                        .navigationBarTitleDisplayMode(.inline)
+                        .bareBackButton()
+                }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -68,14 +99,24 @@ struct RunnerSettingsSpecimens: View {
     }
 }
 
-/// #EXP-1617 (repo-ci.json, `sg_repo-runs`): the repo page's Runs tab over
-/// runRows[0] as a phone draws it (one Row per run).
+/// #EXP-2169 (`sg_repo-runs`, ci-page-view.json "phone, the repo page's
+/// Runs tab"): acme/engine's page on its Runs tab over ci-page.json
+/// `scenario`: the CI page's day Sections of that repository.
 struct RepoRunsSpecimens: View {
     var body: some View {
-        RepoRunsTab(rows: RepoCi.runRows(
-            RepoCi.specimenRuns, jobs: RepoCi.specimenJobs,
-            now: WireTimestamps.parse(RepoCi.specimenNow) ?? Date()
-        ))
+        PushedSpecimen {
+            ZStack {
+                AppBackground()
+                VStack(spacing: 0) {
+                    RepoTabStrip(tab: .runs)
+                    ScrollView {
+                        RepoRunsView(input: CiPage.specimen, repositoryId: "repo-engine")
+                            .padding(16)
+                    }
+                }
+            }
+            .pageHeader("acme/engine", pushed: true)
+        }
         .accessibilityIdentifier("repo-runs-specimen")
     }
 }
