@@ -2162,6 +2162,9 @@ impl SurfaceView {
     pub fn hosted_popup_element(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let k = self.layers.iter().position(|l| l.hosted && l.owner == owner)?;
         let layer = self.layers[k].clone();
+        if layer.kind == "Menu" {
+            self.hosted_key_windows.insert(layer.owner.clone(), window.window_handle().window_id());
+        }
         let f = self.frames.get(layer.root as usize).copied().unwrap_or_default();
         // #EXP-2045: the host's popup is a window of its own, with frames of
         // its own. Its paint reads the clock now: the motion clock is the

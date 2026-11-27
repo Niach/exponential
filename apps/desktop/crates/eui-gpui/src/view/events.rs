@@ -533,6 +533,11 @@ impl SurfaceView {
     /// Which focusable node holds focus now; its `focus` (and, from the
     /// keyboard, `focus-visible`) state follows.
     pub(crate) fn track_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // #EDE-263: a hosted Menu's popup holds the keyboard; only its
+        // window says where the focus is ([`Self::hosted_key_window`]).
+        if self.hosted_key_window().is_some_and(|keys| keys != window.window_handle().window_id()) {
+            return;
+        }
         let mut now = None;
         for (id, h) in &self.focus_handles {
             if h.is_focused(window) {
@@ -589,6 +594,11 @@ impl SurfaceView {
             }
             self.focus_trigger = trigger;
         }
+    }
+
+    /// #EDE-263: the window of the open hosted Menu on top, if it painted.
+    fn hosted_key_window(&self) -> Option<gpui::WindowId> {
+        self.layers.iter().rev().filter(|l| l.hosted && l.kind == "Menu").find_map(|l| self.hosted_key_windows.get(&l.owner).copied())
     }
 
     /// The nearest node at or above `index` that opens an overlay on hover.
