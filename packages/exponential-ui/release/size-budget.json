@@ -17,12 +17,12 @@
     "gzip": 27768
   },
   "@exponential_app/eui/prompt": {
-    "bytes": 272200,
+    "bytes": 273500,
     "gzip": 68064
   },
   "@exponential_app/eui/schema": {
-    "bytes": 322300,
-    "gzip": 72500
+    "bytes": 323600,
+    "gzip": 72800
   },
   "@exponential_app/eui/conformance": {
     "bytes": 5139000,
@@ -69,8 +69,8 @@
     "gzip": 11576
   },
   "@exponential_app/eui-element/standalone.js": {
-    "bytes": 1843000,
-    "gzip": 436400
+    "bytes": 1844000,
+    "gzip": 436700
   },
   "android/arm64-v8a": {
     "bytes": 9760000

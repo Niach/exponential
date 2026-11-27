@@ -90,11 +90,6 @@ export const COMMON_PROPS: Readonly<Record<string, string>> = {
   gap: ``,
   aspectRatio: `width/height`,
   text: ``,
-  // #EXP-2204: room in the budget for the CI components.
-  fit: `how it fills the box`,
-  emptyText: ``,
-  href: `URL a press opens`,
-  cancel: `outline Cancel`,
 }
 
 function typeOf(schema: PropSchema, enums: Record<string, readonly string[]>): string {

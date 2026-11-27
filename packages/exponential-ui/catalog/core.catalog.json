@@ -1707,7 +1707,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Container laid out by its style; `hover` on enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "props": {
         "style": {
           "type": "style",
@@ -1739,7 +1739,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Children in one direction, with a gap.",
+      "description": "Flex: children in one direction with a gap.",
       "props": {
         "direction": {
           "type": "enum",
@@ -1792,7 +1792,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Equal columns of tiles.",
+      "description": "Equal columns of cards or tiles.",
       "props": {
         "columns": {
           "type": "number",
@@ -1822,7 +1822,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Bordered group of content (not a header).",
+      "description": "Bordered card for grouped content, not page headers.",
       "props": {
         "title": {
           "type": "string",
@@ -1860,7 +1860,7 @@
       "group": "layout",
       "lite": true,
       "children": "one",
-      "description": "Frame: three-dot bar (`title`) over one child.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "props": {
         "title": {
           "type": "string",
@@ -1923,7 +1923,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups rows by it; `section` slot = header."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -1933,12 +1933,12 @@
         "reorderable": {
           "type": "boolean",
           "default": false,
-          "description": "Drag to reorder; fires `move` {id, before|after|into}."
+          "description": "Rows drag to reorder; fires `move` {id, before|after|into}."
         },
         "maxDepth": {
           "type": "number",
           "default": 1,
-          "description": "`reorderable` nesting levels (items' `depth`, `group`)."
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
         },
         "style": {
           "type": "style",
@@ -2010,7 +2010,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Bounded scroll region.",
+      "description": "Scroll region of bounded height or width.",
       "props": {
         "direction": {
           "type": "enum",
@@ -2088,7 +2088,7 @@
       "slots": [
         "list"
       ],
-      "description": "List (`list` slot) + detail (children); phones show one with back.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with back.",
       "props": {
         "open": {
           "type": "boolean",
@@ -2155,7 +2155,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Screen: AppBar over a padded scrolling body.",
+      "description": "Screen: AppBar row over a padded scrolling body.",
       "props": {
         "title": {
           "type": "string",
@@ -2195,7 +2195,7 @@
       "slots": [
         "trailing"
       ],
-      "description": "Control row, bottom-aligned, wraps on phones; `trailing` = end action.",
+      "description": "One row of controls, bottom-aligned, wraps on phones; `trailing` = end action.",
       "props": {
         "gap": {
           "type": "enum",
@@ -2217,7 +2217,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Band header over hairline-divided rows (title optional).",
+      "description": "Band header over hairline-divided rows; no title = rows only.",
       "props": {
         "title": {
           "type": "string",
@@ -2241,7 +2241,7 @@
         "collapsible": {
           "type": "boolean",
           "default": false,
-          "description": "Header folds the rows."
+          "description": "Header folds the rows (chevron, press)."
         },
         "open": {
           "type": "boolean",
@@ -2258,7 +2258,7 @@
         "tree": {
           "type": "boolean",
           "default": false,
-          "description": "Tree rows: `Row.depth` indents + guides."
+          "description": "Rows are a tree: `Row.depth` indents, draws guides."
         },
         "loading": {
           "type": "boolean",
@@ -2419,7 +2419,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "GitHub-flavoured markdown.",
+      "description": "GitHub-flavoured markdown prose.",
       "props": {
         "text": {
           "type": "markdown",
@@ -2495,7 +2495,7 @@
         "wrap": {
           "type": "boolean",
           "default": false,
-          "description": "Wraps long lines."
+          "description": "Wraps long lines (else side-scrolls)."
         },
         "copyable": {
           "type": "boolean",
@@ -2516,7 +2516,7 @@
         "follow": {
           "type": "boolean",
           "default": false,
-          "description": "Sticks to the end as it grows."
+          "description": "Sticks to the bottom as it grows."
         },
         "variant": {
           "type": "enum",
@@ -2640,7 +2640,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "URL picture, else a placeholder.",
+      "description": "Picture from a URL, else a placeholder box.",
       "props": {
         "src": {
           "type": "url",
@@ -2706,7 +2706,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Picture that zooms (pinch, ⌘-wheel, double-tap), pans.",
+      "description": "Picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
       "props": {
         "src": {
           "type": "url",
@@ -2771,7 +2771,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "One Lucide icon.",
+      "description": "One Lucide icon (shared registry).",
       "props": {
         "name": {
           "type": "icon",
@@ -2806,7 +2806,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Poster, then the platform player.",
+      "description": "Poster, then the platform player with controls.",
       "props": {
         "src": {
           "type": "url",
@@ -2882,7 +2882,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "User picture, else initials on a stable hue.",
+      "description": "Round user picture, else initials on a stable hue.",
       "props": {
         "name": {
           "type": "string",
@@ -2952,7 +2952,7 @@
       "group": "media",
       "lite": false,
       "children": "many",
-      "description": "Pager, a page per child.",
+      "description": "Horizontal pager, a page per child.",
       "props": {
         "page": {
           "type": "number",
@@ -3041,7 +3041,7 @@
       "group": "navigation",
       "lite": true,
       "children": "many",
-      "description": "Tabs; child i is tab i's panel.",
+      "description": "Tab navigation; child i is tab i's panel.",
       "props": {
         "tabs": {
           "type": "array",
@@ -3111,7 +3111,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Row or column of segments (also a bottom bar, rail).",
+      "description": "ONE row or column of segments (also a bottom bar or rail).",
       "props": {
         "items": {
           "type": "array",
@@ -3221,7 +3221,7 @@
       "group": "navigation",
       "lite": true,
       "children": "many",
-      "description": "A title row folding its children.",
+      "description": "Disclosure: a title row folds its children.",
       "props": {
         "title": {
           "type": "string",
@@ -3252,7 +3252,7 @@
       "group": "list",
       "lite": true,
       "children": "many",
-      "description": "TraceItem column (agent steps).",
+      "description": "TraceItem column (an agent's steps).",
       "props": {
         "size": {
           "type": "enum",
@@ -3270,7 +3270,7 @@
       "group": "list",
       "lite": true,
       "children": "many",
-      "description": "Step: icon, title, muted detail; expands to children.",
+      "description": "One step: icon, title, muted detail; expands to its children.",
       "props": {
         "title": {
           "type": "string",
@@ -3325,7 +3325,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "Steps to approve, then progress and Stop.",
+      "description": "Plan card: steps to approve, then progress and Stop.",
       "props": {
         "title": {
           "type": "string",
@@ -3403,7 +3403,7 @@
       "group": "navigation",
       "lite": false,
       "children": "none",
-      "description": "Prev, next, page of a total.",
+      "description": "Previous, next, current page of a total.",
       "props": {
         "totalPages": {
           "type": "number",
@@ -3430,7 +3430,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Path to this page; all but the last fire `select`.",
+      "description": "Path to the current page; all but the last fire `select`.",
       "props": {
         "items": {
           "type": "array",
@@ -3467,7 +3467,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Anchor rows under a caption, one active; fires `select {id}`.",
+      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
       "props": {
         "items": {
           "type": "array",
@@ -3517,7 +3517,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Wizard: numbered steps, done ones ticked.",
+      "description": "Wizard progress: numbered steps, done ones ticked.",
       "props": {
         "steps": {
           "type": "array",
@@ -3571,7 +3571,7 @@
         "trigger",
         "footer"
       ],
-      "description": "Centred modal; `trigger` slot or bound `open`.",
+      "description": "Centred modal, opened by its trigger slot or bound `open`.",
       "props": {
         "title": {
           "type": "string",
@@ -3612,7 +3612,7 @@
         "trigger",
         "footer"
       ],
-      "description": "Edge panel (bottom sheet on phones).",
+      "description": "Panel sliding from an edge (bottom sheet on phones).",
       "props": {
         "title": {
           "type": "string",
@@ -3663,7 +3663,7 @@
       "slots": [
         "footer"
       ],
-      "description": "Floating one-row card; children open a bottom sheet, footer pinned.",
+      "description": "Floating one-row card; children open in a bottom sheet, footer pinned.",
       "props": {
         "label": {
           "type": "string",
@@ -3777,7 +3777,7 @@
       "slots": [
         "trigger"
       ],
-      "description": "Panel anchored to its trigger.",
+      "description": "Small panel anchored to its trigger.",
       "props": {
         "open": {
           "type": "boolean",
@@ -3799,7 +3799,7 @@
         },
         "anchor": {
           "type": "componentId",
-          "description": "Node it opens at; a text field = typeahead (keeps focus)."
+          "description": "Open-at node it toggles; a text field = typeahead (keeps focus)."
         },
         "openOn": {
           "type": "enum",
@@ -3825,7 +3825,7 @@
       "group": "overlay",
       "lite": false,
       "children": "many",
-      "description": "Hint on hover or long-press of its children.",
+      "description": "Hint on hovering or long-pressing its children.",
       "props": {
         "content": {
           "type": "string",
@@ -3923,7 +3923,7 @@
       "group": "overlay",
       "lite": false,
       "children": "none",
-      "description": "One transient notice; bind `open`.",
+      "description": "Transient notice; one per notice with `open` bound.",
       "props": {
         "title": {
           "type": "string",
@@ -4043,7 +4043,7 @@
       "slots": [
         "leading"
       ],
-      "description": "Token: a pill (filter, label, state) or entity rect.",
+      "description": "Small token: a pill (filter, label, state) or an entity rect.",
       "props": {
         "label": {
           "type": "string",
@@ -4071,7 +4071,7 @@
         },
         "dot": {
           "type": "color",
-          "description": "Leading dot (label chip)."
+          "description": "Dot before the text (label chip)."
         },
         "icon": {
           "type": "icon",
@@ -4079,7 +4079,7 @@
         },
         "image": {
           "type": "url",
-          "description": "Round picture (no icon)."
+          "description": "Round picture, not the icon."
         },
         "detail": {
           "type": "string",
@@ -4111,7 +4111,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Empty `page` (disc, title, sentence, action) or `list` line.",
+      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
       "props": {
         "icon": {
           "type": "icon",
@@ -4201,7 +4201,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Usage bar: coloured segments of a max.",
+      "description": "Usage bar: coloured segments against a max.",
       "props": {
         "segments": {
           "type": "array",
@@ -4255,7 +4255,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Icon-sized progress ring.",
+      "description": "Progress ring for a fraction, icon-sized.",
       "props": {
         "value": {
           "type": "number",
@@ -4303,7 +4303,7 @@
       "group": "feedback",
       "lite": false,
       "children": "none",
-      "description": "Indeterminate activity.",
+      "description": "Indeterminate activity indicator.",
       "props": {
         "size": {
           "type": "enum",
@@ -4363,7 +4363,7 @@
       "group": "feedback",
       "lite": false,
       "children": "one",
-      "description": "Voice level: three waves around an optional child.",
+      "description": "Live voice level: three waves around an optional child.",
       "props": {
         "activity": {
           "type": "enum",
@@ -4420,7 +4420,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Count capsule on a nav entry or row; ≤ 0 hides.",
+      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
       "props": {
         "count": {
           "type": "number",
@@ -4450,7 +4450,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Call screen: wave, avatar, name, status, buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, buttons.",
       "props": {
         "name": {
           "type": "string",
@@ -4541,7 +4541,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "Typed, sortable, selectable, windowed; `slot` columns hold components.",
+      "description": "Typed columns, sortable, selectable, windowed; `slot` columns hold components.",
       "props": {
         "columns": {
           "type": "array",
@@ -4559,7 +4559,7 @@
           },
           "required": true,
           "bindable": true,
-          "description": "Objects keyed by column."
+          "description": "One object per row, by column key."
         },
         "rowKey": {
           "type": "string",
@@ -4772,7 +4772,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "Tiny trend line, no axes or legend.",
+      "description": "Tiny inline trend line, no axes or legend.",
       "props": {
         "values": {
           "type": "array",
@@ -5025,7 +5025,7 @@
       "group": "action",
       "lite": true,
       "children": "one",
-      "description": "Press target: label + icon, or one custom child.",
+      "description": "Press target: label + optional icon, or one custom child.",
       "props": {
         "label": {
           "type": "string",
@@ -5113,7 +5113,7 @@
       "group": "action",
       "lite": true,
       "children": "none",
-      "description": "Inline link: a URL or `press`.",
+      "description": "Inline link opening a URL or firing `press`.",
       "props": {
         "label": {
           "type": "string",
@@ -5144,7 +5144,7 @@
       "group": "action",
       "lite": false,
       "children": "none",
-      "description": "Button that stays pressed.",
+      "description": "Two-state button that stays pressed.",
       "props": {
         "label": {
           "type": "string",
@@ -5191,7 +5191,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Collects fields by `name`; `submit` once checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "props": {
         "name": {
           "type": "string",
@@ -5247,7 +5247,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "End-aligned buttons: children, Cancel, then THE (primary) submit.",
+      "description": "End-aligned buttons: children, Cancel, then THE submit (the one primary).",
       "props": {
         "submit": {
           "type": "string",
@@ -5279,7 +5279,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Settings line: label (+ description), then the control child.",
+      "description": "Settings line: label (+ description), then the control (children).",
       "props": {
         "label": {
           "type": "string",
@@ -5296,7 +5296,7 @@
           "type": "enum",
           "enum": "collapseBelow",
           "default": "sm",
-          "description": "Below it, the control stacks."
+          "description": "Below this, control under the label."
         }
       },
       "example": {
@@ -5495,7 +5495,7 @@
         },
         "precision": {
           "type": "number",
-          "description": "Decimals (default: the step's)."
+          "description": "Decimals shown; default the step's."
         },
         "unit": {
           "type": "string",
@@ -5597,7 +5597,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Radio group: one value.",
+      "description": "Radio group choosing one value.",
       "props": {
         "label": {
           "type": "string",
@@ -5903,7 +5903,7 @@
             "shape": "option"
           },
           "bindable": true,
-          "description": "Inline, or a path refilled on `search`; omit with `source`."
+          "description": "Inline, or a path the host refills on `search`; omit with `source`."
         },
         "source": {
           "type": "string",
@@ -5947,7 +5947,7 @@
         "triggerIcon": {
           "type": "boolean",
           "default": false,
-          "description": "`row`: the chosen `icon` before the value."
+          "description": "`row`: chosen option's `icon` before the value."
         },
         "align": {
           "type": "enum",
@@ -6014,7 +6014,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Search over rows: typing filters, arrows move, Enter picks.",
+      "description": "Search field over rows: typing filters, arrows move, Enter picks.",
       "props": {
         "items": {
           "type": "array",
@@ -6153,7 +6153,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Shortcut field: press `start`s, blur `stop`s, keys fire `key`; host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -6209,7 +6209,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Icon field: its square opens an icon grid.",
+      "description": "Icon field: a square with the pick opens an icon grid.",
       "props": {
         "value": {
           "type": "string",
@@ -6258,7 +6258,7 @@
       "group": "input",
       "lite": false,
       "children": "one",
-      "description": "Colour field: a swatch (or child) opens the palette.",
+      "description": "Colour field: a swatch (or the child) opens the palette.",
       "props": {
         "value": {
           "type": "string",
@@ -6302,7 +6302,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Date field (ISO yyyy-mm-dd).",
+      "description": "Calendar date field (ISO yyyy-mm-dd).",
       "props": {
         "label": {
           "type": "string",
@@ -6420,7 +6420,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Time field (`HH:mm`): typed, or a list every `step` min.",
+      "description": "Time field (`HH:mm`): a list every `step` minutes, or typed.",
       "props": {
         "label": {
           "type": "string",
@@ -6532,7 +6532,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "QR viewfinder; host camera fires `scanned {value}`.",
+      "description": "QR viewfinder; the host camera fires `scanned {value}`.",
       "props": {
         "hint": {
           "type": "string",
@@ -6577,7 +6577,7 @@
         "trailing",
         "above"
       ],
-      "description": "Chat input: growing field + submit; slots join the controls.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -6681,7 +6681,7 @@
           "enum": "rowChevron",
           "default": "none",
           "bindable": true,
-          "description": "Trailing disclosure glyph."
+          "description": "Trailing disclosure or picker glyph."
         },
         "selected": {
           "type": "boolean",
@@ -6726,7 +6726,7 @@
           "type": "object",
           "shape": "highlight",
           "bindable": true,
-          "description": "Marks a search term (title, subtitle)."
+          "description": "Marks a search term in title and subtitle."
         }
       },
       "events": [
@@ -6744,7 +6744,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "File tree: branches fold, leaves select, lazy ones load; WAI-ARIA keys.",
+      "description": "File-style tree: branches fold, leaves select, lazy branches load; WAI-ARIA keys.",
       "props": {
         "items": {
           "type": "array",
@@ -6817,7 +6817,7 @@
         "attachment",
         "avatar"
       ],
-      "description": "Chat bubble: in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
       "props": {
         "text": {
           "type": "markdown",
@@ -7371,7 +7371,7 @@
       "group": "layout",
       "lite": false,
       "children": "none",
-      "description": "Sandboxed nested surface; events fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
       "props": {
         "surface": {
           "type": "object",
@@ -7411,7 +7411,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records as bars in lanes; phones: dots + day agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "events": [
         "select",
         "open"
@@ -7419,7 +7419,7 @@
       "props": {
         "source": {
           "type": "string",
-          "description": "Where a records `by` binding lands (`month`, `week`)."
+          "description": "Where a records `by` binding lands (reads `month` or `week`)."
         },
         "view": {
           "type": "enum",
@@ -7456,7 +7456,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records as bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "events": [
         "open"
       ],
@@ -7677,7 +7677,7 @@
         "editable": {
           "type": "boolean",
           "default": true,
-          "description": "Rows open the form; Edit, Delete show."
+          "description": "Rows open the form; Edit and Delete show."
         },
         "title": {
           "type": "string",
@@ -7964,7 +7964,7 @@
       "slots": [
         "trailing"
       ],
-      "description": "Site bar: brand, links (one current) firing `select`, trailing slot.",
+      "description": "Site top bar: brand, links (one current) firing `select`, trailing slot.",
       "props": {
         "title": {
           "type": "string",
@@ -8017,7 +8017,7 @@
       "group": "layout",
       "lite": false,
       "children": "many",
-      "description": "Page foot: columns (children), `select` links, fine print.",
+      "description": "Page foot: children (columns), links firing `select`, fine print.",
       "props": {
         "items": {
           "type": "array",
@@ -8059,7 +8059,7 @@
       "group": "layout",
       "lite": false,
       "children": "many",
-      "description": "Top band: eyebrow, big title, lead, buttons (children) in a row.",
+      "description": "Page-top band: eyebrow, big title, lead, children (buttons) in a row.",
       "props": {
         "title": {
           "type": "string",
@@ -8095,7 +8095,7 @@
       "group": "media",
       "lite": false,
       "children": "many",
-      "description": "Picture card: title, subtitle, meta, children.",
+      "description": "Card: picture on top, title, subtitle, meta, children.",
       "props": {
         "src": {
           "type": "url",
@@ -8151,7 +8151,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Week of day tiles, one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "props": {
         "days": {
           "type": "array",

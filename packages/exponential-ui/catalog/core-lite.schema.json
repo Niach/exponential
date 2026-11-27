@@ -9,7 +9,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "Container laid out by its style; `hover` on enter.",
+      "description": "Container laid out by its style. `hover` = pointer enter.",
       "properties": {
         "component": {
           "const": "Box"
@@ -55,7 +55,7 @@
     },
     "Stack": {
       "type": "object",
-      "description": "Children in one direction, with a gap.",
+      "description": "Flex: children in one direction with a gap.",
       "properties": {
         "component": {
           "const": "Stack"
@@ -413,7 +413,7 @@
     },
     "Grid": {
       "type": "object",
-      "description": "Equal columns of tiles.",
+      "description": "Equal columns of cards or tiles.",
       "properties": {
         "component": {
           "const": "Grid"
@@ -553,7 +553,7 @@
     },
     "Card": {
       "type": "object",
-      "description": "Bordered group of content (not a header).",
+      "description": "Bordered card for grouped content, not page headers.",
       "properties": {
         "component": {
           "const": "Card"
@@ -609,7 +609,7 @@
     },
     "Window": {
       "type": "object",
-      "description": "Frame: three-dot bar (`title`) over one child.",
+      "description": "Window frame: a three-dot bar (`title`) over one child.",
       "properties": {
         "component": {
           "const": "Window"
@@ -714,7 +714,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups rows by it; `section` slot = header."
+          "description": "Groups rows by this field; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -723,12 +723,12 @@
         },
         "reorderable": {
           "type": "boolean",
-          "description": "Drag to reorder; fires `move` {id, before|after|into}.",
+          "description": "Rows drag to reorder; fires `move` {id, before|after|into}.",
           "default": false
         },
         "maxDepth": {
           "type": "number",
-          "description": "`reorderable` nesting levels (items' `depth`, `group`).",
+          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`.",
           "default": 1
         },
         "style": {
@@ -889,7 +889,7 @@
     },
     "ScrollArea": {
       "type": "object",
-      "description": "Bounded scroll region.",
+      "description": "Scroll region of bounded height or width.",
       "properties": {
         "component": {
           "const": "ScrollArea"
@@ -1005,7 +1005,7 @@
     },
     "SplitView": {
       "type": "object",
-      "description": "List (`list` slot) + detail (children); phones show one with back.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with back.",
       "properties": {
         "component": {
           "const": "SplitView"
@@ -1113,7 +1113,7 @@
     },
     "Page": {
       "type": "object",
-      "description": "Screen: AppBar over a padded scrolling body.",
+      "description": "Screen: AppBar row over a padded scrolling body.",
       "properties": {
         "component": {
           "const": "Page"
@@ -1176,7 +1176,7 @@
     },
     "Toolbar": {
       "type": "object",
-      "description": "Control row, bottom-aligned, wraps on phones; `trailing` = end action.",
+      "description": "One row of controls, bottom-aligned, wraps on phones; `trailing` = end action.",
       "properties": {
         "component": {
           "const": "Toolbar"
@@ -1225,7 +1225,7 @@
     },
     "Section": {
       "type": "object",
-      "description": "Band header over hairline-divided rows (title optional).",
+      "description": "Band header over hairline-divided rows; no title = rows only.",
       "properties": {
         "component": {
           "const": "Section"
@@ -1854,7 +1854,7 @@
         },
         "collapsible": {
           "type": "boolean",
-          "description": "Header folds the rows.",
+          "description": "Header folds the rows (chevron, press).",
           "default": false
         },
         "open": {
@@ -1876,7 +1876,7 @@
         },
         "tree": {
           "type": "boolean",
-          "description": "Tree rows: `Row.depth` indents + guides.",
+          "description": "Rows are a tree: `Row.depth` indents, draws guides.",
           "default": false
         },
         "loading": {
@@ -2138,7 +2138,7 @@
     },
     "Markdown": {
       "type": "object",
-      "description": "GitHub-flavoured markdown.",
+      "description": "GitHub-flavoured markdown prose.",
       "properties": {
         "component": {
           "const": "Markdown"
@@ -2249,7 +2249,7 @@
         },
         "wrap": {
           "type": "boolean",
-          "description": "Wraps long lines.",
+          "description": "Wraps long lines (else side-scrolls).",
           "default": false
         },
         "copyable": {
@@ -2270,7 +2270,7 @@
         },
         "follow": {
           "type": "boolean",
-          "description": "Sticks to the end as it grows.",
+          "description": "Sticks to the bottom as it grows.",
           "default": false
         },
         "variant": {
@@ -2475,7 +2475,7 @@
     },
     "Icon": {
       "type": "object",
-      "description": "One Lucide icon.",
+      "description": "One Lucide icon (shared registry).",
       "properties": {
         "component": {
           "const": "Icon"
@@ -3160,7 +3160,7 @@
     },
     "Avatar": {
       "type": "object",
-      "description": "User picture, else initials on a stable hue.",
+      "description": "Round user picture, else initials on a stable hue.",
       "properties": {
         "component": {
           "const": "Avatar"
@@ -3213,7 +3213,7 @@
     },
     "Tabs": {
       "type": "object",
-      "description": "Tabs; child i is tab i's panel.",
+      "description": "Tab navigation; child i is tab i's panel.",
       "properties": {
         "component": {
           "const": "Tabs"
@@ -3298,7 +3298,7 @@
     },
     "Segmented": {
       "type": "object",
-      "description": "Row or column of segments (also a bottom bar, rail).",
+      "description": "ONE row or column of segments (also a bottom bar or rail).",
       "properties": {
         "component": {
           "const": "Segmented"
@@ -3385,7 +3385,7 @@
     },
     "Collapsible": {
       "type": "object",
-      "description": "A title row folding its children.",
+      "description": "Disclosure: a title row folds its children.",
       "properties": {
         "component": {
           "const": "Collapsible"
@@ -3436,7 +3436,7 @@
     },
     "Trace": {
       "type": "object",
-      "description": "TraceItem column (agent steps).",
+      "description": "TraceItem column (an agent's steps).",
       "properties": {
         "component": {
           "const": "Trace"
@@ -3475,7 +3475,7 @@
     },
     "TraceItem": {
       "type": "object",
-      "description": "Step: icon, title, muted detail; expands to children.",
+      "description": "One step: icon, title, muted detail; expands to its children.",
       "properties": {
         "component": {
           "const": "TraceItem"
@@ -4159,7 +4159,7 @@
     },
     "Plan": {
       "type": "object",
-      "description": "Steps to approve, then progress and Stop.",
+      "description": "Plan card: steps to approve, then progress and Stop.",
       "properties": {
         "component": {
           "const": "Plan"
@@ -4251,7 +4251,7 @@
     },
     "Breadcrumb": {
       "type": "object",
-      "description": "Path to this page; all but the last fire `select`.",
+      "description": "Path to the current page; all but the last fire `select`.",
       "properties": {
         "component": {
           "const": "Breadcrumb"
@@ -4294,7 +4294,7 @@
     },
     "Outline": {
       "type": "object",
-      "description": "Anchor rows under a caption, one active; fires `select {id}`.",
+      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
       "properties": {
         "component": {
           "const": "Outline"
@@ -4345,7 +4345,7 @@
     },
     "Stepper": {
       "type": "object",
-      "description": "Wizard: numbered steps, done ones ticked.",
+      "description": "Wizard progress: numbered steps, done ones ticked.",
       "properties": {
         "component": {
           "const": "Stepper"
@@ -5118,7 +5118,7 @@
     },
     "Chip": {
       "type": "object",
-      "description": "Token: a pill (filter, label, state) or entity rect.",
+      "description": "Small token: a pill (filter, label, state) or an entity rect.",
       "properties": {
         "component": {
           "const": "Chip"
@@ -5165,7 +5165,7 @@
         "dot": {
           "type": "string",
           "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
-          "description": "Leading dot (label chip)."
+          "description": "Dot before the text (label chip)."
         },
         "icon": {
           "type": "string",
@@ -5780,7 +5780,7 @@
         "image": {
           "type": "string",
           "format": "uri-reference",
-          "description": "Round picture (no icon)."
+          "description": "Round picture, not the icon."
         },
         "detail": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -5833,7 +5833,7 @@
     },
     "EmptyState": {
       "type": "object",
-      "description": "Empty `page` (disc, title, sentence, action) or `list` line.",
+      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
       "properties": {
         "component": {
           "const": "EmptyState"
@@ -6563,7 +6563,7 @@
     },
     "Meter": {
       "type": "object",
-      "description": "Usage bar: coloured segments of a max.",
+      "description": "Usage bar: coloured segments against a max.",
       "properties": {
         "component": {
           "const": "Meter"
@@ -6630,7 +6630,7 @@
     },
     "Ring": {
       "type": "object",
-      "description": "Icon-sized progress ring.",
+      "description": "Progress ring for a fraction, icon-sized.",
       "properties": {
         "component": {
           "const": "Ring"
@@ -6765,7 +6765,7 @@
     },
     "CountBadge": {
       "type": "object",
-      "description": "Count capsule on a nav entry or row; ≤ 0 hides.",
+      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
       "properties": {
         "component": {
           "const": "CountBadge"
@@ -6905,7 +6905,7 @@
     },
     "Button": {
       "type": "object",
-      "description": "Press target: label + icon, or one custom child.",
+      "description": "Press target: label + optional icon, or one custom child.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -7639,7 +7639,7 @@
     },
     "Link": {
       "type": "object",
-      "description": "Inline link: a URL or `press`.",
+      "description": "Inline link opening a URL or firing `press`.",
       "properties": {
         "component": {
           "const": "Link"
@@ -7689,7 +7689,7 @@
     },
     "Form": {
       "type": "object",
-      "description": "Collects fields by `name`; `submit` once checks pass.",
+      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
       "properties": {
         "component": {
           "const": "Form"
@@ -7784,7 +7784,7 @@
     },
     "FormActions": {
       "type": "object",
-      "description": "End-aligned buttons: children, Cancel, then THE (primary) submit.",
+      "description": "End-aligned buttons: children, Cancel, then THE submit (the one primary).",
       "properties": {
         "component": {
           "const": "FormActions"
@@ -7836,7 +7836,7 @@
     },
     "SettingsRow": {
       "type": "object",
-      "description": "Settings line: label (+ description), then the control child.",
+      "description": "Settings line: label (+ description), then the control (children).",
       "properties": {
         "component": {
           "const": "SettingsRow"
@@ -7857,7 +7857,7 @@
             "lg",
             "xl"
           ],
-          "description": "Below it, the control stacks.",
+          "description": "Below this, control under the label.",
           "default": "sm"
         },
         "children": {
@@ -8128,7 +8128,7 @@
         },
         "precision": {
           "type": "number",
-          "description": "Decimals (default: the step's)."
+          "description": "Decimals shown; default the step's."
         },
         "unit": {
           "type": "string",
@@ -8417,7 +8417,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Inline, or a path refilled on `search`; omit with `source`."
+          "description": "Inline, or a path the host refills on `search`; omit with `source`."
         },
         "source": {
           "type": "string",
@@ -8464,7 +8464,7 @@
         },
         "triggerIcon": {
           "type": "boolean",
-          "description": "`row`: the chosen `icon` before the value.",
+          "description": "`row`: chosen option's `icon` before the value.",
           "default": false
         },
         "align": {
@@ -8535,7 +8535,7 @@
     },
     "SearchList": {
       "type": "object",
-      "description": "Search over rows: typing filters, arrows move, Enter picks.",
+      "description": "Search field over rows: typing filters, arrows move, Enter picks.",
       "properties": {
         "component": {
           "const": "SearchList"
@@ -8702,7 +8702,7 @@
     },
     "DatePicker": {
       "type": "object",
-      "description": "Date field (ISO yyyy-mm-dd).",
+      "description": "Calendar date field (ISO yyyy-mm-dd).",
       "properties": {
         "component": {
           "const": "DatePicker"
@@ -8859,7 +8859,7 @@
     },
     "TimePicker": {
       "type": "object",
-      "description": "Time field (`HH:mm`): typed, or a list every `step` min.",
+      "description": "Time field (`HH:mm`): a list every `step` minutes, or typed.",
       "properties": {
         "component": {
           "const": "TimePicker"
@@ -9013,7 +9013,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing field + submit; slots join the controls.",
+      "description": "Chat input: growing field + submit; slots join its controls row.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -9760,7 +9760,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Trailing disclosure glyph.",
+          "description": "Trailing disclosure or picker glyph.",
           "default": "none"
         },
         "selected": {
@@ -9816,7 +9816,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Marks a search term (title, subtitle)."
+          "description": "Marks a search term in title and subtitle."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -9859,7 +9859,7 @@
     },
     "Tree": {
       "type": "object",
-      "description": "File tree: branches fold, leaves select, lazy ones load; WAI-ARIA keys.",
+      "description": "File-style tree: branches fold, leaves select, lazy branches load; WAI-ARIA keys.",
       "properties": {
         "component": {
           "const": "Tree"
@@ -9916,7 +9916,7 @@
     },
     "MessageBubble": {
       "type": "object",
-      "description": "Chat bubble: in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
       "properties": {
         "component": {
           "const": "MessageBubble"
@@ -10355,14 +10355,14 @@
     },
     "Calendar": {
       "type": "object",
-      "description": "Records as bars in lanes; phones: dots + day agenda.",
+      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
       "properties": {
         "component": {
           "const": "Calendar"
         },
         "source": {
           "type": "string",
-          "description": "Where a records `by` binding lands (`month`, `week`)."
+          "description": "Where a records `by` binding lands (reads `month` or `week`)."
         },
         "view": {
           "enum": [
@@ -10419,7 +10419,7 @@
     },
     "Timeline": {
       "type": "object",
-      "description": "Records as bars in week, month or quarter columns.",
+      "description": "Records over time: bars in week, month or quarter columns.",
       "properties": {
         "component": {
           "const": "Timeline"
@@ -10623,7 +10623,7 @@
     },
     "DayStrip": {
       "type": "object",
-      "description": "Week of day tiles, one selected; fires `change {value}`.",
+      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
       "properties": {
         "component": {
           "const": "DayStrip"

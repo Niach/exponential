@@ -317,9 +317,9 @@ layout's height and carries `compact` likewise.
 
 **Catalog.** LogView/LogLines `sections` is `[object]` (`{status,
 duration}`), no named shape (the prompt budget). LogView's macro parts:
-`root` (the region Box) and `log` (the LogLines node). The prompt keeps
-its 10,000-token ceiling: descriptions across the catalog were shortened
-and `fit`, `emptyText`, `href`, `cancel` joined the common props.
+`root` (the region Box) and `log` (the LogLines node). The full prompt's
+ceiling is 12,000 tokens (Danny, 2026-11-27; it was 10,000): the catalog's
+descriptions and common props stay as they were before these components.
 
 **Recipes** (`catalog/recipes.json`). States gain `highlight`;
 `focus-visible` above = the recipe state `focus`.
