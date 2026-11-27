@@ -338,7 +338,13 @@ export async function openPullRequest(args: {
     repo.teamId,
     prLinks({ issueIds: [], branch: head!, title: args.title, body: args.body ?? ``, share: [], parents: [] }).link
   )
-  const linked = [...candidates, ...named]
+  // The chat's DEFAULT share (no explicit ids) still narrows to issues whose
+  // board names no default or this repository: a chat holding issues of two
+  // repositories never moves the other one's issue with this PR. Explicit
+  // ids and the idents the branch, title or body name link in any case.
+  const defaultsHere = (issue: IssueForPr) =>
+    explicitIds !== null || issue.boardRepositoryId === null || issue.boardRepositoryId === repo.id
+  const linked = [...candidates.filter(defaultsHere), ...named]
     .filter(belongs)
     .filter((issue, index, all) => all.findIndex((other) => other.id === issue.id) === index)
   const linkedIdentifiers = linked.map((issue) => issue.identifier)
