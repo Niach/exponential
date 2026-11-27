@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-taskbar-drag",
+    date: "2026-11-27",
+    title: "Taskbar buttons you can drag, and windows that ask for you",
+    summary: "On Exponential Desktop you drag taskbar buttons into your own order, a window that needs you flashes its button, and the button's menu puts a window on every workspace.",
+    body: r##"- **Drag to reorder**: drag a taskbar button onto another to move it there. Pinned apps keep their new order after a restart; pinned and running apps stay in their own groups, as on Cinnamon.
+- **Windows that need you**: when a window asks for attention (a chat message, a finished download, an app that may not take the focus by itself), its button flashes and stays highlighted until you look at it. A click brings that window forward.
+- **Visible on all workspaces**: right click a button for Visible on all workspaces, or Only on this workspace for a window that is already there."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_381: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ede-session-area",
     date: "2026-11-27",
     title: "Your running sessions in the taskbar",

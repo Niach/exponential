@@ -63,6 +63,7 @@ export type ShellEvent =
   | { kind: `workspace.count`; count: number }
   | { kind: `taskbar.pin`; app: string }
   | { kind: `taskbar.unpin`; app: string }
+  | { kind: `taskbar.move`; app: string; before?: string; after?: string }
   | { kind: `taskbar.hover`; app: string }
   | { kind: `taskbar.unhover` }
   | { kind: `taskbar.previews`; app: string | null }
@@ -206,6 +207,9 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
     case `taskbar.unpin`:
       s.taskbar.pinned = s.taskbar.pinned.filter((a) => a !== e.app)
       break
+    case `taskbar.move`:
+      moveButton(s, e.app as string, e.before as string | undefined, e.after as string | undefined)
+      break
     case `taskbar.hover`:
       s.taskbar.hover = e.app as string
       break
@@ -280,6 +284,28 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       break
   }
   return s
+}
+
+/** #EDE-255: grouped-window-list's drag (applet.js handleDragOver / moveLauncher): pinned and unpinned buttons stay apart. */
+function moveButton(s: ShellState, app: string, before: string | undefined, after: string | undefined): void {
+  const target = before ?? after
+  if (target === undefined || target === app) return
+  const pinned = s.taskbar.pinned
+  const mine = pinned.includes(app)
+  if (mine !== pinned.includes(target)) return
+  if (mine) {
+    const rest = pinned.filter((a) => a !== app)
+    const i = rest.indexOf(target)
+    rest.splice(before !== undefined ? i : i + 1, 0, app)
+    s.taskbar.pinned = rest
+    return
+  }
+  const moved = s.windows.filter((w) => w.app === app)
+  if (moved.length === 0 || !s.windows.some((w) => w.app === target)) return
+  const rest = s.windows.filter((w) => w.app !== app)
+  const i = before !== undefined ? rest.findIndex((w) => w.app === target) : rest.map((w) => w.app).lastIndexOf(target) + 1
+  rest.splice(i, 0, ...moved)
+  s.windows = rest
 }
 
 function openStartMenu(s: ShellState): void {

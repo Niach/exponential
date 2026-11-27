@@ -16,6 +16,12 @@
 //! row, the drop and the release are the List's own, and the paint is only
 //! the drop (no dimmed row, no lifted copy: the host's drag carries its own).
 //!
+//! #EDE-255: a `direction: horizontal` List drags along x (its rows'
+//! left / width are the rule's top / height, mirrored under rtl so the axis
+//! grows in row order): the drop line stands across the row's leading or
+//! trailing edge, its ring on top, and the lifted copy follows the pointer
+//! along x, `LIST_LIFT_OFFSET` below the row.
+//!
 //! genUI round 4 (fixtures/board-drop.json): reorderable Lists sharing the
 //! internal prop `board` (a Board macro's columns) trade rows: the drop is
 //! [`board_drop_slot`] over all of them, the TARGET List fires `move {id,
@@ -24,6 +30,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use taffy::style::Direction;
 
 use super::{Frame, OutEvent, Surface};
 use crate::list_reorder::{board_drop_slot, list_drop_slot, list_move_context, BoardColumn, BoardDrop, ListDrop, ListDragState, ListDropPosition, ListExternalRow, ListReorderRow, LIST_DROP_LINE, LIST_DROP_RING, LIST_LIFT_OFFSET};
@@ -84,6 +92,34 @@ struct ListRows {
     max_depth: f64,
     rows: Vec<ListReorderRow>,
     slots: Vec<u32>,
+    /// #EDE-255: the List's axis is x (`direction: horizontal`), and the
+    /// surface is rtl (the axis then runs from the right).
+    horizontal: bool,
+    rtl: bool,
+}
+
+impl ListRows {
+    /// The pointer along the List's axis (the rule's `at`).
+    fn at(&self, x: f32, y: f32) -> f32 {
+        match (self.horizontal, self.rtl) {
+            (false, _) => y,
+            (true, false) => x,
+            (true, true) => -x,
+        }
+    }
+
+    /// A box's (start, extent) along the axis (the rule's top, height).
+    fn span(&self, frame: Frame) -> (f32, f32) {
+        match (self.horizontal, self.rtl) {
+            (false, _) => (frame.y, frame.h),
+            (true, false) => (frame.x, frame.w),
+            (true, true) => (-(frame.x + frame.w), frame.w),
+        }
+    }
+}
+
+fn horizontal(props: &crate::types::Props) -> bool {
+    props.get("direction").and_then(Value::as_str) == Some("horizontal")
 }
 
 fn reorderable(props: &crate::types::Props) -> bool {
@@ -96,6 +132,11 @@ fn board_of(props: &crate::types::Props) -> Option<&str> {
 }
 
 impl Surface {
+    /// The node in slot `index` lays out right to left.
+    fn rtl_at(&self, index: u32) -> bool {
+        self.node_state.get(index as usize).is_some_and(|s| s.direction == Direction::Rtl)
+    }
+
     /// The reorderable List row `index` sits in: (List slot, row slot).
     /// None = the node is in no reorderable List's row (or inside a nested
     /// reorderable List, whose own row it is then).
@@ -134,8 +175,7 @@ impl Surface {
             }
             None => (None, vec![]),
         };
-        let mut rows = vec![];
-        let mut slots = vec![];
+        let mut out = ListRows { list: owner.id.clone(), list_index: list, max_depth, rows: vec![], slots: vec![], horizontal: horizontal(&owner.props), rtl: self.rtl_at(list) };
         for &c in &owner.children {
             let Some(child) = self.layout_node(c) else { continue };
             if child.part.is_some() && child.owner.as_deref() == Some(owner.id.as_str()) {
@@ -149,10 +189,11 @@ impl Surface {
             };
             let depth = item.and_then(|v| v.get("depth")).and_then(Value::as_f64).unwrap_or(0.0);
             let group = item.and_then(|v| v.get("group")).and_then(Value::as_bool).unwrap_or(false);
-            rows.push(ListReorderRow { key, top: frame.y, height: frame.h, depth, group });
-            slots.push(c);
+            let (top, height) = out.span(frame);
+            out.rows.push(ListReorderRow { key, top, height, depth, group });
+            out.slots.push(c);
         }
-        Some(ListRows { list: owner.id.clone(), list_index: list, max_depth, rows, slots })
+        Some(out)
     }
 
     /// The rows a live drag drops between: the List's own, or for a row
@@ -181,8 +222,14 @@ impl Surface {
         if owner.component != "List" || !reorderable(&owner.props) || self.is_inert(owner) {
             return vec![];
         }
+        let along_x = horizontal(&owner.props);
         self.local.list_drags.clear();
-        let external = Some(ListExternalRow { top: row.y, height: row.h, keys });
+        let (top, height) = match (along_x, self.rtl_at(index)) {
+            (false, _) => (row.y, row.h),
+            (true, false) => (row.x, row.w),
+            (true, true) => (-(row.x + row.w), row.w),
+        };
+        let external = Some(ListExternalRow { top, height, keys });
         self.local.list_drags.insert(list.to_string(), ListDragState { key: key.to_string(), offset_y: y - row.y, offset_x: x - row.x, x: *x, y: *y, external, ..Default::default() });
         vec![]
     }
@@ -236,8 +283,8 @@ impl Surface {
                     return vec![];
                 }
                 let key = rows.rows[i].key.clone();
-                let offset_y = y - rows.rows[i].top;
-                let offset_x = x - self.last_frame(row).unwrap_or_default().x;
+                let frame = self.last_frame(row).unwrap_or_default();
+                let (offset_x, offset_y) = (x - frame.x, y - frame.y);
                 self.local.list_drags.clear();
                 self.local.list_drags.insert(rows.list.clone(), ListDragState { key, offset_y, offset_x, x: *x, y: *y, ..Default::default() });
                 vec![]
@@ -262,7 +309,7 @@ impl Surface {
                         state.drop = drop.as_ref().and_then(|d| Some(ListDrop { key: d.key.clone()?, position: d.position? }));
                         state.board = Some(drop);
                     }
-                    None => state.drop = list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth),
+                    None => state.drop = list_drop_slot(&rows.rows, &state.key, rows.at(*x, *y), rows.max_depth),
                 }
                 vec![]
             }
@@ -281,7 +328,7 @@ impl Surface {
                     }
                 }
                 let Some(rows) = self.drag_rows(list, &state) else { return vec![] };
-                match list_drop_slot(&rows.rows, &state.key, *y, rows.max_depth) {
+                match list_drop_slot(&rows.rows, &state.key, rows.at(*x, *y), rows.max_depth) {
                     Some(drop) => self.fire(&id, "move", Some(list_move_context(&state.key, &drop))),
                     None => vec![],
                 }
@@ -313,9 +360,14 @@ impl Surface {
                 true => Frame::default(),
                 false => {
                     let frame = self.last_frame(row).unwrap_or_default();
-                    // A Board card follows the pointer on both axes.
-                    let x = if state.board.is_some() { state.x - state.offset_x } else { frame.x };
-                    Frame { x: x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h }
+                    // A Board card follows the pointer on both axes; a
+                    // horizontal List's row along x, below its row.
+                    if rows.horizontal && state.board.is_none() {
+                        Frame { x: state.x - state.offset_x, y: frame.y + LIST_LIFT_OFFSET, w: frame.w, h: frame.h }
+                    } else {
+                        let x = if state.board.is_some() { state.x - state.offset_x } else { frame.x };
+                        Frame { x: x + LIST_LIFT_OFFSET, y: state.y - state.offset_y, w: frame.w, h: frame.h }
+                    }
                 }
             };
             // A Board drag paints over the List under the pointer: its rows
@@ -337,6 +389,13 @@ impl Surface {
                     paint.drop_row = Some(rows.slots[j]);
                     match drop.position {
                         ListDropPosition::Into => paint.into = Some(target),
+                        position if rows.horizontal => {
+                            // The leading edge is the left one (rtl: the right one).
+                            let leading = (position == ListDropPosition::Before) != rows.rtl;
+                            let edge = if leading { target.x } else { target.x + target.w };
+                            paint.line = Some(Frame { x: edge - LIST_DROP_LINE / 2.0, y: target.y, w: LIST_DROP_LINE, h: target.h });
+                            paint.ring = Some(Frame { x: edge - LIST_DROP_RING / 2.0, y: target.y - LIST_DROP_RING / 2.0, w: LIST_DROP_RING, h: LIST_DROP_RING });
+                        }
                         position => {
                             let indent = (rows.rows[j].depth.max(0.0).floor() * crate::layout::TREE_GUIDE_COLUMN) as f32;
                             let edge = if position == ListDropPosition::Before { target.y } else { target.y + target.h };

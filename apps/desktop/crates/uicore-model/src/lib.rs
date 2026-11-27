@@ -201,6 +201,15 @@ pub enum ShellEvent {
     TaskbarPin { app: String },
     #[serde(rename = "taskbar.unpin")]
     TaskbarUnpin { app: String },
+    /// #EDE-255: a button dragged before or after another (the List's `move`).
+    #[serde(rename = "taskbar.move")]
+    TaskbarMove {
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
     #[serde(rename = "taskbar.hover")]
     TaskbarHover { app: String },
     #[serde(rename = "taskbar.unhover")]
@@ -238,6 +247,35 @@ pub enum ShellEvent {
     AltTabCommit,
     #[serde(rename = "altTab.cancel")]
     AltTabCancel,
+}
+
+/// #EDE-255: grouped-window-list's drag (applet.js handleDragOver /
+/// moveLauncher): pinned and unpinned buttons stay apart; a pinned one
+/// moves in the pin order, a running one moves its windows as one block.
+fn move_button(s: &mut ShellState, app: &str, before: Option<&str>, after: Option<&str>) {
+    let Some(target) = before.or(after) else { return };
+    if target == app {
+        return;
+    }
+    let mine = s.taskbar.pinned.iter().any(|p| p == app);
+    if mine != s.taskbar.pinned.iter().any(|p| p == target) {
+        return;
+    }
+    if mine {
+        let mut rest: Vec<String> = s.taskbar.pinned.iter().filter(|p| *p != app).cloned().collect();
+        let i = rest.iter().position(|p| p == target).unwrap_or(rest.len());
+        rest.insert(if before.is_some() { i } else { i + 1 }, app.to_string());
+        s.taskbar.pinned = rest;
+        return;
+    }
+    let moved: Vec<ShellWindow> = s.windows.iter().filter(|w| w.app == app).cloned().collect();
+    if moved.is_empty() || !s.windows.iter().any(|w| w.app == target) {
+        return;
+    }
+    let mut rest: Vec<ShellWindow> = s.windows.iter().filter(|w| w.app != app).cloned().collect();
+    let i = if before.is_some() { rest.iter().position(|w| w.app == target).unwrap_or(rest.len()) } else { rest.iter().rposition(|w| w.app == target).map_or(rest.len(), |i| i + 1) };
+    rest.splice(i..i, moved);
+    s.windows = rest;
 }
 
 fn closed_start_menu() -> StartMenu {
@@ -367,6 +405,7 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
             }
         }
         ShellEvent::TaskbarUnpin { app } => s.taskbar.pinned.retain(|a| a != app),
+        ShellEvent::TaskbarMove { app, before, after } => move_button(&mut s, app, before.as_deref(), after.as_deref()),
         ShellEvent::TaskbarHover { app } => s.taskbar.hover = Some(app.clone()),
         ShellEvent::TaskbarUnhover => s.taskbar.hover = None,
         ShellEvent::TaskbarPreviews { app } => {

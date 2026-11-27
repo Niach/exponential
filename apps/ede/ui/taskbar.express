@@ -5,7 +5,8 @@
 # (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one
 # icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running
 # ones), a dot under a running app, a wider one under the focused app, dimmed when every window is
-# minimized; a click does what Mint's does (#EDE-254, grouped-window-list's defaults; ede_taskbar:
+# minimized; #EDE-255: the buttons are a horizontal reorderable List: a button dragged onto another moves there
+# (ede_taskbar_move, shell.json's taskbar.move: pinned and unpinned buttons stay apart, the pin order is kept); a click does what Mint's does (#EDE-254, grouped-window-list's defaults; ede_taskbar:
 # launch, else focus the group's last focused window, or minimize it while it has the focus), the
 # middle button closes that window (ede_taskbar_input, Box auxPress), a group of two or more windows
 # wears its window count top-left (/shell/taskbar/buttons/*/count) and an app with desktop
@@ -55,7 +56,7 @@
 # while it runs, the attention dot while it needs you), then `+N`. A left click opens its panel
 # (sessions-panel.express anchored here: per session the trace, Stop, the waiting card's answers in place,
 # Open), a right click the applet menu (All chats, Needs you: ede_sessions {menu}).
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_taskbar_move", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
@@ -89,7 +90,7 @@ start_menu = Menu(items=[{label: "Settings", value: "settings", icon: "nav-setti
 start = Button(label="Start", icon="brand-exponential", variant="ghost", size="icon", on={press: ede_start_menu(toggle=true)}, style={width: 40, height: 40})
 chat = Button(label="Assistant", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
 new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
-buttons = Stack(direction="horizontal", gap="xs", align="center", children=_template($/shell/taskbar/buttons, group, key="app"))
+buttons = List(direction="horizontal", gap="xs", reorderable=true, children=_template($/shell/taskbar/buttons, group, key="app"), on={move: Event("ede_taskbar_move")})
 group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {app: $app})})
 previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {app: $app})})
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))

@@ -78,6 +78,9 @@ fn environ_tokens(pid: u32) -> Vec<String> {
         .collect()
 }
 
+/// #EDE-255: a token its client asked for without the keyboard.
+struct Refused;
+
 impl XdgActivationHandler for Ede {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
@@ -85,14 +88,21 @@ impl XdgActivationHandler for Ede {
 
     // A client's own token counts only while that client has the keyboard:
     // the focused app may bring another window forward, nobody else.
+    // #EDE-255: a refused one is still kept, marked, so its use reaches
+    // `request_activation` (smithay drops unknown tokens): Muffin answers it
+    // by marking the window urgent.
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
+        self.xdg_activation_state.retain_tokens(|_, data| data.timestamp.elapsed() < LAUNCH_TOKEN_TTL);
         let focus = self.desk.seat.get_keyboard().and_then(|k| k.current_focus());
-        focus.and_then(|f| f.client()).is_some_and(|c| Some(c.id()) == data.client_id)
+        if !focus.and_then(|f| f.client()).is_some_and(|c| Some(c.id()) == data.client_id) {
+            data.user_data.insert_if_missing(|| Refused);
+        }
+        true
     }
 
     fn request_activation(&mut self, token: XdgActivationToken, data: XdgActivationTokenData, surface: WlSurface) {
         // One-shot; a client's own token was checked when it was made.
-        let valid = self.xdg_activation_state.remove_token(&token) && data.timestamp.elapsed() < LAUNCH_TOKEN_TTL;
+        let valid = self.xdg_activation_state.remove_token(&token) && data.timestamp.elapsed() < LAUNCH_TOKEN_TTL && data.user_data.get::<Refused>().is_none();
         if !valid {
             // #EDE-255: Muffin's answer to an activation it refuses: the
             // window demands attention (the taskbar flashes its group).

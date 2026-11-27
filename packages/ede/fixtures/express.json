@@ -159,6 +159,11 @@
       "app",
       "value"
     ],
+    "ede_taskbar_move": [
+      "after",
+      "before",
+      "id"
+    ],
     "ede_taskbar_scroll": [
       "app",
       "direction"

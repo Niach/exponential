@@ -165,10 +165,19 @@ describe(`a reorderable List (Solid)`, () => {
     expect(container.ownerDocument.querySelector(`[data-reorder-indicator]`)).toBeNull()
     expect(actions.filter((a) => a.name === `move`)).toEqual([])
   })
-  it(`a horizontal or non-reorderable List carries no contract`, () => {
-    const { container } = mount(rows, 2, { direction: `horizontal` })
-    expect(container.querySelector(`[data-reorder-key]`)).toBeNull()
-    cleanup()
+  it(`a horizontal List drags along x (#EDE-255): the line stands across a row's edge`, () => {
+    const across = [`a`, `b`, `c`].map((key, i) => ({ key, top: 0, height: 40, left: i * 40 }))
+    const { container, actions, el } = mount(across, 1, { direction: `horizontal` })
+    for (const row of across) el(row.key)!.getBoundingClientRect = () => ({ left: row.left, top: 0, right: row.left + 40, bottom: 40, width: 40, height: 40, x: row.left, y: 0, toJSON: () => ({}) }) as DOMRect
+    pointer(el(`a`)!, `pointerdown`, 20, 20)
+    // Over c's right half, the pointer's y anywhere: after c.
+    pointer(window, `pointermove`, 110, 300)
+    const line = container.ownerDocument.querySelector<HTMLElement>(`[data-reorder-indicator]`)!
+    expect([line.style.left, line.style.top, line.style.width, line.style.height]).toEqual([`119px`, `0px`, `2px`, `40px`])
+    pointer(window, `pointerup`, 110, 300)
+    expect(actions.filter((a) => a.name === `move`).map((a) => a.context)).toEqual([{ id: `a`, after: `c` }])
+  })
+  it(`a non-reorderable List carries no contract`, () => {
     const flat = mount(rows, 2, { reorderable: false })
     expect(flat.container.querySelector(`[data-reorder-key]`)).toBeNull()
   })

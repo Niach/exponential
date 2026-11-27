@@ -540,6 +540,13 @@ impl HostPlugin for Host {
             self.on_function_call(&call, cx);
             return;
         }
+        // #EDE-255: the taskbar List's `move` {id, before | after} is an
+        // event: its payload reaches the context, the function takes it.
+        if event.name == "ede_taskbar_move" {
+            let call = FunctionCallEvent { surface_id: event.surface_id.clone(), component_id: event.component_id.clone(), name: event.name.clone(), args: event.context.clone() };
+            self.on_function_call(&call, cx);
+            return;
+        }
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
         // #EDE-226: the sign-out dialog's answer is an event (a function
@@ -1052,6 +1059,21 @@ impl HostPlugin for Host {
                     }
                     refresh(&shell, cx);
                 });
+            }
+            // #EDE-255: a button dragged onto another (the List's `move`):
+            // the pinned order is persisted like a pin.
+            "ede_taskbar_move" => {
+                let app = args.get("id").and_then(Value::as_str).map(String::from);
+                let (before, after) = (args.get("before").and_then(Value::as_str).map(String::from), args.get("after").and_then(Value::as_str).map(String::from));
+                if let Some(app) = app {
+                    cx.defer(move |cx| {
+                        let pinned = shell.borrow().model.taskbar.pinned.clone();
+                        dispatch(&shell, ShellEvent::TaskbarMove { app, before, after }, cx);
+                        if shell.borrow().model.taskbar.pinned != pinned {
+                            pins_persist(&shell);
+                        }
+                    });
+                }
             }
             "ede_taskbar_menu" => {
                 let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));

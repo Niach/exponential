@@ -229,8 +229,8 @@ fn a_running_app_activates_its_window_with_the_launch_token_only() {
     queue.roundtrip(&mut act).unwrap();
     app.roundtrip();
     assert_eq!(stack(&h)[1], ("editor".to_string(), true), "a background app activated itself");
-    // #EDE-255: Muffin's answer to a refused activation: the window asks
-    // for attention (the taskbar flashes its group), the focused one never.
+    // #EDE-255: Muffin's answer to a refused activation (its own token,
+    // asked for without the keyboard): the window asks for attention (the taskbar flashes its group), the focused one never.
     let urgent = |h: &Harness| h.ipc().windows().unwrap().into_iter().map(|w| (w.title.unwrap_or_default(), w.urgent)).collect::<Vec<_>>();
     assert_eq!(urgent(&h), [("browser".to_string(), true), ("editor".to_string(), false)]);
 
