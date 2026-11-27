@@ -77,6 +77,11 @@ struct LeafContent: View {
             Color.clear
         case ("Chart", _):
             ChartLeaf(cx: cx)
+        // #EXP-2204: the CI leaves (CiLeaves.swift).
+        case ("LogLines", _):
+            LogLinesLeaf(cx: cx)
+        case ("JobGraph", _):
+            JobGraphLeaf(cx: cx)
         case ("TreeGuides", _):
             TreeGuidesLeaf(cx: cx)
         case ("Unknown", _):

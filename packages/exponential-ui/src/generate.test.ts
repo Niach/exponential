@@ -14,7 +14,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the fifty-nine outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style, VAPP-222 the record transitions, VAPP-233 the record migrations, the host runtime slice, #AXC-12 the Express catalog + round trip, group D the data viz)`, () => {
+  test(`renders the fifty-nine outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style, VAPP-222 the record transitions, VAPP-233 the record migrations, the host runtime slice, #AXC-12 the Express catalog + round trip, group D the data viz, #EXP-2204 the CI log + job graph)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
@@ -38,6 +38,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/catalog-components.json`,
       `fixtures/catalog-extension.json`,
       `fixtures/catalog-macros.json`,
+      `fixtures/ci-log.json`,
       `fixtures/code-tokens.json`,
       `fixtures/control-geometry.json`,
       `fixtures/data-viz.json`,
@@ -47,6 +48,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/host-policy.json`,
       `fixtures/host-router.json`,
       `fixtures/host-transport.json`,
+      `fixtures/job-graph.json`,
       `fixtures/kitchen-sink.expanded.json`,
       `fixtures/prompt-budget.json`,
       `fixtures/qr-code.json`,

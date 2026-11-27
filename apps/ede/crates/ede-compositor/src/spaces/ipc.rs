@@ -29,6 +29,7 @@ fn info(space: &AgentSpace) -> SpaceInfo {
         width: size.w,
         height: size.h,
         wayland_display: space.socket().to_string_lossy().into_owned(),
+        control: space.control,
     }
 }
 

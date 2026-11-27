@@ -1,4 +1,5 @@
-//! #EXP-2045: the taskbar's Agent spaces list (the FACTORY taskbar's
+//! #EXP-2045: the taskbar's Agent spaces list (the factory taskbar's until
+//! #EDE-266, kept as `fixtures/agent-spaces-list.express`;
 //! press-opened hosted Popover) in headless gpui windows: its own popup
 //! window draws all of it, with what the taskbar's surface laid out last,
 //! whichever of the two windows draws first. On eDE about one open in four
@@ -69,7 +70,7 @@ struct Open {
 /// given its popup window, as the shell's main loop does.
 fn list_open(cx: &mut TestAppContext) -> Open {
     cx.update(gpui_component::init);
-    let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
+    let factory = ede_ui::express::compile_document("taskbar", include_str!("fixtures/agent-spaces-list.express")).expect("the Agent spaces specimen");
     let list = node(&factory["root"], "agent_spaces").expect("the Agent spaces list").clone();
     let source = json!({
         "surface": factory["surface"],

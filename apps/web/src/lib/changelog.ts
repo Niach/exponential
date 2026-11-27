@@ -34,6 +34,24 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Visible on all workspaces**: right click a button for Visible on all workspaces, or Only on this workspace for a window that is already there.`,
   },
   {
+    id: `2026-11-27-ede-voice-tray`,
+    date: `2026-11-27`,
+    title: `Voice in the tray`,
+    summary: `On Exponential Desktop a Voice icon in the taskbar calls your Assistant: the call's wave, what was said, Mute, Open chat and End, and the voice settings on a right click.`,
+    body: `- **A Voice tray item**: on your voice device the taskbar shows a Voice icon. Click it to call the Assistant; during a call it shows the wave, the timer, the last lines said, Mute, Open chat and End.
+- **The voice menu on a right click**: wake word, microphone mute, meeting mode and Voice settings, the same rows as the tray menu had.
+- **One icon**: the app no longer adds its own tray icon on Exponential Desktop.`,
+  },
+  {
+    id: `2026-11-27-ede-cu-tray`,
+    date: `2026-11-27`,
+    title: `Background computer use in the tray`,
+    summary: `On Exponential Desktop the taskbar's computer-use icon shows what an agent does in its space: a live picture, its steps, and Stop, Pause, Watch and Take over.`,
+    body: `- **A tray item for computer use**: while an agent works in its own space, the taskbar shows a computer-use icon. Click it for a live picture of the space, the session and its latest steps; right click for the same actions as a menu.
+- **Pause and take over**: Pause stops the agent's clicks and keys in its space until you resume. Take over lets you drive the space yourself through its view; Hand back gives it to the agent again.
+- **Stop ends the space**, never the session; Watch pins the live view at the bottom right.`,
+  },
+  {
     id: `2026-11-27-desktop-cli-0-14-186-android`,
     date: `2026-11-27`,
     title: `CI and repositories in the app, one header everywhere, and your Assistant on a team's machine`,

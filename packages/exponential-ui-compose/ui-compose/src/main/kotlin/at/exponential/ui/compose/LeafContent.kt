@@ -50,6 +50,9 @@ fun LeafContent(context: LeafContext) {
         "CountBadge" -> CountBadgeLeaf(cx)
         "Skeleton" -> SkeletonLeaf(cx)
         "Chart" -> ChartLeaf(cx)
+        // #EXP-2204: the CI leaves (CiLeaves.kt).
+        "LogLines" -> LogLinesLeaf(cx)
+        "JobGraph" -> JobGraphLeaf(cx)
         "TreeGuides" -> TreeGuidesLeaf(cx)
         "Unknown" -> UnknownLeaf(cx)
         "Box" -> if (n.part == "indicator") CarouselIndicatorLeaf(cx)

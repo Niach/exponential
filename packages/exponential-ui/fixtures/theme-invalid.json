@@ -286,7 +286,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].when.state",
-          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover|warning|info"
+          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover|warning|info|highlight"
         }
       ]
     },
@@ -1392,7 +1392,7 @@
       "issues": [
         {
           "path": "recipes.FileUpload.dropzone[0].when.state",
-          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover|warning|info"
+          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover|warning|info|highlight"
         }
       ]
     }

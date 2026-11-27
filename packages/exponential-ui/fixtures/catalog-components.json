@@ -2976,6 +2976,58 @@
       }
     },
     {
+      "name": "CodeBlock/anchors=true",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "anchors": true
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/anchors=false",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "anchors": false
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/gutter=numbers",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "gutter": "numbers"
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/gutter=blame",
+      "node": {
+        "id": "code_block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "gutter": "blame"
+        }
+      }
+    },
+    {
       "name": "Kbd/example",
       "node": {
         "id": "kbd",
@@ -9324,6 +9376,198 @@
             8
           ],
           "pressable": false
+        }
+      }
+    },
+    {
+      "name": "LogView/example",
+      "node": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8
+        }
+      }
+    },
+    {
+      "name": "LogView/follow=true",
+      "node": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "follow": true
+        }
+      }
+    },
+    {
+      "name": "LogView/follow=false",
+      "node": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "follow": false
+        }
+      }
+    },
+    {
+      "name": "LogView/timestamps=true",
+      "node": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "timestamps": true
+        }
+      }
+    },
+    {
+      "name": "LogView/timestamps=false",
+      "node": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "timestamps": false
+        }
+      }
+    },
+    {
+      "name": "JobGraph/example",
+      "node": {
+        "id": "job_graph",
+        "component": "JobGraph",
+        "props": {
+          "jobs": [
+            {
+              "id": "build",
+              "name": "build",
+              "stage": "build",
+              "status": "passed",
+              "duration": "1m 2s"
+            },
+            {
+              "id": "test",
+              "name": "test",
+              "stage": "test",
+              "status": "failed",
+              "duration": "41s",
+              "needs": [
+                "build"
+              ]
+            },
+            {
+              "id": "deploy",
+              "name": "deploy",
+              "stage": "deploy",
+              "status": "skipped",
+              "needs": [
+                "test"
+              ]
+            }
+          ],
+          "value": "test"
         }
       }
     },

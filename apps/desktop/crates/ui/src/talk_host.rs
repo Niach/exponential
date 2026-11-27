@@ -145,6 +145,12 @@ pub fn install(cx: &mut App) {
     let (messages, agents, devices, state) = (collections.messages.clone(), collections.agents.clone(), collections.devices.clone(), store.state());
     let (landed, clips_rx) = flume::unbounded::<String>();
     let clips = Rc::new(ClipCache { dir: data_dir.join("voice-clips"), state: RefCell::default(), landed });
+    // #EDE-267: in eDE the shell's status icon is the voice tray (the
+    // holder publishes it over the session bus, `ede_voice`): no tray item
+    // of our own.
+    if crate::ede_component::is_component() {
+        etalk_gpui::voice_tray::host_in_shell();
+    }
     etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir, clips: clips.clone() }));
     // #EXP-1847: a clip that landed (or failed) re-resolves the voices.
     cx.spawn(async move |cx| {

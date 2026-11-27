@@ -70,6 +70,8 @@ pub enum Action {
     WindowMenu,
     /// A global shortcut's key (by keycode) went down / up (#EDE-15).
     Shortcut(u32, bool),
+    /// #EDE-266: the person's key, for the agent space they clicked into.
+    SpaceKey,
 }
 
 impl Ede {
@@ -86,7 +88,7 @@ impl Ede {
             InputEvent::Keyboard { event, .. } => self.keyboard_key(event.key_code(), event.state(), event.time().millis()),
             InputEvent::PointerMotion { event, .. } => {
                 let pos = self.desk.seat.get_pointer().unwrap().current_location() + event.delta();
-                if !self.person_pointer_motion_to(pos, event.time().millis()) {
+                if !self.person_pointer_motion_to(pos, event.time().millis()) || self.space_view_routed() {
                     return;
                 }
                 let pointer = self.desk.seat.get_pointer().unwrap();
@@ -123,6 +125,10 @@ impl Ede {
                         frame = frame.stop(axis);
                     }
                 }
+                // #EDE-266: the wheel over a taken-over space's picture scrolls it.
+                if self.space_view_axis(frame) {
+                    return;
+                }
                 self.refresh_pointer_focus(event.time().millis());
                 let pointer = self.desk.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
@@ -146,7 +152,8 @@ impl Ede {
     /// surface the last motion found.
     pub fn refresh_pointer_focus(&mut self, time: u32) {
         let pointer = self.desk.seat.get_pointer().unwrap();
-        if pointer.is_grabbed() || self.is_locked() {
+        // #EDE-266: over a taken-over space's view nothing of the person's is focused.
+        if pointer.is_grabbed() || self.is_locked() || self.space_view_routed() {
             return;
         }
         let location = pointer.current_location();
@@ -250,53 +257,75 @@ impl Ede {
         // #EDE-213: Escape also closes a shell popup that never took the
         // keyboard (the Agent spaces list), as a click outside it does.
         let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some()) || self.shell_popups_open();
+        let overlay_open = self.escape_closing_overlay_open();
         let action = keyboard.input::<Action, _>(self, keycode, state, serial, smithay::backend::input::InputTime::from_millis(time), |ede, mods, handle| {
-            if !bindings {
-                return FilterResult::Forward;
+            let decided = (|| {
+                if !bindings {
+                    return FilterResult::Forward;
+                }
+                let sym = handle.modified_sym().raw();
+                // A global shortcut's key: its release always ends it (#EDE-15).
+                let code = handle.raw_code().raw();
+                if state == KeyState::Released && ede.ipc.shortcuts.active.iter().any(|(k, ..)| *k == code) {
+                    return FilterResult::Intercept(Action::Shortcut(code, false));
+                }
+                if locked {
+                    // Only VT switching; the lock screen gets everything else.
+                    return match binding(mods, sym) {
+                        Some(action @ Action::SwitchVt(_)) if state == KeyState::Pressed => FilterResult::Intercept(action),
+                        _ => FilterResult::Forward,
+                    };
+                }
+                if state == KeyState::Pressed && sym == keysyms::KEY_Escape && popup_focused {
+                    ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
+                    return FilterResult::Intercept(Action::Hotkey);
+                }
+                // #EDE-263: Escape closes Expo and Scale, as on Cinnamon.
+                if state == KeyState::Pressed && sym == keysyms::KEY_Escape && overlay_open {
+                    ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::OverlayClose);
+                    return FilterResult::Intercept(Action::Hotkey);
+                }
+                // The key above Tab is Alt+`'s by position, whatever the layout makes of it.
+                let hotkey_sym = if code == crate::hotkeys::ABOVE_TAB_KEYCODE && mods.alt { keysyms::KEY_grave } else { sym };
+                let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, hotkey_sym, state, listening);
+                if hotkey.is_some() {
+                    ede.hotkeys.fired = hotkey;
+                }
+                if keep {
+                    return FilterResult::Intercept(Action::Hotkey);
+                }
+                if state != KeyState::Pressed {
+                    return FilterResult::Forward;
+                }
+                match binding(mods, sym) {
+                    // #EDE-253: no shell to draw the window menu: the app gets Alt+Space.
+                    Some(Action::WindowMenu) if !listening => FilterResult::Forward,
+                    Some(action) => FilterResult::Intercept(action),
+                    None if ede.keyboard_focus_protected(DeskId::PERSON) => FilterResult::Forward,
+                    None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
+                        Some((owner, id)) => {
+                            ede.ipc.shortcuts.active.push((code, owner, id));
+                            FilterResult::Intercept(Action::Shortcut(code, true))
+                        }
+                        None => FilterResult::Forward,
+                    },
+                }
+            })();
+            // #EDE-266: what the person's bindings and hotkeys let pass goes
+            // to the space they clicked into (never while locked).
+            if bindings && !locked && matches!(decided, FilterResult::Forward) && ede.space_keyed_takes(handle.raw_code(), state) {
+                return FilterResult::Intercept(Action::SpaceKey);
             }
-            let sym = handle.modified_sym().raw();
-            // A global shortcut's key: its release always ends it (#EDE-15).
-            let code = handle.raw_code().raw();
-            if state == KeyState::Released && ede.ipc.shortcuts.active.iter().any(|(k, ..)| *k == code) {
-                return FilterResult::Intercept(Action::Shortcut(code, false));
-            }
-            if locked {
-                // Only VT switching; the lock screen gets everything else.
-                return match binding(mods, sym) {
-                    Some(action @ Action::SwitchVt(_)) if state == KeyState::Pressed => FilterResult::Intercept(action),
-                    _ => FilterResult::Forward,
-                };
-            }
-            if state == KeyState::Pressed && sym == keysyms::KEY_Escape && popup_focused {
-                ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
-                return FilterResult::Intercept(Action::Hotkey);
-            }
-            // The key above Tab is Alt+`'s by position, whatever the layout makes of it.
-            let hotkey_sym = if code == crate::hotkeys::ABOVE_TAB_KEYCODE && mods.alt { keysyms::KEY_grave } else { sym };
-            let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, hotkey_sym, state, listening);
-            if hotkey.is_some() {
-                ede.hotkeys.fired = hotkey;
-            }
-            if keep {
-                return FilterResult::Intercept(Action::Hotkey);
-            }
-            if state != KeyState::Pressed {
-                return FilterResult::Forward;
-            }
-            match binding(mods, sym) {
-                // #EDE-253: no shell to draw the window menu: the app gets Alt+Space.
-                Some(Action::WindowMenu) if !listening => FilterResult::Forward,
-                Some(action) => FilterResult::Intercept(action),
-                None if ede.keyboard_focus_protected(DeskId::PERSON) => FilterResult::Forward,
-                None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
-                    Some((owner, id)) => {
-                        ede.ipc.shortcuts.active.push((code, owner, id));
-                        FilterResult::Intercept(Action::Shortcut(code, true))
-                    }
-                    None => FilterResult::Forward,
-                },
-            }
+            decided
         });
+        // The lock always wins: the keys' way into a space ends with it.
+        if locked {
+            self.space_keyed_end();
+        }
+        if let Some(Action::SpaceKey) = action {
+            self.space_keyed_key(keycode, state, time);
+        }
+        let action = action.filter(|a| *a != Action::SpaceKey);
         if let Some(Action::Shortcut(code, pressed)) = action {
             self.shortcut_event(code, pressed, time);
             return;
@@ -340,7 +369,7 @@ impl Ede {
                 }
             }
             Action::RestoreShell => self.restore_shell(),
-            Action::Shortcut(..) => {}
+            Action::Shortcut(..) | Action::SpaceKey => {}
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window(DeskId::PERSON) {
@@ -567,7 +596,7 @@ impl Ede {
         })
     }
 
-    fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+    pub(crate) fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
         if self.desk.space.output_under(pos).next().is_some() {
             return pos;
         }

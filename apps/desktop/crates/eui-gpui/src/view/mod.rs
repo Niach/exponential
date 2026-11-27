@@ -22,6 +22,7 @@ mod composer_paste;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
+mod ci_leaf;
 mod paint;
 mod pinned;
 mod scrollbar;
@@ -36,6 +37,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+pub use ci_leaf::{JobGraphState, LogLinesState};
 use eui_core::layout_tree::ToastSpec;
 use eui_core::measure::{FixedMeasure, Measure, TextStyle};
 use eui_core::surface::{ApplyOutcome, Frame, Layer, ListOutput, PlacedNode, ScrollOutput, Surface, SurfaceOptions, SurfaceSettings};
@@ -397,6 +399,10 @@ pub struct SurfaceView {
     motion_leaves: motion_leaf::MotionLeaves,
     /// Round 8: the Canvas leaves by node id (player, last image, pointer).
     canvas_leaves: canvas_leaf::CanvasLeaves,
+    /// #EXP-2204: the LogLines / JobGraph leaves by node id (scroll,
+    /// hover, the current match, the search field) and the CodeBlock
+    /// selections seen.
+    ci_leaves: ci_leaf::CiLeaves,
     /// EXP-1604: Motions show their posters while the window is inactive.
     motion_background_pause: bool,
     revisions: HashMap<String, u64>,
@@ -411,6 +417,13 @@ pub struct SurfaceView {
     /// #EXP-2045: how much of each hosted layer its host last painted, and
     /// how many times it did.
     hosted_shown: HashMap<String, (f32, u64)>,
+    /// #EDE-263: the window each hosted Menu's popup paints in. That popup
+    /// takes the keyboard (uicore-gpui's `hosted_grabs`), so while one is
+    /// open the focus is its window's: the surface window still holds the
+    /// handle focused as the menu opened, and its pass must not take the
+    /// focus back there (Enter picked the first entry, not the one the
+    /// arrows had moved to).
+    hosted_key_windows: HashMap<String, gpui::WindowId>,
     unknown_version: Option<u64>,
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
@@ -676,6 +689,7 @@ impl SurfaceView {
             embeds: Rc::default(),
             motion_leaves: Default::default(),
             canvas_leaves: Default::default(),
+            ci_leaves: Default::default(),
             motion_background_pause: true,
             revisions: HashMap::new(),
             hover_timer: None,
@@ -685,6 +699,7 @@ impl SurfaceView {
             just_dismissed: None,
             hosted_popups: Vec::new(),
             hosted_shown: HashMap::new(),
+            hosted_key_windows: HashMap::new(),
             unknown_version: None,
             host_scroll: None,
             drag: None,
@@ -1456,6 +1471,7 @@ impl SurfaceView {
             self.hosted_popups = hosted;
         }
         self.hosted_shown.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
+        self.hosted_key_windows.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
         // #EXP-2045: the host's popup windows paint the hosted layers from
         // these caches, and the change that woke this pass woke them too:
         // one may have drawn first, from the caches before it (a row's new
@@ -1696,6 +1712,7 @@ impl SurfaceView {
         }
         self.focus_handles = handles;
         self.sync_fields(window, cx);
+        self.sync_ci(window, cx);
     }
 
     /// A scroll container that overflows takes keyboard focus (to scroll).

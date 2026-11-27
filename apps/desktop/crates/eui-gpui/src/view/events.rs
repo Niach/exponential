@@ -262,6 +262,12 @@ impl SurfaceView {
         if n.component == "Motion" && n.part.is_none() {
             self.motion_interact(&n.id, &eui_motion::state_machine::Interaction::Click { layer: None }, cx);
         }
+        // #EXP-2204: an anchored CodeBlock number selects its line, Shift
+        // extends the range (`select {anchor, start, end}`).
+        if n.owner_component.as_deref() == Some("CodeBlock") && n.part.as_deref() == Some("lineNumber") {
+            self.fire(index, "press", Some(json!({"shift": window.modifiers().shift})), cx);
+            return;
+        }
         self.fire(index, "press", None, cx);
     }
 
@@ -533,6 +539,11 @@ impl SurfaceView {
     /// Which focusable node holds focus now; its `focus` (and, from the
     /// keyboard, `focus-visible`) state follows.
     pub(crate) fn track_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // #EDE-263: a hosted Menu's popup holds the keyboard; only its
+        // window says where the focus is ([`Self::hosted_key_window`]).
+        if self.hosted_key_window().is_some_and(|keys| keys != window.window_handle().window_id()) {
+            return;
+        }
         let mut now = None;
         for (id, h) in &self.focus_handles {
             if h.is_focused(window) {
@@ -591,6 +602,11 @@ impl SurfaceView {
         }
     }
 
+    /// #EDE-263: the window of the open hosted Menu on top, if it painted.
+    fn hosted_key_window(&self) -> Option<gpui::WindowId> {
+        self.layers.iter().rev().filter(|l| l.hosted && l.kind == "Menu").find_map(|l| self.hosted_key_windows.get(&l.owner).copied())
+    }
+
     /// The nearest node at or above `index` that opens an overlay on hover.
     fn hover_trigger_above(&self, index: u32) -> Option<String> {
         let mut cur = Some(index);
@@ -635,6 +651,8 @@ impl SurfaceView {
         let order = self.focus_order();
         let next = next_focus(&order, self.focused, backwards)?;
         self.keyboard = true;
+        // #EXP-2204: Tab onto a JobGraph lands on its first (last) node.
+        self.job_graph_entered(next, backwards);
         let id = self.cache.node(next)?.id.clone();
         self.focus_id(&id, window, cx);
         self.focused = Some(next);
@@ -837,6 +855,13 @@ impl SurfaceView {
             if let Some(n) = focused.as_ref().filter(|n| n.component == "SearchList") {
                 let id = n.id.clone();
                 self.search_key(&id, "Tab", window, cx);
+                return true;
+            }
+        }
+        // #EXP-2204: a focused JobGraph moves between its nodes first
+        // (Tab past its last node leaves it); arrows, Enter and Space too.
+        if let Some(n) = focused.as_ref().filter(|n| n.component == "JobGraph" && n.part.is_none()) {
+            if self.job_graph_key(n.index, key, shift, cx) {
                 return true;
             }
         }

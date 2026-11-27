@@ -325,6 +325,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
                 let badge = Self.badgeStyle(ts)
                 let m = para(raw, badge, wrap: nil, lines: 1)
                 content = MeasuredContent(m.width + 16, max(m.height, ts.lineHeight), m.baseline)
+            } else if part == "lineNumber", leaf.ownerComponent == "CodeBlock", let digits = props.num("digits") {
+                // #EXP-2204: every number as wide as the widest (`digits`),
+                // so the code column never shifts at line 10.
+                let m = para(raw, ts, wrap: nil, lines: 1)
+                content = MeasuredContent(max(m.width, CGFloat(digits) * line("0", ts)), m.height, m.baseline)
             } else if part == "code", props["tokens"] != nil {
                 // A blank code line still holds one line box (the web's).
                 let code = Self.codeStyle(ts)
@@ -384,6 +389,16 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("QrScanner", _): content = MeasuredContent(qrScanner(leaf, wrap: inner))
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
         case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
+        // #EXP-2204: the core sizes both (a style height); without one a
+        // LogLines is its toolbar + maxLines lines, a JobGraph its layout.
+        case ("LogLines", _):
+            let lines = CGFloat(props.num("maxLines") ?? CiLog.maxLines)
+            content = MeasuredContent(inner.map { max($0, 0) } ?? 320, control("input", 36) + spacing("sm") + lines * (part("LogLines", "line", props).px("lineHeight") ?? 22.75))
+        case ("JobGraph", _):
+            var g = JobGraph.geometry
+            g.rowHeight = Double(control("row", 40))
+            let l = JobGraph.layout(props["jobs"]?.any, compact: props.flag("compact"), geometry: g)
+            content = MeasuredContent(props.flag("compact") ? (inner.map { max($0, 0) } ?? 320) : l.width, l.height)
         // #EDE-65: the nested surface at the content width, as tall as it lays out.
         case ("Embed", _): content = MeasuredContent(embedSize?(leaf.id, props, inner) ?? .zero)
         case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))

@@ -12,7 +12,7 @@ use smithay::{
     desktop::WindowSurfaceType,
     input::{
         keyboard::{FilterResult, Keycode},
-        pointer::{ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point, SERIAL_COUNTER},
@@ -40,6 +40,16 @@ impl Ede {
         match desk {
             DeskId::PERSON => self.pointer_button(button, state, time),
             space => self.space_pointer_button(space, button, state, time),
+        }
+    }
+
+    /// #EDE-266: a scroll on `desk`'s pointer, where it is.
+    pub(crate) fn pointer_axis_on(&mut self, desk: DeskId, frame: AxisFrame) {
+        let Some(pointer) = self.try_desk(desk).and_then(|d| d.seat.get_pointer()) else { return };
+        pointer.axis(self, frame);
+        pointer.frame(self);
+        if desk != DeskId::PERSON {
+            self.space_active(desk);
         }
     }
 

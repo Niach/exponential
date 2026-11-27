@@ -492,6 +492,11 @@ impl Surface {
                 out.push(OutEvent::OpenUrl { url: url.to_string() });
             }
         }
+        // #EXP-2204: LogLines / JobGraph / CodeBlock anchors.
+        if let Some(ci) = self.ci_event(&n, &owner_id, &owner_component, part.as_deref(), event, payload.as_ref()) {
+            out.extend(ci);
+            return out;
+        }
         match (owner_component.as_str(), part.as_deref(), event) {
             ("Tabs", Some("tab"), "press") => {
                 let value = n.props.get("value").map(js).unwrap_or_default();
@@ -1889,4 +1894,134 @@ fn picker_root(id: &str, component: &str, part: &str) -> Option<String> {
         _ => return None,
     };
     id.rfind(marker).map(|at| id[..at].to_string())
+}
+
+// ----------------------------------------------------------------------
+// #EXP-2204 (docs/ci-components-contract.md §2, §4-§6): LogLines,
+// JobGraph and the CodeBlock anchors. Every bound prop writes through; an
+// unbound one is kept locally under `<id>.<prop>` (layout_tree
+// `local_overrides` hands it back to the build).
+// ----------------------------------------------------------------------
+
+impl Surface {
+    /// The CI events the painters send; `None` = not one of them.
+    ///
+    /// - LogLines `toggle {section}` (a section row): flips it in `open`,
+    ///   fires `toggle {section, open}`; `reveal {line}` (stepping to a
+    ///   match, a link): opens the section holding `line`, fires nothing;
+    ///   `search {query}`, `follow {follow}`, `timestamps {timestamps}`:
+    ///   write and fire the same; `select {line, shift}` (a gutter number):
+    ///   `extend_line_anchor` over the current `selection`, fires `select
+    ///   {anchor, start, end}`.
+    /// - JobGraph `select {id}` / `press {id}` (a node or list row): writes
+    ///   `value`, fires `select {id}`.
+    /// - CodeBlock `press {shift}` on an anchored `lineNumber`: as LogLines
+    ///   `select`, the line from the part.
+    fn ci_event(&mut self, n: &LNode, owner_id: &str, component: &str, part: Option<&str>, event: &str, payload: Option<&Value>) -> Option<Vec<OutEvent>> {
+        let p = |k: &str| payload.and_then(|p| p.get(k));
+        let shift = p("shift").and_then(Value::as_bool).unwrap_or(false);
+        let mut out = vec![];
+        match (component, part, event) {
+            ("LogLines", None, "toggle") => {
+                let section = p("section").and_then(Value::as_u64)? as usize;
+                let model = self.ci_model(owner_id);
+                if section >= model.sections.len() {
+                    return Some(vec![]);
+                }
+                let mut open = self.ci_open(owner_id, &model);
+                let now = p("open").and_then(Value::as_bool).unwrap_or(!open.contains(&section));
+                open.retain(|s| *s != section);
+                if now {
+                    open.push(section);
+                    open.sort_unstable();
+                }
+                out.extend(self.ci_write(owner_id, "open", json!(open)));
+                out.extend(self.fire(owner_id, "toggle", Some(json!({"section": section, "open": now}))));
+            }
+            ("LogLines", None, "reveal") => {
+                let line = p("line").and_then(Value::as_u64)? as usize;
+                let model = self.ci_model(owner_id);
+                let open = self.ci_open(owner_id, &model);
+                let revealed = crate::ci_log::log_reveal(&model, Some(&json!(open)), line);
+                if revealed.len() != open.len() {
+                    out.extend(self.ci_write(owner_id, "open", json!(revealed)));
+                }
+            }
+            ("LogLines", None, "search") => {
+                let query = p("query").and_then(Value::as_str).unwrap_or("").to_string();
+                out.extend(self.ci_write(owner_id, "query", Value::String(query.clone())));
+                out.extend(self.fire(owner_id, "search", Some(json!({"query": query}))));
+            }
+            ("LogLines", None, "follow" | "timestamps") => {
+                let current = self.current_prop(owner_id, event).and_then(|v| v.as_bool()).unwrap_or(event == "follow");
+                let on = p(event).and_then(Value::as_bool).unwrap_or(!current);
+                out.extend(self.ci_write(owner_id, event, Value::Bool(on)));
+                let mut payload = Map::new();
+                payload.insert(event.to_string(), Value::Bool(on));
+                out.extend(self.fire(owner_id, event, Some(Value::Object(payload))));
+            }
+            ("LogLines", None, "select") => {
+                let line = p("line").and_then(Value::as_u64).filter(|l| *l >= 1)?;
+                out.extend(self.ci_select(owner_id, line, shift));
+            }
+            ("CodeBlock", Some("lineNumber"), "press") if n.pressable => {
+                let line = n.props.get("line").and_then(Value::as_u64).filter(|l| *l >= 1)?;
+                out.extend(self.ci_select(owner_id, line, shift));
+            }
+            ("JobGraph", None, "select" | "press") => {
+                let id = p("id").and_then(Value::as_str)?.to_string();
+                out.extend(self.ci_write(owner_id, "value", Value::String(id.clone())));
+                out.extend(self.fire(owner_id, "select", Some(json!({"id": id}))));
+            }
+            _ => return None,
+        }
+        out.push(OutEvent::Relayout);
+        Some(out)
+    }
+
+    /// The log model of a LogLines from its built props.
+    fn ci_model(&self, id: &str) -> crate::ci_log::LogModel {
+        let node = self.node_by_id(id);
+        crate::ci_log::log_model(node.and_then(|o| o.props.get("lines")), node.and_then(|o| o.props.get("sections")))
+    }
+
+    /// The CURRENT open sections (bound, local or built; else the default).
+    fn ci_open(&self, id: &str, model: &crate::ci_log::LogModel) -> Vec<usize> {
+        match self.ci_current(id, "open") {
+            Some(v @ Value::Array(_)) => crate::ci_log::open_set(Some(&v), model),
+            _ => crate::ci_log::log_open_default(model),
+        }
+    }
+
+    /// A prop's current value: the data model when bound, else the local
+    /// `<id>.<prop>`, else the built props.
+    fn ci_current(&self, id: &str, prop: &str) -> Option<Value> {
+        if self.binding_path(id, prop).is_some() {
+            return self.current_prop(id, prop).filter(|v| !v.is_null());
+        }
+        self.local.field_values.get(&format!("{id}.{prop}")).cloned().or_else(|| self.node_by_id(id).and_then(|o| o.props.get(prop)).cloned())
+    }
+
+    /// Write `prop` through its binding, else keep it locally.
+    fn ci_write(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
+        let key = format!("{id}.{prop}");
+        let out = self.write_through(id, prop, value.clone());
+        if out.is_empty() {
+            self.local.field_values.insert(key, value);
+        } else {
+            self.local.field_values.remove(&key);
+        }
+        self.needs_build = true;
+        out
+    }
+
+    /// A press on line `line` (Shift extends): the new `selection`, `select`.
+    fn ci_select(&mut self, id: &str, line: u64, shift: bool) -> Vec<OutEvent> {
+        let current = self.ci_current(id, "selection");
+        let anchor = crate::ci_log::extend_line_anchor(current.as_ref(), line, shift);
+        let range = crate::ci_log::parse_line_anchor(&anchor).unwrap_or(crate::ci_log::LineRange { start: line, end: line });
+        let mut out = self.ci_write(id, "selection", Value::String(anchor.clone()));
+        out.extend(self.fire(id, "select", Some(json!({"anchor": anchor, "start": range.start, "end": range.end}))));
+        out
+    }
 }

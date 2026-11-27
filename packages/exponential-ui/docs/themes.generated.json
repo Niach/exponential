@@ -2879,7 +2879,8 @@
     "invalid",
     "dragover",
     "warning",
-    "info"
+    "info",
+    "highlight"
   ],
   "keys": [
     "backgroundColor",
@@ -3181,7 +3182,10 @@
         "lineNumber",
         "token",
         "body",
-        "code"
+        "code",
+        "blame",
+        "blameAuthor",
+        "blameAge"
       ],
       "props": [
         "lineNumbers",
@@ -3910,6 +3914,33 @@
       "props": []
     },
     {
+      "name": "LogView",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "log"
+      ],
+      "props": []
+    },
+    {
+      "name": "JobGraph",
+      "kind": "native",
+      "parts": [
+        "root",
+        "stage",
+        "node",
+        "icon",
+        "name",
+        "meta",
+        "edge",
+        "row",
+        "chevron"
+      ],
+      "props": [
+        "status"
+      ]
+    },
+    {
       "name": "Button",
       "kind": "native",
       "parts": [
@@ -4454,6 +4485,37 @@
       ],
       "props": [
         "tee"
+      ]
+    },
+    {
+      "name": "LogLines",
+      "kind": "native",
+      "parts": [
+        "root",
+        "toolbar",
+        "search",
+        "count",
+        "prev",
+        "next",
+        "follow",
+        "timestamps",
+        "body",
+        "section",
+        "chevron",
+        "sectionIcon",
+        "sectionTitle",
+        "sectionMeta",
+        "line",
+        "gutter",
+        "time",
+        "code",
+        "token",
+        "match"
+      ],
+      "props": [
+        "status",
+        "kind",
+        "open"
       ]
     },
     {

@@ -2299,6 +2299,43 @@
           "description": "sm = compact.",
           "default": "default"
         },
+        "anchors": {
+          "type": "boolean",
+          "description": "Linkable line numbers.",
+          "default": false
+        },
+        "selection": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Anchor `L6-L9`."
+        },
+        "gutter": {
+          "enum": [
+            "numbers",
+            "blame"
+          ],
+          "description": "blame = author column.",
+          "default": "numbers"
+        },
+        "blame": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/blameEntry"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
+          "description": "By start line."
+        },
+        "on": {
+          "$ref": "#/$defs/On_CodeBlock"
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },
@@ -2317,7 +2354,10 @@
             "kind": "native",
             "group": "text",
             "lite": true,
-            "children": "none"
+            "children": "none",
+            "events": [
+              "select"
+            ]
           }
         }
       }
@@ -22655,6 +22695,77 @@
       ],
       "additionalProperties": false
     },
+    "jobGraphJob": {
+      "type": "object",
+      "description": "One JobGraph job.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Reported by `select`; `needs` name it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Node text (default: the id)."
+        },
+        "stage": {
+          "type": "string",
+          "description": "Stage column title."
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "running",
+            "queued",
+            "cancelled",
+            "skipped"
+          ],
+          "description": "Job status (default: queued)."
+        },
+        "duration": {
+          "type": "string",
+          "description": "Shown duration (`1m 12s`)."
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Upstream job ids."
+        },
+        "matrix": {
+          "type": "string",
+          "description": "Matrix key: jobs sharing it draw as one node (`3/5`)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "blameEntry": {
+      "type": "object",
+      "description": "One CodeBlock blame block.",
+      "properties": {
+        "start": {
+          "type": "number",
+          "description": "First line of the block (1-based)."
+        },
+        "author": {
+          "type": "string",
+          "description": "Commit author."
+        },
+        "age": {
+          "type": "string",
+          "description": "Muted age (`3d`)."
+        }
+      },
+      "required": [
+        "start",
+        "author"
+      ],
+      "additionalProperties": false
+    },
     "On_Box": {
       "type": "object",
       "properties": {
@@ -22809,6 +22920,15 @@
           "$ref": "#/$defs/EuiAction"
         },
         "action": {
+          "$ref": "#/$defs/EuiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "On_CodeBlock": {
+      "type": "object",
+      "properties": {
+        "select": {
           "$ref": "#/$defs/EuiAction"
         }
       },

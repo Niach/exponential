@@ -37,6 +37,10 @@
       "action",
       "instance"
     ],
+    "ede_cu": [
+      "action",
+      "space"
+    ],
     "ede_focus": [
       "window"
     ],
@@ -183,6 +187,10 @@
     ],
     "ede_unpin": [
       "app"
+    ],
+    "ede_voice": [
+      "action",
+      "item"
     ],
     "ede_window_menu": [
       "value"

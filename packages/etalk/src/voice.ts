@@ -5,6 +5,7 @@
 import fixture from "../fixtures/voice.json" with { type: "json" }
 import screenMemoryFixture from "@exp/domain-contract/fixtures/screen-memory.json" with { type: "json" }
 import meetingFixture from "../fixtures/meeting.json" with { type: "json" }
+import callFixture from "../fixtures/voice-call.json" with { type: "json" }
 
 export const VOICE_COPY = fixture.copy
 export const VOICE_TEST_IDS = fixture.testIds
@@ -586,6 +587,110 @@ export function railVoice(settings: TraySettings, context: RailVoiceContext): Ra
         ? fixture.pttCopy.overlayMuted
         : fixture.pttCopy.railListening.replace(`{phrase}`, phrase),
     menu: tray.filter((item) => item.kind !== `separator` && item.id !== `open` && item.id !== `quit`),
+  }
+}
+
+/** #EDE-267: the call the eDE tray shows (null = none, or a turn call). */
+export interface EdeTrayCall {
+  /** callView's: ringing | listening | thinking | speaking | muted. */
+  activity: string
+  /** The line under the name; null = the timer. */
+  status: string | null
+  timer: string
+  muted: boolean
+  level: number
+  agent: string
+}
+
+export interface EdeTrayLine {
+  id: string
+  side: `in` | `out`
+  text: string
+}
+
+export interface EdeTrayInput {
+  /** trayMenu's rows; null = not the voice device. */
+  menu: TrayItem[] | null
+  /** trayIcon's value. */
+  icon: `app` | `listening` | `recording` | null
+  /** The member's global Assistant (the eDE tray's voice agent). */
+  assistant: { id: string; name: string } | null
+  call: EdeTrayCall | null
+  lines: EdeTrayLine[]
+}
+
+/** A genUI Menu item. */
+export type EdeTrayMenuItem =
+  | { kind: `separator` }
+  | { kind: `item`; value: string; label: string; disabled?: true }
+  | { kind: `checkbox`; value: string; label: string; checked: boolean; disabled?: true }
+
+export interface EdeTray {
+  show: boolean
+  dot: `none` | `listening` | `recording`
+  agent: string
+  canCall: boolean
+  callLabel: string
+  call: boolean
+  activity: `idle` | `listening` | `thinking` | `speaking` | `muted`
+  ringing: boolean
+  level: number
+  state: string
+  muted: boolean
+  mute: { label: string; icon: string }
+  endLabel: string
+  lines: EdeTrayLine[]
+  menu: EdeTrayMenuItem[]
+}
+
+/** #EDE-267: trayMenu's rows as genUI Menu items, without Open and Quit;
+ *  separators never lead, trail or double. */
+function edeTrayMenu(menu: TrayItem[]): EdeTrayMenuItem[] {
+  const out: EdeTrayMenuItem[] = []
+  for (const row of menu) {
+    if (row.kind === `separator`) {
+      if (out.length > 0 && out[out.length - 1].kind !== `separator`) out.push({ kind: `separator` })
+      continue
+    }
+    if (row.id === `open` || row.id === `quit`) continue
+    const disabled = row.enabled ? {} : { disabled: true as const }
+    out.push(
+      row.kind === `check`
+        ? { kind: `checkbox`, value: row.id, label: row.label, checked: row.checked, ...disabled }
+        : { kind: `item`, value: row.id, label: row.label, ...disabled }
+    )
+  }
+  while (out.length > 0 && out[out.length - 1].kind === `separator`) out.pop()
+  return out
+}
+
+/** #EDE-267 (voice.json EDE TRAY): what the eDE shell's voice popup binds. */
+export function edeVoiceTray(input: EdeTrayInput): EdeTray {
+  const copy = callFixture.copy
+  const icons = callFixture.icons
+  const call = input.call
+  const ringing = call?.activity === `ringing`
+  const agent = call?.agent || input.assistant?.name || fixture.edeTray.agentFallback
+  const offered = input.menu?.some((row) => row.kind === `action` && row.id === `call` && row.enabled) ?? false
+  const activity = (call === null || ringing ? `idle` : call.activity) as EdeTray[`activity`]
+  const muted = call?.muted ?? false
+  const level = call === null ? 0 : Math.round(Math.min(1, Math.max(0, call.level)) * 100) / 100
+  return {
+    show: input.menu !== null,
+    dot: input.icon === `listening` || input.icon === `recording` ? input.icon : `none`,
+    agent,
+    canCall: call === null && input.assistant !== null && offered,
+    callLabel: fixture.copy.trayCall.replace(`{agent}`, agent),
+    call: call !== null,
+    activity,
+    ringing,
+    level,
+    state: call === null ? `` : (call.status ?? call.timer),
+    muted,
+    mute: muted ? { label: copy.unmute, icon: icons.unmute } : { label: copy.mute, icon: icons.mute },
+    endLabel: ringing ? copy.cancel : copy.endCall,
+    lines: input.lines.slice(-fixture.edeTray.lines),
+    menu: input.menu === null ? [] : edeTrayMenu(input.menu),
   }
 }
 

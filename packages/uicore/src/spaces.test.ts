@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/spaces.json" with { type: "json" }
-import { spaceRows, spaceView, type SpaceDisplay, type SpaceInput, type SpaceSession } from "./spaces"
+import { cuTray, spaceRows, spaceView, type SpaceDisplay, type TrayInput, type SpaceInput, type SpaceSession } from "./spaces"
 
 describe(`spaces.json rows (#EXP-2024)`, () => {
   test(`has its cases`, () => expect(fixture.rows.length).toBeGreaterThanOrEqual(8))
@@ -10,4 +10,9 @@ describe(`spaces.json rows (#EXP-2024)`, () => {
 describe(`spaces.json view (#EXP-2024)`, () => {
   test(`has its cases`, () => expect(fixture.view.length).toBeGreaterThanOrEqual(10))
   for (const c of fixture.view) test(c.name, () => expect(spaceView(c.space, c.display as SpaceDisplay, c.large)).toEqual(c.expected))
+})
+
+describe(`spaces.json tray (#EDE-266)`, () => {
+  test(`has its cases`, () => expect(fixture.tray.length).toBeGreaterThanOrEqual(8))
+  for (const c of fixture.tray) test(c.name, () => expect(cuTray(c.input as TrayInput)).toEqual(c.expected as ReturnType<typeof cuTray>))
 })

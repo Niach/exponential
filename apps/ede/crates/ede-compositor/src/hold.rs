@@ -114,6 +114,10 @@ impl Ede {
         if self.hot_corners_button(button, state == ButtonState::Pressed) {
             return;
         }
+        // #EDE-266: a press on a taken-over space's picture is the space's.
+        if self.space_view_button(button, state, time) {
+            return;
+        }
         self.pointer_button(button, state, time);
     }
 
@@ -122,7 +126,10 @@ impl Ede {
         if self.person_input_held() {
             return false;
         }
-        self.pointer_motion_to(pos, time);
+        // #EDE-266: over a taken-over space's view, the space's pointer moves.
+        if !self.space_view_motion(self.clamp_to_outputs(pos), time) {
+            self.pointer_motion_to(pos, time);
+        }
         let at = self.desk.seat.get_pointer().unwrap().current_location();
         self.hot_corners_motion(at);
         true

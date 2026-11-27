@@ -458,6 +458,18 @@
         },
         "size": {
           "description": "sm = compact."
+        },
+        "anchors": {
+          "description": "Linkable line numbers."
+        },
+        "selection": {
+          "description": "Anchor `L6-L9`."
+        },
+        "gutter": {
+          "description": "blame = author column."
+        },
+        "blame": {
+          "description": "By start line."
         }
       },
       "description": "Mono source code.",
@@ -1835,6 +1847,100 @@
         ]
       }
     },
+    "LogView": {
+      "props": {
+        "lines": {
+          "description": "Raw log lines (timestamps, ANSI and `##[group]` markers kept)."
+        },
+        "sections": {
+          "description": "{status, duration} per step."
+        },
+        "open": {
+          "description": "Open step indexes (default: failed, running)."
+        },
+        "query": {
+          "description": "Search text."
+        },
+        "selection": {
+          "description": "Anchor `L6-L9`."
+        },
+        "follow": {
+          "description": "Sticks to the end."
+        },
+        "timestamps": {
+          "description": "Line times."
+        },
+        "maxLines": {
+          "description": "Height in lines."
+        }
+      },
+      "description": "CI log: steps fold; search, line links.",
+      "example": {
+        "lines": [
+          "##[group]Install",
+          "$ bun install",
+          "Resolved 1204 packages",
+          "##[endgroup]",
+          "##[group]Test",
+          "\u001b[31m(fail)\u001b[0m store > get",
+          "##[error]1 test failed",
+          "##[endgroup]"
+        ],
+        "sections": [
+          {
+            "status": "passed",
+            "duration": "12s"
+          },
+          {
+            "status": "failed",
+            "duration": "41s"
+          }
+        ],
+        "maxLines": 8
+      }
+    },
+    "JobGraph": {
+      "props": {
+        "jobs": {
+          "description": "Run's jobs."
+        },
+        "value": {
+          "description": "Selected job id."
+        }
+      },
+      "description": "CI jobs by stage; hover shows needs.",
+      "example": {
+        "jobs": [
+          {
+            "id": "build",
+            "name": "build",
+            "stage": "build",
+            "status": "passed",
+            "duration": "1m 2s"
+          },
+          {
+            "id": "test",
+            "name": "test",
+            "stage": "test",
+            "status": "failed",
+            "duration": "41s",
+            "needs": [
+              "build"
+            ]
+          },
+          {
+            "id": "deploy",
+            "name": "deploy",
+            "stage": "deploy",
+            "status": "skipped",
+            "needs": [
+              "test"
+            ]
+          }
+        ],
+        "value": "test"
+      }
+    },
     "Button": {
       "props": {
         "label": {
@@ -2921,6 +3027,41 @@
         "elbowAt": 0,
         "tee": true,
         "passThrough": []
+      }
+    },
+    "LogLines": {
+      "props": {
+        "lines": {
+          "description": "Raw log lines (timestamps, ANSI and `##[group]` markers kept)."
+        },
+        "sections": {
+          "description": "{status, duration} per step."
+        },
+        "open": {
+          "description": "Open step indexes (default: failed, running)."
+        },
+        "query": {
+          "description": "Search text."
+        },
+        "selection": {
+          "description": "Anchor `L6-L9`."
+        },
+        "follow": {
+          "description": "Sticks to the end."
+        },
+        "timestamps": {
+          "description": "Line times."
+        },
+        "maxLines": {
+          "description": "Height in lines."
+        }
+      },
+      "description": "LogView's toolbar over the windowed log; never authored directly.",
+      "example": {
+        "lines": [
+          "$ bun test",
+          "\u001b[32m(pass)\u001b[0m store > put"
+        ]
       }
     },
     "Unknown": {
@@ -4323,6 +4464,46 @@
         }
       },
       "description": "One concentric ring."
+    },
+    "jobGraphJob": {
+      "properties": {
+        "id": {
+          "description": "Reported by `select`; `needs` name it."
+        },
+        "name": {
+          "description": "Node text (default: the id)."
+        },
+        "stage": {
+          "description": "Stage column title."
+        },
+        "status": {
+          "description": "Job status (default: queued)."
+        },
+        "duration": {
+          "description": "Shown duration (`1m 12s`)."
+        },
+        "needs": {
+          "description": "Upstream job ids."
+        },
+        "matrix": {
+          "description": "Matrix key: jobs sharing it draw as one node (`3/5`)."
+        }
+      },
+      "description": "One JobGraph job."
+    },
+    "blameEntry": {
+      "properties": {
+        "start": {
+          "description": "First line of the block (1-based)."
+        },
+        "author": {
+          "description": "Commit author."
+        },
+        "age": {
+          "description": "Muted age (`3d`)."
+        }
+      },
+      "description": "One CodeBlock blame block."
     }
   },
   "functions": {

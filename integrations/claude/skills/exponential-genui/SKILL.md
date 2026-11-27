@@ -31,7 +31,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 - navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper, NavBar
 - overlay: Dialog, Drawer, DockCard, AlertDialog, Popover, Tooltip, Menu, Toast
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave, CountBadge
-- data: Table, Chart, Sparkline, StatTile, Calendar, Timeline, RecordForm, RecordTable
+- data: Table, Chart, Sparkline, StatTile, LogView, JobGraph, Calendar, Timeline, RecordForm, RecordTable
 - action: Button, Link, Toggle
 - input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, IconPicker, ColorPicker, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer, DayStrip
 

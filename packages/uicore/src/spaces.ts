@@ -99,3 +99,106 @@ export function spaceView(space: Extent, display: SpaceDisplay, large: boolean):
   }
   return { width: width + 2 * border, height: header + picture.height + 2 * border, picture, pixels: { width: device(picture.width, space.width), height: device(picture.height, space.height) }, large: big, canGrow }
 }
+
+/** #EDE-266: who drives a space (the compositor's `control`). */
+export type SpaceControl = `agent` | `paused` | `person`
+
+/** A trace line of the holder's session feed (`{title, icon, status}`). */
+export interface TraceLine {
+  title: string
+  icon: string
+  status: string
+}
+
+/** An entry of the holder's `sessions` feed: the chat `id`, its working sessions (`stop`) and their `trace`. */
+export interface TraySession {
+  id: string
+  stop?: string[]
+  trace?: TraceLine[]
+}
+
+export interface TrayInput {
+  rows: SpaceRow[]
+  /** The space the person picked; absent or gone = the first row. */
+  selected?: string | null
+  controls?: Record<string, SpaceControl>
+  sessions?: TraySession[]
+  /** The session whose view is pinned. */
+  watching?: string | null
+}
+
+export interface TrayAction {
+  label: string
+  icon: string
+  value: string
+}
+
+export interface TrayMenuItem {
+  label?: string
+  value?: string
+  icon?: string
+  kind?: `separator`
+  destructive?: boolean
+}
+
+export interface TraySelected {
+  id: string
+  session: string
+  title: string
+  subtitle: string | null
+  control: SpaceControl
+  state: { label: string; icon: string; variant: string }
+  now: string | null
+  trace: TraceLine[]
+  watching: boolean
+  watch: TrayAction
+  pause: TrayAction | null
+  take: TrayAction
+}
+
+export interface Tray {
+  count: number
+  badge: string
+  list: boolean
+  rows: (SpaceRow & { selected: boolean })[]
+  selected: TraySelected | null
+  menu: TrayMenuItem[]
+}
+
+/** #EDE-266: the computer-use tray's popup and applet menu. */
+export function cuTray(input: TrayInput): Tray {
+  const { copy, constants } = fixture
+  const rows = input.rows
+  const pick = rows.find((r) => r.id === input.selected) ?? rows[0]
+  const count = rows.length
+  const badge = count === 0 ? `` : count === 1 ? copy.spaceOne : copy.spaceMany.replaceAll(`{n}`, () => String(count))
+  const action = (key: keyof typeof constants.trayIcons): TrayAction => ({ label: copy[key], icon: constants.trayIcons[key], value: key })
+  let selected: TraySelected | null = null
+  if (pick) {
+    const control: SpaceControl = input.controls?.[pick.id] ?? `agent`
+    const entry = (input.sessions ?? []).find((s) => s.id === pick.session || (s.stop ?? []).includes(pick.session))
+    const trace = (entry?.trace ?? []).slice(-constants.trayTrace)
+    const running = [...trace].reverse().find((line) => line.status === `running`)
+    const watching = !!input.watching && input.watching === pick.session
+    const state = { label: copy[control], icon: constants.trayIcons[control], variant: constants.trayVariants[control] }
+    selected = {
+      id: pick.id,
+      session: pick.session,
+      title: pick.title,
+      subtitle: pick.subtitle,
+      control,
+      state,
+      now: running ? running.title : null,
+      trace,
+      watching,
+      watch: action(watching ? `unwatch` : `watch`),
+      pause: control === `agent` ? action(`pause`) : control === `paused` ? action(`resume`) : null,
+      take: action(control === `person` ? `handBack` : `takeOver`),
+    }
+  }
+  const item = (a: TrayAction): TrayMenuItem => ({ label: a.label, value: a.value, icon: a.icon })
+  const menu: TrayMenuItem[] = selected
+    ? [item(selected.watch), ...(selected.pause ? [item(selected.pause)] : []), item(selected.take), { kind: `separator` }, { ...item(action(`stop`)), destructive: true }]
+    : []
+  return { count, badge, list: count > 1, rows: rows.map((r) => ({ ...r, selected: r.id === selected?.id })), selected, menu }
+}

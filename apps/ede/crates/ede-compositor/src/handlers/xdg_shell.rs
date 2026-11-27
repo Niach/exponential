@@ -15,7 +15,7 @@ use smithay::{
             Resource,
         },
     },
-    utils::{Rectangle, Serial},
+    utils::{Logical, Point, Rectangle, Serial},
     wayland::{
         compositor::with_states,
         seat::WaylandFocus,
@@ -115,6 +115,23 @@ impl XdgShellHandler for Ede {
         let grab = ResizeSurfaceGrab::start(start_data, window, edges.into(), Rectangle::new(loc, size));
         let pointer = seat.get_pointer().unwrap();
         pointer.set_grab(self, grab, serial, Focus::Clear);
+    }
+
+    // #EDE-263: a client-side title bar's right click (GTK's headerbar):
+    // Muffin's xdg_toplevel.show_window_menu opens the same window menu
+    // as Alt+Space and our own title bar, at the point it names
+    // (surface-local), for a surface holding the click that asked.
+    fn show_window_menu(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial, location: Point<i32, Logical>) {
+        if space_of_surface(surface.wl_surface()).is_some() {
+            return;
+        }
+        let Some(seat) = Seat::from_resource(&seat) else { return };
+        if check_grab(&seat, surface.wl_surface(), serial).is_none() {
+            return;
+        }
+        let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
+        let Some(loc) = self.desk.space.element_location(&window) else { return };
+        self.window_menu(&window, loc - window.geometry().loc + location);
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {

@@ -5,6 +5,7 @@ import {
   agentOptions,
   clearOnNone,
   downloadProgress,
+  edeVoiceTray,
   identifierNumberWords,
   languageLabel,
   languageNote,
@@ -109,6 +110,16 @@ describe(`voice.json`, () => {
   for (const c of fixture.railVoiceCases) {
     it(`railVoice: ${c.name}`, () => expect(railVoice(c.settings, c.context)).toEqual(c.rail))
   }
+  for (const c of fixture.edeTrayCases) {
+    it(`edeVoiceTray: ${c.name}`, () => expect(edeVoiceTray(c.input as Parameters<typeof edeVoiceTray>[0])).toEqual(c.expected as ReturnType<typeof edeVoiceTray>))
+  }
+  it(`edeVoiceTray: every case's menu keeps no Open or Quit`, () => {
+    for (const c of fixture.edeTrayCases) {
+      const values = edeVoiceTray(c.input as Parameters<typeof edeVoiceTray>[0]).menu.map((item) => (`value` in item ? item.value : null))
+      expect(values).not.toContain(`open`)
+      expect(values).not.toContain(`quit`)
+    }
+  })
   for (const c of fixture.shortcutSupportCases) {
     it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>
       expect(shortcutSupport(c.os as `linux`, c.session as `x11` | null, c.shortcut, c.portal)).toBe(c.support as `global`))
