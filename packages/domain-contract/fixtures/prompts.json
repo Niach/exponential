@@ -502,6 +502,7 @@
     },
     "remove-repository": {
       "title": "Remove {fullName} from this team?",
+      "body": "Its pull requests and runs go with it. Boards that use it as their default repository keep none.",
       "params": [
         {
           "name": "fullName",

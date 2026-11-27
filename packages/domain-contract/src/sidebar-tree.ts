@@ -27,7 +27,7 @@ export const SIDEBAR_TEAMS_MENU = fixture.teamsMenu as readonly SidebarTeamsMenu
 
 export type SidebarTeamsMenuItem = `new-team` | `join-team`
 export type SidebarRootRow = `assistant` | `home` | `needs-you` | `chats` | `drafts` | `devices`
-export type SidebarItemKind = `board` | `agent` | `app` | `session`
+export type SidebarItemKind = `board` | `repository` | `agent` | `app` | `session`
 export type { SidebarNewKind }
 
 /** The fixed rows above the teams; Needs you and Drafts only while they count. */
@@ -117,12 +117,15 @@ export interface SidebarSessionInput {
   parentId: string | null
 }
 
-/** A team's targets in DEFAULT order: boards by sortOrder, agents (never an
- *  Assistant) by sortOrder, apps by name, then the team's root sessions the
- *  member placed (an item entry), in entry order. Feeds `sidebarTree`. */
+/** A team's targets in DEFAULT order: boards by sortOrder, repositories
+ *  (#EXP-2171) by sortOrder then full name, agents (never an Assistant) by
+ *  sortOrder, apps by name, then the team's root sessions the member placed
+ *  (an item entry), in entry order. Feeds `sidebarTree`. */
 export function sidebarTeamItems(input: {
   teamId: string
   boards: readonly { id: string; sortOrder: number }[]
+  /** Absent = none (older callers). */
+  repositories?: readonly { id: string; sortOrder: number; fullName: string }[]
   agents: readonly { id: string; sortOrder: number; role: string }[]
   apps: readonly { id: string; name: string }[]
   sessions: readonly SidebarSessionInput[]
@@ -138,6 +141,11 @@ export function sidebarTeamItems(input: {
     .filter((session): session is SidebarSessionInput => !!session && isTeamRoot(session, input.teamId))
   return [
     ...[...input.boards].sort(bySort).map((board) => ({ id: board.id, kind: `board` as const })),
+    ...[...(input.repositories ?? [])]
+      .sort((a, b) =>
+        a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : byName({ id: a.id, name: a.fullName }, { id: b.id, name: b.fullName })
+      )
+      .map((repo) => ({ id: repo.id, kind: `repository` as const })),
     ...input.agents
       .filter((agent) => agent.role === `agent`)
       .sort(bySort)
@@ -234,4 +242,30 @@ export function phoneTreeRows(teams: readonly PhoneTreeTeam[]): PhoneTreeRow[] {
  *  shows: the viewer's only team, without a node. */
 export function phoneTeamsEmpty(teams: readonly { id: string; count: number }[]): string | null {
   return teams.length === 1 && teams[0].count === 0 ? teams[0].id : null
+}
+
+/** #EXP-2171: a repository row's trailing side (`repositoryRow.cases`): its
+ *  checks chip, else a GitHub repository's mark, else nothing. */
+export type RepositoryChecks = `success` | `pending` | `failure`
+export interface RepositoryTrailing {
+  kind: `checks` | `github`
+  state: RepositoryChecks | null
+}
+export function sidebarRepositoryTrailing(input: { provider: string; checks: RepositoryChecks | null }): RepositoryTrailing | null {
+  if (input.checks) return { kind: `checks`, state: input.checks }
+  return input.provider === `github` ? { kind: `github`, state: null } : null
+}
+
+/** The repository row's glyph and a GitHub repository's mark. */
+export const SIDEBAR_REPOSITORY_GLYPH = fixture.repositoryRow.glyph
+export const SIDEBAR_REPOSITORY_GITHUB_ICON = fixture.repositoryRow.github
+
+/** Copy clone URL: a hosted repository's `exp://` remote, else GitHub's. */
+export function repositoryCloneUrl(input: { provider: string; fullName: string }): string {
+  return input.provider === `ecode` ? `exp://${input.fullName}` : `https://github.com/${input.fullName}.git`
+}
+
+/** The row's title: the full name's last segment. */
+export function repositoryName(fullName: string): string {
+  return fullName.split(`/`).pop() || fullName
 }

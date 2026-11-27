@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-2124 (owner 2026-11-24) THE SIDEBAR MENUS, web md+ and the desktop IDE (PHONES, #EXP-2109: the same table as the long-press menu of the Teams tab's rows, minus `phone.drops`, `phoneCases`, sidebarPhoneMenu: a phone has no tabs; EVERY navigation row has it, #EXP-2126: the Teams tab's rows, a device's row in the phones' Devices list, the iPad sidebar's own rows; a menu left with Open alone = no menu, a tap says the same; a verb whose target the phone lacks is left out, like any verb a row has nothing for: a device has no page there, so its Open and a teammate's Settings; MOVE TO FOLDER's submenu = sidebarMoveTargets, `moveCases`). ONE menu table for every sidebar row, replayed by every client (the pure reference is `src/sidebar-menus.ts`, desktop Rust `domain::sidebar_menus`; each replays `menuCases`, `newCases`, `newTabCases` and compares the WHOLE expected value). A row's right-click (the keyboard's menu key; a long-press on touch) opens ITS kind's menu, drawn with THE genUI Menu (`openOn: contextmenu`); a row that also has a hover `…` (the team) opens the same menu from it. MENU (`kinds`, sidebarItemMenu(kind, input)): five GROUPS in the fixed order `groups` (open: Open, Open in new tab; kind: what only this kind does; arrange: Rename, Copy link, Move to folder, Add to / Remove from sidebar; settings; danger: destructive, last), a `separator` between the non-empty ones. An entry is an id, or {id, when}: shown only while the input flag `when` is true (`owner` = the viewer owns the item's team, `mine` = the viewer's own device, `canDelete` = chats.json `menuCases` delete rule). Labels are `copy` (a `danger` row is drawn destructive and asks first with the usual confirm); a verb that has a shortcut elsewhere shows it (`shortcuts`: New chat = the new session tab's Alt/Option+T); no other shortcut exists and none is invented here. The ONLY destructive row added is a board's Archive (owner; the board settings' archive behind its confirm); an Active row keeps the Delete it already had. VERBS: open = the row's own press; open-new-tab = the row's page as a NEW work tab opened in the BACKGROUND (the current tab stays; `tabs`): every kind that has Open is a tab now (Home, Needs you, Chats, Drafts, a device, a board, an app besides the issues, chats, agents and sessions tabs always held), a page already open as a tab is not opened twice; Home and the new session tab are ONE tab (key `new`, never two for Home): visiting Home opens or activates it, Open in new tab on Home adds it in the background, its chip is the Home nav icon + `Home`, the landing rule is unchanged (a chat started from its composer takes its place) and Alt/Option+T activates it; new-chat = Home's composer (the new session tab); new = THE New list as a submenu (`newKinds`); new-folder, rename (a folder: in place; a device: its name in place), ungroup = sidebar-folders.json; new-issue = the New issue page on that board; compact / new-conversation = chats.json `agentMenu.sends`; edit = the app editor; copy-link = the page's URL on the clipboard; move = a submenu of the team's folders (into that folder), then `New folder` (a new folder holding the item, its name in edit) and, for an item inside a folder, `Top level`; add-to-sidebar = sidebar-tree.json `drop` (appended to its team's list; hidden once placed); remove-from-sidebar = its entry deleted; settings = the item's settings page (the Assistant: Settings > Assistant; a device: its settings page; a team: the team settings; a board: its board settings; an app: the editor's Settings tab; an agent: its settings as the screen's opened item). THE NEW LIST (`newKinds`, sidebarNewKinds({owner})): ONE order everywhere a team creates something (the team menu's New, the new-tab menu's team submenu): Chat (every member; Home's composer with that team as its Teams pick), then Agent, App, Board (owners; settings-nav.json `newEntries`; their creation pages); labels `newCopy`. THE NEW-TAB MENU (`newTabCases`, newTabMenu): the tab strip's + opens a menu instead of a fixed tab: the Assistant first (its name + the brand mark; opens its chat; absent while the viewer has none), a separator, then one row per team in sidebar order (sidebar-tree.json `teams`), each a submenu of THE New list for that viewer. Alt/Option+T still opens the new session tab directly. THE ASSISTANT ROW: sidebar-tree.json `root` puts `assistant` first (the brand mark + the Assistant's name + its conversation's count badge; opens its chat); the FAB stays.",
+  "$comment": "#EXP-2124 (owner 2026-11-24) THE SIDEBAR MENUS, web md+ and the desktop IDE (PHONES, #EXP-2109: the same table as the long-press menu of the Teams tab's rows, minus `phone.drops`, `phoneCases`, sidebarPhoneMenu: a phone has no tabs; EVERY navigation row has it, #EXP-2126: the Teams tab's rows, a device's row in the phones' Devices list, the iPad sidebar's own rows; a menu left with Open alone = no menu, a tap says the same; a verb whose target the phone lacks is left out, like any verb a row has nothing for: a device has no page there, so its Open and a teammate's Settings; MOVE TO FOLDER's submenu = sidebarMoveTargets, `moveCases`). ONE menu table for every sidebar row, replayed by every client (the pure reference is `src/sidebar-menus.ts`, desktop Rust `domain::sidebar_menus`; each replays `menuCases`, `newCases`, `newTabCases` and compares the WHOLE expected value). A row's right-click (the keyboard's menu key; a long-press on touch) opens ITS kind's menu, drawn with THE genUI Menu (`openOn: contextmenu`); a row that also has a hover `…` (the team) opens the same menu from it. MENU (`kinds`, sidebarItemMenu(kind, input)): five GROUPS in the fixed order `groups` (open: Open, Open in new tab; kind: what only this kind does; arrange: Rename, Copy link, Move to folder, Add to / Remove from sidebar; settings; danger: destructive, last), a `separator` between the non-empty ones. An entry is an id, or {id, when}: shown only while the input flag `when` is true (`owner` = the viewer owns the item's team, `mine` = the viewer's own device, `canDelete` = chats.json `menuCases` delete rule). Labels are `copy` (a `danger` row is drawn destructive and asks first with the usual confirm); a verb that has a shortcut elsewhere shows it (`shortcuts`: New chat = the new session tab's Alt/Option+T); no other shortcut exists and none is invented here. The ONLY destructive row added is a board's Archive (owner; the board settings' archive behind its confirm); an Active row keeps the Delete it already had. VERBS: open = the row's own press; open-new-tab = the row's page as a NEW work tab opened in the BACKGROUND (the current tab stays; `tabs`): every kind that has Open is a tab now (Home, Needs you, Chats, Drafts, a device, a board, an app besides the issues, chats, agents and sessions tabs always held), a page already open as a tab is not opened twice; Home and the new session tab are ONE tab (key `new`, never two for Home): visiting Home opens or activates it, Open in new tab on Home adds it in the background, its chip is the Home nav icon + `Home`, the landing rule is unchanged (a chat started from its composer takes its place) and Alt/Option+T activates it; new-chat = Home's composer (the new session tab); new = THE New list as a submenu (`newKinds`); new-folder, rename (a folder: in place; a device: its name in place), ungroup = sidebar-folders.json; new-issue = the New issue page on that board; compact / new-conversation = chats.json `agentMenu.sends`; edit = the app editor; copy-link = the page's URL on the clipboard; move = a submenu of the team's folders (into that folder), then `New folder` (a new folder holding the item, its name in edit) and, for an item inside a folder, `Top level`; add-to-sidebar = sidebar-tree.json `drop` (appended to its team's list; hidden once placed); remove-from-sidebar = its entry deleted; settings = the item's settings page (the Assistant: Settings > Assistant; a device: its settings page; a team: the team settings; a board: its board settings; an app: the editor's Settings tab; an agent: its settings as the screen's opened item). THE NEW LIST (`newKinds`, sidebarNewKinds({owner})): ONE order everywhere a team creates something (the team menu's New, the new-tab menu's team submenu): Chat (every member; Home's composer with that team as its Teams pick), then Agent, App, Board (owners; settings-nav.json `newEntries`; their creation pages); labels `newCopy`. THE NEW-TAB MENU (`newTabCases`, newTabMenu): the tab strip's + opens a menu instead of a fixed tab: the Assistant first (its name + the brand mark; opens its chat; absent while the viewer has none), a separator, then one row per team in sidebar order (sidebar-tree.json `teams`), each a submenu of THE New list for that viewer. Alt/Option+T still opens the new session tab directly. THE ASSISTANT ROW: sidebar-tree.json `root` puts `assistant` first (the brand mark + the Assistant's name + its conversation's count badge; opens its chat); the FAB stays. #EXP-2171 A REPOSITORY (`kinds.repository`, sidebar-tree.json `repositoryRow`): Open (its page, the Pull requests tab by default until Code exists), Open in new tab (a work tab: `tabs.pages`), then `new-repo-chat` (New chat in this repository: Home's composer with that repository picked, coding-readiness.json `chatRepo`), `pull-requests` and `runs` (its page on that tab, `?tab=pulls` / `?tab=runs`), then `copy-clone-url` (sidebar-tree.json `repositoryRow.cloneUrl` on the clipboard, toast `copy.cloneUrlCopied`) and Move to folder, then Settings (its page's Settings tab). Removing one stays in that Settings tab behind its confirm (prompts.json `remove-repository`): no destructive row is added here. THE NEW LIST gains `repository` after Board (owners): its creation page (repo-page.json NEW › REPOSITORY).",
   "groups": [
     "open",
     "kind",
@@ -14,6 +14,9 @@
     "new": "New",
     "new-folder": "New folder",
     "new-issue": "New issue",
+    "new-repo-chat": "New chat in this repository",
+    "pull-requests": "Pull requests",
+    "runs": "Runs",
     "new-team": "New team",
     "join-team": "Join team",
     "add-device": "Add device",
@@ -22,6 +25,7 @@
     "edit": "Edit",
     "rename": "Rename",
     "copy-link": "Copy link",
+    "copy-clone-url": "Copy clone URL",
     "move": "Move to folder",
     "ungroup": "Ungroup",
     "add-to-sidebar": "Add to sidebar",
@@ -31,7 +35,8 @@
     "delete": "Delete",
     "top-level": "Top level",
     "newTab": "New tab",
-    "linkCopied": "Link copied"
+    "linkCopied": "Link copied",
+    "cloneUrlCopied": "Clone URL copied"
   },
   "icons": {
     "open": "ui-arrow-right",
@@ -40,6 +45,9 @@
     "new": "ui-add",
     "new-folder": "ui-folder",
     "new-issue": "nav-create-issue",
+    "new-repo-chat": "action-chat",
+    "pull-requests": "git-pull-request",
+    "runs": "workflow",
     "new-team": "ui-add",
     "join-team": "ui-invite",
     "add-device": "ui-add",
@@ -48,6 +56,7 @@
     "edit": "ui-edit",
     "rename": "ui-edit",
     "copy-link": "ui-link",
+    "copy-clone-url": "ui-copy",
     "move": "ui-folder",
     "ungroup": "ui-minus",
     "add-to-sidebar": "ui-add",
@@ -205,6 +214,25 @@
           "when": "owner"
         }
       ]
+    },
+    "repository": {
+      "open": [
+        "open",
+        "open-new-tab"
+      ],
+      "kind": [
+        "new-repo-chat",
+        "pull-requests",
+        "runs"
+      ],
+      "arrange": [
+        "copy-clone-url",
+        "move"
+      ],
+      "settings": [
+        "settings"
+      ],
+      "danger": []
     },
     "app": {
       "open": [
@@ -447,6 +475,26 @@
       ]
     },
     {
+      "name": "a repository (#EXP-2171), owner and member alike",
+      "kind": "repository",
+      "input": {
+        "owner": false
+      },
+      "expected": [
+        "open",
+        "open-new-tab",
+        "separator",
+        "new-repo-chat",
+        "pull-requests",
+        "runs",
+        "separator",
+        "copy-clone-url",
+        "move",
+        "separator",
+        "settings"
+      ]
+    },
+    {
       "name": "an app",
       "kind": "app",
       "input": {
@@ -554,24 +602,28 @@
     "session",
     "agent",
     "app",
-    "board"
+    "board",
+    "repository"
   ],
   "newOwnerOnly": [
     "agent",
     "app",
-    "board"
+    "board",
+    "repository"
   ],
   "newCopy": {
     "session": "Chat",
     "agent": "Agent",
     "app": "App",
-    "board": "Board"
+    "board": "Board",
+    "repository": "Repository"
   },
   "newIcons": {
     "session": "action-chat",
     "agent": "settings-agents",
     "app": "nav-apps",
-    "board": "nav-boards"
+    "board": "nav-boards",
+    "repository": "settings-repositories"
   },
   "newCases": [
     {
@@ -581,7 +633,8 @@
         "session",
         "agent",
         "app",
-        "board"
+        "board",
+        "repository"
       ]
     },
     {
@@ -621,7 +674,8 @@
             "session",
             "agent",
             "app",
-            "board"
+            "board",
+            "repository"
           ]
         },
         {
@@ -670,7 +724,8 @@
       "drafts",
       "device",
       "board",
-      "app"
+      "app",
+      "repository"
     ],
     "background": true
   },
@@ -734,6 +789,23 @@
         "separator",
         "copy-link",
         "move"
+      ]
+    },
+    {
+      "name": "a repository",
+      "kind": "repository",
+      "input": {},
+      "expected": [
+        "open",
+        "separator",
+        "new-repo-chat",
+        "pull-requests",
+        "runs",
+        "separator",
+        "copy-clone-url",
+        "move",
+        "separator",
+        "settings"
       ]
     },
     {

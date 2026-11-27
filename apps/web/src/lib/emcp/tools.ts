@@ -4965,7 +4965,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
+      description: `Set a board's (UUID) DEFAULT repository (same team), or repositoryId: null to clear it. Owner/admin only. New chats on its issues without a pick or a live PR use it. The branch pin resets unless defaultBranch is passed.`,
       inputSchema: strictInput({
         id: uuidString,
         repositoryId: uuidString.nullable(),

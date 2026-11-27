@@ -326,21 +326,13 @@ export async function openPullRequest(args: {
   const head = args.head ?? caller?.branch ?? null
   if (!head) fail(`BAD_REQUEST`, `Pass 'head': the branch you pushed`)
 
-  // One repo, one team: an explicit issue elsewhere is refused, the
-  // chat's defaults are narrowed to this PR's repository.
-  const belongs = (issue: IssueForPr) =>
-    issue.teamId === repo.teamId &&
-    (issue.boardRepositoryId === null || issue.boardRepositoryId === repo.id)
+  // One team: an explicit issue elsewhere is refused. #EXP-2171: the
+  // board's repository is only a DEFAULT, so an issue of the team links
+  // a PR in ANY of its repositories (issue-lifecycle.json `links`).
+  const belongs = (issue: IssueForPr) => issue.teamId === repo.teamId
   if (explicitIds) {
     const stray = candidates.find((issue) => !belongs(issue))
-    if (stray) {
-      fail(
-        `BAD_REQUEST`,
-        stray.teamId !== repo.teamId
-          ? `${stray.identifier} is in another team than ${repo.fullName}`
-          : `${stray.identifier}'s board uses another repository than ${repo.fullName}`
-      )
-    }
+    if (stray) fail(`BAD_REQUEST`, `${stray.identifier} is in another team than ${repo.fullName}`)
   }
   const named = await loadNamedIssuesForPr(
     repo.teamId,
@@ -441,7 +433,7 @@ export async function openPullRequest(args: {
 
   const defaults = await loadGuardDefaultBranches(db, { teamId: repo.teamId, repoFullName: repo.fullName })
   const defaultBranch =
-    linked.find((issue) => issue.boardDefaultBranch)?.boardDefaultBranch ?? effectiveDefaultBranch(repo)
+    linked.find((issue) => issue.boardDefaultBranch && issue.boardRepositoryId === repo.id)?.boardDefaultBranch ?? effectiveDefaultBranch(repo)
   const base =
     args.base ??
     (
