@@ -20,6 +20,7 @@ import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } 
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
+import { Route as AppCiRouteImport } from './routes/_app/ci'
 import { Route as AppDraftsRouteImport } from './routes/_app/drafts'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
@@ -250,6 +251,11 @@ const AppAssistantRoute = AppAssistantRouteImport.update({
 const AppChatsRoute = AppChatsRouteImport.update({
   id: '/chats',
   path: '/chats',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCiRoute = AppCiRouteImport.update({
+  id: '/ci',
+  path: '/ci',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDraftsRoute = AppDraftsRouteImport.update({
@@ -1189,6 +1195,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
+  '/ci': typeof AppCiRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
@@ -1371,6 +1378,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
+  '/ci': typeof AppCiRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
@@ -1558,6 +1566,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_app/assistant': typeof AppAssistantRoute
   '/_app/chats': typeof AppChatsRoute
+  '/_app/ci': typeof AppCiRoute
   '/_app/drafts': typeof AppDraftsRoute
   '/_app/home': typeof AppHomeRoute
   '/_app/inbox': typeof AppInboxRoute
@@ -1745,6 +1754,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/assistant'
     | '/chats'
+    | '/ci'
     | '/drafts'
     | '/home'
     | '/inbox'
@@ -1927,6 +1937,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/assistant'
     | '/chats'
+    | '/ci'
     | '/drafts'
     | '/home'
     | '/inbox'
@@ -2113,6 +2124,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/_app/assistant'
     | '/_app/chats'
+    | '/_app/ci'
     | '/_app/drafts'
     | '/_app/home'
     | '/_app/inbox'
@@ -2466,6 +2478,13 @@ declare module '@tanstack/react-router' {
       path: '/chats'
       fullPath: '/chats'
       preLoaderRoute: typeof AppChatsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ci': {
+      id: '/_app/ci'
+      path: '/ci'
+      fullPath: '/ci'
+      preLoaderRoute: typeof AppCiRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/drafts': {
@@ -3712,6 +3731,7 @@ interface AppRouteChildren {
   AppSettingsRouteRoute: typeof AppSettingsRouteRouteWithChildren
   AppAssistantRoute: typeof AppAssistantRoute
   AppChatsRoute: typeof AppChatsRoute
+  AppCiRoute: typeof AppCiRoute
   AppDraftsRoute: typeof AppDraftsRoute
   AppHomeRoute: typeof AppHomeRoute
   AppInboxRoute: typeof AppInboxRoute
@@ -3726,6 +3746,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRouteRoute: AppSettingsRouteRouteWithChildren,
   AppAssistantRoute: AppAssistantRoute,
   AppChatsRoute: AppChatsRoute,
+  AppCiRoute: AppCiRoute,
   AppDraftsRoute: AppDraftsRoute,
   AppHomeRoute: AppHomeRoute,
   AppInboxRoute: AppInboxRoute,
@@ -4044,3 +4065,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.tsx'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
