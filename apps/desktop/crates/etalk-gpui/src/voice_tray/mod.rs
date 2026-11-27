@@ -36,8 +36,15 @@
 //! memory is on, and the same keys are grabbed then
 //! (`meeting::sync_pause_hotkey`).
 //!
+//! #EDE-267: in eDE the shell's status icon IS the tray ([`host_in_shell`]):
+//! no StatusNotifierItem of our own, the rail's voice button stays hidden,
+//! and the holder reads the rows and the icon ([`menu`], [`icon`]) for the
+//! shell's voice popup, whose rows click through [`click`]. The tray state,
+//! Mute and [`keeps_running`] stay as they are.
+//!
 //! The icon and the title are the host's ([`crate::Brand`]).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 use gpui::{App, AppContext as _, Context, Entity, Global};
@@ -48,6 +55,20 @@ use etalk::voice::{
 };
 
 use crate::host::{self, Notice, Surface, VoiceWrite};
+
+/// #EDE-267: the desktop's shell shows the tray ([`host_in_shell`]).
+static IN_SHELL: AtomicBool = AtomicBool::new(false);
+
+/// #EDE-267: eDE's shell is the tray host: no tray item of our own (no
+/// StatusNotifierItem, no native tray), no rail button. Call it before
+/// [`crate::init`].
+pub fn host_in_shell() {
+    IN_SHELL.store(true, Ordering::SeqCst);
+}
+
+fn in_shell() -> bool {
+    IN_SHELL.load(Ordering::SeqCst)
+}
 
 /// The host's brand, taken once at [`install`] (the tray's own threads read it).
 static BRAND: OnceLock<crate::Brand> = OnceLock::new();
@@ -420,7 +441,8 @@ pub struct VoiceTray {
     hosted: Option<bool>,
     /// #NEW-97: the rail's voice button (None = none).
     rail: Option<RailVoice>,
-    backend: backend::Backend,
+    /// #EDE-267: None = the shell shows the tray ([`host_in_shell`]).
+    backend: Option<backend::Backend>,
 }
 
 struct VoiceTrayGlobal(Entity<VoiceTray>);
@@ -497,7 +519,12 @@ pub(crate) fn install(cx: &mut App) {
         }
         // NEW-57: the meeting host's state (its who, the pause).
         cx.observe_global::<crate::meeting::MeetingState>(|this: &mut VoiceTray, cx| this.sync(cx)).detach();
-        VoiceTray { muted, screen, screen_ops, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted: None, rail: None, backend: backend::Backend::new(tx) }
+        // #EDE-267: in eDE the shell hosts the tray: no item of ours, and
+        // "hosted" from the start (no rail button).
+        let shell = in_shell();
+        let backend = (!shell).then(|| backend::Backend::new(tx));
+        let hosted = shell.then_some(true);
+        VoiceTray { muted, screen, screen_ops, data_dir, pending: None, generation: 0, device_id, menu: None, icon: None, hosted, rail: None, backend }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
@@ -553,8 +580,19 @@ pub fn entity(cx: &App) -> Option<Entity<VoiceTray>> {
 pub fn keeps_running(cx: &App) -> bool {
     global(cx).is_some_and(|entity| {
         let tray = entity.read(cx);
-        tray.menu.is_some() && tray.backend.registered()
+        tray.menu.is_some() && tray.registered()
     })
+}
+
+/// #EDE-267: the tray's rows now (None = not the voice device): the eDE
+/// shell's voice popup.
+pub fn menu(cx: &App) -> Option<Vec<TrayItem>> {
+    global(cx).and_then(|entity| entity.read(cx).menu.clone())
+}
+
+/// #EDE-267: the tray's icon now (None = not the voice device).
+pub fn icon(cx: &App) -> Option<TrayIcon> {
+    global(cx).and_then(|entity| entity.read(cx).icon)
 }
 
 /// Mute microphone: push to talk never opens the microphone while it is on.
@@ -597,6 +635,11 @@ pub fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
 }
 
 impl VoiceTray {
+    /// A host shows the tray (#EDE-267: the shell always does).
+    fn registered(&self) -> bool {
+        self.backend.as_ref().is_none_or(|backend| backend.registered())
+    }
+
     fn settings(&self, cx: &App) -> VoiceSettings {
         self.pending.clone().unwrap_or_else(|| crate::speak_replies::settings(cx))
     }
@@ -736,17 +779,26 @@ impl VoiceTray {
         }
         if icon != self.icon {
             self.icon = icon;
-            if let Some(icon) = icon {
-                self.backend.set_icon(icon);
+            if let (Some(icon), Some(backend)) = (icon, self.backend.as_mut()) {
+                backend.set_icon(icon);
             }
+            // #EDE-267: the eDE shell's dot follows it.
+            cx.notify();
         }
         if menu == self.menu {
             return;
         }
         let hidden = self.menu.is_some() && menu.is_none();
         self.menu = menu.clone();
-        self.backend.set(menu);
+        if let Some(backend) = self.backend.as_mut() {
+            backend.set(menu);
+        }
         cx.notify();
+        // #EDE-267: the shell hosts the tray: nothing below applies (the
+        // holder lives as long as the session does).
+        if self.backend.is_none() {
+            return;
+        }
         // #NEW-97: a hidden tray answers again once it is wanted (Linux), the
         // native tray exists or not right away.
         #[cfg(target_os = "linux")]
@@ -754,7 +806,7 @@ impl VoiceTray {
             self.hosted = None;
         }
         #[cfg(not(target_os = "linux"))]
-        self.set_hosted(self.menu.is_some().then(|| self.backend.registered()), cx);
+        self.set_hosted(self.menu.is_some().then(|| self.registered()), cx);
         // No longer the voice device with every window closed: nothing keeps
         // the IDE up any more (macOS keeps running as always).
         #[cfg(not(target_os = "macos"))]
@@ -798,7 +850,9 @@ impl VoiceTray {
                     })
                     .detach();
                 } else {
-                    self.backend.set(self.menu.clone());
+                    if let Some(backend) = self.backend.as_mut() {
+                        backend.set(self.menu.clone());
+                    }
                     cx.defer(|cx| host::open(Surface::MeetingConsent, cx));
                 }
             }
@@ -1319,7 +1373,7 @@ mod tests {
                 icon: None,
                 hosted: None,
                 rail: None,
-                backend: backend::Backend::new(tx),
+                backend: Some(backend::Backend::new(tx)),
             })
         });
         tray.update(cx, |tray, cx| tray.set_screen_memory(true, cx));
@@ -1330,6 +1384,34 @@ mod tests {
         assert!(!load_state(&dir).screen_memory);
         tray.update(cx, |tray, _| assert!(!tray.screen.on && !tray.screen.running));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// #EDE-267: in eDE the shell hosts the tray: no backend of ours, yet
+    /// the tray counts as shown (the holder keeps running while it is
+    /// wanted) and the rail never carries the voice button.
+    #[gpui::test]
+    async fn a_shell_hosted_tray_has_no_item_of_its_own(cx: &mut gpui::TestAppContext) {
+        let (screen_ops, _ops) = flume::unbounded();
+        let tray = cx.update(|cx| {
+            cx.new(|_| VoiceTray {
+                muted: false,
+                screen: ScreenMemory::new(false, None, false),
+                screen_ops,
+                data_dir: std::env::temp_dir(),
+                pending: None,
+                generation: 0,
+                device_id: "this-device".into(),
+                menu: Some(vec![TrayItem::Separator]),
+                icon: Some(TrayIcon::App),
+                hosted: Some(true),
+                rail: None,
+                backend: None,
+            })
+        });
+        tray.update(cx, |tray, _| {
+            assert!(tray.registered(), "the shell shows it");
+            assert!(tray.backend.is_none());
+        });
     }
 
     /// #EXP-1908: a start that failed (the portal dialog declined, Screen
@@ -1357,7 +1439,7 @@ mod tests {
                 icon: None,
                 hosted: None,
                 rail: None,
-                backend: backend::Backend::new(tx),
+                backend: Some(backend::Backend::new(tx)),
             })
         });
         tray.update(cx, |tray, cx| tray.screen_started(0, Err("stale".into()), cx));

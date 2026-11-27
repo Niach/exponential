@@ -85,6 +85,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_tray_input", &["button", "direction", "service"]),
     ("ede_tray_menu", &["id", "service"]),
     ("ede_unpin", &["app"]),
+    ("ede_voice", &["action", "item"]),
     ("ede_window_menu", &["value"]),
     ("ede_workspace", &["index"]),
 ];

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-voice-tray",
+    date: "2026-11-27",
+    title: "Voice in the tray",
+    summary: "On Exponential Desktop a Voice icon in the taskbar calls your Assistant: the call's wave, what was said, Mute, Open chat and End, and the voice settings on a right click.",
+    body: r##"- **A Voice tray item**: on your voice device the taskbar shows a Voice icon. Click it to call the Assistant; during a call it shows the wave, the timer, the last lines said, Mute, Open chat and End.
+- **The voice menu on a right click**: wake word, microphone mute, meeting mode and Voice settings, the same rows as the tray menu had.
+- **One icon**: the app no longer adds its own tray icon on Exponential Desktop."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_383: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ede-cu-tray",
     date: "2026-11-27",
     title: "Background computer use in the tray",

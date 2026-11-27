@@ -310,6 +310,16 @@ pub struct VoiceSpec {
     pub overlay_hide_after_ms: HashMap<String, u64>,
     /// #NEW-54: the styleguide `voice-call-overlay` rows.
     pub overlay_specimens: Vec<OverlaySpecimen>,
+    /// #EDE-267: the eDE tray's constants.
+    pub ede_tray: EdeTraySpec,
+}
+
+/// #EDE-267: `edeTray` (the eDE tray's fallback agent name, its lines).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdeTraySpec {
+    pub agent_fallback: String,
+    pub lines: usize,
 }
 
 /// #NEW-54: one styleguide capsule (`overlaySpecimens`).
@@ -537,8 +547,9 @@ pub fn wake_detail(context: &WakeDetailContext<'_>) -> Option<String> {
     Some(text.replace("{device}", context.device))
 }
 
-/// #NEW-68: one tray menu entry's identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+/// #NEW-68: one tray menu entry's identity (#EDE-267: serialized as the
+/// eDE tray menu's `value`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TrayItemId {
     Open,
@@ -736,6 +747,187 @@ pub fn rail_voice(
             })
             .collect(),
     })
+}
+
+// ---- #EDE-267: the eDE tray (voice.json EDE TRAY) --------------------------
+
+/// #EDE-267: the call the eDE tray shows (None = none, or a turn call).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdeTrayCall {
+    /// callView's: ringing | listening | thinking | speaking | muted.
+    pub activity: String,
+    /// The line under the name; None = the timer.
+    pub status: Option<String>,
+    pub timer: String,
+    pub muted: bool,
+    pub level: f64,
+    pub agent: String,
+}
+
+/// #EDE-267: one line of the call's conversation (`side` in | out).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+pub struct EdeTrayLine {
+    pub id: String,
+    pub side: String,
+    pub text: String,
+}
+
+/// #EDE-267: the member's global Assistant.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EdeTrayAssistant {
+    pub id: String,
+    pub name: String,
+}
+
+/// #EDE-267: what [`ede_voice_tray`] reads.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EdeTrayInput {
+    /// [`tray_menu`]'s rows; None = not the voice device.
+    pub menu: Option<Vec<TrayItem>>,
+    /// [`tray_icon`]'s value.
+    pub icon: Option<TrayIcon>,
+    pub assistant: Option<EdeTrayAssistant>,
+    pub call: Option<EdeTrayCall>,
+    #[serde(default)]
+    pub lines: Vec<EdeTrayLine>,
+}
+
+/// #EDE-267: a genUI Menu item (`kind` item | checkbox | separator).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+pub struct EdeTrayMenuItem {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+}
+
+/// #EDE-267: the mute button's words and genUI icon.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+pub struct EdeTrayMute {
+    pub label: String,
+    pub icon: String,
+}
+
+/// #EDE-267: what the eDE shell's voice popup binds (`edeVoiceTray`).
+#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdeTray {
+    pub show: bool,
+    /// none | listening | recording.
+    pub dot: String,
+    pub agent: String,
+    pub can_call: bool,
+    pub call_label: String,
+    pub call: bool,
+    /// idle | listening | thinking | speaking | muted.
+    pub activity: String,
+    pub ringing: bool,
+    pub level: f64,
+    pub state: String,
+    pub muted: bool,
+    pub mute: EdeTrayMute,
+    pub end_label: String,
+    pub lines: Vec<EdeTrayLine>,
+    pub menu: Vec<EdeTrayMenuItem>,
+}
+
+/// #EDE-267: the id of a tray row as the menu's `value` (`wakeWord`, …).
+pub fn tray_item_value(id: TrayItemId) -> String {
+    serde_json::to_value(id).ok().and_then(|value| value.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// #EDE-267: a menu `value` back as its tray row (None = no such row).
+pub fn tray_item_of_value(value: &str) -> Option<TrayItemId> {
+    serde_json::from_value(serde_json::Value::String(value.to_string())).ok()
+}
+
+/// #EDE-267: [`tray_menu`]'s rows as genUI Menu items, without Open and
+/// Quit; separators never lead, trail or double.
+fn ede_tray_menu(menu: &[TrayItem]) -> Vec<EdeTrayMenuItem> {
+    let separator = || EdeTrayMenuItem { kind: "separator".into(), value: None, label: None, checked: None, disabled: None };
+    let mut out: Vec<EdeTrayMenuItem> = Vec::new();
+    for row in menu {
+        let (kind, id, label, checked, enabled) = match row {
+            TrayItem::Separator => {
+                if out.last().is_some_and(|last| last.kind != "separator") {
+                    out.push(separator());
+                }
+                continue;
+            }
+            TrayItem::Action { id, label, enabled } => ("item", *id, label, None, *enabled),
+            TrayItem::Check { id, label, checked, enabled } => ("checkbox", *id, label, Some(*checked), *enabled),
+        };
+        if matches!(id, TrayItemId::Open | TrayItemId::Quit) {
+            continue;
+        }
+        out.push(EdeTrayMenuItem {
+            kind: kind.into(),
+            value: Some(tray_item_value(id)),
+            label: Some(label.clone()),
+            checked,
+            disabled: (!enabled).then_some(true),
+        });
+    }
+    while out.last().is_some_and(|last| last.kind == "separator") {
+        out.pop();
+    }
+    out
+}
+
+/// #EDE-267 (voice.json EDE TRAY, `edeTrayCases`): what the eDE shell's
+/// voice popup binds, from the tray's rows and icon, the Assistant, the
+/// call and its conversation's lines.
+pub fn ede_voice_tray(input: &EdeTrayInput) -> EdeTray {
+    let copy = &crate::call::VOICE_CALL.copy;
+    let icons = &crate::call::VOICE_CALL.icons;
+    let call = input.call.as_ref();
+    let ringing = call.is_some_and(|call| call.activity == "ringing");
+    let agent = call
+        .map(|call| call.agent.as_str())
+        .filter(|agent| !agent.is_empty())
+        .or(input.assistant.as_ref().map(|assistant| assistant.name.as_str()).filter(|name| !name.is_empty()))
+        .unwrap_or(&VOICE.ede_tray.agent_fallback)
+        .to_string();
+    let offered = input.menu.as_deref().is_some_and(|menu| {
+        menu.iter().any(|row| matches!(row, TrayItem::Action { id: TrayItemId::Call, enabled: true, .. }))
+    });
+    let muted = call.is_some_and(|call| call.muted);
+    let lines = &input.lines;
+    EdeTray {
+        show: input.menu.is_some(),
+        dot: match input.icon {
+            Some(TrayIcon::Listening) => "listening",
+            Some(TrayIcon::Recording) => "recording",
+            _ => "none",
+        }
+        .into(),
+        call_label: VOICE.copy.tray_call.replace("{agent}", &agent),
+        agent,
+        can_call: call.is_none() && input.assistant.is_some() && offered,
+        call: call.is_some(),
+        activity: match call {
+            Some(call) if !ringing => call.activity.clone(),
+            _ => "idle".into(),
+        },
+        ringing,
+        level: call.map_or(0., |call| (call.level.clamp(0., 1.) * 100.).round() / 100.),
+        state: call.map(|call| call.status.clone().unwrap_or_else(|| call.timer.clone())).unwrap_or_default(),
+        muted,
+        mute: if muted {
+            EdeTrayMute { label: copy.unmute.clone(), icon: icons.unmute.clone() }
+        } else {
+            EdeTrayMute { label: copy.mute.clone(), icon: icons.mute.clone() }
+        },
+        end_label: if ringing { copy.cancel.clone() } else { copy.end_call.clone() },
+        lines: lines[lines.len().saturating_sub(VOICE.ede_tray.lines)..].to_vec(),
+        menu: input.menu.as_deref().map(ede_tray_menu).unwrap_or_default(),
+    }
 }
 
 /// A trailing number of `part` after `prefix` (`f13` → 13, `mouse4` → 4).
@@ -2052,6 +2244,32 @@ mod tests {
         let settings: VoiceSettings = serde_json::from_str(r#"{"wakeAgentIds":["a-ops","a-tri"]}"#).unwrap();
         assert_eq!(settings.wake_agent_ids, ["a-ops", "a-tri"]);
         assert_eq!(serde_json::to_value(&settings).unwrap()["wakeAgentIds"], serde_json::json!(["a-ops", "a-tri"]));
+    }
+
+    /// #EDE-267: the eDE tray replays `edeTrayCases`.
+    #[test]
+    fn ede_voice_tray_matches_the_fixture() {
+        let cases = fixture()["edeTrayCases"].as_array().unwrap().clone();
+        assert!(cases.len() >= 6);
+        for case in cases {
+            let input: EdeTrayInput = serde_json::from_value(case["input"].clone()).unwrap();
+            let expected: EdeTray = serde_json::from_value(case["expected"].clone()).unwrap();
+            let tray = ede_voice_tray(&input);
+            assert_eq!(tray, expected, "{}", case["name"]);
+            // The wire keys are exactly the fixture's.
+            let wire = serde_json::to_value(&tray).unwrap();
+            let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+            assert_eq!(keys(&wire), keys(&case["expected"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn tray_item_values_round_trip() {
+        for id in [TrayItemId::Call, TrayItemId::EndCall, TrayItemId::WakeWord, TrayItemId::ScreenMemory, TrayItemId::Mute, TrayItemId::Settings] {
+            assert_eq!(tray_item_of_value(&tray_item_value(id)), Some(id));
+        }
+        assert_eq!(tray_item_value(TrayItemId::PushToTalk), "pushToTalk");
+        assert_eq!(tray_item_of_value("nope"), None);
     }
 
     #[test]
