@@ -67,7 +67,7 @@ fn log_lines_is_one_leaf_toolbar_plus_max_lines_tall_with_the_state_resolved() {
     let id = lines_id(&mut s);
     let (w, h) = frame(&mut s, &id);
     assert_eq!(w, 800.0);
-    assert_eq!(h, 36.0 + 8.0 + 8.0 * 22.75);
+    assert_eq!(h, 36.0 + 8.0 + 8.0 * 22.75 + 2.0 * (8.0 + 1.0), "toolbar, gap, the body: maxLines lines + its padding and hairline");
     let n = node(&mut s, &id);
     assert_eq!(n.props["open"], json!([1]), "the failed step opens on its own");
     assert_eq!(n.props["follow"], json!(true));
@@ -77,7 +77,7 @@ fn log_lines_is_one_leaf_toolbar_plus_max_lines_tall_with_the_state_resolved() {
     // The default 24 lines; a node height wins.
     let mut s = surface(log_view(json!({})), 800.0, Value::Null);
     let id = lines_id(&mut s);
-    assert_eq!(frame(&mut s, &id).1, 36.0 + 8.0 + 24.0 * 22.75);
+    assert_eq!(frame(&mut s, &id).1, 36.0 + 8.0 + 24.0 * 22.75 + 18.0);
 }
 
 #[test]

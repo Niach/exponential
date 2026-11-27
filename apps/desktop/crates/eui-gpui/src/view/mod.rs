@@ -22,6 +22,7 @@ mod composer_paste;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
+mod ci_leaf;
 mod paint;
 mod pinned;
 mod scrollbar;
@@ -36,6 +37,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+pub use ci_leaf::{JobGraphState, LogLinesState};
 use eui_core::layout_tree::ToastSpec;
 use eui_core::measure::{FixedMeasure, Measure, TextStyle};
 use eui_core::surface::{ApplyOutcome, Frame, Layer, ListOutput, PlacedNode, ScrollOutput, Surface, SurfaceOptions, SurfaceSettings};
@@ -397,6 +399,10 @@ pub struct SurfaceView {
     motion_leaves: motion_leaf::MotionLeaves,
     /// Round 8: the Canvas leaves by node id (player, last image, pointer).
     canvas_leaves: canvas_leaf::CanvasLeaves,
+    /// #EXP-2204: the LogLines / JobGraph leaves by node id (scroll,
+    /// hover, the current match, the search field) and the CodeBlock
+    /// selections seen.
+    ci_leaves: ci_leaf::CiLeaves,
     /// EXP-1604: Motions show their posters while the window is inactive.
     motion_background_pause: bool,
     revisions: HashMap<String, u64>,
@@ -676,6 +682,7 @@ impl SurfaceView {
             embeds: Rc::default(),
             motion_leaves: Default::default(),
             canvas_leaves: Default::default(),
+            ci_leaves: Default::default(),
             motion_background_pause: true,
             revisions: HashMap::new(),
             hover_timer: None,
@@ -1696,6 +1703,7 @@ impl SurfaceView {
         }
         self.focus_handles = handles;
         self.sync_fields(window, cx);
+        self.sync_ci(window, cx);
     }
 
     /// A scroll container that overflows takes keyboard focus (to scroll).

@@ -1434,6 +1434,16 @@ impl<'a> GpuiMeasure<'a> {
             }
             ("Skeleton", _) => plain(self.skeleton(props, inner)),
             ("Chart", _) => plain(self.chart(leaf, inner)),
+            // #EXP-2204: a LogLines fills the width it is offered (the core
+            // sets its height: toolbar + maxLines lines); a JobGraph is its
+            // graph's box (the list: the rows, as wide as offered).
+            ("LogLines", None) => plain((inner.filter(|w| *w > 0.0).unwrap_or(320.0), 0.0)),
+            ("JobGraph", None) => {
+                let compact = props.get("compact").and_then(Value::as_bool) == Some(true);
+                let l = eui_core::job_graph::job_graph_layout(props.get("jobs"), compact, &eui_core::job_graph::JOB_GRAPH);
+                let w = if compact { inner.filter(|w| *w > 0.0).unwrap_or(320.0) } else { l.width as f32 };
+                plain((w, l.height as f32))
+            }
             ("Composer", _) => plain(self.composer(leaf, inner)),
             // depth × `treeGuideColumn` wide; no height of its own (it
             // stretches to its row, round 2 §7).

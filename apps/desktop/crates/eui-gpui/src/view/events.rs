@@ -262,6 +262,12 @@ impl SurfaceView {
         if n.component == "Motion" && n.part.is_none() {
             self.motion_interact(&n.id, &eui_motion::state_machine::Interaction::Click { layer: None }, cx);
         }
+        // #EXP-2204: an anchored CodeBlock number selects its line, Shift
+        // extends the range (`select {anchor, start, end}`).
+        if n.owner_component.as_deref() == Some("CodeBlock") && n.part.as_deref() == Some("lineNumber") {
+            self.fire(index, "press", Some(json!({"shift": window.modifiers().shift})), cx);
+            return;
+        }
         self.fire(index, "press", None, cx);
     }
 
@@ -635,6 +641,8 @@ impl SurfaceView {
         let order = self.focus_order();
         let next = next_focus(&order, self.focused, backwards)?;
         self.keyboard = true;
+        // #EXP-2204: Tab onto a JobGraph lands on its first (last) node.
+        self.job_graph_entered(next, backwards);
         let id = self.cache.node(next)?.id.clone();
         self.focus_id(&id, window, cx);
         self.focused = Some(next);
@@ -837,6 +845,13 @@ impl SurfaceView {
             if let Some(n) = focused.as_ref().filter(|n| n.component == "SearchList") {
                 let id = n.id.clone();
                 self.search_key(&id, "Tab", window, cx);
+                return true;
+            }
+        }
+        // #EXP-2204: a focused JobGraph moves between its nodes first
+        // (Tab past its last node leaves it); arrows, Enter and Space too.
+        if let Some(n) = focused.as_ref().filter(|n| n.component == "JobGraph" && n.part.is_none()) {
+            if self.job_graph_key(n.index, key, shift, cx) {
                 return true;
             }
         }

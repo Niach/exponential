@@ -179,7 +179,8 @@ impl Builder<'_, '_> {
         self.default_a11y(index, "label", json!(label));
         let mut defaults = vec![("minWidth", json!(0))];
         if !self.sized_by_style(index) {
-            defaults.push(("height", json!(log_lines_height(self.ctx.control_input, (self.ctx.gap_px)("sm"), max_lines))));
+            let sm = (self.ctx.gap_px)("sm");
+            defaults.push(("height", json!(log_lines_height(self.ctx.control_input, sm, max_lines, sm + self.ctx.hairline))));
         }
         self.style_default(index, &defaults);
     }
@@ -254,7 +255,9 @@ impl Builder<'_, '_> {
 }
 
 /// #EXP-2204: a LogLines leaf's default height: the toolbar, the gap, then
-/// `max_lines` code lines.
-pub fn log_lines_height(toolbar: f32, gap: f32, max_lines: f32) -> f32 {
-    toolbar + gap + max_lines * CODE_LINE_HEIGHT
+/// the body: `max_lines` code lines inside its `body_inset` (the `body`
+/// recipe's paddingVertical `$spacing.sm` + its hairline border, per edge),
+/// as the web's body is maxLines lines plus its padding.
+pub fn log_lines_height(toolbar: f32, gap: f32, max_lines: f32, body_inset: f32) -> f32 {
+    toolbar + gap + max_lines * CODE_LINE_HEIGHT + 2.0 * body_inset
 }
