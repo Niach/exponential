@@ -124,24 +124,61 @@ async function probe(base: string, probes: Probe[]) {
   return failed
 }
 
+// A port below Linux's ephemeral range (32768-60999): the booting server's
+// own outbound connections (the DB pool, Electric) take their local ports
+// from that range, and a listen on one of them fails with EADDRINUSE (seen
+// twice in a row on #3665's merge train). One that is taken anyway (another
+// job on the runner) gets another try on another port.
+const BOOT_PORTS = { from: 20_000, to: 32_000 }
+const BOOT_TRIES = 3
+
+function bootPort() {
+  return BOOT_PORTS.from + Math.floor(Math.random() * (BOOT_PORTS.to - BOOT_PORTS.from))
+}
+
+/** Spawns the built server on `port`; its stderr is passed through and kept. */
+function boot(port: number) {
+  const webRoot = join(import.meta.dir, `..`)
+  const server = Bun.spawn([process.execPath, `.output/server/index.mjs`], {
+    cwd: webRoot,
+    env: { ...process.env, NODE_ENV: `production`, PORT: String(port), NITRO_PORT: String(port) },
+    stdout: `inherit`,
+    stderr: `pipe`,
+  })
+  let stderr = ``
+  const decoder = new TextDecoder()
+  const drained = (async () => {
+    for await (const chunk of server.stderr as ReadableStream<Uint8Array>) {
+      process.stderr.write(chunk)
+      stderr += decoder.decode(chunk, { stream: true })
+    }
+  })()
+  return { server, base: `http://127.0.0.1:${port}`, stderr: async () => (await drained, stderr) }
+}
+
 async function main() {
   const args = process.argv.slice(2)
   let server: Bun.Subprocess | undefined
   let base = args.find((arg) => !arg.startsWith(`--`)) ?? `http://localhost:3000`
-  if (args.includes(`--boot`)) {
-    const port = 20_000 + Math.floor(Math.random() * 20_000)
-    base = `http://127.0.0.1:${port}`
-    const webRoot = join(import.meta.dir, `..`)
-    server = Bun.spawn([process.execPath, `.output/server/index.mjs`], {
-      cwd: webRoot,
-      env: { ...process.env, NODE_ENV: `production`, PORT: String(port), NITRO_PORT: String(port) },
-      stdout: `inherit`,
-      stderr: `inherit`,
-    })
-  }
-  base = base.replace(/\/$/, ``)
   try {
-    await waitForListen(base, server)
+    if (args.includes(`--boot`)) {
+      for (let attempt = 1; ; attempt += 1) {
+        const booted = boot(bootPort())
+        server = booted.server
+        base = booted.base
+        try {
+          await waitForListen(base, server)
+          break
+        } catch (e) {
+          const portTaken = server.exitCode !== null && /EADDRINUSE/.test(await booted.stderr())
+          if (!portTaken || attempt >= BOOT_TRIES) throw e
+          console.error(`[smoke-server] ${base}'s port was taken: booting again on another one`)
+        }
+      }
+    } else {
+      base = base.replace(/\/$/, ``)
+      await waitForListen(base, server)
+    }
     const probes = [...PROBES, cspProbe, ...workletProbes()]
     const failed = await probe(base, probes)
     if (failed > 0) {
