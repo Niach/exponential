@@ -1,0 +1,16 @@
+# The Agent spaces list as the factory taskbar had it before #EDE-266 (a press-opened hosted Popover):
+# the hosted-popover tests keep it as their specimen.
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_space", "ede_space_close"]}})
+$/spaces/count = 0
+$/spaces/rows = []
+$/spacesList/open = false
+root = Box(style={display: "flex", flexDirection: "row", alignItems: "center", height: 48}, children=[agent_spaces])
+agent_spaces = Popover(open=$/spacesList/open, side="top", align="end", children=[spaces_box], slots={trigger: "agent_spaces_button"}, visible=not(value=eq(a=$/spaces/count, b=0)))
+spaces_box = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", width: 380}, children=[spaces_title, spaces_scroll])
+spaces_title = Heading(text="Agent spaces", level="h4")
+spaces_scroll = ScrollArea(maxHeight=300, children=[spaces_list, space_row])
+spaces_list = List(gap="none", divided=true, children=_template($/spaces/rows, space_row, key="id"))
+space_row = Row(title=$title, subtitle=$subtitle, density="compact", pressable=true, slots={leading: "space_picture", trailing: "space_close"}, on={press: ede_space(session=$session)})
+space_picture = Image(src=$picture, alt=$title, fit="contain", width=96, height=60, fallback="nav-computer")
+space_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_space_close(space=$id)})
+agent_spaces_button = Button(label="Agent spaces", icon="nav-computer", variant="ghost", size="icon")
