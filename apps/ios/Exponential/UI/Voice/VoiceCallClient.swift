@@ -228,7 +228,14 @@ private final class PhoneCallPlatform: CallPlatform {
         UIApplication.shared.isIdleTimerDisabled = awake
     }
 
-    let logSink: CallLogSink = DiagnosticsCallLog()
+    // EXP-2111's call log (and its diagnostics event) runs only in a build
+    // with `EXP_CALL_LOG` (Project.swift); without it the calls run as
+    // before EXP-2111.
+    #if EXP_CALL_LOG
+    let logSink: CallLogSink? = DiagnosticsCallLog()
+    #else
+    let logSink: CallLogSink? = nil
+    #endif
 }
 
 /// EXP-2111: the unified log and, while Send diagnostics is on, the
@@ -293,7 +300,9 @@ private final class WebSocketCall: CallSocket, @unchecked Sendable {
     }
 
     func resume(_ inbound: CallInbound) {
+        #if EXP_CALL_LOG
         task.delegate = OpenWatch { inbound.opened() }
+        #endif
         task.resume()
         Self.pump(task, inbound)
     }
