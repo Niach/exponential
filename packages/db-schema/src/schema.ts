@@ -5185,7 +5185,10 @@ export const selectSyncedRepositorySchema = createSelectSchema(repositories, {
   prSequence: true,
   archivedAt: true,
 })
-export type SyncedRepository = z.infer<typeof selectSyncedRepositorySchema>
+export type SyncedRepository = Omit<
+  InferSelectModel<typeof repositories>,
+  `providerConfig` | `remoteUrl` | `ciConfig` | `prSequence` | `archivedAt`
+>
 
 // EXP-1291: the synced projections of the session tree. Tolerant jsonb reads
 // (a future card kind or trigger must never brick a collection).

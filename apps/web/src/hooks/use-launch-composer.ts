@@ -245,7 +245,7 @@ export interface LaunchComposerHome {
   /** `/home?team=<id>` (a team menu's New › Session): that team as the plain
    *  chat's Teams pick, the agent row on Temporary session. A fresh object
    *  applies again. */
-  seedTeam?: { id: string } | null
+  seedTeam?: { id: string; repositoryId?: string } | null
 }
 
 /** The plain chat's teams (#EXP-2027): the pick kept in team order, at least
@@ -461,6 +461,8 @@ export function useLaunchComposer({
   }, [seedTeam])
 
   const repos = useTeamRepos(effectiveTeamId)
+  const seedRepoRef = useRef<string | null>(null)
+  seedRepoRef.current = seedTeam?.repositoryId ?? null
   // The default repository, seeded once per team: a team change waits for
   // that team's list (never the previous team's stale one).
   const repoSeed = useRef<{ team: string; stale: ChatRepoOption[] | null; done: boolean } | null>(null)
@@ -473,9 +475,16 @@ export function useLaunchComposer({
     const latch = repoSeed.current
     if (latch.done || !repos || repos === latch.stale) return
     latch.done = true
-    setRepoId(defaultChatRepoId(repos))
+    // #EXP-2171: a seeded repository (New chat in this repository) wins.
+    const seededRepo = seedRepoRef.current
+    setRepoId(seededRepo && repos.some((repo) => repo.id === seededRepo) ? seededRepo : defaultChatRepoId(repos))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos, effectiveTeamId])
+  // A repository seeded into an already loaded team applies at once.
+  useEffect(() => {
+    const seeded = seedTeam?.repositoryId
+    if (seeded && seedTeam?.id === effectiveTeamId && repos?.some((repo) => repo.id === seeded)) setRepoId(seeded)
+  }, [seedTeam, repos, effectiveTeamId])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
 
   const { prompts } = usePrompts(effectiveTeamId)

@@ -46,8 +46,8 @@
     "new-folder": "ui-folder",
     "new-issue": "nav-create-issue",
     "new-repo-chat": "action-chat",
-    "pull-requests": "git-pull-request",
-    "runs": "workflow",
+    "pull-requests": "pr-open",
+    "runs": "nav-ci",
     "new-team": "ui-add",
     "join-team": "ui-invite",
     "add-device": "ui-add",
@@ -623,7 +623,7 @@
     "agent": "settings-agents",
     "app": "nav-apps",
     "board": "nav-boards",
-    "repository": "settings-repositories"
+    "repository": "action-repository"
   },
   "newCases": [
     {

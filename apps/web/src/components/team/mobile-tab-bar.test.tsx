@@ -53,7 +53,7 @@ vi.mock(`@/components/home/use-member-teams`, () => ({
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({ useBoardsForTeams: () => ({ boards: h.boards, boardsReady: true }) }))
 
-import { MobileTabBar, newIssueBoard } from "@/components/team/mobile-tab-bar"
+import { MobileTabBar, moreMenuRows, newIssueBoard } from "@/components/team/mobile-tab-bar"
 
 const web = { id: `b1`, slug: `web`, teamId: `t1` } as Board
 const ios = { id: `b2`, slug: `ios`, teamId: `t2` } as Board
@@ -75,7 +75,7 @@ describe(`MobileTabBar`, () => {
     expect(cells.map((cell) => cell.getAttribute(`aria-label`))).toEqual(
       fixture.shell.tabs.map((tab) => fixture.copy.tabs[tab as keyof typeof fixture.copy.tabs])
     )
-    expect(cells.map((cell) => cell.getAttribute(`href`))).toEqual([`/chats`, `/teams`, `/assistant`, null, `/settings`])
+    expect(cells.map((cell) => cell.getAttribute(`href`))).toEqual([`/chats`, `/teams`, `/assistant`, null, null])
   })
 
   it.each([
@@ -83,12 +83,20 @@ describe(`MobileTabBar`, () => {
     [`/t/acme/boards/web`, IDS.tabTeams],
     [`/t/acme/settings/general`, IDS.tabTeams],
     [`/assistant`, IDS.tabAssistant],
-    [`/devices`, IDS.tabSettings],
+    [`/devices`, IDS.tabMore],
+    [`/settings`, IDS.tabMore],
   ])(`%s lights %s`, (pathname, testId) => {
     h.pathname = pathname
     render(<MobileTabBar />)
     const lit = [...document.querySelectorAll(`[aria-current=page]`)].map((cell) => cell.getAttribute(`data-testid`))
     expect(lit).toEqual([testId])
+  })
+
+  it(`#EXP-2171: More lists Devices and Settings (CI waits for its page)`, () => {
+    expect(moreMenuRows().map((row) => [row.id, row.href])).toEqual([
+      [`devices`, `/devices`],
+      [`settings`, `/settings`],
+    ])
   })
 
   it(`hides on a detail and under a selection`, () => {

@@ -156,6 +156,7 @@ import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugNewAgentRouteImport } from './routes/t/$teamSlug/new/agent'
 import { Route as TTeamSlugNewAppRouteImport } from './routes/t/$teamSlug/new/app'
 import { Route as TTeamSlugNewBoardRouteImport } from './routes/t/$teamSlug/new/board'
+import { Route as TTeamSlugNewRepositoryRouteImport } from './routes/t/$teamSlug/new/repository'
 import { Route as TTeamSlugReposNameRouteImport } from './routes/t/$teamSlug/repos/$name'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
@@ -956,6 +957,11 @@ const TTeamSlugNewBoardRoute = TTeamSlugNewBoardRouteImport.update({
   path: '/new/board',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugNewRepositoryRoute = TTeamSlugNewRepositoryRouteImport.update({
+  id: '/new/repository',
+  path: '/new/repository',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugReposNameRoute = TTeamSlugReposNameRouteImport.update({
   id: '/repos/$name',
   path: '/repos/$name',
@@ -1323,6 +1329,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1505,6 +1512,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1694,6 +1702,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1882,6 +1891,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2064,6 +2074,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2252,6 +2263,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -3433,6 +3445,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugNewBoardRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/new/repository': {
+      id: '/t/$teamSlug/new/repository'
+      path: '/new/repository'
+      fullPath: '/t/$teamSlug/new/repository'
+      preLoaderRoute: typeof TTeamSlugNewRepositoryRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/repos/$name': {
       id: '/t/$teamSlug/repos/$name'
       path: '/repos/$name'
@@ -3907,6 +3926,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugNewAgentRoute: typeof TTeamSlugNewAgentRoute
   TTeamSlugNewAppRoute: typeof TTeamSlugNewAppRoute
   TTeamSlugNewBoardRoute: typeof TTeamSlugNewBoardRoute
+  TTeamSlugNewRepositoryRoute: typeof TTeamSlugNewRepositoryRoute
   TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
@@ -3935,6 +3955,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugNewAgentRoute: TTeamSlugNewAgentRoute,
   TTeamSlugNewAppRoute: TTeamSlugNewAppRoute,
   TTeamSlugNewBoardRoute: TTeamSlugNewBoardRoute,
+  TTeamSlugNewRepositoryRoute: TTeamSlugNewRepositoryRoute,
   TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
