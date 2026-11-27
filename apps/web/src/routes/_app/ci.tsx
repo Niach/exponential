@@ -1,11 +1,11 @@
 import { useMemo } from "react"
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { CI_PAGE_COPY, type CiPageInput, type CiRunFilter, type CiSource, type CiTab } from "@exp/domain-contract/ci-page"
-import { MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
+import { conceptIcon, MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
 import { CiPageView } from "@/components/ci/ci-page"
 import { useMemberTeams } from "@/components/home/use-member-teams"
 import { PushedTitle } from "@/components/team/mobile-page-header"
-import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PageHeading, pageFrameClass } from "@/components/page-frame"
 import { useCiPageRows, useCiRepos } from "@/hooks/use-ci-page"
 import { useNow } from "@/hooks/use-now"
 import { ciRunCollection, deviceCollection, pullRequestCollection, sessionCollection } from "@/lib/collections"
@@ -14,6 +14,8 @@ import { pageTitle } from "@/lib/page-title"
 // #EXP-2172 (ci-page.json): THE CI page, a root page across every member
 // team (sidebar-tree.json root `ci`; the phones' More menu). The tab and the
 // filters ride the search params, so a reload and Back keep them.
+
+const CiIcon = conceptIcon(`nav-ci`)
 
 type CiSearch = { tab?: CiTab; status?: CiRunFilter[`status`]; repo?: string; source?: CiSource }
 
@@ -91,7 +93,9 @@ function CiRoute() {
           />
         </div>
       )}
-      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-6xl md:py-6 ${PAGE_END_CLEARANCE}`}>
+      <div className={pageFrameClass()}>
+        {/* #EXP-2169: wide pages carry the entity heading (the device page's). */}
+        {!isMobile && <PageHeading icon={CiIcon} title={CI_PAGE_COPY.title} />}
         {rows.ready ? (
           <CiPageView
             input={input}

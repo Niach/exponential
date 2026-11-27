@@ -39,10 +39,10 @@ function all(node: NestedNode, component: string): NestedNode[] {
 const opts = { selected: `j2`, log: CI_RUN_SPECIMEN.log, now: CI_RUN_SPECIMEN.now, phone: false }
 
 describe(`ciRunTree (ci-run.json LAYOUT, #EXP-2172 redesign)`, () => {
-  it(`wide: breadcrumb, the commit title, the chip strip, Re-run failed + Fix + ⋯, the failure, the job list beside the job Card`, () => {
+  it(`wide: no breadcrumb (#EXP-2169), the commit title, the chip strip, Re-run failed + Fix + ⋯, the failure, the job list beside the job Card`, () => {
     const tree = ciRunTree(specimen(), opts)
     expect(tree.id).toBe(ciFixture.testIds.page)
-    expect(find(tree, ciFixture.testIds.breadcrumb)).toBeDefined()
+    expect(all(tree, `Breadcrumb`)).toHaveLength(0)
     expect(find(tree, `ci-run-heading`)?.props?.text).toBe(`Mirror prunes deleted branches`)
     expect(all(tree, `StatTile`)).toHaveLength(0)
     const chips = all(find(tree, ciFixture.testIds.chips)!, `Chip`).map((c) => c.props?.label)

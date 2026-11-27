@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exp/domain-contract/fixtures/repo-ci.json"
-import { runRows, secretName } from "@exp/domain-contract/repo-ci"
+import { secretName } from "@exp/domain-contract/repo-ci"
 import {
   REPO_CI_EVENTS,
   REPO_CI_PATHS,
   SECRET_NAME_PATTERN,
   repoCiConfigAfter,
   repoCiSectionTree,
-  repoRunInput,
-  repoRunsTree,
   secretFromSubmit,
   type RepoCiSectionInput,
 } from "./repo-ci-view"
@@ -30,48 +28,7 @@ function all(node: NestedNode, component: string): NestedNode[] {
 
 const ids = fixture.testIds
 const copy = fixture.copy
-const sample = fixture.runRows[0]!
-const rows = runRows(sample.runs, sample.jobs, sample.now)
 
-describe(`repoRunsTree (repo-ci.json RUNS TAB)`, () => {
-  it(`wide: a Table with the fixture's columns in order, a status slot, rowPress opens the run`, () => {
-    const tree = repoRunsTree(rows, false)
-    expect(tree.id).toBe(ids.runs)
-    expect(tree.component).toBe(`Table`)
-    const columns = tree.props?.columns as Array<{ key: string; label: string; type?: string }>
-    expect(columns.map((c) => c.label)).toEqual(Object.values(copy.runs.columns))
-    expect(columns[0]).toMatchObject({ type: `slot`, slot: `status` })
-    expect(columns[6]!.type).toBe(`relativeTime`)
-    const tableRows = tree.props?.rows as Array<Record<string, unknown>>
-    expect(tableRows.map((r) => r.id)).toEqual(rows.map((r) => r.id))
-    expect(tableRows[1]).toMatchObject({ run: `#12 ci`, commit: `ccccccc`, ref: `feat/x`, trigger: `Pull request`, status: `Running`, duration: `5m 0s` })
-    // Not started: no duration.
-    expect(tableRows[0]!.duration).toBe(``)
-    expect(tableRows.find((r) => r.id === `r11`)).toMatchObject({ glyph: `ci-failed`, iconTone: `danger`, ref: `—` })
-    expect(tree.on?.rowPress?.event?.name).toBe(REPO_CI_EVENTS.openRun)
-    expect(tree.slots?.status?.component).toBe(`Stack`)
-  })
-
-  it(`phones: one pressable Row per run (glyph, #n, name, subtitle, duration)`, () => {
-    const tree = repoRunsTree(rows, true)
-    const rs = all(tree, `Row`)
-    expect(rs).toHaveLength(rows.length)
-    expect(rs[1]!.id).toBe(`${ids.runRow}.r12`)
-    expect(rs[1]!.props).toMatchObject({ identifier: `#12`, title: `ci`, subtitle: `feat/x · ccccccc · Pull request`, meta: `5m 0s`, pressable: true })
-    expect(rs[0]!.props?.meta).toBeUndefined()
-    expect(rs[1]!.slots?.leading?.props).toMatchObject({ name: `ci-running`, tone: `neutral` })
-    expect(rs[1]!.on?.press?.event).toEqual({ name: REPO_CI_EVENTS.openRun, context: { run: `r12` } })
-  })
-
-  it(`repoRunInput turns synced Dates into ISO strings`, () => {
-    const at = new Date(`2026-11-13T10:00:00.000Z`)
-    expect(repoRunInput({ id: `a`, number: 1, name: `ci`, sha: `x`, trigger: `push`, state: `pending`, startedAt: at, completedAt: null })).toMatchObject({
-      ref: null,
-      startedAt: `2026-11-13T10:00:00.000Z`,
-      completedAt: null,
-    })
-  })
-})
 
 const base = (over: Partial<RepoCiSectionInput> = {}): RepoCiSectionInput => ({
   phone: false,

@@ -1,14 +1,15 @@
 //! #EXP-1616 THE REPO PAGE (repo-page.json, its `$comment` is the ×4 spec):
-//! Settings › Repositories › one repository. A genUI document: the `AppBar`
-//! (the repo's name, its provider `Badge`, back to Repositories) over the
-//! `Tabs{pill}` of `domain::repo_page::REPO_PAGE.tabs`:
+//! Settings › Repositories › one repository, and its own work tab. #EXP-2169
+//! ("one look"): the device page's entity heading (the repositories glyph +
+//! the repo's full name, no back) over a genUI document: the `Tabs{pill}` of
+//! `domain::repo_page::REPO_PAGE.tabs`:
 //!
 //! - Pull requests: `Section{tree}` of `repo_pr_tree` rows over the synced
 //!   `pull_requests` (`Row{depth, identifier, title, subtitle}`, the checks
 //!   `Chip{dot}` and the merge-train pill as its trailing meta);
-//! - Runs (#EXP-1617 E4, repo-ci.json): a `Table` of `repo_ci::run_rows`
-//!   over the synced `ci_runs` / `ci_jobs` (the glyph `Icon` tinted by its
-//!   tone), a row opens the CI run page; none = the `EmptyState`;
+//! - Runs (#EXP-2169, ci-page-view.json `repositoryId` cases): THE CI page's
+//!   day Sections and run rows of this repository (`ci_page::repo_runs_tree`
+//!   over the CI page's data), a row opens the CI run page;
 //! - Branches: `repo_branches` rows (`repositories.branches` for eCode,
 //!   `repositories.listBranches` names for GitHub);
 //! - Settings: `SettingsRow`s (provider, default branch, clone URL,
@@ -143,13 +144,14 @@ impl RepoPage {
             );
             binding.set_toasts(Rc::new(IdeToasts));
             for name in [
-                "back", "retry", "tab", "pr", "copy", "branch", "restore", "restore_confirm", "restore_cancel", "mirror_edit", "mirror_save", "mirror_toggle",
-                "run", "required", "ci_switch", "secret_add", "secret_edit", "secret_save", "secret_cancel", "secret_dialog", "secret_delete", "delete_confirm", "delete_cancel",
+                "retry", "tab", "pr", "copy", "branch", "restore", "restore_confirm", "restore_cancel", "mirror_edit", "mirror_save", "mirror_toggle",
+                crate::ci_page::EVENT_OPEN_RUN, "required", "ci_switch", "secret_add", "secret_edit", "secret_save", "secret_cancel", "secret_dialog", "secret_delete", "delete_confirm", "delete_cancel",
                 "remove", "remove_confirm", "remove_cancel",
             ] {
                 let page = page.clone();
                 binding.on_action(name, move |_, event, cx| {
-                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    // `ci-open-run` carries `{run}` (the CI page's rows).
+                    let key = event.context.get("key").or_else(|| event.context.get("run")).and_then(Value::as_str).unwrap_or_default().to_string();
                     let payload = event.payload.clone().unwrap_or(Value::Null);
                     let page = page.clone();
                     cx.defer(move |cx| {
@@ -162,6 +164,8 @@ impl RepoPage {
             }
             binding
         });
+        // #EXP-2169: the native tab switcher reads the bound tab.
+        subscriptions.push(cx.observe(&binding, |_, _, cx| cx.notify()));
         let view = mount_with("settings-repo", document(&Ink::of(cx), &json!({"phase": "loading"})), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
         Self { nav, key, fetched: Fetched::default(), started: false, built: None, shot: None, binding, view, screen: false, _subscriptions: subscriptions }
     }
@@ -273,6 +277,28 @@ impl RepoPage {
         let runs: Vec<CiRunRow> = runs.into_iter().filter(|run| run.repository_id.as_deref() == Some(repository_id)).collect();
         let jobs = jobs.into_iter().filter(|job| runs.iter().any(|run| run.id == job.run_id)).collect();
         (runs, jobs)
+    }
+
+    /// #EXP-2169: the CI page's data for the Runs tab (web `RepoRunsTab`):
+    /// the synced rows (a pinned page: its own runs and jobs), `repos` =
+    /// this repository alone.
+    fn ci_input(&self, repo: &RepoRow, runs: &[CiRunRow], jobs: &[CiJobRow], cx: &App) -> domain::ci_page::CiPageInput {
+        let repos = vec![domain::ci_page::CiPageRepo { id: repo.id.clone(), full_name: repo.full_name.clone() }];
+        if !self.pinned() {
+            if let Some(input) = crate::ci_page::synced_input(repos.clone(), cx) {
+                return input;
+            }
+        }
+        let now_ms = self.now_ms();
+        let now = chrono::DateTime::from_timestamp_millis(now_ms).unwrap_or_default().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        domain::ci_page::CiPageInput {
+            runs: runs.iter().map(crate::ci_page::page_run).collect(),
+            jobs: jobs.iter().map(crate::ci_page::page_job).collect(),
+            repos,
+            now,
+            utc_offset_minutes: i64::from(chrono::Local::now().offset().local_minus_utc() / 60),
+            ..Default::default()
+        }
     }
 
     fn now_ms(&self) -> i64 {
@@ -400,8 +426,6 @@ impl RepoPage {
     fn action(&mut self, name: &str, key: &str, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
         match name {
-            "back" if self.screen => crate::navigation::go_back(window, cx),
-            "back" => crate::sidebar::select_settings_section(window, cx, SettingsSection::Repositories),
             "retry" => {
                 self.started = false;
                 self.fetched = Fetched::default();
@@ -495,9 +519,9 @@ impl RepoPage {
         let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
         let set = |page: &mut Self, cx: &mut gpui::Context<Self>, apply: &dyn Fn(&mut Value)| page.binding.update(cx, |binding, cx| binding.update_state(|state| apply(state), cx));
         match name {
-            // A table row: the run page.
-            "run" => {
-                let run_id = payload.get("key").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or(key).to_string();
+            // A run row (the CI page's): the run page.
+            crate::ci_page::EVENT_OPEN_RUN => {
+                let run_id = key.to_string();
                 if !run_id.is_empty() && !self.pinned() {
                     crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: None });
                 }
@@ -674,14 +698,7 @@ impl RepoPage {
             })
             .collect();
         let (runs, jobs) = self.ci_rows(&repo.id, cx);
-        let run_rows: Vec<Value> = repo_ci::run_rows(&runs, &jobs, self.now_ms())
-            .into_iter()
-            .map(|row| {
-                json!({"id": row.id, "glyph": row.glyph.concept(), "tone": icon_tone(row.tone), "statusLabel": row.status_label,
-                    "run": format!("{} {}", row.identifier, row.title), "commit": row.commit, "ref": row.r#ref, "trigger": row.trigger,
-                    "duration": row.duration.unwrap_or_default(), "started": row.started_at})
-            })
-            .collect();
+        let runs_tree = crate::ci_page::repo_runs_tree(&self.ci_input(repo, &runs, &jobs, cx), &repo.id, false);
         let pipelines: Vec<Value> = repo_ci::pipeline_rows(&runs).into_iter().map(|row| json!({"name": row.name, "state": row.state})).collect();
         let ci = match &self.fetched.ci {
             None => Value::Null,
@@ -695,12 +712,13 @@ impl RepoPage {
         };
         json!({
             "phase": "ready",
+            "tab": self.binding.read(cx).state()["tab"].clone(),
             "name": repo.full_name,
             "provider": copy.provider.label(repo.provider()),
             "ecode": ecode,
             "owner": owner,
             "manager": self.manager(cx),
-            "runs": run_rows,
+            "runsTree": runs_tree,
             "pipelines": pipelines,
             "ci": ci,
             "switches": repo_ci::switches(repo.provider()),
@@ -742,7 +760,26 @@ impl Render for RepoPage {
             });
             self.built = Some(data);
         }
-        div().w_full().min_w_0().child(self.view.clone())
+        // #EXP-2169 ("one look"): the device page's entity heading (the
+        // repositories glyph + the full name, no back) over the document.
+        let title = self.repo().map(|repo| repo.full_name.clone()).or_else(|| self.key.strip_prefix(BY_NAME).map(str::to_string));
+        let heading = title.map(|title| {
+            crate::controls::web_rem(crate::scroll_pane::page_heading(gpui_component::Icon::new(crate::icons::registry::SETTINGS_REPOSITORIES), title.into(), cx))
+        });
+        let tab = self.binding.read(cx).state()["tab"].as_str().unwrap_or_default().to_string();
+        let binding = self.binding.clone();
+        let on_pick: Rc<dyn Fn(String, &mut Window, &mut App)> = Rc::new(move |value, _, cx| {
+            let tab = domain::repo_page::repo_tab(Some(&value));
+            binding.update(cx, |binding, cx| binding.update_state(|state| state["tab"] = json!(tab), cx));
+        });
+        let tabs: Vec<crate::controls::PageTab> = REPO_PAGE
+            .tabs
+            .iter()
+            .map(|tab| crate::controls::PageTab { value: tab.id.clone(), label: tab.label.clone(), count: None })
+            .collect();
+        let ready = self.repo().is_some();
+        let tabs = ready.then(|| crate::controls::page_tabs("repo-tabs", tabs, &tab, on_pick, cx));
+        gpui_component::v_flex().w_full().min_w_0().gap_6().children(heading).children(tabs).child(self.view.clone())
     }
 }
 
@@ -763,7 +800,7 @@ fn empty(id: &str, icon: &str, title: &str) -> Value {
 }
 
 fn column(id: &str, children: Vec<Value>) -> Value {
-    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 12, "width": "100%", "minWidth": 0, "paddingTop": 12}, "children": children})
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 12, "width": "100%", "minWidth": 0}, "children": children})
 }
 
 /// The Pull requests tab: the PR tree, or its empty state.
@@ -833,41 +870,10 @@ fn branches_tab(data: &Value) -> Value {
     column("branches", vec![json!({"id": "branches_list", "component": "Section", "children": rows})])
 }
 
-/// A pr-checks tone as the `Icon`'s (ci_run's `ICON_TONE`).
-fn icon_tone(tone: domain::pr_checks::CheckTone) -> &'static str {
-    match tone {
-        domain::pr_checks::CheckTone::Muted => "neutral",
-        domain::pr_checks::CheckTone::Green => "success",
-        domain::pr_checks::CheckTone::Red => "danger",
-    }
-}
-
-/// #EXP-1617 the Runs tab: a `Table` of the runs (a row opens its run
-/// page), or the empty state.
+/// #EXP-2169 the Runs tab: the CI page's day Sections of this repository's
+/// runs (`ci_page::repo_runs_tree`, ci-page-view.json), or its EmptyState.
 fn runs_tab(data: &Value) -> Value {
-    let rows = data["runs"].as_array().cloned().unwrap_or_default();
-    if rows.is_empty() {
-        return column("runs", vec![empty("runs_empty", "ci-queued", &REPO_PAGE.copy.runs.empty)]);
-    }
-    let columns: Vec<Value> = repo_ci::run_columns()
-        .into_iter()
-        .map(|(key, label)| match key {
-            "status" => json!({"key": key, "label": label, "type": "slot", "slot": "status", "width": 128}),
-            "run" => json!({"key": key, "label": label, "truncate": true}),
-            "commit" => json!({"key": key, "label": label, "width": 84}),
-            "ref" => json!({"key": key, "label": label, "truncate": true}),
-            "trigger" => json!({"key": key, "label": label, "width": 112}),
-            "duration" => json!({"key": key, "label": label, "width": 88, "align": "end"}),
-            _ => json!({"key": key, "label": label, "type": "relativeTime", "width": 144, "truncate": true}),
-        })
-        .collect();
-    let status = json!({"id": "runs_status", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 6, "minWidth": 0},
-        "children": [
-            {"id": "runs_status_glyph", "component": "Icon", "props": {"name": {"@path": "glyph"}, "tone": {"@path": "tone"}, "size": "sm"}},
-            {"id": "runs_status_label", "component": "Text", "props": {"text": {"@path": "statusLabel"}, "lines": 1}},
-        ]});
-    column("runs", vec![json!({"id": "runs_table", "component": "Table", "props": {"columns": columns, "rows": rows, "density": "compact"},
-        "on": {"rowPress": {"event": {"name": "run"}}}, "slots": {"status": status}})])
+    column("runs", vec![data["runsTree"].clone()])
 }
 
 /// #EXP-1617 the Settings tab's `CI` `Section`: pipelines, required checks,
@@ -1018,21 +1024,17 @@ fn document(ink: &Ink, data: &Value) -> Value {
         Some("failed") => return root(vec![failed_state(ink, "failed", "settings-repositories", &REPO_PAGE.copy.pulls.empty, json!(true))]),
         _ => return root(vec![json!({"id": "skeleton", "component": "Skeleton", "props": {"rows": crate::feedback::SKELETON_ROWS}})]),
     }
-    // The bar holds the title only (repo-page.json): the provider lives in
-    // the Settings tab.
-    let bar = json!({"id": "bar", "component": "AppBar", "props": {"title": data["name"], "back": true}, "on": {"back": {"event": {"name": "back"}}}});
-    let tabs: Vec<Value> = REPO_PAGE.tabs.iter().map(|tab| json!({"label": tab.label, "value": tab.id})).collect();
-    let panels: Vec<Value> = REPO_PAGE
-        .tabs
-        .iter()
-        .map(|tab| match tab.id.as_str() {
-            "pulls" => pulls_tab(data),
-            "branches" => branches_tab(data),
-            "settings" => settings_tab(data),
-            _ => runs_tab(data),
-        })
-        .collect();
-    let tabs = json!({"id": "tabs", "component": "Tabs", "props": {"tabs": tabs, "value": {"@path": "/pane/tab"}, "variant": "pill"}, "on": {"change": {"event": {"name": "tab"}}}, "children": panels});
+    // #EXP-2169: the title is the page's entity heading (drawn natively
+    // above, the device page's); the provider lives in the Settings tab.
+    // #EXP-2169: the tab switcher is the app's segmented capsule (drawn
+    // natively above, web's `SegmentedControl`); the document holds the
+    // current tab's panel.
+    let panel = match data["tab"].as_str().unwrap_or_default() {
+        "runs" => runs_tab(data),
+        "branches" => branches_tab(data),
+        "settings" => settings_tab(data),
+        _ => pulls_tab(data),
+    };
     let restore = json!({"id": "restore_alert", "component": "AlertDialog",
         "props": {"open": {"@path": "/pane/restoreOpen"}, "title": REPO_PAGE.copy.settings.restore_title, "confirmLabel": REPO_PAGE.copy.settings.restore_confirm, "destructive": true},
         "on": {"confirm": {"event": {"name": "restore_confirm"}}, "cancel": {"event": {"name": "restore_cancel"}}}});
@@ -1042,7 +1044,7 @@ fn document(ink: &Ink, data: &Value) -> Value {
     let remove = json!({"id": "remove_alert", "component": "AlertDialog",
         "props": {"open": {"@path": "/pane/removeOpen"}, "title": data["removePrompt"]["title"], "description": data["removePrompt"]["body"], "confirmLabel": data["removePrompt"]["confirm"], "destructive": true},
         "on": {"confirm": {"event": {"name": "remove_confirm"}}, "cancel": {"event": {"name": "remove_cancel"}}}});
-    root(vec![bar, tabs, restore, delete, remove, secret_dialog()])
+    root(vec![panel, restore, delete, remove, secret_dialog()])
 }
 
 #[cfg(test)]
@@ -1050,15 +1052,14 @@ mod tests {
     use super::*;
 
     fn ready() -> Value {
-        json!({"phase": "ready", "name": "web", "provider": "Exponential", "ecode": true, "owner": true,
+        json!({"phase": "ready", "tab": "pulls", "name": "web", "provider": "Exponential", "ecode": true, "owner": true,
             "pulls": [{"key": "p1", "identifier": "#2", "title": "Root", "subtitle": "exp/a → main", "depth": 0, "checks": "success", "pill": "Checks running", "pillGlyph": "spinner"},
                       {"key": "p2", "identifier": "#3", "title": "Child", "subtitle": "exp/b → exp/a", "depth": 1, "checks": null, "pill": "Draft", "pillGlyph": "pr-draft"}],
             "branches": [{"name": "main", "sha": "0123456", "isDefault": true, "pr": null}],
             "defaultBranch": "main", "branchNames": ["main"], "cloneUrl": "exp://acme/web",
             "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}],
             "manager": true, "switches": ["githubStatuses", "actionsRunners", "pullRequestSecrets"],
-            "runs": [{"id": "r12", "glyph": "ci-running", "tone": "neutral", "statusLabel": "Running", "run": "#12 ci", "commit": "ccccccc", "ref": "feat/x", "trigger": "Pull request", "duration": "5m 0s", "started": "2026-11-13T10:25:00.000Z"},
-                     {"id": "r13", "glyph": "ci-queued", "tone": "neutral", "statusLabel": "Queued", "run": "#13 ci", "commit": "ddddddd", "ref": "main", "trigger": "Merge train", "duration": "", "started": null}],
+            "runsTree": crate::ci_page::repo_runs_tree(&domain::ci_page::scenario(), "repo-engine", false),
             "pipelines": [{"name": "ci", "state": "pending"}, {"name": "nightly", "state": "failure"}],
             "ci": {"suggestions": [{"label": "lint", "value": "lint"}], "secrets": [{"name": "NPM_TOKEN", "updated": "2026-11-12T09:00:00.000Z"}]},
             "removePrompt": {"title": "Remove acme/web from this team?", "body": "Its pull requests and runs go with it.", "confirm": "Remove"}})
@@ -1072,7 +1073,7 @@ mod tests {
         bare["branches"] = json!([]);
         bare["backups"] = json!([]);
         bare["ecode"] = json!(false);
-        bare["runs"] = json!([]);
+        bare["runsTree"] = crate::ci_page::repo_runs_tree(&domain::ci_page::CiPageInput::default(), "repo-engine", false);
         bare["pipelines"] = json!([]);
         bare["ci"] = json!({"suggestions": [], "secrets": []});
         bare["manager"] = json!(false);
@@ -1082,7 +1083,20 @@ mod tests {
         skeleton["ci"] = Value::Null;
         let mut failed_ci = ready();
         failed_ci["ci"] = json!({"failed": true});
-        for data in [ready(), bare, skeleton, failed_ci, json!({"phase": "loading"}), json!({"phase": "failed"})] {
+        let tabs = |data: Value| -> Vec<Value> {
+            ["pulls", "runs", "branches", "settings"]
+                .into_iter()
+                .map(|tab| {
+                    let mut data = data.clone();
+                    if data["phase"] == "ready" {
+                        data["tab"] = json!(tab);
+                    }
+                    data
+                })
+                .collect()
+        };
+        let cases: Vec<Value> = [ready(), bare, skeleton, failed_ci, json!({"phase": "loading"}), json!({"phase": "failed"})].into_iter().flat_map(tabs).collect();
+        for data in cases {
             let tree = document(&ink, &data);
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new("settings-repo", Default::default());

@@ -59,37 +59,22 @@ struct RepoPageView: View {
 
     // MARK: - Tabs
 
-    /// THE pill tabs over `copy.tabs` (the `SessionScreenTabs` pattern: each
-    /// segment hugs its label, the strip scrolls sideways past the width).
     private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            GlassSegmentedControl(
-                options: RepoPage.tabs,
-                selection: tab,
-                label: \.label,
-                identifier: { "repo-tab-\($0.rawValue)" },
-                hugging: true,
-                onSelect: { tab = $0 }
-            )
-            .padding(.horizontal, 16)
-        }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 8)
+        RepoTabStrip(tab: tab) { tab = $0 }
     }
 
     @ViewBuilder
     private var content: some View {
         if !loaded {
             SkeletonRows(rowHeight: ListItem.prRowPhone)
-                .glassSection()
         } else if let repo {
             switch tab {
             case .pulls:
                 RepoPullsTab(prs: prs)
             case .runs:
-                // #EXP-1617 (repo-ci.json): a row opens THE run page.
-                RepoRunsLive(model: ci) { runId in
+                // #EXP-2169: the CI page's runs of this repository; a row
+                // opens THE run page.
+                RepoRunsLive(repositoryId: repo.id, fullName: repo.fullName) { runId in
                     pushRoute(.ciRun(accountId: accountId, runId: runId))
                 }
             case .branches:
@@ -144,6 +129,30 @@ struct RepoPageView: View {
     }
 }
 
+/// THE pill tabs over `copy.tabs` (the `SessionScreenTabs` pattern: each
+/// segment hugs its label, the strip scrolls sideways past the width).
+struct RepoTabStrip: View {
+    let tab: RepoPage.Tab
+    var onSelect: (RepoPage.Tab) -> Void = { _ in }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            GlassSegmentedControl(
+                options: RepoPage.tabs,
+                selection: tab,
+                label: \.label,
+                identifier: { "repo-tab-\($0.rawValue)" },
+                hugging: true,
+                onSelect: onSelect
+            )
+            .padding(.horizontal, 16)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+    }
+}
+
 // MARK: - Pills
 
 /// The provider `Badge` (`copy.provider`).
@@ -182,10 +191,27 @@ struct RepoChecksPill: View {
     }
 }
 
+/// #EXP-2169 ("one look"): a PR row's checks mark on phones: THE status
+/// dot alone (no pill around it), its label the accessibility label; the
+/// merge-train pill is the row's one pill.
+struct RepoChecksDot: View {
+    let state: String
+
+    var body: some View {
+        if let check = RepoPage.Copy.checks(state) {
+            Circle()
+                .fill(RepoChecksPill.color(check.tone))
+                .frame(width: GlassPillTokens.dotSize, height: GlassPillTokens.dotSize)
+                .accessibilityLabel(check.label)
+        }
+    }
+}
+
 // MARK: - Pull requests
 
 /// `Section{tree}` of `RepoPage.prTree` rows: THE PR row with its tree
-/// guides; trailing the checks chip, then the merge-train status pill.
+/// guides, flat on the page (#EXP-2169: no card); trailing the checks dot,
+/// then the merge-train status pill.
 private struct RepoPullsTab: View {
     let prs: [PullRequestEntity]
 
@@ -201,7 +227,7 @@ private struct RepoPullsTab: View {
                     PrRow(identifier: row.identifier, title: row.title, subtitle: row.subtitle, guide: guides[index]) {
                         HStack(spacing: 6) {
                             if let checks = row.checks {
-                                RepoChecksPill(state: checks, dotOnly: true)
+                                RepoChecksDot(state: checks)
                             }
                             if let pr = byId[row.id] {
                                 MergeStatusPill(
@@ -215,7 +241,6 @@ private struct RepoPullsTab: View {
                     .accessibilityIdentifier("repo-pr-row")
                 }
             }
-            .glassSection()
             .accessibilityIdentifier("repo-pulls")
         }
     }
@@ -250,12 +275,10 @@ private struct RepoBranchesTab: View {
                             branchRow(row)
                         }
                     }
-                    .glassSection()
                     .accessibilityIdentifier("repo-branches")
                 }
             } else {
                 SkeletonRows(rowHeight: 52)
-                    .glassSection()
             }
         }
         .task(id: repo.id) { await load() }

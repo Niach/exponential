@@ -108,6 +108,7 @@ class CiPageTest {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("title"), CiPage.Copy.TITLE)
         assertEquals(copy.getValue("filters"), JsonObject(CiPage.Copy.FILTERS.mapValues { JsonPrimitive(it.value) }))
+        assertEquals(copy.getValue("filterLabels"), JsonObject(CiPage.Copy.FILTER_LABELS.mapValues { JsonPrimitive(it.value) }))
         assertEquals(copy.getValue("triggers"), JsonObject(CiPage.Copy.TRIGGERS.mapValues { JsonPrimitive(it.value) }))
         val sources = copy.getValue("sources").jsonObject
         assertEquals(sources.str("all"), CiPage.Copy.SOURCES_ALL)

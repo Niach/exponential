@@ -1402,8 +1402,8 @@ final class StyleguideScreenshots: XCTestCase {
             // #EXP-2172: the CI page, Runs tab (ci-page.json `scenario`).
             case "ci": snapshot("sg_ci", settle: 2)
             case "runner-settings": snapshot("sg_runner-settings", settle: 2)
-            // #EXP-1617: the repo page's Runs tab + the CI section of a
-            // GitHub repo (repo-ci.json runRows[0]).
+            // #EXP-2169: the repo page's Runs tab (ci-page.json `scenario`,
+            // acme/engine) + #EXP-1617 the CI section of a GitHub repo.
             case "repo-runs": snapshot("sg_repo-runs", settle: 2)
             case "repo-ci": snapshot("sg_repo-ci", settle: 2)
             // #EXP-1645 / #EXP-1643: the specimens of states no seed draws.

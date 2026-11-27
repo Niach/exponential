@@ -92,7 +92,6 @@ export const CI_RUN_EVENTS = {
   cancel: `ci-cancel`,
   fix: `ci-fix`,
   openExternal: `ci-open-external`,
-  breadcrumb: `ci-breadcrumb`,
   menu: `ci-run-menu`,
 } as const
 
@@ -179,22 +178,7 @@ export function ciRunTree(
   if (phone && options.jobOpen && selected) {
     return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children: [jobCard(model, selected, log, now, phone)] }
   }
-  const title = CI_RUN_COPY.title.replace(`{number}`, String(run.number))
   const head: NestedNode[] = []
-  if (!phone) {
-    head.push({
-      id: CI_RUN_TEST_IDS.breadcrumb,
-      component: `Breadcrumb`,
-      props: {
-        items: [
-          { label: CI_RUN_COPY.breadcrumbRoot, value: `ci` },
-          ...(model.repository ? [{ label: model.repository, value: `repository` }] : []),
-          { label: title, value: `run` },
-        ],
-      },
-      on: { select: { event: { name: CI_RUN_EVENTS.breadcrumb } } },
-    })
-  }
   head.push({ id: `ci-run-heading`, component: `Heading`, props: { text: ciRunTitle(model), level: phone ? `h3` : `h2` } })
   if (!phone) {
     const age = { "@call": `formatRelativeTime`, args: { value: run.startedAt ?? run.createdAt } }

@@ -4,7 +4,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -101,42 +100,42 @@ object CiPageView {
         },
     )
 
+    /** The filter bar (#EXP-2169 "one look"): ONE Toolbar of three
+     *  `Select{button}` pickers (status, repository, source); wide adds the
+     *  runner Chip at its end. */
     private fun filters(input: CiPage.Input, state: State): JsonObject {
-        val status = node(ids.STATUS_FILTER, "Segmented", {
-            putJsonArray("items") { for ((value, label) in CiPage.Copy.FILTERS) add(option(label, value)) }
-            put("value", state.filter.status)
-            put("size", "sm")
-            if (state.phone) put("fill", true)
-        }) { on("change", Events.STATUS) }
-        val repository = node(ids.REPO_FILTER, "Select", {
-            put("name", ids.REPO_FILTER)
-            put("triggerVariant", "pill")
-            put("value", state.filter.repositoryId ?: "all")
-            putJsonArray("options") { CiPage.repoOptions(input).forEach { add(option(it.label, it.value)) } }
-        }) { on("change", Events.REPOSITORY) }
-        val source = node(ids.SOURCE_FILTER, "Select", {
-            put("name", ids.SOURCE_FILTER)
-            put("triggerVariant", "pill")
-            put("value", state.filter.source ?: "all")
-            putJsonArray("options") {
-                add(option(CiPage.Copy.SOURCES_ALL, "all"))
-                add(option(CiPage.Copy.SOURCES.getValue("exponential"), "exponential"))
-                add(option(CiPage.Copy.SOURCES.getValue("github"), "github"))
-            }
-        }) { on("change", Events.SOURCE) }
-        val chip = CiPage.runnerChip(input)
+        fun picker(id: String, label: String, value: String, options: List<JsonObject>, event: String) = node(id, "Select", {
+            put("name", id)
+            put("label", label)
+            put("triggerVariant", "button")
+            put("value", value)
+            put("options", JsonArray(options))
+        }) { on("change", event) }
+        val labels = CiPage.Copy.FILTER_LABELS
+        val status = picker(
+            ids.STATUS_FILTER, labels.getValue("status"), state.filter.status,
+            CiPage.Copy.FILTERS.map { (value, label) -> option(label, value) }, Events.STATUS,
+        )
+        val repository = picker(
+            ids.REPO_FILTER, labels.getValue("repository"), state.filter.repositoryId ?: "all",
+            CiPage.repoOptions(input).map { option(it.label, it.value) }, Events.REPOSITORY,
+        )
+        val source = picker(
+            ids.SOURCE_FILTER, labels.getValue("source"), state.filter.source ?: "all",
+            listOf(
+                option(CiPage.Copy.SOURCES_ALL, "all"),
+                option(CiPage.Copy.SOURCES.getValue("exponential"), "exponential"),
+                option(CiPage.Copy.SOURCES.getValue("github"), "github"),
+            ),
+            Events.SOURCE,
+        )
+        val chip = if (state.phone) null else CiPage.runnerChip(input)
         val runners = chip?.let {
             node(ids.RUNNER_CHIP, "Chip", {
                 put("label", it.label)
                 put("dot", if (it.online) "\$color.success" else "\$color.mutedForeground")
                 put("pressable", true)
             }) { on("press", Events.RUNNERS) }
-        }
-        if (state.phone) {
-            return node(
-                ids.FILTERS, "Stack", { put("direction", "vertical"); put("gap", "sm"); put("align", "stretch") },
-                listOf(status, node("${ids.FILTERS}.picks", "Toolbar", children = listOf(repository, source))),
-            )
         }
         return node(ids.FILTERS, "Toolbar", children = listOf(status, repository, source)) {
             if (runners != null) putJsonObject("slots") { put("trailing", runners) }
@@ -194,30 +193,39 @@ object CiPageView {
         }
     }
 
-    private fun runsPanel(input: CiPage.Input, state: State): JsonObject {
-        val groups = CiPage.runGroups(input, state.filter)
-        val children = mutableListOf<JsonElement>(filters(input, state))
-        val filtered = state.filter.status != "all" || state.filter.repositoryId != null || state.filter.source != null
-        children += if (groups.isEmpty()) {
-            node(ids.RUNS, "EmptyState", {
+    /** The runs as day Sections (or the EmptyState): the Runs tab's body,
+     *  and the repo page's Runs tab ([ciRepoRunsTree]). */
+    private fun runSections(input: CiPage.Input, filter: CiPage.RunFilter, phone: Boolean, filtered: Boolean): JsonObject {
+        val groups = CiPage.runGroups(input, filter)
+        if (groups.isEmpty()) {
+            return node(ids.RUNS, "EmptyState", {
                 put("icon", "nav-ci")
                 put("title", if (filtered) CiPage.Copy.EMPTY_FILTERED else CiPage.Copy.EMPTY_RUNS)
                 put("size", "list")
             })
-        } else {
-            stack(
-                ids.RUNS, "vertical", "md",
-                groups.map { group ->
-                    node(
-                        "${ids.RUNS}.${group.id}", "Section",
-                        { put("title", group.title); group.count?.let { put("count", it) } },
-                        group.rows.map { runRow(it, state.phone) },
-                    )
-                },
-            )
         }
-        return stack("${ids.PAGE}.runs", "vertical", "md", children)
+        return stack(
+            ids.RUNS, "vertical", "md",
+            groups.map { group ->
+                node(
+                    "${ids.RUNS}.${group.id}", "Section",
+                    { put("title", group.title); group.count?.let { put("count", it) } },
+                    group.rows.map { runRow(it, phone) },
+                )
+            },
+        )
     }
+
+    private fun runsPanel(input: CiPage.Input, state: State): JsonObject {
+        val filtered = state.filter.status != "all" || state.filter.repositoryId != null || state.filter.source != null
+        return stack("${ids.PAGE}.runs", "vertical", "md", listOf(filters(input, state), runSections(input, state.filter, state.phone, filtered)))
+    }
+
+    /** THE REPO PAGE'S RUNS TAB (#EXP-2169 "one look"): the CI page's runs of
+     *  ONE repository, the same day Sections and rows, no filter bar. Events:
+     *  [Events.OPEN_RUN] `{run}`. */
+    fun ciRepoRunsTree(input: CiPage.Input, repositoryId: String, phone: Boolean): JsonObject =
+        runSections(input, CiPage.RunFilter("all", repositoryId, null), phone, false)
 
     private fun trainPanel(input: CiPage.Input): JsonObject {
         val groups = CiPage.trainGroups(input, true)
@@ -270,33 +278,13 @@ object CiPageView {
         })
     }
 
-    /** The CI page (ci-page.json LAYOUT): the tiles, then the tabs; only the
-     *  current tab's panel is built (the others are empty stacks). */
-    fun ciPageTree(input: CiPage.Input, state: State): JsonObject {
-        val counts = CiPage.tabCounts(input)
-        fun empty(tab: String) = stack("${ids.PAGE}.$tab", "vertical", "md", emptyList())
-        return stack(
-            ids.PAGE, "vertical", "lg",
-            listOf(
-                node(
-                    ids.TABS, "Tabs",
-                    {
-                        put("tabs", buildJsonArray {
-                            add(option(CiPage.Copy.TAB_RUNS, "runs"))
-                            add(buildJsonObject { put("label", CiPage.Copy.TAB_TRAIN); put("value", "train"); if (counts.train > 0) put("count", counts.train) })
-                            add(buildJsonObject { put("label", CiPage.Copy.TAB_RUNNERS); put("value", "runners"); if (counts.runners > 0) put("count", counts.runners) })
-                        })
-                        put("value", state.tab)
-                        put("variant", "strip")
-                        if (state.phone) put("fill", true)
-                    },
-                    listOf(
-                        if (state.tab == "runs") runsPanel(input, state) else empty("runs"),
-                        if (state.tab == "train") trainPanel(input) else empty("train"),
-                        if (state.tab == "runners") runnersPanel(input) else empty("runners"),
-                    ),
-                ) { on("change", Events.TAB) },
-            ),
-        )
+    /** The CI page's body (ci-page.json LAYOUT): the CURRENT tab's panel.
+     *  The tab switcher is the platform's own segmented control (#EXP-2169
+     *  "one look": the board's and the repo page's switcher, counts from
+     *  [CiPage.tabCounts]), drawn by the host above this tree. */
+    fun ciPageTree(input: CiPage.Input, state: State): JsonObject = when (state.tab) {
+        "runs" -> runsPanel(input, state)
+        "train" -> trainPanel(input)
+        else -> runnersPanel(input)
     }
 }

@@ -128,19 +128,8 @@ struct CiRunScreen: View {
             onFix: fix,
             onOpenExternal: {
                 if let url = rows.run?.externalUrl.flatMap(URL.init(string:)) { openURL(url) }
-            },
-            onBreadcrumb: breadcrumb
+            }
         )
-    }
-
-    /// The wide breadcrumb: `ci` = the CI page, `repository` = its repo page.
-    private func breadcrumb(_ value: String) {
-        guard let run = rows.run else { return }
-        switch value {
-        case "ci": pushRoute(.ci(accountId: accountId))
-        case "repository": pushRoute(.repo(accountId: accountId, teamId: run.teamId, repositoryId: run.repositoryId, isOwner: false))
-        default: break
-        }
     }
 
     private func observe() async {
@@ -240,7 +229,7 @@ struct CiRunScreen: View {
 }
 
 /// Phones: `name #n` over the repository in the page header (`ciRunHeader`).
-private struct CiRunHeader: ViewModifier {
+struct CiRunHeader: ViewModifier {
     let model: CiRunView.Model?
 
     func body(content: Content) -> some View {
@@ -285,7 +274,6 @@ struct CiRunPage: View {
     var onCancel: () -> Void = {}
     var onFix: () -> Void = {}
     var onOpenExternal: () -> Void = {}
-    var onBreadcrumb: (String) -> Void = { _ in }
 
     var body: some View {
         let tree = CiRunView.ciRunTree(
@@ -305,8 +293,6 @@ struct CiRunPage: View {
                     case .openExternal?: onOpenExternal()
                     case nil: break
                     }
-                case CiRunView.Events.breadcrumb:
-                    if case let .string(value)? = payload?["value"] { onBreadcrumb(value) }
                 case CiRunView.Events.rerun: onRerun()
                 case CiRunView.Events.rerunAll: onRerunAll()
                 case CiRunView.Events.cancel: onCancel()

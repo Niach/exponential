@@ -164,3 +164,41 @@ pub(crate) fn page_scaffold_with(
                 .child(crate::assistant_fab::page_end(window, cx)),
         ))
 }
+
+/// #EXP-2169 ("one look", web `page-frame.tsx` `PageHeading`): THE heading of
+/// a wide entity page (a device, the CI page, a repository): the page's glyph
+/// at 24px, then its bold title at the settings pages' size. Callers append
+/// their meta and trailing controls; draw it inside `controls::web_rem` (the
+/// settings pages' 16px rem) like the device page does.
+pub(crate) fn page_heading(icon: gpui_component::Icon, title: gpui::SharedString, cx: &gpui::App) -> Div {
+    use gpui_component::ActiveTheme as _;
+    let theme = cx.theme();
+    gpui_component::h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_3()
+        .child(icon.size(px(PAGE_HEADING_GLYPH_PX)).flex_shrink_0().text_color(theme.foreground.opacity(0.85)))
+        .child(page_title(title, cx))
+}
+
+/// The heading's glyph (web `size-6`).
+const PAGE_HEADING_GLYPH_PX: f32 = 24.;
+
+/// A page title at the settings pages' size (web `text-2xl font-bold`).
+pub(crate) fn page_title(title: gpui::SharedString, cx: &gpui::App) -> Div {
+    use gpui_component::ActiveTheme as _;
+    div()
+        .min_w_0()
+        .truncate()
+        .text_2xl()
+        // web `text-2xl` = 24/32: the descenders stay inside the truncation.
+        .line_height(px(32.))
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(cx.theme().foreground)
+        .child(title)
+}
+
+/// #EXP-2169: the column of a page whose body needs the room (a CI run's
+/// log; web `pageFrameClass(true)`, `max-w-6xl`).
+pub(crate) const PAGE_COLUMN_WIDE_W: f32 = 1152.;

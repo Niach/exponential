@@ -84,6 +84,7 @@ final class CiPageTests: XCTestCase {
         XCTAssertEqual(copy["title"] as? String, CiPage.Copy.title)
         XCTAssertEqual(copy["tabs"] as? [String: String], CiPage.Copy.tabs)
         XCTAssertEqual(copy["filters"] as? [String: String], CiPage.Copy.filters)
+        XCTAssertEqual(copy["filterLabels"] as? [String: String], CiPage.Copy.filterLabels)
         XCTAssertEqual(copy["repositories"] as? [String: String], ["all": CiPage.Copy.allRepositories])
         XCTAssertEqual(copy["sources"] as? [String: String], CiPage.Copy.sources)
         XCTAssertEqual(copy["columns"] as? [String: String], CiPage.Copy.columns)
@@ -99,7 +100,7 @@ final class CiPageTests: XCTestCase {
         XCTAssertEqual(copy["batchTitle"] as? String, CiPage.Copy.batchTitle)
         XCTAssertEqual(copy["runnerChip"] as? String, CiPage.Copy.runnerChip)
         XCTAssertEqual(copy["waitingForRunner"] as? String, CiPage.Copy.waitingForRunner)
-        XCTAssertEqual(Set(copy.keys).count, 21)
+        XCTAssertEqual(Set(copy.keys).count, 22)
         XCTAssertEqual(copy["train"] as? [String: String], ["batch": CiPage.Copy.trainBatch])
         XCTAssertEqual(copy["runners"] as? [String: String], [
             "busy": CiPage.Copy.Runners.busy, "queue": CiPage.Copy.Runners.queue,
@@ -226,11 +227,15 @@ final class CiPageTests: XCTestCase {
         XCTAssertFalse(list.isEmpty)
         for c in list {
             let input = str(c["world"]) == "empty" ? empty : scenario
-            let tree = CiPageView.ciPageTree(input, state: CiPageView.State(
+            // A `repositoryId` case is the repo page's Runs tab (#EXP-2169).
+            let tree: CardJSON
+            if let repositoryId = str(c["repositoryId"]) {
+                tree = CiPageView.ciRepoRunsTree(input, repositoryId: repositoryId, phone: c["phone"] as? Bool == true)
+            } else { tree = CiPageView.ciPageTree(input, state: CiPageView.State(
                 tab: try XCTUnwrap(CiPage.Tab(rawValue: try XCTUnwrap(str(c["tab"])))),
                 filter: try ciPageFilter(c["filter"]),
                 phone: c["phone"] as? Bool == true
-            ))
+            )) }
             let expected = try XCTUnwrap(CardJSON(any: c["tree"]))
             XCTAssertEqual(expected, tree, c["name"] as? String ?? "")
             if expected != tree { XCTFail("\(c["name"] ?? ""): \(tree.compactString)") }

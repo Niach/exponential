@@ -128,12 +128,11 @@ fun RunnerSettingsSpecimenScreen() {
 const val RepoRunsSpecimenTestId = "repo-runs-specimen"
 const val RepoCiSpecimenTestId = "repo-ci-specimen"
 
-/** #EXP-1617 (repo-ci.json, shot sg_repo-runs): the repo page's Runs tab
- *  over runRows[0] as a phone draws it (one Row per run). */
+/** #EXP-1617 / #EXP-2169 (ci-page-view.json `repositoryId` cases, shot
+ *  sg_repo-runs): the repo page's Runs tab = THE CI page's run Sections of
+ *  `acme/engine` over ci-page.json `scenario`, as a phone draws it. */
 @Composable
 fun RepoRunsSpecimenScreen() {
-    val now = WireTimestamps.parseEpochMs(RepoCi.SPECIMEN_NOW) ?: 0L
-    val rows = remember { RepoCi.runRows(RepoCi.SPECIMEN_RUNS, RepoCi.SPECIMEN_JOBS, now) }
     AppBackground {
         Box(
             Modifier
@@ -143,7 +142,7 @@ fun RepoRunsSpecimenScreen() {
                 .padding(16.dp)
                 .testTag(RepoRunsSpecimenTestId),
         ) {
-            RepoRunsTab(rows, onOpenRun = {})
+            RepoRunsTab(CiPageSpecimen.INPUT, "repo-engine", onOpenRun = {})
         }
     }
 }

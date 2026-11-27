@@ -2,7 +2,7 @@ import Foundation
 
 /// #EXP-1617 / #EXP-1804 (fixtures/ci-run.json, fixtures/runner-settings.json):
 /// the CI run page and a device's CI runner section as genUI trees (the core
-/// catalog's Breadcrumb, Heading, Chip, Toolbar, Button, Menu, Alert, Section,
+/// catalog's Heading, Chip, Toolbar, Button, Menu, Alert, Section,
 /// Row, Card, Trace, CodeBlock; SettingsRow, Switch, ChipInput, NumberField,
 /// Select; #EXP-2172 the approved redesign), painted by
 /// `ExponentialSurface` so iOS draws exactly what the catalogue draws ×4. A
@@ -18,7 +18,6 @@ public enum CiRunView {
         public static let cancel = "ci-cancel"
         public static let fix = "ci-fix"
         public static let openExternal = "ci-open-external"
-        public static let breadcrumb = "ci-breadcrumb"
         /// The ⋯ Menu; payload `value` = rerunAll | openExternal.
         public static let menu = "ci-run-menu"
     }
@@ -180,14 +179,8 @@ public enum CiRunView {
         if phone, jobOpen, let selected {
             return pageStack([jobCard(model, selected, log, now, phone)])
         }
-        let title = CiRun.Copy.title(run.number)
+        // #EXP-2169 "one look": no Breadcrumb (the issue page has none).
         var head: [CardJSON] = []
-        if !phone {
-            var items: [CardJSON] = [.object(["label": .string(CiRun.Copy.breadcrumbRoot), "value": .string("ci")])]
-            if let repository = model.repository { items.append(.object(["label": .string(repository), "value": .string("repository")])) }
-            items.append(.object(["label": .string(title), "value": .string("run")]))
-            head.append(node(ids.breadcrumb, "Breadcrumb", props: ["items": .array(items)], extra: on("select", Events.breadcrumb)))
-        }
         head.append(node("ci-run-heading", "Heading", props: ["text": .string(ciRunTitle(model)), "level": .string(phone ? "h3" : "h2")]))
         if !phone {
             let age = call("formatRelativeTime", ["value": .string(run.startedAt ?? run.createdAt ?? "")])

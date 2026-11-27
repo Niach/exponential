@@ -523,33 +523,6 @@
       },
       "children": [
        {
-        "id": "ci-run-breadcrumb",
-        "component": "Breadcrumb",
-        "props": {
-         "items": [
-          {
-           "label": "CI",
-           "value": "ci"
-          },
-          {
-           "label": "acme/engine",
-           "value": "repository"
-          },
-          {
-           "label": "Run #12",
-           "value": "run"
-          }
-         ]
-        },
-        "on": {
-         "select": {
-          "event": {
-           "name": "ci-breadcrumb"
-          }
-         }
-        }
-       },
-       {
         "id": "ci-run-heading",
         "component": "Heading",
         "props": {
@@ -1653,33 +1626,6 @@
        "align": "stretch"
       },
       "children": [
-       {
-        "id": "ci-run-breadcrumb",
-        "component": "Breadcrumb",
-        "props": {
-         "items": [
-          {
-           "label": "CI",
-           "value": "ci"
-          },
-          {
-           "label": "acme/mobile",
-           "value": "repository"
-          },
-          {
-           "label": "Run #1206",
-           "value": "run"
-          }
-         ]
-        },
-        "on": {
-         "select": {
-          "event": {
-           "name": "ci-breadcrumb"
-          }
-         }
-        }
-       },
        {
         "id": "ci-run-heading",
         "component": "Heading",

@@ -25,14 +25,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.api.RepoCiSettings
-import com.exponential.app.domain.PrChecks
+import com.exponential.app.domain.CiPage
+import com.exponential.app.domain.CiPageView
 import com.exponential.app.domain.RepoCi
 import com.exponential.app.domain.RepoPage
 import com.exponential.app.ui.ci.CiSurface
 import com.exponential.app.ui.ci.CiSurfaceHandle
-import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
@@ -61,14 +60,13 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-// #EXP-1617 E4 part 4 (fixtures/repo-ci.json): the repo page's Runs tab and
-// the CI section of its Settings tab, phone layout, as the genUI trees web
-// builds (`apps/web/src/lib/repo-ci-view.ts`: `repoRunsTree`,
-// `repoCiSectionTree`), painted by [CiSurface] like the run page and the
-// runner section. The two overlays stay E3's: Delete's AlertDialog =
+// #EXP-1617 E4 part 4 (fixtures/repo-ci.json): the repo page's Runs tab (since
+// #EXP-2169 the CI page's run Sections, [CiPageView.ciRepoRunsTree]) and the
+// CI section of its Settings tab, phone layout, as the genUI trees web builds
+// (`apps/web/src/lib/repo-ci-view.ts` `repoCiSectionTree`), painted by
+// [CiSurface] like the run page and the runner section. The two overlays stay E3's: Delete's AlertDialog =
 // GlassAlert, Add secret's phone Drawer = GlassSheet ([AddSecretSheet]).
 
-private const val OPEN_RUN = "repo-run-open"
 private const val REQUIRED_PATH = "/required"
 private const val MAX_REQUIRED = 64
 
@@ -85,52 +83,6 @@ private fun node(
     extra()
     if (children != null) put("children", JsonArray(children))
 }
-
-private fun iconTone(tone: PrChecks.Tone): String = when (tone) {
-    PrChecks.Tone.Muted -> "neutral"
-    PrChecks.Tone.Green -> "success"
-    PrChecks.Tone.Red -> "danger"
-}
-
-/** PHONES: one `Row` per run (leading glyph tinted, `#n`, the name,
- *  `ref · sha7 · trigger`, the duration); a press opens the run page. */
-internal fun repoRunsTree(rows: List<RepoCi.RunRow>): JsonObject = node(
-    RepoCi.TestIds.RUNS,
-    "Section",
-    null,
-    rows.map { row ->
-        node(
-            "${RepoCi.TestIds.RUN_ROW}.${row.id}",
-            "Row",
-            {
-                put("title", row.title)
-                put("identifier", row.identifier)
-                put("subtitle", row.subtitle)
-                row.duration?.let { put("meta", it) }
-                put("pressable", true)
-            },
-        ) {
-            putJsonObject("slots") {
-                put(
-                    "leading",
-                    node("${RepoCi.TestIds.RUN_ROW}.${row.id}.glyph", "Icon", {
-                        put("name", row.glyph.wire)
-                        put("tone", iconTone(row.tone))
-                        put("size", "sm")
-                    }),
-                )
-            }
-            putJsonObject("on") {
-                putJsonObject("press") {
-                    putJsonObject("event") {
-                        put("name", OPEN_RUN)
-                        putJsonObject("context") { put("run", row.id) }
-                    }
-                }
-            }
-        }
-    },
-)
 
 /** Events the CI section's tree fires (web `REPO_CI_EVENTS`). */
 private object CiEvents {
@@ -298,16 +250,15 @@ internal fun repoCiSectionTree(
     return node(ids.CI, "Section", { put("title", RepoCi.Copy.Ci.SECTION) }, children)
 }
 
-/** RUNS: `runRows` newest first; none = the EmptyState. */
+/** RUNS (#EXP-2169 "one look", ci-page-view.json `repositoryId` cases): THE
+ *  CI page's runs of this repository, its day Sections and rows
+ *  ([CiPageView.ciRepoRunsTree]); none = the tree's EmptyState. [input] =
+ *  the CI page's data (now + clock offset set). A row opens its run page. */
 @Composable
-internal fun RepoRunsTab(rows: List<RepoCi.RunRow>, onOpenRun: (String) -> Unit) {
-    if (rows.isEmpty()) {
-        EmptyState(title = RepoPage.Copy.Runs.EMPTY, size = EmptyStateSize.List)
-        return
-    }
-    val tree = remember(rows) { repoRunsTree(rows) }
-    CiSurface(surfaceId = "repo-runs", tree = tree, modifier = Modifier.fillMaxWidth().testTag(RepoCi.TestIds.RUNS)) { name, context, _ ->
-        if (name == OPEN_RUN) (context?.get("run") as? JsonPrimitive)?.contentOrNull?.let(onOpenRun)
+internal fun RepoRunsTab(input: CiPage.Input, repositoryId: String, onOpenRun: (String) -> Unit) {
+    val tree = remember(input, repositoryId) { CiPageView.ciRepoRunsTree(input, repositoryId, phone = true) }
+    CiSurface(surfaceId = "repo-runs-$repositoryId", tree = tree, modifier = Modifier.fillMaxWidth().testTag(RepoCi.TestIds.RUNS)) { name, context, _ ->
+        if (name == CiPageView.Events.OPEN_RUN) (context?.get("run") as? JsonPrimitive)?.contentOrNull?.let(onOpenRun)
     }
 }
 

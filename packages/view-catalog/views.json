@@ -1744,7 +1744,7 @@
       "id": "repo",
       "group": "settings",
       "title": "Repository",
-      "blurb": "THE repo page (#EXP-1616, repo-page.json): an AppBar with the provider Badge over pill Tabs (Pull requests · Runs · Branches · Settings). The PR tree as a Section{tree} of Rows with the checks Chip{dot} and the merge-train pill; Runs waits for eCode CI. Opened from a Settings › Repositories row.",
+      "blurb": "THE repo page (#EXP-1616, repo-page.json; #EXP-2169 one look): wide = the device page's heading (repository glyph + full name), phones = the pushed header (back + name); the app's segmented switcher (Pull requests · Runs · Branches · Settings); the PR tree as plain Section rows with the checks Chip{dot} and the merge-train pill.",
       "order": 26,
       "web": {
         "route": "/t/$teamSlug/repos/engine",
@@ -1780,7 +1780,7 @@
       "id": "repo-runs",
       "group": "settings",
       "title": "Repository runs",
-      "blurb": "The repo page's Runs tab (#EXP-1617, repo-ci.json): our own CI's runs newest first, a Table on wide screens (status, run, commit, branch, trigger, duration, started) and Rows on phones; a run opens its run page.",
+      "blurb": "The repo page's Runs tab (#EXP-2169, ci-page-view.json `repositoryId` cases): that repository's runs exactly as on the CI page, in day Sections (In progress, Today, Yesterday) of run rows; a run opens its run page.",
       "order": 32,
       "web": {
         "route": "/t/$teamSlug/repos/engine?tab=runs",
@@ -6497,7 +6497,7 @@
       "id": "ci",
       "group": "reviews",
       "title": "CI",
-      "blurb": "THE CI page (#EXP-2172, ci-page.json): one root row after Devices across every team; Running, Queued, Failed today and Runners tiles, then Runs (our runs and GitHub Actions in one list with a Source badge, filters All/Running/Failed/Mine, a repository and a source pick, the merge train's testing batches above), Merge train and Runners tabs.",
+      "blurb": "THE CI page (#EXP-2172, ci-page.json; #EXP-2169 one look): one root row after Devices across every team; the device page's heading on wide screens, the app's segmented switcher (Runs, Merge train, Runners with counts), one row of pickers (status, repository, source) and the runner chip, then the runs in day Sections.",
       "order": 10,
       "web": {
         "route": "/home?dev=ci",
@@ -6542,7 +6542,7 @@
       "id": "ci-run",
       "group": "reviews",
       "title": "CI run",
-      "blurb": "One run of our own CI (#EXP-1617, ci-run.json), the page every check's Details link opens: status, duration, runner and commit tiles, the jobs (a list beside the selected job on wide screens, folds on phones), the job's steps as a trace and its log tailing live, Re-run failed and Cancel.",
+      "blurb": "One CI run (#EXP-1617, ci-run.json), the page every check's Details link opens: the run's title and a muted line (no breadcrumb, like an issue), the chip strip and Re-run failed / Fix with an agent, the jobs beside the selected job's steps and its live log.",
       "order": 8,
       "web": {
         "route": "/home?dev=ci-run",

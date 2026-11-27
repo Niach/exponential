@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react"
 import type { SurfaceActionEvent } from "@exponential_app/eui-react"
-import { CI_PAGE_TEST_IDS, type CiPageInput, type CiRunFilter, type CiSource, type CiTab } from "@exp/domain-contract/ci-page"
+import { CI_PAGE_COPY, CI_PAGE_TEST_IDS, ciTabCounts, type CiPageInput, type CiRunFilter, type CiSource, type CiTab } from "@exp/domain-contract/ci-page"
 import pageFixture from "@exp/domain-contract/fixtures/ci-page.json"
-import { useIsMobile } from "@exp/ui"
+import { conceptIcon, SegmentedControl, useIsMobile } from "@exp/ui"
 import { CiSurface } from "@/components/ci/ci-surface"
+import { PageHeading } from "@/components/page-frame"
 import { CI_PAGE_EVENTS, ciPageTree } from "@/lib/ci-page-view"
 
 // #EXP-2172 (fixtures/ci-page.json): THE CI page's body over its input; the
 // route (`/ci`) owns the data and the navigation, the `?dev=ci` specimen the
 // fixture's `scenario`.
+
+const CiIcon = conceptIcon(`nav-ci`)
 
 export const ALL_RUNS: CiRunFilter = { status: `all`, repositoryId: null, source: null }
 
@@ -77,8 +80,30 @@ export function CiPageView({
       }
     }
   }
+  const counts = ciTabCounts(input)
+  // #EXP-2169: THE app's segmented control (the board's and the repo page's
+  // switcher), each count after its label in muted text.
   return (
-    <div data-testid={CI_PAGE_TEST_IDS.page} className="w-full min-w-0">
+    <div data-testid={CI_PAGE_TEST_IDS.page} className="w-full min-w-0 space-y-4">
+      <div data-testid={CI_PAGE_TEST_IDS.tabs}>
+      <SegmentedControl
+        value={tab}
+        onValueChange={(next) => TABS.has(next) && onTab(next)}
+        className="w-max"
+        options={([`runs`, `train`, `runners`] as const).map((value) => {
+          const count = value === `runs` ? 0 : counts[value]
+          return {
+            value,
+            label: (
+              <span className="flex items-center gap-1.5 whitespace-nowrap" data-tab={value}>
+                {CI_PAGE_COPY.tabs[value]}
+                {count > 0 && <span className="text-muted-foreground tabular-nums">{count}</span>}
+              </span>
+            ),
+          }
+        })}
+      />
+      </div>
       <CiSurface surfaceId="ci-page" tree={tree} onAction={onAction} />
     </div>
   )
@@ -89,8 +114,12 @@ export function CiPageSpecimen() {
   const input = pageFixture.scenario as CiPageInput
   const [tab, setTab] = useState<CiTab>(`runs`)
   const [filter, setFilter] = useState<CiRunFilter>(ALL_RUNS)
+  const phone = useIsMobile()
+  // The /ci route's wide chrome (#EXP-2169): the entity heading in the
+  // device page's column.
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-4 md:py-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6">
+      {!phone && <PageHeading icon={CiIcon} title={CI_PAGE_COPY.title} />}
       <CiPageView
         input={input}
         tab={tab}

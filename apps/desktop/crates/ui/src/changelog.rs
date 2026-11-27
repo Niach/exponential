@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ci-repo-one-look",
+    date: "2026-11-27",
+    title: "CI and repositories look like the rest of the app",
+    summary: "The CI page, a run and a repository's page now use the same header, switcher, rows and pickers as your boards and devices.",
+    body: r##"- **One switcher**: Runs, Merge train and Runners use the same switcher as a board's All issues and My issues.
+- **Plain pickers**: the run filters are three ordinary pickers (status, repository, source) in one row.
+- **A repository's runs**: its Runs tab lists runs exactly like the CI page, grouped by day.
+- **Familiar headers**: CI and a repository get the device page's heading on wide screens; a run page has no breadcrumb, like an issue."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_386: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ede-taskbar-drag",
     date: "2026-11-27",
     title: "Taskbar buttons you can drag, and windows that ask for you",

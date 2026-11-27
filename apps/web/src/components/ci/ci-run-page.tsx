@@ -24,7 +24,6 @@ export function CiRunView({
   onCancel,
   onFix,
   onOpenExternal,
-  onBreadcrumb,
 }: {
   model: CiRunModel
   /** The `job` query param. */
@@ -43,8 +42,6 @@ export function CiRunView({
   /** #EXP-2172: Fix with an agent (the selected job). */
   onFix: (selectedJobId: string | null) => void
   onOpenExternal: () => void
-  /** The breadcrumb's `ci` | `repository`. */
-  onBreadcrumb: (value: string) => void
 }) {
   const phone = useIsMobile()
   const selected = ciDefaultJob(model.jobs, requestedJob)
@@ -65,10 +62,6 @@ export function CiRunView({
     else if (event.name === CI_RUN_EVENTS.cancel) onCancel()
     else if (event.name === CI_RUN_EVENTS.fix) onFix(selected)
     else if (event.name === CI_RUN_EVENTS.openExternal) onOpenExternal()
-    else if (event.name === CI_RUN_EVENTS.breadcrumb) {
-      const value = event.payload?.value
-      if (typeof value === `string`) onBreadcrumb(value)
-    }
   }
   return (
     <div data-testid={CI_RUN_TEST_IDS.page} className="w-full min-w-0">
@@ -105,7 +98,6 @@ export function CiRunSpecimen() {
       onCancel={() => undefined}
       onFix={() => undefined}
       onOpenExternal={() => undefined}
-      onBreadcrumb={() => undefined}
     />
   )
 }

@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import type { SurfaceActionEvent, SurfaceState } from "@exponential_app/eui-react"
-import { REPO_PAGE_COPY } from "@exp/domain-contract/repo-page"
-import { REPO_CI_TEST_IDS, pipelineRows, requiredSuggestions, runRows } from "@exp/domain-contract/repo-ci"
-import { EmptyState, SkeletonRows, useIsMobile } from "@exp/ui"
+import { REPO_CI_TEST_IDS, pipelineRows, requiredSuggestions } from "@exp/domain-contract/repo-ci"
+import type { CiPageInput } from "@exp/domain-contract/ci-page"
+import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { CiSurface } from "@/components/ci/ci-surface"
+import { useCiPageRows } from "@/hooks/use-ci-page"
+import { useSession } from "@/hooks/use-session"
+import { CI_PAGE_EVENTS, ciRepoRunsTree } from "@/lib/ci-page-view"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { ciJobCollection, ciRunCollection } from "@/lib/collections"
@@ -15,7 +18,6 @@ import {
   repoCiConfigAfter,
   repoCiSectionTree,
   repoRunInput,
-  repoRunsTree,
   secretFromSubmit,
   type RepoCiSecret,
 } from "@/lib/repo-ci-view"
@@ -51,18 +53,26 @@ function useRepoRuns(repositoryId: string) {
   )
 }
 
-export function RepoRunsTab({ repositoryId, teamSlug }: { repositoryId: string; teamSlug: string }) {
+/** #EXP-2169 ("one look", ci-page-view.json `repositoryId` cases): THE CI
+ *  page's runs of this repository, its day Sections and rows. */
+export function RepoRunsTab({ repository, teamSlug }: { repository: { id: string; fullName: string }; teamSlug: string }) {
+  const repositoryId = repository.id
   const navigate = useNavigate()
   const phone = useIsMobile()
-  const now = useNow(30_000)
-  const { ready, runs, jobs } = useRepoRuns(repositoryId)
-  const rows = useMemo(() => runRows(runs, jobs, now), [runs, jobs, now])
-  const tree = useMemo(() => repoRunsTree(rows, phone), [rows, phone])
-  if (!ready && rows.length === 0) return <SkeletonRows rowHeight={52} />
-  if (rows.length === 0) return <EmptyState size="list" title={REPO_PAGE_COPY.runs.empty} />
+  const { data: session } = useSession()
+  const rows = useCiPageRows(session?.user?.id ?? ``)
+  const repos = useMemo(() => [{ id: repository.id, fullName: repository.fullName }], [repository.id, repository.fullName])
+  const running = rows.runs.some((run) => run.repositoryId === repositoryId && run.state === `pending`)
+  const now = useNow(running ? 1_000 : 60_000)
+  const input = useMemo<CiPageInput>(
+    () => ({ ...rows, repos, now: now.toISOString(), utcOffsetMinutes: -now.getTimezoneOffset() }),
+    [rows, repos, now]
+  )
+  const tree = useMemo(() => ciRepoRunsTree(input, repositoryId, phone), [input, repositoryId, phone])
+  if (!rows.ready) return <SkeletonRows rowHeight={52} />
   const onAction = (event: SurfaceActionEvent) => {
     const runId = event.context.run
-    if (event.name === REPO_CI_EVENTS.openRun && typeof runId === `string`) {
+    if (event.name === CI_PAGE_EVENTS.openRun && typeof runId === `string`) {
       void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId } })
     }
   }

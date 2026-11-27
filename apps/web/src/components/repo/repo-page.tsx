@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useRouter } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   REPO_PAGE_COPY as COPY,
@@ -10,10 +10,9 @@ import {
   type RepoTab,
 } from "@exp/domain-contract/repo-page"
 import {
-  HeaderBack,
+  MobileDetailHeader,
   EmptyState,
   GlassSectionHeader,
-  GlassGroup,
   GlassInputRow,
   GlassToggleRow,
   ListRow,
@@ -29,6 +28,7 @@ import {
   SelectValue,
   SkeletonRows,
   conceptIcon,
+  useIsMobile,
 } from "@exp/ui"
 import { pullRequestCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -38,7 +38,8 @@ import { PullRequestStatusPill } from "@/components/session-merge-button"
 import { checksDotColor, checksLabel } from "@/components/repo/checks-dot"
 import { RepoCiSection, RepoRunsTab } from "@/components/repo/repo-ci"
 import { useSession } from "@/hooks/use-session"
-import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PageHeading, pageFrameClass } from "@/components/page-frame"
+import { PushedTitle } from "@/components/team/mobile-page-header"
 
 const RepositoriesIcon = conceptIcon(`settings-repositories`)
 /** The danger row's pill: the prompt's own destructive action label. */
@@ -106,18 +107,24 @@ export function RepoPage({
   const setTab = (next: RepoTab) =>
     void navigate({ to: `/t/$teamSlug/repos/$name`, params: { teamSlug, name }, search: { tab: next }, replace: true })
 
-  const back = (
-    <HeaderBack label="Repositories" onClick={() => void navigate({ to: `/t/$teamSlug/settings/repositories`, params: { teamSlug } })} />
-  )
+  const router = useRouter()
+  const phone = useIsMobile()
+  const back = () =>
+    router.history.canGoBack()
+      ? router.history.back()
+      : void navigate({ to: `/t/$teamSlug/settings/repositories`, params: { teamSlug } })
 
+  // #EXP-2169 ("one look"): phones = the pushed page header (back + the
+  // name), wide = the entity heading of the device and CI pages.
   return (
-    <div className="h-full overflow-y-auto" data-testid="repo-page">
-      <div className={`mx-auto w-full max-w-3xl space-y-4 px-4 py-4 md:max-w-4xl ${PAGE_END_CLEARANCE}`}>
-        {/* THE AppBar: back + the repo's full name only (the provider lives in Settings). */}
-        <div className="flex min-w-0 items-center gap-2">
-          {back}
-          <h1 className="min-w-0 truncate text-lg font-semibold">{repo?.fullName ?? name}</h1>
+    <div className="h-full overflow-y-auto max-md:h-dvh" data-testid="repo-page">
+      {phone && (
+        <div className="sticky top-0 z-20 pt-[env(safe-area-inset-top)]">
+          <MobileDetailHeader title={<PushedTitle>{repo?.fullName ?? name}</PushedTitle>} onBack={back} />
         </div>
+      )}
+      <div className={pageFrameClass()}>
+        {!phone && <PageHeading icon={RepositoriesIcon} title={repo?.fullName ?? name} />}
         <SegmentedControl
           value={tab}
           onValueChange={(value) => setTab(value as RepoTab)}
@@ -132,7 +139,7 @@ export function RepoPage({
         ) : tab === `pulls` ? (
           <PullsTab prs={prRows} member={isMember} />
         ) : tab === `runs` ? (
-          <RepoRunsTab repositoryId={repo.id} teamSlug={teamSlug} />
+          <RepoRunsTab repository={repo} teamSlug={teamSlug} />
         ) : tab === `branches` ? (
           <BranchesTab repo={repo} prs={prRows} />
         ) : (
@@ -156,7 +163,6 @@ function PullsTab({ prs, member }: { prs: PrRow[]; member: boolean }) {
   return (
     // Section{tree}: the rows nest with tree guides by depth, on the
     // grouped surface ×4.
-    <GlassGroup>
     <PrList
       rows={rows.map((row) => {
         const pr = byId.get(row.id)!
@@ -180,7 +186,6 @@ function PullsTab({ prs, member }: { prs: PrRow[]; member: boolean }) {
         }
       })}
     />
-    </GlassGroup>
   )
 }
 
@@ -209,7 +214,7 @@ function BranchesTab({ repo, prs }: { repo: Repo; prs: PrRow[] }) {
   const rows = repoBranches(branches, repo.defaultBranch, prs as unknown as RepoPr[])
   if (rows.length === 0) return <EmptyState size="list" title={COPY.branches.empty} />
   return (
-    <GlassGroup className={SETTINGS_LIST_CLASS} data-testid="repo-branches">
+    <div className={SETTINGS_LIST_CLASS} data-testid="repo-branches">
       {rows.map((row) => (
         <ListRow key={row.name} className="gap-2 px-3 py-2">
           <div className="min-w-0 flex-1">
@@ -220,7 +225,7 @@ function BranchesTab({ repo, prs }: { repo: Repo; prs: PrRow[] }) {
           {row.isDefault && <Pill size="sm">{COPY.branches.default}</Pill>}
         </ListRow>
       ))}
-    </GlassGroup>
+    </div>
   )
 }
 
