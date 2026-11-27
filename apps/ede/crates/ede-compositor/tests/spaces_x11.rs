@@ -150,6 +150,10 @@ fn a_persons_x11_drag_stays_on_their_seat() {
 fn space_with_x11(h: &Harness, dir: &std::path::Path, session: &str) -> (ede_protocol::Client, ede_protocol::SpaceInfo, u32) {
     let grant = h.ipc().mint(SessionId::new(session).unwrap(), vec![ede_protocol::Capability::Space], None).unwrap();
     let mut agent = h.ipc_with(grant.token).unwrap();
+    // The first launch with X11 on starts the space's Xwayland before it
+    // answers: on a loaded runner that outlasts the 10 s call timeout (the
+    // read came back WouldBlock), so this caller waits longer.
+    agent.set_call_timeout(Duration::from_secs(60));
     let space = agent.create_space(640, 480).unwrap();
     h.with(|state| state.spaces.x11 = true);
     let out = dir.join(format!("{session}.display"));
