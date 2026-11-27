@@ -49,6 +49,7 @@ struct RunnerSettingsSection: View {
         }
         RunnerSettingsView(
             caps: device.caps ?? [],
+            kind: device.kind,
             platform: device.platform,
             settings: pending ?? device.runner,
             owner: device.isMine,
@@ -119,6 +120,7 @@ struct RunnerSettingsSection: View {
 /// the `runner-settings` specimen.
 struct RunnerSettingsView: View {
     let caps: [String]
+    let kind: String?
     let platform: String?
     let settings: RunnerSettings.Settings
     let owner: Bool
@@ -133,7 +135,7 @@ struct RunnerSettingsView: View {
 
     var body: some View {
         let tree = CiRunView.runnerSectionTree(
-            client: client, caps: caps, platform: platform, settings: settings, owner: owner, refused: refused, recent: recent
+            client: client, caps: caps, kind: kind, platform: platform, settings: settings, owner: owner, refused: refused, recent: recent
         )
         CiSurface(
             surfaceId: "runner-settings",

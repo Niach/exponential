@@ -124,7 +124,10 @@ export function secretName(input: string): boolean {
   return input.length <= 128 && /^[A-Z_][A-Z0-9_]*$/.test(input)
 }
 
-/** The GitHub-only switches of the CI section, in order. */
-export function repoCiSwitches(provider: string): Array<`githubStatuses` | `actionsRunners`> {
-  return provider === `github` ? [`githubStatuses`, `actionsRunners`] : []
+export type RepoCiSwitch = `githubStatuses` | `actionsRunners` | `pullRequestSecrets`
+
+/** The switches of the CI section, in order: the GitHub-only ones, then
+ *  #EXP-2180's secrets for pull request runs (every provider). */
+export function repoCiSwitches(provider: string): RepoCiSwitch[] {
+  return provider === `github` ? [`githubStatuses`, `actionsRunners`, `pullRequestSecrets`] : [`pullRequestSecrets`]
 }

@@ -61,6 +61,38 @@ impl OutboxLog for SqliteLog {
     }
 }
 
+/// #EDE-238: the outbox in a store of its own (eDE's shell queues a
+/// connected team's record writes there: the account's synced store is the
+/// holder's, read-only to it).
+pub struct StoreLog {
+    store: Arc<crate::store::ShapeStore>,
+}
+
+impl StoreLog {
+    pub fn new(store: Arc<crate::store::ShapeStore>) -> Self {
+        StoreLog { store }
+    }
+}
+
+impl OutboxLog for StoreLog {
+    fn entries(&self) -> Result<Vec<OutboxEntry>, Failure> {
+        self.store.outbox_entries().map_err(store_failure)
+    }
+
+    fn push(&self, entry: &OutboxEntry) -> Result<(), Failure> {
+        self.store.outbox_push(entry).map_err(store_failure)
+    }
+
+    fn ack(&self, write_id: &str, at: &str) -> Result<(), Failure> {
+        self.store.outbox_ack(write_id, at).map_err(store_failure)
+    }
+
+    fn remove(&self, write_ids: &[String]) -> Result<(), Failure> {
+        let ids: Vec<&str> = write_ids.iter().map(String::as_str).collect();
+        self.store.outbox_remove(&ids).map_err(store_failure)
+    }
+}
+
 /// tRPC out, as the entry's account and app. The refusals keep their
 /// [`api::ApiError`] for the toast and the record form to read.
 pub struct TrpcTransport {

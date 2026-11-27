@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.domain.RunnerSettings
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
@@ -37,6 +38,9 @@ internal data class CiSetRunnerInput(
     @SerialName("labels") val labels: List<String>,
     @SerialName("slots") val slots: Int,
     @SerialName("timeoutMin") val timeoutMin: Int,
+    // #EXP-2193: the job's memory cap and pause-while-a-game-runs.
+    @SerialName("memoryMaxMb") val memoryMaxMb: Int,
+    @SerialName("pauseWhenBusy") val pauseWhenBusy: Boolean,
 )
 
 /** #EXP-1617 (repo-ci.json): a repository's `ci_config`; absent keys = off / none. */
@@ -45,6 +49,7 @@ data class RepoCiConfig(
     @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
     @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
     @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
+    @SerialName("pullRequestSecrets") val pullRequestSecrets: Boolean? = null,
 )
 
 /** One secret's NAME (values are never read back). */
@@ -70,6 +75,7 @@ private data class CiSetRepoConfigInput(
     @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
     @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
     @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
+    @SerialName("pullRequestSecrets") val pullRequestSecrets: Boolean? = null,
 )
 
 @Serializable
@@ -114,13 +120,21 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CiRunIdInput.serializer(),
         )
 
-    /** `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin}`: the WHOLE
-     *  settings object, the device owner only ([deviceId] = the steer id). */
-    suspend fun setRunner(accountId: String, deviceId: String, enabled: Boolean, labels: List<String>, slots: Int, timeoutMin: Int) =
+    /** `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin, memoryMaxMb, pauseWhenBusy}`:
+     *  the WHOLE settings object, the device owner only ([deviceId] = the steer id). */
+    suspend fun setRunner(accountId: String, deviceId: String, settings: RunnerSettings.Settings) =
         trpc.mutationUnit(
             accountId,
             path = "ci.setRunner",
-            input = CiSetRunnerInput(deviceId, enabled, labels, slots, timeoutMin),
+            input = CiSetRunnerInput(
+                deviceId,
+                settings.enabled,
+                settings.labels,
+                settings.slots,
+                settings.timeoutMin,
+                settings.memoryMaxMb,
+                settings.pauseWhenBusy,
+            ),
             inputSerializer = CiSetRunnerInput.serializer(),
         )
 
@@ -141,12 +155,20 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
         requiredChecks: List<String>? = null,
         githubStatuses: Boolean? = null,
         actionsRunners: Boolean? = null,
+        pullRequestSecrets: Boolean? = null,
         /** #EXP-2171: New › Repository's Run CI. */
         enabled: Boolean? = null,
     ) = trpc.mutationUnit(
         accountId,
         path = "ci.setRepoConfig",
-        input = CiSetRepoConfigInput(repositoryId, enabled, requiredChecks, githubStatuses, actionsRunners),
+        input = CiSetRepoConfigInput(
+            repositoryId = repositoryId,
+            enabled = enabled,
+            requiredChecks = requiredChecks,
+            githubStatuses = githubStatuses,
+            actionsRunners = actionsRunners,
+            pullRequestSecrets = pullRequestSecrets,
+        ),
         inputSerializer = CiSetRepoConfigInput.serializer(),
     )
 

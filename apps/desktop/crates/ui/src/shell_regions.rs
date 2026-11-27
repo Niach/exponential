@@ -264,15 +264,27 @@ pub(crate) struct RowExtras {
 
 /// Every team's rows as the fixture's input, with the glyphs they name.
 fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>, RowExtras) {
-    let mut extras = RowExtras { getting_started: crate::getting_started::getting_started_visible(nav, cx), ..Default::default() };
+    let getting_started = crate::getting_started::getting_started_visible(nav, cx);
+    let screen = resolved_screen(nav, cx);
+    let board = active_board_id(nav, cx);
+    gather_at(screen, board, getting_started, marks, cx)
+}
+
+/// #EDE-258: the sidebar's input with no window's navigation (no open
+/// screen): what eDE's start menu navigates (`ede_feeds`).
+pub(crate) fn sidebar_input(cx: &mut App) -> IdeSidebarInput {
+    gather_at(None, None, false, &mut TeamMarks::new(), cx).0
+}
+
+/// [`gather`] for an open `screen` (and the window's active `board`).
+fn gather_at(screen: Option<Screen>, board: Option<String>, getting_started: bool, marks: &mut TeamMarks, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>, RowExtras) {
+    let mut extras = RowExtras { getting_started, ..Default::default() };
     let mut glyphs = HashMap::new();
     glyphs.insert("ide:dot:green".to_string(), Glyph::Online);
-    let screen = resolved_screen(nav, cx);
     let open_draft = match &screen {
         Some(Screen::IssueDraft { draft_id, .. }) => Some(draft_id.clone()),
         _ => None,
     };
-    let board = active_board_id(nav, cx);
     let mut input = IdeSidebarInput { screen: screen_key(screen.as_ref(), board.as_deref(), cx), devices_open: crate::ui_prefs::sidebar_folder_open(domain::sidebar_tree::SIDEBAR_DEVICES_OPEN_KEY), ..Default::default() };
     let Some(store) = Store::try_global(cx) else { return (input, glyphs, extras) };
     let collections = store.collections().clone();

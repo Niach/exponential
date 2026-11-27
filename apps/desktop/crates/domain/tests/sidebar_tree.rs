@@ -149,3 +149,13 @@ fn repository_row() {
         assert_eq!(json!(repository_name(&full_name)), case["expected"], "{}", full_name);
     }
 }
+
+#[test]
+fn ede_local() {
+    let f = fixture();
+    for case in cases(&f, "edeLocal") {
+        let desktops: Vec<SidebarLocalDesktopInput> = field(case, "desktops");
+        let got = sidebar_local_rows(&desktops);
+        assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+    }
+}

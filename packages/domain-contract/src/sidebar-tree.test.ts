@@ -10,6 +10,7 @@ import {
   SIDEBAR_TREE_MAX_DEPTH,
   sidebarDeviceRows,
   sidebarDropSession,
+  sidebarLocalRows,
   sidebarRootRows,
   sidebarTeamItems,
   sidebarTeamMenu,
@@ -49,6 +50,7 @@ describe(`sidebar tree (#EXP-2027)`, () => {
   for (const c of fixture.repositoryRow.cloneUrl) test(`clone url: ${c.name}`, () => expect(repositoryCloneUrl(c)).toBe(c.expected))
   for (const c of fixture.repositoryRow.nameCases) test(`repository name: ${c.fullName}`, () => expect(repositoryName(c.fullName)).toBe(c.expected))
   for (const c of fixture.phone.empty) test(`phone empty: ${c.name}`, () => expect(phoneTeamsEmpty(c.teams)).toBe(c.expected))
+  for (const c of fixture.edeLocal) test(`ede local: ${c.name}`, () => expect(sidebarLocalRows(c.desktops)).toEqual(c.expected as never))
   for (const c of fixture.drop) {
     test(`drop: ${c.name}`, () =>
       expect(sidebarDropSession({ ...c, entries: entries(c.entries), move: c.move as SidebarMove })).toEqual(c.expected as never))

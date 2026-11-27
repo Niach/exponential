@@ -32,6 +32,23 @@ pub(crate) fn transfer_client(user_agent: &str) -> Result<reqwest::blocking::Cli
         .map_err(|e| Error::Http { status: 0, detail: e.to_string() })
 }
 
+/// #EXP-2191: a transport error as text that never carries a URL's query:
+/// reqwest prints the whole URL, and a presigned bucket URL's query is its
+/// credential (`X-Amz-Credential`, `X-Amz-Signature`). The scheme, host and
+/// path stay, so the message still says where it failed.
+pub(crate) fn net_error(error: reqwest::Error) -> Error {
+    let at = error.url().map(|url| {
+        let mut url = url.clone();
+        url.set_query(None);
+        url.set_fragment(None);
+        let _ = url.set_password(None);
+        let _ = url.set_username("");
+        url.to_string()
+    });
+    let text = error.without_url().to_string();
+    Error::Http { status: 0, detail: match at { Some(at) => format!("{text} ({at})"), None => text } }
+}
+
 /// A JSON body (the workspace's reqwest has no `json` feature).
 pub(crate) fn with_json(request: reqwest::blocking::RequestBuilder, body: &Value) -> reqwest::blocking::RequestBuilder {
     request.header("content-type", "application/json").body(body.to_string())
@@ -49,7 +66,10 @@ pub(crate) struct Response {
 /// Sends a request built by `build` and reads the JSON answer. Network
 /// errors become `Http { status: 0 }`; `secrets` are redacted from them.
 pub(crate) fn send(request: reqwest::blocking::RequestBuilder, secrets: &[&str]) -> Result<Response> {
-    let response = request.send().map_err(|e| Error::Http { status: 0, detail: ecode_core::redact(&e.to_string(), secrets) })?;
+    let response = request.send().map_err(|e| match net_error(e) {
+        Error::Http { status, detail } => Error::Http { status, detail: ecode_core::redact(&detail, secrets) },
+        other => other,
+    })?;
     let status = response.status().as_u16();
     let etag = response.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_string);
     let text = response.text().unwrap_or_default();
@@ -142,5 +162,21 @@ pub(crate) mod mock {
         pub fn requests(&self) -> Vec<String> {
             self.requests.lock().unwrap().clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod net_error_tests {
+    use super::*;
+
+    #[test]
+    fn a_transport_error_keeps_the_host_and_path_but_never_the_query() {
+        // Port 9 (discard) on localhost: the connect fails at once.
+        let url = "http://127.0.0.1:9/packs/c5fd6aa5.pack?X-Amz-Credential=AKIA%2F20261127&X-Amz-Signature=deadbeef";
+        let error = client("ecode-test").unwrap().put(url).send().unwrap_err();
+        let Error::Http { status, detail } = net_error(error) else { panic!("not an http error") };
+        assert_eq!(status, 0);
+        assert!(detail.contains("127.0.0.1:9/packs/c5fd6aa5.pack"), "{detail}");
+        assert!(!detail.contains("X-Amz") && !detail.contains("deadbeef") && !detail.contains('?'), "{detail}");
     }
 }

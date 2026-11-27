@@ -1434,12 +1434,16 @@ export interface DeviceDisplay {
 // #EXP-1617: a device's CI runner settings (`devices.runner`). `labels` =
 // what its jobs' `runsOn` may ask for (lowercase, eCode's label rule; the
 // OS and arch labels are added by the daemon); `slots` = parallel jobs;
-// `timeoutMin` = the cap on any job's own timeout.
+// `timeoutMin` = the cap on any job's own timeout. #EXP-2193: `memoryMaxMb`
+// = the job's memory cap (its systemd scope), `pauseWhenBusy` = pause jobs
+// while a game or full-screen app runs (unset = runner-settings defaults).
 export interface DeviceRunnerSettings {
   enabled: boolean
   labels: string[]
   slots: number
   timeoutMin: number
+  memoryMaxMb?: number
+  pauseWhenBusy?: boolean
 }
 
 // #EXP-1617: `repositories.ci_config`.
@@ -1460,6 +1464,9 @@ export interface RepositoryCiConfig {
   /** GitHub repos: the team's runner devices also serve its Actions as
    *  self-hosted runners (`lib/ci/actions-runners.ts`). */
   actionsRunners?: boolean
+  /** #EXP-2180: pull request runs get the repository's secrets too (owner
+   *  only; unset = off: only default-branch, tag and merge-train runs). */
+  pullRequestSecrets?: boolean
 }
 
 // #EXP-1617: one step of a CI job as the runner reports it.
@@ -1970,8 +1977,9 @@ export const deviceCommands = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
     kind: varchar({ length: 32 }).notNull(),
+    // #EXP-2193: `ci_job` carries numbers and booleans too.
     payload: jsonb()
-      .$type<Record<string, string>>()
+      .$type<Record<string, string | number | boolean>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     // pending → done | failed.
@@ -3538,10 +3546,32 @@ export const ciRuns = pgTable(
     }),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    // #EXP-2172: who ran it. `exponential` = our runner (everything above);
+    // `github` = a GitHub Actions workflow run ingested from the App's
+    // `workflow_run` webhook: `number` = GitHub's run number (unique per
+    // workflow, not per repository), `external_id` = the run id, `external_url`
+    // = its page, `external_attempt` = the attempt the row shows,
+    // `external_access` = the installation's Actions permission when it was
+    // last written (`read` | `write`; null = unknown): Re-run and Cancel need
+    // `write`, else the run page offers Open on GitHub. Our scheduler, ticks,
+    // numbering and check reports never touch a `github` row.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
+    externalAttempt: integer(`external_attempt`),
+    externalAccess: varchar(`external_access`, { length: 8 }),
+    // #EXP-2172 (the approved CI redesign): what the run is about, the CI
+    // list's and the run page's title: the head commit's first line or the
+    // pull request's title (GitHub: the run's `display_title`). Null = not
+    // known (a hosted push): the clients fall back to the pipeline's name.
+    title: varchar({ length: 255 }),
     ...timestamps,
   },
   (table) => [
-    unique(`uniq_ci_runs_number`).on(table.repositoryId, table.number),
+    uniqueIndex(`uniq_ci_runs_number`)
+      .on(table.repositoryId, table.number)
+      .where(sql`provider = 'exponential'`),
+    unique(`uniq_ci_runs_external`).on(table.repositoryId, table.externalId),
     index(`idx_ci_runs_team`).on(table.teamId),
     index(`idx_ci_runs_repo_sha`).on(table.repositoryId, table.sha),
   ]
@@ -3596,8 +3626,17 @@ export const ciJobs = pgTable(
     dispatchedAt: timestamp(`dispatched_at`, { withTimezone: true }),
     lastBeatAt: timestamp(`last_beat_at`, { withTimezone: true }),
     queuedFlaggedAt: timestamp(`queued_flagged_at`, { withTimezone: true }),
+    // #EXP-2193: when a lost or quitting runner handed it back (once; the
+    // next loss fails it `runner_lost`).
+    requeuedAt: timestamp(`requeued_at`, { withTimezone: true }),
     // Byte length of each log chunk object, in order.
     logChunks: jsonb(`log_chunks`).$type<number[]>().notNull().default([]),
+    // #EXP-2172: `github` = a GitHub Actions job (`workflow_job` webhook):
+    // `external_id` = the job id, `external_url` = its page; its log is read
+    // from GitHub on demand, `spec` is empty, no runner device.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
     ...timestamps,
   },
   (table) => [
@@ -3606,6 +3645,7 @@ export const ciJobs = pgTable(
     index(`idx_ci_jobs_open`)
       .on(table.status)
       .where(sql`status <> 'completed'`),
+    index(`idx_ci_jobs_external`).on(table.runId, table.externalId),
     index(`idx_ci_jobs_runner`).on(table.runnerDeviceId),
   ]
 )

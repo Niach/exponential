@@ -172,6 +172,9 @@ pub struct RunnerSettingsInput {
     pub labels: Vec<String>,
     pub slots: u32,
     pub timeout_min: u32,
+    /// #EXP-2193: the job's memory cap and pause-while-a-game-runs.
+    pub memory_max_mb: u32,
+    pub pause_when_busy: bool,
 }
 
 /// `ci.setRunner`: the device OWNER only.
@@ -192,10 +195,18 @@ mod people_tests {
 
     #[test]
     fn set_runner_sends_the_whole_object() {
-        let input = RunnerSettingsInput { device_id: "dev-1".into(), enabled: true, labels: vec!["gpu".into()], slots: 2, timeout_min: 60 };
+        let input = RunnerSettingsInput {
+            device_id: "dev-1".into(),
+            enabled: true,
+            labels: vec!["gpu".into()],
+            slots: 2,
+            timeout_min: 60,
+            memory_max_mb: 8192,
+            pause_when_busy: true,
+        };
         assert_eq!(
             serde_json::to_value(&input).unwrap(),
-            serde_json::json!({"deviceId": "dev-1", "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60})
+            serde_json::json!({"deviceId": "dev-1", "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60, "memoryMaxMb": 8192, "pauseWhenBusy": true})
         );
     }
 }
@@ -255,6 +266,9 @@ pub struct RepoCiConfig {
     pub github_statuses: Option<bool>,
     #[serde(default)]
     pub actions_runners: Option<bool>,
+    /// #EXP-2180: pull request runs get the secrets too.
+    #[serde(default)]
+    pub pull_request_secrets: Option<bool>,
 }
 
 /// One secret's NAME (values are never read back).
@@ -304,6 +318,8 @@ pub struct RepoCiConfigInput {
     pub github_statuses: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actions_runners: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request_secrets: Option<bool>,
 }
 
 /// `ci.setRepoConfig`: the repo's managers only.

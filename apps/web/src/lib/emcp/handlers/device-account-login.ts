@@ -36,7 +36,7 @@ export interface DeviceCommandRow {
   kind: string
   status: string
   result: string | null
-  payload?: Record<string, string> | null
+  payload?: Record<string, string | number | boolean> | null
 }
 
 export interface DeviceAccountLoginDeps {

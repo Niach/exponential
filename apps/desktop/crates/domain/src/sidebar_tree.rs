@@ -455,6 +455,22 @@ pub enum RepositoryChecks {
     Failure,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarLocalBoardInput {
+    pub id: String,
+    pub name: String,
+    pub sort_order: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarLocalDesktopInput {
+    pub id: String,
+    pub name: String,
+    pub boards: Vec<SidebarLocalBoardInput>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RepositoryTrailingKind {
@@ -492,4 +508,48 @@ pub fn repository_name(full_name: &str) -> &str {
         Some(last) if !last.is_empty() => last,
         _ => full_name,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarLocalRowKind {
+    Local,
+    Desktop,
+    Board,
+}
+
+/// One row of eDE's `local` node (#EDE-258).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarLocalRow {
+    pub kind: SidebarLocalRowKind,
+    pub id: String,
+    /// The desktop a row belongs to; `None` on the local row.
+    pub desktop_id: Option<String>,
+    pub depth: u8,
+}
+
+/// #EDE-258 (eDE only): Local › the machine's Local desktops by name ›
+/// each desktop's boards by sortOrder.
+pub fn sidebar_local_rows(desktops: &[SidebarLocalDesktopInput]) -> Vec<SidebarLocalRow> {
+    let mut rows = vec![SidebarLocalRow { kind: SidebarLocalRowKind::Local, id: "local".into(), desktop_id: None, depth: 0 }];
+    let mut sorted: Vec<&SidebarLocalDesktopInput> = desktops.iter().collect();
+    sorted.sort_by(|a, b| by_name(&a.name, &a.id, &b.name, &b.id));
+    for desktop in sorted {
+        rows.push(SidebarLocalRow {
+            kind: SidebarLocalRowKind::Desktop,
+            id: desktop.id.clone(),
+            desktop_id: Some(desktop.id.clone()),
+            depth: 1,
+        });
+        let mut boards: Vec<&SidebarLocalBoardInput> = desktop.boards.iter().collect();
+        boards.sort_by(|a, b| by_sort(a.sort_order, &a.id, b.sort_order, &b.id));
+        rows.extend(boards.into_iter().map(|board| SidebarLocalRow {
+            kind: SidebarLocalRowKind::Board,
+            id: board.id.clone(),
+            desktop_id: Some(desktop.id.clone()),
+            depth: 2,
+        }));
+    }
+    rows
 }

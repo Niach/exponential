@@ -1430,7 +1430,7 @@ UPDATE devices d
 -- team. An insert that names no slug ('' or NULL) takes the name's last
 -- segment, slugged ([a-z0-9._-], runs of anything else = one '-'); a clash
 -- inside the team takes the whole owner/name slugged, a clash left after
--- that the id's first 8. The migration backfill (0307) is the same rule.
+-- that the id's first 8. The migration backfill (0309) is the same rule.
 CREATE OR REPLACE FUNCTION repository_slug_part(input text)
 RETURNS text AS $$
   SELECT coalesce(nullif(left(trim(both '-' from regexp_replace(lower(input), '[^a-z0-9._-]+', '-', 'g')), 100), ''), 'repo');

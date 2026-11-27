@@ -269,3 +269,32 @@ export function repositoryCloneUrl(input: { provider: string; fullName: string }
 export function repositoryName(fullName: string): string {
   return fullName.split(`/`).pop() || fullName
 }
+
+export interface SidebarLocalDesktopInput {
+  id: string
+  name: string
+  boards: readonly { id: string; name: string; sortOrder: number }[]
+}
+
+/** One row of eDE's `local` node (#EDE-258). */
+export interface SidebarLocalRow {
+  kind: `local` | `desktop` | `board`
+  id: string
+  /** The desktop a row belongs to; null on the local row. */
+  desktopId: string | null
+  depth: 0 | 1 | 2
+}
+
+/** #EDE-258 (eDE only): Local › the machine's Local desktops by name ›
+ *  each desktop's boards by sortOrder. */
+export function sidebarLocalRows(desktops: readonly SidebarLocalDesktopInput[]): SidebarLocalRow[] {
+  const rows: SidebarLocalRow[] = [{ kind: `local`, id: `local`, desktopId: null, depth: 0 }]
+  for (const desktop of [...desktops].sort(byName)) {
+    rows.push({ kind: `desktop`, id: desktop.id, desktopId: desktop.id, depth: 1 })
+    const boards = [...desktop.boards].sort((a, b) =>
+      a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    )
+    for (const board of boards) rows.push({ kind: `board`, id: board.id, desktopId: desktop.id, depth: 2 })
+  }
+  return rows
+}

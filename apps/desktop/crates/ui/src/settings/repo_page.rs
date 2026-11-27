@@ -137,7 +137,7 @@ impl RepoPage {
             let mut binding = Binding::new(
                 PATH,
                 json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false, "removeOpen": false,
-                    "required": [], "githubStatuses": false, "actionsRunners": false,
+                    "required": [], "githubStatuses": false, "actionsRunners": false, "pullRequestSecrets": false,
                     "secretOpen": false, "secretName": "", "secretValue": "", "secretInvalid": false, "deleteOpen": false, "deleteName": ""}),
                 |state: &Value, _| state.clone(),
             );
@@ -288,6 +288,7 @@ impl RepoPage {
             state["required"] = json!(config.required_checks.clone().unwrap_or_default());
             state["githubStatuses"] = json!(config.github_statuses.unwrap_or(false));
             state["actionsRunners"] = json!(config.actions_runners.unwrap_or(false));
+            state["pullRequestSecrets"] = json!(config.pull_request_secrets.unwrap_or(false));
         }, cx));
     }
 
@@ -523,6 +524,7 @@ impl RepoPage {
                 match field.as_str() {
                     "githubStatuses" => input.github_statuses = Some(checked),
                     "actionsRunners" => input.actions_runners = Some(checked),
+                    "pullRequestSecrets" => input.pull_request_secrets = Some(checked),
                     _ => return,
                 }
                 set(self, cx, &|state| state[field.as_str()] = json!(checked));
@@ -1054,7 +1056,7 @@ mod tests {
             "branches": [{"name": "main", "sha": "0123456", "isDefault": true, "pr": null}],
             "defaultBranch": "main", "branchNames": ["main"], "cloneUrl": "exp://acme/web",
             "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}],
-            "manager": true, "switches": ["githubStatuses", "actionsRunners"],
+            "manager": true, "switches": ["githubStatuses", "actionsRunners", "pullRequestSecrets"],
             "runs": [{"id": "r12", "glyph": "ci-running", "tone": "neutral", "statusLabel": "Running", "run": "#12 ci", "commit": "ccccccc", "ref": "feat/x", "trigger": "Pull request", "duration": "5m 0s", "started": "2026-11-13T10:25:00.000Z"},
                      {"id": "r13", "glyph": "ci-queued", "tone": "neutral", "statusLabel": "Queued", "run": "#13 ci", "commit": "ddddddd", "ref": "main", "trigger": "Merge train", "duration": "", "started": null}],
             "pipelines": [{"name": "ci", "state": "pending"}, {"name": "nightly", "state": "failure"}],

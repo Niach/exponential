@@ -73,12 +73,15 @@ export function RepoRunsTab({ repositoryId, teamSlug }: { repositoryId: string; 
   )
 }
 
-type CiConfig = { requiredChecks: string[]; githubStatuses: boolean; actionsRunners: boolean }
+type CiConfig = { requiredChecks: string[]; githubStatuses: boolean; actionsRunners: boolean; pullRequestSecrets: boolean }
 
-const configOf = (raw: { requiredChecks?: string[]; githubStatuses?: boolean; actionsRunners?: boolean } | null | undefined): CiConfig => ({
+const configOf = (
+  raw: { requiredChecks?: string[]; githubStatuses?: boolean; actionsRunners?: boolean; pullRequestSecrets?: boolean } | null | undefined
+): CiConfig => ({
   requiredChecks: raw?.requiredChecks ?? [],
   githubStatuses: raw?.githubStatuses ?? false,
   actionsRunners: raw?.actionsRunners ?? false,
+  pullRequestSecrets: raw?.pullRequestSecrets ?? false,
 })
 
 const iso = (value: Date | string): string => (typeof value === `string` ? value : value.toISOString())
@@ -115,7 +118,7 @@ export function RepoCiSection({ repositoryId, provider, manager }: { repositoryI
   const tree = useMemo(
     () => repoCiSectionTree({ phone, provider, manager, pipelines, suggestions, secrets, config: current, busy }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [phone, provider, manager, pipelines, suggestions, secrets, current.githubStatuses, current.actionsRunners, busy]
+    [phone, provider, manager, pipelines, suggestions, secrets, current.githubStatuses, current.actionsRunners, current.pullRequestSecrets, busy]
   )
   // The ChipInput's `values` is bound: the stored list wins.
   const requiredKey = current.requiredChecks.join(`\n`)
@@ -142,7 +145,8 @@ export function RepoCiSection({ repositoryId, provider, manager }: { repositoryI
     switch (event.name) {
       case REPO_CI_EVENTS.required:
       case REPO_CI_EVENTS.githubStatuses:
-      case REPO_CI_EVENTS.actionsRunners: {
+      case REPO_CI_EVENTS.actionsRunners:
+      case REPO_CI_EVENTS.pullRequestSecrets: {
         const patch = repoCiConfigAfter(current, event.name, event.payload)
         if (!patch || !manager) return
         setConfig({ ...current, ...patch })

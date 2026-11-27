@@ -77,6 +77,12 @@ let surfaceSettings: SettingsDictionary = hasExponentialUi
     ? ["SWIFT_INCLUDE_PATHS": "$(inherited) $(BUILT_PRODUCTS_DIR)/ExponentialUIWrapper.framework/Modules"]
     : [:]
 
+// EXP-2111: the call log and its failed-call diagnostics event
+// (VoiceCallClient's `logSink`) are OFF in every build: without
+// `EXP_CALL_LOG` the calls run as before EXP-2111. `TUIST_EXP_CALL_LOG=1
+// tuist generate` turns it on (the app targets only).
+let callLogConditions = Environment.expCallLog.getBoolean(default: false) ? " EXP_CALL_LOG" : ""
+
 // EXP-1435: sealed pushes. `ExpPush` (Foundation + Security) holds the
 // install identity and the push key derived from it in the shared keychain
 // group and opens the relay's sealed payloads through eNet's push-only UniFFI
@@ -282,8 +288,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.147"
-let appBuildVersion = "350"
+let appMarketingVersion = "0.14.148"
+let appBuildVersion = "351"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -520,7 +526,9 @@ let project = Project(
             // Exponential.entitlements) must not inherit.
             entitlements: "ExponentialApp.entitlements",
             dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension"), .target(name: "NotificationService"), .target(name: "LiveActivity")],
-            settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new })
+            settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new }.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string("$(inherited)\(callLogConditions)"),
+            ]) { _, new in new })
         ),
         .target(
             name: "Exponential-Staging",
@@ -538,7 +546,7 @@ let project = Project(
             entitlements: "ExponentialAppStaging.entitlements",
             dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging"), .target(name: "NotificationService-Staging"), .target(name: "LiveActivity-Staging")],
             settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new }.merging([
-                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string("$(inherited) STAGING\(callLogConditions)"),
             ]) { _, new in new })
         ),
         // ExponentialUITests: fastlane snapshot (automated App Store screenshots).

@@ -253,12 +253,14 @@ class RepoPageViewModel @Inject constructor(
             when (switch) {
                 RepoCi.Switch.GithubStatuses -> it.copy(githubStatuses = on)
                 RepoCi.Switch.ActionsRunners -> it.copy(actionsRunners = on)
+                RepoCi.Switch.PullRequestSecrets -> it.copy(pullRequestSecrets = on)
             }
         }
         ciAct("save", "the CI settings") {
             when (switch) {
                 RepoCi.Switch.GithubStatuses -> ciApi.setRepoConfig(it, repositoryId, githubStatuses = on)
                 RepoCi.Switch.ActionsRunners -> ciApi.setRepoConfig(it, repositoryId, actionsRunners = on)
+                RepoCi.Switch.PullRequestSecrets -> ciApi.setRepoConfig(it, repositoryId, pullRequestSecrets = on)
             }
         }
     }

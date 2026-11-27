@@ -159,8 +159,8 @@ class RepoCiTest {
         val ids = fixture.obj("testIds")
         with(RepoCi.TestIds) {
             assertEquals(
-                listOf(RUNS, RUN_ROW, CI, PIPELINES, REQUIRED, SECRETS, ADD_SECRET, GITHUB_STATUSES, ACTIONS_RUNNERS),
-                listOf("runs", "runRow", "ci", "pipelines", "required", "secrets", "addSecret", "githubStatuses", "actionsRunners")
+                listOf(RUNS, RUN_ROW, CI, PIPELINES, REQUIRED, SECRETS, ADD_SECRET, GITHUB_STATUSES, ACTIONS_RUNNERS, PULL_REQUEST_SECRETS),
+                listOf("runs", "runRow", "ci", "pipelines", "required", "secrets", "addSecret", "githubStatuses", "actionsRunners", "pullRequestSecrets")
                     .map { ids.str(it) },
             )
         }

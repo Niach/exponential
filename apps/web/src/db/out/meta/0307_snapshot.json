@@ -1,5 +1,5 @@
 {
-  "id": "88b74178-a880-4454-95d0-0396c591692e",
+  "id": "6f7d8f7c-f3fb-4778-bdc5-03560b368614",
   "prevId": "d4064d17-e770-481e-b430-9a0516484ae7",
   "version": "7",
   "dialect": "postgresql",
@@ -2548,7 +2548,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -2820,6 +2820,12 @@
         },
         "queued_flagged_at": {
           "name": "queued_flagged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requeued_at": {
+          "name": "requeued_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -12240,26 +12246,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "slug": {
-          "name": "slug",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sync": {
-          "name": "sync",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{\"mode\":\"none\"}'::jsonb"
-        },
         "remote_url": {
           "name": "remote_url",
           "type": "text",
@@ -12415,14 +12401,6 @@
           "columns": [
             "team_id",
             "full_name"
-          ]
-        },
-        "repositories_team_slug_unique": {
-          "name": "repositories_team_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "team_id",
-            "slug"
           ]
         }
       },
@@ -14010,7 +13988,7 @@
       "checkConstraints": {
         "sidebar_layout_section_check": {
           "name": "sidebar_layout_section_check",
-          "value": "section IN ('team', 'board', 'agent', 'app', 'repository')"
+          "value": "section IN ('team', 'board', 'agent', 'app')"
         },
         "sidebar_layout_kind_check": {
           "name": "sidebar_layout_kind_check",
