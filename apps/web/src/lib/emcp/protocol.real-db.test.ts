@@ -2,7 +2,7 @@
 // #NEW-144: `/api/mcp` against the REAL migrated Postgres, through the route
 // and the gate, with the SDK's own client in each era: 2025-06-18 and
 // 2025-11-25 (`initialize`) and 2026-07-28 (`server/discover`, the
-// per-request envelope). Every era lists the same 22 tools and runs one.
+// per-request envelope). Every era lists the same 23 tools and runs one.
 import { hashOAuthToken } from "@/lib/auth/oauth-token-hash"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { sql } from "drizzle-orm"

@@ -2171,6 +2171,13 @@
       "when": 1795758550453,
       "tag": "0309_repositories_nav",
       "breakpoints": true
+    },
+    {
+      "idx": 310,
+      "version": "7",
+      "when": 1795763394270,
+      "tag": "0310_feed295_device_transfers",
+      "breakpoints": true
     }
   ]
 }

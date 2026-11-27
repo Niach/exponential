@@ -81,6 +81,8 @@ pub mod exp_tool;
 /// EXP-948: the rule that keeps a run of OUR calls visible, and its caption.
 pub mod exp_tool_group;
 pub mod feed;
+/// #FEED-295: device-to-device file transfers between one person's machines.
+pub mod file_transfer;
 pub mod frames;
 pub mod held_gone;
 pub mod history;
