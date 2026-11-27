@@ -358,14 +358,15 @@ pub(crate) fn repo_names(cx: &mut App) -> Entity<RepoNames> {
             entity
         }
     };
-    let (Some(store), Some(trpc)) = (Store::try_global(cx), queries::trpc_client(cx)) else { return entity };
+    let Some(store) = Store::try_global(cx) else { return entity };
     let teams = store.collections().teams_sorted(cx);
     for team in teams {
         if entity.read(cx).loaded.contains(&team.id) {
             continue;
         }
+        let Some(trpc) = queries::trpc_client(cx) else { return entity };
         entity.update(cx, |names, _| names.loaded.insert(team.id.clone()));
-        let (trpc, team_id, weak) = (trpc.clone(), team.id.clone(), entity.downgrade());
+        let (team_id, weak) = (team.id.clone(), entity.downgrade());
         cx.spawn(async move |cx| {
             let rows = cx.background_executor().spawn(async move { crate::action_run::fetch_repositories(&trpc, &team_id) }).await;
             match rows {

@@ -3322,7 +3322,7 @@ mod tests {
         assert!(push_background_tab(&mut tabs, run.clone(), None));
         assert_eq!(find_tab(&tabs, &Screen::App { app: "a1".into() }, None), find_tab(&tabs, &run, None));
         assert_eq!(find_tab(&tabs, &Screen::AppRun { app: "a2".into() }, None), None);
-        assert_eq!(tabs.len(), 6);
+        assert_eq!(tabs.len(), 7);
     }
 
     /// #EXP-2124 (`tabs.background`): Open in new tab APPENDS the page's tab

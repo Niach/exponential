@@ -1234,7 +1234,7 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
         ("ide_nav_compose_menu".into(), "chats", I::default()),
         ("ide_nav_page_menu".into(), "needs-you", I::default()),
         ("ide_nav_page_menu".into(), "drafts", I::default()),
-        ("ide_nav_page_menu".into(), "ci", I::default()),
+        ("ide_ci_menu".into(), "ci", I::default()),
         ("ide_devices_menu".into(), "devices", I::default()),
         ("ide_device_mine_menu".into(), "device", mine),
         ("ide_device_mine_muted_menu".into(), "device", mine),
