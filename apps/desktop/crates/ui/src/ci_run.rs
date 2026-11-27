@@ -18,8 +18,8 @@ use std::time::Duration;
 use eui_gpui::host::{ActionEvent, HostPlugin};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
-    div, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task, WeakEntity, Window,
+    div, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Subscription, Task, WeakEntity, Window,
 };
 use serde_json::{json, Value};
 use sync::Store;
@@ -137,7 +137,6 @@ pub(crate) const EVENT_CANCEL: &str = "ci-cancel";
 pub(crate) const EVENT_RERUN_ALL: &str = "ci-rerun-all";
 pub(crate) const EVENT_FIX: &str = "ci-fix";
 pub(crate) const EVENT_OPEN_EXTERNAL: &str = "ci-open-external";
-pub(crate) const EVENT_BREADCRUMB: &str = "ci-breadcrumb";
 pub(crate) const EVENT_MENU: &str = "ci-run-menu";
 
 /// The run page's input (ci-run-view.json `ciRun`).
@@ -245,20 +244,11 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
             return page(vec![job_card(input, job, input.log)]);
         }
     }
-    let title = model::run_title(run.number.unwrap_or_default());
     let number = run.number.unwrap_or_default();
     let mut head = Vec::new();
-    if !input.phone {
-        let mut items = vec![json!({"label": model::copy("breadcrumbRoot"), "value": "ci"})];
-        if let Some(repository) = input.repository {
-            items.push(json!({"label": repository, "value": "repository"}));
-        }
-        items.push(json!({"label": title, "value": "run"}));
-        head.push(json!({"id": id("breadcrumb"), "component": "Breadcrumb", "props": {"items": items}, "on": {"select": {"event": {"name": EVENT_BREADCRUMB}}}}));
-    }
     head.push(json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": run_title_of(run), "level": if input.phone { "h3" } else { "h2" }}}));
     if !input.phone {
-        let at = run.started_at.clone().or_else(|| run.created_at.clone()).unwrap_or_default();
+        let at = run.started_at.as_deref().or(run.created_at.as_deref()).map(crate::ci_page::iso_instant).unwrap_or_default();
         let age = json!({"@call": "formatRelativeTime", "args": {"value": at}});
         head.push(json!({
             "id": "ci-run-name",
@@ -464,6 +454,7 @@ pub(crate) struct CiRunView {
     busy: Option<&'static str>,
     view: Entity<SurfaceView>,
     last: Value,
+    scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -498,7 +489,7 @@ impl CiRunView {
                 subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
             }
         }
-        Self { source, requested, logs: Default::default(), tail: None, busy: None, view, last: Value::Null, _subscriptions: subscriptions }
+        Self { source, requested, logs: Default::default(), tail: None, busy: None, view, last: Value::Null, scroll: gpui::ScrollHandle::new(), _subscriptions: subscriptions }
     }
 
     /// Whether this view shows `run_id` with `job` asked for.
@@ -531,23 +522,6 @@ impl CiRunView {
             EVENT_OPEN_EXTERNAL => {
                 if let Some(url) = self.live_run(cx).and_then(|run| run.external_url).filter(|url| !url.is_empty()) {
                     cx.open_url(&url);
-                }
-            }
-            EVENT_BREADCRUMB => {
-                let value = event.payload.as_ref().and_then(|payload| payload["value"].as_str()).unwrap_or_default().to_string();
-                let Some(run) = self.live_run(cx) else { return };
-                match value.as_str() {
-                    "ci" => crate::navigation::on_active_window(cx, |window, cx| {
-                        crate::navigation::navigate(window, cx, crate::navigation::Screen::Ci);
-                    }),
-                    "repository" => {
-                        let (Some(repository_id), team) = (run.repository_id.clone(), run.team_id.clone()) else { return };
-                        crate::navigation::on_active_window(cx, move |window, cx| {
-                            crate::navigation::open_settings(window, cx, team);
-                            crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Repository(repository_id));
-                        });
-                    }
-                    _ => {}
                 }
             }
             _ => {}
@@ -760,14 +734,10 @@ impl Render for CiRunView {
             }),
         };
         show(&self.view, &mut self.last, tree, cx);
-        div()
-            .id("ci-run-page")
-            .size_full()
-            .overflow_y_scroll()
-            .p_6()
-            .child(div().w_full().max_w(gpui::px(1100.)).child(self.view.clone()))
-            // #EXP-1860: the last row scrolls clear of the Assistant FAB.
-            .child(crate::assistant_fab::page_end(window, cx))
+        // #EXP-2169 ("one look"): the device page's gutter, the wide column
+        // (web `pageFrameClass(true)`; the log needs the room).
+        let column = gpui_component::v_flex().child(self.view.clone());
+        crate::scroll_pane::page_scaffold_with("ci-run-page", &self.scroll, column, crate::scroll_pane::PAGE_COLUMN_WIDE_W, window, cx)
     }
 }
 

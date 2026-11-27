@@ -2254,3 +2254,63 @@ mod tests {
         assert!(feed_menu, "the transcript menu opens without the claim");
     }
 }
+
+/// One tab of [`page_tabs`]: its value, label and (muted) count.
+pub(crate) struct PageTab {
+    pub value: String,
+    pub label: String,
+    pub count: Option<usize>,
+}
+
+/// #EXP-2169 ("one look"): THE page tab switcher, the board's and the
+/// session screen's segmented capsule (32px, each tab sized to its label,
+/// the count a muted number after it, scrolling sideways on overflow). The
+/// CI page and the repo page draw their tabs with it (web: the app's
+/// `SegmentedControl`), never genUI's `Tabs`.
+pub(crate) fn page_tabs(
+    test_id: &str,
+    tabs: Vec<PageTab>,
+    active: &str,
+    on_pick: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)>,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let segments: Vec<AnyElement> = tabs
+        .into_iter()
+        .map(|tab| {
+            let count = tab.count.filter(|count| *count > 0).map(|count| count.to_string());
+            let name = eui_core::segmented::item_accessibility_label(&tab.label, count.as_deref());
+            let selected = tab.value == active;
+            let on_pick = on_pick.clone();
+            let value = tab.value.clone();
+            segmented_item(selected, cx)
+                .flex_none()
+                .px_3()
+                .id(SharedString::from(format!("{test_id}-{}", tab.value)))
+                .role(gpui::Role::Tab)
+                .aria_label(SharedString::from(name))
+                .aria_selected(selected)
+                .child(SharedString::from(tab.label))
+                .children(count.map(|count| div().text_color(muted).child(SharedString::from(count))))
+                .on_click(move |_, window, cx| on_pick(value.clone(), window, cx))
+                .into_any_element()
+        })
+        .collect();
+    let id = test_id.to_string();
+    gpui_component::h_flex()
+        .id(SharedString::from(format!("{test_id}-scroll")))
+        .w_full()
+        .min_w_0()
+        .overflow_x_scroll()
+        .child(
+            segmented(cx)
+                .id(SharedString::from(id.clone()))
+                .debug_selector(move || id.clone())
+                .flex_shrink_0()
+                .w_auto()
+                .justify_start()
+                .h(px(32.))
+                .children(segments),
+        )
+        .into_any_element()
+}
