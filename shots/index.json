@@ -2158,6 +2158,15 @@
         "sha256": "5e5b37050d3f241e930b781716bca6b7294628a09728b597f7bf82296c2e647f"
       }
     },
+    "ede-applet-keyboard": {
+      "ede": {
+        "file": "shots/ede-applet-keyboard/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7174,
+        "sha256": "16afeeb51292cee3ce53eb71b820baa45ffe8b4dfa3b4b34089db9cbc9fa6a8f"
+      }
+    },
     "ede-applet-network": {
       "ede": {
         "file": "shots/ede-applet-network/ede.webp",
@@ -2327,6 +2336,15 @@
         "height": 720,
         "bytes": 8066,
         "sha256": "70ff338745310cef6a511f20951a594cfe330e041f6565075db3e2e84f4f5a5b"
+      }
+    },
+    "ede-window-menu": {
+      "ede": {
+        "file": "shots/ede-window-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 11578,
+        "sha256": "878b29bc8f58549fbc241f05d7c9aee43208e43c854785a0e733e9c735aeff94"
       }
     },
     "elicitation-card": {
@@ -6756,8 +6774,8 @@
         "file": "shots/repo-ci/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 32238,
-        "sha256": "6615e76ea7061d22da0263b274d86007c0f3cf837ecf4572cddb22b676a7b7ee"
+        "bytes": 44222,
+        "sha256": "351588576e6b08d87d16a4c9025adff866b93949f6f0b71245518561f99484db"
       },
       "web": {
         "file": "shots/repo-ci/web.webp",
@@ -6883,8 +6901,8 @@
         "file": "shots/runner-settings/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 40772,
-        "sha256": "e17e050f5ac1015e66bcda46e50b0475a802da93ac2e7208eddd47e93f04065e"
+        "bytes": 44914,
+        "sha256": "41bb8f7c5f26aa24a178192bbcd44b07acbcaab3da798924357eceda1eaaca7d"
       },
       "web": {
         "file": "shots/runner-settings/web.webp",

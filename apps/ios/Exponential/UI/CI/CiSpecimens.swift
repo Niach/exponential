@@ -27,6 +27,7 @@ struct RunnerSettingsSpecimens: View {
     var body: some View {
         RunnerSettingsView(
             caps: RunnerSettings.specimenCaps,
+            kind: RunnerSettings.specimenKind,
             platform: RunnerSettings.specimenPlatform,
             settings: RunnerSettings.specimenSettings,
             owner: true,
@@ -73,6 +74,7 @@ struct RepoCiSpecimens: View {
                 switch key {
                 case .githubStatuses: settings.config.githubStatuses = on
                 case .actionsRunners: settings.config.actionsRunners = on
+                case .pullRequestSecrets: settings.config.pullRequestSecrets = on
                 }
             }
         )

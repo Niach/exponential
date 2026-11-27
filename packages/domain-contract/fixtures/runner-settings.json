@@ -1,22 +1,25 @@
 {
-  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUNNER SECTION of a device's detail (view `machine-settings`, ×4), genUI catalog only. DATA: the device row (devices shape: `runner` = {enabled, labels, slots, timeoutMin} or null = never set up, `caps`, `platform`, `user_id`) and the `ci_jobs` rows it ran (`runner_device_id`, synced). WRITE: one `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin}` per change (the whole settings object; `defaults` fill a null `runner`), the device OWNER only. LAYOUT inside a `Section` titled copy.section: first the `notice` as an `Alert` when it is not null; then a `SettingsRow` (label copy.enabled.label, description copy.enabled.description) holding a `Switch`; then, only while enabled, a `ChipInput` (label copy.labels.label, placeholder copy.labels.placeholder, max limits.labels; every entry through `normalizeLabel`, a null result is refused inline with copy.labels.invalid, a duplicate is dropped), a `NumberField` (label copy.slots, min limits.slots.min, max limits.slots.max, step 1) and a `Select` (label copy.timeout, options = `timeoutOptions`, value = String(timeoutMin)); the platform's OS label (`osLabel`) shows as the ChipInput's first suggestion; then copy.recent as a `Heading` level 4 and `recentJobs` as `Row`s (icon = pr-checks glyph, title = check, subtitle = copy.runSubtitle with {number} and {repo}, meta = duration), copy.noJobs as a muted `Text` when there are none. Every control is `disabled` for a viewer who is not the owner (a teammate's shared device). RULES: `normalizeLabel` trims and lowercases, then must match eCode's label rule `^[a-z0-9][a-z0-9._-]{0,31}$`; `notice` (one, in this order): a PHONE client (iOS, Android, web-mobile) gets copy.notice.phone (info: phones set a runner up, they never run jobs), a device without the `ci-runner` cap gets copy.notice.update (warning: its app is too old to run jobs), else null; `osLabel` maps the device platform: linux → linux, macos|darwin → mac, windows → windows, else null; `recentJobs` = the jobs with this runner, newest `startedAt` first (never started last), at most limits.recent.",
+  "$comment": "#EXP-1617 / #EXP-1804 THE CI RUNNER SECTION of a device's detail (view `machine-settings`, ×4), genUI catalog only. DATA: the device row (devices shape: `runner` = {enabled, labels, slots, timeoutMin, memoryMaxMb, pauseWhenBusy} or null = never set up, `kind` (desktop | server), `caps`, `platform`, `user_id`) and the `ci_jobs` rows it ran (`runner_device_id`, synced). WRITE: one `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin, memoryMaxMb, pauseWhenBusy}` per change (the whole settings object; `defaults` fill a null `runner` and the fields an older row lacks), the device OWNER only; the server refuses `enabled: true` for an `unsupported` device and `memoryMaxMb` outside limits.memoryMaxMb (a multiple of its step). The server carries `memoryMaxMb` + `pauseWhenBusy` in every `ci_job` command payload beside `jobId` (#EXP-2193), so the runner applies them before it claims. LAYOUT inside a `Section` titled copy.section: first the `notice` as an `Alert` when it is not null; then a `SettingsRow` (label copy.enabled.label, description copy.enabled.description) holding a `Switch`; then, only while enabled, a `ChipInput` (label copy.labels.label, placeholder copy.labels.placeholder, max limits.labels; every entry through `normalizeLabel`, a null result is refused inline with copy.labels.invalid, a duplicate is dropped), a `NumberField` (label copy.slots, min limits.slots.min, max limits.slots.max, step 1), a `Select` (label copy.timeout, options = `timeoutOptions`, value = String(timeoutMin)), a `Select` (label copy.memory, options = `memoryOptions`, value = String(memoryMaxMb)) and a `SettingsRow` (label copy.pause, no description) holding a `Switch` (pauseWhenBusy); the platform's OS label (`osLabel`) shows as the ChipInput's first suggestion; then copy.recent as a `Heading` level 4 and `recentJobs` as `Row`s (icon = pr-checks glyph, title = check, subtitle = copy.runSubtitle with {number} and {repo}, meta = duration), copy.noJobs as a muted `Text` when there are none. Every control is `disabled` for a viewer who is not the owner (a teammate's shared device); the enabled `Switch` is also disabled on an `unsupported` device while it is off (one already on can still be turned off). RULES: `normalizeLabel` trims and lowercases, then must match eCode's label rule `^[a-z0-9][a-z0-9._-]{0,31}$`; `unsupported` (#EXP-2193) = a DESKTOP-kind device (the desktop app, not a `server` daemon) on macos, darwin or windows: a job there could read the app's data, so it gets no runner yet (a server daemon on any OS keeps it); `notice` (one, in this order): an `unsupported` device gets copy.notice.unsupported (info), a PHONE client (iOS, Android, web-mobile) gets copy.notice.phone (info: phones set a runner up, they never run jobs), a device without the `ci-runner` cap gets copy.notice.update (warning: its app is too old to run jobs), else null; `osLabel` maps the device platform: linux → linux, macos|darwin → mac, windows → windows, else null; `recentJobs` = the jobs with this runner, newest `startedAt` first (never started last), at most limits.recent.",
   "copy": {
     "section": "CI runner",
     "enabled": { "label": "Run CI jobs", "description": "Runs your team's pipelines on this device." },
     "labels": { "label": "Labels", "placeholder": "gpu, big", "invalid": "Use lowercase letters, digits, dots, dashes or underscores." },
     "slots": "Parallel jobs",
     "timeout": "Job timeout",
+    "memory": "Memory per job",
+    "pause": "Pause for games and full-screen apps",
     "recent": "Recent jobs",
     "noJobs": "No jobs yet.",
     "runSubtitle": "Run #{number} · {repo}",
     "notice": {
+      "unsupported": { "type": "info", "title": "Not on this computer yet", "message": "A job could read this app's data on macOS and Windows. Run CI on Linux or a server." },
       "phone": { "type": "info", "title": "Set up here, runs on the device", "message": "A phone never runs CI jobs: this sets up the device's runner." },
       "update": { "type": "warning", "title": "Update this device", "message": "Its app is too old to run CI jobs." }
     }
   },
-  "defaults": { "enabled": false, "labels": [], "slots": 1, "timeoutMin": 60 },
-  "limits": { "labels": 16, "slots": { "min": 1, "max": 16 }, "recent": 5 },
-  "testIds": { "section": "runner-settings", "switch": "runner-enabled", "labels": "runner-labels", "slots": "runner-slots", "timeout": "runner-timeout", "recent": "runner-recent" },
+  "defaults": { "enabled": false, "labels": [], "slots": 1, "timeoutMin": 60, "memoryMaxMb": 8192, "pauseWhenBusy": true },
+  "limits": { "labels": 16, "slots": { "min": 1, "max": 16 }, "recent": 5, "memoryMaxMb": { "min": 1024, "max": 262144, "step": 1024 } },
+  "testIds": { "section": "runner-settings", "switch": "runner-enabled", "labels": "runner-labels", "slots": "runner-slots", "timeout": "runner-timeout", "recent": "runner-recent", "memory": "runner-memory", "pause": "runner-pause" },
   "timeoutOptions": [
     { "value": "15", "label": "15 min" },
     { "value": "30", "label": "30 min" },
@@ -24,6 +27,14 @@
     { "value": "120", "label": "2 h" },
     { "value": "240", "label": "4 h" },
     { "value": "360", "label": "6 h" }
+  ],
+  "memoryOptions": [
+    { "value": "2048", "label": "2 GB" },
+    { "value": "4096", "label": "4 GB" },
+    { "value": "8192", "label": "8 GB" },
+    { "value": "16384", "label": "16 GB" },
+    { "value": "32768", "label": "32 GB" },
+    { "value": "65536", "label": "64 GB" }
   ],
   "normalizeLabel": [
     { "input": "gpu", "expected": "gpu" },
@@ -35,12 +46,24 @@
     { "input": "two words", "expected": null },
     { "input": "a234567890123456789012345678901234", "expected": null }
   ],
+  "unsupported": [
+    { "name": "the desktop app on Linux", "kind": "desktop", "platform": "linux", "expected": false },
+    { "name": "the desktop app on a Mac", "kind": "desktop", "platform": "macos", "expected": true },
+    { "name": "darwin too", "kind": "desktop", "platform": "darwin", "expected": true },
+    { "name": "the desktop app on Windows", "kind": "desktop", "platform": "windows", "expected": true },
+    { "name": "a server daemon on a Mac keeps it", "kind": "server", "platform": "macos", "expected": false },
+    { "name": "a server daemon on Windows keeps it", "kind": "server", "platform": "windows", "expected": false },
+    { "name": "an unknown platform", "kind": "desktop", "platform": null, "expected": false }
+  ],
   "notice": [
-    { "name": "a phone client", "client": "ios", "caps": ["ci-runner"], "expected": "phone" },
-    { "name": "android too", "client": "android", "caps": [], "expected": "phone" },
-    { "name": "web on a phone", "client": "web-mobile", "caps": ["ci-runner"], "expected": "phone" },
-    { "name": "an old daemon", "client": "web", "caps": ["update-check"], "expected": "update" },
-    { "name": "the desktop, a current daemon", "client": "desktop", "caps": ["ci-runner"], "expected": null }
+    { "name": "the desktop app on a Mac, even from a phone", "client": "ios", "kind": "desktop", "platform": "macos", "caps": ["ci-runner"], "expected": "unsupported" },
+    { "name": "Windows, an old app", "client": "web", "kind": "desktop", "platform": "windows", "caps": [], "expected": "unsupported" },
+    { "name": "a phone client", "client": "ios", "kind": "desktop", "platform": "linux", "caps": ["ci-runner"], "expected": "phone" },
+    { "name": "android too", "client": "android", "kind": "desktop", "platform": "linux", "caps": [], "expected": "phone" },
+    { "name": "web on a phone", "client": "web-mobile", "kind": "desktop", "platform": "linux", "caps": ["ci-runner"], "expected": "phone" },
+    { "name": "an old daemon", "client": "web", "kind": "desktop", "platform": "linux", "caps": ["update-check"], "expected": "update" },
+    { "name": "the desktop, a current daemon", "client": "desktop", "kind": "desktop", "platform": "linux", "caps": ["ci-runner"], "expected": null },
+    { "name": "a server daemon on a Mac", "client": "desktop", "kind": "server", "platform": "macos", "caps": ["ci-runner"], "expected": null }
   ],
   "osLabel": [
     { "platform": "linux", "expected": "linux" },
@@ -76,7 +99,7 @@
   "specimen": {
     "$comment": "The section every platform renders for its shot: mint's enabled runner, owner viewing, one label, two slots, 1 h, the recent jobs of recentJobs[0] (now as there).",
     "client": "desktop",
-    "device": { "id": "d1", "label": "mint", "platform": "linux", "caps": ["ci-runner"], "runner": { "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60 } },
+    "device": { "id": "d1", "label": "mint", "kind": "desktop", "platform": "linux", "caps": ["ci-runner"], "runner": { "enabled": true, "labels": ["gpu"], "slots": 2, "timeoutMin": 60, "memoryMaxMb": 8192, "pauseWhenBusy": true } },
     "owner": true
   }
 }

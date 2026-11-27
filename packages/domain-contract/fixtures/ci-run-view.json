@@ -1,5 +1,5 @@
 {
- "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | cancel | null) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff.",
+ "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | cancel | null) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `kind` = the device's desktop | server, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff.",
  "ciRun": [
   {
    "name": "specimen phone",
@@ -1303,6 +1303,7 @@
    "caps": [
     "ci-runner"
    ],
+   "kind": "desktop",
    "platform": "linux",
    "settings": {
     "enabled": true,
@@ -1310,7 +1311,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "owner": true,
    "refused": false,
@@ -1449,6 +1452,75 @@
       }
      },
      {
+      "id": "runner-memory",
+      "component": "Select",
+      "props": {
+       "label": "Memory per job",
+       "name": "runner-memory",
+       "options": [
+        {
+         "value": "2048",
+         "label": "2 GB"
+        },
+        {
+         "value": "4096",
+         "label": "4 GB"
+        },
+        {
+         "value": "8192",
+         "label": "8 GB"
+        },
+        {
+         "value": "16384",
+         "label": "16 GB"
+        },
+        {
+         "value": "32768",
+         "label": "32 GB"
+        },
+        {
+         "value": "65536",
+         "label": "64 GB"
+        }
+       ],
+       "value": "8192",
+       "disabled": false
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-memory"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-pause-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Pause for games and full-screen apps"
+      },
+      "children": [
+       {
+        "id": "runner-pause",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-pause",
+         "checked": true,
+         "disabled": false
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-pause"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
       "id": "runner-recent-heading",
       "component": "Heading",
       "props": {
@@ -1571,11 +1643,12 @@
    }
   },
   {
-   "name": "desktop viewer refused",
+   "name": "a server daemon on a Mac, viewer, refused",
    "client": "desktop",
    "caps": [
     "ci-runner"
    ],
+   "kind": "server",
    "platform": "macos",
    "settings": {
     "enabled": true,
@@ -1583,7 +1656,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "owner": false,
    "refused": true,
@@ -1722,6 +1797,75 @@
       }
      },
      {
+      "id": "runner-memory",
+      "component": "Select",
+      "props": {
+       "label": "Memory per job",
+       "name": "runner-memory",
+       "options": [
+        {
+         "value": "2048",
+         "label": "2 GB"
+        },
+        {
+         "value": "4096",
+         "label": "4 GB"
+        },
+        {
+         "value": "8192",
+         "label": "8 GB"
+        },
+        {
+         "value": "16384",
+         "label": "16 GB"
+        },
+        {
+         "value": "32768",
+         "label": "32 GB"
+        },
+        {
+         "value": "65536",
+         "label": "64 GB"
+        }
+       ],
+       "value": "8192",
+       "disabled": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "runner-memory"
+        }
+       }
+      }
+     },
+     {
+      "id": "runner-pause-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Pause for games and full-screen apps"
+      },
+      "children": [
+       {
+        "id": "runner-pause",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-pause",
+         "checked": true,
+         "disabled": true
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-pause"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
       "id": "runner-recent-heading",
       "component": "Heading",
       "props": {
@@ -1847,6 +1991,7 @@
    "name": "old desktop, disabled, no jobs",
    "client": "desktop",
    "caps": [],
+   "kind": "desktop",
    "platform": null,
    "settings": {
     "enabled": false,
@@ -1854,7 +1999,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "owner": true,
    "refused": false,
@@ -1920,6 +2067,87 @@
      }
     ]
    }
+  },
+  {
+   "name": "the desktop app on a Mac: no runner yet",
+   "client": "desktop",
+   "caps": [
+    "ci-runner"
+   ],
+   "kind": "desktop",
+   "platform": "macos",
+   "settings": {
+    "enabled": false,
+    "labels": [],
+    "slots": 1,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
+   },
+   "owner": true,
+   "refused": false,
+   "recent": false,
+   "tree": {
+    "id": "runner-settings",
+    "component": "Section",
+    "props": {
+     "title": "CI runner"
+    },
+    "children": [
+     {
+      "id": "runner-notice",
+      "component": "Alert",
+      "props": {
+       "type": "info",
+       "title": "Not on this computer yet",
+       "message": "A job could read this app's data on macOS and Windows. Run CI on Linux or a server."
+      }
+     },
+     {
+      "id": "runner-enabled-row",
+      "component": "SettingsRow",
+      "props": {
+       "label": "Run CI jobs",
+       "description": "Runs your team's pipelines on this device."
+      },
+      "children": [
+       {
+        "id": "runner-enabled",
+        "component": "Switch",
+        "props": {
+         "label": "",
+         "name": "runner-enabled",
+         "checked": false,
+         "disabled": true
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "runner-enabled"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "runner-recent-heading",
+      "component": "Heading",
+      "props": {
+       "text": "Recent jobs",
+       "level": "h4"
+      }
+     },
+     {
+      "id": "runner-recent",
+      "component": "Text",
+      "props": {
+       "text": "No jobs yet.",
+       "variant": "muted"
+      }
+     }
+    ]
+   }
   }
  ],
  "after": [
@@ -1934,7 +2162,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": {
     "enabled": false,
@@ -1942,7 +2172,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "refused": false
   },
@@ -1957,7 +2189,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": null,
    "refused": false
@@ -1978,7 +2212,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": {
     "enabled": true,
@@ -1987,7 +2223,9 @@
      "big"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "refused": true
   },
@@ -2004,7 +2242,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": null,
    "refused": false
@@ -2020,7 +2260,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": {
     "enabled": true,
@@ -2028,7 +2270,9 @@
      "gpu"
     ],
     "slots": 16,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "refused": false
   },
@@ -2043,7 +2287,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": {
     "enabled": true,
@@ -2051,7 +2297,9 @@
      "gpu"
     ],
     "slots": 3,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "refused": false
   },
@@ -2066,7 +2314,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": {
     "enabled": true,
@@ -2074,7 +2324,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 120
+    "timeoutMin": 120,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "refused": false
   },
@@ -2089,7 +2341,99 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
+   },
+   "settings": null,
+   "refused": false
+  },
+  {
+   "event": "runner-memory",
+   "payload": {
+    "value": "16384"
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 16384,
+    "pauseWhenBusy": true
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-memory",
+   "payload": {
+    "value": "3000"
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
+   },
+   "settings": null,
+   "refused": false
+  },
+  {
+   "event": "runner-pause",
+   "payload": {
+    "checked": false
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
+   },
+   "settings": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": false
+   },
+   "refused": false
+  },
+  {
+   "event": "runner-pause",
+   "payload": {
+    "checked": true
+   },
+   "current": {
+    "enabled": true,
+    "labels": [
+     "gpu"
+    ],
+    "slots": 2,
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": null,
    "refused": false
@@ -2103,7 +2447,9 @@
      "gpu"
     ],
     "slots": 2,
-    "timeoutMin": 60
+    "timeoutMin": 60,
+    "memoryMaxMb": 8192,
+    "pauseWhenBusy": true
    },
    "settings": null,
    "refused": false

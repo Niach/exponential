@@ -220,7 +220,12 @@ mod session;
 mod session_holder;
 /// #EDE-227: eDE's component and the session bus.
 pub mod ede_component;
-/// #EDE-237: eDE mode's page windows.
+/// #EDE-237: eDE mode's page windows (the session bus is unix-only;
+/// elsewhere a no-op twin keeps the call sites compiling).
+#[cfg(unix)]
+pub mod ede_windows;
+#[cfg(not(unix))]
+#[path = "ede_windows_stub.rs"]
 pub mod ede_windows;
 /// #EDE-258: the start menu's feeds over the session bus (Linux: eDE's).
 #[cfg(target_os = "linux")]

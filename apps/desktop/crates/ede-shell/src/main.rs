@@ -76,6 +76,9 @@
 //! chat (`exponential://session/<id>` only when the team's chat cannot),
 //! `ede_launch {new: issue}` hands off (`exponential://new-issue`);
 //! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you;
+//! `EDE_SHELL_DEMO_KEYBOARD=1|open` two keyboard layouts (#EDE-253: the
+//! keyboard applet, `open` with its menu open); the demo's window menu
+//! (`--open window-menu`) is the Terminal's.
 //! `EDE_SHELL_DEMO_SPACES=list|view` three sample agent spaces, their list
 //! open or the first one's view pinned (#EXP-2024).
 
@@ -111,6 +114,7 @@ mod team_chat;
 mod thumbs;
 mod tray_icon;
 mod window_icons;
+mod window_menu;
 
 use std::{
     cell::RefCell,
@@ -375,6 +379,8 @@ struct Shell {
     layers_opened: HashMap<String, u64>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
+    /// #EDE-253: the window menu open now (or last), from `window.menu`.
+    window_menu: Option<ede_protocol::WindowMenu>,
     /// #EDE-89: when each popup document last opened (epoch ms, the clock of
     /// the compositor's event stamps).
     popups_opened: HashMap<String, i64>,
@@ -871,6 +877,18 @@ impl HostPlugin for Host {
             "ede_panel_menu" => {
                 if let Some(value) = args.get("value").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| panel_menu(&shell, &value, cx));
+                }
+            }
+            // #EDE-253: a pick of the window menu (or its close, `dismiss`).
+            "ede_window_menu" => {
+                if let Some(value) = args.get("value").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| window_menu_pick(&shell, &value, cx));
+                }
+            }
+            // #EDE-253: the keyboard applet's menu: a layout's index, or `settings`.
+            "ede_keyboard_layout" => {
+                if let Some(value) = args.get("value").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| keyboard_pick(&shell, &value, cx));
                 }
             }
             "ede_open_document" | "ede_close_document" => {
@@ -2101,6 +2119,12 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
             size.width = Some(view.width);
             size.height = Some(view.height);
         }
+    }
+    // #EDE-253: the window menu's one-pixel layer stands at its point.
+    if let (true, SurfaceHeader::Layer { margin, .. }, Some(menu)) = (doc.name == window_menu::DOCUMENT, &mut header, shell.window_menu.as_ref()) {
+        let (left, top) = window_menu::margin_on(&shell.person_outputs, menu.x, menu.y);
+        margin.left = left;
+        margin.top = top;
     }
     taskbar_popup_room(&mut header, popup_output_height(shell));
     header
@@ -4599,6 +4623,63 @@ fn panel_menu(shell: &SharedShell, value: &str, cx: &mut App) {
     }
 }
 
+/// #EDE-253: the compositor's `window.menu` (the window menu opens at its
+/// point, placed again when it was open) and `keyboard.layout` (the
+/// keyboard applet).
+fn menu_event(shell: &SharedShell, kind: &str, data: Value, cx: &mut App) {
+    if kind == ede_protocol::events::KEYBOARD_LAYOUT {
+        let Ok(layouts) = serde_json::from_value::<ede_protocol::KeyboardLayouts>(data) else { return };
+        shell.borrow_mut().feed.set("/keyboard", window_menu::keyboard_feed(&layouts));
+        refresh(shell, cx);
+        return;
+    }
+    let Ok(menu) = serde_json::from_value::<ede_protocol::WindowMenu>(data) else { return };
+    close(shell, window_menu::DOCUMENT, cx);
+    {
+        let mut s = shell.borrow_mut();
+        s.feed.set("/windowMenu", window_menu::feed(Some(&menu), true));
+        s.window_menu = Some(menu);
+    }
+    open_on_demand(shell, window_menu::DOCUMENT, cx);
+    refresh(shell, cx);
+}
+
+/// #EDE-253: the window menu's pick, then it closes.
+fn window_menu_pick(shell: &SharedShell, value: &str, cx: &mut App) {
+    let menu = shell.borrow().window_menu.clone();
+    if let Some(menu) = menu.as_ref() {
+        let id = menu.window.clone();
+        match window_menu::pick(value, menu) {
+            Some(window_menu::Pick::Action(action)) => {
+                with_ede(shell, |ede| ede.window_action(id, action));
+            }
+            Some(window_menu::Pick::Workspace(index)) => {
+                with_ede(shell, |ede| ede.move_to_workspace(id, index));
+            }
+            Some(window_menu::Pick::Close) => {
+                with_ede(shell, |ede| ede.close_window(id));
+            }
+            Some(window_menu::Pick::Dismiss) => {}
+            None => tracing::warn!(value, "unknown window menu entry"),
+        }
+    }
+    shell.borrow_mut().feed.set("/windowMenu", window_menu::feed(menu.as_ref(), false));
+    close(shell, window_menu::DOCUMENT, cx);
+}
+
+/// #EDE-253: the keyboard applet's pick: a layout, or Keyboard settings.
+fn keyboard_pick(shell: &SharedShell, value: &str, cx: &mut App) {
+    if value == "settings" {
+        settings_open_page(shell, "keyboard", cx);
+        return;
+    }
+    let Ok(index) = value.parse::<usize>() else { return };
+    if let Some(layouts) = with_ede(shell, |ede| ede.set_keyboard_layout(index)) {
+        shell.borrow_mut().feed.set("/keyboard", window_menu::keyboard_feed(&layouts));
+        refresh(shell, cx);
+    }
+}
+
 /// The taskbar's pins, kept in the shell's own file.
 fn pins_persist(shell: &SharedShell) {
     let pinned = shell.borrow().model.taskbar.pinned.clone();
@@ -4700,6 +4781,8 @@ fn main() {
     // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
     let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
+    // #EDE-253: `window.menu` and `keyboard.layout` (and the layouts at each connect).
+    let (menus_tx, menus_rx) = mpsc::channel::<(String, Value)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     // #EXP-2024: the session's lock (the capture loop stops while it holds).
     let (locks_tx, locks_rx) = mpsc::channel::<bool>();
@@ -4715,6 +4798,13 @@ fn main() {
                 if !demo {
                     if let Some(list) = lists(&mut calls) {
                         if windows_tx.send(list).is_err() {
+                            return false;
+                        }
+                    }
+                    // #EDE-253: the keyboard applet's layouts as they are now
+                    // (an older compositor answers none: the applet stays hidden).
+                    if let Ok(layouts) = calls.keyboard_layouts() {
+                        if menus_tx.send((ede_protocol::events::KEYBOARD_LAYOUT.to_string(), serde_json::to_value(layouts).unwrap_or_default())).is_err() {
                             return false;
                         }
                     }
@@ -4740,6 +4830,10 @@ fn main() {
                             if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                                 return false;
                             }
+                        }
+                    } else if event.kind == ede_protocol::events::WINDOW_MENU || event.kind == ede_protocol::events::KEYBOARD_LAYOUT {
+                        if menus_tx.send((event.kind.clone(), event.data.clone())).is_err() {
+                            return false;
                         }
                     } else if event.kind.starts_with("output.") {
                         if outputs_tx.send(()).is_err() {
@@ -4900,6 +4994,17 @@ fn main() {
         // The goldens open the Agent spaces list through its bound `open`.
         let demo_spaces = spaces::demo_mode().filter(|_| demo);
         feed.set("/spacesList", json!({"open": demo_spaces.as_deref() == Some("list")}));
+        // #EDE-253: the goldens' window menu (open) and, with
+        // EDE_SHELL_DEMO_KEYBOARD=1 (`open`: its menu open), two keyboard layouts.
+        if demo {
+            feed.set("/windowMenu", window_menu::feed(Some(&window_menu::demo_menu()), true));
+            let keyboard = std::env::var("EDE_SHELL_DEMO_KEYBOARD").unwrap_or_default();
+            if keyboard == "1" || keyboard == "open" {
+                let mut value = window_menu::keyboard_feed(&window_menu::demo_keyboard());
+                value["open"] = json!(keyboard == "open");
+                feed.set("/keyboard", value);
+            }
+        }
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/account", json!({"signingOut": false}));
@@ -5044,6 +5149,7 @@ fn main() {
             person_outputs: Vec::new(),
             layers_opened: HashMap::new(),
             osd_until: None,
+            window_menu: demo.then(window_menu::demo_menu),
             popups_opened: HashMap::new(),
             popup_rooms: HashMap::new(),
             switcher_generation: 0,
@@ -5207,6 +5313,9 @@ fn main() {
                 }
                 while let Ok((name, at)) = hotkeys_rx.try_recv() {
                     cx.update(|cx| hotkey(&s, &name, at, cx));
+                }
+                while let Ok((kind, data)) = menus_rx.try_recv() {
+                    cx.update(|cx| menu_event(&s, &kind, data, cx));
                 }
                 while let Ok(out) = captures_rx.try_recv() {
                     cx.update(|cx| capture_out(&s, out, cx));

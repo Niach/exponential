@@ -1303,7 +1303,7 @@ export async function deleteMergedHeadBranch(opts: {
     const defaults = await loadRepoDefaultBranches(db, { teamId: merged.teamId, repoFullName: repo })
     const { forge, at } = await forgeOfPr(merged.repositoryId, repo, opts.token)
     const forgeDefault = await forge.defaultBranch(at).catch(() => null)
-    if (!at.token) return `kept`
+    if (at.token == null) return `kept`
     const [children, sameHead] = await Promise.all([
       forge.listOpenByBase(at, merged.head),
       loadLivePullRequestByHead(merged.repositoryId, merged.head),
@@ -1502,7 +1502,7 @@ export async function retargetChildrenOfMergedPr(
   if (isRepoDefaultBranch(defaults, merged.head)) return
   if (repoRow && merged.head === repoRow.defaultBranch) return
   const { forge, at } = await forgeOfPr(merged.repositoryId, repo)
-  if (!at.token) return
+  if (at.token == null) return
   const target =
     boardPin?.defaultBranch ??
     repoRow?.defaultBranchOverride ??
@@ -1537,7 +1537,9 @@ async function forgeOfPr(
   const [row] = await db.select({ provider: repositories.provider }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
   const bare: ForgeRepo = { id: repositoryId, fullName, ...(row?.provider ? { provider: row.provider } : {}) }
   const forge = await forgeFor(bare)
-  const resolved = token ?? (await forge.credentials(bare))?.token ?? null
+  // #EXP-2199: eCode's own forge needs no credential: an empty token, never
+  // the null that means "no access" (callers skip the repo on null).
+  const resolved = token ?? (await forge.credentials(bare))?.token ?? (row?.provider === `ecode` ? `` : null)
   return { forge, at: { ...bare, token: resolved } }
 }
 

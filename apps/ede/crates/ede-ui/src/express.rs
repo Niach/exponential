@@ -50,6 +50,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_history", &["action"]),
     ("ede_install", &["action", "code", "id"]),
     ("ede_issue", &["identifier", "source", "sourceId"]),
+    ("ede_keyboard_layout", &["value"]),
     ("ede_launch", &["app", "command", "new"]),
     ("ede_lock", &[]),
     ("ede_logout", &[]),
@@ -81,6 +82,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_tray_input", &["button", "direction", "service"]),
     ("ede_tray_menu", &["id", "service"]),
     ("ede_unpin", &["app"]),
+    ("ede_window_menu", &["value"]),
     ("ede_workspace", &["index"]),
 ];
 

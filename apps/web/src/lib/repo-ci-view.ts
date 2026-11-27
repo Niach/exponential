@@ -40,6 +40,7 @@ export const REPO_CI_EVENTS = {
   required: `repo-ci-required`,
   githubStatuses: `repo-ci-github-statuses`,
   actionsRunners: `repo-ci-actions-runners`,
+  pullRequestSecrets: `repo-ci-pull-request-secrets`,
   saveSecret: `repo-ci-save-secret`,
   cancelSecret: `repo-ci-cancel-secret`,
   deleteSecret: `repo-ci-delete-secret`,
@@ -170,7 +171,7 @@ export interface RepoCiSectionInput {
   suggestions: readonly string[]
   /** null = still loading (the Secrets block waits, the rest shows). */
   secrets: readonly RepoCiSecret[] | null
-  config: { githubStatuses?: boolean; actionsRunners?: boolean }
+  config: { githubStatuses?: boolean; actionsRunners?: boolean; pullRequestSecrets?: boolean }
   busy: boolean
 }
 
@@ -366,10 +367,10 @@ export function repoCiSectionTree(input: RepoCiSectionInput): NestedNode {
 
 /** The config patch a section event writes (null = nothing to write). */
 export function repoCiConfigAfter(
-  current: { requiredChecks: readonly string[]; githubStatuses: boolean; actionsRunners: boolean },
+  current: { requiredChecks: readonly string[]; githubStatuses: boolean; actionsRunners: boolean; pullRequestSecrets?: boolean },
   event: string,
   payload: Record<string, unknown> | undefined
-): { requiredChecks?: string[]; githubStatuses?: boolean; actionsRunners?: boolean } | null {
+): { requiredChecks?: string[]; githubStatuses?: boolean; actionsRunners?: boolean; pullRequestSecrets?: boolean } | null {
   const p = payload ?? {}
   if (event === REPO_CI_EVENTS.required && Array.isArray(p.values)) {
     const next: string[] = []
@@ -385,6 +386,9 @@ export function repoCiConfigAfter(
   }
   if (event === REPO_CI_EVENTS.actionsRunners && typeof p.checked === `boolean`) {
     return p.checked === current.actionsRunners ? null : { actionsRunners: p.checked }
+  }
+  if (event === REPO_CI_EVENTS.pullRequestSecrets && typeof p.checked === `boolean`) {
+    return p.checked === (current.pullRequestSecrets ?? false) ? null : { pullRequestSecrets: p.checked }
   }
   return null
 }
