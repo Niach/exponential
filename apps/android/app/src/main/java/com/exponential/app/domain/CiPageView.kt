@@ -202,7 +202,7 @@ object CiPageView {
                         ),
                     )
                 }
-                on("rowPress", Events.OPEN_RUN)
+                on("rowPress", Events.OPEN_RUN) { putJsonObject("run") { put("@path", "id") } }
             }
         }
         return stack("${ids.PAGE}.runs", "vertical", "md", children)
