@@ -1809,7 +1809,7 @@
       "id": "repo-ci",
       "group": "settings",
       "title": "Repository CI settings",
-      "blurb": "The CI section of the repo page's Settings tab (#EXP-1617, repo-ci.json): its pipelines with their state, the required checks, the secrets (names only; Add secret opens a dialog with a password field) and, for GitHub repos, Report to GitHub and GitHub Actions on team devices.",
+      "blurb": "The CI section of the repo page's Settings tab (#EXP-1617, repo-ci.json): its pipelines with their state, the required checks, the secrets (names only; Add secret opens a dialog with a password field) for GitHub repos Report to GitHub and GitHub Actions on team devices, and Secrets for pull requests (off: only default-branch, tag and merge-train runs get them, #EXP-2180).",
       "order": 33,
       "web": {
         "route": "/t/$teamSlug/repos/engine?tab=settings",
@@ -6534,7 +6534,7 @@
       "id": "runner-settings",
       "group": "reviews",
       "title": "CI runner settings",
-      "blurb": "The CI runner section of a device's settings (#EXP-1617, runner-settings.json): the Run CI jobs switch, labels, parallel jobs, the job timeout and the device's recent jobs; phones set a runner up but never run jobs, an old app is told to update.",
+      "blurb": "The CI runner section of a device's settings (#EXP-1617, runner-settings.json): the Run CI jobs switch, labels, parallel jobs, the job timeout, memory per job, pause for games and full-screen apps (#EXP-2193) and the device's recent jobs; phones set a runner up but never run jobs, the desktop app on macOS and Windows gets no runner yet, an old app is told to update.",
       "order": 9,
       "web": {
         "route": "/home?dev=runner-settings",
