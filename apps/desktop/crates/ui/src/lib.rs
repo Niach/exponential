@@ -21,6 +21,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
+mod ci_runner_host;
 mod call_view;
 // #EXP-1958: taps on sealed replies / suggestions cards.
 mod card_taps;

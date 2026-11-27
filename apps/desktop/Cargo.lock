@@ -356,6 +356,7 @@ version = "0.14.185"
 dependencies = [
  "anyhow",
  "api",
+ "ci-runner",
  "coding",
  "core-foundation 0.9.4",
  "dirs 6.0.0",
@@ -1592,6 +1593,20 @@ name = "chunked_transfer"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
+
+[[package]]
+name = "ci-runner"
+version = "0.14.185"
+dependencies = [
+ "api",
+ "dirs 6.0.0",
+ "ecode",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "x11rb",
+]
 
 [[package]]
 name = "ciborium"
@@ -3748,6 +3763,7 @@ dependencies = [
  "base64 0.22.1",
  "chat-store",
  "chrono",
+ "ci-runner",
  "coding",
  "dirs 6.0.0",
  "domain",
@@ -13938,6 +13954,7 @@ dependencies = [
  "base64 0.22.1",
  "chat-store",
  "chrono",
+ "ci-runner",
  "cocoa 0.26.0",
  "coding",
  "comrak",
