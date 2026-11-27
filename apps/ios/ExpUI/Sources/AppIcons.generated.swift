@@ -523,6 +523,7 @@ public enum AppIcons {
         "nav-boards": "folder-kanban",
         "nav-changelog": "megaphone",
         "nav-chats": "list-tree",
+        "nav-ci": "workflow",
         "nav-computer": "computer",
         "nav-create-issue": "square-pen",
         "nav-devices": "monitor",
@@ -977,6 +978,8 @@ public enum AppIcons {
     public static let navChangelog: String = "megaphone"
     /// Concept `nav-chats`.
     public static let navChats: String = "list-tree"
+    /// Concept `nav-ci`.
+    public static let navCi: String = "workflow"
     /// Concept `nav-computer`.
     public static let navComputer: String = "computer"
     /// Concept `nav-create-issue`.
