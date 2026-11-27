@@ -24,8 +24,8 @@ use serde_json::{json, Value};
 use sync::Store;
 
 use domain::ci_page::{
-    self as model, CiFilter, CiPageInput, CiPageJob, CiPagePr, CiPageRepo, CiPageRun, CiPageRunner, CiPageSession, CiRunFilter, CiSource,
-    CiTab, CiTrainGroup,
+    self as model, CiFilter, CiPageInput, CiPageJob, CiPagePr, CiPageRepo, CiPageRun, CiPageRunner, CiPageSession, CiRunFilter, CiRunListRow,
+    CiSource, CiTab, CiTrainGroup, CiPageUser,
 };
 use domain::nav_badges::CountBadgeValue;
 
@@ -52,11 +52,14 @@ pub(crate) struct PageState {
     pub phone: bool,
 }
 
-/// ci-page-view.json `ICON_TONE`.
-fn icon_tone(tone: &str) -> &'static str {
-    match tone {
-        "green" => "success",
-        "red" => "danger",
+pub(crate) const EVENT_OPEN_RUNNERS: &str = "ci-open-runners";
+
+/// ci-page-view.json `TRAIN_TONE`: a train glyph's tone (`statusTones`).
+fn train_tone(glyph: &str) -> &'static str {
+    match glyph {
+        "ci-running" => model::status_tone(domain::ci_run::CiRunStatus::Running).1,
+        "ci-failed" => "danger",
+        "ci-passed" => "success",
         _ => "neutral",
     }
 }
@@ -84,7 +87,7 @@ fn train_section(group: &CiTrainGroup, id: &str) -> Value {
                 "component": "Row",
                 "props": props,
                 "slots": {
-                    "leading": {"id": format!("{row_id}.{}.glyph", row.id), "component": "Icon", "props": {"name": row.glyph, "tone": "neutral", "size": "sm"}},
+                    "leading": {"id": format!("{row_id}.{}.glyph", row.id), "component": "Icon", "props": {"name": row.glyph, "tone": train_tone(row.glyph), "size": "sm"}},
                     "trailing": {"id": format!("{row_id}.{}.badge", row.id), "component": "Badge", "props": {"text": row.badge, "variant": "secondary"}},
                 },
                 "on": {"press": {"event": {"name": EVENT_OPEN_PR, "context": {"pr": row.pull_request_id}}}},
@@ -94,7 +97,7 @@ fn train_section(group: &CiTrainGroup, id: &str) -> Value {
     json!({
         "id": id,
         "component": "Section",
-        "props": {"title": model::copy("trainSection"), "caption": format!("{} · {}", group.title, group.caption), "icon": "pr-batch"},
+        "props": {"title": group.title, "caption": group.caption, "icon": "pr-batch"},
         "children": rows,
     })
 }
@@ -144,89 +147,89 @@ fn filters(input: &CiPageInput, state: &PageState) -> Value {
             "children": [status, {"id": format!("{}.picks", id("filters")), "component": "Toolbar", "children": [repository, source]}],
         });
     }
-    json!({"id": id("filters"), "component": "Toolbar", "children": [status, repository, source]})
+    let mut node = json!({"id": id("filters"), "component": "Toolbar", "children": [status, repository, source]});
+    if let Some((label, online)) = model::ci_runner_chip(input) {
+        node["slots"] = json!({"trailing": {
+            "id": id("runnerChip"),
+            "component": "Chip",
+            "props": {"label": label, "dot": if online { "$color.success" } else { "$color.mutedForeground" }, "pressable": true},
+            "on": {"press": {"event": {"name": EVENT_OPEN_RUNNERS}}},
+        }});
+    }
+    node
+}
+
+/// One run's row (web `runRow`).
+fn run_row(row: &CiRunListRow, phone: bool) -> Value {
+    let id = format!("{}.{}", model::test_id("runRow"), row.id);
+    let leading = json!({"id": format!("{id}.glyph"), "component": "Icon", "props": {"name": row.glyph, "tone": row.tone, "size": "sm"}});
+    let press = json!({"press": {"event": {"name": EVENT_OPEN_RUN, "context": {"run": row.id}}}});
+    if phone {
+        return json!({
+            "id": id,
+            "component": "Row",
+            "props": {"title": row.title, "subtitle": row.phone_subtitle, "meta": row.phone_meta, "pressable": true},
+            "slots": {"leading": leading},
+            "on": press,
+        });
+    }
+    let age = json!({"@call": "formatRelativeTime", "args": {"value": row.at}});
+    let meta = match &row.duration {
+        Some(duration) => json!({"@call": "fill", "args": {"template": "{duration} · {age}", "params": {"duration": duration, "age": age}}}),
+        None => json!({"@call": "fill", "args": {"template": "{queued} · {age}", "params": {"queued": model::copy("waitingForRunner"), "age": age}}}),
+    };
+    let mut trailing = vec![
+        json!({"id": format!("{id}.meta"), "component": "Text", "props": {"text": meta, "variant": "muted"}}),
+        json!({
+            "id": format!("{id}.source"),
+            "component": "Tooltip",
+            "props": {"content": row.source_label},
+            "children": [{"id": format!("{id}.source.icon"), "component": "Icon", "props": {"name": row.source_icon, "size": "sm", "tone": "neutral", "label": row.source_label}}],
+        }),
+    ];
+    if let Some(author) = &row.author {
+        let mut props = json!({"name": author.name, "seed": author.id, "size": "sm"});
+        if let Some(image) = &author.image {
+            props["src"] = json!(image);
+        }
+        trailing.push(json!({"id": format!("{id}.author"), "component": "Avatar", "props": props}));
+    }
+    json!({
+        "id": id,
+        "component": "Row",
+        "props": {"title": row.title, "subtitle": row.subtitle, "pressable": true},
+        "slots": {
+            "leading": leading,
+            "trailing": {"id": format!("{id}.trailing"), "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": trailing},
+        },
+        "on": press,
+    })
 }
 
 fn runs_panel(input: &CiPageInput, state: &PageState) -> Value {
     let id = model::test_id;
-    let rows = model::ci_run_list(input, &state.filter);
+    let groups = model::ci_run_groups(input, &state.filter);
     let mut children = vec![filters(input, state)];
-    for group in model::ci_train_groups(input, false) {
-        children.push(train_section(&group, &format!("{}.{}", id("train"), group.repository_id)));
-    }
-    if rows.is_empty() {
+    if groups.is_empty() {
         let title = if state.filter.filtered() { model::copy("empty.filtered") } else { model::copy("empty.runs") };
         children.push(json!({"id": id("runs"), "component": "EmptyState", "props": {"icon": "nav-ci", "title": title, "size": "list"}}));
-    } else if state.phone {
-        let row_id = id("runRow");
-        let items: Vec<Value> = rows
+    } else {
+        let sections: Vec<Value> = groups
             .iter()
-            .map(|row| {
-                let mut props = json!({"title": row.title, "subtitle": row.subtitle, "pressable": true});
-                if let Some(duration) = &row.duration {
-                    props["meta"] = json!(duration);
+            .map(|group| {
+                let mut props = json!({"title": group.title});
+                if let Some(count) = group.count {
+                    props["count"] = json!(count);
                 }
                 json!({
-                    "id": format!("{row_id}.{}", row.id),
-                    "component": "Row",
+                    "id": format!("{}.{}", id("runs"), group.id),
+                    "component": "Section",
                     "props": props,
-                    "slots": {"leading": {"id": format!("{row_id}.{}.glyph", row.id), "component": "Icon", "props": {"name": row.glyph, "tone": icon_tone(row.tone), "size": "sm"}}},
-                    "on": {"press": {"event": {"name": EVENT_OPEN_RUN, "context": {"run": row.id}}}},
+                    "children": group.rows.iter().map(|row| run_row(row, state.phone)).collect::<Vec<_>>(),
                 })
             })
             .collect();
-        children.push(json!({"id": id("runs"), "component": "Section", "props": {"title": model::copy("runsSection")}, "children": items}));
-    } else {
-        let c = |key: &str| model::copy(&format!("columns.{key}"));
-        let table_rows: Vec<Value> = rows
-            .iter()
-            .map(|row| {
-                json!({
-                    "id": row.id,
-                    "status": row.status_label,
-                    "glyph": row.glyph,
-                    "tone": icon_tone(row.tone),
-                    "run": row.title,
-                    "repository": row.repository,
-                    "source": row.source_label,
-                    "ref": row.r#ref,
-                    "trigger": row.trigger,
-                    "duration": row.duration.clone().unwrap_or_default(),
-                    "started": row.started_at.clone().unwrap_or_default(),
-                })
-            })
-            .collect();
-        let runs = id("runs");
-        children.push(json!({
-            "id": runs,
-            "component": "Table",
-            "props": {
-                "columns": [
-                    {"key": "status", "label": c("status"), "type": "slot", "slot": "status", "width": 120},
-                    {"key": "run", "label": c("run")},
-                    {"key": "repository", "label": c("repository")},
-                    {"key": "source", "label": c("source"), "type": "badge"},
-                    {"key": "ref", "label": c("ref"), "truncate": true},
-                    {"key": "trigger", "label": c("trigger")},
-                    {"key": "duration", "label": c("duration"), "align": "end", "width": 96},
-                    {"key": "started", "label": c("started"), "type": "relativeTime", "width": 140},
-                ],
-                "rows": table_rows,
-                "rowKey": "id",
-            },
-            "slots": {
-                "status": {
-                    "id": format!("{runs}.status"),
-                    "component": "Stack",
-                    "props": {"direction": "horizontal", "gap": "xs", "align": "center"},
-                    "children": [
-                        {"id": format!("{runs}.status.glyph"), "component": "Icon", "props": {"name": {"@path": "glyph"}, "tone": {"@path": "tone"}, "size": "sm"}},
-                        {"id": format!("{runs}.status.label"), "component": "Text", "props": {"text": {"@path": "status"}}},
-                    ],
-                },
-            },
-            "on": {"rowPress": {"event": {"name": EVENT_OPEN_RUN, "context": {"run": {"@path": "id"}}}}},
-        }));
+        children.push(vstack(id("runs"), "md", sections));
     }
     vstack(&format!("{}.runs", id("page")), "md", children)
 }
@@ -279,21 +282,10 @@ fn runners_panel(input: &CiPageInput) -> Value {
     json!({"id": id("runners"), "component": "Section", "props": {}, "children": children})
 }
 
-/// The CI page as ONE document (web's `ciPageTree`): the tiles, then the
-/// tabs; only the current tab's panel is built.
+/// The CI page as ONE document (web's `ciPageTree`): the tab strip, then the
+/// current tab's panel (the others are empty stacks).
 pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
     let id = model::test_id;
-    let tiles: Vec<Value> = model::ci_page_tiles(input)
-        .iter()
-        .enumerate()
-        .map(|(index, tile)| {
-            let mut props = json!({"label": tile.label, "value": tile.value, "tone": tile.tone});
-            if let Some(delta) = &tile.delta {
-                props["delta"] = json!(delta);
-            }
-            json!({"id": format!("{}.{index}", id("tiles")), "component": "StatTile", "props": props})
-        })
-        .collect();
     let (train, runners) = model::ci_tab_counts(input);
     let tab = |value: CiTab, count: usize| {
         let mut tab = json!({"label": model::copy(&format!("tabs.{}", value.id())), "value": value.id()});
@@ -302,7 +294,7 @@ pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
         }
         tab
     };
-    let mut tabs_props = json!({"tabs": [tab(CiTab::Runs, 0), tab(CiTab::Train, train), tab(CiTab::Runners, runners)], "value": state.tab.id()});
+    let mut tabs_props = json!({"tabs": [tab(CiTab::Runs, 0), tab(CiTab::Train, train), tab(CiTab::Runners, runners)], "value": state.tab.id(), "variant": "strip"});
     if state.phone {
         tabs_props["fill"] = json!(true);
     }
@@ -310,27 +302,17 @@ pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
     let runs = if state.tab == CiTab::Runs { runs_panel(input, state) } else { empty(CiTab::Runs) };
     let train_tab = if state.tab == CiTab::Train { train_panel(input) } else { empty(CiTab::Train) };
     let runners_tab = if state.tab == CiTab::Runners { runners_panel(input) } else { empty(CiTab::Runners) };
-    let columns = if state.phone { 2 } else { 4 };
-    let gap = if state.phone { "sm" } else { "md" };
     json!({
         "id": id("page"),
         "component": "Stack",
         "props": {"direction": "vertical", "gap": "lg", "align": "stretch"},
-        "children": [
-            {
-                "id": id("tiles"),
-                "component": "Grid",
-                "props": {"columns": columns, "gap": gap},
-                "children": tiles,
-            },
-            {
-                "id": id("tabs"),
-                "component": "Tabs",
-                "props": tabs_props,
-                "on": change(EVENT_TAB),
-                "children": [runs, train_tab, runners_tab],
-            },
-        ],
+        "children": [{
+            "id": id("tabs"),
+            "component": "Tabs",
+            "props": tabs_props,
+            "on": change(EVENT_TAB),
+            "children": [runs, train_tab, runners_tab],
+        }],
     })
 }
 
@@ -419,6 +401,7 @@ pub(crate) fn live_input(with_repos: bool, cx: &mut App) -> Option<CiPageInput> 
             started_at: run.started_at.clone(),
             completed_at: run.completed_at.clone(),
             created_at: run.created_at.clone().unwrap_or_default(),
+            title: run.title.clone().filter(|title| !title.is_empty()),
         })
         .collect();
     let jobs: Vec<CiPageJob> = collections
@@ -479,8 +462,19 @@ pub(crate) fn live_input(with_repos: bool, cx: &mut App) -> Option<CiPageInput> 
             }
         })
         .collect();
+    let users: Vec<CiPageUser> = collections
+        .users
+        .read(cx)
+        .iter()
+        .map(|user| CiPageUser {
+            id: user.id.clone(),
+            name: user.name.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| domain::rows::member_fallback_label(&user.id)),
+            image: user.image.clone().filter(|image| !image.is_empty()),
+        })
+        .collect();
     let now = crate::exponential_ui_host::now_iso();
-    Some(CiPageInput { runs, jobs, repos, pull_requests, sessions, runners, viewer_id, now })
+    let utc_offset_minutes = i64::from(chrono::Local::now().offset().local_minus_utc() / 60);
+    Some(CiPageInput { runs, jobs, repos, pull_requests, sessions, runners, users, viewer_id, now, utc_offset_minutes })
 }
 
 /// The sidebar row's badge (nav-badges.json destination `ci`).
@@ -567,6 +561,7 @@ impl CiPageView {
                     };
                 }
             }
+            EVENT_OPEN_RUNNERS => self.state.tab = CiTab::Runners,
             EVENT_OPEN_RUN if self.source == Source::Live => {
                 let run = event.context["run"]
                     .as_str()
