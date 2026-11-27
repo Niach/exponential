@@ -626,7 +626,7 @@ mod tests {
     }
 
     fn window(fullscreen: bool, minimized: bool, workspace: usize, x: i32) -> WindowInfo {
-        WindowInfo { id: WindowId::new("w1").unwrap(), title: None, app_id: Some("mpv".into()), x, y: 0, width: 1920, height: 1080, focused: true, fullscreen, protected: false, x11: false, workspace, minimized, maximized: false, space: None }
+        WindowInfo { id: WindowId::new("w1").unwrap(), title: None, app_id: Some("mpv".into()), x, y: 0, width: 1920, height: 1080, focused: true, fullscreen, protected: false, x11: false, workspace, minimized, maximized: false, sticky: false, urgent: false, space: None }
     }
 
     #[test]

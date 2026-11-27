@@ -38,7 +38,7 @@
   },
   "@exponential_app/eui/web": {
     "bytes": 307426,
-    "gzip": 68500
+    "gzip": 68600
   },
   "@exponential_app/eui/web/motion": {
     "bytes": 46880,
@@ -70,7 +70,7 @@
   },
   "@exponential_app/eui-element/standalone.js": {
     "bytes": 1844000,
-    "gzip": 436700
+    "gzip": 436800
   },
   "android/arm64-v8a": {
     "bytes": 9760000

@@ -213,11 +213,12 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
   // items are then treeitems (a tree owns treeitems only).
   const listRole = (rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`
   const itemRole = listRole === `tree` ? `treeitem` : `listitem`
-  // EXP-1832 (fixtures/list-reorder.json): a vertical `reorderable` List's
+  // EXP-1832 (fixtures/list-reorder.json): a `reorderable` List's (#EDE-255:
+  // a horizontal one drags along x)
   // items carry the web controller's DOM contract (key = the template key,
   // else the child's id; `depth` / `group` = the item's fields; indent = a
   // Row's TreeGuides gutter at that depth).
-  const reorderable = bool(props.reorderable) && !horizontal
+  const reorderable = bool(props.reorderable)
   // genUI round 4 (fixtures/board-drop.json): a Board column (the macro's
   // internal `board`) trades rows with its sibling columns; the TARGET
   // column's List fires `move`.
@@ -249,7 +250,7 @@ export function ListNative({ node, props, rootProps, scope, domId, emit }: Nativ
         const start = listReorderStart(e.currentTarget, e.target)
         if (!start) return
         const root = e.currentTarget
-        startListDrag(e.nativeEvent, start.key, { rows: () => listReorderRows(root), maxDepth: Math.max(1, Math.floor(num(props.maxDepth, 1))), board: board ? root : undefined }, { move: (context) => void emit(`move`, context) })
+        startListDrag(e.nativeEvent, start.key, { rows: () => listReorderRows(root), maxDepth: Math.max(1, Math.floor(num(props.maxDepth, 1))), board: board ? root : undefined, axis: horizontal ? `horizontal` : `vertical`, rtl }, { move: (context) => void emit(`move`, context) })
       }
     : undefined
   const divider = (r: number) => {

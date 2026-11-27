@@ -209,7 +209,7 @@ mod tests {
     }
 
     fn info(id: &str, app: &str, title: Option<&str>, protected: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: title.map(String::from), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused: id == "w1", fullscreen: false, protected, x11: false, workspace: 0, minimized: false, maximized: false, space: None }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: title.map(String::from), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused: id == "w1", fullscreen: false, protected, x11: false, workspace: 0, minimized: false, maximized: false, sticky: false, urgent: false, space: None }
     }
 
     fn fake() -> (Arc<Fake>, Arc<Mutex<Vec<String>>>) {
