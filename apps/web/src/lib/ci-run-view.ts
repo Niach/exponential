@@ -24,6 +24,7 @@ import {
   runnerOsLabel,
   runnerUnsupported,
   type CiJobRow,
+  type RunnerRecentRow,
   type CiStepLike,
   type RunnerClient,
 } from "@exp/domain-contract/ci-run"
@@ -361,7 +362,7 @@ export function runnerSectionTree(input: {
   settings: RunnerSettings
   owner: boolean
   refused: boolean
-  recent: CiJobRow[]
+  recent: RunnerRecentRow[]
 }): NestedNode {
   const copy = RUNNER_SETTINGS_COPY
   const ids = RUNNER_SETTINGS_TEST_IDS

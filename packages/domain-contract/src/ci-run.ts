@@ -359,7 +359,10 @@ export interface RunnerJobInput extends CiJobLike {
 }
 
 /** The runner's newest jobs. */
-export function runnerRecentJobs(deviceId: string, jobs: readonly RunnerJobInput[], now: Date | string): CiJobRow[] {
+/** A runner section's recent row (the run page's row without its status). */
+export type RunnerRecentRow = Omit<CiJobRow, `status` | `statusTone`>
+
+export function runnerRecentJobs(deviceId: string, jobs: readonly RunnerJobInput[], now: Date | string): RunnerRecentRow[] {
   return jobs
     .filter((job) => job.runnerDeviceId === deviceId)
     .sort((a, b) => (msOf(b.startedAt) ?? -Infinity) - (msOf(a.startedAt) ?? -Infinity))
