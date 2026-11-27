@@ -1722,6 +1722,19 @@ pub struct CiRunRow {
     pub started_at: Option<String>,
     #[serde(default)]
     pub completed_at: Option<String>,
+    /// #EXP-2172: `exponential` (ours) | `github` (a GitHub Actions run).
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    /// The run on GitHub (Open on GitHub).
+    #[serde(default)]
+    pub external_url: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub external_attempt: Option<i64>,
+    /// `read` | `write`: whether the installation accepted Actions: write.
+    #[serde(default)]
+    pub external_access: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1773,6 +1786,13 @@ pub struct CiJobRow {
     pub started_at: Option<String>,
     #[serde(default)]
     pub completed_at: Option<String>,
+    /// #EXP-2172: `exponential` | `github`.
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub external_url: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

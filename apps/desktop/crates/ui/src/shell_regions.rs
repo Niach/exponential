@@ -87,6 +87,7 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
         Some(Screen::Device { device_id }) => format!("device:{}", if device_id.is_empty() { crate::device_page::this_device_row_id(cx).unwrap_or_default() } else { device_id.clone() }),
         Some(Screen::DeviceSettings { device_id }) => format!("device-settings:{device_id}"),
         Some(Screen::Drafts) => "drafts".into(),
+        Some(Screen::Ci) => "ci".into(),
         Some(Screen::IssueDetail { issue_id }) => format!("issue:{issue_id}"),
         Some(Screen::Chat { session_id }) => format!("chat:{session_id}"),
         Some(Screen::Session { session_id }) => format!("session:{session_id}"),
@@ -1143,6 +1144,7 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
                 "home" => Screen::Home,
                 "needs-you" => Screen::NeedsYou,
                 "chats" => Screen::Chats,
+                "ci" => Screen::Ci,
                 _ => Screen::Drafts,
             };
             navigate(window, cx, screen);
@@ -1225,6 +1227,7 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
         ("ide_nav_compose_menu".into(), "chats", I::default()),
         ("ide_nav_page_menu".into(), "needs-you", I::default()),
         ("ide_nav_page_menu".into(), "drafts", I::default()),
+        ("ide_nav_page_menu".into(), "ci", I::default()),
         ("ide_devices_menu".into(), "devices", I::default()),
         ("ide_device_mine_menu".into(), "device", mine),
         ("ide_device_mine_muted_menu".into(), "device", mine),
@@ -1282,6 +1285,7 @@ fn row_screen(kind: &str, id: &str, cx: &App) -> Option<Screen> {
         "needs-you" => Screen::NeedsYou,
         "chats" => Screen::Chats,
         "drafts" => Screen::Drafts,
+        "ci" => Screen::Ci,
         "device" => Screen::Device { device_id: id.into() },
         "board" => Screen::BoardIssues { board_id: id.into() },
         "app" => Screen::AppRun { app: id.into() },
