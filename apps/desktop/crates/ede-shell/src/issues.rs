@@ -101,6 +101,35 @@ pub fn build(sources: Vec<Source>) -> Vec<Indexed> {
     out
 }
 
+/// #EDE-258: the tree's Local node (domain-contract sidebar-tree.json
+/// `edeLocal`): the desktops by name, each with its boards, read from their
+/// stores (blocking: off the main loop).
+pub fn local_tree(desktops: Vec<(String, String, PathBuf)>) -> Vec<uicore_model::StartMenuLocalRow> {
+    let inputs: Vec<domain::sidebar_tree::SidebarLocalDesktopInput> = desktops
+        .into_iter()
+        .map(|(id, name, path)| {
+            let boards = path
+                .exists()
+                .then(|| elocal::LocalStore::open(&path).ok())
+                .flatten()
+                .map(|store| store.rows("boards").unwrap_or_default())
+                .unwrap_or_default()
+                .iter()
+                .filter(|b| b.get("archived_at").is_none_or(Value::is_null) && b.get("deleted_at").is_none_or(Value::is_null))
+                .filter_map(|b| {
+                    Some(domain::sidebar_tree::SidebarLocalBoardInput { id: text(b, "id")?, name: text(b, "name").unwrap_or_default(), sort_order: b.get("sort_order").and_then(Value::as_f64).unwrap_or(0.0) })
+                })
+                .collect();
+            domain::sidebar_tree::SidebarLocalDesktopInput { id, name, boards }
+        })
+        .collect();
+    let names: HashMap<String, String> = inputs.iter().flat_map(|d| std::iter::once((d.id.clone(), d.name.clone())).chain(d.boards.iter().map(|b| (b.id.clone(), b.name.clone())))).collect();
+    domain::sidebar_tree::sidebar_local_rows(&inputs)
+        .into_iter()
+        .map(|row| uicore_model::StartMenuLocalRow { title: if row.id == "local" { "Local".into() } else { names.get(&row.id).cloned().unwrap_or_default() }, kind: match row.kind { domain::sidebar_tree::SidebarLocalRowKind::Local => "local", domain::sidebar_tree::SidebarLocalRowKind::Desktop => "desktop", domain::sidebar_tree::SidebarLocalRowKind::Board => "board" }.into(), id: row.id, desktop_id: row.desktop_id, depth: row.depth })
+        .collect()
+}
+
 /// #EDE-65 lane I: the chat's `#` typeahead: the engine's ranking over one
 /// team's or Local desktop's issues, `(identifier, title)`, at most `limit`.
 pub fn rank_in(index: &[Indexed], kind: &SwitcherKind, source_id: &str, query: &str, limit: usize) -> Vec<(String, String)> {

@@ -89,6 +89,7 @@ mod chats;
 mod cli_setup;
 mod engine;
 mod holder_windows;
+mod holder_feeds;
 mod issues;
 mod assets;
 mod connect;
@@ -352,6 +353,10 @@ struct Shell {
     thumbnails: HashMap<String, String>,
     /// #EDE-237: what the Exponential app's windows are (the holder's pages).
     holder_windows: holder_windows::HolderWindows,
+    /// #EDE-258: what the start menu navigates (the holder's tree, recents, Assistant).
+    holder_feeds: holder_feeds::HolderFeeds,
+    /// #EDE-258: the machine's Local desktops with their boards (the tree's Local node).
+    local_tree: Vec<uicore_model::StartMenuLocalRow>,
     /// #EXP-2024: THE capture loop's plan and asks (`captures.rs`): the
     /// windows and agent spaces it photographs, derived from what is open.
     captures: Arc<captures::Shared>,
@@ -1126,15 +1131,33 @@ impl HostPlugin for Host {
             }
             "ede_start_menu" => {
                 let args = args.clone();
-                // #EDE-92: Enter in the search box runs the selected row as a press on it does
+                // #EDE-92: Enter in the search box opens the selected row as a press on it does
                 // (after the box's text, which is deferred just before).
                 if args.get("activate").and_then(Value::as_bool) == Some(true) {
                     let (host, event) = (self.clone(), event.clone());
                     cx.defer(move |cx| {
-                        let selected = host.shell.borrow().feed.get("/shell").and_then(|shell| start_menu::activation(&shell["startMenu"]));
-                        if let Some((name, args)) = selected {
-                            host.on_function_call(&FunctionCallEvent { name: name.to_string(), args, ..event }, cx);
+                        if let Some(target) = start_menu_activate(&host.shell, cx) {
+                            host.start_menu_open(target, &event, cx);
                         }
+                    });
+                    return;
+                }
+                // #EDE-258: a press on a row; the Assistant's composer.
+                if let Some(id) = args.get("open").and_then(Value::as_str).map(String::from) {
+                    let (host, event) = (self.clone(), event.clone());
+                    cx.defer(move |cx| {
+                        let target = host.shell.borrow().feed.get("/shell").and_then(|v| start_menu::row_target(&v["startMenu"]["nav"], &id));
+                        if let Some(target) = target {
+                            host.start_menu_open(target, &event, cx);
+                        }
+                    });
+                    return;
+                }
+                if let Some(text) = args.get("ask").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(String::from) {
+                    holder_feeds::ask(text);
+                    cx.defer(move |cx| {
+                        shell.borrow_mut().feed.set("/shell/startMenu/ask", json!(""));
+                        model_changed(&shell, cx);
                     });
                     return;
                 }
@@ -1928,9 +1951,28 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
         uicore_model::start_menu_apps(&state, &shell.menu_apps, &shell.model.taskbar.pinned).into_iter().map(|e| json!({"id": e.id, "name": e.name, "icon": app_icon(shell, &e.id)})).collect()
     };
     value["startMenu"]["favourites"] = Value::Array(favourites);
-    value["startMenu"]["issues"] = json!(uicore_model::start_menu_issues(&shell.model, &shell.issue_hits));
-    start_menu::mark(&mut value["startMenu"], &shell.menu_selection);
+    value["startMenu"]["nav"] = start_menu_nav(shell);
+    value["startMenu"]["assistant"] = holder_feeds::assistant_json(&shell.holder_feeds);
     value
+}
+
+/// #EDE-258: `/shell/startMenu/nav`: Cinnamon's columns over the holder's
+/// tree, Local and the app groups (uicore shell.json `startMenuNav`), the
+/// apps' pictures and the keyboard's selection on top.
+fn start_menu_nav(shell: &Shell) -> Value {
+    let tree: Vec<uicore_model::StartMenuNode> = shell.holder_feeds.tree().iter().filter_map(|node| serde_json::from_value(node.clone()).ok()).collect();
+    let nav = uicore_model::start_menu_nav(&shell.model, &tree, &shell.local_tree, &shell.menu_apps, &shell.model.taskbar.pinned, start_menu::settings_modules(), &shell.issue_hits);
+    let mut nav = serde_json::to_value(nav).unwrap_or(Value::Null);
+    for row in nav["rows"].as_array_mut().into_iter().flatten() {
+        if let Some(app) = row["target"]["app"].as_str().map(String::from) {
+            let icon = app_icon(shell, &app);
+            if !icon.is_empty() {
+                row["image"] = json!(icon);
+            }
+        }
+    }
+    start_menu::mark(&mut nav, &shell.menu_selection, &shell.model.start_menu.query);
+    nav
 }
 
 trait IntoJson {
@@ -2193,7 +2235,14 @@ fn drawn_now(shell: &Shell, doc: &Document) -> Document {
     as_drawn(doc, header_for(shell, doc), shell.feed.get("/chatting"))
 }
 
+/// #EDE-238: documents eDE never draws: the left rail (the start menu's
+/// tree is the navigation; the IDE still mounts `sidebar`).
+pub(crate) const NOT_DRAWN: &[&str] = &["sidebar"];
+
 fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
+    if NOT_DRAWN.contains(&doc.name.as_str()) {
+        return;
+    }
     let (doc, feed) = {
         let s = shell.borrow();
         (drawn_now(&s, doc), s.feed.clone())
@@ -3605,33 +3654,139 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
     shell.borrow().surfaces.focus_component(name, "search", cx);
 }
 
-/// #EDE-92: Up or Down pressed in `window`: in the start menu with results
-/// of a search, the selection moves (and its row scrolls into view) and the
-/// key is the menu's; anywhere else, or with nothing to select, it is not.
-fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, step: i64, cx: &mut App) -> bool {
+/// #EDE-92, #EDE-258: an arrow pressed in `window`: in the start menu it
+/// moves the keyboard's place (a category, a row, the column) and the key
+/// is the menu's; anywhere else, or when the menu has nothing for it (Left
+/// and Right while the box has text: its caret), it is not.
+fn start_menu_step(shell: &SharedShell, window: gpui::AnyWindowHandle, key: start_menu::Key, cx: &mut App) -> bool {
     let moved = {
         let Ok(mut s) = shell.try_borrow_mut() else { return false };
         let Some(name) = ["start-menu", "menu"].into_iter().find(|name| s.surfaces.region(name).is_some_and(|r| gpui::AnyWindowHandle::from(r.handle) == window)) else { return false };
-        let Some(menu) = s.feed.get("/shell").map(|shell| shell["startMenu"].clone()) else { return false };
-        let query = menu["query"].as_str().unwrap_or_default().to_string();
-        let Some(row) = s.menu_selection.step(&query, start_menu::rows(&menu), step) else { return false };
-        let apps = menu["apps"].as_array().map_or(0, Vec::len);
-        (name, row, if row < apps { ("apps", row) } else { ("issues", row - apps) })
+        let Some(nav) = s.feed.get("/shell").map(|shell| shell["startMenu"]["nav"].clone()) else { return false };
+        let query = s.model.start_menu.query.clone();
+        let Some(moved) = s.menu_selection.key(&nav, &query, key) else { return false };
+        (name, moved)
     };
     // The key is still being dispatched in that window: its view redraws after it.
     let shell = shell.clone();
     cx.defer(move |cx| {
-        model_changed(&shell, cx);
-        let (name, row, (list, index)) = moved;
-        // The results' ScrollArea: a list that cannot scroll is left alone (its rows would go blank).
-        // #EDE-133: the first row = the results' top, its group heading included.
-        if row == 0 {
-            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
-        } else {
-            shell.borrow().surfaces.reveal_row(name, "apps_scroll", list, index, cx);
+        let (name, moved) = moved;
+        match moved {
+            start_menu::Moved::Category(category) => {
+                dispatch(&shell, ShellEvent::StartMenuCategory { category }, cx);
+                shell.borrow().surfaces.reveal_top(name, "rows_scroll", cx);
+                let at = shell.borrow().feed.get("/shell").and_then(|v| v["startMenu"]["nav"]["categories"].as_array().and_then(|c| c.iter().position(|c| c["selected"] == true)));
+                if let Some(at) = at {
+                    shell.borrow().surfaces.reveal_row(name, "categories_scroll", "categories", at, cx);
+                }
+            }
+            start_menu::Moved::Row(row) => {
+                model_changed(&shell, cx);
+                match row {
+                    // #EDE-133: the first row = the results' top, its group heading included.
+                    Some(0) => {
+                        shell.borrow().surfaces.reveal_top(name, "rows_scroll", cx);
+                    }
+                    Some(row) => {
+                        shell.borrow().surfaces.reveal_row(name, "rows_scroll", "rows", row, cx);
+                    }
+                    None => {}
+                }
+            }
         }
     });
     true
+}
+
+/// #EDE-258: Enter in the search box: the selected row opens; on a
+/// category its page opens (Home, Chats, the Assistant…), or the keyboard
+/// goes into its contents when it has none (a team, Devices).
+fn start_menu_activate(shell: &SharedShell, cx: &mut App) -> Option<Value> {
+    let (activation, nav) = {
+        let s = shell.borrow();
+        let nav = s.feed.get("/shell").map(|v| v["startMenu"]["nav"].clone())?;
+        (s.menu_selection.activation(&nav, &s.model.start_menu.query), nav)
+    };
+    match activation? {
+        start_menu::Activation::Target(target) => Some(target),
+        start_menu::Activation::Category(category) => {
+            let key = shell.borrow().holder_feeds.tree().iter().find(|node| node["id"] == category.as_str()).and_then(|node| node["key"].as_str().map(String::from));
+            if key.is_none() && shell.borrow_mut().menu_selection.enter_contents(&nav) {
+                model_changed(shell, cx);
+            }
+            key.map(|key| json!({"page": key}))
+        }
+    }
+}
+
+impl Host {
+    /// #EDE-258: a row's target: an app launches as a press on it in the
+    /// menu did (`ede_launch`); the rest is [`start_menu_open`].
+    fn start_menu_open(&self, target: Value, event: &FunctionCallEvent, cx: &mut App) {
+        if let Some(app) = target["app"].as_str() {
+            self.on_function_call(&FunctionCallEvent { name: "ede_launch".into(), args: json!({"app": app}), ..event.clone() }, cx);
+            close(&self.shell, "start-menu", cx);
+            dispatch(&self.shell, ShellEvent::StartMenuClose, cx);
+            return;
+        }
+        start_menu_open(&self.shell, target, cx);
+    }
+}
+
+/// #EDE-258: a row of the menu opens, and the menu closes: a page as its own
+/// window through the holder's focus-or-open, an app, a Settings module, an
+/// issue, a Local desktop's board.
+fn start_menu_open(shell: &SharedShell, target: Value, cx: &mut App) {
+    let text = |key: &str| target[key].as_str().map(String::from);
+    if let Some(page) = text("settings") {
+        settings_open_page(shell, &page, cx);
+    } else if let Some(key) = text("page") {
+        close(shell, "start-menu", cx);
+        dispatch(shell, ShellEvent::StartMenuClose, cx);
+        let token = start_menu_token(shell);
+        // #EDE-258: a Local desktop's holder goes back to the account first.
+        holder_back_from_local(shell, cx);
+        holder_feeds::open_page(key, token);
+    } else if let Some(identifier) = text("issue") {
+        let source = issues::issue_source(&json!({"source": target["source"], "sourceId": target["sourceId"]}));
+        close(shell, "start-menu", cx);
+        dispatch(shell, ShellEvent::StartMenuClose, cx);
+        let current = shell.borrow().model.switcher.current.clone();
+        if let Some((kind, id)) = source.filter(|(kind, id)| !(current.kind == *kind && current.id == *id)) {
+            switcher_picked(shell, kind, &id, cx);
+        }
+        ide_open(shell, Some(&issues::issue_deep_link(&identifier)));
+    } else if let Some(desktop) = text("local") {
+        close(shell, "start-menu", cx);
+        dispatch(shell, ShellEvent::StartMenuClose, cx);
+        let current = shell.borrow().model.switcher.current.clone();
+        if !(current.kind == uicore_model::SwitcherKind::Local && current.id == desktop) {
+            switcher_picked(shell, uicore_model::SwitcherKind::Local, &desktop, cx);
+        }
+        let token = start_menu_token(shell);
+        match text("board") {
+            Some(board) => holder_feeds::open_page(format!("board:{board}"), token),
+            None => ide_open(shell, None),
+        }
+    }
+}
+
+/// The holder on a Local desktop goes back to the person's account (the
+/// tree's pages are the account's).
+fn holder_back_from_local(shell: &SharedShell, cx: &mut App) {
+    let (on_local, account_team) = {
+        let s = shell.borrow();
+        let team = s.model.switcher.entries.iter().find(|e| e.kind == uicore_model::SwitcherKind::Team).map(|e| e.id.clone());
+        (s.model.switcher.current.kind == uicore_model::SwitcherKind::Local, team)
+    };
+    if let (true, Some(team)) = (on_local, account_team) {
+        switcher_picked(shell, uicore_model::SwitcherKind::Team, &team, cx);
+    }
+}
+
+/// An xdg-activation token for the window a menu press opens.
+fn start_menu_token(shell: &SharedShell) -> Option<String> {
+    with_ede(shell, |ede| ede.launch_token())
 }
 
 /// #EDE-65: the start menu's query: the apps at once, the issues once the
@@ -3645,7 +3800,7 @@ fn start_menu_query(shell: &SharedShell, query: String, cx: &mut App) {
     // (Enter's flush of the same text keeps the place).
     if changed {
         for name in ["start-menu", "menu"] {
-            shell.borrow().surfaces.reveal_top(name, "apps_scroll", cx);
+            shell.borrow().surfaces.reveal_top(name, "rows_scroll", cx);
         }
     }
     issues_search(shell, cx);
@@ -3670,7 +3825,18 @@ fn issues_search(shell: &SharedShell, cx: &mut App) {
         }) else {
             return;
         };
-        let hits = cx.background_executor().spawn(async move { issues::search(&index, &query) }).await;
+        // #EDE-258: the teams' issues are the holder's (its one store), the
+        // Local desktops' the shell's own; team hits first, as the engine
+        // ranks within each.
+        let hits = cx
+            .background_executor()
+            .spawn(async move {
+                let mut hits = holder_feeds::search(&query);
+                hits.extend(issues::search(&index, &query));
+                hits.truncate(uicore_model::START_MENU_ISSUE_LIMIT);
+                hits
+            })
+            .await;
         if shell.borrow().issue_search != generation {
             return;
         }
@@ -3692,6 +3858,10 @@ fn issues_reindex(shell: &SharedShell, cx: &mut App) {
         };
         tracing::debug!(issues = index.len(), "start menu issue pool");
         shell.borrow_mut().issue_index = Arc::new(index);
+        let desktops = shell.borrow().workspaces.local_desktops();
+        let local = cx.background_executor().spawn(async move { issues::local_tree(desktops) }).await;
+        shell.borrow_mut().local_tree = local;
+        cx.update(|cx| model_changed(&shell, cx));
         cx.update(|cx| issues_search(&shell, cx));
     })
     .detach();
@@ -4664,8 +4834,11 @@ fn main() {
     let share = share::Share::new(share_tx);
     // #EDE-237: the holder's page windows (their icons and titles).
     let (holder_windows_tx, holder_windows_rx) = mpsc::channel::<holder_windows::HolderWindows>();
+    // #EDE-258: the start menu's tree, recents and Assistant.
+    let (holder_feeds_tx, holder_feeds_rx) = mpsc::channel::<holder_feeds::HolderFeeds>();
     if !demo {
         holder_windows::follow(holder_windows_tx);
+        holder_feeds::follow(holder_feeds_tx);
     }
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
@@ -4835,6 +5008,8 @@ fn main() {
             windows: Vec::new(),
             thumbnails: HashMap::new(),
             holder_windows: Default::default(),
+            holder_feeds: Default::default(),
+            local_tree: Vec::new(),
             captures: captures_shared,
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
@@ -4911,11 +5086,11 @@ fn main() {
             time_changes: Vec::new(),
             _watcher: watcher,
         }));
-        // #EDE-92: Up and Down in the start menu's search move its selection.
+        // #EDE-92, #EDE-258: the arrows in the start menu (Cinnamon's columns).
         {
             let s = shell.clone();
             cx.intercept_keystrokes(move |event, window, cx| {
-                let Some(step) = start_menu::key_step(&event.keystroke.key, event.keystroke.modifiers.modified()) else { return };
+                let Some(step) = start_menu::key_of(&event.keystroke.key, event.keystroke.modifiers.modified()) else { return };
                 if start_menu_step(&s, window.window_handle(), step, cx) {
                     cx.stop_propagation();
                 }
@@ -5016,6 +5191,11 @@ fn main() {
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                if let Some(feeds) = holder_feeds_rx.try_iter().last() {
+                    holder_feeds::keep(&mut s.borrow_mut().holder_feeds, feeds);
+                    cx.update(|cx| model_changed(&s, cx));
+                    dirty = true;
                 }
                 if let Some(windows) = holder_windows_rx.try_iter().last() {
                     s.borrow_mut().holder_windows = windows;
@@ -6147,31 +6327,28 @@ mod start_menu_document {
         (f["@call"].as_str().unwrap_or_default(), &f["args"])
     }
 
-    /// #EDE-65: the start menu holds the desktop/team switcher (the
-    /// sidebar's entries and rules, moved) and the Settings button.
+    /// #EDE-258: Cinnamon's layout: the favourites and power on the left,
+    /// the search on top, the categories and the contents; no switcher.
     #[test]
-    fn the_start_menu_holds_the_switcher_and_settings() {
+    fn the_start_menu_is_cinnamons_with_the_tree_and_no_switcher() {
         let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
-        let functions: Vec<&str> = doc["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-        assert!(functions.contains(&"ede_switcher") && functions.contains(&"ede_open_document"), "{functions:?}");
         let root = &doc["root"];
-        let left = node(root, "left").expect("the left column");
-        assert!(node(left, "switcher").is_some(), "the switcher sits in the person's column");
-        let menu = node(root, "switcher_menu").expect("the switcher's menu");
-        assert_eq!(menu["props"]["anchor"], "switcher");
-        assert_eq!(node(menu, "switcher_sections").unwrap()["template"]["path"], "/shell/switcher/sections");
-        let (f, args) = call(node(menu, "switcher_entry").unwrap());
-        assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some("pick")));
-        for (id, action) in [("switcher_new", "new"), ("switcher_share", "share"), ("switcher_connect", "connect")] {
-            let (f, args) = call(node(menu, id).expect(id));
-            assert_eq!((f, args["action"].as_str()), ("ede_switcher", Some(action)), "{id}");
+        let side = node(root, "side").expect("the left sidebar");
+        assert_eq!(node(side, "favourites").unwrap()["template"]["path"], "/shell/startMenu/favourites");
+        for (id, f) in [("lock", "ede_lock"), ("logout", "ede_logout")] {
+            assert_eq!(call(node(side, id).expect(id)).0, f, "{id}");
         }
-        let visible = |id: &str| node(menu, id).unwrap()["visible"].to_string();
-        assert!(visible("switcher_share").contains("/shell/switcher/connection/onLocal"));
-        assert!(visible("switcher_connect").contains("/shell/switcher/connection/connected") && visible("switcher_connect").contains("\"not\""));
-        assert!(!doc.to_string().contains("/shell/ide/"), "the IDE's rows stay in its sidebar");
-        let (f, args) = call(node(root, "settings").expect("the Settings button"));
-        assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
+        assert!(node(side, "power").is_some());
+        assert!(node(node(root, "top").unwrap(), "search").is_some(), "the search on top");
+        assert_eq!(node(root, "categories").unwrap()["template"]["path"], "/shell/startMenu/nav/categories");
+        assert_eq!(node(root, "rows").unwrap()["template"]["path"], "/shell/startMenu/nav/rows");
+        let hover = &node(root, "category").unwrap()["on"]["hover"]["functionCall"];
+        assert_eq!((hover["@call"].as_str(), &hover["args"]), (Some("ede_start_menu"), &serde_json::json!({"category": {"@path": "id"}})), "a hovered category switches");
+        let (f, args) = call(node(root, "row_item").unwrap());
+        assert_eq!((f, &args["open"]), ("ede_start_menu", &serde_json::json!({"@path": "id"})));
+        let text = doc.to_string();
+        assert!(!text.contains("ede_switcher") && !text.contains("/shell/switcher"), "no team switcher (#EDE-238)");
+        assert!(text.contains("/shell/startMenu/assistant/messages"), "the Assistant pane");
     }
 
     /// #EDE-214: every tray popup's settings link opens Settings on its own
@@ -6189,37 +6366,23 @@ mod start_menu_document {
         }
     }
 
-    /// #EDE-65: the search lists Apps, then Issues (each opening in the app).
+    /// #EDE-92: the rows draw the shell's selection with the Row's selected
+    /// state; Enter in the search box asks the shell to open it, the
+    /// composer asks the Assistant.
     #[test]
-    fn the_start_menu_lists_apps_then_issues() {
-        let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
-        assert!(doc["surface"]["functions"].as_array().unwrap().iter().any(|f| f == "ede_issue"));
-        let scroll = node(&doc["root"], "apps_scroll").expect("the results");
-        let order: Vec<&str> = scroll["children"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
-        assert_eq!(order, ["apps_label", "apps", "app", "issues_label", "issues", "issue", "no_apps"]);
-        assert_eq!(node(scroll, "issues").unwrap()["template"]["path"], "/shell/startMenu/issues");
-        let (f, args) = call(node(scroll, "issue").unwrap());
-        assert_eq!((f, &args["identifier"]), ("ede_issue", &serde_json::json!({"@path": "identifier"})));
-    }
-
-    /// #EDE-92: the result rows draw the shell's selection with the Row's
-    /// selected state, and Enter in the search box asks the shell to run it;
-    /// the footer's buttons keep their own presses.
-    #[test]
-    fn the_start_menu_selects_a_result_and_enter_runs_it() {
+    fn the_start_menu_selects_a_row_and_enter_opens_it() {
         let source = uicore_docs::doc("start-menu").expect("the start menu").source;
         let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
         let root = &doc["root"];
-        for id in ["app", "issue"] {
+        for id in ["row_item", "category_row"] {
             assert_eq!(node(root, id).expect(id)["props"]["selected"], serde_json::json!({"@path": "selected"}), "{id}");
         }
         let submit = &node(root, "search").expect("the search box")["on"]["submit"]["functionCall"];
         assert_eq!((submit["@call"].as_str(), &submit["args"]), (Some("ede_start_menu"), &serde_json::json!({"activate": true})));
+        let ask = &node(root, "assistant_composer").expect("the composer")["on"]["submit"]["functionCall"];
+        assert_eq!(ask["args"]["ask"], serde_json::json!({"@path": "/shell/startMenu/ask"}));
         assert!(source.lines().any(|l| l.starts_with('#') && l.contains("#EDE-92")), "the document says what the keys do");
-        for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_open_document"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
-            assert_eq!(call(node(root, id).expect(id)).0, f, "{id}");
-        }
-        assert_eq!(doc.to_string().matches("\"activate\"").count(), 1, "only the search box runs the selection");
+        assert_eq!(doc.to_string().matches("\"activate\"").count(), 1, "only the search box opens the selection");
     }
 }
 
