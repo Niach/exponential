@@ -3,9 +3,9 @@
 // (keyed by `template.key`), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import { enterDelay, foldKey, listSections, sectionRows, TREE_GUIDE_COLUMN, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
+import { attachBoxPointer, getPointer, resolveVisible, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, listReorderRows, listReorderStart, LITERAL_ROWS_ROOT, registerBoardList, REORDER_BOARD_ATTR, REORDER_DEPTH_ATTR, REORDER_GROUP_ATTR, REORDER_INDENT_ATTR, REORDER_KEY_ATTR, setPointer, startListDrag, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useSurfaceContext } from "../context"
 import { MotionContext, PresenceList, type PresenceItem } from "../presence"
 import { ClosePickerContext } from "../form"
@@ -32,6 +32,16 @@ export function BoxNative(props: NativeProps): JSX.Element {
   let field: HTMLDivElement | undefined
   createEffect(() => {
     if (recording() && field && document.activeElement !== field) field.focus()
+  })
+  // #EDE-247: `on.auxPress` (middle on press, right on release) and
+  // `on.scroll` (one per wheel step), native listeners only when present.
+  const [boxEl, setBoxEl] = createSignal<HTMLDivElement>()
+  createEffect(() => {
+    const el = boxEl()
+    const auxPress = Boolean(props.node.on?.auxPress)
+    const scroll = Boolean(props.node.on?.scroll)
+    if (!el || (!auxPress && !scroll)) return
+    onCleanup(attachBoxPointer(el, { auxPress, scroll }, (event, payload) => void props.emit(event, payload)))
   })
   const press = (e?: MouseEvent) => {
     // #VAPP-284: a press target inside another (a foldable Row's fold
@@ -88,8 +98,8 @@ export function BoxNative(props: NativeProps): JSX.Element {
     }
   }
   return (
-    <Show when={pressable()} fallback={<div {...props.rootProps} onPointerEnter={onPointerEnter}>{props.children}</div>}>
-      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} ref={(el: HTMLDivElement) => (field = el)} {...(recorder() ? { onKeyUp: (e: KeyboardEvent) => recording() && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
+    <Show when={pressable()} fallback={<div {...props.rootProps} ref={setBoxEl} onPointerEnter={onPointerEnter}>{props.children}</div>}>
+      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} ref={(el: HTMLDivElement) => setBoxEl((field = el))} {...(recorder() ? { onKeyUp: (e: KeyboardEvent) => recording() && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
         {props.children}
       </div>
     </Show>

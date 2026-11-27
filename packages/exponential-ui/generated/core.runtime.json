@@ -1467,7 +1467,9 @@
       "events": [
         "press",
         "toggle",
-        "hover"
+        "hover",
+        "auxPress",
+        "scroll"
       ]
     },
     "Stack": {
