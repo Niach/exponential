@@ -67,6 +67,11 @@ public enum RepoCi {
                     label: "GitHub Actions on team devices",
                     description: "Team devices with a CI runner also run this repository's GitHub Actions jobs."
                 )
+            case .pullRequestSecrets:
+                SwitchCopy(
+                    label: "Secrets for pull requests",
+                    description: "Pull request runs get this repository's secrets too. Off: only default-branch, tag and merge-train runs."
+                )
             }
         }
     }
@@ -81,19 +86,21 @@ public enum RepoCi {
         public static let addSecret = "repo-ci-add-secret"
         public static let githubStatuses = "repo-ci-github-statuses"
         public static let actionsRunners = "repo-ci-actions-runners"
+        public static let pullRequestSecrets = "repo-ci-pull-request-secrets"
     }
 
     /// `limits.runs`.
     public static let maxRuns = 50
 
-    /// The GitHub-only switches (raw value = the `ci_config` key).
+    /// The section's switches (raw value = the `ci_config` key).
     public enum Switch: String, CaseIterable, Sendable {
-        case githubStatuses, actionsRunners
+        case githubStatuses, actionsRunners, pullRequestSecrets
 
         public var testId: String {
             switch self {
             case .githubStatuses: TestIds.githubStatuses
             case .actionsRunners: TestIds.actionsRunners
+            case .pullRequestSecrets: TestIds.pullRequestSecrets
             }
         }
     }
@@ -255,9 +262,10 @@ public enum RepoCi {
         return head && input.unicodeScalars.allSatisfy { $0 == "_" || ("A" ... "Z").contains($0) || ("0" ... "9").contains($0) }
     }
 
-    /// The GitHub-only switches of the CI section, in order.
+    /// The switches of the CI section, in order: the GitHub-only ones, then
+    /// #EXP-2180's secrets for pull request runs (every provider).
     public static func switches(provider: String?) -> [Switch] {
-        provider == "github" ? [.githubStatuses, .actionsRunners] : []
+        provider == "github" ? [.githubStatuses, .actionsRunners, .pullRequestSecrets] : [.pullRequestSecrets]
     }
 
     // MARK: - The styleguide specimen (sg_repo-runs, sg_repo-ci): runRows[0]

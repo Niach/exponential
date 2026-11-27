@@ -106,6 +106,7 @@ final class RepoCiTests: XCTestCase {
             "pipelines": RepoCi.TestIds.pipelines, "required": RepoCi.TestIds.required,
             "secrets": RepoCi.TestIds.secrets, "addSecret": RepoCi.TestIds.addSecret,
             "githubStatuses": RepoCi.TestIds.githubStatuses, "actionsRunners": RepoCi.TestIds.actionsRunners,
+            "pullRequestSecrets": RepoCi.TestIds.pullRequestSecrets,
         ])
         XCTAssertEqual(fixture["limits"] as? [String: Int], ["runs": RepoCi.maxRuns])
     }
@@ -226,6 +227,7 @@ final class RepoCiTests: XCTestCase {
         XCTAssertEqual(children(tree).map(id), [
             "repo-ci-pipelines", "repo-ci-required-row", "repo-ci-secrets-heading", "repo-ci-secrets",
             "repo-ci-add-secret-row", "repo-ci-github-statuses-row", "repo-ci-actions-runners-row",
+            "repo-ci-pull-request-secrets-row",
         ])
         let pipelines = children(children(tree)[0])
         XCTAssertEqual(pipelines.map(id), ["repo-ci-pipelines.r13", "repo-ci-pipelines.r11"])
@@ -242,6 +244,9 @@ final class RepoCiTests: XCTestCase {
         let statuses = object(children(children(tree)[5]).first)
         XCTAssertEqual(object(statuses["props"])["checked"], .bool(true))
         XCTAssertEqual(object(statuses["props"])["disabled"], .bool(false))
+        let prSecrets = object(children(children(tree)[7]).first)
+        XCTAssertEqual(object(prSecrets["props"])["checked"], .bool(false))
+        XCTAssertEqual(object(prSecrets["props"])["name"], .string("repo-ci-pull-request-secrets"))
     }
 
     func testSectionTreeMemberAndEcode() {
@@ -249,7 +254,10 @@ final class RepoCiTests: XCTestCase {
             provider: "ecode", pipelines: [], suggestions: [], secrets: [],
             githubStatuses: false, actionsRunners: false, manager: false
         )
-        XCTAssertEqual(children(tree).map(id), ["repo-ci-pipelines", "repo-ci-required-row", "repo-ci-secrets-heading", "repo-ci-secrets"])
+        XCTAssertEqual(children(tree).map(id), [
+            "repo-ci-pipelines", "repo-ci-required-row", "repo-ci-secrets-heading", "repo-ci-secrets",
+            "repo-ci-pull-request-secrets-row",
+        ])
         XCTAssertEqual(component(children(tree)[0]), "Text")
         let chipInput = object(children(children(tree)[1]).first)
         XCTAssertEqual(object(chipInput["props"])["disabled"], .bool(true))
@@ -258,7 +266,7 @@ final class RepoCiTests: XCTestCase {
             provider: "ecode", pipelines: [], suggestions: [], secrets: nil,
             githubStatuses: false, actionsRunners: false, manager: true
         )
-        XCTAssertEqual(children(loading).map(id), ["repo-ci-pipelines", "repo-ci-required-row"])
+        XCTAssertEqual(children(loading).map(id), ["repo-ci-pipelines", "repo-ci-required-row", "repo-ci-pull-request-secrets-row"])
     }
 
     func testRequiredFrom() {
