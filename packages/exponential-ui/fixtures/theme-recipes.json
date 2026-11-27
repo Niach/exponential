@@ -26289,7 +26289,7 @@
         "exponential": {
           "light": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26303,7 +26303,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26318,7 +26318,7 @@
               "backgroundColor": "#f5f5f5"
             },
             "selected": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26335,7 +26335,7 @@
           },
           "dark": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26349,7 +26349,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26364,7 +26364,7 @@
               "backgroundColor": "#ffffff1c"
             },
             "selected": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26383,7 +26383,7 @@
         "playful": {
           "light": {
             "default": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26397,7 +26397,7 @@
               ]
             },
             "hover": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26412,7 +26412,7 @@
               "backgroundColor": "#ffe4e6"
             },
             "selected": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26429,7 +26429,7 @@
           },
           "dark": {
             "default": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26443,7 +26443,7 @@
               ]
             },
             "hover": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26458,7 +26458,7 @@
               "backgroundColor": "#4c1d95"
             },
             "selected": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 2,
@@ -26477,7 +26477,7 @@
         "orange": {
           "light": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26491,7 +26491,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26506,7 +26506,7 @@
               "backgroundColor": "#ffedd5"
             },
             "selected": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26523,7 +26523,7 @@
           },
           "dark": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26537,7 +26537,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -26552,7 +26552,7 @@
               "backgroundColor": "#431407"
             },
             "selected": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "borderBottomWidth": 1,
@@ -76843,7 +76843,7 @@
         "exponential": {
           "light": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76856,7 +76856,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76872,7 +76872,7 @@
           },
           "dark": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76885,7 +76885,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76903,7 +76903,7 @@
         "playful": {
           "light": {
             "default": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Nunito",
@@ -76916,7 +76916,7 @@
               ]
             },
             "hover": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Nunito",
@@ -76932,7 +76932,7 @@
           },
           "dark": {
             "default": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Nunito",
@@ -76945,7 +76945,7 @@
               ]
             },
             "hover": {
-              "height": 44,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Nunito",
@@ -76963,7 +76963,7 @@
         "orange": {
           "light": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76976,7 +76976,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -76992,7 +76992,7 @@
           },
           "dark": {
             "default": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",
@@ -77005,7 +77005,7 @@
               ]
             },
             "hover": {
-              "height": 32,
+              "height": 40,
               "paddingHorizontal": 12,
               "gap": 8,
               "fontFamily": "Inter",

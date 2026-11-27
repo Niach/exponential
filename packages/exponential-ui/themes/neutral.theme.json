@@ -6584,7 +6584,7 @@
       "section": [
         {
           "style": {
-            "height": "$control.row",
+            "height": 40,
             "paddingHorizontal": "$spacing.md",
             "gap": "$spacing.sm",
             "fontFamily": "$type.family.sans",
@@ -6943,7 +6943,7 @@
       "row": [
         {
           "style": {
-            "height": "$control.row",
+            "height": 40,
             "paddingHorizontal": "$spacing.md",
             "gap": "$spacing.sm",
             "borderBottomWidth": "$border.hairline",

@@ -187,13 +187,13 @@ impl Builder<'_, '_> {
     /// #EXP-2204 JobGraph: ONE leaf the platform paints from
     /// `job_graph::job_graph_layout`; `compact` (the surface below `md`,
     /// a breakpoint change rebuilds) = the status list. Its height = the
-    /// layout's (list rows `$control.row` tall), unless the node style sets
+    /// layout's (list rows style.json `jobGraph.rowHeight` tall, rows ≥ 40), unless the node style sets
     /// a height or flex.
     pub(crate) fn job_graph(&mut self, index: u32) {
         self.responsive = true;
         let compact = !self.ctx.wide;
         let props = self.nodes[index as usize].props.clone();
-        let geometry = crate::job_graph::JobGraphGeometry { row_height: self.ctx.row_extent as f64, ..crate::job_graph::JOB_GRAPH };
+        let geometry = crate::job_graph::JOB_GRAPH;
         let layout = crate::job_graph::job_graph_layout(props.get("jobs"), compact, &geometry);
         self.nodes[index as usize].props.insert("compact".into(), json!(compact));
         let label = self.string("jobGraph");

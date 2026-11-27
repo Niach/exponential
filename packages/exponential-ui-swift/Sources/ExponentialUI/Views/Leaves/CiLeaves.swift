@@ -440,8 +440,7 @@ struct JobGraphLeaf: View {
     var body: some View {
         let p = cx.props
         let compact = p.flag("compact")
-        var geometry = JobGraph.geometry
-        let _ = geometry.rowHeight = Double(cx.control("row", 40))
+        let geometry = JobGraph.geometry
         let layout = JobGraph.layout(p["jobs"]?.any, compact: compact, geometry: geometry)
         Group {
             if compact {
