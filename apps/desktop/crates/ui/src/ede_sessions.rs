@@ -15,9 +15,9 @@
 //! - `stop`: the working sessions (the IDE's Stop, `sessions.stop` each);
 //! - `ask`: the waiting card the panel answers in place: a plan without
 //!   questions (`approved` / `rejected`), a single-choice question's options
-//!   (each its label as the answer); a card it cannot answer in place
-//!   (questions, a surface, several picks, a sealed card) has no options:
-//!   Open;
+//!   (each its label as the answer; the card read from the chat's rows,
+//!   a digest's card is cut); a card it cannot answer in place (questions,
+//!   a surface, several picks, a sealed card) has no options: Open;
 //! - `trace`: the working session's last [`TRACE_LINES`] tool lines, from
 //!   the chat store ([`trace_lines`]: steer's `trace_tool`, the transcript's
 //!   own titles).
@@ -189,7 +189,14 @@ pub(crate) fn gather(input: &IdeSidebarInput, needs: &[domain::needs_you::NeedsY
         let ask = needs.iter().find(|wait| wait.root_id == active.id && wait.kind != domain::needs_you::NeedsYouKind::Pr).map(|wait| {
             let kind = if wait.kind == domain::needs_you::NeedsYouKind::Plan { "plan" } else { "question" };
             let session_id = wait.session_id.clone();
-            let card = crate::session_data::digest_messages(cx, |id| id == session_id).into_iter().find(|message| message.id == wait.message_id).and_then(|message| message.card);
+            // The chat's own rows carry the whole card (a digest's is cut:
+            // no options); the digest's when the chat is not read yet.
+            let card = crate::chat_window::chat_messages(&wait.root_id, cx)
+                .rows
+                .iter()
+                .find(|message| message.id == wait.message_id)
+                .and_then(|message| message.card.clone())
+                .or_else(|| crate::session_data::digest_messages(cx, |id| id == session_id).into_iter().find(|message| message.id == wait.message_id).and_then(|message| message.card));
             ask_of(&wait.message_id, kind, &wait.title, card.as_ref())
         });
         if let Some(session) = lead.filter(|session| session.device_id.as_deref().is_some_and(|device| !device.is_empty())) {

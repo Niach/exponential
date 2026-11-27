@@ -84,7 +84,7 @@ fn every_selector_case_replays() {
                 }
                 "sessionArea" => {
                     let sessions: Vec<session_area::SessionAreaInput> = serde_json::from_value(case["args"]["sessions"].clone()).unwrap_or_else(|e| panic!("{name}: sessions: {e}"));
-                    json!(session_area::session_area(&sessions))
+                    json!(session_area::session_area(&sessions, case["args"]["room"].as_u64().map(|r| r as usize)))
                 }
                 other => panic!("unknown selector {other}"),
             };

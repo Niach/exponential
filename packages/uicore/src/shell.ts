@@ -870,8 +870,8 @@ const AREA = fixture.sessionArea
 
 const sessionIcon = (agent: string | null): string => (agent === `codex` ? `brand-codex` : agent === `claude` ? `brand-claude` : `action-chat`)
 
-/** #EDE-239: the taskbar's session area over the holder's `sessions`: the first `chipsMax` as chips (the band's order), the rest a count; every session a row of the panel. */
-export function sessionArea(sessions: SessionAreaInput[]): SessionArea {
+/** #EDE-239: the taskbar's session area over the holder's `sessions`: the first `chipsMax` (or the host's `room`, at least 1) as chips (the band's order), the rest a count; every session a row of the panel. */
+export function sessionArea(sessions: SessionAreaInput[], room: number = AREA.chipsMax): SessionArea {
   const rows = sessions.map((s): SessionAreaRow => {
     const title = s.title.trim() || AREA.copy.untitled
     const agent = s.agent ? (AREA.copy.agents as Record<string, string>)[s.agent] ?? null : null
@@ -911,6 +911,6 @@ export function sessionArea(sessions: SessionAreaInput[]): SessionArea {
       key: s.key,
     }
   })
-  const chips = rows.slice(0, AREA.chipsMax).map((r) => ({ id: r.id, title: r.title, icon: r.icon, running: r.running, needs: r.needs }))
+  const chips = rows.slice(0, Math.max(1, Math.min(room, AREA.chipsMax))).map((r) => ({ id: r.id, title: r.title, icon: r.icon, running: r.running, needs: r.needs }))
   return { count: rows.length, needs: rows.filter((r) => r.needs).length, chips, more: rows.length - chips.length, rows }
 }

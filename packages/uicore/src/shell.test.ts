@@ -100,7 +100,7 @@ describe(`shell.json selectors`, () => {
 })
 
 describe(`shell.json sessionArea (#EDE-239)`, () => {
-  for (const c of fixture.selectors.sessionArea) test(c.name, () => expect(sessionArea(c.args.sessions as SessionAreaInput[])).toEqual(c.expected as SessionArea))
+  for (const c of fixture.selectors.sessionArea) test(c.name, () => expect(sessionArea(c.args.sessions as SessionAreaInput[], (c.args as { room?: number }).room)).toEqual(c.expected as SessionArea))
 })
 
 describe(`shell.json chats (#EDE-65)`, () => {

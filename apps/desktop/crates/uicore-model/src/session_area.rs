@@ -139,8 +139,9 @@ fn session_icon(agent: Option<&str>) -> &'static str {
 
 /// The taskbar's session area over the holder's `sessions`: the first
 /// `chipsMax` as chips (the band's order), the rest a count; every session
-/// a row of the panel.
-pub fn session_area(sessions: &[SessionAreaInput]) -> SessionArea {
+/// a row of the panel. `room`: the chips a narrow output has room for
+/// (at least one, never more than `chipsMax`).
+pub fn session_area(sessions: &[SessionAreaInput], room: Option<usize>) -> SessionArea {
     let spec = spec();
     let copy = &spec.copy;
     let rows: Vec<SessionAreaRow> = sessions
@@ -211,7 +212,7 @@ pub fn session_area(sessions: &[SessionAreaInput]) -> SessionArea {
         .collect();
     let chips: Vec<SessionAreaChip> = rows
         .iter()
-        .take(spec.chips_max)
+        .take(room.unwrap_or(spec.chips_max).clamp(1, spec.chips_max))
         .map(|r| SessionAreaChip { id: r.id.clone(), title: r.title.clone(), icon: r.icon.clone(), running: r.running, needs: r.needs })
         .collect();
     SessionArea { count: rows.len(), needs: rows.iter().filter(|r| r.needs).count(), more: rows.len() - chips.len(), chips, rows }

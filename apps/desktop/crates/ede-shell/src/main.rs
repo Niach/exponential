@@ -2204,7 +2204,7 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
         let value = decorate_shell(&s, value);
         s.feed.set("/shell", value);
         // #EDE-239: the taskbar's session area over the holder's sessions.
-        let sessions = sessions_area::feed(&s.holder_feeds);
+        let sessions = sessions_area::feed(&s.holder_feeds, popup_output_size(&s).0);
         s.feed.set("/sessions", sessions);
     }
     refresh(shell, cx);

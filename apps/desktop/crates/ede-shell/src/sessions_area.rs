@@ -14,11 +14,21 @@ use serde_json::{json, Value};
 
 use crate::holder_feeds::HolderFeeds;
 
-/// `/sessions` from the holder's feeds.
-pub fn feed(feeds: &HolderFeeds) -> Value {
+/// The chips an output `width` px wide has room for beside the window list
+/// and the status icons (Cinnamon's panel shrinks its applets the same way).
+pub fn room(width: u32) -> usize {
+    match width {
+        0..1100 => 1,
+        1100..1500 => 2,
+        _ => 3,
+    }
+}
+
+/// `/sessions` from the holder's feeds, on an output `width` px wide.
+pub fn feed(feeds: &HolderFeeds, width: u32) -> Value {
     let sessions: Vec<uicore_model::session_area::SessionAreaInput> =
         feeds.feeds["sessions"].as_array().into_iter().flatten().filter_map(|s| serde_json::from_value(s.clone()).ok()).collect();
-    let area = uicore_model::session_area::session_area(&sessions);
+    let area = uicore_model::session_area::session_area(&sessions, Some(room(width)));
     let mut value = serde_json::to_value(&area).unwrap_or(Value::Null);
     value["moreLabel"] = json!(format!("+{}", area.more));
     value
@@ -97,14 +107,18 @@ mod tests {
     #[test]
     fn the_feed_is_the_selector_with_its_labels() {
         let feeds = HolderFeeds { feeds: json!({"sessions": demo()}) };
-        let value = feed(&feeds);
+        let value = feed(&feeds, 1920);
         assert_eq!(value["count"], 4);
         assert_eq!(value["needs"], 1);
         assert_eq!(value["chips"].as_array().unwrap().len(), 3);
         assert_eq!((value["more"].as_u64(), value["moreLabel"].as_str()), (Some(1), Some("+1")));
         assert_eq!(value["rows"][1]["actions"][0]["label"], "Allow");
         assert_eq!(value["rows"][0]["subtitle"], "Claude · Feedback · mint");
-        assert_eq!(feed(&HolderFeeds::default())["count"], 0, "no holder: no area");
+        assert_eq!(feed(&HolderFeeds::default(), 1920)["count"], 0, "no holder: no area");
+        // #EDE-259's 854 px output: one chip, the rest a count.
+        let narrow = feed(&feeds, 854);
+        assert_eq!((narrow["chips"].as_array().unwrap().len(), narrow["moreLabel"].as_str()), (1, Some("+3")));
+        assert_eq!((room(1280), room(1920)), (2, 3));
     }
 
     #[test]
