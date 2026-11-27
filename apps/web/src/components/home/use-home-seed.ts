@@ -10,6 +10,7 @@ import { clearPendingShare, loadPendingShare, shareChatSeed } from "@/lib/share/
 //   issues  csv of issue ids (chips; 2+ = a batch)
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft
+//   repo    #EXP-2172: the repository to pick (a team's; Fix with an agent)
 //   share   EXP-1635: the pending share (`lib/share/pending-share.ts`) lands
 //           in the composer, the agent row on this pick; nothing is sent
 
@@ -21,7 +22,7 @@ export function useHomeSeed(
     () => seedFromSearch(search),
     // Field-wise: the search object's identity is the router's business.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [search.issues, search.device, search.text]
+    [search.issues, search.device, search.text, search.repo]
   )
   // Held here after the URL keys are stripped, handed to the composer,
   // cleared once it reports consumption.

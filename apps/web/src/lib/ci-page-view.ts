@@ -176,7 +176,8 @@ function runsPanel(input: CiPageInput, state: CiPageState): NestedNode {
           ],
         },
       },
-      on: { rowPress: { event: { name: CI_PAGE_EVENTS.openRun } } },
+      // The pressed row's id (a rowPress action reads relative paths in the row).
+      on: { rowPress: { event: { name: CI_PAGE_EVENTS.openRun, context: { run: { "@path": `id` } } } } },
     })
   }
   return { id: `${CI_PAGE_TEST_IDS.page}.runs`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children }

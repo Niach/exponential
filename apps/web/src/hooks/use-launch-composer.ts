@@ -461,6 +461,9 @@ export function useLaunchComposer({
   // The default repository, seeded once per team: a team change waits for
   // that team's list (never the previous team's stale one).
   const repoSeed = useRef<{ team: string; stale: ChatRepoOption[] | null; done: boolean } | null>(null)
+  // #EXP-2172: a seeded repository (Fix with an agent) wins over the
+  // default once its team's list holds it.
+  const seededRepo = useRef<string | null>(null)
   useEffect(() => {
     if (repoSeed.current?.team !== effectiveTeamId) {
       const first = repoSeed.current === null
@@ -470,7 +473,8 @@ export function useLaunchComposer({
     const latch = repoSeed.current
     if (latch.done || !repos || repos === latch.stale) return
     latch.done = true
-    setRepoId(defaultChatRepoId(repos))
+    const wanted = seededRepo.current
+    setRepoId(wanted && repos.some((repo) => repo.id === wanted) ? wanted : defaultChatRepoId(repos))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos, effectiveTeamId])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
@@ -643,6 +647,10 @@ export function useLaunchComposer({
     }
     // EXP-836: an explicit machine is a REQUEST that outranks the default.
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
+    if (seed.repositoryId) {
+      seededRepo.current = seed.repositoryId
+      if (repos?.some((repo) => repo.id === seed.repositoryId)) setRepoId(seed.repositoryId)
+    }
     // The text lands only in an EMPTY draft: a seed never stomps typing.
     const seededText = seed.text && !text.trim() ? seed.text : text
     // Only a seed that brings text edits the field (an edit of the untouched
