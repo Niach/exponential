@@ -1,5 +1,5 @@
 {
- "$comment": "#EXP-2172 (the approved redesign, session 64abb994) THE CI PAGE AS ONE genUI TREE, the same on every platform (ci-page.json says what; this pins HOW, node for node). A case: `world` (`scenario` = ci-page.json's scenario; `empty` = it without runs, jobs, pull requests and runners), `tab` (runs | train | runners), `filter` {status, repositoryId, source} (null = All), `phone` → `tree` (A2UI nested nodes: id, component, props, children, slots, on). Only the current tab's panel is built (the others are empty stacks); the platform adds its own page chrome (title, back) and maps the events: ci-tab / ci-filter-status / ci-filter-repo / ci-filter-source carry the control's value (`all` = no filter), ci-open-run {run} (the Table's rowPress context binds `id` relative to the pressed row), ci-open-pr {pr}, ci-open-runner {device}, ci-open-runners (the runner Chip: opens the Runners tab). The runner row's offline meta is a `fill` + `formatRelativeTime` call the renderer evaluates. The reference is apps/web/src/lib/ci-page-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-page-view.ts` and review the diff. #EXP-2169 (\"one look\", Danny 2026-11-27: the CI and repo pages looked unlike the rest of the app): the tab strip is `Tabs{pill}` (the repo page's and the board's view switcher), the filter bar ONE `Toolbar` of three `Select{triggerVariant: button}` pickers (status `copy.filterLabels.status` over copy.filters, repository, source; the old Segmented + pill Selects are gone) with the runner `Chip` as its trailing slot on wide only; a case with a `repositoryId` (no tab, no filter) is THE REPO PAGE'S RUNS TAB (`ciRepoRunsTree`): that repository's runs in the Runs tab's day Sections and rows, no filter bar, its EmptyState `copy.empty.runs`; every platform's repo page builds it from its CI page data.",
+ "$comment": "#EXP-2172 (the approved redesign, session 64abb994) THE CI PAGE AS ONE genUI TREE, the same on every platform (ci-page.json says what; this pins HOW, node for node). A case: `world` (`scenario` = ci-page.json's scenario; `empty` = it without runs, jobs, pull requests and runners), `tab` (runs | train | runners), `filter` {status, repositoryId, source} (null = All), `phone` → `tree` (A2UI nested nodes: id, component, props, children, slots, on). the platform adds its own page chrome (title, back) and maps the events: ci-tab / ci-filter-status / ci-filter-repo / ci-filter-source carry the control's value (`all` = no filter), ci-open-run {run} (the Table's rowPress context binds `id` relative to the pressed row), ci-open-pr {pr}, ci-open-runner {device}, ci-open-runners (the runner Chip: opens the Runners tab). The runner row's offline meta is a `fill` + `formatRelativeTime` call the renderer evaluates. The reference is apps/web/src/lib/ci-page-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-page-view.ts` and review the diff. #EXP-2169 (\"one look\", Danny 2026-11-27: the CI and repo pages looked unlike the rest of the app): the tree is the CURRENT tab's panel only: the tab switcher is THE platform's own segmented control above it (the board's and the repo page's switcher; each count from `ciTabCounts` after its label, muted; Runs has none), the filter bar ONE `Toolbar` of three `Select{triggerVariant: button}` pickers (status `copy.filterLabels.status` over copy.filters, repository, source; the old Segmented + pill Selects are gone) with the runner `Chip` as its trailing slot on wide only; a case with a `repositoryId` (no tab, no filter) is THE REPO PAGE'S RUNS TAB (`ciRepoRunsTree`): that repository's runs in the Runs tab's day Sections and rows, no filter bar, its EmptyState `copy.empty.runs`; every platform's repo page builds it from its CI page data.",
  "cases": [
   {
    "name": "wide, Runs, everything",
@@ -12,1008 +12,944 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.runs",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
+      "id": "ci-filters",
+      "component": "Toolbar",
+      "children": [
+       {
+        "id": "ci-filter-status",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-status",
+         "label": "Status",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All runs",
+           "value": "all"
+          },
+          {
+           "label": "Running",
+           "value": "running"
+          },
+          {
+           "label": "Failed",
+           "value": "failed"
+          },
+          {
+           "label": "Mine",
+           "value": "mine"
+          }
+         ]
         },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-status"
+          }
+         }
         }
-       ],
-       "value": "runs",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
+       },
+       {
+        "id": "ci-filter-repo",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-repo",
+         "label": "Repository",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All repositories",
+           "value": "all"
+          },
+          {
+           "label": "Repository",
+           "value": "repo-gone"
+          },
+          {
+           "label": "acme/engine",
+           "value": "repo-engine"
+          },
+          {
+           "label": "acme/mobile",
+           "value": "repo-mobile"
+          },
+          {
+           "label": "acme/site",
+           "value": "repo-site"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-repo"
+          }
+         }
+        }
+       },
+       {
+        "id": "ci-filter-source",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-source",
+         "label": "Source",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "Every source",
+           "value": "all"
+          },
+          {
+           "label": "Exponential",
+           "value": "exponential"
+          },
+          {
+           "label": "GitHub Actions",
+           "value": "github"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-source"
+          }
+         }
         }
        }
+      ],
+      "slots": {
+       "trailing": {
+        "id": "ci-runner-chip",
+        "component": "Chip",
+        "props": {
+         "label": "2 of 3 runners",
+         "dot": "$color.success",
+         "pressable": true
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-runners"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "ci-runs",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "md",
+       "align": "stretch"
       },
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-runs.in-progress",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "In progress",
+         "count": 3
         },
         "children": [
          {
-          "id": "ci-filters",
-          "component": "Toolbar",
-          "children": [
-           {
-            "id": "ci-filter-status",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-status",
-             "label": "Status",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All runs",
-               "value": "all"
-              },
-              {
-               "label": "Running",
-               "value": "running"
-              },
-              {
-               "label": "Failed",
-               "value": "failed"
-              },
-              {
-               "label": "Mine",
-               "value": "mine"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-status"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-repo",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-repo",
-             "label": "Repository",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All repositories",
-               "value": "all"
-              },
-              {
-               "label": "Repository",
-               "value": "repo-gone"
-              },
-              {
-               "label": "acme/engine",
-               "value": "repo-engine"
-              },
-              {
-               "label": "acme/mobile",
-               "value": "repo-mobile"
-              },
-              {
-               "label": "acme/site",
-               "value": "repo-site"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-repo"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-source",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-source",
-             "label": "Source",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "Every source",
-               "value": "all"
-              },
-              {
-               "label": "Exponential",
-               "value": "exponential"
-              },
-              {
-               "label": "GitHub Actions",
-               "value": "github"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-source"
-              }
-             }
-            }
-           }
-          ],
+          "id": "ci-run-row.g1207",
+          "component": "Row",
+          "props": {
+           "title": "Bump the widget to 2.4.1",
+           "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+           "pressable": true
+          },
           "slots": {
-           "trailing": {
-            "id": "ci-runner-chip",
-            "component": "Chip",
+           "leading": {
+            "id": "ci-run-row.g1207.glyph",
+            "component": "Icon",
             "props": {
-             "label": "2 of 3 runners",
-             "dot": "$color.success",
-             "pressable": true
+             "name": "ci-queued",
+             "tone": "neutral",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.g1207.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
             },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-runners"
+            "children": [
+             {
+              "id": "ci-run-row.g1207.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{queued} · {age}",
+                 "params": {
+                  "queued": "waiting for a runner",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T10:29:00.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
               }
+             },
+             {
+              "id": "ci-run-row.g1207.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "GitHub Actions"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.g1207.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "github",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "GitHub Actions"
+                }
+               }
+              ]
+             },
+             {
+              "id": "ci-run-row.g1207.author",
+              "component": "Avatar",
+              "props": {
+               "name": "Mara Lind",
+               "seed": "u-me",
+               "size": "sm"
+              }
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g1207"
              }
             }
            }
           }
          },
          {
-          "id": "ci-runs",
-          "component": "Stack",
+          "id": "ci-run-row.r91",
+          "component": "Row",
           "props": {
-           "direction": "vertical",
-           "gap": "md",
-           "align": "stretch"
+           "title": "Testing #211, #212, #213 together",
+           "subtitle": "Merge train #91 · engine · main · 3db841e · Merge train",
+           "pressable": true
           },
-          "children": [
-           {
-            "id": "ci-runs.in-progress",
-            "component": "Section",
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r91.glyph",
+            "component": "Icon",
             "props": {
-             "title": "In progress",
-             "count": 3
-            },
-            "children": [
-             {
-              "id": "ci-run-row.g1207",
-              "component": "Row",
-              "props": {
-               "title": "Bump the widget to 2.4.1",
-               "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g1207.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-queued",
-                 "tone": "neutral",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.g1207.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.g1207.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{queued} · {age}",
-                     "params": {
-                      "queued": "waiting for a runner",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T10:29:00.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.g1207.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "GitHub Actions"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.g1207.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "github",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "GitHub Actions"
-                    }
-                   }
-                  ]
-                 },
-                 {
-                  "id": "ci-run-row.g1207.author",
-                  "component": "Avatar",
-                  "props": {
-                   "name": "Mara Lind",
-                   "seed": "u-me",
-                   "size": "sm"
-                  }
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g1207"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r91",
-              "component": "Row",
-              "props": {
-               "title": "Testing #211, #212, #213 together",
-               "subtitle": "Merge train #91 · engine · main · 3db841e · Merge train",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r91.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-running",
-                 "tone": "info",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.r91.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.r91.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "1m 40s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T10:28:20.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.r91.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "Exponential"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.r91.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "brand-exponential",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "Exponential"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r91"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r483",
-              "component": "Row",
-              "props": {
-               "title": "Repack once per push, not per ref",
-               "subtitle": "gate #483 · engine · exp/APP-32 · 82aa98f · Pull request #214",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r483.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-running",
-                 "tone": "info",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.r483.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.r483.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "3m 12s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T10:26:48.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.r483.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "Exponential"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.r483.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "brand-exponential",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "Exponential"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r483"
-                 }
-                }
-               }
-              }
-             }
-            ]
+             "name": "ci-running",
+             "tone": "info",
+             "size": "sm"
+            }
            },
-           {
-            "id": "ci-runs.2026-11-27",
-            "component": "Section",
+           "trailing": {
+            "id": "ci-run-row.r91.trailing",
+            "component": "Stack",
             "props": {
-             "title": "Today"
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
             },
             "children": [
              {
-              "id": "ci-run-row.r482",
-              "component": "Row",
+              "id": "ci-run-row.r91.meta",
+              "component": "Text",
               "props": {
-               "title": "Mirror prunes deleted branches",
-               "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r482.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-failed",
-                 "tone": "danger",
-                 "size": "sm"
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "1m 40s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T10:28:20.000Z"
+                   }
+                  }
+                 }
                 }
                },
-               "trailing": {
-                "id": "ci-run-row.r482.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.r482.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "12m 40s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T09:59:20.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.r482.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "Exponential"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.r482.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "brand-exponential",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "Exponential"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r482"
-                 }
-                }
-               }
+               "variant": "muted"
               }
              },
              {
-              "id": "ci-run-row.g1206",
-              "component": "Row",
+              "id": "ci-run-row.r91.source",
+              "component": "Tooltip",
               "props": {
-               "title": "Offline queue survives a cold start",
-               "subtitle": "test #1206 · mobile · main · 595747d · Push",
-               "pressable": true
+               "content": "Exponential"
               },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g1206.glyph",
+              "children": [
+               {
+                "id": "ci-run-row.r91.source.icon",
                 "component": "Icon",
                 "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.g1206.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.g1206.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "7m 6s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T09:22:54.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.g1206.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "GitHub Actions"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.g1206.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "github",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "GitHub Actions"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g1206"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.g58",
-              "component": "Row",
-              "props": {
-               "title": "Pricing page copy, take two",
-               "subtitle": "deploy #58 · site · main · d891921 · Push",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g58.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.g58.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.g58.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "2m 3s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T08:27:57.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.g58.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "GitHub Actions"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.g58.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "github",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "GitHub Actions"
-                    }
-                   }
-                  ]
-                 },
-                 {
-                  "id": "ci-run-row.g58.author",
-                  "component": "Avatar",
-                  "props": {
-                   "name": "Mara Lind",
-                   "seed": "u-me",
-                   "size": "sm"
-                  }
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g58"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r481",
-              "component": "Row",
-              "props": {
-               "title": "Repack once per push, not per ref",
-               "subtitle": "gate #481 · engine · exp/APP-32 · 463ba59 · Pull request #214",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r481.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-skipped",
+                 "name": "brand-exponential",
+                 "size": "sm",
                  "tone": "neutral",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.r481.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.r481.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "24s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T07:30:00.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.r481.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "Exponential"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.r481.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "brand-exponential",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "Exponential"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r481"
-                 }
+                 "label": "Exponential"
                 }
                }
-              }
-             },
-             {
-              "id": "ci-run-row.r480",
-              "component": "Row",
-              "props": {
-               "title": "nightly",
-               "subtitle": "nightly #480 · Repository · — · a8042be · Schedule",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r480.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.r480.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.r480.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "14m 12s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-27T01:30:00.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.r480.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "Exponential"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.r480.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "brand-exponential",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "Exponential"
-                    }
-                   }
-                  ]
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r480"
-                 }
-                }
-               }
-              }
-             }
-            ]
-           },
-           {
-            "id": "ci-runs.2026-11-26",
-            "component": "Section",
-            "props": {
-             "title": "Yesterday"
-            },
-            "children": [
-             {
-              "id": "ci-run-row.g57",
-              "component": "Row",
-              "props": {
-               "title": "Pricing page copy",
-               "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g57.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-failed",
-                 "tone": "danger",
-                 "size": "sm"
-                }
-               },
-               "trailing": {
-                "id": "ci-run-row.g57.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.g57.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "2m 3s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-26T08:27:57.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.g57.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "GitHub Actions"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.g57.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "github",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "GitHub Actions"
-                    }
-                   }
-                  ]
-                 },
-                 {
-                  "id": "ci-run-row.g57.author",
-                  "component": "Avatar",
-                  "props": {
-                   "name": "Mara Lind",
-                   "seed": "u-me",
-                   "size": "sm"
-                  }
-                 }
-                ]
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g57"
-                 }
-                }
-               }
-              }
+              ]
              }
             ]
            }
-          ]
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r91"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r483",
+          "component": "Row",
+          "props": {
+           "title": "Repack once per push, not per ref",
+           "subtitle": "gate #483 · engine · exp/APP-32 · 82aa98f · Pull request #214",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r483.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-running",
+             "tone": "info",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.r483.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.r483.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "3m 12s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T10:26:48.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.r483.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "Exponential"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.r483.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "brand-exponential",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "Exponential"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r483"
+             }
+            }
+           }
+          }
          }
         ]
        },
        {
-        "id": "ci-page.train",
-        "component": "Stack",
+        "id": "ci-runs.2026-11-27",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "Today"
         },
-        "children": []
+        "children": [
+         {
+          "id": "ci-run-row.r482",
+          "component": "Row",
+          "props": {
+           "title": "Mirror prunes deleted branches",
+           "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r482.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-failed",
+             "tone": "danger",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.r482.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.r482.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "12m 40s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T09:59:20.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.r482.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "Exponential"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.r482.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "brand-exponential",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "Exponential"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r482"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.g1206",
+          "component": "Row",
+          "props": {
+           "title": "Offline queue survives a cold start",
+           "subtitle": "test #1206 · mobile · main · 595747d · Push",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g1206.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.g1206.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.g1206.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "7m 6s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T09:22:54.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.g1206.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "GitHub Actions"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.g1206.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "github",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "GitHub Actions"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g1206"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.g58",
+          "component": "Row",
+          "props": {
+           "title": "Pricing page copy, take two",
+           "subtitle": "deploy #58 · site · main · d891921 · Push",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g58.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.g58.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.g58.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "2m 3s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T08:27:57.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.g58.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "GitHub Actions"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.g58.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "github",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "GitHub Actions"
+                }
+               }
+              ]
+             },
+             {
+              "id": "ci-run-row.g58.author",
+              "component": "Avatar",
+              "props": {
+               "name": "Mara Lind",
+               "seed": "u-me",
+               "size": "sm"
+              }
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g58"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r481",
+          "component": "Row",
+          "props": {
+           "title": "Repack once per push, not per ref",
+           "subtitle": "gate #481 · engine · exp/APP-32 · 463ba59 · Pull request #214",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r481.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-skipped",
+             "tone": "neutral",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.r481.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.r481.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "24s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T07:30:00.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.r481.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "Exponential"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.r481.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "brand-exponential",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "Exponential"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r481"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r480",
+          "component": "Row",
+          "props": {
+           "title": "nightly",
+           "subtitle": "nightly #480 · Repository · — · a8042be · Schedule",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r480.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.r480.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.r480.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "14m 12s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-27T01:30:00.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.r480.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "Exponential"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.r480.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "brand-exponential",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "Exponential"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r480"
+             }
+            }
+           }
+          }
+         }
+        ]
        },
        {
-        "id": "ci-page.runners",
-        "component": "Stack",
+        "id": "ci-runs.2026-11-26",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "Yesterday"
         },
-        "children": []
+        "children": [
+         {
+          "id": "ci-run-row.g57",
+          "component": "Row",
+          "props": {
+           "title": "Pricing page copy",
+           "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g57.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-failed",
+             "tone": "danger",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.g57.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-run-row.g57.meta",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "2m 3s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-26T08:27:57.000Z"
+                   }
+                  }
+                 }
+                }
+               },
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.g57.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "GitHub Actions"
+              },
+              "children": [
+               {
+                "id": "ci-run-row.g57.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "github",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "GitHub Actions"
+                }
+               }
+              ]
+             },
+             {
+              "id": "ci-run-row.g57.author",
+              "component": "Avatar",
+              "props": {
+               "name": "Mara Lind",
+               "seed": "u-me",
+               "size": "sm"
+              }
+             }
+            ]
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g57"
+             }
+            }
+           }
+          }
+         }
+        ]
        }
       ]
      }
@@ -1031,504 +967,440 @@
    },
    "phone": true,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.runs",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
+      "id": "ci-filters",
+      "component": "Toolbar",
+      "children": [
+       {
+        "id": "ci-filter-status",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-status",
+         "label": "Status",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All runs",
+           "value": "all"
+          },
+          {
+           "label": "Running",
+           "value": "running"
+          },
+          {
+           "label": "Failed",
+           "value": "failed"
+          },
+          {
+           "label": "Mine",
+           "value": "mine"
+          }
+         ]
         },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-status"
+          }
+         }
         }
-       ],
-       "value": "runs",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
+       },
+       {
+        "id": "ci-filter-repo",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-repo",
+         "label": "Repository",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All repositories",
+           "value": "all"
+          },
+          {
+           "label": "Repository",
+           "value": "repo-gone"
+          },
+          {
+           "label": "acme/engine",
+           "value": "repo-engine"
+          },
+          {
+           "label": "acme/mobile",
+           "value": "repo-mobile"
+          },
+          {
+           "label": "acme/site",
+           "value": "repo-site"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-repo"
+          }
+         }
+        }
+       },
+       {
+        "id": "ci-filter-source",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-source",
+         "label": "Source",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "Every source",
+           "value": "all"
+          },
+          {
+           "label": "Exponential",
+           "value": "exponential"
+          },
+          {
+           "label": "GitHub Actions",
+           "value": "github"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-source"
+          }
+         }
         }
        }
+      ]
+     },
+     {
+      "id": "ci-runs",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "md",
+       "align": "stretch"
       },
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-runs.in-progress",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "In progress",
+         "count": 3
         },
         "children": [
          {
-          "id": "ci-filters",
-          "component": "Toolbar",
-          "children": [
-           {
-            "id": "ci-filter-status",
-            "component": "Select",
+          "id": "ci-run-row.g1207",
+          "component": "Row",
+          "props": {
+           "title": "Bump the widget to 2.4.1",
+           "subtitle": "mobile · release/2.4 · build-ios #1207",
+           "meta": "queued",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g1207.glyph",
+            "component": "Icon",
             "props": {
-             "name": "ci-filter-status",
-             "label": "Status",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All runs",
-               "value": "all"
-              },
-              {
-               "label": "Running",
-               "value": "running"
-              },
-              {
-               "label": "Failed",
-               "value": "failed"
-              },
-              {
-               "label": "Mine",
-               "value": "mine"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-status"
-              }
-             }
+             "name": "ci-queued",
+             "tone": "neutral",
+             "size": "sm"
             }
-           },
-           {
-            "id": "ci-filter-repo",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-repo",
-             "label": "Repository",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All repositories",
-               "value": "all"
-              },
-              {
-               "label": "Repository",
-               "value": "repo-gone"
-              },
-              {
-               "label": "acme/engine",
-               "value": "repo-engine"
-              },
-              {
-               "label": "acme/mobile",
-               "value": "repo-mobile"
-              },
-              {
-               "label": "acme/site",
-               "value": "repo-site"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-repo"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-source",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-source",
-             "label": "Source",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "Every source",
-               "value": "all"
-              },
-              {
-               "label": "Exponential",
-               "value": "exponential"
-              },
-              {
-               "label": "GitHub Actions",
-               "value": "github"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-source"
-              }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g1207"
              }
             }
            }
-          ]
+          }
          },
          {
-          "id": "ci-runs",
-          "component": "Stack",
+          "id": "ci-run-row.r91",
+          "component": "Row",
           "props": {
-           "direction": "vertical",
-           "gap": "md",
-           "align": "stretch"
+           "title": "Testing #211, #212, #213 together",
+           "subtitle": "engine · main · Merge train #91",
+           "meta": "1m 40s",
+           "pressable": true
           },
-          "children": [
-           {
-            "id": "ci-runs.in-progress",
-            "component": "Section",
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r91.glyph",
+            "component": "Icon",
             "props": {
-             "title": "In progress",
-             "count": 3
-            },
-            "children": [
-             {
-              "id": "ci-run-row.g1207",
-              "component": "Row",
-              "props": {
-               "title": "Bump the widget to 2.4.1",
-               "subtitle": "mobile · release/2.4 · build-ios #1207",
-               "meta": "queued",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g1207.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-queued",
-                 "tone": "neutral",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g1207"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r91",
-              "component": "Row",
-              "props": {
-               "title": "Testing #211, #212, #213 together",
-               "subtitle": "engine · main · Merge train #91",
-               "meta": "1m 40s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r91.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-running",
-                 "tone": "info",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r91"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r483",
-              "component": "Row",
-              "props": {
-               "title": "Repack once per push, not per ref",
-               "subtitle": "engine · exp/APP-32 · gate #483",
-               "meta": "3m 12s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r483.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-running",
-                 "tone": "info",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r483"
-                 }
-                }
-               }
-              }
-             }
-            ]
-           },
-           {
-            "id": "ci-runs.2026-11-27",
-            "component": "Section",
-            "props": {
-             "title": "Today"
-            },
-            "children": [
-             {
-              "id": "ci-run-row.r482",
-              "component": "Row",
-              "props": {
-               "title": "Mirror prunes deleted branches",
-               "subtitle": "engine · exp/APP-33 · gate #482",
-               "meta": "12m 40s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r482.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-failed",
-                 "tone": "danger",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r482"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.g1206",
-              "component": "Row",
-              "props": {
-               "title": "Offline queue survives a cold start",
-               "subtitle": "mobile · main · test #1206",
-               "meta": "7m 6s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g1206.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g1206"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.g58",
-              "component": "Row",
-              "props": {
-               "title": "Pricing page copy, take two",
-               "subtitle": "site · main · deploy #58",
-               "meta": "2m 3s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g58.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g58"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r481",
-              "component": "Row",
-              "props": {
-               "title": "Repack once per push, not per ref",
-               "subtitle": "engine · exp/APP-32 · gate #481",
-               "meta": "24s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r481.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-skipped",
-                 "tone": "neutral",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r481"
-                 }
-                }
-               }
-              }
-             },
-             {
-              "id": "ci-run-row.r480",
-              "component": "Row",
-              "props": {
-               "title": "nightly",
-               "subtitle": "Repository · — · nightly #480",
-               "meta": "14m 12s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.r480.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-passed",
-                 "tone": "success",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r480"
-                 }
-                }
-               }
-              }
-             }
-            ]
-           },
-           {
-            "id": "ci-runs.2026-11-26",
-            "component": "Section",
-            "props": {
-             "title": "Yesterday"
-            },
-            "children": [
-             {
-              "id": "ci-run-row.g57",
-              "component": "Row",
-              "props": {
-               "title": "Pricing page copy",
-               "subtitle": "site · main · deploy #57",
-               "meta": "2m 3s",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g57.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-failed",
-                 "tone": "danger",
-                 "size": "sm"
-                }
-               }
-              },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g57"
-                 }
-                }
-               }
-              }
-             }
-            ]
+             "name": "ci-running",
+             "tone": "info",
+             "size": "sm"
+            }
            }
-          ]
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r91"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r483",
+          "component": "Row",
+          "props": {
+           "title": "Repack once per push, not per ref",
+           "subtitle": "engine · exp/APP-32 · gate #483",
+           "meta": "3m 12s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r483.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-running",
+             "tone": "info",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r483"
+             }
+            }
+           }
+          }
          }
         ]
        },
        {
-        "id": "ci-page.train",
-        "component": "Stack",
+        "id": "ci-runs.2026-11-27",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "Today"
         },
-        "children": []
+        "children": [
+         {
+          "id": "ci-run-row.r482",
+          "component": "Row",
+          "props": {
+           "title": "Mirror prunes deleted branches",
+           "subtitle": "engine · exp/APP-33 · gate #482",
+           "meta": "12m 40s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r482.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-failed",
+             "tone": "danger",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r482"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.g1206",
+          "component": "Row",
+          "props": {
+           "title": "Offline queue survives a cold start",
+           "subtitle": "mobile · main · test #1206",
+           "meta": "7m 6s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g1206.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g1206"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.g58",
+          "component": "Row",
+          "props": {
+           "title": "Pricing page copy, take two",
+           "subtitle": "site · main · deploy #58",
+           "meta": "2m 3s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g58.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g58"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r481",
+          "component": "Row",
+          "props": {
+           "title": "Repack once per push, not per ref",
+           "subtitle": "engine · exp/APP-32 · gate #481",
+           "meta": "24s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r481.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-skipped",
+             "tone": "neutral",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r481"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-row.r480",
+          "component": "Row",
+          "props": {
+           "title": "nightly",
+           "subtitle": "Repository · — · nightly #480",
+           "meta": "14m 12s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.r480.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-passed",
+             "tone": "success",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "r480"
+             }
+            }
+           }
+          }
+         }
+        ]
        },
        {
-        "id": "ci-page.runners",
-        "component": "Stack",
+        "id": "ci-runs.2026-11-26",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "Yesterday"
         },
-        "children": []
+        "children": [
+         {
+          "id": "ci-run-row.g57",
+          "component": "Row",
+          "props": {
+           "title": "Pricing page copy",
+           "subtitle": "site · main · deploy #57",
+           "meta": "2m 3s",
+           "pressable": true
+          },
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g57.glyph",
+            "component": "Icon",
+            "props": {
+             "name": "ci-failed",
+             "tone": "danger",
+             "size": "sm"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g57"
+             }
+            }
+           }
+          }
+         }
+        ]
        }
       ]
      }
@@ -1546,315 +1418,251 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.runs",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
+      "id": "ci-filters",
+      "component": "Toolbar",
+      "children": [
+       {
+        "id": "ci-filter-status",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-status",
+         "label": "Status",
+         "triggerVariant": "button",
+         "value": "failed",
+         "options": [
+          {
+           "label": "All runs",
+           "value": "all"
+          },
+          {
+           "label": "Running",
+           "value": "running"
+          },
+          {
+           "label": "Failed",
+           "value": "failed"
+          },
+          {
+           "label": "Mine",
+           "value": "mine"
+          }
+         ]
         },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-status"
+          }
+         }
         }
-       ],
-       "value": "runs",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
+       },
+       {
+        "id": "ci-filter-repo",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-repo",
+         "label": "Repository",
+         "triggerVariant": "button",
+         "value": "repo-site",
+         "options": [
+          {
+           "label": "All repositories",
+           "value": "all"
+          },
+          {
+           "label": "Repository",
+           "value": "repo-gone"
+          },
+          {
+           "label": "acme/engine",
+           "value": "repo-engine"
+          },
+          {
+           "label": "acme/mobile",
+           "value": "repo-mobile"
+          },
+          {
+           "label": "acme/site",
+           "value": "repo-site"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-repo"
+          }
+         }
+        }
+       },
+       {
+        "id": "ci-filter-source",
+        "component": "Select",
+        "props": {
+         "name": "ci-filter-source",
+         "label": "Source",
+         "triggerVariant": "button",
+         "value": "github",
+         "options": [
+          {
+           "label": "Every source",
+           "value": "all"
+          },
+          {
+           "label": "Exponential",
+           "value": "exponential"
+          },
+          {
+           "label": "GitHub Actions",
+           "value": "github"
+          }
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-source"
+          }
+         }
         }
        }
+      ],
+      "slots": {
+       "trailing": {
+        "id": "ci-runner-chip",
+        "component": "Chip",
+        "props": {
+         "label": "2 of 3 runners",
+         "dot": "$color.success",
+         "pressable": true
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-runners"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "ci-runs",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "md",
+       "align": "stretch"
       },
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-runs.2026-11-26",
+        "component": "Section",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "title": "Yesterday"
         },
         "children": [
          {
-          "id": "ci-filters",
-          "component": "Toolbar",
-          "children": [
-           {
-            "id": "ci-filter-status",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-status",
-             "label": "Status",
-             "triggerVariant": "button",
-             "value": "failed",
-             "options": [
-              {
-               "label": "All runs",
-               "value": "all"
-              },
-              {
-               "label": "Running",
-               "value": "running"
-              },
-              {
-               "label": "Failed",
-               "value": "failed"
-              },
-              {
-               "label": "Mine",
-               "value": "mine"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-status"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-repo",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-repo",
-             "label": "Repository",
-             "triggerVariant": "button",
-             "value": "repo-site",
-             "options": [
-              {
-               "label": "All repositories",
-               "value": "all"
-              },
-              {
-               "label": "Repository",
-               "value": "repo-gone"
-              },
-              {
-               "label": "acme/engine",
-               "value": "repo-engine"
-              },
-              {
-               "label": "acme/mobile",
-               "value": "repo-mobile"
-              },
-              {
-               "label": "acme/site",
-               "value": "repo-site"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-repo"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-source",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-source",
-             "label": "Source",
-             "triggerVariant": "button",
-             "value": "github",
-             "options": [
-              {
-               "label": "Every source",
-               "value": "all"
-              },
-              {
-               "label": "Exponential",
-               "value": "exponential"
-              },
-              {
-               "label": "GitHub Actions",
-               "value": "github"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-source"
-              }
-             }
-            }
-           }
-          ],
-          "slots": {
-           "trailing": {
-            "id": "ci-runner-chip",
-            "component": "Chip",
-            "props": {
-             "label": "2 of 3 runners",
-             "dot": "$color.success",
-             "pressable": true
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-runners"
-              }
-             }
-            }
-           }
-          }
-         },
-         {
-          "id": "ci-runs",
-          "component": "Stack",
+          "id": "ci-run-row.g57",
+          "component": "Row",
           "props": {
-           "direction": "vertical",
-           "gap": "md",
-           "align": "stretch"
+           "title": "Pricing page copy",
+           "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+           "pressable": true
           },
-          "children": [
-           {
-            "id": "ci-runs.2026-11-26",
-            "component": "Section",
+          "slots": {
+           "leading": {
+            "id": "ci-run-row.g57.glyph",
+            "component": "Icon",
             "props": {
-             "title": "Yesterday"
+             "name": "ci-failed",
+             "tone": "danger",
+             "size": "sm"
+            }
+           },
+           "trailing": {
+            "id": "ci-run-row.g57.trailing",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
             },
             "children": [
              {
-              "id": "ci-run-row.g57",
-              "component": "Row",
+              "id": "ci-run-row.g57.meta",
+              "component": "Text",
               "props": {
-               "title": "Pricing page copy",
-               "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
-               "pressable": true
-              },
-              "slots": {
-               "leading": {
-                "id": "ci-run-row.g57.glyph",
-                "component": "Icon",
-                "props": {
-                 "name": "ci-failed",
-                 "tone": "danger",
-                 "size": "sm"
+               "text": {
+                "@call": "fill",
+                "args": {
+                 "template": "{duration} · {age}",
+                 "params": {
+                  "duration": "2m 3s",
+                  "age": {
+                   "@call": "formatRelativeTime",
+                   "args": {
+                    "value": "2026-11-26T08:27:57.000Z"
+                   }
+                  }
+                 }
                 }
                },
-               "trailing": {
-                "id": "ci-run-row.g57.trailing",
-                "component": "Stack",
-                "props": {
-                 "direction": "horizontal",
-                 "gap": "sm",
-                 "align": "center"
-                },
-                "children": [
-                 {
-                  "id": "ci-run-row.g57.meta",
-                  "component": "Text",
-                  "props": {
-                   "text": {
-                    "@call": "fill",
-                    "args": {
-                     "template": "{duration} · {age}",
-                     "params": {
-                      "duration": "2m 3s",
-                      "age": {
-                       "@call": "formatRelativeTime",
-                       "args": {
-                        "value": "2026-11-26T08:27:57.000Z"
-                       }
-                      }
-                     }
-                    }
-                   },
-                   "variant": "muted"
-                  }
-                 },
-                 {
-                  "id": "ci-run-row.g57.source",
-                  "component": "Tooltip",
-                  "props": {
-                   "content": "GitHub Actions"
-                  },
-                  "children": [
-                   {
-                    "id": "ci-run-row.g57.source.icon",
-                    "component": "Icon",
-                    "props": {
-                     "name": "github",
-                     "size": "sm",
-                     "tone": "neutral",
-                     "label": "GitHub Actions"
-                    }
-                   }
-                  ]
-                 },
-                 {
-                  "id": "ci-run-row.g57.author",
-                  "component": "Avatar",
-                  "props": {
-                   "name": "Mara Lind",
-                   "seed": "u-me",
-                   "size": "sm"
-                  }
-                 }
-                ]
-               }
+               "variant": "muted"
+              }
+             },
+             {
+              "id": "ci-run-row.g57.source",
+              "component": "Tooltip",
+              "props": {
+               "content": "GitHub Actions"
               },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "g57"
-                 }
+              "children": [
+               {
+                "id": "ci-run-row.g57.source.icon",
+                "component": "Icon",
+                "props": {
+                 "name": "github",
+                 "size": "sm",
+                 "tone": "neutral",
+                 "label": "GitHub Actions"
                 }
                }
+              ]
+             },
+             {
+              "id": "ci-run-row.g57.author",
+              "component": "Avatar",
+              "props": {
+               "name": "Mara Lind",
+               "seed": "u-me",
+               "size": "sm"
               }
              }
             ]
            }
-          ]
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-run",
+             "context": {
+              "run": "g57"
+             }
+            }
+           }
+          }
          }
         ]
-       },
-       {
-        "id": "ci-page.train",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-page.runners",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
        }
       ]
      }
@@ -1872,215 +1680,151 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.runs",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
-        }
-       ],
-       "value": "runs",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
-        }
-       }
-      },
+      "id": "ci-filters",
+      "component": "Toolbar",
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-filter-status",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": [
-         {
-          "id": "ci-filters",
-          "component": "Toolbar",
-          "children": [
-           {
-            "id": "ci-filter-status",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-status",
-             "label": "Status",
-             "triggerVariant": "button",
-             "value": "failed",
-             "options": [
-              {
-               "label": "All runs",
-               "value": "all"
-              },
-              {
-               "label": "Running",
-               "value": "running"
-              },
-              {
-               "label": "Failed",
-               "value": "failed"
-              },
-              {
-               "label": "Mine",
-               "value": "mine"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-status"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-repo",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-repo",
-             "label": "Repository",
-             "triggerVariant": "button",
-             "value": "repo-mobile",
-             "options": [
-              {
-               "label": "All repositories",
-               "value": "all"
-              },
-              {
-               "label": "Repository",
-               "value": "repo-gone"
-              },
-              {
-               "label": "acme/engine",
-               "value": "repo-engine"
-              },
-              {
-               "label": "acme/mobile",
-               "value": "repo-mobile"
-              },
-              {
-               "label": "acme/site",
-               "value": "repo-site"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-repo"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-source",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-source",
-             "label": "Source",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "Every source",
-               "value": "all"
-              },
-              {
-               "label": "Exponential",
-               "value": "exponential"
-              },
-              {
-               "label": "GitHub Actions",
-               "value": "github"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-source"
-              }
-             }
-            }
-           }
-          ],
-          "slots": {
-           "trailing": {
-            "id": "ci-runner-chip",
-            "component": "Chip",
-            "props": {
-             "label": "2 of 3 runners",
-             "dot": "$color.success",
-             "pressable": true
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-runners"
-              }
-             }
-            }
-           }
+         "name": "ci-filter-status",
+         "label": "Status",
+         "triggerVariant": "button",
+         "value": "failed",
+         "options": [
+          {
+           "label": "All runs",
+           "value": "all"
+          },
+          {
+           "label": "Running",
+           "value": "running"
+          },
+          {
+           "label": "Failed",
+           "value": "failed"
+          },
+          {
+           "label": "Mine",
+           "value": "mine"
           }
-         },
-         {
-          "id": "ci-runs",
-          "component": "EmptyState",
-          "props": {
-           "icon": "nav-ci",
-           "title": "No runs match",
-           "size": "list"
+         ]
+        },
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-status"
           }
          }
-        ]
+        }
        },
        {
-        "id": "ci-page.train",
-        "component": "Stack",
+        "id": "ci-filter-repo",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "name": "ci-filter-repo",
+         "label": "Repository",
+         "triggerVariant": "button",
+         "value": "repo-mobile",
+         "options": [
+          {
+           "label": "All repositories",
+           "value": "all"
+          },
+          {
+           "label": "Repository",
+           "value": "repo-gone"
+          },
+          {
+           "label": "acme/engine",
+           "value": "repo-engine"
+          },
+          {
+           "label": "acme/mobile",
+           "value": "repo-mobile"
+          },
+          {
+           "label": "acme/site",
+           "value": "repo-site"
+          }
+         ]
         },
-        "children": []
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-repo"
+          }
+         }
+        }
        },
        {
-        "id": "ci-page.runners",
-        "component": "Stack",
+        "id": "ci-filter-source",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "name": "ci-filter-source",
+         "label": "Source",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "Every source",
+           "value": "all"
+          },
+          {
+           "label": "Exponential",
+           "value": "exponential"
+          },
+          {
+           "label": "GitHub Actions",
+           "value": "github"
+          }
+         ]
         },
-        "children": []
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-source"
+          }
+         }
+        }
        }
-      ]
+      ],
+      "slots": {
+       "trailing": {
+        "id": "ci-runner-chip",
+        "component": "Chip",
+        "props": {
+         "label": "2 of 3 runners",
+         "dot": "$color.success",
+         "pressable": true
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-runners"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "ci-runs",
+      "component": "EmptyState",
+      "props": {
+       "icon": "nav-ci",
+       "title": "No runs match",
+       "size": "list"
+      }
      }
     ]
    }
@@ -2096,250 +1840,186 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.train",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
+      "id": "ci-train.repo-engine",
+      "component": "Section",
       "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
-        }
-       ],
-       "value": "train",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
-        }
-       }
+       "title": "acme/engine",
+       "caption": "main",
+       "icon": "pr-batch"
       },
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-train-row.batch.train-91",
+        "component": "Row",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "identifier": "#211",
+         "title": "Testing 3 pull requests together",
+         "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+         "pressable": true
         },
-        "children": []
-       },
-       {
-        "id": "ci-page.train",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": [
-         {
-          "id": "ci-train.repo-engine",
-          "component": "Section",
+        "slots": {
+         "leading": {
+          "id": "ci-train-row.batch.train-91.glyph",
+          "component": "Icon",
           "props": {
-           "title": "acme/engine",
-           "caption": "main",
-           "icon": "pr-batch"
-          },
-          "children": [
-           {
-            "id": "ci-train-row.batch.train-91",
-            "component": "Row",
-            "props": {
-             "identifier": "#211",
-             "title": "Testing 3 pull requests together",
-             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-train-row.batch.train-91.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-running",
-               "tone": "info",
-               "size": "sm"
-              }
-             },
-             "trailing": {
-              "id": "ci-train-row.batch.train-91.badge",
-              "component": "Badge",
-              "props": {
-               "text": "Testing",
-               "variant": "secondary"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-pr",
-               "context": {
-                "pr": "pr-211"
-               }
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-train-row.pr-215",
-            "component": "Row",
-            "props": {
-             "identifier": "#215",
-             "title": "Cache the planner",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-train-row.pr-215.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-queued",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             },
-             "trailing": {
-              "id": "ci-train-row.pr-215.badge",
-              "component": "Badge",
-              "props": {
-               "text": "Queued · 1st",
-               "variant": "secondary"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-pr",
-               "context": {
-                "pr": "pr-215"
-               }
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-train-row.pr-214",
-            "component": "Row",
-            "props": {
-             "identifier": "#214",
-             "title": "Reduce cold start below 400 ms",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-train-row.pr-214.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-queued",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             },
-             "trailing": {
-              "id": "ci-train-row.pr-214.badge",
-              "component": "Badge",
-              "props": {
-               "text": "Checks running",
-               "variant": "secondary"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-pr",
-               "context": {
-                "pr": "pr-214"
-               }
-              }
-             }
-            }
-           }
-          ]
+           "name": "ci-running",
+           "tone": "info",
+           "size": "sm"
+          }
          },
-         {
-          "id": "ci-train.repo-mobile",
-          "component": "Section",
+         "trailing": {
+          "id": "ci-train-row.batch.train-91.badge",
+          "component": "Badge",
           "props": {
-           "title": "acme/mobile",
-           "caption": "main",
-           "icon": "pr-batch"
-          },
-          "children": [
-           {
-            "id": "ci-train-row.pr-40",
-            "component": "Row",
-            "props": {
-             "identifier": "#40",
-             "title": "Dark splash",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-train-row.pr-40.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-skipped",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             },
-             "trailing": {
-              "id": "ci-train-row.pr-40.badge",
-              "component": "Badge",
-              "props": {
-               "text": "On hold",
-               "variant": "secondary"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-pr",
-               "context": {
-                "pr": "pr-40"
-               }
-              }
-             }
-            }
-           }
-          ]
+           "text": "Testing",
+           "variant": "secondary"
+          }
          }
-        ]
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-211"
+           }
+          }
+         }
+        }
        },
        {
-        "id": "ci-page.runners",
-        "component": "Stack",
+        "id": "ci-train-row.pr-215",
+        "component": "Row",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "identifier": "#215",
+         "title": "Cache the planner",
+         "pressable": true
         },
-        "children": []
+        "slots": {
+         "leading": {
+          "id": "ci-train-row.pr-215.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-queued",
+           "tone": "neutral",
+           "size": "sm"
+          }
+         },
+         "trailing": {
+          "id": "ci-train-row.pr-215.badge",
+          "component": "Badge",
+          "props": {
+           "text": "Queued · 1st",
+           "variant": "secondary"
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-215"
+           }
+          }
+         }
+        }
+       },
+       {
+        "id": "ci-train-row.pr-214",
+        "component": "Row",
+        "props": {
+         "identifier": "#214",
+         "title": "Reduce cold start below 400 ms",
+         "pressable": true
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-train-row.pr-214.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-queued",
+           "tone": "neutral",
+           "size": "sm"
+          }
+         },
+         "trailing": {
+          "id": "ci-train-row.pr-214.badge",
+          "component": "Badge",
+          "props": {
+           "text": "Checks running",
+           "variant": "secondary"
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-214"
+           }
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-train.repo-mobile",
+      "component": "Section",
+      "props": {
+       "title": "acme/mobile",
+       "caption": "main",
+       "icon": "pr-batch"
+      },
+      "children": [
+       {
+        "id": "ci-train-row.pr-40",
+        "component": "Row",
+        "props": {
+         "identifier": "#40",
+         "title": "Dark splash",
+         "pressable": true
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-train-row.pr-40.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-skipped",
+           "tone": "neutral",
+           "size": "sm"
+          }
+         },
+         "trailing": {
+          "id": "ci-train-row.pr-40.badge",
+          "component": "Badge",
+          "props": {
+           "text": "On hold",
+           "variant": "secondary"
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-40"
+           }
+          }
+         }
+        }
        }
       ]
      }
@@ -2357,169 +2037,105 @@
    },
    "phone": true,
    "tree": {
-    "id": "ci-page",
-    "component": "Stack",
-    "props": {
-     "direction": "vertical",
-     "gap": "lg",
-     "align": "stretch"
-    },
+    "id": "ci-runners",
+    "component": "Section",
+    "props": {},
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
+      "id": "ci-runner-row.dev-mac",
+      "component": "Row",
       "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train",
-         "count": 4
-        },
-        {
-         "label": "Runners",
-         "value": "runners",
-         "count": 3
-        }
-       ],
-       "value": "runners",
-       "variant": "pill"
+       "icon": "server",
+       "title": "Alex's MacBook Pro",
+       "subtitle": "mac",
+       "meta": "0 of 1 busy",
+       "pressable": true
       },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
+      "slots": {
+       "trailing": {
+        "id": "ci-runner-row.dev-mac.queue",
+        "component": "Badge",
+        "props": {
+         "text": "1 queued",
+         "variant": "outline"
         }
        }
       },
-      "children": [
-       {
-        "id": "ci-page.runs",
-        "component": "Stack",
+      "on": {
+       "press": {
+        "event": {
+         "name": "ci-open-runner",
+         "context": {
+          "device": "dev-mac"
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "ci-runner-row.dev-mint",
+      "component": "Row",
+      "props": {
+       "icon": "server",
+       "title": "mint",
+       "subtitle": "linux, gpu",
+       "meta": "2 of 2 busy",
+       "pressable": true
+      },
+      "slots": {
+       "trailing": {
+        "id": "ci-runner-row.dev-mint.queue",
+        "component": "Badge",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-page.train",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-runners",
-        "component": "Section",
-        "props": {},
-        "children": [
-         {
-          "id": "ci-runner-row.dev-mac",
-          "component": "Row",
-          "props": {
-           "icon": "server",
-           "title": "Alex's MacBook Pro",
-           "subtitle": "mac",
-           "meta": "0 of 1 busy",
-           "pressable": true
-          },
-          "slots": {
-           "trailing": {
-            "id": "ci-runner-row.dev-mac.queue",
-            "component": "Badge",
-            "props": {
-             "text": "1 queued",
-             "variant": "outline"
-            }
-           }
-          },
-          "on": {
-           "press": {
-            "event": {
-             "name": "ci-open-runner",
-             "context": {
-              "device": "dev-mac"
-             }
-            }
-           }
-          }
-         },
-         {
-          "id": "ci-runner-row.dev-mint",
-          "component": "Row",
-          "props": {
-           "icon": "server",
-           "title": "mint",
-           "subtitle": "linux, gpu",
-           "meta": "2 of 2 busy",
-           "pressable": true
-          },
-          "slots": {
-           "trailing": {
-            "id": "ci-runner-row.dev-mint.queue",
-            "component": "Badge",
-            "props": {
-             "text": "1 queued",
-             "variant": "outline"
-            }
-           }
-          },
-          "on": {
-           "press": {
-            "event": {
-             "name": "ci-open-runner",
-             "context": {
-              "device": "dev-mint"
-             }
-            }
-           }
-          }
-         },
-         {
-          "id": "ci-runner-row.dev-old",
-          "component": "Row",
-          "props": {
-           "icon": "server",
-           "title": "build-box",
-           "subtitle": "No labels",
-           "meta": {
-            "@call": "fill",
-            "args": {
-             "template": "Last seen {time}",
-             "params": {
-              "time": {
-               "@call": "formatRelativeTime",
-               "args": {
-                "value": "2026-11-26T22:00:00.000Z"
-               }
-              }
-             }
-            }
-           },
-           "pressable": true
-          },
-          "on": {
-           "press": {
-            "event": {
-             "name": "ci-open-runner",
-             "context": {
-              "device": "dev-old"
-             }
-            }
+         "text": "1 queued",
+         "variant": "outline"
+        }
+       }
+      },
+      "on": {
+       "press": {
+        "event": {
+         "name": "ci-open-runner",
+         "context": {
+          "device": "dev-mint"
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "ci-runner-row.dev-old",
+      "component": "Row",
+      "props": {
+       "icon": "server",
+       "title": "build-box",
+       "subtitle": "No labels",
+       "meta": {
+        "@call": "fill",
+        "args": {
+         "template": "Last seen {time}",
+         "params": {
+          "time": {
+           "@call": "formatRelativeTime",
+           "args": {
+            "value": "2026-11-26T22:00:00.000Z"
            }
           }
          }
-        ]
+        }
+       },
+       "pressable": true
+      },
+      "on": {
+       "press": {
+        "event": {
+         "name": "ci-open-runner",
+         "context": {
+          "device": "dev-old"
+         }
+        }
        }
-      ]
+      }
      }
     ]
    }
@@ -2535,179 +2151,117 @@
    },
    "phone": true,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.runs",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train"
-        },
-        {
-         "label": "Runners",
-         "value": "runners"
-        }
-       ],
-       "value": "runs",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
-        }
-       }
-      },
+      "id": "ci-filters",
+      "component": "Toolbar",
       "children": [
        {
-        "id": "ci-page.runs",
-        "component": "Stack",
+        "id": "ci-filter-status",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "name": "ci-filter-status",
+         "label": "Status",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All runs",
+           "value": "all"
+          },
+          {
+           "label": "Running",
+           "value": "running"
+          },
+          {
+           "label": "Failed",
+           "value": "failed"
+          },
+          {
+           "label": "Mine",
+           "value": "mine"
+          }
+         ]
         },
-        "children": [
-         {
-          "id": "ci-filters",
-          "component": "Toolbar",
-          "children": [
-           {
-            "id": "ci-filter-status",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-status",
-             "label": "Status",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All runs",
-               "value": "all"
-              },
-              {
-               "label": "Running",
-               "value": "running"
-              },
-              {
-               "label": "Failed",
-               "value": "failed"
-              },
-              {
-               "label": "Mine",
-               "value": "mine"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-status"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-repo",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-repo",
-             "label": "Repository",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "All repositories",
-               "value": "all"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-repo"
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-filter-source",
-            "component": "Select",
-            "props": {
-             "name": "ci-filter-source",
-             "label": "Source",
-             "triggerVariant": "button",
-             "value": "all",
-             "options": [
-              {
-               "label": "Every source",
-               "value": "all"
-              },
-              {
-               "label": "Exponential",
-               "value": "exponential"
-              },
-              {
-               "label": "GitHub Actions",
-               "value": "github"
-              }
-             ]
-            },
-            "on": {
-             "change": {
-              "event": {
-               "name": "ci-filter-source"
-              }
-             }
-            }
-           }
-          ]
-         },
-         {
-          "id": "ci-runs",
-          "component": "EmptyState",
-          "props": {
-           "icon": "nav-ci",
-           "title": "No runs yet",
-           "size": "list"
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-status"
           }
          }
-        ]
+        }
        },
        {
-        "id": "ci-page.train",
-        "component": "Stack",
+        "id": "ci-filter-repo",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "name": "ci-filter-repo",
+         "label": "Repository",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "All repositories",
+           "value": "all"
+          }
+         ]
         },
-        "children": []
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-repo"
+          }
+         }
+        }
        },
        {
-        "id": "ci-page.runners",
-        "component": "Stack",
+        "id": "ci-filter-source",
+        "component": "Select",
         "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
+         "name": "ci-filter-source",
+         "label": "Source",
+         "triggerVariant": "button",
+         "value": "all",
+         "options": [
+          {
+           "label": "Every source",
+           "value": "all"
+          },
+          {
+           "label": "Exponential",
+           "value": "exponential"
+          },
+          {
+           "label": "GitHub Actions",
+           "value": "github"
+          }
+         ]
         },
-        "children": []
+        "on": {
+         "change": {
+          "event": {
+           "name": "ci-filter-source"
+          }
+         }
+        }
        }
       ]
+     },
+     {
+      "id": "ci-runs",
+      "component": "EmptyState",
+      "props": {
+       "icon": "nav-ci",
+       "title": "No runs yet",
+       "size": "list"
+      }
      }
     ]
    }
@@ -2723,84 +2277,22 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
+    "id": "ci-page.train",
     "component": "Stack",
     "props": {
      "direction": "vertical",
-     "gap": "lg",
+     "gap": "md",
      "align": "stretch"
     },
     "children": [
      {
-      "id": "ci-tabs",
-      "component": "Tabs",
+      "id": "ci-train",
+      "component": "EmptyState",
       "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train"
-        },
-        {
-         "label": "Runners",
-         "value": "runners"
-        }
-       ],
-       "value": "train",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
-        }
-       }
-      },
-      "children": [
-       {
-        "id": "ci-page.runs",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-page.train",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": [
-         {
-          "id": "ci-train",
-          "component": "EmptyState",
-          "props": {
-           "icon": "pr-batch",
-           "title": "Nothing in the merge train",
-           "size": "list"
-          }
-         }
-        ]
-       },
-       {
-        "id": "ci-page.runners",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       }
-      ]
+       "icon": "pr-batch",
+       "title": "Nothing in the merge train",
+       "size": "list"
+      }
      }
     ]
    }
@@ -2816,75 +2308,13 @@
    },
    "phone": false,
    "tree": {
-    "id": "ci-page",
-    "component": "Stack",
+    "id": "ci-runners",
+    "component": "EmptyState",
     "props": {
-     "direction": "vertical",
-     "gap": "lg",
-     "align": "stretch"
-    },
-    "children": [
-     {
-      "id": "ci-tabs",
-      "component": "Tabs",
-      "props": {
-       "tabs": [
-        {
-         "label": "Runs",
-         "value": "runs"
-        },
-        {
-         "label": "Merge train",
-         "value": "train"
-        },
-        {
-         "label": "Runners",
-         "value": "runners"
-        }
-       ],
-       "value": "runners",
-       "variant": "pill"
-      },
-      "on": {
-       "change": {
-        "event": {
-         "name": "ci-tab"
-        }
-       }
-      },
-      "children": [
-       {
-        "id": "ci-page.runs",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-page.train",
-        "component": "Stack",
-        "props": {
-         "direction": "vertical",
-         "gap": "md",
-         "align": "stretch"
-        },
-        "children": []
-       },
-       {
-        "id": "ci-runners",
-        "component": "EmptyState",
-        "props": {
-         "icon": "server",
-         "title": "No runners",
-         "size": "list"
-        }
-       }
-      ]
-     }
-    ]
+     "icon": "server",
+     "title": "No runners",
+     "size": "list"
+    }
    }
   },
   {

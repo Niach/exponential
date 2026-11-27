@@ -7,7 +7,6 @@ import {
   ciRunGroups,
   ciRunnerChip,
   ciRunnerRows,
-  ciTabCounts,
   ciTrainGroups,
   type CiPageInput,
   type CiRunFilter,
@@ -233,36 +232,10 @@ function runnersPanel(input: CiPageInput): NestedNode {
   }
 }
 
-/** The CI page (ci-page.json LAYOUT): the tab strip, then the current tab's
- *  panel (the others are empty stacks). */
+/** The CI page's body (ci-page.json LAYOUT): the CURRENT tab's panel. The
+ *  tab switcher is the platform's own segmented control (#EXP-2169 "one
+ *  look": the board's and the repo page's switcher, counts from
+ *  `ciTabCounts`), drawn by the host above this tree. */
 export function ciPageTree(input: CiPageInput, state: CiPageState): NestedNode {
-  const copy = CI_PAGE_COPY
-  const counts = ciTabCounts(input)
-  const empty = (tab: CiTab): NestedNode => ({ id: `${CI_PAGE_TEST_IDS.page}.${tab}`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children: [] })
-  return {
-    id: CI_PAGE_TEST_IDS.page,
-    component: `Stack`,
-    props: { direction: `vertical`, gap: `lg`, align: `stretch` },
-    children: [
-      {
-        id: CI_PAGE_TEST_IDS.tabs,
-        component: `Tabs`,
-        props: {
-          tabs: [
-            { label: copy.tabs.runs, value: `runs` },
-            { label: copy.tabs.train, value: `train`, ...(counts.train > 0 ? { count: counts.train } : {}) },
-            { label: copy.tabs.runners, value: `runners`, ...(counts.runners > 0 ? { count: counts.runners } : {}) },
-          ],
-          value: state.tab,
-          variant: `pill`,
-        },
-        on: { change: { event: { name: CI_PAGE_EVENTS.tab } } },
-        children: [
-          state.tab === `runs` ? runsPanel(input, state) : empty(`runs`),
-          state.tab === `train` ? trainPanel(input) : empty(`train`),
-          state.tab === `runners` ? runnersPanel(input) : empty(`runners`),
-        ],
-      },
-    ],
-  }
+  return state.tab === `runs` ? runsPanel(input, state) : state.tab === `train` ? trainPanel(input) : runnersPanel(input)
 }
