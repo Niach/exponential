@@ -119,7 +119,7 @@ function runsPanel(input: CiPageInput, state: CiPageState): NestedNode {
     children.push({
       id: CI_PAGE_TEST_IDS.runs,
       component: `EmptyState`,
-      props: { icon: `workflow`, title: filtered ? copy.empty.filtered : copy.empty.runs, size: `list` },
+      props: { icon: `nav-ci`, title: filtered ? copy.empty.filtered : copy.empty.runs, size: `list` },
     })
   } else if (state.phone) {
     children.push({

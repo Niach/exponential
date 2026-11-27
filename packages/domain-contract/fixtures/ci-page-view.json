@@ -1752,7 +1752,7 @@
           "id": "ci-runs",
           "component": "EmptyState",
           "props": {
-           "icon": "workflow",
+           "icon": "nav-ci",
            "title": "No runs match",
            "size": "list"
           }
@@ -2526,7 +2526,7 @@
           "id": "ci-runs",
           "component": "EmptyState",
           "props": {
-           "icon": "workflow",
+           "icon": "nav-ci",
            "title": "No runs yet",
            "size": "list"
           }
