@@ -9,7 +9,11 @@
 //! - `recents`: the newest root sessions of every team (the Chats model);
 //! - `assistant`: the viewer's Assistant and the last messages of its chat;
 //! - `account`: the signed-in account; `onLocal`: the store is a Local
-//!   desktop's.
+//!   desktop's;
+//! - #EDE-239 `sessions`: the sidebar's Active band for the taskbar's
+//!   session area, each with its trace and waiting card
+//!   ([`crate::ede_sessions`]; the traces read off the main thread, and
+//!   read again every [`TRACE_REFRESH`] while a session works).
 //!
 //! Every key is an #EDE-237 window key (`ede_windows::window_key`'s
 //! scheme), so a row's press is the bus's `page {key}`. Rebuilt ~100 ms
@@ -29,6 +33,10 @@ use uicore_model::ide::{IdeRow, IdeSidebar, IdeSidebarInput, IdeTone};
 
 /// How long a change waits for the next before the feeds rebuild.
 const DEBOUNCE: Duration = Duration::from_millis(100);
+
+/// How often the feeds rebuild while a session of the area works (its
+/// trace moves in the chat store, which no collection observes).
+const TRACE_REFRESH: Duration = Duration::from_secs(3);
 
 /// The most recent chats listed.
 pub(crate) const RECENTS_MAX: usize = 10;
@@ -243,6 +251,8 @@ pub(crate) fn account_value(name: Option<&str>, email: &str) -> Value {
 
 struct Publisher {
     pending: bool,
+    /// #EDE-239: a [`TRACE_REFRESH`] rebuild is on its way.
+    ticking: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -261,7 +271,7 @@ pub(crate) fn install(cx: &mut App) {
     let publisher = cx.new(|cx: &mut Context<Publisher>| {
         let mut subscriptions = collections.observe_all_with(cx, |this: &mut Publisher, cx| this.schedule(cx));
         subscriptions.push(cx.observe(&state, |this: &mut Publisher, _, cx| this.schedule(cx)));
-        let mut this = Publisher { pending: false, _subscriptions: subscriptions };
+        let mut this = Publisher { pending: false, ticking: false, _subscriptions: subscriptions };
         this.schedule(cx);
         this
     });
@@ -276,26 +286,44 @@ impl Publisher {
         self.pending = true;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(DEBOUNCE).await;
-            let _ = this.update(cx, |this, cx| {
+            let Ok((mut feeds, reads)) = this.update(cx, |this, cx| {
                 this.pending = false;
-                let feeds = gather(cx);
-                feed_board().set(feeds);
-            });
+                gather(cx)
+            }) else {
+                return;
+            };
+            // #EDE-239: the traces off the main thread, then the feeds.
+            let store = cx.update(|cx| crate::chat_store::store(cx));
+            if let (Some(store), false) = (store, reads.is_empty()) {
+                let traces = cx.background_executor().spawn(async move { crate::ede_sessions::read_traces(&store, &reads) }).await;
+                crate::ede_sessions::with_traces(&mut feeds, &traces);
+            }
+            let working = feeds["sessions"].as_array().is_some_and(|sessions| sessions.iter().any(|s| s["state"] == "running"));
+            feed_board().set(feeds);
+            let tick = working && this.update(cx, |this, _| !std::mem::replace(&mut this.ticking, true)).unwrap_or(false);
+            if tick {
+                cx.background_executor().timer(TRACE_REFRESH).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.ticking = false;
+                    this.schedule(cx);
+                });
+            }
         })
         .detach();
     }
 }
 
-/// The feeds object (§2) from the store now.
-fn gather(cx: &mut App) -> Value {
+/// The feeds object (§2) from the store now, and the traces its sessions
+/// still need (#EDE-239).
+fn gather(cx: &mut App) -> (Value, Vec<crate::ede_sessions::TraceRead>) {
     let _span = tracing::trace_span!("ede.feeds").entered();
-    let Some(store) = Store::try_global(cx) else { return Value::Null };
+    let Some(store) = Store::try_global(cx) else { return (Value::Null, Vec::new()) };
     let collections = store.collections().clone();
     let signed_in = crate::queries::active_account(cx);
     let account = signed_in.as_ref().map(|account| account_value(account.name.as_deref(), &account.email)).unwrap_or(Value::Null);
     let on_local = crate::local_desktops::client(cx).is_some();
     if signed_in.is_none() {
-        return json!({"tree": [], "recents": [], "assistant": null, "account": account, "onLocal": on_local});
+        return (json!({"tree": [], "recents": [], "assistant": null, "account": account, "onLocal": on_local, "sessions": []}), Vec::new());
     }
     // The sidebar with every team, folder and Devices open.
     let mut input: IdeSidebarInput = crate::shell_regions::sidebar_input(cx);
@@ -307,7 +335,9 @@ fn gather(cx: &mut App) -> Value {
     }
     let sidebar = uicore_model::ide::ide_sidebar(&input);
     let recents: Vec<Value> = crate::session_data::chats_model_all(cx).list.rows.iter().take(RECENTS_MAX).map(recent_item).collect();
-    let needs_you = needs_you_items(&crate::needs_you::rows_in_all_teams(cx).rows);
+    let needs_rows = crate::needs_you::rows_in_all_teams(cx);
+    let needs_you = needs_you_items(&needs_rows.rows);
+    let (sessions, reads) = crate::ede_sessions::gather(&input, &needs_rows.rows, cx);
     let team_images: HashMap<String, String> = collections
         .teams
         .read(cx)
@@ -327,7 +357,7 @@ fn gather(cx: &mut App) -> Value {
         });
         json!({"id": assistant.id, "name": assistant.name, "key": format!("agent:{}", assistant.id), "messages": messages, "busy": busy})
     });
-    json!({"tree": tree, "recents": recents, "assistant": assistant, "account": account, "onLocal": on_local})
+    (json!({"tree": tree, "recents": recents, "assistant": assistant, "account": account, "onLocal": on_local, "sessions": sessions}), reads)
 }
 
 /// The bus's `search {query}`: the synced issues of every member team

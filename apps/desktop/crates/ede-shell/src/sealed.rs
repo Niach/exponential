@@ -16,7 +16,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
-use domain::rows::{MessageRow, SessionRow};
+#[cfg(test)]
+use domain::rows::MessageRow;
+use domain::rows::SessionRow;
 use serde_json::Value;
 use sync::sealed::{OpenedBody, OpenedCard, Opener, Opens};
 
@@ -110,10 +112,6 @@ impl Opens for Keyrings {
     }
 }
 
-/// An account's opener over the app's keyring.
-pub fn opener(account_id: &str) -> Opener {
-    Opener::new(Arc::new(KeyringFile::new(keyring_path(account_id))))
-}
 
 /// #EDE-194: the opener of the agent spaces' titles: every keyring of the
 /// account on this machine ([`space_keyring_paths`]).
@@ -121,10 +119,6 @@ pub fn space_opener(account_id: &str) -> Opener {
     Opener::new(Arc::new(Keyrings::new(space_keyring_paths(&api::default_data_dir(), account_id))))
 }
 
-/// The app's keyring file of an account.
-pub fn keyring_path(account_id: &str) -> PathBuf {
-    api::seal_keyring_path(&api::default_data_dir(), account_id, false)
-}
 
 /// #EDE-194: every keyring the account's installs keep in `data_dir`: the
 /// app's (`seal-keys`) and the CLI daemon's (`cli-seal-keys`).

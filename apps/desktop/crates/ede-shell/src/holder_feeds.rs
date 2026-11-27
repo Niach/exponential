@@ -3,7 +3,8 @@
 //! the shell over the session bus ([`api::bus::Request::Feeds`]): the IDE
 //! sidebar tree's roots with their nested items (`tree`), the recent chats
 //! (`recents`), the global Assistant's last answer (`assistant`), the
-//! person (`account`). The shell keeps the last ones and builds the menu
+//! person (`account`), #EDE-239 the sidebar's Active band (`sessions`, the
+//! taskbar's session area: `crate::sessions_area`). The shell keeps the last ones and builds the menu
 //! from them on every change, so opening it does no work.
 //!
 //! Opening a page (`page`), the issue search (`search`) and the
@@ -105,10 +106,11 @@ pub fn open_page(key: String, token: Option<String>) {
     });
 }
 
-/// The composer's text to the global Assistant.
-pub fn ask(text: String) {
+/// The composer's text to the global Assistant; #EDE-239: its one window
+/// comes forward with `token`.
+pub fn ask(text: String, token: Option<String>) {
     std::thread::spawn(move || {
-        if let Err(e) = api::bus::call(&path(), &Request::Ask { text, activation_token: None }) {
+        if let Err(e) = api::bus::call(&path(), &Request::Ask { text, activation_token: token }) {
             tracing::warn!("holder ask: {e}");
         }
     });
@@ -177,6 +179,8 @@ pub fn demo() -> HolderFeeds {
             ]},
             "account": {"name": "Ada", "login": "ada", "email": "ada@example.com"},
             "onLocal": false,
+            // #EDE-239: the session area only with EDE_SHELL_DEMO_SESSIONS (the goldens' taskbar stays as it was).
+            "sessions": if std::env::var_os("EDE_SHELL_DEMO_SESSIONS").is_some_and(|v| !v.is_empty() && v != "0") { crate::sessions_area::demo() } else { json!([]) },
         }),
     }
 }

@@ -80,10 +80,6 @@ impl ShellEdit {
         ShellEdit { dir, granted: Mutex::new(HashSet::new()), ask, write }
     }
 
-    /// The line the agent's brief carries.
-    pub fn note() -> String {
-        "shell_edit changes one of this desktop's shell documents (the sidebar, the taskbar, the start menu, an applet: Express like apps/ede/ui/*.express, #EDE-216); the person is asked before the first write of a run, and a refused document comes back with its issues.".into()
-    }
 
     fn answer(applied: bool, issues: Vec<String>) -> Value {
         let structured = json!({"applied": applied, "issues": issues});

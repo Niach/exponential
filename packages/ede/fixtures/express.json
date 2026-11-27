@@ -109,6 +109,14 @@
       "args",
       "domain"
     ],
+    "ede_sessions": [
+      "answer",
+      "decision",
+      "menu",
+      "open",
+      "stop",
+      "text"
+    ],
     "ede_settings": [
       "key",
       "page",

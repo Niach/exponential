@@ -232,6 +232,9 @@ pub mod ede_windows;
 /// #EDE-258: the start menu's feeds over the session bus (Linux: eDE's).
 #[cfg(target_os = "linux")]
 pub mod ede_feeds;
+/// #EDE-239: the taskbar's session area (the sidebar's Active band).
+#[cfg(target_os = "linux")]
+pub(crate) mod ede_sessions;
 #[cfg(target_os = "linux")]
 pub mod session_bus;
 mod session_extras;

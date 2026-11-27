@@ -2231,15 +2231,6 @@
         "sha256": "9e6e43331e846f403fd989f9bbf029402a936fc7d361ba9defe3bc97a90724ec"
       }
     },
-    "ede-chat": {
-      "ede": {
-        "file": "shots/ede-chat/ede.webp",
-        "width": 1280,
-        "height": 720,
-        "bytes": 23546,
-        "sha256": "f394d81d3d248859f494666e0ae9f682e84044f9dd3fc6778ae31cc293836655"
-      }
-    },
     "ede-connect": {
       "ede": {
         "file": "shots/ede-connect/ede.webp",

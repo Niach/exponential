@@ -2,7 +2,7 @@
 //! time: a read asked for while one runs is not started, it runs once the
 //! running one is in. A burst of deltas so costs two reads at most, and the
 //! last one starts after the last delta: what is drawn ends at the newest
-//! rows. The tray's inbox (#EDE-141) and the rail's chats (#EDE-204).
+//! rows. The tray's inbox (#EDE-141).
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -73,17 +73,14 @@ mod tests {
         protocol::{RowKey, ShapeMessage},
         store::ShapeStore,
     };
-    use uicore_model::chats::ChatInput;
-
     use super::*;
-    use crate::chats;
 
     const TEAM: &str = "t1";
 
     /// What the shell holds of the rail, and the reads the test counts.
     struct Rail {
         gate: Gate,
-        chats: Vec<ChatInput>,
+        titles: Vec<String>,
         store: Arc<ShapeStore>,
         reads: Arc<AtomicUsize>,
         /// A delta that lands in the store while the first read runs.
@@ -99,26 +96,27 @@ mod tests {
         json!({"id": format!("r{n:03}"), "team_id": TEAM, "title": title, "cli": "claude", "status": "active", "updated_at": "2026-11-24T10:00:00.000Z"})
     }
 
-    /// The shell's `chats_moved`, on the test's state: the rail's own read
-    /// ([`chats::Source::read`]) through [`read`].
+    /// A delta's read on the test's state (every row of `sessions`, the
+    /// way the rail read them, #EDE-204) through [`read`].
     fn chats_moved(rail: &Rc<RefCell<Rail>>, cx: &mut App) {
         read(
             rail,
             |r| &mut r.gate,
             |rail| {
                 let mut r = rail.borrow_mut();
-                let (source, reads, late) = (chats::Source::Team { store: r.store.clone(), team_id: TEAM.into() }, r.reads.clone(), r.late.take());
+                let (reads, late) = (r.reads.clone(), r.late.take());
                 let store = r.store.clone();
                 move || {
-                    let chats = source.read();
+                    let spec = sync::shapes::shape_by_name("sessions").unwrap();
+                    let titles: Vec<String> = store.read_all(spec).unwrap().into_iter().filter_map(|row| row.get("title").and_then(Value::as_str).map(String::from)).collect();
                     reads.fetch_add(1, Ordering::SeqCst);
                     if let Some(row) = late {
                         put(&store, row);
                     }
-                    chats
+                    titles
                 }
             },
-            |rail, chats, _| rail.borrow_mut().chats = chats,
+            |rail, titles, _| rail.borrow_mut().titles = titles,
             chats_moved,
             cx,
         );
@@ -127,11 +125,11 @@ mod tests {
     fn rail(late: Option<Value>) -> (tempfile::TempDir, Rc<RefCell<Rail>>) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(ShapeStore::open(&dir.path().join("sync.sqlite")).unwrap());
-        (dir, Rc::new(RefCell::new(Rail { gate: Gate::default(), chats: Vec::new(), store, reads: Arc::default(), late })))
+        (dir, Rc::new(RefCell::new(Rail { gate: Gate::default(), titles: Vec::new(), store, reads: Arc::default(), late })))
     }
 
     fn titles(rail: &Rc<RefCell<Rail>>) -> Vec<String> {
-        let mut titles: Vec<String> = rail.borrow().chats.iter().map(|c| c.title.clone()).collect();
+        let mut titles = rail.borrow().titles.clone();
         titles.sort();
         titles
     }
@@ -159,7 +157,7 @@ mod tests {
             cx.update(|cx| chats_moved(&rail, cx));
         }
         assert_eq!(rail.borrow().reads.load(Ordering::SeqCst), 0, "no read ran in the main loop's turns: the store is read on the background executor");
-        assert!(rail.borrow().chats.is_empty(), "nothing is drawn before a read is in");
+        assert!(rail.borrow().titles.is_empty(), "nothing is drawn before a read is in");
 
         cx.run_until_parked();
         assert_eq!(rail.borrow().reads.load(Ordering::SeqCst), 2, "{BURST} deltas: the read that ran and the one that followed it");

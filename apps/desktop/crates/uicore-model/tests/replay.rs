@@ -82,6 +82,10 @@ fn every_selector_case_replays() {
                     let issues: Vec<StartMenuIssue> = serde_json::from_value(arg("issues")).unwrap();
                     json!(start_menu_nav(&state, &tree, &local, &apps, &favourites, &settings, &issues))
                 }
+                "sessionArea" => {
+                    let sessions: Vec<session_area::SessionAreaInput> = serde_json::from_value(case["args"]["sessions"].clone()).unwrap_or_else(|e| panic!("{name}: sessions: {e}"));
+                    json!(session_area::session_area(&sessions, case["args"]["room"].as_u64().map(|r| r as usize)))
+                }
                 other => panic!("unknown selector {other}"),
             };
             assert_eq!(got, case["expected"], "{selector}: {name}");

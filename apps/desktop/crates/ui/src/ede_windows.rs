@@ -441,6 +441,9 @@ pub(crate) fn open_key(key: &str, cx: &mut App) -> bool {
         Some(window) => {
             let _ = window.update(cx, |_, window, _| window.activate_window());
         }
+        // #EDE-239: a page whose window is on its way opens once (two
+        // presses on the Assistant before it is up are one window).
+        None if cx.try_global::<PageWindows>().is_some_and(|windows| windows.pending.iter().any(|page| page.screen.as_ref() == Some(&screen))) => {}
         None => open_page(Some(screen), None, None, Vec::new(), cx),
     }
     true

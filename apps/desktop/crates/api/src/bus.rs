@@ -32,6 +32,13 @@
 //!   [`Request::Search`] ranks the holder's issues, [`Request::Ask`] sends a
 //!   line to the viewer's Assistant. A reply may be large: a client reads
 //!   one up to [`MAX_REPLY`].
+//!
+//! - **Sessions (#EDE-239):** the feeds also carry `sessions`, the IDE
+//!   sidebar's Active band (each with its trace and its waiting card), the
+//!   taskbar's session area. [`Request::Stop`] stops a chat's working
+//!   sessions, [`Request::Answer`] answers its waiting card in place
+//!   (approve or decline a plan, an option of a question), both as the IDE
+//!   does them; [`Request::Ask`] lands in the Assistant's window.
 
 use std::{
     io::{self, BufRead, BufReader, Read as _, Write},
@@ -50,7 +57,7 @@ use serde::{Deserialize, Serialize};
 pub const SOCKET: &str = "exp-desktop.bus";
 
 /// This end's version of the bus (in [`Reply::Hello`]).
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 /// The longest request line the holder reads (a link, a command, a token).
 pub const MAX_LINE: usize = 64 * 1024;
@@ -127,12 +134,28 @@ pub enum Request {
     },
     /// #EDE-258: the holder's issues ranked for `query` ([`Reply::Search`]).
     Search { query: String },
-    /// #EDE-258: send `text` to the viewer's Assistant (no window opens).
+    /// #EDE-258: send `text` to the viewer's Assistant; #EDE-239: its one
+    /// window comes up (with `activation_token`, else in the background).
     /// [`Reply::Done`], or [`Reply::Refused`] with no Assistant.
     Ask {
         text: String,
         #[serde(default, rename = "activationToken", skip_serializing_if = "Option::is_none")]
         activation_token: Option<String>,
+    },
+    /// #EDE-239: stop the working sessions of the chat `root` (the IDE's
+    /// Stop: `sessions.stop` each). [`Reply::Done`], or [`Reply::Refused`]
+    /// for a chat with nothing working.
+    Stop { root: String },
+    /// #EDE-239: answer the waiting card `message_id` in place: a plan's
+    /// `decision` (`approved` / `declined`), a question's `answer` (an
+    /// option's label). [`Reply::Done`] once sent, or [`Reply::Refused`].
+    Answer {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decision: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer: Option<String>,
     },
 }
 
@@ -519,6 +542,15 @@ mod tests {
         let search = Reply::Search { issues: vec![issue.clone()] };
         assert_eq!(serde_json::to_value(&search).unwrap(), serde_json::json!({"reply": "search", "issues": [issue]}));
         assert_eq!(serde_json::from_value::<Reply>(serde_json::to_value(&search).unwrap()).unwrap(), search);
+    }
+
+    #[test]
+    fn stop_and_answer_keep_their_wire_shape() {
+        assert_eq!(serde_json::to_value(Request::Stop { root: "r1".into() }).unwrap(), serde_json::json!({"op": "stop", "root": "r1"}));
+        let approve = Request::Answer { message_id: "m1".into(), decision: Some("approved".into()), answer: None };
+        assert_eq!(serde_json::to_value(&approve).unwrap(), serde_json::json!({"op": "answer", "messageId": "m1", "decision": "approved"}));
+        let pick = serde_json::json!({"op": "answer", "messageId": "m2", "answer": "Yes"});
+        assert_eq!(serde_json::from_value::<Request>(pick).unwrap(), Request::Answer { message_id: "m2".into(), decision: None, answer: Some("Yes".into()) });
     }
 
     #[test]

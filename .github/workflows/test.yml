@@ -9,7 +9,7 @@ name: test
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests (and ePilot's live tests against it) when it touches apps/ede or what it builds from, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI, with eui-gpui's full `cargo test`) when it touches eUI, a short eDE golden check
-# (`ede-goldens-lite`: ede-chat, ede-settings, ede-panel-menu) when it touches what eDE paints with, and
+# (`ede-goldens-lite`: ede-needs-you, ede-settings, ede-panel-menu) when it touches what eDE paints with, and
 # the shot store's tests + `shots:check` when it touches a view or the store (`shots`; #EXP-1870). The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them, EXCEPT `eui-swift` when the PR
@@ -779,8 +779,8 @@ jobs:
         run: |
           EDE_SEALED_BIN="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/exponential-sealed" \
             cargo test --locked -p ede-compositor --test sealed_unlock --test sealed_client -- --ignored
-      - name: Capture ede-chat, ede-settings, ede-panel-menu
-        run: bun run shots -- --platform ede --views ede-chat,ede-settings,ede-panel-menu --skip-seed --golden
+      - name: Capture ede-needs-you, ede-settings, ede-panel-menu
+        run: bun run shots -- --platform ede --views ede-needs-you,ede-settings,ede-panel-menu --skip-seed --golden
       - name: The store did not move
         run: git diff --exit-code --stat -- shots/
       - uses: actions/upload-artifact@v4
@@ -789,7 +789,7 @@ jobs:
           name: ede-goldens-lite
           path: |
             .shots-raw/ede
-            shots/ede-chat
+            shots/ede-needs-you
             shots/ede-settings
             shots/ede-panel-menu
           retention-days: 14
