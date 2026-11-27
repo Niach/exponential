@@ -643,6 +643,12 @@ impl HostPlugin for Host {
             return;
         }
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
+        // A Menu's pick: its function with the picked value (window_menu::MENU_PICKS).
+        if let Some(args) = window_menu::menu_pick_args(&event.name, &event.context) {
+            let call = FunctionCallEvent { surface_id: event.surface_id.clone(), component_id: event.component_id.clone(), name: event.name.clone(), args };
+            self.on_function_call(&call, cx);
+            return;
+        }
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
         // The composer's menu keys ride an event: genUI hands an event's

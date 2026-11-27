@@ -37,6 +37,12 @@ pub fn parse_jobs(text: &str) -> Vec<Value> {
         .collect()
 }
 
+/// `lpstat FLAG` in the C locale: its lines are parsed (`printer NAME is
+/// idle`), and a German session says `Drucker NAME ist im Leerlauf`.
+fn lpstat(flag: &str) -> Option<String> {
+    command("env", &["LC_ALL=C", "LANGUAGE=", "lpstat", flag])
+}
+
 impl Service for Printers {
     fn name(&self) -> &'static str {
         "printers"
@@ -50,9 +56,9 @@ impl Service for Printers {
     }
 
     fn snapshot(&self) -> Value {
-        let Some(list) = command("lpstat", &["-p"]).or_else(|| command("lpstat", &["-a"]).map(|_| String::new())) else { return unavailable("CUPS (lpstat) is not available") };
-        let default = command("lpstat", &["-d"]).unwrap_or_default();
-        let jobs = parse_jobs(&command("lpstat", &["-o"]).unwrap_or_default());
+        let Some(list) = lpstat("-p").or_else(|| lpstat("-a").map(|_| String::new())) else { return unavailable("CUPS (lpstat) is not available") };
+        let default = lpstat("-d").unwrap_or_default();
+        let jobs = parse_jobs(&lpstat("-o").unwrap_or_default());
         json!({"available": true, "printers": parse(&list, &default), "jobs": jobs})
     }
 
