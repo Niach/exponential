@@ -21,6 +21,16 @@ import {
 import { MCP_SERVER_INSTRUCTIONS } from "@/lib/emcp/instructions"
 import type { McpUser } from "@/lib/emcp/server"
 
+/** The wire tools the surface registers (nouns + verbs, each noun with reads
+ *  and writes as two). #VAPP-293's split made the 22 nouns and verbs 41.
+ *  #FEED-295 (Danny, 2026-11-27): raised to 43 for the `transfers` noun
+ *  (`exponential_transfers` + `exponential_transfers_write`, 23 nouns and
+ *  verbs). It is DEFERRED like every tool outside ALWAYS_LOAD_TOOLS: a
+ *  session pays only its name until tool search loads it, so the
+ *  always-loaded 11k budget is unchanged; a device-to-device transfer is
+ *  its own thing, not a device op, and earned its own tool. */
+export const MCP_WIRE_TOOLS = 43
+
 type ToolDef = {
   description?: string
   // EXP-705: every tool passes a strict z.object INSTANCE, not a raw shape.

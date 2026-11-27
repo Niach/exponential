@@ -414,6 +414,8 @@ fn device_caps_with(advertisement: &coding::AgentAdvertisement, key_holder: bool
     if updater::app_shot::capable() {
         caps.push(updater::app_shot::CAP.to_string());
     }
+    // #FEED-295: it sends and receives files between its owner's machines.
+    caps.push(steer::file_transfer::CAP.to_string());
     // #EXP-2174: it runs CI jobs where it can hide its data from them.
     if crate::ci_runner_host::available() {
         caps.push(ci_runner::CI_RUNNER_CAP.to_string());

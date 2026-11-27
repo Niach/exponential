@@ -45,6 +45,9 @@ const APP_STAMPED: Record<string, string> = {
   // register/heartbeat/rename explicitly (last_seen_at is the liveness
   // column; updated_at just mirrors the same writes).
   devices: `devices router stamps it on every write`,
+  // #FEED-295: lib/device-transfers.ts is the only writer and stamps it on
+  // every update (reports, cancel).
+  device_transfers: `lib/device-transfers.ts stamps it on every write`,
 }
 
 function tablesWithUpdatedAt(): string[] {

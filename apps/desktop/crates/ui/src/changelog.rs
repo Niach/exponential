@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-device-file-transfers",
+    date: "2026-11-27",
+    title: "Copy files between your own machines",
+    summary: "Agents copy a file or folder of any size from one of your machines to another over P2P, resumable and checksummed, with no prompt.",
+    body: r##"- **Machine to machine**: a session sends a file or folder between two of your own computers running the app or the CLI daemon, end-to-end encrypted, without passing through Exponential's servers or a size limit.
+- **Picks up where it stopped**: a dropped connection or a restart continues the copy, and every file's checksum is verified when it lands.
+- **Your machines only**: another person's machine is always refused; keys, credentials and Exponential's own data are never sent, and a copy never overwrites what is already there."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_378: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-repositories-in-navigation",
     date: "2026-11-27",
     title: "Repositories in the sidebar",

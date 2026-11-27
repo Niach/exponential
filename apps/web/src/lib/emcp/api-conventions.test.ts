@@ -136,6 +136,8 @@ const READ_ONLY_EXTRA = new Set([
   `exponential_issues_trash`,
   `exponential_pr_files`,
   `exponential_issues_show`,
+  // #FEED-295: one transfer's progress is a read.
+  `exponential_transfers_status`,
   // #EXP-2172: the CI list and a job's log are reads.
   `exponential_repositories_runs`,
   `exponential_repositories_run_log`,
