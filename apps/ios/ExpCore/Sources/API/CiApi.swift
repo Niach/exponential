@@ -51,6 +51,8 @@ private struct CiSetRunnerInput: Encodable {
     let labels: [String]
     let slots: Int
     let timeoutMin: Int
+    let memoryMaxMb: Int
+    let pauseWhenBusy: Bool
 }
 
 /// #EXP-1617 (repo-ci.json): a repository's `ci_config`; absent keys = off / none.
@@ -58,11 +60,17 @@ public struct RepoCiConfig: Decodable, Sendable, Equatable {
     public var requiredChecks: [String]
     public var githubStatuses: Bool
     public var actionsRunners: Bool
+    /// #EXP-2180: pull request runs take the repository's secrets too.
+    public var pullRequestSecrets: Bool
 
-    public init(requiredChecks: [String] = [], githubStatuses: Bool = false, actionsRunners: Bool = false) {
+    public init(
+        requiredChecks: [String] = [], githubStatuses: Bool = false, actionsRunners: Bool = false,
+        pullRequestSecrets: Bool = false
+    ) {
         self.requiredChecks = requiredChecks
         self.githubStatuses = githubStatuses
         self.actionsRunners = actionsRunners
+        self.pullRequestSecrets = pullRequestSecrets
     }
 
     public init(from decoder: Decoder) throws {
@@ -70,9 +78,10 @@ public struct RepoCiConfig: Decodable, Sendable, Equatable {
         requiredChecks = (try? c.decodeIfPresent([String].self, forKey: .requiredChecks)) ?? []
         githubStatuses = (try? c.decodeIfPresent(Bool.self, forKey: .githubStatuses)) ?? false
         actionsRunners = (try? c.decodeIfPresent(Bool.self, forKey: .actionsRunners)) ?? false
+        pullRequestSecrets = (try? c.decodeIfPresent(Bool.self, forKey: .pullRequestSecrets)) ?? false
     }
 
-    enum CodingKeys: String, CodingKey { case requiredChecks, githubStatuses, actionsRunners }
+    enum CodingKeys: String, CodingKey { case requiredChecks, githubStatuses, actionsRunners, pullRequestSecrets }
 }
 
 /// `ci.repoSettings`'s answer: the config + the secret NAMES (values are
@@ -111,6 +120,7 @@ private struct CiSetRepoConfigInput: Encodable {
     let requiredChecks: [String]?
     let githubStatuses: Bool?
     let actionsRunners: Bool?
+    let pullRequestSecrets: Bool?
 }
 
 private struct CiSetSecretInput: Encodable {
@@ -149,14 +159,16 @@ public final class CiApi: Sendable {
         try await trpc.mutationVoid(accountId: accountId, path: "ci.cancel", input: CiRunIdInput(runId: runId))
     }
 
-    /// `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin}`: the WHOLE
+    /// `ci.setRunner{deviceId, enabled, labels, slots, timeoutMin, memoryMaxMb,
+    /// pauseWhenBusy}`: the WHOLE
     /// settings object, the device owner only (`deviceId` = the steer id).
     public func setRunner(accountId: String, deviceId: String, settings: RunnerSettings.Settings) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "ci.setRunner",
             input: CiSetRunnerInput(
                 deviceId: deviceId, enabled: settings.enabled, labels: settings.labels,
-                slots: settings.slots, timeoutMin: settings.timeoutMin
+                slots: settings.slots, timeoutMin: settings.timeoutMin,
+                memoryMaxMb: settings.memoryMaxMb, pauseWhenBusy: settings.pauseWhenBusy
             )
         )
     }
@@ -172,13 +184,15 @@ public final class CiApi: Sendable {
         repositoryId: String,
         requiredChecks: [String]? = nil,
         githubStatuses: Bool? = nil,
-        actionsRunners: Bool? = nil
+        actionsRunners: Bool? = nil,
+        pullRequestSecrets: Bool? = nil
     ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "ci.setRepoConfig",
             input: CiSetRepoConfigInput(
                 repositoryId: repositoryId, requiredChecks: requiredChecks,
-                githubStatuses: githubStatuses, actionsRunners: actionsRunners
+                githubStatuses: githubStatuses, actionsRunners: actionsRunners,
+                pullRequestSecrets: pullRequestSecrets
             )
         )
     }

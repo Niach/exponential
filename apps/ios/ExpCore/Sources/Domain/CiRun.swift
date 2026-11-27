@@ -375,6 +375,8 @@ public enum RunnerSettings {
         public static let labelsInvalid = "Use lowercase letters, digits, dots, dashes or underscores."
         public static let slots = "Parallel jobs"
         public static let timeout = "Job timeout"
+        public static let memory = "Memory per job"
+        public static let pause = "Pause for games and full-screen apps"
         public static let recent = "Recent jobs"
         public static let noJobs = "No jobs yet."
         public static let runSubtitle = "Run #{number} · {repo}"
@@ -387,6 +389,7 @@ public enum RunnerSettings {
     }
 
     public static let notices: [String: Notice] = [
+        "unsupported": Notice(type: "info", title: "Not on this computer yet", message: "A job could read this app's data on macOS and Windows. Run CI on Linux or a server."),
         "phone": Notice(type: "info", title: "Set up here, runs on the device", message: "A phone never runs CI jobs: this sets up the device's runner."),
         "update": Notice(type: "warning", title: "Update this device", message: "Its app is too old to run CI jobs."),
     ]
@@ -398,14 +401,22 @@ public enum RunnerSettings {
         public static let slots = "runner-slots"
         public static let timeout = "runner-timeout"
         public static let recent = "runner-recent"
+        public static let memory = "runner-memory"
+        public static let pause = "runner-pause"
     }
 
     public static let maxLabels = 16
     public static let minSlots = 1
     public static let maxSlots = 16
     public static let maxRecent = 5
+    public static let minMemoryMb = 1024
+    public static let maxMemoryMb = 262_144
+    public static let memoryStepMb = 1024
     public static let timeoutOptions: [(value: String, label: String)] = [
         ("15", "15 min"), ("30", "30 min"), ("60", "1 h"), ("120", "2 h"), ("240", "4 h"), ("360", "6 h"),
+    ]
+    public static let memoryOptions: [(value: String, label: String)] = [
+        ("2048", "2 GB"), ("4096", "4 GB"), ("8192", "8 GB"), ("16384", "16 GB"), ("32768", "32 GB"), ("65536", "64 GB"),
     ]
 
     public struct Settings: Equatable, Sendable {
@@ -413,15 +424,25 @@ public enum RunnerSettings {
         public var labels: [String]
         public var slots: Int
         public var timeoutMin: Int
+        /// #EXP-2193: the job's memory cap; pause jobs while a game runs.
+        public var memoryMaxMb: Int
+        public var pauseWhenBusy: Bool
 
-        public init(enabled: Bool, labels: [String], slots: Int, timeoutMin: Int) {
+        public init(
+            enabled: Bool, labels: [String], slots: Int, timeoutMin: Int,
+            memoryMaxMb: Int = 8192, pauseWhenBusy: Bool = true
+        ) {
             self.enabled = enabled
             self.labels = labels
             self.slots = slots
             self.timeoutMin = timeoutMin
+            self.memoryMaxMb = memoryMaxMb
+            self.pauseWhenBusy = pauseWhenBusy
         }
 
-        public static let defaults = Settings(enabled: false, labels: [], slots: 1, timeoutMin: 60)
+        public static let defaults = Settings(
+            enabled: false, labels: [], slots: 1, timeoutMin: 60, memoryMaxMb: 8192, pauseWhenBusy: true
+        )
 
         /// The row's `runner` jsonb, `defaults` filling a null one (or a
         /// missing key).
@@ -433,6 +454,8 @@ public enum RunnerSettings {
             labels = (object?["labels"] as? [String]) ?? d.labels
             slots = (object?["slots"] as? NSNumber)?.intValue ?? d.slots
             timeoutMin = (object?["timeoutMin"] as? NSNumber)?.intValue ?? d.timeoutMin
+            memoryMaxMb = (object?["memoryMaxMb"] as? NSNumber)?.intValue ?? d.memoryMaxMb
+            pauseWhenBusy = (object?["pauseWhenBusy"] as? Bool) ?? d.pauseWhenBusy
         }
     }
 
@@ -445,8 +468,16 @@ public enum RunnerSettings {
 
     private static let phones: Set<String> = ["ios", "android", "web-mobile"]
 
-    /// The section's notice key: phones never run jobs; an old app cannot.
-    public static func notice(client: String, caps: [String]) -> String? {
+    /// #EXP-2193: the desktop app on macOS or Windows gets no runner yet (a
+    /// job could read the app's data there); a server daemon on any OS keeps it.
+    public static func unsupported(kind: String?, platform: String?) -> Bool {
+        kind == "desktop" && (platform == "macos" || platform == "darwin" || platform == "windows")
+    }
+
+    /// The section's notice key: an unsupported desktop, phones never run
+    /// jobs, an old app cannot.
+    public static func notice(client: String, caps: [String], kind: String?, platform: String?) -> String? {
+        if unsupported(kind: kind, platform: platform) { return "unsupported" }
         if phones.contains(client) { return "phone" }
         if !caps.contains("ci-runner") { return "update" }
         return nil
@@ -521,6 +552,7 @@ public enum RunnerSettings {
 
     public static let specimenClient = "desktop"
     public static let specimenDeviceId = "d1"
+    public static let specimenKind = "desktop"
     public static let specimenPlatform = "linux"
     public static let specimenCaps = ["ci-runner"]
     public static let specimenSettings = Settings(enabled: true, labels: ["gpu"], slots: 2, timeoutMin: 60)

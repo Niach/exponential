@@ -6756,8 +6756,8 @@
         "file": "shots/repo-ci/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 32238,
-        "sha256": "6615e76ea7061d22da0263b274d86007c0f3cf837ecf4572cddb22b676a7b7ee"
+        "bytes": 44222,
+        "sha256": "351588576e6b08d87d16a4c9025adff866b93949f6f0b71245518561f99484db"
       },
       "web": {
         "file": "shots/repo-ci/web.webp",
@@ -6883,8 +6883,8 @@
         "file": "shots/runner-settings/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 40772,
-        "sha256": "e17e050f5ac1015e66bcda46e50b0475a802da93ac2e7208eddd47e93f04065e"
+        "bytes": 44914,
+        "sha256": "41bb8f7c5f26aa24a178192bbcd44b07acbcaab3da798924357eceda1eaaca7d"
       },
       "web": {
         "file": "shots/runner-settings/web.webp",
