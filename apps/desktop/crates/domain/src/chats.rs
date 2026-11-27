@@ -100,7 +100,8 @@ pub struct ChatsTabCopy {
     pub teams: String,
     pub assistant: String,
     pub new: String,
-    pub settings: String,
+    /// #EXP-2171: the phones' last tab is More (Devices · CI · Settings).
+    pub more: String,
 }
 
 /// `copy.headers` (#EXP-1384: the phone page header's titles).
@@ -1753,7 +1754,7 @@ mod tests {
     fn spec_parses() {
         assert_eq!(CHATS.copy.title, "Chats");
         assert_eq!(CHATS.surface_card.reply_event, "reply");
-        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "settings"]);
+        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "more"]);
         assert_eq!(CHATS.shell.archived_glyph, 24.);
         assert_eq!(
             (
