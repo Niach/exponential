@@ -28,11 +28,41 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-27-ci-page`,
     date: `2026-11-27`,
     title: `CI: our runs and GitHub Actions in one place`,
-    summary: `A CI row under Devices opens every run across your teams, ours and GitHub Actions alike, with the merge train and the runners beside them.`,
-    body: `- **One list**: runs from Exponential's CI and from GitHub Actions side by side, filtered by Running, Failed or Mine, by repository and by source; the merge train's current batch sits on top.
+    summary: `A CI row under Devices lists every run across your teams, ours and GitHub Actions alike, by commit and by day, with the merge train and the runners beside them.`,
+    body: `- **One list**: runs from Exponential's CI and from GitHub Actions side by side, titled by their commit and grouped into In progress, Today and earlier days; filter by Running, Failed or Mine, by repository and by source.
 - **The CI row's badge**: it counts your runs that failed until they run green again; while yours run, it shows them muted.
 - **Merge train and Runners tabs**: what waits to land, and each runner with its labels, busy slots and queue.
-- **Run page**: a source badge, a way back to CI, Re-run all beside Re-run failed, Open on GitHub, and Fix with an agent, which opens a chat on that repository with the failing job named.`,
+- **Run page**: the commit, branch, pull request and runner at a glance, one button to re-run what failed (or cancel while it runs), the first error line of a failed job, and Fix with an agent, which opens a chat on that repository with the failing job named.`,
+  },
+  {
+    id: `2026-11-27-ci-runner-in-the-app`,
+    date: `2026-11-27`,
+    title: `The desktop app runs your CI on Linux`,
+    summary: `Turn on Run CI jobs for a Linux computer and its Exponential app runs your team's pipelines itself, kept away from the app's data, capped and out of your way.`,
+    body: `- **CI inside the app**: on Linux the Exponential app runs CI jobs itself, no separate daemon to install.
+- **Kept apart**: a job cannot see the app's data, your agents' sign-ins or your SSH keys, and each step runs with the memory cap and the lowest CPU priority.
+- **Out of your way**: no new job starts while a game or a full-screen app runs.
+- **Updates wait for jobs**: a ready update waits for the running jobs, at most until their timeout; Restart to update asks before it stops them, and a stopped job runs again.`,
+  },
+  {
+    id: `2026-11-27-ede-start-menu-navigation`,
+    date: `2026-11-27`,
+    title: `The start menu is how you get around`,
+    summary: `On Exponential Desktop the start menu holds your teams, boards, chats, devices and the Assistant, with search across all of them; the left rail is gone.`,
+    body: `- **Your sidebar in the menu**: the Assistant, Home, Needs you, Chats, Devices, each team with its boards, folders, agents, apps and sessions, and your Local desktops sit as categories beside the apps.
+- **Search everything**: type to find a board, a chat, a device, a Settings page, an app or an issue; Enter opens it in its own window.
+- **The keyboard you know**: hover or arrow through the categories, Right and Left move between the columns, Escape closes.
+- **Ask the Assistant**: its latest answer and a composer sit right in the menu.`,
+  },
+  {
+    id: `2026-11-27-ci-secrets-trusted-runs`,
+    date: `2026-11-27`,
+    title: `CI secrets stay out of pull requests`,
+    summary: `Your CI secrets now reach only runs on the default branch, tags and the merge train, unless a repository lets pull requests have them.`,
+    body: `- **Secrets for trusted runs**: a pull request run gets no secrets, and its log says which ones were held back and why. Turn on **Secrets for pull requests** in a repository's CI settings to give them those too. Every secret change shows in the team's events.
+- **A cut-off job runs again**: a job whose runner crashed or quit goes back to the queue once instead of failing.
+- **Runner limits**: a device's CI runner settings now have **Memory per job** and **Pause for games and full-screen apps**.
+- **Linux and servers only for now**: the desktop app on macOS and Windows can't run CI jobs yet. Run them on Linux or on a server.`,
   },
   {
     id: `2026-11-27-ede-page-windows`,

@@ -29,7 +29,7 @@
     "gzip": 352755
   },
   "@exponential_app/eui/host": {
-    "bytes": 686400,
+    "bytes": 686900,
     "gzip": 171600
   },
   "@exponential_app/eui/express/index": {
@@ -69,7 +69,7 @@
     "gzip": 11576
   },
   "@exponential_app/eui-element/standalone.js": {
-    "bytes": 1792000,
+    "bytes": 1792500,
     "gzip": 424100
   },
   "android/arm64-v8a": {

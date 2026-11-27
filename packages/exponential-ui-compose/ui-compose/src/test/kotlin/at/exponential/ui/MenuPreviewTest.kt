@@ -10,6 +10,7 @@ import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.focus
 import at.exponential.ui.model.hover
+import at.exponential.ui.model.dismissLayer
 import at.exponential.ui.model.isMenuPreviewLayer
 import at.exponential.ui.model.press
 import at.exponential.ui.model.setOpen
@@ -193,6 +194,47 @@ class MenuPreviewTest {
             assertTrue(m.escape())
             runCurrent()
             assertFalse("$name: Escape closed the menu", m.layers.any { it.owner == "m" })
+        }
+    }
+
+    /**
+     * #EDE-253 `menuOpen`: a Menu's bindable `open` (Popover's rule) through
+     * the core: a host write opens a press Menu and a context Menu; Escape,
+     * an outside press (the layer's dismiss), a pick or the trigger's press
+     * writes /open and fires `change {open}`; a host write fires nothing.
+     */
+    @Test
+    fun menuOpenCases() = runTest {
+        val fx = f["menuOpen"]!!
+        val cases = fx["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("menu", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(fx["surfaces"]!![c["surface"]!!.string!!]!!.json)
+            m.setViewport(390f, 800f)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            runCurrent()
+            for ((i, step) in c["steps"]?.array.orEmpty().withIndex()) {
+                val at = "$name: step $i (${step["do"]?.string})"
+                val before = host.actions.size
+                when (step["do"]?.string) {
+                    "open" -> m.setData("/open", JsonValue.Bool(true))
+                    "close" -> m.setData("/open", JsonValue.Bool(false))
+                    "escape" -> assertTrue("$at: Escape handled", m.escape())
+                    "outside" -> m.dismissLayer("m")
+                    "pick" -> m.press("m.item.0")
+                    "pressTrigger" -> m.press("t")
+                }
+                runCurrent()
+                assertEquals("$at: shown", step["shown"]?.bool, m.layers.any { it.owner == "m" && !m.isMenuPreviewLayer(it) })
+                step["data"]?.bool?.let { assertEquals("$at: /open", it, m.data["open"]?.bool) }
+                val fired = host.actions.drop(before)
+                assertEquals("$at: changes", step["changes"]?.array.orEmpty().map { it.bool }, fired.filter { it.name == "change" }.map { it.context["open"]?.bool })
+                assertEquals("$at: selects", step["selects"]?.array.orEmpty().map { it.string }, fired.filter { it.name == "select" }.map { it.context["value"]?.string })
+            }
         }
     }
 }

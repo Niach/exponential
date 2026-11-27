@@ -107,6 +107,7 @@ describe(`runnerSectionTree (runner-settings.json LAYOUT)`, () => {
   const base = {
     client: `desktop` as const,
     caps: s.device.caps,
+    kind: s.device.kind,
     platform: s.device.platform,
     settings: runnerSettingsOf(s.device.runner),
     owner: true,
@@ -138,6 +139,20 @@ describe(`runnerSectionTree (runner-settings.json LAYOUT)`, () => {
   it(`an old app is told to update`, () => {
     const tree = runnerSectionTree({ ...base, client: `web`, caps: [`update-check`] })
     expect(find(tree, `runner-notice`)?.props?.title).toBe(runnerFixture.copy.notice.update.title)
+    expect(find(tree, runnerFixture.testIds.memory)?.props).toMatchObject({ value: `8192`, options: runnerFixture.memoryOptions })
+    expect(find(tree, runnerFixture.testIds.pause)?.props).toMatchObject({ checked: true, disabled: false })
+  })
+
+  it(`#EXP-2193: the desktop app on a Mac gets the notice and a disabled switch while off; a server daemon keeps it`, () => {
+    const off = runnerSettingsOf(null)
+    const mac = runnerSectionTree({ ...base, platform: `macos`, settings: off })
+    expect(find(mac, `runner-notice`)?.props).toEqual(runnerFixture.copy.notice.unsupported)
+    expect(find(mac, runnerFixture.testIds.switch)?.props).toMatchObject({ checked: false, disabled: true })
+    const on = runnerSectionTree({ ...base, platform: `windows` })
+    expect(find(on, runnerFixture.testIds.switch)?.props).toMatchObject({ checked: true, disabled: false })
+    const server = runnerSectionTree({ ...base, kind: `server`, platform: `macos`, settings: off })
+    expect(find(server, `runner-notice`)).toBeUndefined()
+    expect(find(server, runnerFixture.testIds.switch)?.props).toMatchObject({ disabled: false })
   })
 })
 
@@ -182,6 +197,7 @@ describe(`the trees are valid core-catalog surfaces`, () => {
       runnerSectionTree({
         client: `web`,
         caps: [],
+        kind: `desktop`,
         platform: `linux`,
         settings: runnerSettingsOf(runnerFixture.specimen.device.runner),
         owner: true,

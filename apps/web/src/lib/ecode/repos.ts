@@ -170,13 +170,45 @@ export async function ecodeRepositorySettings(userId: string, repositoryId: stri
   }
 }
 
-/** Owner: restore a backup (a device job replaces every pack and ref). */
-export async function restoreEcodeBackup(userId: string, input: { repositoryId: string; backupId: string }) {
+/** #EXP-2201: what a restore of `backup` would do to the current refs:
+ *  every ref whose sha changes (`to: null` = it goes, `from: null` = it comes
+ *  back). Empty = the backup IS the current state. */
+export function restoreRefChanges(
+  current: Record<string, string>,
+  backup: Record<string, string>
+): Array<{ ref: string; from: string | null; to: string | null }> {
+  const names = [...new Set([...Object.keys(current), ...Object.keys(backup)])].sort()
+  return names.flatMap((ref) => {
+    const from = current[ref] ?? null
+    const to = backup[ref] ?? null
+    return from === to ? [] : [{ ref, from, to }]
+  })
+}
+
+/** How long a restore waits for the fresh backup it takes first. */
+const FRESH_BACKUP_WAIT_MS = 120_000
+
+/** Owner: restore a backup (a device job replaces every pack and ref).
+ *  #EXP-2201: a backup whose refs differ from the current ones (branches
+ *  would roll back, vanish or come back) is refused unless `force`, naming
+ *  them; and every restore first takes a FRESH backup of the current state
+ *  (awaited), so the state it replaces can be restored in turn. */
+export async function restoreEcodeBackup(userId: string, input: { repositoryId: string; backupId: string; force?: boolean }) {
   const repo = await loadEcodeRepo(input.repositoryId)
   await assertOwner(userId, repo.teamId)
   const backup = (await listBundles(repo.id)).find((b) => b.id === input.backupId)
   if (!backup) fail(`NOT_FOUND`, `Backup not found`)
+  const changes = restoreRefChanges(await listRefs(repo.id), backup.refs)
+  if (changes.length > 0 && !input.force) {
+    const names = changes.map((c) => `${c.ref.replace(/^refs\/heads\//, ``)} (${c.to === null ? `removed` : c.from === null ? `restored` : `rolled back`})`)
+    fail(`PRECONDITION_FAILED`, `Restoring this backup would change ${changes.length} ref${changes.length === 1 ? `` : `s`}: ${names.slice(0, 10).join(`, `)}${names.length > 10 ? `, …` : ``}. Pass force to restore anyway.`)
+  }
+  const backupId = await queueMaintenance(repo, { op: `backup` })
+  if (!backupId) fail(`PRECONDITION_FAILED`, `No CI runner of the team is online to restore ${repo.fullName}`)
+  const { awaitDeviceCommand } = await import(`@/lib/trpc/devices`)
+  const fresh = await awaitDeviceCommand(db, backupId, FRESH_BACKUP_WAIT_MS)
+  if (!fresh || fresh.status !== `done`) fail(`PRECONDITION_FAILED`, `The fresh backup before the restore did not finish, so nothing was restored`)
   const commandId = await queueMaintenance(repo, { op: `restore`, bundle: backup.key })
   if (!commandId) fail(`PRECONDITION_FAILED`, `No CI runner of the team is online to restore ${repo.fullName}`)
-  return { commandId }
+  return { commandId, changes }
 }

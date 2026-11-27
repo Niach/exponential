@@ -586,6 +586,9 @@ pub struct RunnerSettings {
     pub labels: Vec<String>,
     pub slots: u32,
     pub timeout_min: u32,
+    /// #EXP-2193: the job's memory cap (MB) and pause-while-a-game-runs.
+    pub memory_max_mb: u32,
+    pub pause_when_busy: bool,
 }
 
 /// The row's `runner` jsonb, the fixture's `defaults` for NULL or a missing
@@ -601,6 +604,8 @@ pub fn runner_settings(runner: Option<&Value>) -> RunnerSettings {
             .unwrap_or_default(),
         slots: pick("slots").as_u64().unwrap_or(1) as u32,
         timeout_min: pick("timeoutMin").as_u64().unwrap_or(60) as u32,
+        memory_max_mb: pick("memoryMaxMb").as_u64().unwrap_or(8192) as u32,
+        pause_when_busy: pick("pauseWhenBusy").as_bool().unwrap_or(true),
     }
 }
 
@@ -621,7 +626,16 @@ fn runner_recent_limit() -> usize {
 
 /// `timeoutOptions` as (value, label).
 pub fn runner_timeout_options() -> Vec<(String, String)> {
-    RUNNER_SETTINGS["timeoutOptions"]
+    runner_options("timeoutOptions")
+}
+
+/// `memoryOptions` as (value, label) (#EXP-2193).
+pub fn runner_memory_options() -> Vec<(String, String)> {
+    runner_options("memoryOptions")
+}
+
+fn runner_options(key: &str) -> Vec<(String, String)> {
+    RUNNER_SETTINGS[key]
         .as_array()
         .map(|options| {
             options
@@ -652,6 +666,7 @@ pub fn normalize_runner_label(input: &str) -> Option<String> {
 /// The section's notice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunnerNotice {
+    Unsupported,
     Phone,
     Update,
 }
@@ -659,16 +674,25 @@ pub enum RunnerNotice {
 impl RunnerNotice {
     pub fn id(self) -> &'static str {
         match self {
+            Self::Unsupported => "unsupported",
             Self::Phone => "phone",
             Self::Update => "update",
         }
     }
 }
 
-/// `notice`: a phone client never runs jobs; a device without the
-/// `ci-runner` cap is too old to.
-pub fn runner_notice(client: &str, caps: &[String]) -> Option<RunnerNotice> {
-    if matches!(client, "ios" | "android" | "web-mobile") {
+/// `unsupported` (#EXP-2193): the desktop app on macOS or Windows gets no
+/// runner yet (a job could read the app's data); a server daemon keeps it.
+pub fn runner_unsupported(kind: Option<&str>, platform: Option<&str>) -> bool {
+    kind == Some("desktop") && matches!(platform, Some("macos" | "darwin" | "windows"))
+}
+
+/// `notice`: an unsupported desktop, a phone client never runs jobs, a
+/// device without the `ci-runner` cap is too old to.
+pub fn runner_notice(client: &str, caps: &[String], kind: Option<&str>, platform: Option<&str>) -> Option<RunnerNotice> {
+    if runner_unsupported(kind, platform) {
+        Some(RunnerNotice::Unsupported)
+    } else if matches!(client, "ios" | "android" | "web-mobile") {
         Some(RunnerNotice::Phone)
     } else if !caps.iter().any(|cap| cap == "ci-runner") {
         Some(RunnerNotice::Update)
@@ -1012,8 +1036,16 @@ mod tests {
     fn notice_matches_the_fixture() {
         for case in runner()["notice"].as_array().unwrap() {
             let caps: Vec<String> = case["caps"].as_array().unwrap().iter().map(|cap| cap.as_str().unwrap().to_string()).collect();
-            let got = runner_notice(case["client"].as_str().unwrap(), &caps);
+            let got = runner_notice(case["client"].as_str().unwrap(), &caps, case["kind"].as_str(), case["platform"].as_str());
             assert_eq!(got.map(|n| Value::String(n.id().into())).unwrap_or(Value::Null), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn unsupported_matches_the_fixture() {
+        for case in runner()["unsupported"].as_array().unwrap() {
+            let got = runner_unsupported(case["kind"].as_str(), case["platform"].as_str());
+            assert_eq!(Value::Bool(got), case["expected"], "{}", case["name"]);
         }
     }
 
@@ -1038,10 +1070,16 @@ mod tests {
 
     #[test]
     fn runner_settings_fill_the_defaults() {
-        assert_eq!(runner_settings(None), RunnerSettings { enabled: false, labels: vec![], slots: 1, timeout_min: 60 });
+        assert_eq!(
+            runner_settings(None),
+            RunnerSettings { enabled: false, labels: vec![], slots: 1, timeout_min: 60, memory_max_mb: 8192, pause_when_busy: true }
+        );
         let runner = runner();
         let specimen = runner_settings(Some(&runner["specimen"]["device"]["runner"]));
-        assert_eq!(specimen, RunnerSettings { enabled: true, labels: vec!["gpu".into()], slots: 2, timeout_min: 60 });
+        assert_eq!(
+            specimen,
+            RunnerSettings { enabled: true, labels: vec!["gpu".into()], slots: 2, timeout_min: 60, memory_max_mb: 8192, pause_when_busy: true }
+        );
         assert_eq!(runner_settings(Some(&json!({"enabled": true}))).timeout_min, 60);
     }
 }

@@ -1,6 +1,6 @@
-//! #EDE-65: the start menu's issue search. Every connected account's synced
-//! teams (the shell's per-account stores, `issues` + `boards` + `teams`) and
-//! every active Local desktop's store make ONE pool, indexed when the menu
+//! #EDE-65: the start menu's issue search. Every active Local desktop's
+//! store makes ONE pool (#EDE-258: the teams' issues come from the holder's
+//! search over its one store, `api::bus::Request::Search`), indexed when the menu
 //! opens (off the main loop) and ranked per query by the issue-search engine
 //! every client runs (`domain::issue_search`, fixture-locked), so `EXP-42`
 //! finds EXP-42 first whatever team it is in. The menu shows the hits under
@@ -10,7 +10,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use uicore_model::{StartMenuIssue, SwitcherKind, START_MENU_ISSUE_LIMIT};
@@ -31,9 +30,9 @@ pub struct Indexed {
     pub board: String,
 }
 
-/// What an index build reads: the accounts' stores and the Local desktops.
+/// What an index build reads: the Local desktops (#EDE-258: the teams'
+/// issues are the holder's search, its one store).
 pub enum Source {
-    Account(Arc<sync::store::ShapeStore>),
     Local { id: String, name: String, path: PathBuf },
 }
 
@@ -69,19 +68,11 @@ pub fn index_rows(issues: &[Row], boards: &[Row], source_of: impl Fn(&str) -> Op
         .collect()
 }
 
-fn shape_rows(store: &sync::store::ShapeStore, name: &str) -> Vec<Row> {
-    sync::shapes::shape_by_name(name).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default()
-}
-
 /// The pool: blocking (SQLite reads), so the shell runs it off the main loop.
 pub fn build(sources: Vec<Source>) -> Vec<Indexed> {
     let mut out = Vec::new();
     for source in sources {
         match source {
-            Source::Account(store) => {
-                let teams: HashMap<String, String> = shape_rows(&store, "teams").iter().filter_map(|t| Some((text(t, "id")?, text(t, "name").unwrap_or_default()))).collect();
-                out.extend(index_rows(&shape_rows(&store, "issues"), &shape_rows(&store, "boards"), |team| teams.get(team).map(|name| (SwitcherKind::Team, team.to_string(), name.clone()))));
-            }
             Source::Local { id, name, path } => {
                 if !path.exists() {
                     continue;
@@ -99,6 +90,35 @@ pub fn build(sources: Vec<Source>) -> Vec<Indexed> {
         }
     }
     out
+}
+
+/// #EDE-258: the tree's Local node (domain-contract sidebar-tree.json
+/// `edeLocal`): the desktops by name, each with its boards, read from their
+/// stores (blocking: off the main loop).
+pub fn local_tree(desktops: Vec<(String, String, PathBuf)>) -> Vec<uicore_model::StartMenuLocalRow> {
+    let inputs: Vec<domain::sidebar_tree::SidebarLocalDesktopInput> = desktops
+        .into_iter()
+        .map(|(id, name, path)| {
+            let boards = path
+                .exists()
+                .then(|| elocal::LocalStore::open(&path).ok())
+                .flatten()
+                .map(|store| store.rows("boards").unwrap_or_default())
+                .unwrap_or_default()
+                .iter()
+                .filter(|b| b.get("archived_at").is_none_or(Value::is_null) && b.get("deleted_at").is_none_or(Value::is_null))
+                .filter_map(|b| {
+                    Some(domain::sidebar_tree::SidebarLocalBoardInput { id: text(b, "id")?, name: text(b, "name").unwrap_or_default(), sort_order: b.get("sort_order").and_then(Value::as_f64).unwrap_or(0.0) })
+                })
+                .collect();
+            domain::sidebar_tree::SidebarLocalDesktopInput { id, name, boards }
+        })
+        .collect();
+    let names: HashMap<String, String> = inputs.iter().flat_map(|d| std::iter::once((d.id.clone(), d.name.clone())).chain(d.boards.iter().map(|b| (b.id.clone(), b.name.clone())))).collect();
+    domain::sidebar_tree::sidebar_local_rows(&inputs)
+        .into_iter()
+        .map(|row| uicore_model::StartMenuLocalRow { title: if row.id == "local" { "Local".into() } else { names.get(&row.id).cloned().unwrap_or_default() }, kind: match row.kind { domain::sidebar_tree::SidebarLocalRowKind::Local => "local", domain::sidebar_tree::SidebarLocalRowKind::Desktop => "desktop", domain::sidebar_tree::SidebarLocalRowKind::Board => "board" }.into(), id: row.id, desktop_id: row.desktop_id, depth: row.depth })
+        .collect()
 }
 
 /// #EDE-65 lane I: the chat's `#` typeahead: the engine's ranking over one

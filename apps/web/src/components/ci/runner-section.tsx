@@ -32,6 +32,7 @@ import { trpc } from "@/lib/trpc-client"
 export function RunnerSectionView({
   client,
   caps,
+  kind,
   platform,
   settings,
   owner,
@@ -40,6 +41,7 @@ export function RunnerSectionView({
 }: {
   client: RunnerClient
   caps: readonly string[]
+  kind: string | null | undefined
   platform: string | null | undefined
   settings: RunnerSettings
   owner: boolean
@@ -50,8 +52,8 @@ export function RunnerSectionView({
   const [refused, setRefused] = useState(false)
   const surfaceRef = useRef<SurfaceState | null>(null)
   const tree = useMemo(
-    () => runnerSectionTree({ client, caps, platform, settings, owner, refused, recent }),
-    [client, caps, platform, settings, owner, refused, recent]
+    () => runnerSectionTree({ client, caps, kind, platform, settings, owner, refused, recent }),
+    [client, caps, kind, platform, settings, owner, refused, recent]
   )
   // The ChipInput's `values` is bound: the stored labels win (a refused or
   // normalized entry is rewritten in the field).
@@ -133,7 +135,7 @@ export function RunnerSection({
   device,
   owner,
 }: {
-  device: { id: string; deviceId: string; platform: string | null; caps: string[] | null; runner: Partial<RunnerSettings> | null }
+  device: { id: string; deviceId: string; kind: string | null; platform: string | null; caps: string[] | null; runner: Partial<RunnerSettings> | null }
   owner: boolean
 }) {
   const phone = useIsMobile()
@@ -158,6 +160,7 @@ export function RunnerSection({
     <RunnerSectionView
       client={phone ? `web-mobile` : `web`}
       caps={device.caps ?? []}
+      kind={device.kind}
       platform={device.platform}
       settings={settings}
       owner={owner}
@@ -178,6 +181,7 @@ export function RunnerSettingsSpecimen() {
     <RunnerSectionView
       client={s.client as RunnerClient}
       caps={s.device.caps}
+      kind={s.device.kind}
       platform={s.device.platform}
       settings={settings}
       owner={s.owner}

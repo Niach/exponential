@@ -111,8 +111,8 @@ describe(`repoCiSectionTree (repo-ci.json SETTINGS TAB)`, () => {
     expect(find(tree, `repo-ci-secret-dialog`)?.component).toBe(`Dialog`)
     expect(find(tree, `repo-ci-secret-value`)?.props?.type).toBe(`password`)
     expect(find(tree, `repo-ci-delete-secret`)?.props).toMatchObject({ title: copy.ci.secrets.deleteTitle, confirmLabel: copy.ci.secrets.deleteConfirm, destructive: true })
-    // eCode: no GitHub switches.
-    expect(all(tree, `Switch`)).toHaveLength(0)
+    // eCode: no GitHub switches, only the secrets for pull requests (#EXP-2180).
+    expect(all(tree, `Switch`).map((s) => s.id)).toEqual([ids.pullRequestSecrets])
   })
 
   it(`no runs, no secrets: the muted texts`, () => {
@@ -121,11 +121,12 @@ describe(`repoCiSectionTree (repo-ci.json SETTINGS TAB)`, () => {
     expect(find(tree, ids.secrets)?.props).toMatchObject({ text: copy.ci.secrets.empty, variant: `muted` })
   })
 
-  it(`GitHub: both switches in order with the stored values`, () => {
-    const tree = repoCiSectionTree(base({ provider: `github`, config: { githubStatuses: true } }))
+  it(`GitHub: the switches in order with the stored values`, () => {
+    const tree = repoCiSectionTree(base({ provider: `github`, config: { githubStatuses: true, pullRequestSecrets: true } }))
     const switches = all(tree, `Switch`)
-    expect(switches.map((s) => s.id)).toEqual([ids.githubStatuses, ids.actionsRunners])
-    expect(switches.map((s) => s.props?.checked)).toEqual([true, false])
+    expect(switches.map((s) => s.id)).toEqual([ids.githubStatuses, ids.actionsRunners, ids.pullRequestSecrets])
+    expect(switches.map((s) => s.props?.checked)).toEqual([true, false, true])
+    expect(find(tree, `${ids.pullRequestSecrets}-row`)?.props?.label).toBe(copy.ci.pullRequestSecrets.label)
     expect(find(tree, `${ids.githubStatuses}-row`)?.props?.label).toBe(copy.ci.githubStatuses.label)
   })
 
@@ -163,6 +164,8 @@ describe(`events`, () => {
   it(`switches write their own key`, () => {
     expect(repoCiConfigAfter(current, REPO_CI_EVENTS.githubStatuses, { checked: true })).toEqual({ githubStatuses: true })
     expect(repoCiConfigAfter(current, REPO_CI_EVENTS.actionsRunners, { checked: false })).toBeNull()
+    expect(repoCiConfigAfter(current, REPO_CI_EVENTS.pullRequestSecrets, { checked: true })).toEqual({ pullRequestSecrets: true })
+    expect(repoCiConfigAfter(current, REPO_CI_EVENTS.pullRequestSecrets, { checked: false })).toBeNull()
   })
   it(`a secret submit passes secretName`, () => {
     expect(secretFromSubmit({ values: { name: `NPM_TOKEN`, value: `x` } })).toEqual({ name: `NPM_TOKEN`, value: `x` })

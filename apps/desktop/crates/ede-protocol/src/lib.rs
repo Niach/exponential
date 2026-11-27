@@ -83,6 +83,10 @@ pub mod events {
     /// The keyboard layout changed (#EDE-243, Super+Space): `{"index": 1,
     /// "layouts": ["English (US)", "German"]}`, for the keyboard applet.
     pub const KEYBOARD_LAYOUT: &str = "keyboard.layout";
+    /// The person asked for a window's menu (#EDE-253, Muffin's window
+    /// menu: Alt+Space, Alt+middle-click, a right click on our title bar):
+    /// [`super::WindowMenu`], for the shell to show at `x`, `y`.
+    pub const WINDOW_MENU: &str = "window.menu";
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
@@ -156,6 +160,17 @@ pub enum Request {
     /// of the active workspace to the taskbar, the next one brings them
     /// back. The panel's corner bar; Super+D in the compositor.
     ToggleDesktop,
+    /// One of the window menu's entries on `window` (#EDE-253, Cinnamon's
+    /// windowMenu.js): [`WindowAction`]. Close and the workspaces are
+    /// `close_window` and `move_to_workspace`.
+    WindowAction { window: WindowId, action: WindowAction },
+    /// The keyboard layouts of `[keyboard] layout` and the active one
+    /// (#EDE-253, the keyboard applet): [`KeyboardLayouts`].
+    ListKeyboardLayouts,
+    /// Makes layout `index` (of [`Request::ListKeyboardLayouts`]) the
+    /// active one, as Super+Space does: [`KeyboardLayouts`] after it, and
+    /// `keyboard.layout` to subscribers.
+    SetKeyboardLayout { index: usize },
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
     /// black. `since` = the `serial` of the last capture: when nothing was
@@ -648,14 +663,14 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::ListKeyboardLayouts | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
             // #EDE-172: what the channel holds is checked against the grant.
             Request::OpenChannel { .. } => None,
             // #EDE-172 (P4): the supervisor's own channel only (the arm checks).
             Request::OpenWayland => None,
             // #EDE-172 (P13): what the connection holds, the arm checks.
             Request::OpenServices { .. } => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::WindowAction { .. } | Request::SetKeyboardLayout { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } | Request::PickRegion { .. } => Some(Capability::Capture),
             Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
@@ -681,6 +696,7 @@ impl Request {
         match self {
             Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
             Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop => false,
+            Request::WindowAction { .. } | Request::ListKeyboardLayouts | Request::SetKeyboardLayout { .. } => false,
             Request::Capture { .. } | Request::PickRegion { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
             Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
@@ -702,6 +718,7 @@ impl Request {
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
             Request::Input { bindings, .. } => !bindings,
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
+            Request::WindowAction { .. } | Request::ListKeyboardLayouts | Request::SetKeyboardLayout { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             // The person's own hand on their own screen: never a space's.
             Request::PickRegion { .. } => false,
@@ -907,6 +924,72 @@ pub struct WorkspaceInfo {
     pub index: usize,
     pub active: bool,
     pub windows: Vec<WindowId>,
+}
+
+/// What [`Request::WindowAction`] does (#EDE-253: the window menu's
+/// entries, Muffin's `meta_window_*` calls behind Cinnamon's windowMenu.js).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowAction {
+    Minimize,
+    Maximize,
+    Unmaximize,
+    /// Alt+F7's keyboard move: the window follows the pointer until a click.
+    Move,
+    /// Alt+F8's keyboard resize.
+    Resize,
+    /// Moves it so its title bar is on an output again.
+    MoveTitlebarOnscreen,
+    /// Always on Top on / off.
+    Above,
+    NotAbove,
+    /// Always on Visible Workspace / Only on This Workspace.
+    Stick,
+    Unstick,
+}
+
+/// `window.menu`'s data (#EDE-253): the window, where to show the menu
+/// (global logical coordinates) and what its entries say.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowMenu {
+    pub window: WindowId,
+    pub x: i32,
+    pub y: i32,
+    #[serde(default)]
+    pub maximized: bool,
+    /// Always on Top.
+    #[serde(default)]
+    pub above: bool,
+    /// Always on Visible Workspace.
+    #[serde(default)]
+    pub sticky: bool,
+    /// Its title bar is on no output (Move Titlebar Onscreen shows).
+    #[serde(default)]
+    pub offscreen: bool,
+    /// Can the person resize it (fixed-size dialogs cannot)?
+    #[serde(default = "yes")]
+    pub resizable: bool,
+    #[serde(default)]
+    pub workspace: usize,
+    /// How many workspaces there are (the workspace entries show past one).
+    #[serde(default)]
+    pub workspaces: usize,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// The keyboard layouts and the active one (#EDE-253): `keyboard.layout`'s
+/// data and [`Request::ListKeyboardLayouts`]'s reply. `layouts` are xkb's
+/// names (`English (US)`), `short` their short labels (`us`, `de`) as
+/// `[keyboard] layout` names them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KeyboardLayouts {
+    pub index: usize,
+    pub layouts: Vec<String>,
+    #[serde(default)]
+    pub short: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1542,8 +1625,28 @@ impl Client {
         self.call(Request::RestoreWindow { window }).map(|_| ())
     }
 
+    /// Moves `window`'s top-left corner to `x`, `y` (a tiled one leaves its tile).
+    pub fn move_window(&mut self, window: WindowId, x: i32, y: i32) -> Result<(), Error> {
+        self.call(Request::MoveWindow { window, x, y }).map(|_| ())
+    }
+
     pub fn toggle_desktop(&mut self) -> Result<(), Error> {
         self.call(Request::ToggleDesktop).map(|_| ())
+    }
+
+    /// #EDE-253: a window menu entry on `window`.
+    pub fn window_action(&mut self, window: WindowId, action: WindowAction) -> Result<(), Error> {
+        self.call(Request::WindowAction { window, action }).map(|_| ())
+    }
+
+    /// #EDE-253: the keyboard layouts and the active one.
+    pub fn keyboard_layouts(&mut self) -> Result<KeyboardLayouts, Error> {
+        self.call_as(Request::ListKeyboardLayouts)
+    }
+
+    /// #EDE-253: makes layout `index` the active one.
+    pub fn set_keyboard_layout(&mut self, index: usize) -> Result<KeyboardLayouts, Error> {
+        self.call_as(Request::SetKeyboardLayout { index })
     }
 
     pub fn lock(&mut self) -> Result<(), Error> {
@@ -2164,6 +2267,9 @@ mod tests {
             (Request::MinimizeWindow { window: w() }, false),
             (Request::RestoreWindow { window: w() }, false),
             (Request::ToggleDesktop, false),
+            (Request::WindowAction { window: w(), action: WindowAction::Above }, false),
+            (Request::ListKeyboardLayouts, false),
+            (Request::SetKeyboardLayout { index: 1 }, false),
             (Request::Capture { target: CaptureTarget::Output { name: "space-1".into() }, since: None }, true),
             (Request::Capture { target: CaptureTarget::Space { space: space() }, since: Some(3) }, true),
             (Request::Capture { target: CaptureTarget::Window { window: w() }, since: None }, false),
@@ -2208,7 +2314,7 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 44, "one row per variant at least");
+        assert_eq!(seen.len(), 47, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2234,6 +2340,9 @@ mod tests {
             Request::MinimizeWindow { .. } => "minimize_window",
             Request::RestoreWindow { .. } => "restore_window",
             Request::ToggleDesktop => "toggle_desktop",
+            Request::WindowAction { .. } => "window_action",
+            Request::ListKeyboardLayouts => "list_keyboard_layouts",
+            Request::SetKeyboardLayout { .. } => "set_keyboard_layout",
             Request::Capture { .. } => "capture",
             Request::PickRegion { .. } => "pick_region",
             Request::Input { .. } => "input",
@@ -2512,6 +2621,9 @@ mod tests {
             Request::MinimizeWindow { window: w() },
             Request::RestoreWindow { window: w() },
             Request::ToggleDesktop,
+            Request::WindowAction { window: w(), action: WindowAction::Move },
+            Request::ListKeyboardLayouts,
+            Request::SetKeyboardLayout { index: 0 },
             Request::Capture { target: CaptureTarget::Output { name: "o".into() }, since: None },
             Request::PickRegion { mode: PickMode::Point },
             Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false },
@@ -2556,7 +2668,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 44, "every op has a row");
+        assert_eq!(seen.len(), 47, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

@@ -781,6 +781,8 @@ pub(crate) struct RunnerModel {
     /// `web` | `web-mobile` | `desktop` | `ios` | `android`.
     pub client: String,
     pub caps: Vec<String>,
+    /// The device's `desktop` | `server`.
+    pub kind: Option<String>,
     pub platform: Option<String>,
     pub settings: RunnerSettings,
     pub owner: bool,
@@ -794,6 +796,8 @@ pub(crate) const EVENT_ENABLED: &str = "runner-enabled";
 pub(crate) const EVENT_LABELS: &str = "runner-labels";
 pub(crate) const EVENT_SLOTS: &str = "runner-slots";
 pub(crate) const EVENT_TIMEOUT: &str = "runner-timeout";
+pub(crate) const EVENT_MEMORY: &str = "runner-memory";
+pub(crate) const EVENT_PAUSE: &str = "runner-pause";
 
 /// The pointer the ChipInput's `values` is bound to (the host writes the
 /// normalized list back, so a refused entry leaves the field).
@@ -809,8 +813,10 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
     let id = model::runner_test_id;
     let copy = model::runner_copy;
     let disabled = !runner.owner;
+    let (kind, platform) = (runner.kind.as_deref(), runner.platform.as_deref());
+    let switch_disabled = disabled || (model::runner_unsupported(kind, platform) && !runner.settings.enabled);
     let mut children = Vec::new();
-    if let Some(notice) = model::runner_notice(&runner.client, &runner.caps) {
+    if let Some(notice) = model::runner_notice(&runner.client, &runner.caps, kind, platform) {
         let key = format!("notice.{}", notice.id());
         children.push(json!({
             "id": "runner-notice",
@@ -825,7 +831,7 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
         "children": [{
             "id": id("switch"),
             "component": "Switch",
-            "props": {"label": "", "name": id("switch"), "checked": runner.settings.enabled, "disabled": disabled},
+            "props": {"label": "", "name": id("switch"), "checked": runner.settings.enabled, "disabled": switch_disabled},
             "on": change(EVENT_ENABLED),
         }],
     }));
@@ -881,6 +887,29 @@ pub(crate) fn runner_tree(runner: &RunnerModel) -> Value {
                 "disabled": disabled,
             },
             "on": change(EVENT_TIMEOUT),
+        }));
+        children.push(json!({
+            "id": id("memory"),
+            "component": "Select",
+            "props": {
+                "label": copy("memory"),
+                "name": id("memory"),
+                "options": model::RUNNER_SETTINGS["memoryOptions"],
+                "value": runner.settings.memory_max_mb.to_string(),
+                "disabled": disabled,
+            },
+            "on": change(EVENT_MEMORY),
+        }));
+        children.push(json!({
+            "id": "runner-pause-row",
+            "component": "SettingsRow",
+            "props": {"label": copy("pause")},
+            "children": [{
+                "id": id("pause"),
+                "component": "Switch",
+                "props": {"label": "", "name": id("pause"), "checked": runner.settings.pause_when_busy, "disabled": disabled},
+                "on": change(EVENT_PAUSE),
+            }],
         }));
     }
     children.push(json!({"id": "runner-recent-heading", "component": "Heading", "props": {"text": copy("recent"), "level": "h4"}}));
@@ -961,6 +990,20 @@ pub(crate) fn runner_settings_after(current: &RunnerSettings, event: &str, paylo
                 let known = model::runner_timeout_options().iter().any(|(option, _)| option == value);
                 let timeout = value.parse::<u32>().ok().filter(|timeout| known && *timeout != current.timeout_min);
                 (timeout.map(|timeout_min| RunnerSettings { timeout_min, ..current.clone() }), false)
+            }
+            None => (None, false),
+        },
+        EVENT_MEMORY => match payload["value"].as_str() {
+            Some(value) => {
+                let known = model::runner_memory_options().iter().any(|(option, _)| option == value);
+                let memory = value.parse::<u32>().ok().filter(|mb| known && *mb != current.memory_max_mb);
+                (memory.map(|memory_max_mb| RunnerSettings { memory_max_mb, ..current.clone() }), false)
+            }
+            None => (None, false),
+        },
+        EVENT_PAUSE => match payload["checked"].as_bool() {
+            Some(checked) => {
+                ((checked != current.pause_when_busy).then(|| RunnerSettings { pause_when_busy: checked, ..current.clone() }), false)
             }
             None => (None, false),
         },
@@ -1050,6 +1093,8 @@ impl RunnerSection {
             labels: next.labels.clone(),
             slots: next.slots,
             timeout_min: next.timeout_min,
+            memory_max_mb: next.memory_max_mb,
+            pause_when_busy: next.pause_when_busy,
         };
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = cx.background_executor().spawn(async move { api::ci::set_runner(&trpc, &write) }).await;
@@ -1069,6 +1114,7 @@ impl RunnerSection {
         Some(RunnerModel {
             client: "desktop".into(),
             caps: input.device.cap_ids(),
+            kind: input.device.kind.clone(),
             platform: input.device.platform.clone(),
             settings: self.settings(),
             owner: input.owner,
@@ -1144,6 +1190,7 @@ pub(crate) fn runner_specimen_input() -> RunnerInput {
         "id": device["id"],
         "device_id": device["id"],
         "label": device["label"],
+        "kind": device["kind"],
         "platform": device["platform"],
         "caps": device["caps"],
         "runner": device["runner"],
@@ -1230,7 +1277,14 @@ mod tests {
     }
 
     fn settings_json(settings: &RunnerSettings) -> Value {
-        json!({"enabled": settings.enabled, "labels": settings.labels, "slots": settings.slots, "timeoutMin": settings.timeout_min})
+        json!({
+            "enabled": settings.enabled,
+            "labels": settings.labels,
+            "slots": settings.slots,
+            "timeoutMin": settings.timeout_min,
+            "memoryMaxMb": settings.memory_max_mb,
+            "pauseWhenBusy": settings.pause_when_busy,
+        })
     }
 
     /// #EXP-1804: ci-run-view.json `ciRun` — the run page node for node as
@@ -1261,6 +1315,7 @@ mod tests {
             let runner = RunnerModel {
                 client: case["client"].as_str().unwrap().to_string(),
                 caps: case["caps"].as_array().unwrap().iter().filter_map(|cap| cap.as_str().map(str::to_string)).collect(),
+                kind: case["kind"].as_str().map(str::to_string),
                 platform: case["platform"].as_str().map(str::to_string),
                 settings: settings_of(&case["settings"]),
                 owner: case["owner"].as_bool() == Some(true),

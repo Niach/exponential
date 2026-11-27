@@ -48,6 +48,12 @@ pub enum Mode {
 }
 
 pub fn run(mode: Mode) {
+    // #EXP-2181: a CI step's namespace sandbox (`__ci-sandbox`, this app
+    // re-entered by its runner): it unshares namespaces, so before any
+    // thread, and it never returns.
+    if let Some(code) = ci_runner::sandbox_main() {
+        std::process::exit(code);
+    }
     // #EDE-227: before any thread, the loader's variables the compositor
     // kept from its helper come back for what the component starts
     // (terminals, agents, git): read at exec only, they reach no code here.

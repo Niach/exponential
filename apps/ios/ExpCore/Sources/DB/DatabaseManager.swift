@@ -3539,6 +3539,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v117 (#EXP-2172 redesign, ci-page.json): `ci_runs.title`, what the
+        // run is about (the head commit's first line, the PR's title,
+        // GitHub's display_title); the ci-runs cursor resets so synced rows
+        // re-arrive carrying it.
+        migrator.registerMigration("v117_ci_run_title") { db in
+            guard try db.tableExists("ci_runs") else { return }
+            guard try db.columns(in: "ci_runs").contains(where: { $0.name == "title" }) == false else { return }
+            try db.alter(table: "ci_runs") { t in
+                t.add(column: "title", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'ci-runs'
+                    """)
+            }
+        }
+
         return migrator
     }
 

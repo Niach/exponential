@@ -90,7 +90,7 @@ export function hydrate(partial: Partial<ShellState> | undefined): ShellState {
 
 export const clone = (state: ShellState): ShellState => structuredClone(state)
 
-const closedStartMenu = (): ShellState[`startMenu`] => ({ open: false, query: ``, category: `all` })
+const closedStartMenu = (): ShellState[`startMenu`] => ({ open: false, query: ``, category: `` })
 const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0, shown: false, app: null })
 
 function focus(state: ShellState, id: string): void {
@@ -561,4 +561,254 @@ export function chatRows(chats: RailChatInput[]): RailChatRow[] {
       const count = countBadgeLabel(badge.count) || null
       return { id: c.id, title: c.title.trim() || `Untitled`, icon: chatIcon(c.agent), count, tone: count === null ? null : badge.tone, working: c.busy }
     })
+}
+
+/** #EDE-258: one root of the IDE sidebar tree as the holder publishes it (the feeds' `tree`). */
+export interface StartMenuNode {
+  id: string
+  kind: string
+  title: string
+  icon: string
+  image?: string | null
+  count?: number
+  tone?: string | null
+  key: string | null
+  items: StartMenuItem[]
+}
+
+/** #EDE-258: one row inside a tree node. */
+export interface StartMenuItem {
+  id: string
+  kind: string
+  title: string
+  subtitle?: string | null
+  icon: string
+  image?: string | null
+  depth?: number
+  count?: number
+  tone?: string | null
+  key: string | null
+}
+
+/** #EDE-258: domain-contract `sidebarLocalRows` with each row's name. */
+export interface StartMenuLocalRow {
+  kind: `local` | `desktop` | `board`
+  id: string
+  desktopId: string | null
+  depth: number
+  title: string
+}
+
+/** #EDE-258: one settings module the search can open. */
+export interface StartMenuSetting {
+  id: string
+  title: string
+  icon: string
+  keywords: string
+}
+
+export interface StartMenuNavCategory {
+  id: string
+  kind: string
+  title: string
+  icon: string
+  image: string | null
+  count: number
+  tone: string | null
+  separator: boolean
+  selected: boolean
+}
+
+export interface StartMenuRow {
+  id: string
+  kind: string
+  title: string
+  subtitle: string | null
+  icon: string
+  image: string | null
+  depth: number
+  count: number
+  tone: string | null
+  identifier: string | null
+  heading: string | null
+  target: Record<string, unknown> | null
+}
+
+export interface StartMenuNav {
+  category: string
+  categories: StartMenuNavCategory[]
+  assistant: boolean
+  rows: StartMenuRow[]
+}
+
+/** The app groups' icons in the category column (concepts). */
+export const START_MENU_GROUP_ICONS: Readonly<Record<string, string>> = {
+  all: `layout-grid`,
+  favourites: `star`,
+  exponential: `brand-exponential`,
+  accessories: `wrench`,
+  administration: `settings`,
+  education: `graduation-cap`,
+  games: `gamepad-2`,
+  graphics: `palette`,
+  internet: `globe`,
+  office: `briefcase`,
+  programming: `code`,
+  science: `flask-conical`,
+  "sound-video": `music`,
+  other: `nav-apps`,
+}
+
+export const START_MENU_PLACES_LIMIT = 8
+export const START_MENU_SETTINGS_LIMIT = 4
+export const START_MENU_APPS_LIMIT = 8
+
+const row = (r: Partial<StartMenuRow> & Pick<StartMenuRow, `id` | `kind` | `title` | `icon`>): StartMenuRow => ({
+  subtitle: null,
+  image: null,
+  depth: 0,
+  count: 0,
+  tone: null,
+  identifier: null,
+  heading: null,
+  target: null,
+  ...r,
+})
+
+/** 0 = the title starts with the query, 1 = every word starts a word of the title, 2 = every word is in the title (or `extra`); -1 = out. */
+function titleRank(title: string, query: string, extra = ``): number {
+  const words = query.split(/\s+/).filter(Boolean)
+  const lower = title.toLowerCase()
+  if (lower.startsWith(query)) return 0
+  const titleWords = lower.split(/\s+/)
+  if (words.every((w) => titleWords.some((t) => t.startsWith(w)))) return 1
+  const haystack = `${lower} ${extra.toLowerCase()}`
+  return words.every((w) => haystack.includes(w)) ? 2 : -1
+}
+
+/** Stable: the best rank first, ties keep the given order. */
+function ranked<T>(list: T[], rank: (x: T) => number): T[] {
+  return list
+    .map((x, i) => ({ x, i, r: rank(x) }))
+    .filter((e) => e.r >= 0)
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((e) => e.x)
+}
+
+const itemRow = (item: StartMenuItem): StartMenuRow =>
+  row({
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    subtitle: item.subtitle ?? null,
+    icon: item.icon,
+    image: item.image ?? null,
+    depth: item.depth ?? 0,
+    count: item.count ?? 0,
+    tone: item.tone ?? null,
+    target: item.key ? { page: item.key } : null,
+  })
+
+const appRow = (app: StartMenuEntry): StartMenuRow =>
+  row({ id: `app:${app.id}`, kind: `app`, title: app.name, subtitle: app.comment, icon: `nav-apps`, target: { app: app.id } })
+
+const localRow = (r: StartMenuLocalRow, depth: number): StartMenuRow =>
+  row({
+    id: r.kind === `desktop` ? `local:${r.id}` : `local:${r.desktopId}:${r.id}`,
+    kind: r.kind,
+    title: r.title,
+    icon: r.kind === `desktop` ? `computer` : `square-kanban`,
+    depth,
+    target: { local: r.desktopId, board: r.kind === `board` ? r.id : null },
+  })
+
+const headed = (rows: StartMenuRow[], heading: string): StartMenuRow[] =>
+  rows.map((r, i) => (i === 0 ? { ...r, heading } : r))
+
+/** #EDE-258: the start menu as navigation: the sidebar tree's roots, Local, the app groups; a query = Places, Settings, Apps, Issues. */
+export function startMenuNav(
+  state: ShellState,
+  tree: StartMenuNode[],
+  local: StartMenuLocalRow[],
+  apps: StartMenuApp[],
+  favourites: string[],
+  settings: StartMenuSetting[],
+  issues: StartMenuIssue[]
+): StartMenuNav {
+  const categories: StartMenuNavCategory[] = tree.map((node) => ({
+    id: node.id,
+    kind: node.kind,
+    title: node.title,
+    icon: node.icon,
+    image: node.image ?? null,
+    count: node.count ?? 0,
+    tone: node.tone ?? null,
+    separator: false,
+    selected: false,
+  }))
+  const localTitle = `Local`
+  if (local.length > 0) {
+    categories.push({ id: `local`, kind: `local`, title: localTitle, icon: `computer`, image: null, count: 0, tone: null, separator: false, selected: false })
+  }
+  const firstApp = categories.length
+  for (const group of startMenuCategories(apps, favourites)) {
+    categories.push({ id: group.id, kind: `apps`, title: group.label, icon: START_MENU_GROUP_ICONS[group.id] ?? `nav-apps`, image: null, count: 0, tone: null, separator: false, selected: false })
+  }
+  const firstPlace = categories.findIndex((c) => c.kind === `team` || c.kind === `local`)
+  if (firstPlace >= 0) categories[firstPlace].separator = true
+  if (firstApp < categories.length) categories[firstApp].separator = true
+
+  const wanted = state.startMenu.category
+  const category = categories.some((c) => c.id === wanted)
+    ? wanted
+    : (categories.find((c) => c.kind === `team`)?.id ?? (local.length > 0 ? `local` : (tree[0]?.id ?? `all`)))
+  for (const c of categories) c.selected = c.id === category
+  const current = categories.find((c) => c.id === category)
+
+  const query = state.startMenu.query.trim().toLowerCase()
+  if (query.length === 0) {
+    let rows: StartMenuRow[] = []
+    if (current?.kind === `local`) rows = local.filter((r) => r.kind !== `local`).map((r) => localRow(r, Math.max(0, r.depth - 1)))
+    else if (current?.kind === `apps`) rows = startMenuApps({ ...state, startMenu: { ...state.startMenu, category } }, apps, favourites).map(appRow)
+    else if (current && current.kind !== `assistant`) rows = (tree.find((n) => n.id === category)?.items ?? []).map(itemRow)
+    return { category, categories, assistant: current?.kind === `assistant`, rows }
+  }
+
+  const places: StartMenuRow[] = []
+  const seen = new Set<string>()
+  const add = (r: StartMenuRow) => {
+    if (seen.has(r.id)) return
+    seen.add(r.id)
+    places.push({ ...r, depth: 0 })
+  }
+  for (const node of tree) {
+    if (node.key) {
+      add(row({ id: node.id, kind: node.kind, title: node.title, icon: node.icon, image: node.image ?? null, count: node.count ?? 0, tone: node.tone ?? null, target: { page: node.key } }))
+    }
+    for (const item of node.items) if (item.key) add({ ...itemRow(item), subtitle: node.title })
+  }
+  for (const r of local) if (r.kind !== `local`) add({ ...localRow(r, 0), subtitle: localTitle })
+
+  const placeRows = ranked(places, (r) => titleRank(r.title, query)).slice(0, START_MENU_PLACES_LIMIT)
+  const settingRows = ranked(settings, (s) => titleRank(s.title, query, s.keywords))
+    .slice(0, START_MENU_SETTINGS_LIMIT)
+    .map((s) => row({ id: `settings:${s.id}`, kind: `settings`, title: s.title, icon: s.icon, target: { settings: s.id } }))
+  const appRows = startMenuApps(state, apps, favourites).slice(0, START_MENU_APPS_LIMIT).map(appRow)
+  const issueRows = startMenuIssues(state, issues).map((i) =>
+    row({
+      id: `issue:${i.id}`,
+      kind: `issue`,
+      title: i.title,
+      subtitle: i.context,
+      icon: i.icon,
+      identifier: i.identifier,
+      target: { issue: i.identifier, source: i.source, sourceId: i.sourceId },
+    })
+  )
+  return {
+    category,
+    categories,
+    assistant: false,
+    rows: [...headed(placeRows, `Places`), ...headed(settingRows, `Settings`), ...headed(appRows, `Apps`), ...headed(issueRows, `Issues`)],
+  }
 }
