@@ -3978,6 +3978,38 @@ export function registerExponentialTools(
     }
   )
 
+  // #EXP-2170 (Phase 0's restore drill): a hosted repository back to one of
+  // its bundle backups, the same owner-only `repositories.restore` as the
+  // repository's Settings tab (a device job replaces every pack and ref).
+  // No backupId = the newest. A team-registry write: a full team grant.
+  server.registerTool(
+    `exponential_repositories_restore`,
+    {
+      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner. backupId omitted = the newest. Owners. → {commandId, backup, backups}.`,
+      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional() }),
+    },
+    async ({ repositoryId, backupId }) => {
+      try {
+        const [repo] = await db
+          .select({ teamId: repositories.teamId })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId))
+          .limit(1)
+        if (!repo) throw new Error(`Repository not found`)
+        assertTeamFullyGranted(access, repo.teamId)
+        const trpc = caller(user, request)
+        const { backups } = await trpc.repositories.settings({ repositoryId })
+        const newest = [...backups].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+        const backup = backupId ? backups.find((b) => b.id === backupId) : newest
+        if (!backup) throw new Error(backupId ? `Backup not found` : `This repository has no backup yet`)
+        const { commandId } = await trpc.repositories.restore({ repositoryId, backupId: backup.id })
+        return ok({ commandId, backup, backups: backups.length })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // #FEED-303: Exponential's own CI for a repository, switched by an agent.
   // The SAME mutation as the repository's CI settings screen
   // (`ci.setRepoConfig`: the member who shared the repository or a team
