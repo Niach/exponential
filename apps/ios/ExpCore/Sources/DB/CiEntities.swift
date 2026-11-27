@@ -32,17 +32,31 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let completedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-2172: `exponential` (ours) | `github` (a GitHub Actions run).
+    public let provider: String
+    /// GitHub's run id, its page, the attempt shown, the installation's
+    /// Actions permission (`read` | `write`; nil = unknown).
+    public let externalId: String?
+    public let externalUrl: String?
+    public let externalAttempt: Int?
+    public let externalAccess: String?
 
     public init(
         id: String, teamId: String, repositoryId: String = "", number: Int, name: String = "", sha: String = "",
         ref: String? = nil, trigger: String = "push", pullRequestId: String? = nil, state: String = "pending",
         error: String? = nil, rerunOf: String? = nil, createdByUserId: String? = nil, startedAt: String? = nil,
-        completedAt: String? = nil, createdAt: String, updatedAt: String
+        completedAt: String? = nil, createdAt: String, updatedAt: String, provider: String = "exponential",
+        externalId: String? = nil, externalUrl: String? = nil, externalAttempt: Int? = nil, externalAccess: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
         self.repositoryId = repositoryId
         self.number = number
+        self.provider = provider
+        self.externalId = externalId
+        self.externalUrl = externalUrl
+        self.externalAttempt = externalAttempt
+        self.externalAccess = externalAccess
         self.name = name
         self.sha = sha
         self.ref = ref
@@ -59,8 +73,12 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, number, name, sha, ref, trigger, state, error
+        case id, number, name, sha, ref, trigger, state, error, provider
         case teamId = "team_id"
+        case externalId = "external_id"
+        case externalUrl = "external_url"
+        case externalAttempt = "external_attempt"
+        case externalAccess = "external_access"
         case repositoryId = "repository_id"
         case pullRequestId = "pull_request_id"
         case rerunOf = "rerun_of"
@@ -73,7 +91,10 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
 
     /// The run page's pure input.
     public var run: CiRun.Run {
-        CiRun.Run(id: id, number: number, name: name, state: state, error: error, sha: sha, startedAt: startedAt, completedAt: completedAt)
+        CiRun.Run(
+            id: id, number: number, name: name, state: state, error: error, sha: sha, startedAt: startedAt,
+            completedAt: completedAt, ref: ref, provider: provider, externalUrl: externalUrl, externalAccess: externalAccess
+        )
     }
 }
 
@@ -97,6 +118,11 @@ extension CiRunEntity: Codable {
         completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? "exponential"
+        externalId = try c.decodeIfPresent(String.self, forKey: .externalId)
+        externalUrl = try c.decodeIfPresent(String.self, forKey: .externalUrl)
+        externalAttempt = try? c.decodeWireInt(forKey: .externalAttempt)
+        externalAccess = try c.decodeIfPresent(String.self, forKey: .externalAccess)
     }
 }
 
@@ -132,17 +158,25 @@ public struct CiJobEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let completedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-2172: `exponential` | `github`; GitHub's job id and page.
+    public let provider: String
+    public let externalId: String?
+    public let externalUrl: String?
 
     public init(
         id: String, teamId: String, runId: String, key: String = "", check: String, position: Int = 0,
         runsOn: String? = nil, needs: String? = nil, matrix: String? = nil, timeoutMin: Int = 60,
         status: String = "queued", conclusion: String? = nil, reason: String? = nil, runnerDeviceId: String? = nil,
         steps: String? = nil, logKey: String? = nil, logBytes: Int = 0, queuedAt: String? = nil,
-        startedAt: String? = nil, completedAt: String? = nil, createdAt: String, updatedAt: String
+        startedAt: String? = nil, completedAt: String? = nil, createdAt: String, updatedAt: String,
+        provider: String = "exponential", externalId: String? = nil, externalUrl: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
         self.runId = runId
+        self.provider = provider
+        self.externalId = externalId
+        self.externalUrl = externalUrl
         self.key = key
         self.check = check
         self.position = position
@@ -165,8 +199,10 @@ public struct CiJobEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, key, check, position, needs, matrix, status, conclusion, reason, steps
+        case id, key, check, position, needs, matrix, status, conclusion, reason, steps, provider
         case teamId = "team_id"
+        case externalId = "external_id"
+        case externalUrl = "external_url"
         case runId = "run_id"
         case runsOn = "runs_on"
         case timeoutMin = "timeout_min"
@@ -231,5 +267,8 @@ extension CiJobEntity: Codable {
         completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? "exponential"
+        externalId = try c.decodeIfPresent(String.self, forKey: .externalId)
+        externalUrl = try c.decodeIfPresent(String.self, forKey: .externalUrl)
     }
 }

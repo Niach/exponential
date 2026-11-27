@@ -14,6 +14,16 @@ public enum CiRun {
         public static let log = "Log"
         public static let rerunFailed = "Re-run failed"
         public static let cancel = "Cancel"
+        public static let rerunAll = "Re-run all"
+        public static let fix = "Fix with an agent"
+        public static let openExternal = "Open on GitHub"
+        public static let breadcrumbRoot = "CI"
+        public static let pullRequest = "Pull request #{number}"
+        public static let sources: [String: String] = ["exponential": "Exponential", "github": "GitHub Actions"]
+        public static let fixPromptHead = "CI run #{number} ({name}) failed on {repository} at {ref} ({sha})."
+        public static let fixPromptJob = "Failing job: {job}."
+        public static let fixPromptRead = "Read its whole log with exponential_repositories {op: \"run_log\", runId: \"{runId}\"}, find the cause, fix it on {ref} and push."
+        public static let fixPromptTail = "The end of its log:"
         public static let emptyLog = "No log yet."
         public static let failedJobs = "{count} failed"
         public static let pipelineError = "The pipeline file did not plan"
@@ -43,11 +53,18 @@ public enum CiRun {
         public static let log = "ci-run-log"
         public static let rerun = "ci-run-rerun"
         public static let cancel = "ci-run-cancel"
+        public static let rerunAll = "ci-run-rerun-all"
+        public static let fix = "ci-run-fix"
+        public static let openExternal = "ci-run-open-external"
+        public static let breadcrumb = "ci-run-breadcrumb"
+        public static let source = "ci-run-source"
     }
 
     public static let liveTailMs = 2000
     public static let logMaxLinesWide = 32
     public static let logMaxLinesPhone = 20
+    /// Fix with an agent quotes this many last log lines.
+    public static let fixLogLines = 40
 
     // MARK: - Rows
 
@@ -60,8 +77,21 @@ public enum CiRun {
         public let sha: String
         public let startedAt: String?
         public let completedAt: String?
+        /// #EXP-2172: the run's ref, source and GitHub handle.
+        public let ref: String?
+        public let provider: String
+        public let externalUrl: String?
+        public let externalAccess: String?
 
-        public init(id: String, number: Int, name: String, state: String, error: String?, sha: String, startedAt: String?, completedAt: String?) {
+        public init(
+            id: String, number: Int, name: String, state: String, error: String?, sha: String, startedAt: String?,
+            completedAt: String?, ref: String? = nil, provider: String = "exponential", externalUrl: String? = nil,
+            externalAccess: String? = nil
+        ) {
+            self.ref = ref
+            self.provider = provider
+            self.externalUrl = externalUrl
+            self.externalAccess = externalAccess
             self.id = id
             self.number = number
             self.name = name
@@ -157,7 +187,10 @@ public enum CiRun {
 
     public struct Actions: Equatable, Sendable {
         public let rerunFailed: Bool
+        public let rerunAll: Bool
         public let cancel: Bool
+        public let fix: Bool
+        public let openExternal: Bool
     }
 
     // MARK: - Rules
@@ -310,9 +343,53 @@ public enum CiRun {
         return LogView(code: out.joined(separator: "\n"), highlight: highlight)
     }
 
-    /// Which buttons the run shows.
-    public static func actions(state: String, error: String?) -> Actions {
-        Actions(rerunFailed: state == "failure", cancel: state == "pending")
+    /// Which buttons the run shows (#EXP-2172: a GitHub run re-runs and
+    /// cancels only once its installation accepted Actions: write; it always
+    /// offers Open on GitHub).
+    public static func actions(
+        state: String, error: String?, provider: String? = nil, externalAccess: String? = nil, externalUrl: String? = nil
+    ) -> Actions {
+        let github = provider == "github"
+        let writable = !github || externalAccess == "write"
+        return Actions(
+            rerunFailed: writable && state == "failure",
+            rerunAll: writable && state != "pending",
+            cancel: writable && state == "pending",
+            fix: state == "failure",
+            openExternal: github && !(externalUrl ?? "").isEmpty
+        )
+    }
+
+    public static func actions(_ run: Run) -> Actions {
+        actions(state: run.state, error: run.error, provider: run.provider, externalAccess: run.externalAccess, externalUrl: run.externalUrl)
+    }
+
+    /// The run's source: `github` for a GitHub run, else ours.
+    public static func source(_ provider: String?) -> String {
+        provider == "github" ? "github" : "exponential"
+    }
+
+    /// The first message of Fix with an agent (the composer's text).
+    public static func fixPrompt(run: Run, repository: String, job: String?, log: String?) -> String {
+        let ref = run.ref ?? Copy.none
+        func fill(_ text: String) -> String {
+            text.replacingOccurrences(of: "{number}", with: String(run.number))
+                .replacingOccurrences(of: "{name}", with: run.name)
+                .replacingOccurrences(of: "{repository}", with: repository)
+                .replacingOccurrences(of: "{ref}", with: ref)
+                .replacingOccurrences(of: "{sha}", with: String(run.sha.prefix(7)))
+                .replacingOccurrences(of: "{runId}", with: run.id)
+                .replacingOccurrences(of: "{job}", with: job ?? "")
+        }
+        var lines = [fill(Copy.fixPromptHead)]
+        if let job, !job.isEmpty { lines.append(fill(Copy.fixPromptJob)) }
+        lines.append(fill(Copy.fixPromptRead))
+        let code = log.map { logView($0).code } ?? ""
+        if !code.isEmpty {
+            let tail = code.components(separatedBy: "\n").suffix(fixLogLines)
+            lines.append(contentsOf: ["", Copy.fixPromptTail, "```text"] + tail + ["```"])
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// `/t/<team>/ci/<runId>` (query + hash ignored) → (team, runId); nil =
@@ -544,8 +621,11 @@ extension CiRun {
     public static let specimenRun = Run(
         id: "r12", number: 12, name: "ci", state: "failure", error: nil,
         sha: "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
-        startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:12:40.000Z"
+        startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:12:40.000Z",
+        ref: "exp/APP-33", provider: "exponential"
     )
+    public static let specimenRepository = "acme/engine"
+    public static let specimenPullRequestNumber = 213
     public static let specimenJobs: [Job] = [
         Job(id: "j1", check: "build", position: 0, status: "completed", conclusion: "success", runnerLabel: "mint", startedAt: "2026-11-13T10:00:00.000Z", completedAt: "2026-11-13T10:04:10.000Z"),
         Job(
