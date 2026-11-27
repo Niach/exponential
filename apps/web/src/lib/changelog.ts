@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-ede-start-menu-navigation`,
+    date: `2026-11-27`,
+    title: `The start menu is how you get around`,
+    summary: `On Exponential Desktop the start menu holds your teams, boards, chats, devices and the Assistant, with search across all of them; the left rail is gone.`,
+    body: `- **Your sidebar in the menu**: the Assistant, Home, Needs you, Chats, Devices, each team with its boards, folders, agents, apps and sessions, and your Local desktops sit as categories beside the apps.
+- **Search everything**: type to find a board, a chat, a device, a Settings page, an app or an issue; Enter opens it in its own window.
+- **The keyboard you know**: hover or arrow through the categories, Right and Left move between the columns, Escape closes.
+- **Ask the Assistant**: its latest answer and a composer sit right in the menu.`,
+  },
+  {
     id: `2026-11-27-ede-page-windows`,
     date: `2026-11-27`,
     title: `Every page of Exponential is its own window`,

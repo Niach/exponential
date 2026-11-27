@@ -141,6 +141,52 @@ pub fn assistant_json(feeds: &HolderFeeds) -> Value {
     json!({"name": assistant["name"], "key": assistant["key"], "busy": assistant["busy"].as_bool() == Some(true), "messages": messages, "empty": messages.is_empty()})
 }
 
+/// The feeds under `EDE_SHELL_DEMO` (the goldens): a fixed sample, the
+/// planning draft's, so the pictures never depend on an account.
+pub fn demo() -> HolderFeeds {
+    let item = |id: &str, kind: &str, title: &str, icon: &str, depth: u8, key: Option<&str>| json!({"id": id, "kind": kind, "title": title, "subtitle": null, "icon": icon, "image": null, "depth": depth, "count": 0, "tone": null, "key": key});
+    let recents = vec![
+        item("chat:s1", "chat", "eDE plan: the app folded in", "action-chat", 0, Some("chat:s1")),
+        item("chat:s2", "chat", "Fix CI on #3590", "action-chat", 0, Some("chat:s2")),
+    ];
+    let node = |id: &str, kind: &str, title: &str, icon: &str, count: u32, tone: Option<&str>, key: Option<&str>, items: Vec<Value>| json!({"id": id, "kind": kind, "title": title, "icon": icon, "image": null, "count": count, "tone": tone, "key": key, "items": items});
+    HolderFeeds {
+        feeds: json!({
+            "tree": [
+                node("assistant", "assistant", "Assistant", "brand-exponential", 0, None, Some("agent:a0"), vec![]),
+                node("home", "home", "Home", "nav-home", 0, None, Some("home"), recents.clone()),
+                node("needs-you", "needs-you", "Needs you", "nav-needs-you", 2, Some("attention"), Some("needs-you"), vec![recents[1].clone()]),
+                node("chats", "chats", "Chats", "nav-chats", 0, None, Some("chats"), recents.clone()),
+                node("devices", "devices", "Devices", "nav-devices", 0, None, None, vec![item("device:d1", "device", "mint", "computer", 0, Some("device:d1")), item("device:d2", "device", "MacBook", "laptop", 0, Some("device:d2"))]),
+                node("team:t1", "team", "Feedback", "ui-team", 4, Some("muted"), None, vec![
+                    item("board:b1", "board", "Desktop", "nav-boards", 0, Some("board:b1")),
+                    item("board:b2", "board", "Exponential", "nav-boards", 0, Some("board:b2")),
+                    item("folder:f1", "folder", "Releases", "ui-folder", 0, None),
+                    item("board:b3", "board", "Android", "nav-boards", 1, Some("board:b3")),
+                    item("board:b4", "board", "iOS", "nav-boards", 1, Some("board:b4")),
+                    item("agent:a1", "agent", "Release shepherd", "settings-agents", 0, Some("agent:a1")),
+                    item("app:p1", "app", "Standup", "nav-apps", 0, Some("app:p1")),
+                    item("chat:s1", "session", "eDE plan: the app folded in", "action-chat", 0, Some("chat:s1")),
+                ]),
+                node("team:t2", "team", "Yourev", "ui-team", 0, None, None, vec![item("board:b5", "board", "Website", "nav-boards", 0, Some("board:b5"))]),
+            ],
+            "recents": recents,
+            "assistant": {"id": "a0", "name": "Assistant", "key": "agent:a0", "busy": false, "messages": [
+                {"id": "m1", "side": "out", "text": "Anything blocked on the Desktop board?", "at": "2026-11-08T11:48:00Z"},
+                {"id": "m2", "side": "in", "text": "One thing: **#3590** fails its gate on a stale migration test. I started **Fix CI on #3590** on the homelab.", "at": "2026-11-08T11:49:00Z"},
+            ]},
+            "account": {"name": "Ada", "login": "ada", "email": "ada@example.com"},
+            "onLocal": false,
+        }),
+    }
+}
+
+/// The Local node under `EDE_SHELL_DEMO`.
+pub fn demo_local() -> Vec<uicore_model::StartMenuLocalRow> {
+    let row = |kind: &str, id: &str, desktop: Option<&str>, depth: u8, title: &str| uicore_model::StartMenuLocalRow { kind: kind.into(), id: id.into(), desktop_id: desktop.map(String::from), depth, title: title.into() };
+    vec![row("local", "local", None, 0, "Local"), row("desktop", "l1", Some("l1"), 1, "Scratch"), row("board", "lb1", Some("l1"), 2, "Issues")]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

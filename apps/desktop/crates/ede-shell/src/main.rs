@@ -1967,7 +1967,9 @@ fn start_menu_nav(shell: &Shell) -> Value {
         if let Some(app) = row["target"]["app"].as_str().map(String::from) {
             let icon = app_icon(shell, &app);
             if !icon.is_empty() {
+                // The app's own picture in place of the concept glyph.
                 row["image"] = json!(icon);
+                row["icon"] = Value::Null;
             }
         }
     }
@@ -3641,6 +3643,7 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
         dispatch(shell, ShellEvent::StartMenuClose, cx);
         return;
     }
+    let started = std::time::Instant::now();
     {
         let mut s = shell.borrow_mut();
         let filtered = apps::filter(&s.apps, "");
@@ -3652,6 +3655,8 @@ fn start_menu_toggle(shell: &SharedShell, cx: &mut App) {
     toggle_popup(shell, name, cx);
     refresh(shell, cx);
     shell.borrow().surfaces.focus_component(name, "search", cx);
+    // #EDE-258: the menu is built from the feeds it already has (< 100 ms).
+    tracing::info!(ms = started.elapsed().as_secs_f64() * 1000.0, "start menu opened");
 }
 
 /// #EDE-92, #EDE-258: an arrow pressed in `window`: in the start menu it
@@ -3859,8 +3864,10 @@ fn issues_reindex(shell: &SharedShell, cx: &mut App) {
         tracing::debug!(issues = index.len(), "start menu issue pool");
         shell.borrow_mut().issue_index = Arc::new(index);
         let desktops = shell.borrow().workspaces.local_desktops();
-        let local = cx.background_executor().spawn(async move { issues::local_tree(desktops) }).await;
-        shell.borrow_mut().local_tree = local;
+        if !shell.borrow().workspaces.demo() {
+            let local = cx.background_executor().spawn(async move { issues::local_tree(desktops) }).await;
+            shell.borrow_mut().local_tree = local;
+        }
         cx.update(|cx| model_changed(&shell, cx));
         cx.update(|cx| issues_search(&shell, cx));
     })
@@ -5008,8 +5015,9 @@ fn main() {
             windows: Vec::new(),
             thumbnails: HashMap::new(),
             holder_windows: Default::default(),
-            holder_feeds: Default::default(),
-            local_tree: Vec::new(),
+            // #EDE-258: the goldens' menu draws the draft's sample tree.
+            holder_feeds: if demo { holder_feeds::demo() } else { Default::default() },
+            local_tree: if demo { holder_feeds::demo_local() } else { Vec::new() },
             captures: captures_shared,
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
