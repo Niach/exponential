@@ -1,6 +1,7 @@
 // eCode's runner scheduling (fixtures/runner.json is the spec): jobs wait for
 // their `needs`, a runner claims the one its labels cover that is expected to
-// finish first, and the clock times jobs out, fails the jobs of a lost runner,
+// finish first, and the clock times jobs out, re-queues the jobs of a lost
+// runner once (then fails them),
 // flags a job queued too long (once) and times out one no runner claims. The server dispatches through it, and so does a server-free
 // host. ecode-core ports this file.
 
@@ -35,6 +36,8 @@ export interface Job {
   flagged: boolean
   /** Why it completed without running (contract skip, `needs`, `runner_lost`, `unclaimed`). */
   reason: string | null
+  /** Handed back once already (a lost or quitting runner, #EXP-2193): the next loss fails it. */
+  requeued?: boolean
 }
 
 export interface Runner {
@@ -85,6 +88,25 @@ function complete(state: RunnerState, job: Job, conclusion: CheckConclusion, at:
   job.completedAt = at
   job.reason = reason ?? null
   events.push(reason ? { kind: `job_completed`, job: job.id, conclusion, reason } : { kind: `job_completed`, job: job.id, conclusion })
+}
+
+/** A job cut off by a lost or quitting runner goes back to `queued` the first
+ *  time (runner cleared, queued afresh); a second loss fails it `runner_lost`.
+ *  true = re-queued. */
+function requeueOrFail(state: RunnerState, job: Job, at: number, events: RunnerEventRow[], reason: `runner_lost` | `released`): boolean {
+  if (job.requeued) {
+    complete(state, job, `failure`, at, events, `runner_lost`)
+    return false
+  }
+  const runner = state.runners.find((r) => r.id === job.runner)
+  if (runner) runner.running = runner.running.filter((id) => id !== job.id)
+  job.status = `queued`
+  job.runner = null
+  job.startedAt = null
+  job.queuedAt = at
+  job.requeued = true
+  events.push({ kind: `job_requeued`, job: job.id, reason })
+  return true
 }
 
 /** A completed need lets its dependents start: a satisfying conclusion that
@@ -204,6 +226,12 @@ function apply(state: RunnerState, op: string, args: Args, at: number, events: R
       complete(state, job, args.conclusion as CheckConclusion, at, events)
       return {}
     }
+    case `release`: {
+      const job = state.jobs.find((j) => j.id === args.job)
+      if (!job) throw new Refused(`job`)
+      if (job.status !== `in_progress` || job.runner !== args.runner) throw new Refused(`not_running`)
+      return { requeued: requeueOrFail(state, job, at, events, `released`) }
+    }
     case `cancel`: {
       const ids = args.jobs as string[] | undefined
       for (const job of state.jobs) {
@@ -224,7 +252,7 @@ function apply(state: RunnerState, op: string, args: Args, at: number, events: R
         if (at - runner.lastSeen < RUNNER_LOST_MS) continue
         for (const id of [...runner.running]) {
           const job = state.jobs.find((j) => j.id === id)!
-          complete(state, job, `failure`, at, events, `runner_lost`)
+          requeueOrFail(state, job, at, events, `runner_lost`)
         }
       }
       for (const job of state.jobs) {

@@ -116,7 +116,9 @@ final class VoiceCallDriverTests: XCTestCase {
 
         /// EXP-2111: apart from the platform calls.
         let sink = FakeSink()
-        var logSink: CallLogSink { sink }
+        /// false = the app without `EXP_CALL_LOG`.
+        var logging = true
+        var logSink: CallLogSink? { logging ? sink : nil }
 
         func hold(speaker: Bool, answer: @escaping @MainActor (Bool, String?) -> Void) {
             log.add("hold speaker \(speaker)")
@@ -321,6 +323,16 @@ final class VoiceCallDriverTests: XCTestCase {
     }
 
     func testEveryCaseRunsThroughTheDriver() async throws {
+        try await replay(logging: true)
+    }
+
+    /// Without `EXP_CALL_LOG` (iOS 0.14.148): the very same calls as with the
+    /// log, and no line, no event.
+    func testWithoutTheCallLogEveryCaseMakesTheSameCalls() async throws {
+        try await replay(logging: false)
+    }
+
+    private func replay(logging: Bool) async throws {
         let cases = try cases()
         XCTAssertGreaterThanOrEqual(cases.count, 31)
         for entry in cases {
@@ -329,6 +341,7 @@ final class VoiceCallDriverTests: XCTestCase {
             let effects = try XCTUnwrap(entry["effects"] as? [[[String: Any]]], name)
             let log = Log()
             let platform = FakePlatform(log)
+            platform.logging = logging
             let driver = VoiceCallDriver(platform: platform)
             var holds = Holds()
             for (index, event) in events.enumerated() {
@@ -347,6 +360,10 @@ final class VoiceCallDriverTests: XCTestCase {
             if driver.caller.stage == .idle {
                 // Nothing of an ended call is left to fire.
                 XCTAssertEqual(platform.timers.filter(\.live).map(\.label), [], name)
+            }
+            if !logging {
+                XCTAssertEqual(platform.sink.lines, [], name)
+                XCTAssertEqual(platform.sink.failures, [], name)
             }
             // A permission still asked is answered, so no task waits for ever.
             platform.grant(false)

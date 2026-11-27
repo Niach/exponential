@@ -76,6 +76,7 @@ impl Ede {
         for l in layer_map_for_output(&output).layers() {
             set_surface_scale(l.wl_surface(), output.current_scale().fractional_scale());
         }
+        self.update_x11_scale();
         self.output_changed(name.to_string());
         Ok(())
     }
@@ -105,6 +106,14 @@ impl Ede {
     /// Maps `output` at `at` in the space and remembers where it went.
     pub(crate) fn place_output(&mut self, output: &Output, at: Point<i32, Logical>) {
         self.desk.space.map_output(output, at);
+        // #EDE-250: clients learn where it is too (wl_output geometry,
+        // xdg_output's logical position). Space::map_output keeps the place
+        // to itself, so every output said (0, 0): Xwayland laid a second
+        // monitor over the first, and GTK and Chromium placed popups and
+        // fullscreen windows on the wrong one.
+        if output.current_location() != at {
+            output.change_current_state(None, None, None, Some(at));
+        }
         let laid = self.desk.space.output_geometry(output);
         output.user_data().insert_if_missing_threadsafe(LaidOut::default);
         *output.user_data().get::<LaidOut>().unwrap().0.lock().unwrap() = laid;
@@ -248,6 +257,12 @@ impl FractionalScaleHandler for Ede {
         if let Some(id) = crate::spaces::space_of_surface(&surface) {
             let scale = self.spaces.get(id).map_or(1.0, |space| space.output.current_scale().fractional_scale());
             return set_surface_scale(&surface, scale);
+        }
+        // A layer surface (the taskbar, a popup, the OSD): the output it is
+        // on, never the first one (a panel on a 200 % monitor drew at the
+        // other's 100 %).
+        if let Some(output) = self.desk.space.outputs().find(|o| layer_map_for_output(o).layer_for_surface(&surface, smithay::desktop::WindowSurfaceType::ALL).is_some()).cloned() {
+            return set_surface_scale(&surface, output.current_scale().fractional_scale());
         }
         // The output under the window, else the first one.
         let scale = self

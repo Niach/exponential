@@ -40,6 +40,8 @@ object CiRunView {
         const val LABELS = "runner-labels"
         const val SLOTS = "runner-slots"
         const val TIMEOUT = "runner-timeout"
+        const val MEMORY = "runner-memory"
+        const val PAUSE = "runner-pause"
     }
 
     /** The pointer the ChipInput's `values` is bound to (the host writes the
@@ -342,6 +344,7 @@ object CiRunView {
     fun runnerSectionTree(
         client: String,
         caps: List<String>,
+        kind: String?,
         platform: String?,
         settings: RunnerSettings.Settings,
         owner: Boolean,
@@ -351,7 +354,8 @@ object CiRunView {
         val copy = RunnerSettings.Copy
         val ids = RunnerSettings.TestIds
         val disabled = !owner
-        val notice = RunnerSettings.notice(client, caps)
+        val notice = RunnerSettings.notice(client, caps, kind, platform)
+        val switchDisabled = disabled || (RunnerSettings.unsupported(kind, platform) && !settings.enabled)
         val os = RunnerSettings.osLabel(platform)
         val children = mutableListOf<JsonElement>()
         if (notice != null) {
@@ -367,7 +371,7 @@ object CiRunView {
                     put("label", "")
                     put("name", ids.SWITCH)
                     put("checked", settings.enabled)
-                    put("disabled", disabled)
+                    put("disabled", switchDisabled)
                 }) { on("change", RunnerEvents.ENABLED) },
             ),
         )
@@ -408,6 +412,28 @@ object CiRunView {
                 put("value", settings.timeoutMin.toString())
                 put("disabled", disabled)
             }) { on("change", RunnerEvents.TIMEOUT) }
+            children += node(ids.MEMORY, "Select", {
+                put("label", copy.MEMORY)
+                put("name", ids.MEMORY)
+                put("options", buildJsonArray {
+                    for ((value, label) in RunnerSettings.MEMORY_OPTIONS) add(buildJsonObject { put("value", value); put("label", label) })
+                })
+                put("value", settings.memoryMaxMb.toString())
+                put("disabled", disabled)
+            }) { on("change", RunnerEvents.MEMORY) }
+            children += node(
+                "runner-pause-row",
+                "SettingsRow",
+                { put("label", copy.PAUSE) },
+                listOf(
+                    node(ids.PAUSE, "Switch", {
+                        put("label", "")
+                        put("name", ids.PAUSE)
+                        put("checked", settings.pauseWhenBusy)
+                        put("disabled", disabled)
+                    }) { on("change", RunnerEvents.PAUSE) },
+                ),
+            )
         }
         children += node("runner-recent-heading", "Heading", { put("text", copy.RECENT); put("level", "h4") })
         children += if (recent.isNotEmpty()) {
@@ -462,6 +488,18 @@ object CiRunView {
                     val minutes = value.toIntOrNull()
                     return (if (!known || minutes == null || minutes == current.timeoutMin) null else current.copy(timeoutMin = minutes)) to false
                 }
+            }
+            RunnerEvents.MEMORY -> {
+                val value = prim("value")?.takeIf { it.isString }?.content
+                if (value != null) {
+                    val known = RunnerSettings.MEMORY_OPTIONS.any { it.first == value }
+                    val mb = value.toIntOrNull()
+                    return (if (!known || mb == null || mb == current.memoryMaxMb) null else current.copy(memoryMaxMb = mb)) to false
+                }
+            }
+            RunnerEvents.PAUSE -> {
+                val checked = prim("checked")?.takeIf { !it.isString }?.content?.toBooleanStrictOrNull()
+                if (checked != null) return (if (checked == current.pauseWhenBusy) null else current.copy(pauseWhenBusy = checked)) to false
             }
         }
         return null to false

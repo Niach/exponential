@@ -1004,7 +1004,7 @@ export function DeviceSettingsBody({
                 dialog only opens on the viewer's own devices. */}
             {row && (
               <RunnerSection
-                device={{ id: row.id, deviceId: row.deviceId, platform: row.platform ?? null, caps: row.caps ?? null, runner: row.runner ?? null }}
+                device={{ id: row.id, deviceId: row.deviceId, kind: row.kind ?? null, platform: row.platform ?? null, caps: row.caps ?? null, runner: row.runner ?? null }}
                 owner
               />
             )}

@@ -8,6 +8,7 @@ import {
   commitChecks,
   deviceCommands,
   devices,
+  events,
   pullRequestChecks,
   pullRequests,
   repoRefs,
@@ -178,6 +179,8 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     // Only `build` is ready and labelled for the linux runner (one slot).
     const commands = await db.select().from(deviceCommands).where(eq(deviceCommands.deviceRowId, f.deviceRowId))
     expect(commands.map((c) => [c.kind, c.payload.jobId])).toEqual([[runs.CI_JOB_COMMAND, build.id]])
+    // #EXP-2193: the runner's limits ride the payload (defaults for an older row).
+    expect(commands[0].payload).toEqual({ jobId: build.id, memoryMaxMb: 8192, pauseWhenBusy: true })
     expect(JSON.stringify(commands[0].payload)).not.toContain(`TOKEN`)
 
     // A job not dispatched-and-ready cannot be claimed.
@@ -191,7 +194,11 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     // Secrets: once, with the token, never again.
     await setSecret({ teamId: f.teamId, repositoryId: f.repositoryId, name: `TOKEN`, value: `s3cret`, userId: f.userId })
     expect(await takeJobSecrets({ jobId: build.id, token: `expci_wrong-token-value`, repositoryId: f.repositoryId })).toBeNull()
-    expect(await takeJobSecrets({ jobId: build.id, token: claimed!.token, repositoryId: f.repositoryId })).toEqual({ TOKEN: `s3cret` })
+    expect(await takeJobSecrets({ jobId: build.id, token: claimed!.token, repositoryId: f.repositoryId })).toEqual({
+      values: { TOKEN: `s3cret` },
+      withheld: [],
+      notice: null,
+    })
     expect(await takeJobSecrets({ jobId: build.id, token: claimed!.token, repositoryId: f.repositoryId })).toBeNull()
 
     expect(await runs.beatJob({ jobId: build.id, token: claimed!.token })).toEqual({ cancel: false })
@@ -228,7 +235,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     ])
   })
 
-  it(`a killed runner fails its job (runner_lost) and a hung one times out`, async () => {
+  it(`a killed runner's job is re-queued once, then fails (runner_lost); a hung one times out`, async () => {
     const f = await fixture()
     const started = await runs.startRun({ repositoryId: f.repositoryId, sha: `b`.repeat(40), trigger: `push`, ref: `main`, file: PIPELINE })
     const runId = (started as { runId: string }).runId
@@ -240,12 +247,25 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     await db.update(devices).set({ lastSeenAt: past }).where(eq(devices.id, f.deviceRowId))
     await db.update(ciJobs).set({ lastBeatAt: past }).where(eq(ciJobs.id, build.id))
     await runs.ciTick(new Date())
+    // #EXP-2193: the first loss hands it back: queued, no runner, a dead token.
+    const [requeued] = await db.select().from(ciJobs).where(eq(ciJobs.id, build.id))
+    expect([requeued.status, requeued.runnerDeviceId, requeued.jobTokenHash, requeued.logKey]).toEqual([`queued`, null, null, null])
+    expect(requeued.requeuedAt).not.toBeNull()
+    expect(await runs.beatJob({ jobId: build.id, token: claimed!.token })).toEqual({ cancel: true })
+    // The runner comes back and claims it afresh (a new token); then it is lost again.
+    await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.id, f.deviceRowId))
+    const again = await runs.claimJob({ userId: f.userId, deviceId: f.deviceId, jobId: build.id })
+    expect(again).not.toBeNull()
+    expect(again!.token).not.toBe(claimed!.token)
+    await db.update(devices).set({ lastSeenAt: past }).where(eq(devices.id, f.deviceRowId))
+    await db.update(ciJobs).set({ lastBeatAt: past }).where(eq(ciJobs.id, build.id))
+    await runs.ciTick(new Date())
     const [lost] = await db.select().from(ciJobs).where(eq(ciJobs.id, build.id))
     expect([lost.status, lost.conclusion, lost.reason]).toEqual([`completed`, `failure`, `runner_lost`])
     // Its dependent is skipped by the chain; the run is red.
     const [, test] = await jobsOf(runId)
     expect([test.conclusion, test.reason]).toEqual([`skipped`, `needs`])
-    expect(await runs.beatJob({ jobId: build.id, token: claimed!.token })).toEqual({ cancel: true })
+    expect(await runs.beatJob({ jobId: build.id, token: again!.token })).toEqual({ cancel: true })
 
     // A second run: a job past its timeout is killed as timed_out.
     await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.id, f.deviceRowId))
@@ -256,6 +276,95 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     await runs.ciTick(new Date(Date.now() + 61 * 60_000))
     const [timedOut] = await db.select().from(ciJobs).where(eq(ciJobs.id, build2.id))
     expect([timedOut.conclusion, timedOut.reason]).toEqual([`timed_out`, null])
+  })
+
+  it(`ci.release: a quitting runner hands its job back at once, the second time it fails (#EXP-2193)`, async () => {
+    const f = await fixture()
+    const started = await runs.startRun({ repositoryId: f.repositoryId, sha: `9`.repeat(40), trigger: `push`, ref: `main`, file: PIPELINE })
+    const [build] = await jobsOf((started as { runId: string }).runId)
+    const first = await runs.claimJob({ userId: f.userId, deviceId: f.deviceId, jobId: build.id })
+    expect(await runs.releaseJob({ jobId: build.id, token: `expci_wrong-token-value` })).toEqual({ requeued: false })
+    expect(await runs.releaseJob({ jobId: build.id, token: first!.token })).toEqual({ requeued: true })
+    const [back] = await db.select().from(ciJobs).where(eq(ciJobs.id, build.id))
+    expect([back.status, back.runnerDeviceId, back.conclusion]).toEqual([`queued`, null, null])
+    // The old token is dead; the job is dispatched again right away.
+    expect(await runs.releaseJob({ jobId: build.id, token: first!.token })).toEqual({ requeued: false })
+    const dispatched = await db.select().from(deviceCommands).where(eq(deviceCommands.deviceRowId, f.deviceRowId))
+    expect(dispatched.filter((c) => c.payload.jobId === build.id).length).toBeGreaterThan(0)
+    const second = await runs.claimJob({ userId: f.userId, deviceId: f.deviceId, jobId: build.id })
+    expect(second).not.toBeNull()
+    expect(await runs.releaseJob({ jobId: build.id, token: second!.token })).toEqual({ requeued: false })
+    const [failed] = await db.select().from(ciJobs).where(eq(ciJobs.id, build.id))
+    expect([failed.status, failed.conclusion, failed.reason]).toEqual([`completed`, `failure`, `runner_lost`])
+  })
+
+  it(`secrets reach only default-branch, tag and merge-train runs unless the repo allows pull requests (#EXP-2180)`, async () => {
+    const { ciRouter } = await import(`@/lib/trpc/ci`)
+    const f = await fixture()
+    await db.update(repositories).set({ defaultBranch: `main` }).where(eq(repositories.id, f.repositoryId))
+    await setSecret({ teamId: f.teamId, repositoryId: f.repositoryId, name: `TOKEN`, value: `s3cret`, userId: f.userId })
+    let n = 0
+    const take = async (trigger: `push` | `pull_request` | `tag` | `merge_train` | `manual`, ref: string) => {
+      const sha = `${++n}`.padStart(40, `f`)
+      const file = { ...PIPELINE, on: { push: {}, pull_request: {}, tag: {}, merge_train: {}, manual: {} } }
+      const started = await runs.startRun({ repositoryId: f.repositoryId, sha, trigger, ref, file })
+      expect(started.started).toBe(true)
+      const [build] = await jobsOf((started as { runId: string }).runId)
+      const claimed = await runs.claimJob({ userId: f.userId, deviceId: f.deviceId, jobId: build.id })
+      expect(claimed).not.toBeNull()
+      const secrets = await takeJobSecrets({ jobId: build.id, token: claimed!.token, repositoryId: f.repositoryId })
+      await runs.finishJob({ jobId: build.id, token: claimed!.token, conclusion: `success` })
+      return secrets
+    }
+    const pr = await take(`pull_request`, `feat/x`)
+    expect(pr?.values).toEqual({})
+    expect(pr?.withheld).toEqual([`TOKEN`])
+    expect(pr?.notice).toContain(`TOKEN`)
+    expect(pr?.notice).not.toContain(`s3cret`)
+    expect((await take(`push`, `feat/x`))?.values).toEqual({})
+    expect((await take(`manual`, `feat/x`))?.values).toEqual({})
+    expect((await take(`push`, `main`))?.values).toEqual({ TOKEN: `s3cret` })
+    expect((await take(`manual`, `main`))?.values).toEqual({ TOKEN: `s3cret` })
+    expect((await take(`tag`, `v1.0`))?.values).toEqual({ TOKEN: `s3cret` })
+    expect((await take(`merge_train`, `exp-train/1`))?.values).toEqual({ TOKEN: `s3cret` })
+
+    // A plain member cannot allow pull requests; the owner can (an audit event).
+    const mateId = `u-${crypto.randomUUID()}`
+    await db.insert(users).values({ id: mateId, name: `mate`, email: `mate-${f.slug}@example.com` })
+    madeUsers.push(mateId)
+    await db.insert(teamMembers).values({ teamId: f.teamId, userId: mateId, role: `member` })
+    const caller = (userId: string) => ciRouter.createCaller({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) } as never)
+    await expect(caller(mateId).setRepoConfig({ repositoryId: f.repositoryId, pullRequestSecrets: true })).rejects.toThrow(/owner/)
+    expect((await take(`pull_request`, `feat/y`))?.values).toEqual({})
+    await caller(f.userId).setRepoConfig({ repositoryId: f.repositoryId, pullRequestSecrets: true })
+    expect((await take(`pull_request`, `feat/y`))?.values).toEqual({ TOKEN: `s3cret` })
+
+    // Every secret change and the opt-in are in the team's stream, names only.
+    await caller(f.userId).deleteSecret({ repositoryId: f.repositoryId, name: `TOKEN` })
+    const audit = await db.select().from(events).where(eq(events.teamId, f.teamId)).orderBy(asc(events.createdAt))
+    expect(audit.map((e) => [e.name, e.userId])).toEqual([
+      [`ci.secret_set`, f.userId],
+      [`ci.pull_request_secrets`, f.userId],
+      [`ci.secret_deleted`, f.userId],
+    ])
+    expect(JSON.stringify(audit.map((e) => e.payload))).not.toContain(`s3cret`)
+  })
+
+  it(`runner settings: memory and pause are stored, a Mac desktop app cannot turn its runner on (#EXP-2193)`, async () => {
+    const { ciRouter } = await import(`@/lib/trpc/ci`)
+    const f = await fixture()
+    const caller = ciRouter.createCaller({ session: { user: { id: f.userId } }, db, request: new Request(`http://x.test`) } as never)
+    const base = { deviceId: f.deviceId, enabled: true, labels: [], slots: 1, timeoutMin: 60 }
+    expect((await caller.setRunner({ ...base, memoryMaxMb: 16384, pauseWhenBusy: false })).runner).toMatchObject({ memoryMaxMb: 16384, pauseWhenBusy: false })
+    // An older client omits them: kept.
+    expect((await caller.setRunner(base)).runner).toMatchObject({ memoryMaxMb: 16384, pauseWhenBusy: false })
+    await expect(caller.setRunner({ ...base, memoryMaxMb: 1500 })).rejects.toThrow()
+    // A server daemon on a Mac keeps its runner; the desktop app there does not.
+    await db.update(devices).set({ platform: `macos` }).where(eq(devices.id, f.deviceRowId))
+    expect((await caller.setRunner(base)).runner.enabled).toBe(true)
+    await db.update(devices).set({ kind: `desktop` }).where(eq(devices.id, f.deviceRowId))
+    await expect(caller.setRunner(base)).rejects.toThrow()
+    expect((await caller.setRunner({ ...base, enabled: false })).runner.enabled).toBe(false)
   })
 
   it(`a one-slot runner takes the job expected to finish first, across runs (#EXP-1862)`, async () => {
@@ -383,7 +492,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
             .where(and(eq(deviceCommands.deviceRowId, f.deviceRowId), eq(deviceCommands.kind, `ecode_job`), eq(deviceCommands.status, `pending`)))
             .limit(1)
           if (job) {
-            asked = JSON.parse(job.payload.args!) as Record<string, unknown>
+            asked = JSON.parse(String(job.payload.args)) as Record<string, unknown>
             await db
               .update(deviceCommands)
               .set({ status: `done`, completedAt: new Date(), result: JSON.stringify({ ok: true, result: { text: JSON.stringify(PIPELINE) } }) })

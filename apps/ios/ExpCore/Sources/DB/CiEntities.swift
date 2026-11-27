@@ -40,15 +40,19 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let externalUrl: String?
     public let externalAttempt: Int?
     public let externalAccess: String?
+    /// #EXP-2172 redesign: what the run is about (nil = unknown).
+    public let title: String?
 
     public init(
         id: String, teamId: String, repositoryId: String = "", number: Int, name: String = "", sha: String = "",
         ref: String? = nil, trigger: String = "push", pullRequestId: String? = nil, state: String = "pending",
         error: String? = nil, rerunOf: String? = nil, createdByUserId: String? = nil, startedAt: String? = nil,
         completedAt: String? = nil, createdAt: String, updatedAt: String, provider: String = "exponential",
-        externalId: String? = nil, externalUrl: String? = nil, externalAttempt: Int? = nil, externalAccess: String? = nil
+        externalId: String? = nil, externalUrl: String? = nil, externalAttempt: Int? = nil, externalAccess: String? = nil,
+        title: String? = nil
     ) {
         self.id = id
+        self.title = title
         self.teamId = teamId
         self.repositoryId = repositoryId
         self.number = number
@@ -73,7 +77,7 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, number, name, sha, ref, trigger, state, error, provider
+        case id, number, name, sha, ref, trigger, state, error, provider, title
         case teamId = "team_id"
         case externalId = "external_id"
         case externalUrl = "external_url"
@@ -93,7 +97,8 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public var run: CiRun.Run {
         CiRun.Run(
             id: id, number: number, name: name, state: state, error: error, sha: sha, startedAt: startedAt,
-            completedAt: completedAt, ref: ref, provider: provider, externalUrl: externalUrl, externalAccess: externalAccess
+            completedAt: completedAt, ref: ref, provider: provider, externalUrl: externalUrl, externalAccess: externalAccess,
+            title: title, createdAt: createdAt.isEmpty ? nil : createdAt
         )
     }
 }
@@ -123,6 +128,7 @@ extension CiRunEntity: Codable {
         externalUrl = try c.decodeIfPresent(String.self, forKey: .externalUrl)
         externalAttempt = try? c.decodeWireInt(forKey: .externalAttempt)
         externalAccess = try c.decodeIfPresent(String.self, forKey: .externalAccess)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
     }
 }
 
@@ -277,8 +283,9 @@ extension CiJobEntity: Codable {
 
 extension CiPage {
     /// The page's synced input, every member team at once: runs, jobs, pull
-    /// requests, root sessions (their starters), the runner devices (runner
-    /// enabled, never a member space). `repos` and `now` are the caller's
+    /// requests, root sessions (their starters), the runs' authors (users),
+    /// the runner devices (runner enabled, never a member space). `repos`,
+    /// `now` and `utcOffsetMinutes` are the caller's
     /// (repository names come from `repositories.list` per team until the
     /// repositories shape syncs).
     public static func fetchRows(_ db: Database, viewerId: String) throws -> Input {
@@ -288,6 +295,8 @@ extension CiPage {
         let roots = Set(prs.compactMap(\.rootSessionId))
         let sessions = roots.isEmpty ? [] : try SessionEntity.filter(keys: Array(roots)).fetchAll(db)
         let devices = try DeviceEntity.fetchAll(db)
+        let authors = Set(runs.compactMap(\.createdByUserId))
+        let users = authors.isEmpty ? [] : try UserEntity.filter(keys: Array(authors)).fetchAll(db)
         return Input(
             runs: runs.map(\.pageRun),
             jobs: jobs.map(\.pageJob),
@@ -308,6 +317,7 @@ extension CiPage {
                     labels: settings.labels, slots: settings.slots, lastSeenAt: device.lastSeenAt
                 )
             },
+            users: users.map { User(id: $0.id, name: ($0.name ?? "").isEmpty ? $0.email : $0.name ?? "", image: $0.image) },
             viewerId: viewerId,
             now: ""
         )
@@ -319,7 +329,7 @@ extension CiRunEntity {
         CiPage.Run(
             id: id, repositoryId: repositoryId, number: number, name: name, sha: sha, ref: ref, trigger: trigger,
             state: state, pullRequestId: pullRequestId, createdByUserId: createdByUserId, provider: provider,
-            startedAt: startedAt, completedAt: completedAt, createdAt: createdAt
+            startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, title: title
         )
     }
 }

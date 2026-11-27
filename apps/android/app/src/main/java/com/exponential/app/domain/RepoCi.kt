@@ -62,6 +62,10 @@ object RepoCi {
                 "GitHub Actions on team devices",
                 "Team devices with a CI runner also run this repository's GitHub Actions jobs.",
             ),
+            Switch.PullRequestSecrets to SwitchCopy(
+                "Secrets for pull requests",
+                "Pull request runs get this repository's secrets too. Off: only default-branch, tag and merge-train runs.",
+            ),
         )
     }
 
@@ -76,13 +80,18 @@ object RepoCi {
         const val ADD_SECRET = "repo-ci-add-secret"
         const val GITHUB_STATUSES = "repo-ci-github-statuses"
         const val ACTIONS_RUNNERS = "repo-ci-actions-runners"
+        const val PULL_REQUEST_SECRETS = "repo-ci-pull-request-secrets"
     }
 
     /** repo-ci.json `limits.runs`. */
     const val MAX_RUNS = 50
 
-    /** The GitHub-only switches (wire = the `ci_config` key). */
-    enum class Switch(val wire: String) { GithubStatuses("githubStatuses"), ActionsRunners("actionsRunners") }
+    /** The section's switches (wire = the `ci_config` key). */
+    enum class Switch(val wire: String) {
+        GithubStatuses("githubStatuses"),
+        ActionsRunners("actionsRunners"),
+        PullRequestSecrets("pullRequestSecrets"),
+    }
 
     /** One `ci_runs` row as the Runs tab reads it. */
     data class Run(
@@ -195,9 +204,14 @@ object RepoCi {
     /** A secret name the server stores (an env var name, ≤ 128). */
     fun secretName(input: String): Boolean = input.length <= 128 && SECRET_NAME.matches(input)
 
-    /** The GitHub-only switches of the CI section, in order. */
+    /** The CI section's switches, in order: the GitHub-only ones, then
+     *  #EXP-2180's secrets for pull request runs (every provider). */
     fun switches(provider: String?): List<Switch> =
-        if (provider == RepoPage.PROVIDER_GITHUB) listOf(Switch.GithubStatuses, Switch.ActionsRunners) else emptyList()
+        if (provider == RepoPage.PROVIDER_GITHUB) {
+            listOf(Switch.GithubStatuses, Switch.ActionsRunners, Switch.PullRequestSecrets)
+        } else {
+            listOf(Switch.PullRequestSecrets)
+        }
 
     // ── the styleguide specimen (sg_repo-runs, sg_repo-ci): runRows[0] ──
 

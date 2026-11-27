@@ -1410,8 +1410,8 @@ impl Shell {
                         .primary().cursor_pointer()
                         .small()
                         .label("Restart to update")
-                        .on_click(move |_: &ClickEvent, _, cx| {
-                            update::relaunch(restart_path.clone(), cx);
+                        .on_click(move |_: &ClickEvent, window, cx| {
+                            update::restart_or_ask(restart_path.clone(), window, cx);
                         }),
                 );
             }
@@ -1655,8 +1655,8 @@ impl Shell {
                         .primary().cursor_pointer()
                         .w_full()
                         .label("Restart to update")
-                        .on_click(move |_: &ClickEvent, _, cx| {
-                            update::relaunch(restart_path.clone(), cx);
+                        .on_click(move |_: &ClickEvent, window, cx| {
+                            update::restart_or_ask(restart_path.clone(), window, cx);
                         }),
                 );
             }

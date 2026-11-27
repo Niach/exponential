@@ -75,7 +75,8 @@ fn the_toasts_window_takes_input_on_its_cards_alone(cx: &mut TestAppContext) {
     assert_eq!(input.borrow().as_ref().map(Vec::len), Some(2));
 }
 
-/// Only a layer whose root paints nothing clips its input: the toasts.
+/// Only a layer whose root paints nothing clips its input: the toasts, and
+/// (#EDE-253) the window menu's one-pixel anchor, whose menu is its popup.
 #[test]
 fn only_the_toasts_clip_their_input() {
     let clipping: Vec<&str> = uicore_docs::DOCS
@@ -83,5 +84,5 @@ fn only_the_toasts_clip_their_input() {
         .filter(|d| ede_ui::validate_document(d.name, &d.json()).is_ok_and(|doc| uicore_gpui::clips_input(&doc)))
         .map(|d| d.name)
         .collect();
-    assert_eq!(clipping, ["notifications"]);
+    assert_eq!(clipping, ["notifications", "window-menu"]);
 }

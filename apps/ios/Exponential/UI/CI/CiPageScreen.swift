@@ -8,7 +8,8 @@ import SwiftUI
 // sidebar's CI row), as the genUI tree web builds (`CiPageView.ciPageTree`,
 // phone: true) painted by the core catalog. Everything is synced; the
 // repository names come from `repositories.list` per member team (as
-// Settings › Repositories) until the repositories shape syncs.
+// Settings › Repositories) until the repositories shape syncs. The iPad
+// (regular width) draws the wide tree: trailing rows, the runner chip.
 
 /// The route's screen: the synced rows, the tab and the filter.
 struct CiPageScreen: View {
@@ -16,6 +17,7 @@ struct CiPageScreen: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var input: CiPage.Input?
     @State private var repos: [CiPage.Repo] = []
@@ -30,7 +32,7 @@ struct CiPageScreen: View {
             if let input {
                 CiPagePage(
                     input: withClock(input),
-                    state: state,
+                    state: drawn,
                     onState: { state = $0 },
                     onOpenRun: { pushRoute(.ciRun(accountId: accountId, runId: $0)) },
                     onOpenPr: openPullRequest,
@@ -55,9 +57,16 @@ struct CiPageScreen: View {
         }
     }
 
+    private var drawn: CiPageView.State {
+        var next = state
+        next.phone = sizeClass != .regular
+        return next
+    }
+
     private func withClock(_ input: CiPage.Input) -> CiPage.Input {
         var next = input
         next.repos = repos
+        next.utcOffsetMinutes = TimeZone.current.secondsFromGMT(for: now) / 60
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         next.now = iso.string(from: now)

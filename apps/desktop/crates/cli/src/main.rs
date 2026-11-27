@@ -11,7 +11,6 @@
 
 mod actions_runner;
 mod agent_login_host;
-mod ci_runner;
 mod commands;
 mod context;
 mod ecode_jobs;
@@ -190,6 +189,11 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // #EXP-2181: a CI step's namespace sandbox (`__ci-sandbox`): it unshares
+    // namespaces, so before any thread, and it never returns.
+    if let Some(code) = ci_runner::sandbox_main() {
+        std::process::exit(code);
+    }
     // #EXP-2161: the launcher of a member's space (it forks, so before any
     // thread), and the test inside one.
     member_space::run_if_requested();

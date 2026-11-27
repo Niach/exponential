@@ -162,6 +162,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_repositories_runs: [],
   exponential_repositories_run_log: [],
   exponential_repositories_rerun: [],
+  exponential_repositories_restore: [],
   exponential_repositories_credentials: [],
   exponential_repositories_list: [`list`, `repository`],
   exponential_session_self_compact: [],

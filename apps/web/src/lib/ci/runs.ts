@@ -7,8 +7,8 @@
 //   (fixtures/runner.json) under the run's advisory lock: enqueue (planned
 //   skips), finish (the skip chain), cancel, tick (timeouts, lost runners,
 //   the queued flag). `lib/ci/state.ts` converts rows ↔ the spec's state.
-// - Dispatch = a `ci_job` device command (payload `{jobId}` only, never a
-//   secret) plus the relay nudge to an enabled runner whose labels cover
+// - Dispatch = a `ci_job` device command (payload `{jobId, memoryMaxMb,
+//   pauseWhenBusy}`: the job and the runner's limits, never a secret) plus the relay nudge to an enabled runner whose labels cover
 //   the job; the runner CLAIMS the job by compare-and-swap and gets a
 //   one-time job token (its sha256 is stored) for beats, logs, its secrets
 //   (ONCE) and the finish.
@@ -32,6 +32,7 @@ import {
   type Trigger,
 } from "@exp/ecode"
 import { readWorkflowText } from "@exp/ecode/workflow-text"
+import { RUNNER_DEFAULTS as RUNNER_SETTINGS_DEFAULTS, runnerUnsupported } from "@exp/domain-contract/ci-run"
 import { db } from "@/db/connection"
 import {
   ciJobs,
@@ -536,6 +537,15 @@ interface RunnerRow {
   lastSeenAt: Date
 }
 
+/** #EXP-2193: the limits a runner applies to every job (runner-settings
+ *  defaults fill an older row), carried in the `ci_job` payload. */
+export function runnerLimits(settings: DeviceRunnerSettings | null): { memoryMaxMb: number; pauseWhenBusy: boolean } {
+  return {
+    memoryMaxMb: settings?.memoryMaxMb ?? RUNNER_SETTINGS_DEFAULTS.memoryMaxMb,
+    pauseWhenBusy: settings?.pauseWhenBusy ?? RUNNER_SETTINGS_DEFAULTS.pauseWhenBusy,
+  }
+}
+
 function runnerSpec(row: RunnerRow, lastBeat: number | null) {
   return {
     id: row.id,
@@ -702,6 +712,8 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
           isNull(devices.spaceHostId),
           sql`(${devices.runner}->>'enabled')::boolean IS TRUE`,
           sql`${devices.caps} ? ${CI_RUNNER_CAP}`,
+          // #EXP-2193: the desktop app on macOS / Windows runs no jobs yet.
+          sql`NOT (${devices.kind} = 'desktop' AND ${devices.platform} IN ('macos', 'darwin', 'windows'))`,
           gt(devices.lastSeenAt, new Date(now.getTime() - RUNNER_LOST_MS))
         )
       )) as RunnerRow[]
@@ -781,7 +793,7 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
           userId: runner.userId,
           deviceId: runner.deviceId,
           kind: CI_JOB_COMMAND,
-          payload: { jobId },
+          payload: { jobId, ...runnerLimits(runner.runner) },
           onDuplicate: `reuse`,
         })
         busy.set(runner.id, (busy.get(runner.id) ?? 0) + 1)
@@ -819,6 +831,7 @@ export async function claimJob(args: { userId: string; deviceId: string; jobId: 
       id: devices.id,
       userId: devices.userId,
       deviceId: devices.deviceId,
+      kind: devices.kind,
       platform: devices.platform,
       caps: devices.caps,
       runner: devices.runner,
@@ -826,9 +839,11 @@ export async function claimJob(args: { userId: string; deviceId: string; jobId: 
     })
     .from(devices)
     .where(and(eq(devices.userId, args.userId), eq(devices.deviceId, args.deviceId)))
-    .limit(1)) as RunnerRow[]
+    .limit(1)) as Array<RunnerRow & { kind: string }>
   if (!device) throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
-  if (!device.runner?.enabled) throw new TRPCError({ code: `FORBIDDEN`, message: `This device is not a CI runner` })
+  if (!device.runner?.enabled || runnerUnsupported(device.kind, device.platform)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `This device is not a CI runner` })
+  }
   const [job] = await db.select().from(ciJobs).where(eq(ciJobs.id, args.jobId)).limit(1)
   if (!job) return null
   const [member] = await db
@@ -956,6 +971,19 @@ export async function finishJob(args: {
   )
   await afterChange(job.runId, changed, teamId)
   return { ok: !!outcome && !outcome.failure }
+}
+
+/** #EXP-2193: a runner quitting or updating mid-job hands it back
+ *  (fixtures/runner.json `release`): re-queued at once the first time (no
+ *  wait for RUNNER_LOST_MS), a second loss fails it `runner_lost`. A wrong
+ *  token or a job that no longer runs = `{requeued: false}`. */
+export async function releaseJob(args: { jobId: string; token: string; now?: Date }): Promise<{ requeued: boolean }> {
+  const now = args.now ?? new Date()
+  const job = await jobForToken(args.jobId, args.token)
+  if (!job || job.status !== `in_progress`) return { requeued: false }
+  const { changed, outcome, teamId } = await applyToRun(job.runId, `release`, { runner: job.runnerDeviceId, job: job.id }, now)
+  await afterChange(job.runId, changed, teamId)
+  return { requeued: outcome?.result?.requeued === true }
 }
 
 // ── people's side ───────────────────────────────────────────────────────

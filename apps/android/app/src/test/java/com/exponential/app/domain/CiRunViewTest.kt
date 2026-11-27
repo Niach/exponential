@@ -75,6 +75,8 @@ class CiRunViewTest {
         labels = o.getValue("labels").jsonArray.map { it.jsonPrimitive.content },
         slots = o.getValue("slots").jsonPrimitive.int,
         timeoutMin = o.getValue("timeoutMin").jsonPrimitive.int,
+        memoryMaxMb = o.getValue("memoryMaxMb").jsonPrimitive.int,
+        pauseWhenBusy = o.getValue("pauseWhenBusy").jsonPrimitive.boolean,
     )
 
     /** Numbers compare by value (web's `2` and Kotlin's `2` alike). */
@@ -124,6 +126,7 @@ class CiRunViewTest {
             val actual = CiRunView.runnerSectionTree(
                 client = case.str("client")!!,
                 caps = case.getValue("caps").jsonArray.map { it.jsonPrimitive.content },
+                kind = case.str("kind"),
                 platform = case.str("platform"),
                 settings = settings(case.getValue("settings").jsonObject),
                 owner = case.getValue("owner").jsonPrimitive.boolean,

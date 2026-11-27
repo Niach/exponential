@@ -48,6 +48,7 @@ fun RunnerSettingsSection(
     val now = rememberTickingNow(jobs.any { it.status == "in_progress" })
     RunnerSettingsView(
         caps = device.caps.orEmpty(),
+        kind = device.kind,
         platform = device.platform,
         settings = pending ?: stored,
         owner = device.isMine,
@@ -64,6 +65,7 @@ fun RunnerSettingsSection(
 @Composable
 fun RunnerSettingsView(
     caps: List<String>,
+    kind: String?,
     platform: String?,
     settings: RunnerSettings.Settings,
     owner: Boolean,
@@ -73,8 +75,8 @@ fun RunnerSettingsView(
 ) {
     var refused by remember { mutableStateOf(false) }
     val handle = remember { CiSurfaceHandle() }
-    val tree = remember(caps, platform, settings, owner, refused, recent) {
-        CiRunView.runnerSectionTree(CLIENT, caps, platform, settings, owner, refused, recent)
+    val tree = remember(caps, kind, platform, settings, owner, refused, recent) {
+        CiRunView.runnerSectionTree(CLIENT, caps, kind, platform, settings, owner, refused, recent)
     }
     fun labels(values: List<String>) = JsonArray(values.map(::JsonPrimitive))
     // The ChipInput's `values` is bound: the stored labels win (a refused or

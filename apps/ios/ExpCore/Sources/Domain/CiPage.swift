@@ -11,13 +11,6 @@ public enum CiPage {
     public enum Copy {
         public static let title = "CI"
         public static let tabs: [String: String] = ["runs": "Runs", "train": "Merge train", "runners": "Runners"]
-        public enum Tiles {
-            public static let running = "Running"
-            public static let queued = "Queued"
-            public static let failedToday = "Failed today"
-            public static let runners = "Runners"
-            public static let runnersValue = "{online} of {total} online"
-        }
         public static let filters: [String: String] = ["all": "All", "running": "Running", "failed": "Failed", "mine": "Mine"]
         public static let allRepositories = "All repositories"
         public static let sources: [String: String] = ["all": "Every source", "exponential": "Exponential", "github": "GitHub Actions"]
@@ -25,7 +18,6 @@ public enum CiPage {
             "status": "Status", "run": "Run", "repository": "Repository", "source": "Source",
             "ref": "Branch", "trigger": "Trigger", "duration": "Duration", "started": "Started",
         ]
-        public static let runsSection = "Runs"
         public static let trainSection = "Merge train"
         public static let pullRequest = "Pull request #{number}"
         public static let triggers: [String: String] = [
@@ -33,6 +25,14 @@ public enum CiPage {
             "merge_train": "Merge train", "manual": "Manual", "schedule": "Schedule",
         ]
         public static let unknownRepository = "Repository"
+        public static let inProgress = "In progress"
+        public static let today = "Today"
+        public static let yesterday = "Yesterday"
+        public static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        public static let queued = "queued"
+        public static let batchTitle = "Testing {numbers} together"
+        public static let runnerChip = "{online} of {total} runners"
+        public static let waitingForRunner = "waiting for a runner"
         public static let trainBatch = "Testing {count} pull requests together"
         public enum Runners {
             public static let busy = "{busy} of {slots} busy"
@@ -68,6 +68,7 @@ public enum CiPage {
         public static let trainRow = "ci-train-row"
         public static let runners = "ci-runners"
         public static let runnerRow = "ci-runner-row"
+        public static let runnerChip = "ci-runner-chip"
     }
 
     // MARK: - Inputs
@@ -91,12 +92,15 @@ public enum CiPage {
         public let startedAt: String?
         public let completedAt: String?
         public let createdAt: String
+        /// What the run is about (`ci_runs.title`).
+        public let title: String?
 
         public init(
             id: String, repositoryId: String, number: Int, name: String, sha: String = "", ref: String?,
             trigger: String, state: String, pullRequestId: String?, createdByUserId: String?, provider: String,
-            startedAt: String?, completedAt: String?, createdAt: String
+            startedAt: String?, completedAt: String?, createdAt: String, title: String? = nil
         ) {
+            self.title = title
             self.id = id
             self.repositoryId = repositoryId
             self.number = number
@@ -198,6 +202,19 @@ public enum CiPage {
         }
     }
 
+    /// A person a run names (its author), from the users shape.
+    public struct User: Equatable, Sendable {
+        public let id: String
+        public let name: String
+        public let image: String?
+
+        public init(id: String, name: String, image: String?) {
+            self.id = id
+            self.name = name
+            self.image = image
+        }
+    }
+
     public struct Input: Equatable, Sendable {
         public var runs: [Run]
         public var jobs: [Job]
@@ -205,12 +222,15 @@ public enum CiPage {
         public var pullRequests: [Pr]
         public var sessions: [Session]
         public var runners: [Runner]
+        public var users: [User]
         public var viewerId: String
         public var now: String
+        /// The viewer's clock offset from UTC in minutes (Today / Yesterday).
+        public var utcOffsetMinutes: Int
 
         public init(
             runs: [Run], jobs: [Job], repos: [Repo], pullRequests: [Pr], sessions: [Session], runners: [Runner],
-            viewerId: String, now: String
+            users: [User] = [], viewerId: String, now: String, utcOffsetMinutes: Int = 0
         ) {
             self.runs = runs
             self.jobs = jobs
@@ -218,8 +238,10 @@ public enum CiPage {
             self.pullRequests = pullRequests
             self.sessions = sessions
             self.runners = runners
+            self.users = users
             self.viewerId = viewerId
             self.now = now
+            self.utcOffsetMinutes = utcOffsetMinutes
         }
     }
 
@@ -241,35 +263,57 @@ public enum CiPage {
 
     public struct RunListRow: Equatable, Sendable {
         public let id: String
-        public let identifier: String
-        public let title: String
         public let status: CiRun.Status
         public let statusLabel: String
         public let glyph: PrChecks.Glyph
-        public let tone: PrChecks.Tone
+        /// The catalog tone (`statusTones`).
+        public let tone: String
+        /// The commit / PR line (`title`), else the merge train batch, else
+        /// the pipeline's name.
+        public let title: String
+        /// `name #n`.
+        public let workflow: String
         public let repositoryId: String
         public let repository: String
+        /// The repository's own name (after the owner).
+        public let repo: String
+        public let ref: String
+        public let sha: String
+        public let trigger: String
         public let source: Source
         public let sourceLabel: String
-        public let ref: String
-        public let trigger: String
+        /// `github` | `brand-exponential`.
+        public let sourceIcon: String
+        /// nil before it started.
         public let duration: String?
-        public let startedAt: String?
-        /// Phones: `repository · ref · source`.
+        /// When it started, else when it was queued (the age, relative).
+        public let at: String
+        public let author: User?
+        /// Wide: `workflow · repo · ref · sha · trigger`.
         public let subtitle: String
+        /// Phones: `repo · ref · workflow`.
+        public let phoneSubtitle: String
+        /// Phones' meta: the duration, else copy.queued.
+        public let phoneMeta: String
+    }
+
+    public struct RunGroup: Equatable, Sendable {
+        /// `in-progress`, else the local day `yyyy-mm-dd`.
+        public let id: String
+        public let title: String
+        /// In progress only.
+        public let count: Int?
+        public var rows: [RunListRow]
+    }
+
+    public struct RunnerChip: Equatable, Sendable {
+        public let label: String
+        public let online: Bool
     }
 
     public struct Option: Equatable, Sendable {
         public let label: String
         public let value: String
-    }
-
-    public struct Tile: Equatable, Sendable {
-        public let label: String
-        public let value: String
-        /// neutral | danger.
-        public let tone: String
-        public let delta: String?
     }
 
     public struct TrainRow: Equatable, Sendable {
@@ -313,13 +357,16 @@ public enum CiPage {
 
     private static func msOf(_ value: String?) -> Double? { CiRun.ms(value) }
 
-    private static func glyph(_ status: CiRun.Status) -> (PrChecks.Glyph, PrChecks.Tone) {
+    /// The one status table (fixture `statusTones`, also the run page's):
+    /// running is the only blue, moving mark; queued and cancelled stay
+    /// neutral. Tone = the catalog's Tone (`neutral` | `info` | `success` | `danger`).
+    public static func statusTone(_ status: CiRun.Status) -> (glyph: PrChecks.Glyph, tone: String) {
         switch status {
-        case .queued: (.queued, .muted)
-        case .running: (.running, .muted)
-        case .passed: (.passed, .green)
-        case .failed: (.failed, .red)
-        case .cancelled: (.skipped, .muted)
+        case .passed: (.passed, "success")
+        case .failed: (.failed, "danger")
+        case .running: (.running, "info")
+        case .queued: (.queued, "neutral")
+        case .cancelled: (.skipped, "neutral")
         }
     }
 
@@ -365,9 +412,56 @@ public enum CiPage {
         repos.first { $0.id == id }?.fullName ?? Copy.unknownRepository
     }
 
+    /// A running merge train run is its batch: `Testing #a, #b together`.
+    private static func batchTitle(_ run: Run, _ pullRequests: [Pr]) -> String? {
+        guard run.trigger == "merge_train", run.state == "pending" else { return nil }
+        let members = pullRequests.filter { $0.repositoryId == run.repositoryId && $0.mergeState == "testing" }.map(\.number).sorted()
+        guard !members.isEmpty else { return nil }
+        return Copy.batchTitle.replacingOccurrences(of: "{numbers}", with: members.map { "#\($0)" }.joined(separator: ", "))
+    }
+
+    /// One row of the list (both form factors' strings).
+    public static func runRow(_ run: Run, _ input: Input) -> RunListRow {
+        let at = msOf(input.now) ?? 0
+        let status = statusOf(run, input.jobs)
+        let source = source(run.provider)
+        let repository = repoName(input.repos, run.repositoryId)
+        let repo = repository.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? repository
+        let ref = run.ref ?? RepoCi.Copy.Runs.noRef
+        let sha = String(run.sha.prefix(7))
+        let workflow = "\(run.name) #\(run.number)"
+        let trigger = triggerText(run, input.pullRequests)
+        let pr = run.pullRequestId.flatMap { id in input.pullRequests.first { $0.id == id } }
+        let duration = msOf(run.startedAt).map { PrChecks.formatDuration(ms: (msOf(run.completedAt) ?? at) - $0) }
+        let (glyph, tone) = statusTone(status)
+        return RunListRow(
+            id: run.id,
+            status: status,
+            statusLabel: CiRun.statusLabel(status),
+            glyph: glyph,
+            tone: tone,
+            title: run.title ?? batchTitle(run, input.pullRequests) ?? pr?.title ?? run.name,
+            workflow: workflow,
+            repositoryId: run.repositoryId,
+            repository: repository,
+            repo: repo,
+            ref: ref,
+            sha: sha,
+            trigger: trigger,
+            source: source,
+            sourceLabel: Copy.sources[source.rawValue] ?? source.rawValue,
+            sourceIcon: source == .github ? "github" : "brand-exponential",
+            duration: duration,
+            at: run.startedAt ?? run.createdAt,
+            author: run.createdByUserId.flatMap { id in input.users.first { $0.id == id } },
+            subtitle: [workflow, repo, ref, sha, trigger].joined(separator: " · "),
+            phoneSubtitle: [repo, ref, workflow].joined(separator: " · "),
+            phoneMeta: duration ?? Copy.queued
+        )
+    }
+
     /// The Runs tab: every run of the filter, newest first, at most `Limits.runs`.
     public static func runList(_ input: Input, filter: RunFilter) -> [RunListRow] {
-        let at = msOf(input.now) ?? 0
         var rows: [RunListRow] = []
         for run in newestFirst(input.runs) {
             let status = statusOf(run, input.jobs)
@@ -377,31 +471,55 @@ public enum CiPage {
             if filter.status == .running, status != .running, status != .queued { continue }
             if filter.status == .failed, status != .failed { continue }
             if filter.status == .mine, !isMine(run, viewerId: input.viewerId, pullRequests: input.pullRequests, sessions: input.sessions) { continue }
-            let repository = repoName(input.repos, run.repositoryId)
-            let ref = run.ref ?? RepoCi.Copy.Runs.noRef
-            let sourceLabel = Copy.sources[source.rawValue] ?? source.rawValue
-            let (g, tone) = glyph(status)
-            rows.append(RunListRow(
-                id: run.id,
-                identifier: "#\(run.number)",
-                title: "#\(run.number) \(run.name)",
-                status: status,
-                statusLabel: CiRun.statusLabel(status),
-                glyph: g,
-                tone: tone,
-                repositoryId: run.repositoryId,
-                repository: repository,
-                source: source,
-                sourceLabel: sourceLabel,
-                ref: ref,
-                trigger: triggerText(run, input.pullRequests),
-                duration: msOf(run.startedAt).map { PrChecks.formatDuration(ms: (msOf(run.completedAt) ?? at) - $0) },
-                startedAt: run.startedAt,
-                subtitle: "\(repository) · \(ref) · \(sourceLabel)"
-            ))
+            rows.append(runRow(run, input))
             if rows.count >= Limits.runs { break }
         }
         return rows
+    }
+
+    private static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
+
+    /// The local day of an instant, `yyyy-mm-dd`, at the viewer's offset.
+    static func localDay(_ ms: Double, _ offsetMinutes: Int) -> String {
+        let date = Date(timeIntervalSince1970: (ms + Double(offsetMinutes) * 60_000) / 1000)
+        let c = utc.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    /// A day's section title: Today, Yesterday, else `27 Nov` (+ the year
+    /// when it is not this year's).
+    public static func dayTitle(_ day: String, now: String, utcOffsetMinutes: Int) -> String {
+        let nowMs = msOf(now) ?? 0
+        let today = localDay(nowMs, utcOffsetMinutes)
+        if day == today { return Copy.today }
+        if day == localDay(nowMs - 86_400_000, utcOffsetMinutes) { return Copy.yesterday }
+        let parts = day.split(separator: "-").map(String.init)
+        guard parts.count == 3, let m = Int(parts[1]), let d = Int(parts[2]), (1 ... 12).contains(m) else { return day }
+        let label = "\(d) \(Copy.months[m - 1])"
+        return parts[0] == String(today.prefix(4)) ? label : "\(label) \(parts[0])"
+    }
+
+    /// The Runs tab's sections: In progress (running + queued, with a
+    /// count), then one per local day, newest first.
+    public static func runGroups(_ input: Input, filter: RunFilter) -> [RunGroup] {
+        let rows = runList(input, filter: filter)
+        let isLive = { (row: RunListRow) in row.status == .running || row.status == .queued }
+        let live = rows.filter(isLive)
+        var groups: [RunGroup] = []
+        if !live.isEmpty { groups.append(RunGroup(id: "in-progress", title: Copy.inProgress, count: live.count, rows: live)) }
+        for row in rows where !isLive(row) {
+            let day = localDay(msOf(row.at) ?? 0, input.utcOffsetMinutes)
+            if let last = groups.indices.last, groups[last].id == day {
+                groups[last].rows.append(row)
+            } else {
+                groups.append(RunGroup(id: day, title: dayTitle(day, now: input.now, utcOffsetMinutes: input.utcOffsetMinutes), count: nil, rows: [row]))
+            }
+        }
+        return groups
     }
 
     /// The repository pick: `All repositories`, then every repository that
@@ -419,43 +537,18 @@ public enum CiPage {
         return now - seen < Limits.runnerOnlineMs
     }
 
-    /// Running, Queued, Failed today (delta = the newest failure's repository
-    /// name), Runners (online of total).
-    public static func tiles(_ input: Input) -> [Tile] {
+    /// The toolbar's runner chip (it opens the Runners tab): `{online} of
+    /// {total} runners`, a green dot while one is online. nil without runners.
+    public static func runnerChip(_ input: Input) -> RunnerChip? {
+        guard !input.runners.isEmpty else { return nil }
         let at = msOf(input.now) ?? 0
-        var running = 0
-        var queued = 0
-        var failed: [Run] = []
-        for run in input.runs {
-            switch statusOf(run, input.jobs) {
-            case .running: running += 1
-            case .queued: queued += 1
-            case .failed:
-                if let done = msOf(run.completedAt), at - done < 24 * 3_600_000 { failed.append(run) }
-            default: break
-            }
-        }
-        let newest = failed.enumerated().sorted { a, b in
-            let (x, y) = (msOf(a.element.completedAt) ?? 0, msOf(b.element.completedAt) ?? 0)
-            return x != y ? x > y : a.offset < b.offset
-        }.first?.element
-        let repo = newest.map { repoName(input.repos, $0.repositoryId) }
-        let online = input.runners.filter { online($0, at) }.count
-        return [
-            Tile(label: Copy.Tiles.running, value: String(running), tone: "neutral", delta: nil),
-            Tile(label: Copy.Tiles.queued, value: String(queued), tone: "neutral", delta: nil),
-            Tile(
-                label: Copy.Tiles.failedToday, value: String(failed.count), tone: failed.isEmpty ? "neutral" : "danger",
-                delta: repo.map { $0.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? $0 }
-            ),
-            Tile(
-                label: Copy.Tiles.runners,
-                value: Copy.Tiles.runnersValue
-                    .replacingOccurrences(of: "{online}", with: String(online))
-                    .replacingOccurrences(of: "{total}", with: String(input.runners.count)),
-                tone: "neutral", delta: nil
-            ),
-        ]
+        let count = input.runners.filter { online($0, at) }.count
+        return RunnerChip(
+            label: Copy.runnerChip
+                .replacingOccurrences(of: "{online}", with: String(count))
+                .replacingOccurrences(of: "{total}", with: String(input.runners.count)),
+            online: count > 0
+        )
     }
 
     /// nav-badges.json destination `ci`: the viewer's runs, the newest per
@@ -625,15 +718,15 @@ extension CiPage {
 
     public static let specimen = Input(
         runs: [
-            Run(id: "r483", repositoryId: "repo-engine", number: 483, name: "gate", sha: "r483aaaaaaaaaaaaaaaa", ref: "exp/APP-32", trigger: "pull_request", state: "pending", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:26:48.000Z", completedAt: nil, createdAt: "2026-11-27T10:26:48.000Z"),
-            Run(id: "r91", repositoryId: "repo-engine", number: 91, name: "Merge train", sha: "r91aaaaaaaaaaaaaaaa", ref: "main", trigger: "merge_train", state: "pending", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:28:20.000Z", completedAt: nil, createdAt: "2026-11-27T10:28:20.000Z"),
-            Run(id: "g1207", repositoryId: "repo-mobile", number: 1207, name: "build-ios", sha: "g1207aaaaaaaaaaaaaaaa", ref: "release/2.4", trigger: "tag", state: "pending", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: nil, completedAt: nil, createdAt: "2026-11-27T10:29:00.000Z"),
-            Run(id: "r482", repositoryId: "repo-engine", number: 482, name: "gate", sha: "r482aaaaaaaaaaaaaaaa", ref: "exp/APP-33", trigger: "pull_request", state: "failure", pullRequestId: "pr-213", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:59:20.000Z", completedAt: "2026-11-27T10:12:00.000Z", createdAt: "2026-11-27T09:59:20.000Z"),
-            Run(id: "g1206", repositoryId: "repo-mobile", number: 1206, name: "test", sha: "g1206aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "github", startedAt: "2026-11-27T09:22:54.000Z", completedAt: "2026-11-27T09:30:00.000Z", createdAt: "2026-11-27T09:22:54.000Z"),
-            Run(id: "g57", repositoryId: "repo-site", number: 57, name: "deploy", sha: "g57aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "failure", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-26T08:27:57.000Z", completedAt: "2026-11-26T08:30:00.000Z", createdAt: "2026-11-26T08:27:57.000Z"),
-            Run(id: "g58", repositoryId: "repo-site", number: 58, name: "deploy", sha: "g58aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-27T08:27:57.000Z", completedAt: "2026-11-27T08:30:00.000Z", createdAt: "2026-11-27T08:27:57.000Z"),
-            Run(id: "r481", repositoryId: "repo-engine", number: 481, name: "gate", sha: "r481aaaaaaaaaaaaaaaa", ref: "exp/APP-32", trigger: "pull_request", state: "failure", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T07:30:00.000Z", completedAt: "2026-11-27T07:30:24.000Z", createdAt: "2026-11-27T07:30:00.000Z"),
-            Run(id: "r480", repositoryId: "repo-gone", number: 480, name: "nightly", sha: "r480aaaaaaaaaaaaaaaa", ref: nil, trigger: "schedule", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T01:30:00.000Z", completedAt: "2026-11-27T01:44:12.000Z", createdAt: "2026-11-27T01:30:00.000Z"),
+            Run(id: "r483", repositoryId: "repo-engine", number: 483, name: "gate", sha: "82aa98f382aa98f382aa98f382aa98f382aa98f3", ref: "exp/APP-32", trigger: "pull_request", state: "pending", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:26:48.000Z", completedAt: nil, createdAt: "2026-11-27T10:26:48.000Z", title: "Repack once per push, not per ref"),
+            Run(id: "r91", repositoryId: "repo-engine", number: 91, name: "Merge train", sha: "3db841eb3db841eb3db841eb3db841eb3db841eb", ref: "main", trigger: "merge_train", state: "pending", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:28:20.000Z", completedAt: nil, createdAt: "2026-11-27T10:28:20.000Z", title: nil),
+            Run(id: "g1207", repositoryId: "repo-mobile", number: 1207, name: "build-ios", sha: "f78ec187f78ec187f78ec187f78ec187f78ec187", ref: "release/2.4", trigger: "tag", state: "pending", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: nil, completedAt: nil, createdAt: "2026-11-27T10:29:00.000Z", title: "Bump the widget to 2.4.1"),
+            Run(id: "r482", repositoryId: "repo-engine", number: 482, name: "gate", sha: "e4731f42e4731f42e4731f42e4731f42e4731f42", ref: "exp/APP-33", trigger: "pull_request", state: "failure", pullRequestId: "pr-213", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:59:20.000Z", completedAt: "2026-11-27T10:12:00.000Z", createdAt: "2026-11-27T09:59:20.000Z", title: "Mirror prunes deleted branches"),
+            Run(id: "g1206", repositoryId: "repo-mobile", number: 1206, name: "test", sha: "595747d6595747d6595747d6595747d6595747d6", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "github", startedAt: "2026-11-27T09:22:54.000Z", completedAt: "2026-11-27T09:30:00.000Z", createdAt: "2026-11-27T09:22:54.000Z", title: "Offline queue survives a cold start"),
+            Run(id: "g57", repositoryId: "repo-site", number: 57, name: "deploy", sha: "3a5a18693a5a18693a5a18693a5a18693a5a1869", ref: "main", trigger: "push", state: "failure", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-26T08:27:57.000Z", completedAt: "2026-11-26T08:30:00.000Z", createdAt: "2026-11-26T08:27:57.000Z", title: "Pricing page copy"),
+            Run(id: "g58", repositoryId: "repo-site", number: 58, name: "deploy", sha: "d891921ad891921ad891921ad891921ad891921a", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-27T08:27:57.000Z", completedAt: "2026-11-27T08:30:00.000Z", createdAt: "2026-11-27T08:27:57.000Z", title: "Pricing page copy, take two"),
+            Run(id: "r481", repositoryId: "repo-engine", number: 481, name: "gate", sha: "463ba591463ba591463ba591463ba591463ba591", ref: "exp/APP-32", trigger: "pull_request", state: "failure", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T07:30:00.000Z", completedAt: "2026-11-27T07:30:24.000Z", createdAt: "2026-11-27T07:30:00.000Z", title: "Repack once per push, not per ref"),
+            Run(id: "r480", repositoryId: "repo-gone", number: 480, name: "nightly", sha: "a8042be0a8042be0a8042be0a8042be0a8042be0", ref: nil, trigger: "schedule", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T01:30:00.000Z", completedAt: "2026-11-27T01:44:12.000Z", createdAt: "2026-11-27T01:30:00.000Z", title: nil),
         ],
         jobs: [
             Job(runId: "r483", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
@@ -672,7 +765,12 @@ extension CiPage {
             Runner(id: "dev-mac", label: "Alex's MacBook Pro", platform: "macos", labels: [], slots: 1, lastSeenAt: "2026-11-27T10:29:55.000Z"),
             Runner(id: "dev-old", label: "build-box", platform: nil, labels: [], slots: 4, lastSeenAt: "2026-11-26T22:00:00.000Z"),
         ],
+        users: [
+            User(id: "u-me", name: "Mara Lind", image: nil),
+            User(id: "u-other", name: "Jonas Berg", image: nil),
+        ],
         viewerId: "u-me",
-        now: "2026-11-27T10:30:00.000Z"
+        now: "2026-11-27T10:30:00.000Z",
+        utcOffsetMinutes: 60
     )
 }

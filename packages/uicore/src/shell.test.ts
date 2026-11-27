@@ -8,6 +8,7 @@ import {
   startMenuApps,
   startMenuCategories,
   startMenuIssues,
+  startMenuNav,
   taskbarButtons,
   taskbarPress,
   taskbarScroll,
@@ -18,6 +19,9 @@ import {
   type ShellState,
   type StartMenuApp,
   type StartMenuIssue,
+  type StartMenuLocalRow,
+  type StartMenuNode,
+  type StartMenuSetting,
 } from "./shell"
 
 const given = (state: unknown): ShellState => hydrate(state as Partial<ShellState>)
@@ -72,6 +76,24 @@ describe(`shell.json selectors`, () => {
     const args = (c as { args?: { issues?: StartMenuIssue[] } }).args ?? {}
     test(c.name, () => expect(startMenuIssues(given(c.state), args.issues ?? (fixture.issues as StartMenuIssue[]))).toEqual(c.expected as ReturnType<typeof startMenuIssues>))
   }
+  for (const c of fixture.selectors.startMenuNav) {
+    const args = (c as { args?: Record<string, unknown> }).args ?? {}
+    test(c.name, () =>
+      expect(
+        startMenuNav(
+          given(c.state),
+          (args.tree ?? fixture.tree) as StartMenuNode[],
+          (args.local ?? fixture.local) as StartMenuLocalRow[],
+          (args.apps ?? apps) as StartMenuApp[],
+          (args.favourites ?? favourites) as string[],
+          (args.settings ?? fixture.settings) as StartMenuSetting[],
+          (args.issues ?? fixture.issues) as StartMenuIssue[]
+        )
+      ).toEqual(c.expected as never)
+    )
+  }
+
+  test(`the start menu opens on the default category (#EDE-258)`, () => expect(fixture.initial.startMenu.category).toBe(``))
 })
 
 describe(`shell.json chats (#EDE-65)`, () => {

@@ -49,8 +49,8 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[merge-train worker-ecode.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
-const { compareAndSwapRefs } = await import(`@/lib/ecode/git-store`)
+const { recordPullRequestOpened, retargetChildrenOfMergedPr } = await import(`@/lib/integrations/pr-sync`)
+const { compareAndSwapRefs, listRefs } = await import(`@/lib/ecode/git-store`)
 const worker = await import(`@/lib/merge-train/worker`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
@@ -115,7 +115,7 @@ async function hostedWorld() {
   await db.insert(pullRequestChecks).values({ teamId, pullRequestId: pullRequest.id, headSha: HEAD, name: `test`, status: `completed`, conclusion: `success`, required: false })
   await db.update(pullRequests).set({ checksState: `success` }).where(eq(pullRequests.id, pullRequest.id))
   await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.rootId, chat))
-  return { repoId: repo!.id, prId: pullRequest.id }
+  return { repoId: repo!.id, prId: pullRequest.id, teamId, chat, owner, fullName, slug }
 }
 
 describe.skipIf(!ready.ok)(`#EXP-2170: the merge train on a hosted repository`, () => {
@@ -132,5 +132,32 @@ describe.skipIf(!ready.ok)(`#EXP-2170: the merge train on a hosted repository`, 
     expect(pr).toMatchObject({ mergeState: `testing`, mergeTrainId: runs[0]!.id, mergeHeadSha: HEAD })
     // The dispatch read the pipeline file on a device (eCode's own train).
     expect(jobs.calls.map((c) => c.op)).toContain(`read_file`)
+  })
+
+  // #EXP-2199: a stacked PR whose base landed moves onto main; before, the
+  // hosted repo's forge had no token and every child was silently kept.
+  it(`a landed PR's stacked child moves onto main on a hosted repo`, async () => {
+    const w = await hostedWorld()
+    const CHILD = `a`.repeat(40)
+    expect(await compareAndSwapRefs(w.repoId, [{ ref: `refs/heads/exp/DOG-2`, old: null, new: CHILD }])).toBe(true)
+    const { pullRequest: child } = await recordPullRequestOpened({
+      teamId: w.teamId,
+      rootSessionId: w.chat,
+      sessionId: w.chat,
+      repositoryId: w.repoId,
+      repoFullName: w.fullName,
+      number: 2,
+      url: `https://exp.example/t/${w.slug}/repos/dogfood/pulls/2`,
+      title: `DOG-2: on top of DOG-1`,
+      head: `exp/DOG-2`,
+      base: `exp/DOG-1`,
+      issueIds: [],
+      actorUserId: w.owner,
+    })
+    await db.update(pullRequests).set({ state: `merged`, mergedAt: new Date(), mergedSha: MAIN }).where(eq(pullRequests.id, w.prId))
+    await retargetChildrenOfMergedPr(w.prId, { trainLanding: true })
+    const moved = (await db.select().from(pullRequests).where(eq(pullRequests.id, child.id)))[0]!
+    expect(moved.base).toBe(`main`)
+    expect(Object.keys(await listRefs(w.repoId))).toContain(`refs/heads/exp/DOG-2`)
   })
 })

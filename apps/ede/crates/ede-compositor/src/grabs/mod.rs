@@ -10,6 +10,8 @@ pub use resize::{ResizeEdge, ResizeSurfaceGrab};
 pub const BTN_LEFT: u32 = 0x110;
 /// #EDE-243: Alt+right-drag resizes.
 pub const BTN_RIGHT: u32 = 0x111;
+/// #EDE-253: Alt+middle-click opens the window menu.
+pub const BTN_MIDDLE: u32 = 0x112;
 
 use smithay::{
     desktop::Window,
