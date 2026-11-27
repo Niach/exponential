@@ -1248,6 +1248,9 @@
         },
         "openOn": {
           "description": "Child's press, or right-click/long-press."
+        },
+        "open": {
+          "description": "Whether it shows; bind it."
         }
       },
       "description": "Actions, checkboxes, groups, submenus; opens from its child.",

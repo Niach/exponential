@@ -802,6 +802,11 @@ function expensesRecordTableProps(): Record<string, unknown> {
   }
 }
 
+/** #EDE-253: boolean props without component cases: a Menu's `open` (a host
+ *  opening it) is replayed by interactions-round1.json `menuOpen`; its open
+ *  painting is the `openOn` cases' (every renderer's snapshot locks). */
+const CASELESS_PROPS: Record<string, string[]> = { Menu: [`open`] }
+
 /** Every visible component: its example, then every enum value of every enum
  *  prop and both values of every boolean prop, over the example, then its
  *  STATE_CASES. */
@@ -816,6 +821,7 @@ function componentCases(): ComponentCase[] {
         const values = schema.values ?? coreCatalog.enums[schema.enum ?? ``] ?? []
         for (const value of values) cases.push(make(`${prop}=${value}`, { ...base, [prop]: value }))
       } else if (schema.type === `boolean`) {
+        if (CASELESS_PROPS[name]?.includes(prop)) continue
         for (const value of [true, false]) cases.push(make(`${prop}=${value}`, { ...base, [prop]: value }))
       }
     }
@@ -2067,7 +2073,9 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
   const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
   const def = coreCatalog.components[name]
   // #VAPP-284: a Row's `open` folds its children; it is no overlay.
-  if (def.props.open && name !== `Row`) {
+  // #EDE-253: a Menu's `open` (a host opening it) keeps its example and
+  // `openOn` cases (its pictures predate the prop).
+  if (def.props.open && name !== `Row` && name !== `Menu`) {
     const open = own.find((c) => suffix(c) === `open=true`)!
     // EXP-1653: a timed overlay (Toast) stays up for the shot on every
     // platform instead of dismissing itself before the capture settles.

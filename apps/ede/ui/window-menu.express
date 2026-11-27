@@ -1,0 +1,13 @@
+# Exponential Desktop's factory window menu (#EDE-253, Cinnamon's windowMenu.js): Alt+Space (at the
+# focused window's corner), Alt+middle-click and a right click on the title bar (at the pointer) make the
+# compositor say `window.menu`; the shell places this one-pixel overlay at that point and feeds
+# /windowMenu: open and the entries in Cinnamon's order (Minimize; Maximize or Unmaximize; Move;
+# Resize; Move Titlebar Onscreen while the title bar is off every output; Always on Top; Always on
+# Visible Workspace / Only on This Workspace and Move to Another Workspace past one workspace; Close).
+# It is the panel's one menu look, the genUI Menu (its `open` bound): it takes the keyboard while open,
+# a pick or a close comes back as ede_window_menu (`dismiss` = closed without one).
+surface("window-menu", extensions={ede: {layer: "overlay", anchor: ["top", "left"], size: {width: 1, height: 1}, onDemand: true, functions: ["ede_window_menu"]}})
+$/windowMenu/items = []
+$/windowMenu/open = false
+root = Menu(items=$/windowMenu/items, open=$/windowMenu/open, side="bottom", align="start", children=[spot], on={select: ede_window_menu(value=$value), change: ede_window_menu(value="dismiss")})
+spot = Box(style={width: 1, height: 1})

@@ -3526,7 +3526,8 @@
       "slots": [],
       "events": [
         "select",
-        "action"
+        "action",
+        "change"
       ],
       "basic": [],
       "props": [
@@ -3588,6 +3589,15 @@
           "responsive": false,
           "default": "press",
           "description": "Child's press, or right-click/long-press."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Whether it shows; bind it."
         }
       ],
       "accessibility": {

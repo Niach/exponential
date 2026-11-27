@@ -1426,3 +1426,58 @@ fn select_section_cases_head_their_runs_like_the_reference() {
         assert_eq!(json!(changes), c["changes"], "{name}: changes");
     }
 }
+
+/// #EDE-253 menuOpen at the core: a Menu's bindable `open` (Popover's rule):
+/// a host write opens a press Menu against its trigger and a context Menu
+/// without a pointer point against its child; a dismiss (Escape and an
+/// outside press both reach the core as the layer's `dismiss`), a pick or
+/// the trigger's press writes the new value to /open and fires `change
+/// {open}`; a host write fires nothing and the next one still opens it.
+#[test]
+fn menu_open_cases_open_close_and_write_through_like_the_reference() {
+    let f = fixture();
+    let fx = &f["menuOpen"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(fx["surfaces"][c["surface"].as_str().unwrap()].clone());
+        let mut m = fixed();
+        for (k, v) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+        }
+        let context = c["surface"] == json!("context");
+        let mut out = s.layout(&mut m);
+        for (i, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            let at = format!("{name}: step {i} ({})", step["do"]);
+            let layer = out.layers.iter().find(|l| l.owner == "m").map(|l| l.root);
+            let events = match step["do"].as_str().unwrap() {
+                "open" | "close" => {
+                    s.set_data("/open", Some(json!(step["do"] == json!("open")))).unwrap();
+                    vec![]
+                }
+                "escape" | "outside" => s.event(layer.unwrap_or_else(|| panic!("{at}: no open layer")), "dismiss", None),
+                "pick" => s.event(s.index_of("m.item.0").unwrap_or_else(|| panic!("{at}: no item")), "press", None),
+                "pressTrigger" => s.event(s.index_of("t").unwrap(), "press", None),
+                _ => vec![],
+            };
+            out = s.layout(&mut m);
+            let shown = out.layers.iter().find(|l| l.owner == "m");
+            assert_eq!(shown.is_some(), step["shown"].as_bool().unwrap(), "{at}: shown");
+            if let Some(l) = shown {
+                // Against the trigger (press) or the child's region (context:
+                // the Menu wrapper around the 1x1 Box), start-aligned.
+                let want = s.index_of(if context { "m" } else { "t" }).unwrap();
+                let frame = out.frames.iter().find(|f| f.index == want).map(|f| (f.x, f.y, f.w, f.h));
+                assert_eq!(l.anchor_frame.map(|f| (f.x, f.y, f.w, f.h)), frame, "{at}: anchored on its trigger or its child");
+                assert_eq!(l.align, Some(eui_core::overlay::OverlayAlign::Start), "{at}: start-aligned");
+            }
+            if let Some(want) = step.get("data") {
+                assert_eq!(s.data().pointer("/open"), Some(want), "{at}: /open");
+            }
+            let actions: Vec<(String, Value)> = events.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some((name, context)) } else { None }).collect();
+            let changes: Vec<Value> = actions.iter().filter(|(n, _)| n == "change").map(|(_, c)| c["open"].clone()).collect();
+            assert_eq!(Value::Array(changes), step["changes"], "{at}: changes");
+            let selects: Vec<Value> = actions.iter().filter(|(n, _)| n == "select").map(|(_, c)| c["value"].clone()).collect();
+            assert_eq!(Value::Array(selects), step.get("selects").cloned().unwrap_or(json!([])), "{at}: selects");
+        }
+    }
+}
