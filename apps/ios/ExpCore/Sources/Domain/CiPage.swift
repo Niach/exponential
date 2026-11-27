@@ -608,8 +608,71 @@ public enum CiPage {
         }
     }
 
+    /// `/ci` (query + hash ignored): the CI page's path.
+    public static func isPagePath(_ path: String) -> Bool {
+        let bare = path.prefix { $0 != "#" && $0 != "?" }
+        return bare.split(separator: "/").map(String.init) == ["ci"]
+    }
+
     /// Tab counts: the train's rows, the runners.
     public static func tabCounts(_ input: Input) -> (train: Int, runners: Int) {
         (trainGroups(input, queue: true).reduce(0) { $0 + $1.rows.count }, input.runners.count)
     }
+}
+
+extension CiPage {
+    // MARK: - The specimen (fixture `scenario`: the page every platform's shot renders)
+
+    public static let specimen = Input(
+        runs: [
+            Run(id: "r483", repositoryId: "repo-engine", number: 483, name: "gate", sha: "r483aaaaaaaaaaaaaaaa", ref: "exp/APP-32", trigger: "pull_request", state: "pending", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:26:48.000Z", completedAt: nil, createdAt: "2026-11-27T10:26:48.000Z"),
+            Run(id: "r91", repositoryId: "repo-engine", number: 91, name: "Merge train", sha: "r91aaaaaaaaaaaaaaaa", ref: "main", trigger: "merge_train", state: "pending", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:28:20.000Z", completedAt: nil, createdAt: "2026-11-27T10:28:20.000Z"),
+            Run(id: "g1207", repositoryId: "repo-mobile", number: 1207, name: "build-ios", sha: "g1207aaaaaaaaaaaaaaaa", ref: "release/2.4", trigger: "tag", state: "pending", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: nil, completedAt: nil, createdAt: "2026-11-27T10:29:00.000Z"),
+            Run(id: "r482", repositoryId: "repo-engine", number: 482, name: "gate", sha: "r482aaaaaaaaaaaaaaaa", ref: "exp/APP-33", trigger: "pull_request", state: "failure", pullRequestId: "pr-213", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:59:20.000Z", completedAt: "2026-11-27T10:12:00.000Z", createdAt: "2026-11-27T09:59:20.000Z"),
+            Run(id: "g1206", repositoryId: "repo-mobile", number: 1206, name: "test", sha: "g1206aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "github", startedAt: "2026-11-27T09:22:54.000Z", completedAt: "2026-11-27T09:30:00.000Z", createdAt: "2026-11-27T09:22:54.000Z"),
+            Run(id: "g57", repositoryId: "repo-site", number: 57, name: "deploy", sha: "g57aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "failure", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-26T08:27:57.000Z", completedAt: "2026-11-26T08:30:00.000Z", createdAt: "2026-11-26T08:27:57.000Z"),
+            Run(id: "g58", repositoryId: "repo-site", number: 58, name: "deploy", sha: "g58aaaaaaaaaaaaaaaa", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-27T08:27:57.000Z", completedAt: "2026-11-27T08:30:00.000Z", createdAt: "2026-11-27T08:27:57.000Z"),
+            Run(id: "r481", repositoryId: "repo-engine", number: 481, name: "gate", sha: "r481aaaaaaaaaaaaaaaa", ref: "exp/APP-32", trigger: "pull_request", state: "failure", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T07:30:00.000Z", completedAt: "2026-11-27T07:30:24.000Z", createdAt: "2026-11-27T07:30:00.000Z"),
+            Run(id: "r480", repositoryId: "repo-gone", number: 480, name: "nightly", sha: "r480aaaaaaaaaaaaaaaa", ref: nil, trigger: "schedule", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T01:30:00.000Z", completedAt: "2026-11-27T01:44:12.000Z", createdAt: "2026-11-27T01:30:00.000Z"),
+        ],
+        jobs: [
+            Job(runId: "r483", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
+            Job(runId: "r483", status: "queued", conclusion: nil, runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(runId: "r483", status: "queued", conclusion: nil, runsOn: ["mac"], runnerDeviceId: nil, provider: "exponential"),
+            Job(runId: "r91", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
+            Job(runId: "g1207", status: "queued", conclusion: nil, runsOn: ["macos-latest"], runnerDeviceId: nil, provider: "github"),
+            Job(runId: "r482", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(runId: "r482", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(runId: "g1206", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(runId: "g57", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(runId: "g58", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(runId: "r481", status: "completed", conclusion: "cancelled", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(runId: "r480", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+        ],
+        repos: [
+            Repo(id: "repo-engine", fullName: "acme/engine"),
+            Repo(id: "repo-mobile", fullName: "acme/mobile"),
+            Repo(id: "repo-site", fullName: "acme/site"),
+        ],
+        pullRequests: [
+            Pr(id: "pr-211", number: 211, title: "Fix bisect on a red batch", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-212", number: 212, title: "Runner labels", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-213", number: 213, title: "Log tail", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-214", number: 214, title: "Reduce cold start below 400 ms", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", mergeState: "checks", mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-215", number: 215, title: "Cache the planner", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "queued", mergePosition: 1, mergeTrainId: nil),
+            Pr(id: "pr-40", number: 40, title: "Dark splash", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", mergeState: "held", mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-41", number: 41, title: "Old", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", mergeState: "merged", mergePosition: nil, mergeTrainId: nil),
+        ],
+        sessions: [
+            Session(id: "s-mine", userId: "u-me"),
+            Session(id: "s-other", userId: "u-other"),
+        ],
+        runners: [
+            Runner(id: "dev-mint", label: "mint", platform: "linux", labels: ["GPU"], slots: 2, lastSeenAt: "2026-11-27T10:29:40.000Z"),
+            Runner(id: "dev-mac", label: "Alex's MacBook Pro", platform: "macos", labels: [], slots: 1, lastSeenAt: "2026-11-27T10:29:55.000Z"),
+            Runner(id: "dev-old", label: "build-box", platform: nil, labels: [], slots: 4, lastSeenAt: "2026-11-26T22:00:00.000Z"),
+        ],
+        viewerId: "u-me",
+        now: "2026-11-27T10:30:00.000Z"
+    )
 }

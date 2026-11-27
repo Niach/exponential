@@ -112,6 +112,10 @@ final class CiPageTests: XCTestCase {
         ])
     }
 
+    func testSpecimenIsTheScenario() throws {
+        XCTAssertEqual(CiPage.specimen, try scenario())
+    }
+
     func testRunList() throws {
         let input = try scenario()
         for c in try cases("runListCases") {
@@ -200,6 +204,14 @@ final class CiPageTests: XCTestCase {
             XCTAssertEqual(expected, tree, c["name"] as? String ?? "")
             if expected != tree { XCTFail("\(c["name"] ?? ""): \(tree.compactString)") }
         }
+    }
+
+    func testPagePath() {
+        XCTAssertTrue(CiPage.isPagePath("/ci"))
+        XCTAssertTrue(CiPage.isPagePath("/ci/?tab=train#x"))
+        XCTAssertFalse(CiPage.isPagePath("/t/acme/ci/r12"))
+        XCTAssertFalse(CiPage.isPagePath("/cid"))
+        XCTAssertEqual(AppLink.classify("/ci", origin: "https://app.example.com"), .app(path: "/ci"))
     }
 
     func testStateEvents() {

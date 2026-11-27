@@ -108,6 +108,10 @@ struct ChatCardsScreen: View {
                     case "pr-checks": PrChecksSpecimens()
                     // #EXP-1804: the CI run page and the CI runner section.
                     case "ci-run": CiRunSpecimens()
+                    // #EXP-2172: the CI page over ci-page.json `scenario`;
+                    // `ci-run-github` = the run page of a GitHub run (capture only).
+                    case "ci": CiPageSpecimens()
+                    case "ci-run-github": CiRunSpecimens(github: true)
                     case "runner-settings": RunnerSettingsSpecimens()
                     // #EXP-1617: the repo page's Runs tab + its CI section.
                     case "repo-runs": RepoRunsSpecimens()
