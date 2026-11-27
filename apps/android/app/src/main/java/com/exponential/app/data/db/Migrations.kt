@@ -533,3 +533,21 @@ val MIGRATION_134_135: Migration = object : Migration(134, 135) {
         )
     }
 }
+
+/**
+ * v136 (#EXP-2171, sidebar-tree.json `teamItems`): the `repositories` table,
+ * the 34th shape (a team's repositories on the Teams tab). The new shape
+ * starts fresh; nothing refetches.
+ */
+val MIGRATION_135_136: Migration = object : Migration(135, 136) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `repositories` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`provider` TEXT NOT NULL, `full_name` TEXT NOT NULL, `slug` TEXT NOT NULL, `description` TEXT, " +
+                "`sync` TEXT, `default_branch` TEXT NOT NULL, `default_branch_override` TEXT, " +
+                "`private` INTEGER NOT NULL, `inaccessible_at` TEXT, `shared_by_user_id` TEXT, " +
+                "`sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_repositories_team_id` ON `repositories` (`team_id`)")
+    }
+}

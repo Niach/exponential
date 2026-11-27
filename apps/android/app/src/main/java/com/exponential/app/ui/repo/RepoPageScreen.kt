@@ -46,7 +46,10 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.MergeTrain
 import com.exponential.app.domain.RepoCi
+import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.RepoPage
+import com.exponential.app.ui.components.DestructiveButton
+import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.components.rememberTickingNow
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
@@ -176,6 +179,8 @@ fun RepoPageScreen(
                     onSetDefaultBranch = viewModel::setDefaultBranch,
                     onSetMirror = viewModel::setMirror,
                     onRestore = viewModel::restore,
+                    canRemove = isManager,
+                    onRemove = { viewModel.remove(onRemoved = onBack) },
                     ci = {
                         RepoCiSection(
                             provider = repo.provider,
@@ -298,6 +303,9 @@ private fun SettingsTab(
     onSetDefaultBranch: (String) -> Unit,
     onSetMirror: (String?, Boolean) -> Unit,
     onRestore: (String) -> Unit,
+    /** #EXP-2171: owners and the sharer remove it here, behind its confirm. */
+    canRemove: Boolean = false,
+    onRemove: () -> Unit = {},
     /** #EXP-1617: the CI section, after the repo's own rows. */
     ci: @Composable () -> Unit = {},
 ) {
@@ -310,6 +318,7 @@ private fun SettingsTab(
     val focus = LocalFocusManager.current
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     var restoreId by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf(false) }
     val defaultBranch = settings?.defaultBranch ?: repo.defaultBranch
     val options = branches?.map { it.first }?.takeIf { it.isNotEmpty() } ?: listOf(defaultBranch)
 
@@ -426,6 +435,28 @@ private fun SettingsTab(
             }
         }
         ci()
+        if (canRemove) {
+            DestructiveButton(
+                RepoPage.Copy.Settings.REMOVE,
+                onClick = { removing = true },
+                enabled = !busy,
+                modifier = Modifier.testTag("repo-remove"),
+            )
+        }
+    }
+
+    if (removing) {
+        val prompt = Prompts.RemoveRepository.prompt(repo.fullName)
+        PromptAlert(
+            prompt = prompt,
+            onDismiss = { removing = false },
+            handlers = prompt.actions.filter { it.role != Prompts.Role.Cancel }.associate {
+                it.id to {
+                    removing = false
+                    onRemove()
+                }
+            },
+        )
     }
 
     restoreId?.let { backupId ->

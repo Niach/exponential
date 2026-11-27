@@ -19,6 +19,9 @@ object SidebarMenus {
         "new" to "New",
         "new-folder" to "New folder",
         "new-issue" to "New issue",
+        "new-repo-chat" to "New chat in this repository",
+        "pull-requests" to "Pull requests",
+        "runs" to "Runs",
         "new-team" to "New team",
         "join-team" to "Join team",
         "add-device" to "Add device",
@@ -27,6 +30,7 @@ object SidebarMenus {
         "edit" to "Edit",
         "rename" to "Rename",
         "copy-link" to "Copy link",
+        "copy-clone-url" to "Copy clone URL",
         "move" to "Move to folder",
         "ungroup" to "Ungroup",
         "add-to-sidebar" to "Add to sidebar",
@@ -37,6 +41,7 @@ object SidebarMenus {
         "top-level" to "Top level",
         "newTab" to "New tab",
         "linkCopied" to "Link copied",
+        "cloneUrlCopied" to "Clone URL copied",
     )
 
     /** Concept names. */
@@ -47,6 +52,9 @@ object SidebarMenus {
         "new" to "ui-add",
         "new-folder" to "ui-folder",
         "new-issue" to "nav-create-issue",
+        "new-repo-chat" to "action-chat",
+        "pull-requests" to "pr-open",
+        "runs" to "nav-ci",
         "new-team" to "ui-add",
         "join-team" to "ui-invite",
         "add-device" to "ui-add",
@@ -55,6 +63,7 @@ object SidebarMenus {
         "edit" to "ui-edit",
         "rename" to "ui-edit",
         "copy-link" to "ui-link",
+        "copy-clone-url" to "ui-copy",
         "move" to "ui-folder",
         "ungroup" to "ui-minus",
         "add-to-sidebar" to "ui-add",
@@ -124,6 +133,12 @@ object SidebarMenus {
             "settings" to listOf(Entry("settings", "owner")),
             "danger" to listOf(Entry("archive", "owner")),
         ),
+        "repository" to kind(
+            "open" to listOf(Entry("open"), Entry("open-new-tab")),
+            "kind" to listOf(Entry("new-repo-chat"), Entry("pull-requests"), Entry("runs")),
+            "arrange" to listOf(Entry("copy-clone-url"), Entry("move")),
+            "settings" to listOf(Entry("settings")),
+        ),
         "app" to kind(
             "open" to listOf(Entry("open"), Entry("open-new-tab")),
             "kind" to listOf(Entry("edit")),
@@ -150,19 +165,21 @@ object SidebarMenus {
         ),
     )
 
-    val NEW_KINDS: List<String> = listOf("session", "agent", "app", "board")
-    val NEW_OWNER_ONLY: List<String> = listOf("agent", "app", "board")
+    val NEW_KINDS: List<String> = listOf("session", "agent", "app", "board", "repository")
+    val NEW_OWNER_ONLY: List<String> = listOf("agent", "app", "board", "repository")
     val NEW_COPY: Map<String, String> = linkedMapOf(
         "session" to "Chat",
         "agent" to "Agent",
         "app" to "App",
         "board" to "Board",
+        "repository" to "Repository",
     )
     val NEW_ICONS: Map<String, String> = linkedMapOf(
         "session" to "action-chat",
         "agent" to "settings-agents",
         "app" to "nav-apps",
         "board" to "nav-boards",
+        "repository" to "action-repository",
     )
     val PHONE_DROPS: List<String> = listOf("open-new-tab")
 
