@@ -48,6 +48,8 @@ sync = { path = "../sync" }
 api = { path = "../api" }
 # #EXP-1875: `updater::install::classify` decides whether this build is the user's install.
 updater = { path = "../updater" }
+# #EXP-2181: the CI step sandbox helper (`__ci-sandbox`).
+ci-runner = { path = "../ci-runner" }
 # #EXP-1616: this binary also answers as git's exp:// remote helper.
 git-remote-exp = { path = "../git-remote-exp" }
 terminal = { path = "../terminal" }

@@ -70,12 +70,32 @@ pub struct Observed {
     pub typed_ago: Option<Duration>,
     /// A voice call, a meeting recording or a Local desktop's turn runs here.
     pub engaged: bool,
+    /// #EXP-2174: CI jobs run here; how long until the last one's own
+    /// timeout (the server stops it then anyway). `None` = no job runs.
+    pub ci_left: Option<Duration>,
 }
 
 /// The gate for one tick. `rested` = how long no session has been working
 /// (read from [`Watch`]); `waited` = how long the update has been ready.
 /// Pure.
+///
+/// #EXP-2174: a running CI job holds the restart until it ends, capped at
+/// the job's own timeout: a job cannot resume like a turn, and a cut one
+/// would only run again from the start. It holds no session's turns (the
+/// runner itself takes no new job while an update waits). A person's
+/// "Update now" asks before it cuts jobs; then, like a build the server
+/// refuses, it waits for nothing.
 pub fn decide(seen: &Observed, rested: Duration, waited: Duration) -> RestartGate {
+    let gate = decide_sessions(seen, rested, waited);
+    let ci_holds = !seen.required && seen.ci_left.is_some_and(|left| !left.is_zero());
+    if gate == RestartGate::Now && ci_holds {
+        RestartGate::Wait
+    } else {
+        gate
+    }
+}
+
+fn decide_sessions(seen: &Observed, rested: Duration, waited: Duration) -> RestartGate {
     if seen.required {
         return RestartGate::Now;
     }
@@ -135,7 +155,7 @@ mod tests {
     const SEC: Duration = Duration::from_secs(1);
     const MIN: Duration = Duration::from_secs(60);
     const WORKING: Observed =
-        Observed { required: false, working: true, unresumable: false, typed_ago: None, engaged: false };
+        Observed { required: false, working: true, unresumable: false, typed_ago: None, engaged: false, ci_left: None };
     const RESTING: Observed = Observed { working: false, ..WORKING };
 
     /// Ticks every 5 s with what `seen` says at that offset; the offset and
@@ -154,6 +174,25 @@ mod tests {
             at += 5 * SEC;
         }
         panic!("never restarted");
+    }
+
+    /// #EXP-2174: a CI job holds the update until its own timeout, never
+    /// past it, and holds no session's turns meanwhile.
+    #[test]
+    fn a_running_ci_job_holds_the_restart_until_its_timeout() {
+        let timeout = 90 * MIN;
+        let (at, gates) = run(|at| Observed { ci_left: Some(timeout.saturating_sub(at)), ..RESTING });
+        assert_eq!(at, timeout);
+        assert!(gates.iter().all(|gate| *gate == RestartGate::Wait));
+        // The job ends early: the restart follows at once.
+        let (at, _) = run(|at| Observed { ci_left: (at < 10 * MIN).then_some(timeout), ..RESTING });
+        assert_eq!(at, 10 * MIN);
+    }
+
+    #[test]
+    fn update_now_and_a_refused_build_cut_ci_jobs() {
+        let seen = Observed { required: true, ci_left: Some(MIN), ..RESTING };
+        assert_eq!(decide(&seen, Duration::ZERO, Duration::ZERO), RestartGate::Now);
     }
 
     #[test]
