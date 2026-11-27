@@ -9,7 +9,7 @@ export const LAYERS = fixture.layers as readonly Layer[]
 export const EDGES = fixture.edges as readonly Edge[]
 export const KEYBOARD = fixture.keyboard as readonly Keyboard[]
 export const PLACEMENTS = fixture.placements as readonly Placement[]
-export const SURFACE_KEYS = [`layer`, `anchor`, `size`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`, `popup`, `functions`] as const
+export const SURFACE_KEYS = [`layer`, `anchor`, `size`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`, `popup`, `window`, `functions`] as const
 export const DOCUMENT_KEYS = [`$schema`, `$comment`, `catalogId`, `surface`, `root`, `components`, `data`] as const
 
 export type Layer = `background` | `bottom` | `top` | `overlay`
@@ -50,7 +50,14 @@ export interface PopupHeader {
   functions: string[]
 }
 
-export type SurfaceHeader = LayerHeader | PopupHeader
+/** #EDE-273: a normal toplevel of the shell (the compositor's frame, a taskbar entry), opened only when asked, never twice. */
+export interface WindowHeader {
+  kind: `window`
+  window: { title: string; appId: string; size: { width: number; height: number } }
+  functions: string[]
+}
+
+export type SurfaceHeader = LayerHeader | PopupHeader | WindowHeader
 
 export interface Issue {
   path: string
@@ -82,6 +89,32 @@ export function normalizeSurface(input: unknown): { header: SurfaceHeader } | { 
     if (!(SURFACE_KEYS as readonly string[]).includes(key)) {
       issues.push({ path: `surface.${key}`, message: `unknown key; known: ${SURFACE_KEYS.join(`|`)}` })
     }
+  }
+  if (input.window !== undefined) {
+    for (const key of [`layer`, `anchor`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`, `popup`]) {
+      if (input[key] !== undefined) {
+        issues.push({ path: `surface.${key}`, message: `a window surface has no layer, anchor, exclusiveZone, margin, keyboard, onDemand or popup` })
+        break
+      }
+    }
+    const window = input.window
+    if (!isRecord(window)) {
+      issues.push({ path: `surface.window`, message: `expected an object {title, appId, size}` })
+      return { issues }
+    }
+    const title = typeof window.title === `string` && window.title.trim().length > 0 ? window.title : undefined
+    if (title === undefined) issues.push({ path: `surface.window.title`, message: `expected the window's title` })
+    const appId = typeof window.appId === `string` && /^[A-Za-z0-9._-]+$/.test(window.appId) ? window.appId : undefined
+    if (appId === undefined) issues.push({ path: `surface.window.appId`, message: `expected an app id (letters, digits, ., - and _)` })
+    let size: { width: number; height: number } | undefined
+    if (!isRecord(window.size) || !isPx(window.size.width) || !isPx(window.size.height)) {
+      issues.push({ path: `surface.window.size`, message: `expected {width, height} in positive whole px` })
+    } else {
+      size = { width: window.size.width, height: window.size.height }
+    }
+    const functions = functionsOf(input, issues)
+    if (issues.length || !title || !appId || !size) return { issues }
+    return { header: { kind: `window`, window: { title, appId, size }, functions } }
   }
   if (input.popup !== undefined) {
     for (const key of [`layer`, `anchor`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`]) {

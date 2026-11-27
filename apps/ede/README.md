@@ -71,7 +71,7 @@ click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
 `ede_start_menu {open?, query?, category?}`, `ede_chat` (the Assistant: the
 Exponential app's one window on its page key, #EDE-239), `ede_workspace {index}`,
-`ede_history {action: undo|reset}` (the shell documents' history),
+`ede_history {action: undo|reset}` (the shell documents' history), `ede_settings_nav {action, module?, query?, target?}` (System Settings, #EDE-273),
 `ede_account {action: sign-out}`, `ede_install {action: approve|remove, id, code}`
 (#EDE-226), `ede_sessions {menu | open | stop | answer, decision?, text?}` (#EDE-239:
 the session area's applet menu and panel, done by the holder over the session bus);
@@ -273,54 +273,53 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
 
-## Settings (#EDE-14, #EDE-47)
+## System Settings (#EDE-14, #EDE-47, #EDE-273)
 
 `settings.express`, a shell document like the rest (editable, in the
-history), not an eApps package. #EDE-65: Settings open into the sidebar
-like the IDE's: ONE on-demand top layer over the rail and the ground,
-standing on the taskbar (`exclusiveZone` -1, `margin.bottom` 48; the
-menu's Settings rows open it with `ede_open_document`, its close button
-`ede_close_document`): the settings nav takes the rail's place, 272 px
-(`settingsWidth`, the IDE's settings column), and the page sits on the
-ground's rounded panel, no tile overview. The nav: **This device** (Display: every output's
-modes and scale, `ede_output` applies live and writes `[[outputs]]`; Sound:
-volumes, mute, the output and input devices, the playback streams; Network:
-Wi-Fi, wired, the networks in reach, VPN; Bluetooth; Power: battery,
-profile, suspend/restart/shut down; Themes: the bridge's switch and what it
-resolved, #EDE-19; Keyboard: the xkb layouts of `evdev.lst` to pick from,
-repeat; Mouse & Touchpad; Date & Time: NTP, the time zone, the clock, the
-inline calendar on `/date`; Users; Notifications: this desktop's, then the
-Exponential app's email/push rows; Workspaces; Windows: edge tiling, the
-snap distance, the panel margin; Startup apps: the XDG autostart entries
-with a switch; Default apps: the xdg-mime roles with the installed handlers;
-then the folded **Coding** group, the IDE's This device group: Tools, Coding
-CLIs, Worktrees, Sessions), **Personal** (Account, Devices, Security, What's
-new, About with the system check, updates and printers) and **Team**, headed
-by the shell's desktop/team switcher (its entries as a Popover; picking one
-here changes the window only, never the shell's desktop): a Local desktop
-shows General (the name, Share as a team…), Agents, Apps; a team entry the
-IDE's Team, Boards, Agents and Apps groups of `settings-nav.json` (eDE has
-none yet, #EDE-54). Pages bind `/services/<domain>` (#EDE-13), `/outputs`,
-`/config`, `/user`, `/shell`, `/date` and `/pages` (the shell's own:
-`crates/ede-shell/src/settings_pages.rs` reads the layouts, the time zone,
-the autostart entries, the mime defaults, `[windows]`); a control is two-way
-bound and calls `ede_service {domain, action, args}`, `ede_output`,
-`ede_config {theme}` or `ede_settings {page, key, value}` (the one host
-function for the shell's pages: `[keyboard]` and `[windows]` in
-`compositor.toml` + a reload, timedated's `SetNTP`/`SetTimezone` over the
-system bus, the user's autostart override with `Hidden`, `xdg-mime
-default`). What polkit guards (Date & Time, the Power page's and the start
-menu's power, the other services' actions) runs off the UI thread on calls
-that allow interactive authorization, so the person's polkit agent asks
-instead of the daemon refusing; a refusal (a cancelled prompt, the wrong
-password) is the failed action's toast (#EDE-182). A setting the machine cannot apply yet
-(the pointer options, the workspace count and wrap-around, the 24-hour
-clock) is a read-only value row, never a dead control; what needs the
-Exponential app (the Coding pages, Devices, Security, the notification
-preferences, a team's pages) is an honest empty state until it runs on this
-desktop. `EDE_SHELL_SETTINGS_PAGE=<page>[,switcher]` under `EDE_SHELL_DEMO`
-opens a golden on that page (the goldens `ede-settings`,
-`ede-settings-team`).
+history), is Mint's cinnamon-settings (#EDE-241): ONE normal window of the
+shell, a `window` surface (`surface.json`: a toplevel with eDE's frame, the
+app id `at.exponential.settings` the start menu's own System Settings entry
+names, so the taskbar gives it its button), a single instance (asked again,
+it comes to the front; closed from its frame, the next open starts on the
+grid). The grid: Cinnamon's categories Appearance, Preferences, Hardware,
+then Exponential and Administration, every module an icon tile; the search
+in the header filters them live by name and keywords (Cinnamon's substring
+rule), Enter opens the first. A module opens in the same window with the
+back button (Alt+Left too), its name in the header and as the window's
+title; its page is a centred column of framed groups. The catalogue (ids,
+Cinnamon's names, icons, keywords, `module | later | launch`), the grid and
+the navigation are uicore's `packages/uicore/fixtures/system-settings.json`
+(`uicore_model::settings`, `settingsGrid` / `settingsNavigate`); the shell
+(`crates/ede-shell/src/system_settings.rs`) keeps the window's place, feeds
+`/settings` and takes `ede_settings_nav {action: open|back|query|submit|link}`.
+`~/settings/<module>` (the start menu's search, an applet's link, the panel
+menu; an old page id like `datetime` through the fixture's `aliases`) opens
+a module directly. A later module is listed and its page says it is not on
+this desktop yet; Administration's modules and Printers launch Mint's own
+tools (`driver-manager`, `gufw`, `lightdm-settings`, `mintsources`,
+`cinnamon-settings-users`, `system-config-printer`), a missing one says it
+is not installed. Pages bind what the shell feeds: `/services/<domain>`
+(#EDE-13), `/outputs`, `/config`, `/user`, `/shell`, `/date` and `/pages`
+(the shell's own: `crates/ede-shell/src/settings_pages.rs` reads the
+layouts, the time zone, the autostart entries, the mime defaults,
+`[windows]`); a control is two-way bound and calls `ede_service {domain,
+action, args}`, `ede_output`, `ede_config {theme}` or `ede_settings {page,
+key, value}` (the one host function for the shell's pages: `[keyboard]` and
+`[windows]` in `compositor.toml` + a reload, timedated's
+`SetNTP`/`SetTimezone` over the system bus, the user's autostart override
+with `Hidden`, `xdg-mime default`). What polkit guards (Date & Time, the
+Power page's and the start menu's power, the other services' actions) runs
+off the UI thread on calls that allow interactive authorization, so the
+person's polkit agent asks instead of the daemon refusing; a refusal (a
+cancelled prompt, the wrong password) is the failed action's toast
+(#EDE-182). A setting the machine cannot apply yet (the pointer options,
+the workspace count and wrap-around, the 24-hour clock) is a read-only
+value row, never a dead control; the Exponential category (Account, This
+Device with the Local desktop's Share as a team…, Agents, Computer Use,
+Voice) shows what this desktop has and leads to the Exponential app for the
+rest. `EDE_SHELL_SETTINGS_PAGE=<module>` under `EDE_SHELL_DEMO` opens a
+golden on that module (the goldens `ede-settings`, `ede-settings-module`,
+`ede-settings-share`).
 
 ## The portal: `xdg-desktop-portal-exponential` (#EDE-15)
 

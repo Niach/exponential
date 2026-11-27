@@ -62,13 +62,10 @@ pub fn pages_json() -> Value {
     })
 }
 
-/// A golden's state under the demo: `EDE_SHELL_SETTINGS_PAGE=<page>[,switcher]`
-/// feeds `/settings` so a capture opens on that page (the nav groups folded
-/// and unfolded around it), `,switcher` with the Team switcher's Popover
-/// open. Unset = the document keeps its own state.
-pub fn demo_state() -> Option<Value> {
-    let spec = std::env::var("EDE_SHELL_SETTINGS_PAGE").ok().filter(|v| !v.is_empty() && demo())?;
-    Some(state_for(&spec))
+/// `EDE_SHELL_SETTINGS_PAGE=<module>` (the goldens, `EDE_SHELL_DEMO` only):
+/// System Settings opens on that module (#EDE-273; an old page id too).
+pub fn demo_module() -> Option<String> {
+    std::env::var("EDE_SHELL_SETTINGS_PAGE").ok().filter(|v| !v.is_empty() && demo()).map(|v| v.split(',').next().unwrap_or_default().to_string())
 }
 
 /// `EDE_SHELL_SHARE=picking|running|done|failed` (the goldens): `/sharing`.
@@ -81,17 +78,6 @@ pub fn demo_sharing() -> Option<Value> {
         "failed" => json!({"state": "failed", "accounts": accounts, "summary": "", "progress": 0, "label": "", "teamName": "", "error": "Your plan allows up to 250 MB of attachment storage. Upgrade to upload more."}),
         _ => json!({"state": "picking", "accounts": accounts, "summary": "12 issues, 31 comments, 4 sessions and 5 files (2.1 MB)", "progress": 0, "label": "", "teamName": "", "error": ""}),
     })
-}
-
-/// `/settings` opening on `spec` (`page` or `page,switcher`): the page's
-/// group of the nav open (the goldens, and #EDE-214 a tray popup's link).
-pub fn state_for(spec: &str) -> Value {
-    let (page, switcher) = spec.split_once(',').map(|(p, s)| (p, s == "switcher")).unwrap_or((spec, false));
-    let coding = ["tools", "coding-clis", "worktrees", "sessions"].contains(&page);
-    let personal = ["account", "devices", "security", "whats-new", "about"].contains(&page);
-    let team = page.starts_with("local-") || page.starts_with("team-");
-    // The groups fold like the sidebar's sections: the page's group open, the ones above a Team page folded so the switcher shows.
-    json!({"page": page, "deviceOpen": !team, "personalOpen": personal || !team, "codingOpen": coding, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": switcher})
 }
 
 /// What `ede_settings` did with a change.
@@ -772,9 +758,6 @@ mod tests {
         assert!(handle(&json!({"page": "mouse", "key": "tap", "value": true})).is_err());
         assert!(handle(&json!({"page": "workspaces", "key": "count", "value": 6})).is_err());
         assert!(handle(&json!({"page": "windows"})).is_err(), "a key is required");
-        assert_eq!(state_for("worktrees"), json!({"page": "worktrees", "deviceOpen": true, "personalOpen": true, "codingOpen": true, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false}));
-        let team = state_for("local-general,switcher");
-        assert_eq!((team["switcherOpen"].as_bool(), team["deviceOpen"].as_bool(), team["personalOpen"].as_bool()), (Some(true), Some(false), Some(false)));
     }
 }
 
