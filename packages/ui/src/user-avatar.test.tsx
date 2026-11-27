@@ -41,6 +41,7 @@ describe(`UserAvatar`, () => {
       `28`,
       `32`,
       `48`,
+      `56`,
     ])
     for (const size of Object.keys(USER_AVATAR_SIZES)) {
       const { container } = render(

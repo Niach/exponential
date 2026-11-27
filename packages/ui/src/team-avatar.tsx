@@ -108,7 +108,7 @@ export function TeamLead({
   children: ReactNode
 }) {
   return (
-    <span className={cn(`relative flex shrink-0`, className)}>
+    <span data-slot="team-lead" className={cn(`relative flex shrink-0`, className)}>
       {children}
       {team && <TeamCorner team={team} lead={lead} ground={ground} />}
     </span>

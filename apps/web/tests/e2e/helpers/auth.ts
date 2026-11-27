@@ -120,7 +120,10 @@ export async function createTeamThroughOnboarding(
       .poll(async () => landed() || (await skip.isVisible()), { timeout: 60_000 })
       .toBe(true)
     if (landed()) break
-    await skip.click()
+    // The step can swap out under the click (the next step or the landing
+    // replaces it); a bounded click lets the poll above re-read the page
+    // instead of waiting on a detached button until the test times out.
+    await skip.click({ timeout: 10_000 }).catch(() => {})
     await page.waitForTimeout(300)
   }
   await expect(page).toHaveURL(/\/(t\/[^/]+|home)/, { timeout: 30_000 })
