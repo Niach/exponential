@@ -52,6 +52,9 @@
       "source",
       "sourceId"
     ],
+    "ede_keyboard_layout": [
+      "value"
+    ],
     "ede_launch": [
       "app",
       "command",
@@ -159,6 +162,9 @@
     ],
     "ede_unpin": [
       "app"
+    ],
+    "ede_window_menu": [
+      "value"
     ],
     "ede_workspace": [
       "index"

@@ -194,6 +194,10 @@ pub struct WindowState {
     pub decorated: bool,
     /// In the taskbar only ([`crate::minimize`]); `parked_at` keeps its place.
     pub minimized: bool,
+    /// Always on Top (#EDE-253, [`crate::window_menu`]).
+    pub above: bool,
+    /// Always on Visible Workspace: rides along on a switch (#EDE-253).
+    pub sticky: bool,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -286,6 +290,7 @@ impl Ede {
                 minimized: Vec::new(),
                 workspaces: crate::workspaces::Workspaces::default(),
                 title_click: None,
+                swallowed_button: None,
                 tile_preview: Default::default(),
             },
             spaces: Default::default(),
@@ -626,6 +631,10 @@ impl Ede {
             #[cfg(feature = "xwayland")]
             if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
                 let _ = xwm.raise_window(x11);
+            }
+            // #EDE-253: Always on Top stays in front of what was raised.
+            if desk == DeskId::PERSON {
+                self.restack_above();
             }
         } else {
             for w in self.desk(desk).space.elements() {

@@ -284,7 +284,7 @@ export interface ComponentProps {
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
   Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue; matchAnchorWidth?: boolean }
   Tooltip: { content: string | Dynamic; side?: SideValue }
-  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][] | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
+  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][] | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue; open?: boolean | Dynamic }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
   Alert: { title: string; message?: string | Dynamic; type?: AlertTypeValue }

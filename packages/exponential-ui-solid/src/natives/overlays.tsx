@@ -61,6 +61,20 @@ function createOpenState(props: NativeProps): [Accessor<boolean>, (next: boolean
   return [open, change]
 }
 
+/** #EDE-253: a Menu's `open` ({@link createOpenState}) that writes and fires
+ *  only on a CHANGE (a pick's close and a dismiss in one event fire once). */
+function createMenuOpenState(props: NativeProps): [Accessor<boolean>, (next: boolean) => void] {
+  const [open, change] = createOpenState(props)
+  let last = untrack(open)
+  createEffect(on(open, (o) => void (last = o)))
+  const set = (next: boolean) => {
+    if (next === last) return
+    last = next
+    change(next)
+  }
+  return [open, set]
+}
+
 /** Round 2 §7: an overlay is LAYOUT-TRANSPARENT — its frame is its
  *  trigger's; without a trigger it lays out nothing. */
 function overlayRootProps(rootProps: Record<string, unknown>, trigger: boolean, triggerNode?: { component: string } | null): Record<string, unknown> {
@@ -1133,7 +1147,9 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
   const part = parts(props)
   const label = () => str(props.props.label)
   const icon = () => str(props.props.icon)
-  const [open, setOpen] = createSignal(false)
+  // #EDE-253: `open` (bindable, like Popover's): a host opens it; a dismiss,
+  // a pick or the trigger writes the new value through + fires `change`.
+  const [open, setOpen] = createMenuOpenState(props)
   const hasChild = () => props.node.children.length > 0
   // VAPP-276: `side` + `align`; `anchor` = a node elsewhere is the trigger
   // the popper measures (its child, when given, still toggles it).
@@ -1307,8 +1323,20 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const items = () => objects<MenuItem>(props.props.items)
-  const [open, setOpen] = createSignal(false)
+  // #EDE-253: `open` (bindable, like Popover's); an opening with no pointer
+  // point (a host's `open`) sits at the area's corner, as the keyboard's.
+  const [open, setOpen] = createMenuOpenState(props)
   const [point, setPoint] = createSignal({ x: 0, y: 0 })
+  let pointed = false
+  createEffect(
+    on(open, (o, was) => {
+      if (o && !was && !pointed && area) {
+        const r = area.getBoundingClientRect()
+        setPoint({ x: r.left + 8, y: r.top + 8 })
+      }
+      pointed = false
+    })
+  )
   const root = createMenuRoot(props, part, () => setOpen(false), `contextmenu`)
   const preview = createMenuPreview(open)
   const presence = createPresence(open)
@@ -1317,6 +1345,7 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
   onCleanup(clearLongPress)
   const openAt = (e: { clientX: number; clientY: number }) => {
     setPoint({ x: e.clientX, y: e.clientY })
+    pointed = !untrack(open)
     setOpen(true)
   }
   const anchor: VirtualElement = { getBoundingClientRect: () => DOMRect.fromRect({ width: 0, height: 0, ...point() }) }

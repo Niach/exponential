@@ -24,7 +24,7 @@ use smithay::{
 
 use crate::{
     desk::DeskId,
-    grabs::{MoveSurfaceGrab, BTN_LEFT, BTN_RIGHT},
+    grabs::{MoveSurfaceGrab, BTN_LEFT, BTN_MIDDLE, BTN_RIGHT},
     layout::{Push, Tile},
     state::{window_state, Ede},
 };
@@ -66,6 +66,8 @@ pub enum Action {
     MoveToOutput(Push),
     /// Super+Space / Shift+Super+Space: the next / previous keyboard layout.
     NextLayout(bool),
+    /// Alt+Space (#EDE-253): the focused window's menu.
+    WindowMenu,
     /// A global shortcut's key (by keycode) went down / up (#EDE-15).
     Shortcut(u32, bool),
 }
@@ -209,8 +211,20 @@ impl Ede {
                         pointer.set_grab(self, crate::grabs::ResizeSurfaceGrab::start(start, window, edges, geo), serial, Focus::Clear);
                     }
                 }
+                // #EDE-253: Alt+middle-click = the window menu (Muffin's
+                // resize-with-right-button moves the menu to the middle
+                // button), at the pointer; the window never sees the click.
+                (Some(window), true, BTN_MIDDLE) if self.shell_listening() => {
+                    self.window_menu(&window, (location.x.floor() as i32, location.y.floor() as i32).into());
+                    self.desk.swallowed_button = Some(button);
+                    return;
+                }
                 _ => {}
             }
+        }
+        if state == ButtonState::Released && self.desk.swallowed_button == Some(button) {
+            self.desk.swallowed_button = None;
+            return;
         }
 
         pointer.button(self, &ButtonEvent { button, state, serial, time: smithay::backend::input::InputTime::from_millis(time) });
@@ -270,6 +284,8 @@ impl Ede {
                 return FilterResult::Forward;
             }
             match binding(mods, sym) {
+                // #EDE-253: no shell to draw the window menu: the app gets Alt+Space.
+                Some(Action::WindowMenu) if !listening => FilterResult::Forward,
                 Some(action) => FilterResult::Intercept(action),
                 None if ede.keyboard_focus_protected(DeskId::PERSON) => FilterResult::Forward,
                 None => match ede.ipc.shortcuts.lookup(mods, handle.modified_sym()).map(|b| (b.owner.clone(), b.id.clone())) {
@@ -364,6 +380,7 @@ impl Ede {
                 }
             }
             Action::NextLayout(forward) => self.next_layout(forward),
+            Action::WindowMenu => self.window_menu_focused(),
         }
     }
 
@@ -388,6 +405,13 @@ impl Ede {
     /// (resize) and the window follows it until a click.
     fn begin_keyboard_grab(&mut self, resize: bool) {
         let Some(window) = self.focused_window(DeskId::PERSON) else { return };
+        self.begin_keyboard_grab_on(&window, resize);
+    }
+
+    /// [`Self::begin_keyboard_grab`] on `window` (#EDE-253: the window
+    /// menu's Move and Resize).
+    pub(crate) fn begin_keyboard_grab_on(&mut self, window: &smithay::desktop::Window, resize: bool) {
+        let window = window.clone();
         let Some(geo) = self.desk.space.element_geometry(&window) else { return };
         let pointer = self.desk.seat.get_pointer().unwrap();
         if pointer.is_grabbed() {
@@ -448,17 +472,15 @@ impl Ede {
     /// `keyboard.layout` {index, layouts} for the keyboard applet.
     pub fn next_layout(&mut self, forward: bool) {
         let keyboard = self.desk.seat.get_keyboard().unwrap();
-        let (index, layouts) = keyboard.with_xkb_state(self, |mut ctx| {
+        keyboard.with_xkb_state(self, |mut ctx| {
             if forward {
                 ctx.cycle_next_layout();
             } else {
                 ctx.cycle_prev_layout();
             }
-            let xkb = ctx.xkb().lock().unwrap();
-            let layouts: Vec<String> = xkb.layouts().map(|l| xkb.layout_name(l).to_string()).collect();
-            (xkb.active_layout().0, layouts)
         });
-        self.emit(ede_protocol::events::KEYBOARD_LAYOUT, serde_json::json!({"index": index, "layouts": layouts}));
+        let now = self.keyboard_layouts();
+        self.emit(ede_protocol::events::KEYBOARD_LAYOUT, serde_json::to_value(now).unwrap());
     }
 
     fn shortcut_event(&mut self, code: u32, pressed: bool, time: u32) {
@@ -477,6 +499,11 @@ impl Ede {
         let location = pointer.current_location();
         let Some((window, hit)) = self.frame_under(location) else { return false };
         self.focus(DeskId::PERSON, Some(window.clone()));
+        // #EDE-253: action-right-click-titlebar = the window menu, at the pointer.
+        if button == BTN_RIGHT && hit == crate::frames::Hit::Title {
+            self.window_menu(&window, (location.x.floor() as i32, location.y.floor() as i32).into());
+            return true;
+        }
         if button != BTN_LEFT {
             return true;
         }
@@ -605,6 +632,7 @@ pub(crate) fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
         (false, true, false, false, keysyms::KEY_d | keysyms::KEY_D) => Some(Action::ShowDesktop),
         (true, false, true, false, keysyms::KEY_l | keysyms::KEY_L) => Some(Action::Lock),
         (false, true, false, shift, keysyms::KEY_space) => Some(Action::NextLayout(!shift)),
+        (true, false, false, false, keysyms::KEY_space) => Some(Action::WindowMenu),
         _ => None,
     }
 }
