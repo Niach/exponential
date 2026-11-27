@@ -98,6 +98,7 @@ impl Selection {
         Some(picks[index])
     }
 
+    #[cfg(test)]
     pub fn column(&self) -> Column {
         self.column
     }
