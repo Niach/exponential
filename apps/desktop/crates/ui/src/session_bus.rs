@@ -16,6 +16,10 @@
 //! page `agent:<id>`, focused or opened, with the press's token); the
 //! taskbar's session area stops a chat (`stop`) and answers its waiting
 //! card in place (`answer`), as the IDE's Stop and card buttons do.
+//!
+//! #EDE-267: the shell's voice tray: `voice` is answered on the bus thread
+//! from [`crate::ede_voice::voice_board`] (its own board), `voice-act` on the
+//! foreground ([`crate::ede_voice::act`]).
 
 use std::time::Duration;
 
@@ -41,6 +45,8 @@ enum Event {
     Stop { root: String, reply: flume::Sender<Result<(), String>> },
     /// #EDE-239: answer a waiting card in place.
     Answer { input: api::sessions::AnswerInput, reply: flume::Sender<Result<(), String>> },
+    /// #EDE-267: one of the voice tray's acts.
+    VoiceAct { action: String, item: Option<String>, reply: flume::Sender<Result<(), String>> },
 }
 
 /// Binds the bus in the app's data directory and serves it for the life of
@@ -66,7 +72,14 @@ pub fn install(role: Role, cx: &mut App) {
                 let (generation, feeds) = crate::ede_feeds::feed_board().wait(after, api::bus::FEEDS_WAIT);
                 return Reply::Feeds { generation, feeds };
             }
-            Request::Page { .. } | Request::Search { .. } | Request::Ask { .. } | Request::Stop { .. } | Request::Answer { .. } if !crate::ede_component::is_component() => {
+            // #EDE-267: the voice tray, held on its own board.
+            Request::Voice { after } => {
+                let (generation, voice) = crate::ede_voice::voice_board().wait(after, api::bus::VOICE_WAIT);
+                return Reply::Voice { generation, voice };
+            }
+            Request::Page { .. } | Request::Search { .. } | Request::Ask { .. } | Request::Stop { .. } | Request::Answer { .. } | Request::VoiceAct { .. }
+                if !crate::ede_component::is_component() =>
+            {
                 return Reply::Refused { message: "only eDE's component opens pages".into() };
             }
             Request::Page { key, .. } if crate::ede_windows::screen_of_key(&key).is_none() => {
@@ -99,6 +112,13 @@ pub fn install(role: Role, cx: &mut App) {
                 let (reply, answer) = flume::bounded(1);
                 return answered(tx.send(Event::Answer { input, reply }).is_ok(), &answer);
             }
+            Request::VoiceAct { action, .. } if !api::bus::VOICE_ACTIONS.contains(&action.as_str()) => {
+                return Reply::Refused { message: format!("no voice action {action}") };
+            }
+            Request::VoiceAct { action, item } => {
+                let (reply, answer) = flume::bounded(1);
+                return answered(tx.send(Event::VoiceAct { action, item, reply }).is_ok(), &answer);
+            }
         };
         log::info!("[bus] a request of pid {}", peer.pid);
         match tx.send(event) {
@@ -115,6 +135,8 @@ pub fn install(role: Role, cx: &mut App) {
     }
     // #EDE-258: eDE mode publishes the start menu's feeds.
     crate::ede_feeds::install(cx);
+    // #EDE-267: and the voice tray the shell's status icon shows.
+    crate::ede_voice::install(cx);
     cx.spawn(async move |cx| {
         while let Ok(event) = rx.recv_async().await {
             cx.update(|cx| handle(event, cx));
@@ -161,6 +183,9 @@ fn handle(event: Event, cx: &mut App) {
         }
         Event::Answer { input, reply } => {
             let _ = reply.send(answer(input, cx));
+        }
+        Event::VoiceAct { action, item, reply } => {
+            let _ = reply.send(crate::ede_voice::act(&action, item.as_deref(), cx));
         }
     }
 }

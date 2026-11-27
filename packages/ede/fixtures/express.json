@@ -183,6 +183,10 @@
     "ede_unpin": [
       "app"
     ],
+    "ede_voice": [
+      "action",
+      "item"
+    ],
     "ede_window_menu": [
       "value"
     ],

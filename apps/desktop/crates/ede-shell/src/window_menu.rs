@@ -76,7 +76,7 @@ pub fn pick(value: &str, menu: &WindowMenu) -> Option<Pick> {
 /// (`{value}`) to an Event's context, never to a function's args, so a
 /// Menu's `on.select` is `Event("<host function>", {…})` and the shell runs
 /// that function with the picked value under the arg it reads.
-pub const MENU_PICKS: [(&str, &str); 8] = [("ede_cu", "action"), ("ede_sessions", "menu"), ("ede_window_menu", "value"), ("ede_keyboard_layout", "value"), ("ede_panel_menu", "value"), ("ede_taskbar_menu", "value"), ("ede_tray_menu", "id"), ("ede_power", "action")];
+pub const MENU_PICKS: [(&str, &str); 9] = [("ede_voice", "item"), ("ede_cu", "action"), ("ede_sessions", "menu"), ("ede_window_menu", "value"), ("ede_keyboard_layout", "value"), ("ede_panel_menu", "value"), ("ede_taskbar_menu", "value"), ("ede_tray_menu", "id"), ("ede_power", "action")];
 
 /// The host function's args for Menu pick `name` with event `context`
 /// (the Menu's own context plus the payload's `value`); `None` = not a

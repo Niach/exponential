@@ -235,6 +235,9 @@ pub mod ede_feeds;
 /// #EDE-239: the taskbar's session area (the sidebar's Active band).
 #[cfg(target_os = "linux")]
 pub(crate) mod ede_sessions;
+/// #EDE-267: the voice tray over the session bus (eDE's status icon).
+#[cfg(target_os = "linux")]
+pub(crate) mod ede_voice;
 #[cfg(target_os = "linux")]
 pub mod session_bus;
 mod session_extras;

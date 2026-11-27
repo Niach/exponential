@@ -1,0 +1,38 @@
+# Exponential Desktop's factory Voice tray (#EDE-267, part of #EDE-240): the popup of the taskbar's
+# Voice status icon (taskbar.express `voice_tray`, Cinnamon's applet left click), above it at its right
+# end. Voice and calls live in the login's holder; it feeds /voice (packages/etalk voice.json `edeTray`
+# over the session bus' voice board). The voice agent is the global Assistant. No call: the agent's
+# mark in a quiet wave and Call (ede_voice {action: call}). In a call: the wave with the call's
+# activity and the microphone's level, the state line (ringing, connecting: the status; else the
+# timer), the call's last lines as bubbles, then Mute / Unmute (a Button: #EDE-270), Open chat (the Assistant's one window,
+# Super+A's) and End (ede_voice {action: mute | chat | end}; the holder ends, mutes and dials).
+surface("voice-tray", extensions={ede: {popup: {parent: "taskbar", anchor: "voice_tray", placement: "top-end", size: {width: 400, height: 560}}, functions: ["ede_voice"]}})
+$/voice/activity = "idle"
+$/voice/agent = "Assistant"
+$/voice/call = false
+$/voice/callLabel = ""
+$/voice/canCall = false
+$/voice/endLabel = ""
+$/voice/level = 0
+$/voice/lines = []
+$/voice/mute = {label: "Mute", icon: "call-mute"}
+$/voice/muted = false
+$/voice/state = ""
+root = Box(style={display: "flex", flexDirection: "column", width: 400, height: 560, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.xl", overflow: "hidden"}, children=[top, lines_scroll, idle_foot, call_foot])
+top = Box(style={display: "flex", flexDirection: "column", alignItems: "center", gap: "$spacing.sm", paddingTop: "$spacing.xl", paddingBottom: "$spacing.md", flexShrink: 0}, children=[wave, name, state])
+wave = VoiceWave(activity=$/voice/activity, variant="ring", level=$/voice/level, size="lg", children=[mark])
+mark = Icon(name="brand-exponential", size="xl", style={color: "$color.ring"})
+name = Heading(text=$/voice/agent, level="h3")
+state = Text(text=$/voice/state, variant="muted", style={fontVariantNumeric: "tabular-nums"}, visible=not(value=eq(a=$/voice/state, b="")))
+lines_scroll = ScrollArea(direction="vertical", style={flexGrow: 1, minHeight: 0}, children=[lines])
+lines = Stack(direction="vertical", gap="sm", style={paddingLeft: "$spacing.md", paddingRight: "$spacing.md"}, children=_template($/voice/lines, line, key="id"))
+line = Box(style={display: "flex", flexDirection: "column"}, children=[line_out, line_in])
+line_out = MessageBubble(text=$text, side="out", visible=eq(a=$side, b="out"))
+line_in = MessageBubble(text=$text, side="in", visible=eq(a=$side, b="in"))
+idle_foot = Box(style={display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: "$spacing.md", padding: "$spacing.md", borderTopWidth: 1, borderColor: "$color.border", flexShrink: 0}, children=[chat_idle, call], visible=not(value=cond(if=$/voice/call, then=true, else=false)))
+chat_idle = Button(label="Open chat", icon="action-chat", variant="outline", size="sm", on={press: ede_voice(action="chat")})
+call = Button(label=$/voice/callLabel, icon="voice-call", size="sm", disabled=not(value=cond(if=$/voice/canCall, then=true, else=false)), on={press: ede_voice(action="call")})
+call_foot = Box(style={display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: "$spacing.md", padding: "$spacing.md", borderTopWidth: 1, borderColor: "$color.border", flexShrink: 0}, children=[mute, chat, hang], visible=cond(if=$/voice/call, then=true, else=false))
+mute = Button(label=$/voice/mute/label, icon=$/voice/mute/icon, variant="outline", size="sm", on={press: ede_voice(action="mute")})
+chat = Button(label="Open chat", icon="action-chat", variant="outline", size="sm", on={press: ede_voice(action="chat")})
+hang = Button(label=$/voice/endLabel, icon="call-end", variant="destructive", size="sm", on={press: ede_voice(action="end")})

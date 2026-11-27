@@ -93,7 +93,9 @@ and a context menu, the session area (#EDE-239: the running and waiting sessions
 chips, `sessions-panel.express` on a click), the applets, the tray, the computer-use status icon
 (#EDE-266: while an agent space exists; `cu-tray.express` on a click: the space's live tile, its
 session's steps, Stop, Pause, Watch and Take over / Hand back, which drive the compositor's
-`control_space`; its applet menu on a right click), the bell and the clock),
+`control_space`; its applet menu on a right click), the Voice status icon (#EDE-267: on the voice
+device, fed by the holder's voice board; `voice-tray.express` on a click: Call the Assistant, the call's
+wave, lines, Mute, Open chat, End; the tray's own rows on a right click), the bell and the clock),
 `start-menu.express` (the start button's popup: Mint's three columns and the
 search box; its own entries are Files (Nemo, else the default file manager),
 Version history and the Exponential app when installed, #EDE-53), `history.express` (Version history: the

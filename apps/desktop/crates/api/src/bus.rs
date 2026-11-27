@@ -39,6 +39,14 @@
 //!   sessions, [`Request::Answer`] answers its waiting card in place
 //!   (approve or decline a plan, an option of a question), both as the IDE
 //!   does them; [`Request::Ask`] lands in the Assistant's window.
+//!
+//! - **Voice (#EDE-267):** in eDE the shell's status icon is the voice
+//!   tray: [`Request::Voice`] long-polls the holder's tray object
+//!   (`etalk::voice::ede_voice_tray`, voice.json EDE TRAY) on a board of its
+//!   own ([`VoiceBoard`], so a call's level tick never re-sends the feeds);
+//!   [`Request::VoiceAct`] calls the Assistant, mutes or ends the call, or
+//!   clicks a tray row. A holder before [`VERSION`] 5 answers both
+//!   [`Reply::Unsupported`].
 
 use std::{
     io::{self, BufRead, BufReader, Read as _, Write},
@@ -57,7 +65,7 @@ use serde::{Deserialize, Serialize};
 pub const SOCKET: &str = "exp-desktop.bus";
 
 /// This end's version of the bus (in [`Reply::Hello`]).
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 /// The longest request line the holder reads (a link, a command, a token).
 pub const MAX_LINE: usize = 64 * 1024;
@@ -81,6 +89,15 @@ pub const FEEDS_WAIT: Duration = Duration::from_secs(25);
 
 /// A [`Request::Feeds`] client's read timeout.
 pub const FEEDS_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// #EDE-267: [`WINDOWS_WAIT`] for [`Request::Voice`].
+pub const VOICE_WAIT: Duration = Duration::from_secs(25);
+
+/// A [`Request::Voice`] client's read timeout.
+pub const VOICE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// #EDE-267: the [`Request::VoiceAct`] actions.
+pub const VOICE_ACTIONS: [&str; 4] = ["call", "mute", "end", "menu"];
 
 /// The bus socket of the app whose data directory is `data_dir`.
 pub fn socket_path(data_dir: &Path) -> PathBuf {
@@ -157,6 +174,21 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         answer: Option<String>,
     },
+    /// #EDE-267: the voice tray object ([`Reply::Voice`]), long-polled like
+    /// [`Request::Feeds`] ([`VOICE_WAIT`]) on its own board.
+    Voice {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<u64>,
+    },
+    /// #EDE-267: one of the tray's acts ([`VOICE_ACTIONS`]): `call` (the
+    /// Assistant), `mute` (the call's toggle), `end` (End call / Cancel),
+    /// `menu` with `item` = a menu row's value (the tray's own handler).
+    /// [`Reply::Done`], or [`Reply::Refused`] with the reason.
+    VoiceAct {
+        action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item: Option<String>,
+    },
 }
 
 /// #EDE-237: what one window of the holder is. Its toplevel's title is
@@ -210,6 +242,9 @@ pub enum Reply {
     /// (`id`, `identifier`, `title`, `status`, `source`, `sourceId`,
     /// `sourceName`, `board`) plus its page `key` (`issue:<id>`).
     Search { issues: Vec<serde_json::Value> },
+    /// #EDE-267: the voice tray object at `generation` (`null` until the
+    /// holder published one: not eDE's component).
+    Voice { generation: u64, voice: serde_json::Value },
 }
 
 /// #EDE-237: the holder's windows as the bus hands them out: the
@@ -288,6 +323,11 @@ impl FeedBoard {
         (state.0, state.1.clone())
     }
 }
+
+/// #EDE-267: the voice tray object as the bus hands it out: a board of its
+/// own ([`FeedBoard`]'s twin), so the call's level tick never wakes the
+/// feeds' waits.
+pub type VoiceBoard = FeedBoard;
 
 /// The other end of a bus connection, as the kernel says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,6 +475,30 @@ pub fn call(path: &Path, request: &Request) -> io::Result<Reply> {
     Client::connect(path, CALL_TIMEOUT)?.call(request)
 }
 
+impl Client {
+    /// #EDE-267: the voice tray object past `after` (connect with
+    /// [`VOICE_TIMEOUT`]); `None` = the holder does not serve it (an older
+    /// one, or a refusal).
+    pub fn voice(&mut self, after: Option<u64>) -> io::Result<Option<(u64, serde_json::Value)>> {
+        Ok(match self.call(&Request::Voice { after })? {
+            Reply::Voice { generation, voice } => Some((generation, voice)),
+            _ => None,
+        })
+    }
+}
+
+/// #EDE-267: one tray act on a connection of its own: `Ok(Ok(()))` done,
+/// `Ok(Err(reason))` refused (an older holder: `unsupported`).
+pub fn voice_act(path: &Path, action: &str, item: Option<&str>) -> io::Result<Result<(), String>> {
+    let request = Request::VoiceAct { action: action.to_string(), item: item.map(str::to_string) };
+    Ok(match call(path, &request)? {
+        Reply::Done => Ok(()),
+        Reply::Refused { message } => Err(message),
+        Reply::Unsupported => Err("unsupported".into()),
+        other => Err(format!("unexpected reply {other:?}")),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +632,57 @@ mod tests {
         board.set(serde_json::json!({"tree": [1]}));
         let (generation, feeds) = waiter.join().unwrap();
         assert_eq!((generation, feeds), (2, serde_json::json!({"tree": [1]})));
+    }
+
+    #[test]
+    fn voice_and_voice_act_keep_their_wire_shape() {
+        assert_eq!(serde_json::to_value(Request::Voice { after: None }).unwrap(), serde_json::json!({"op": "voice"}));
+        assert_eq!(serde_json::to_value(Request::Voice { after: Some(7) }).unwrap(), serde_json::json!({"op": "voice", "after": 7}));
+        let mute = Request::VoiceAct { action: "mute".into(), item: None };
+        assert_eq!(serde_json::to_value(&mute).unwrap(), serde_json::json!({"op": "voice-act", "action": "mute"}));
+        let menu = serde_json::json!({"op": "voice-act", "action": "menu", "item": "wakeWord"});
+        assert_eq!(serde_json::from_value::<Request>(menu.clone()).unwrap(), Request::VoiceAct { action: "menu".into(), item: Some("wakeWord".into()) });
+        assert_eq!(serde_json::to_value(serde_json::from_value::<Request>(menu.clone()).unwrap()).unwrap(), menu);
+        let voice = serde_json::json!({"show": true, "dot": "none", "agent": "Max", "level": 0.42});
+        let reply = Reply::Voice { generation: 3, voice: voice.clone() };
+        assert_eq!(serde_json::to_value(&reply).unwrap(), serde_json::json!({"reply": "voice", "generation": 3, "voice": voice}));
+        assert_eq!(serde_json::from_value::<Reply>(serde_json::to_value(&reply).unwrap()).unwrap(), reply);
+        assert!(VOICE_ACTIONS.contains(&"menu"));
+    }
+
+    #[test]
+    fn the_voice_helpers_read_their_replies_and_an_old_holder_refuses() {
+        let (dir, old_dir) = (dir(), dir());
+        let path = socket_path(&dir);
+        serve(&path, |_, request| match request {
+            Request::Voice { after } => Reply::Voice { generation: after.unwrap_or(0) + 1, voice: serde_json::json!({"show": true}) },
+            Request::VoiceAct { action, .. } if action == "end" => Reply::Refused { message: "no call".into() },
+            Request::VoiceAct { .. } => Reply::Done,
+            _ => Reply::Unsupported,
+        })
+        .unwrap();
+        let mut client = Client::connect(&path, VOICE_TIMEOUT).unwrap();
+        assert_eq!(client.voice(Some(4)).unwrap(), Some((5, serde_json::json!({"show": true}))));
+        assert_eq!(voice_act(&path, "mute", None).unwrap(), Ok(()));
+        assert_eq!(voice_act(&path, "end", None).unwrap(), Err("no call".into()));
+        // A holder before version 5: the new ops are unknown, answered.
+        let old = socket_path(&old_dir);
+        serve(&old, |_, _| Reply::Unsupported).unwrap();
+        assert_eq!(Client::connect(&old, VOICE_TIMEOUT).unwrap().voice(None).unwrap(), None);
+        assert_eq!(voice_act(&old, "call", None).unwrap(), Err("unsupported".into()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&old_dir);
+    }
+
+    #[test]
+    fn a_voice_board_is_its_own() {
+        let feeds = FeedBoard::default();
+        let voice = VoiceBoard::default();
+        voice.set(serde_json::json!({"level": 0.1}));
+        voice.set(serde_json::json!({"level": 0.1}));
+        voice.set(serde_json::json!({"level": 0.2}));
+        assert_eq!(voice.wait(None, Duration::ZERO).0, 2, "an equal object is no change");
+        assert_eq!(feeds.wait(None, Duration::ZERO).0, 0, "the level never moves the feeds");
     }
 
     #[test]

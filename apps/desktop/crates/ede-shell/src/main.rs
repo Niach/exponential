@@ -65,7 +65,10 @@
 //! popup, cu-tray.express: uicore spaces.json `tray` over the holder's
 //! `sessions`) and `ede_cu {action, space?}` (select, watch, unwatch,
 //! pause, resume, takeOver, handBack, stop: the compositor's `control_space`
-//! and `destroy_space` on the capture loop's connection).
+//! and `destroy_space` on the capture loop's connection);
+//! #EDE-267: `/voice` (the holder's Voice tray board: the taskbar's Voice
+//! status icon and voice-tray.express) and `ede_voice {action, item?}`
+//! (call, mute, end, menu: the holder's `voice-act`; chat: the Assistant).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -90,6 +93,7 @@ mod captures;
 mod engine;
 mod holder_windows;
 mod holder_feeds;
+mod voice_tray;
 mod issues;
 mod assets;
 mod connect;
@@ -933,6 +937,15 @@ impl HostPlugin for Host {
                     spaces_changed(&shell, cx);
                 });
             }
+            // #EDE-267: the Voice tray's presses: to the holder, Open chat = the Assistant's window.
+            "ede_voice" => match voice_tray::press(args) {
+                Some(voice_tray::Press::Chat) => cx.defer(move |cx| {
+                    close(&shell, voice_tray::POPUP, cx);
+                    assistant_open(&shell, cx);
+                }),
+                Some(voice_tray::Press::Act { action, item }) => voice_tray::act(action, item),
+                None => {}
+            },
             // #EDE-266: the computer-use tray's presses (spaces.json `tray`).
             "ede_cu" => {
                 if let Some((press, space)) = spaces::tray_press(args) {
@@ -4178,9 +4191,12 @@ fn main() {
     let (holder_windows_tx, holder_windows_rx) = mpsc::channel::<holder_windows::HolderWindows>();
     // #EDE-258: the start menu's tree, recents and Assistant.
     let (holder_feeds_tx, holder_feeds_rx) = mpsc::channel::<holder_feeds::HolderFeeds>();
+    // #EDE-267: the Voice tray's board (its own long poll: the call's level ticks).
+    let (voice_tx, voice_rx) = mpsc::channel::<Value>();
     if !demo {
         holder_windows::follow(holder_windows_tx);
         holder_feeds::follow(holder_feeds_tx);
+        voice_tray::follow(voice_tx);
     }
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
@@ -4216,6 +4232,7 @@ fn main() {
         // The goldens open the Agent spaces list through its bound `open`.
         let demo_spaces = spaces::demo_mode().filter(|_| demo);
         feed.set("/spacesList", json!({"open": demo_spaces.as_deref() == Some("list")}));
+        feed.set("/voice", if demo { voice_tray::demo().unwrap_or_else(voice_tray::hidden) } else { voice_tray::hidden() });
         // #EDE-253: the goldens' window menu (open) and, with
         // EDE_SHELL_DEMO_KEYBOARD=1 (`open`: its menu open), two keyboard layouts.
         if demo {
@@ -4490,6 +4507,10 @@ fn main() {
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                if let Some(voice) = voice_rx.try_iter().last() {
+                    s.borrow_mut().feed.set("/voice", voice);
+                    dirty = true;
                 }
                 if let Some(feeds) = holder_feeds_rx.try_iter().last() {
                     holder_feeds::keep(&mut s.borrow_mut().holder_feeds, feeds);
