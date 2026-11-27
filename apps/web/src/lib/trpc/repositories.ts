@@ -1034,10 +1034,13 @@ export const repositoriesRouter = router({
 
   // #EXP-1616: owner: restore a bundle backup (a device job).
   restore: authedProcedure
-    .input(z.object({ repositoryId: z.string().uuid(), backupId: z.string().uuid() }))
+    // #EXP-2201: `force` unset = a person confirmed the restore in the
+    // repo's Settings (the clients' AlertDialog): forced. Agents (MCP) pass
+    // false and get the refusal naming the refs.
+    .input(z.object({ repositoryId: z.string().uuid(), backupId: z.string().uuid(), force: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const { restoreEcodeBackup } = await import(`@/lib/ecode/repos`)
-      return restoreEcodeBackup(ctx.session.user.id, input)
+      return restoreEcodeBackup(ctx.session.user.id, { ...input, force: input.force ?? true })
     }),
 
   // The launcher's clone-target resolution: issue → board → repositoryId.

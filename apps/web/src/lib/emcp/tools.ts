@@ -4012,10 +4012,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_restore`,
     {
-      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner. backupId omitted = the newest. Owners. → {commandId, backup, backups}.`,
-      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional() }),
+      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner, after a fresh backup of the current state. backupId omitted = the newest. Refused when it would change refs (named) unless force. Owners. → {commandId, backup, backups, changes}.`,
+      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional(), force: z.boolean().optional() }),
     },
-    async ({ repositoryId, backupId }) => {
+    async ({ repositoryId, backupId, force }) => {
       try {
         const [repo] = await db
           .select({ teamId: repositories.teamId })
@@ -4029,8 +4029,8 @@ export function registerExponentialTools(
         const newest = [...backups].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
         const backup = backupId ? backups.find((b) => b.id === backupId) : newest
         if (!backup) throw new Error(backupId ? `Backup not found` : `This repository has no backup yet`)
-        const { commandId } = await trpc.repositories.restore({ repositoryId, backupId: backup.id })
-        return ok({ commandId, backup, backups: backups.length })
+        const { commandId, changes } = await trpc.repositories.restore({ repositoryId, backupId: backup.id, force: force ?? false })
+        return ok({ commandId, backup, backups: backups.length, changes })
       } catch (e) {
         return err(e)
       }
