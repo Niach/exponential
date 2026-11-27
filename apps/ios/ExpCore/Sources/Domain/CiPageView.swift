@@ -17,6 +17,7 @@ public enum CiPageView {
         public static let openRun = "ci-open-run"
         public static let openPr = "ci-open-pr"
         public static let openRunner = "ci-open-runner"
+        public static let runners = "ci-open-runners"
     }
 
     public struct State: Equatable, Sendable {
@@ -31,11 +32,12 @@ public enum CiPageView {
         }
     }
 
-    private static func iconTone(_ tone: PrChecks.Tone) -> String {
-        switch tone {
-        case .muted: "neutral"
-        case .green: "success"
-        case .red: "danger"
+    private static func trainTone(_ glyph: PrChecks.Glyph) -> String {
+        switch glyph {
+        case .running: CiPage.statusTone(.running).tone
+        case .queued, .skipped: "neutral"
+        case .failed: "danger"
+        case .passed: "success"
         }
     }
 
@@ -63,15 +65,13 @@ public enum CiPageView {
         node(id, "Stack", props: ["direction": .string(direction), "gap": .string(gap), "align": .string(direction == "horizontal" ? "center" : "stretch")], children: children)
     }
 
-    private static func path(_ key: String) -> CardJSON { .object(["@path": .string(key)]) }
-
     private static func trainSection(_ group: CiPage.TrainGroup, _ id: String) -> CardJSON {
         let ids = CiPage.TestIds.self
         return node(
             id, "Section",
             props: [
-                "title": .string(CiPage.Copy.trainSection),
-                "caption": .string("\(group.title) · \(group.caption)"),
+                "title": .string(group.title),
+                "caption": .string(group.caption),
                 "icon": .string("pr-batch"),
             ],
             children: group.rows.map { row in
@@ -81,7 +81,7 @@ public enum CiPageView {
                     "\(ids.trainRow).\(row.id)", "Row", props: props,
                     slots: [
                         "leading": node("\(ids.trainRow).\(row.id).glyph", "Icon", props: [
-                            "name": .string(row.glyph.rawValue), "tone": .string("neutral"), "size": .string("sm"),
+                            "name": .string(row.glyph.rawValue), "tone": .string(trainTone(row.glyph)), "size": .string("sm"),
                         ]),
                         "trailing": node("\(ids.trainRow).\(row.id).badge", "Badge", props: [
                             "text": .string(row.badge), "variant": .string("secondary"),
@@ -124,77 +124,74 @@ public enum CiPageView {
                 status, node("\(ids.filters).picks", "Toolbar", children: [repository, source]),
             ])
         }
-        return node(ids.filters, "Toolbar", children: [status, repository, source])
+        let runners = CiPage.runnerChip(input).map { chip in
+            node(ids.runnerChip, "Chip", props: [
+                "label": .string(chip.label),
+                "dot": .string(chip.online ? "$color.success" : "$color.mutedForeground"),
+                "pressable": .bool(true),
+            ], on: ("press", Events.runners, nil))
+        }
+        return node(ids.filters, "Toolbar", children: [status, repository, source], slots: runners.map { ["trailing": $0] })
+    }
+
+    private static func call(_ name: String, _ args: [String: CardJSON]) -> CardJSON {
+        .object(["@call": .string(name), "args": .object(args)])
+    }
+
+    /// One run's row. Wide: title, subtitle, trailing duration · age, the
+    /// source mark (tooltip) and the author; phones: meta = duration | queued.
+    private static func runRow(_ row: CiPage.RunListRow, phone: Bool) -> CardJSON {
+        let id = "\(CiPage.TestIds.runRow).\(row.id)"
+        let leading = node("\(id).glyph", "Icon", props: [
+            "name": .string(row.glyph.rawValue), "tone": .string(row.tone), "size": .string("sm"),
+        ])
+        let press: (event: String, name: String, context: [String: CardJSON]?) = ("press", Events.openRun, ["run": .string(row.id)])
+        if phone {
+            return node(id, "Row", props: [
+                "title": .string(row.title), "subtitle": .string(row.phoneSubtitle), "meta": .string(row.phoneMeta), "pressable": .bool(true),
+            ], slots: ["leading": leading], on: press)
+        }
+        let age = call("formatRelativeTime", ["value": .string(row.at)])
+        let meta = row.duration.map {
+            call("fill", ["template": .string("{duration} · {age}"), "params": .object(["duration": .string($0), "age": age])])
+        } ?? call("fill", ["template": .string("{queued} · {age}"), "params": .object(["queued": .string(CiPage.Copy.waitingForRunner), "age": age])])
+        var trailing: [CardJSON] = [
+            node("\(id).meta", "Text", props: ["text": meta, "variant": .string("muted")]),
+            node("\(id).source", "Tooltip", props: ["content": .string(row.sourceLabel)], children: [
+                node("\(id).source.icon", "Icon", props: [
+                    "name": .string(row.sourceIcon), "size": .string("sm"), "tone": .string("neutral"), "label": .string(row.sourceLabel),
+                ]),
+            ]),
+        ]
+        if let author = row.author {
+            var props: [String: CardJSON] = ["name": .string(author.name), "seed": .string(author.id), "size": .string("sm")]
+            if let image = author.image, !image.isEmpty { props["src"] = .string(image) }
+            trailing.append(node("\(id).author", "Avatar", props: props))
+        }
+        return node(id, "Row", props: [
+            "title": .string(row.title), "subtitle": .string(row.subtitle), "pressable": .bool(true),
+        ], slots: [
+            "leading": leading,
+            "trailing": stack("\(id).trailing", "horizontal", "sm", trailing),
+        ], on: press)
     }
 
     private static func runsPanel(_ input: CiPage.Input, _ state: State) -> CardJSON {
         let ids = CiPage.TestIds.self
         let copy = CiPage.Copy.self
-        let rows = CiPage.runList(input, filter: state.filter)
+        let groups = CiPage.runGroups(input, filter: state.filter)
         var children: [CardJSON] = [filters(input, state)]
-        for group in CiPage.trainGroups(input, queue: false) {
-            children.append(trainSection(group, "\(ids.train).\(group.repositoryId)"))
-        }
         let filtered = state.filter.status != .all || state.filter.repositoryId != nil || state.filter.source != nil
-        if rows.isEmpty {
+        if groups.isEmpty {
             children.append(node(ids.runs, "EmptyState", props: [
                 "icon": .string("nav-ci"), "title": .string(filtered ? copy.Empty.filtered : copy.Empty.runs), "size": .string("list"),
             ]))
-        } else if state.phone {
-            children.append(node(ids.runs, "Section", props: ["title": .string(copy.runsSection)], children: rows.map { row in
-                var props: [String: CardJSON] = ["title": .string(row.title), "subtitle": .string(row.subtitle), "pressable": .bool(true)]
-                if let duration = row.duration, !duration.isEmpty { props["meta"] = .string(duration) }
-                return node(
-                    "\(ids.runRow).\(row.id)", "Row", props: props,
-                    slots: ["leading": node("\(ids.runRow).\(row.id).glyph", "Icon", props: [
-                        "name": .string(row.glyph.rawValue), "tone": .string(iconTone(row.tone)), "size": .string("sm"),
-                    ])],
-                    on: ("press", Events.openRun, ["run": .string(row.id)])
-                )
-            }))
         } else {
-            let c = copy.columns
-            func column(_ key: String, _ extra: [String: CardJSON] = [:]) -> CardJSON {
-                var out: [String: CardJSON] = ["key": .string(key), "label": .string(c[key] ?? key)]
-                for (k, v) in extra { out[k] = v }
-                return .object(out)
-            }
-            children.append(node(
-                ids.runs, "Table",
-                props: [
-                    "columns": .array([
-                        column("status", ["type": .string("slot"), "slot": .string("status"), "width": .number(120)]),
-                        column("run"),
-                        column("repository"),
-                        column("source", ["type": .string("badge")]),
-                        column("ref", ["truncate": .bool(true)]),
-                        column("trigger"),
-                        column("duration", ["align": .string("end"), "width": .number(96)]),
-                        column("started", ["type": .string("relativeTime"), "width": .number(140)]),
-                    ]),
-                    "rows": .array(rows.map { row in
-                        .object([
-                            "id": .string(row.id),
-                            "status": .string(row.statusLabel),
-                            "glyph": .string(row.glyph.rawValue),
-                            "tone": .string(iconTone(row.tone)),
-                            "run": .string(row.title),
-                            "repository": .string(row.repository),
-                            "source": .string(row.sourceLabel),
-                            "ref": .string(row.ref),
-                            "trigger": .string(row.trigger),
-                            "duration": .string(row.duration ?? ""),
-                            "started": .string(row.startedAt ?? ""),
-                        ])
-                    }),
-                    "rowKey": .string("id"),
-                ],
-                slots: ["status": stack("\(ids.runs).status", "horizontal", "xs", [
-                    node("\(ids.runs).status.glyph", "Icon", props: ["name": path("glyph"), "tone": path("tone"), "size": .string("sm")]),
-                    node("\(ids.runs).status.label", "Text", props: ["text": path("status")]),
-                ])],
-                on: ("rowPress", Events.openRun, ["run": path("id")])
-            ))
+            children.append(stack(ids.runs, "vertical", "md", groups.map { group in
+                var props: [String: CardJSON] = ["title": .string(group.title)]
+                if let count = group.count { props["count"] = .number(Double(count)) }
+                return node("\(ids.runs).\(group.id)", "Section", props: props, children: group.rows.map { runRow($0, phone: state.phone) })
+            }))
         }
         return stack("\(ids.page).runs", "vertical", "md", children)
     }
@@ -242,8 +239,8 @@ public enum CiPageView {
         })
     }
 
-    /// The CI page (ci-page.json LAYOUT): the tiles, then the tabs; only the
-    /// current tab's panel is built (the others are empty stacks).
+    /// The CI page (ci-page.json LAYOUT): the tab strip, then the current
+    /// tab's panel (the others are empty stacks).
     public static func ciPageTree(_ input: CiPage.Input, state: State) -> CardJSON {
         let ids = CiPage.TestIds.self
         let copy = CiPage.Copy.self
@@ -264,27 +261,25 @@ public enum CiPageView {
         var tabsProps: [String: CardJSON] = [
             "tabs": .array([tab(.runs, nil), tab(.train, counts.train), tab(.runners, counts.runners)]),
             "value": .string(state.tab.rawValue),
+            "variant": .string("strip"),
         ]
         if state.phone { tabsProps["fill"] = .bool(true) }
         return stack(ids.page, "vertical", "lg", [
-            node(
-                ids.tiles, "Grid",
-                props: ["columns": .number(state.phone ? 2 : 4), "gap": .string(state.phone ? "sm" : "md")],
-                children: CiPage.tiles(input).enumerated().map { i, tile in
-                    var props: [String: CardJSON] = ["label": .string(tile.label), "value": .string(tile.value), "tone": .string(tile.tone)]
-                    if let delta = tile.delta, !delta.isEmpty { props["delta"] = .string(delta) }
-                    return node("\(ids.tiles).\(i)", "StatTile", props: props)
-                }
-            ),
             node(ids.tabs, "Tabs", props: tabsProps, children: [panel(.runs), panel(.train), panel(.runners)], on: ("change", Events.tab, nil)),
         ])
     }
 
     /// A control event's next state (`ci-tab` and the filters carry the
-    /// control's `value`; `all` = no filter); nil = not a state event.
+    /// control's `value`; `all` = no filter; `ci-open-runners` = the Runners
+    /// tab); nil = not a state event.
     public static func stateAfter(_ state: State, event: String, payload: [String: CardJSON]?) -> State? {
-        guard case let .string(value)? = payload?["value"] else { return nil }
         var next = state
+        if event == Events.runners {
+            // The runner Chip opens the Runners tab.
+            next.tab = .runners
+            return next
+        }
+        guard case let .string(value)? = payload?["value"] else { return nil }
         switch event {
         case Events.tab:
             guard let tab = CiPage.Tab(rawValue: value) else { return nil }

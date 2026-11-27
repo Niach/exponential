@@ -12,25 +12,24 @@ struct CiRunSpecimens: View {
     /// installation accepted Actions: write (capture only).
     var github = false
 
-    private var run: CiRun.Run {
+    private var model: CiRunView.Model {
+        guard github else { return CiRunView.specimenModel }
         let r = CiRun.specimenRun
-        guard github else { return r }
-        return CiRun.Run(
+        let run = CiRun.Run(
             id: "g1207", number: 1207, name: "build-ios", state: r.state, error: nil, sha: r.sha,
             startedAt: r.startedAt, completedAt: r.completedAt, ref: "release/2.4", provider: "github",
-            externalUrl: "https://github.com/acme/mobile/actions/runs/1207", externalAccess: "write"
+            externalUrl: "https://github.com/acme/mobile/actions/runs/1207", externalAccess: "write",
+            title: "Bump the widget to 2.4.1", createdAt: r.createdAt
         )
+        return CiRunView.Model(run: run, repository: "acme/mobile", pullRequest: nil, author: nil, jobs: CiRun.specimenJobs)
     }
 
     var body: some View {
         CiRunPage(
-            run: run,
-            jobs: CiRun.specimenJobs,
+            model: model,
             selected: CiRun.specimenSelected,
             log: CiRun.specimenLog,
-            now: WireTimestamps.parse(CiRun.specimenNow) ?? Date(),
-            repository: github ? "acme/mobile" : CiRun.specimenRepository,
-            pullRequestNumber: github ? nil : CiRun.specimenPullRequestNumber
+            now: WireTimestamps.parse(CiRun.specimenNow) ?? Date()
         )
         .padding(.horizontal, -16)
         .accessibilityIdentifier("ci-run-specimen")

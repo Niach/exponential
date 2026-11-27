@@ -19,7 +19,8 @@ func ciPageInput(_ raw: [String: Any]) throws -> CiPage.Input {
             sha: str(r["sha"]) ?? "", ref: str(r["ref"]), trigger: try XCTUnwrap(str(r["trigger"])),
             state: try XCTUnwrap(str(r["state"])), pullRequestId: str(r["pullRequestId"]),
             createdByUserId: str(r["createdByUserId"]), provider: try XCTUnwrap(str(r["provider"])),
-            startedAt: str(r["startedAt"]), completedAt: str(r["completedAt"]), createdAt: try XCTUnwrap(str(r["createdAt"]))
+            startedAt: str(r["startedAt"]), completedAt: str(r["completedAt"]), createdAt: try XCTUnwrap(str(r["createdAt"])),
+            title: str(r["title"])
         )
     }
     let jobs = try ((raw["jobs"] as? [[String: Any]]) ?? []).map { j in
@@ -49,9 +50,13 @@ func ciPageInput(_ raw: [String: Any]) throws -> CiPage.Input {
             labels: (r["labels"] as? [String]) ?? [], slots: try XCTUnwrap(r["slots"] as? Int), lastSeenAt: str(r["lastSeenAt"])
         )
     }
+    let users = try ((raw["users"] as? [[String: Any]]) ?? []).map {
+        CiPage.User(id: try XCTUnwrap(str($0["id"])), name: try XCTUnwrap(str($0["name"])), image: str($0["image"]))
+    }
     return CiPage.Input(
-        runs: runs, jobs: jobs, repos: repos, pullRequests: prs, sessions: sessions, runners: runners,
-        viewerId: try XCTUnwrap(str(raw["viewerId"])), now: str(raw["now"]) ?? ""
+        runs: runs, jobs: jobs, repos: repos, pullRequests: prs, sessions: sessions, runners: runners, users: users,
+        viewerId: try XCTUnwrap(str(raw["viewerId"])), now: str(raw["now"]) ?? "",
+        utcOffsetMinutes: raw["utcOffsetMinutes"] as? Int ?? 0
     )
 }
 
@@ -78,20 +83,23 @@ final class CiPageTests: XCTestCase {
         let copy = try XCTUnwrap(f["copy"] as? [String: Any])
         XCTAssertEqual(copy["title"] as? String, CiPage.Copy.title)
         XCTAssertEqual(copy["tabs"] as? [String: String], CiPage.Copy.tabs)
-        XCTAssertEqual(copy["tiles"] as? [String: String], [
-            "running": CiPage.Copy.Tiles.running, "queued": CiPage.Copy.Tiles.queued,
-            "failedToday": CiPage.Copy.Tiles.failedToday, "runners": CiPage.Copy.Tiles.runners,
-            "runnersValue": CiPage.Copy.Tiles.runnersValue,
-        ])
         XCTAssertEqual(copy["filters"] as? [String: String], CiPage.Copy.filters)
         XCTAssertEqual(copy["repositories"] as? [String: String], ["all": CiPage.Copy.allRepositories])
         XCTAssertEqual(copy["sources"] as? [String: String], CiPage.Copy.sources)
         XCTAssertEqual(copy["columns"] as? [String: String], CiPage.Copy.columns)
-        XCTAssertEqual(copy["runsSection"] as? String, CiPage.Copy.runsSection)
         XCTAssertEqual(copy["trainSection"] as? String, CiPage.Copy.trainSection)
         XCTAssertEqual(copy["pullRequest"] as? String, CiPage.Copy.pullRequest)
         XCTAssertEqual(copy["triggers"] as? [String: String], CiPage.Copy.triggers)
         XCTAssertEqual(copy["unknownRepository"] as? String, CiPage.Copy.unknownRepository)
+        XCTAssertEqual(copy["inProgress"] as? String, CiPage.Copy.inProgress)
+        XCTAssertEqual(copy["today"] as? String, CiPage.Copy.today)
+        XCTAssertEqual(copy["yesterday"] as? String, CiPage.Copy.yesterday)
+        XCTAssertEqual(copy["months"] as? [String], CiPage.Copy.months)
+        XCTAssertEqual(copy["queued"] as? String, CiPage.Copy.queued)
+        XCTAssertEqual(copy["batchTitle"] as? String, CiPage.Copy.batchTitle)
+        XCTAssertEqual(copy["runnerChip"] as? String, CiPage.Copy.runnerChip)
+        XCTAssertEqual(copy["waitingForRunner"] as? String, CiPage.Copy.waitingForRunner)
+        XCTAssertEqual(Set(copy.keys).count, 21)
         XCTAssertEqual(copy["train"] as? [String: String], ["batch": CiPage.Copy.trainBatch])
         XCTAssertEqual(copy["runners"] as? [String: String], [
             "busy": CiPage.Copy.Runners.busy, "queue": CiPage.Copy.Runners.queue,
@@ -109,37 +117,60 @@ final class CiPageTests: XCTestCase {
             "page": i.page, "tiles": i.tiles, "tabs": i.tabs, "filters": i.filters, "statusFilter": i.statusFilter,
             "repoFilter": i.repoFilter, "sourceFilter": i.sourceFilter, "runs": i.runs, "runRow": i.runRow,
             "train": i.train, "trainRow": i.trainRow, "runners": i.runners, "runnerRow": i.runnerRow,
+            "runnerChip": i.runnerChip,
         ])
+        let tones = try XCTUnwrap(f["statusTones"] as? [String: [String: String]])
+        for status in [CiRun.Status.passed, .failed, .running, .queued, .cancelled] {
+            let (glyph, tone) = CiPage.statusTone(status)
+            XCTAssertEqual(tones[status.rawValue], ["glyph": glyph.rawValue, "tone": tone], status.rawValue)
+        }
     }
 
     func testSpecimenIsTheScenario() throws {
         XCTAssertEqual(CiPage.specimen, try scenario())
     }
 
-    func testRunList() throws {
+    private static func rowJSON(_ r: CiPage.RunListRow) -> [String: Any] {
+        [
+            "id": r.id, "status": r.status.rawValue, "statusLabel": r.statusLabel, "glyph": r.glyph.rawValue, "tone": r.tone,
+            "title": r.title, "workflow": r.workflow, "repositoryId": r.repositoryId, "repository": r.repository,
+            "repo": r.repo, "ref": r.ref, "sha": r.sha, "trigger": r.trigger, "source": r.source.rawValue,
+            "sourceLabel": r.sourceLabel, "sourceIcon": r.sourceIcon, "duration": opt(r.duration), "at": r.at,
+            "author": r.author.map { ["id": $0.id, "name": $0.name, "image": opt($0.image)] as [String: Any] } ?? NSNull(),
+            "subtitle": r.subtitle, "phoneSubtitle": r.phoneSubtitle, "phoneMeta": r.phoneMeta,
+        ]
+    }
+
+    func testRunGroups() throws {
         let input = try scenario()
-        for c in try cases("runListCases") {
-            let rows = CiPage.runList(input, filter: try ciPageFilter(c["filter"])).map { r -> [String: Any] in
-                [
-                    "id": r.id, "identifier": r.identifier, "title": r.title, "status": r.status.rawValue,
-                    "statusLabel": r.statusLabel, "glyph": r.glyph.rawValue, "tone": r.tone.rawValue,
-                    "repositoryId": r.repositoryId, "repository": r.repository, "source": r.source.rawValue,
-                    "sourceLabel": r.sourceLabel, "ref": r.ref, "trigger": r.trigger, "duration": opt(r.duration),
-                    "startedAt": opt(r.startedAt), "subtitle": r.subtitle,
-                ]
+        for c in try cases("runGroupsCases") {
+            let groups = CiPage.runGroups(input, filter: try ciPageFilter(c["filter"])).map { g -> [String: Any] in
+                ["id": g.id, "title": g.title, "count": g.count.map { $0 as Any } ?? NSNull(), "rows": g.rows.map(Self.rowJSON)]
             }
-            XCTAssertEqual(rows as NSArray, c["expected"] as? NSArray, c["name"] as? String ?? "")
+            XCTAssertEqual(groups as NSArray, c["expected"] as? NSArray, c["name"] as? String ?? "")
         }
+    }
+
+    func testDayTitle() throws {
+        for c in try cases("dayTitleCases") {
+            XCTAssertEqual(
+                CiPage.dayTitle(try XCTUnwrap(str(c["day"])), now: try XCTUnwrap(str(c["now"])), utcOffsetMinutes: try XCTUnwrap(c["utcOffsetMinutes"] as? Int)),
+                c["expected"] as? String
+            )
+        }
+    }
+
+    func testRunnerChip() throws {
+        let chip = try XCTUnwrap(CiPage.runnerChip(try scenario()))
+        XCTAssertEqual(["label": chip.label, "online": chip.online] as NSDictionary, try fixture()["runnerChip"] as? NSDictionary)
+        var none = try scenario()
+        none.runners = []
+        XCTAssertNil(CiPage.runnerChip(none))
     }
 
     func testRepoOptions() throws {
         let got = CiPage.repoOptions(try scenario()).map { ["label": $0.label, "value": $0.value] }
         XCTAssertEqual(got as NSArray, try fixture()["repoOptions"] as? NSArray)
-    }
-
-    func testTiles() throws {
-        let got = CiPage.tiles(try scenario()).map { ["label": $0.label, "value": $0.value, "tone": $0.tone, "delta": opt($0.delta)] as [String: Any] }
-        XCTAssertEqual(got as NSArray, try fixture()["tiles"] as? NSArray)
     }
 
     func testTabCounts() throws {
@@ -223,6 +254,7 @@ final class CiPageTests: XCTestCase {
         XCTAssertNil(CiPageView.stateAfter(repo!, event: CiPageView.Events.repository, payload: ["value": .string("all")])?.filter.repositoryId)
         XCTAssertEqual(CiPageView.stateAfter(state, event: CiPageView.Events.source, payload: ["value": .string("github")])?.filter.source, .github)
         XCTAssertNil(CiPageView.stateAfter(state, event: CiPageView.Events.openRun, payload: nil))
+        XCTAssertEqual(CiPageView.stateAfter(state, event: CiPageView.Events.runners, payload: nil)?.tab, .runners)
     }
 }
 
@@ -236,8 +268,9 @@ final class CiPageRowsTests: XCTestCase {
             try CiRunEntity(
                 id: "g1", teamId: "t", repositoryId: "repo", number: 7, name: "build", ref: "main", state: "failure",
                 createdByUserId: "u-me", completedAt: "2026-11-27T10:00:00.000Z", createdAt: "2026-11-27T09:00:00.000Z",
-                updatedAt: "x", provider: "github"
+                updatedAt: "x", provider: "github", title: "Pricing page copy"
             ).save(db)
+            try UserEntity(id: "u-me", name: "Mara Lind", email: "mara@example.com", image: nil, createdAt: "x", updatedAt: "x").save(db)
             try CiJobEntity(
                 id: "j1", teamId: "t", runId: "g1", check: "build", runsOn: "[\"linux\"]", status: "completed",
                 conclusion: "failure", createdAt: "x", updatedAt: "x", provider: "github"
@@ -250,6 +283,8 @@ final class CiPageRowsTests: XCTestCase {
         }
         let input = try pool.read { db in try CiPage.fetchRows(db, viewerId: "u-me") }
         XCTAssertEqual(input.runs.map(\.provider), ["github"])
+        XCTAssertEqual(input.runs.first?.title, "Pricing page copy")
+        XCTAssertEqual(input.users, [CiPage.User(id: "u-me", name: "Mara Lind", image: nil)])
         XCTAssertEqual(input.jobs.first?.runsOn, ["linux"])
         XCTAssertEqual(input.runners.map(\.label), ["mint-id"])
         XCTAssertEqual(input.runners.first?.slots, 2)
