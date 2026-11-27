@@ -136,6 +136,9 @@ const READ_ONLY_EXTRA = new Set([
   `exponential_issues_trash`,
   `exponential_pr_files`,
   `exponential_issues_show`,
+  // #EXP-2172: the CI list and a job's log are reads.
+  `exponential_repositories_runs`,
+  `exponential_repositories_run_log`,
 ])
 function isRead(name: string): boolean {
   return /_(get|list)$/.test(name) || READ_ONLY_EXTRA.has(name)

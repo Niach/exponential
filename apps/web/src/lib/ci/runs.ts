@@ -65,6 +65,10 @@ export const CI_RUNNER_CAP = `ci-runner`
 export const CI_JOB_COMMAND = `ci_job`
 /** A dispatched job its runner has not claimed by then goes to another. */
 export const CI_DISPATCH_STALE_MS = 90_000
+/** #EXP-2172: `ci_runs.provider` / `ci_jobs.provider` of OUR runs; a
+ *  `github` row (lib/ci/github-runs.ts) is never planned, numbered,
+ *  dispatched, ticked or reported here. */
+export const OWN_CI = `exponential`
 /** A runner beats its job about this often (the daemon's job thread). */
 export const CI_BEAT_MS = 15_000
 
@@ -171,7 +175,7 @@ async function nextRunNumber(tx: Tx, repositoryId: string): Promise<number> {
   const [row] = await tx
     .select({ max: sql<number | null>`max(${ciRuns.number})` })
     .from(ciRuns)
-    .where(eq(ciRuns.repositoryId, repositoryId))
+    .where(and(eq(ciRuns.repositoryId, repositoryId), eq(ciRuns.provider, OWN_CI)))
   return (row?.max ?? 0) + 1
 }
 
@@ -381,6 +385,7 @@ async function supersedeOlderRuns(args: { repositoryId: string; pullRequestId: s
         eq(ciRuns.repositoryId, args.repositoryId),
         eq(ciRuns.pullRequestId, args.pullRequestId),
         eq(ciRuns.trigger, `pull_request`),
+        eq(ciRuns.provider, OWN_CI),
         eq(ciRuns.name, args.name),
         eq(ciRuns.state, `pending`),
         sql`${ciRuns.sha} <> ${args.sha}`,
@@ -622,6 +627,7 @@ async function expectedDurations(teamId: string, repositoryIds: readonly string[
     .where(
       and(
         eq(ciJobs.teamId, teamId),
+        eq(ciJobs.provider, OWN_CI),
         inArray(ciRuns.repositoryId, [...repositoryIds]),
         inArray(ciJobs.check, [...checks]),
         eq(ciJobs.status, `completed`),
@@ -653,6 +659,7 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
     .where(
       and(
         eq(ciJobs.status, `queued`),
+        eq(ciJobs.provider, OWN_CI),
         scope.teamId ? eq(ciJobs.teamId, scope.teamId) : undefined,
         or(isNull(ciJobs.dispatchedAt), lt(ciJobs.dispatchedAt, staleBefore))
       )
@@ -1039,7 +1046,7 @@ export async function ciTick(now: Date = new Date()): Promise<number> {
   const open = await db
     .selectDistinct({ runId: ciJobs.runId })
     .from(ciJobs)
-    .where(sql`${ciJobs.status} <> 'completed'`)
+    .where(and(sql`${ciJobs.status} <> 'completed'`, eq(ciJobs.provider, OWN_CI)))
     .limit(500)
   let moved = 0
   for (const { runId } of open) {

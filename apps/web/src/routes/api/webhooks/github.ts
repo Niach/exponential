@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { onForgePullRequest, onForgePush } from "@/lib/ci/triggers"
+import { ingestWorkflowJob, ingestWorkflowRun, refreshInstallationAccess, type GithubWorkflowJob, type GithubWorkflowRun } from "@/lib/ci/github-runs"
+import { forgetInstallationActionsAccess } from "@/lib/integrations/github-app"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -67,7 +69,8 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // `exp/<IDENTIFIER>` head names an issue) and `push` (EXP-1374: the live
 // sessions on that branch show a sign of life; #EXP-1540: the push is
 // credited to its session), and EXP-1610's CI events (`check_run` upserts a
-// check row; `check_suite`/`workflow_run` completed repair a PR's checks).
+// check row; `check_suite`/`workflow_run` completed repair a PR's checks;
+// #EXP-2172 `workflow_run`/`workflow_job` write GitHub rows of the CI list).
 // Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
@@ -107,6 +110,12 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
           .where(eq(repoInstallationId(), installation.id))
+      }
+      // #EXP-2172: an accepted permission change (Actions: write) turns on
+      // Re-run and Cancel on that installation's GitHub run rows.
+      if (payload.action === `new_permissions_accepted`) {
+        forgetInstallationActionsAccess(installation.id)
+        await refreshInstallationAccess(installation.id)
       }
       return jsonResponse(200, { ok: true })
     }
@@ -280,6 +289,33 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         mergeTrainEdge({ repoFullName: fullName })
       }
       return jsonResponse(200, { ok: true })
+    }
+
+    // #EXP-2172: GitHub Actions runs and jobs in the CI list (ci_runs /
+    // ci_jobs, provider github). Needs the App's Actions permission and the
+    // workflow_run / workflow_job subscriptions; without them nothing arrives.
+    if (event === `workflow_job`) {
+      const payload = JSON.parse(rawBody) as {
+        workflow_job?: GithubWorkflowJob
+        repository?: { full_name?: string }
+        installation?: { id?: number }
+      }
+      const fullName = payload.repository?.full_name
+      if (payload.workflow_job && fullName) {
+        await ingestWorkflowJob({ fullName, installationId: payload.installation?.id ?? null, job: payload.workflow_job })
+      }
+      return jsonResponse(200, { ok: true })
+    }
+    if (event === `workflow_run`) {
+      const payload = JSON.parse(rawBody) as {
+        workflow_run?: GithubWorkflowRun
+        repository?: { full_name?: string }
+        installation?: { id?: number }
+      }
+      const fullName = payload.repository?.full_name
+      if (payload.workflow_run && fullName) {
+        await ingestWorkflowRun({ fullName, installationId: payload.installation?.id ?? null, run: payload.workflow_run })
+      }
     }
 
     // A finished suite / workflow run: one repair read of its PRs' checks

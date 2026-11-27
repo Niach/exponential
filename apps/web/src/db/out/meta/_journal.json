@@ -2150,6 +2150,13 @@
       "when": 1795703308854,
       "tag": "0306_mcp_file_stagings",
       "breakpoints": true
+    },
+    {
+      "idx": 307,
+      "version": "7",
+      "when": 1795742171511,
+      "tag": "0307_naive_ma_gnuci",
+      "breakpoints": true
     }
   ]
 }

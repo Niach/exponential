@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { buildWhereClause, getUserTeamIds } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// #EXP-1617: eCode's CI runs, member-only by `team_id`. Every column is
+// #EXP-1617: eCode's CI runs (and, #EXP-2172, GitHub Actions runs), member-only by `team_id`. Every column is
 // display data (the run page, the repo's Runs tab).
 export const CI_RUN_COLUMNS = [
   `id`,
@@ -20,6 +20,12 @@ export const CI_RUN_COLUMNS = [
   `created_by_user_id`,
   `started_at`,
   `completed_at`,
+  // #EXP-2172: our runs and GitHub Actions runs in one list.
+  `provider`,
+  `external_id`,
+  `external_url`,
+  `external_attempt`,
+  `external_access`,
   `created_at`,
   `updated_at`,
 ]

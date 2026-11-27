@@ -27,6 +27,10 @@ export const CI_JOB_COLUMNS = [
   `queued_at`,
   `started_at`,
   `completed_at`,
+  // #EXP-2172: a GitHub Actions job (its log is read from GitHub on demand).
+  `provider`,
+  `external_id`,
+  `external_url`,
   `created_at`,
   `updated_at`,
 ]

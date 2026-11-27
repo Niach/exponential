@@ -3528,10 +3528,27 @@ export const ciRuns = pgTable(
     }),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    // #EXP-2172: who ran it. `exponential` = our runner (everything above);
+    // `github` = a GitHub Actions workflow run ingested from the App's
+    // `workflow_run` webhook: `number` = GitHub's run number (unique per
+    // workflow, not per repository), `external_id` = the run id, `external_url`
+    // = its page, `external_attempt` = the attempt the row shows,
+    // `external_access` = the installation's Actions permission when it was
+    // last written (`read` | `write`; null = unknown): Re-run and Cancel need
+    // `write`, else the run page offers Open on GitHub. Our scheduler, ticks,
+    // numbering and check reports never touch a `github` row.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
+    externalAttempt: integer(`external_attempt`),
+    externalAccess: varchar(`external_access`, { length: 8 }),
     ...timestamps,
   },
   (table) => [
-    unique(`uniq_ci_runs_number`).on(table.repositoryId, table.number),
+    uniqueIndex(`uniq_ci_runs_number`)
+      .on(table.repositoryId, table.number)
+      .where(sql`provider = 'exponential'`),
+    unique(`uniq_ci_runs_external`).on(table.repositoryId, table.externalId),
     index(`idx_ci_runs_team`).on(table.teamId),
     index(`idx_ci_runs_repo_sha`).on(table.repositoryId, table.sha),
   ]
@@ -3588,6 +3605,12 @@ export const ciJobs = pgTable(
     queuedFlaggedAt: timestamp(`queued_flagged_at`, { withTimezone: true }),
     // Byte length of each log chunk object, in order.
     logChunks: jsonb(`log_chunks`).$type<number[]>().notNull().default([]),
+    // #EXP-2172: `github` = a GitHub Actions job (`workflow_job` webhook):
+    // `external_id` = the job id, `external_url` = its page; its log is read
+    // from GitHub on demand, `spec` is empty, no runner device.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
     ...timestamps,
   },
   (table) => [
@@ -3596,6 +3619,7 @@ export const ciJobs = pgTable(
     index(`idx_ci_jobs_open`)
       .on(table.status)
       .where(sql`status <> 'completed'`),
+    index(`idx_ci_jobs_external`).on(table.runId, table.externalId),
     index(`idx_ci_jobs_runner`).on(table.runnerDeviceId),
   ]
 )
