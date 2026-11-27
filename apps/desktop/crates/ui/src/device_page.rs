@@ -45,7 +45,6 @@ const LIVENESS_TICK: std::time::Duration = std::time::Duration::from_secs(10);
 const LIMIT_BAR_W: f32 = 150.;
 const LIMIT_TRACK_H: f32 = 4.;
 const MARK_PX: f32 = 16.;
-const HEADER_GLYPH_PX: f32 = 24.;
 
 const COPY_ACCOUNTS: &str = "Accounts";
 const COPY_RUNNING: &str = "Running";
@@ -215,16 +214,7 @@ pub(crate) fn login_subtitle(agent: &str, plan: Option<&str>) -> String {
 // Shared pieces
 // ---------------------------------------------------------------------------
 
-/// A heading line: the page title at the settings pages' size.
-fn page_title(title: SharedString, cx: &App) -> Div {
-    div()
-        .min_w_0()
-        .truncate()
-        .text_2xl()
-        .font_weight(gpui::FontWeight::BOLD)
-        .text_color(cx.theme().foreground)
-        .child(title)
-}
+use crate::scroll_pane::page_title;
 
 /// One row of a section group (the settings rows' rhythm).
 fn group_row() -> Div {
@@ -387,13 +377,8 @@ impl DevicePageView {
                     navigate(window, cx, Screen::DeviceSettings { device_id: row_id.clone() });
                 })
         });
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .child(Icon::new(glyph).size(px(HEADER_GLYPH_PX)).flex_shrink_0().text_color(theme.foreground.opacity(0.85)))
-            .child(page_title(device_title(&self.device_id, cx), cx))
+        // #EXP-2169: THE entity heading (the CI and repo pages' too).
+        crate::scroll_pane::page_heading(Icon::new(glyph), device_title(&self.device_id, cx), cx)
             .when_some(row.and_then(|row| row.version.clone()), |this, version| {
                 this.child(div().flex_shrink_0().text_sm().text_color(muted).child(SharedString::from(format!("v{version}"))))
             })

@@ -17,8 +17,7 @@ use std::rc::Rc;
 use eui_gpui::host::ActionEvent;
 use eui_gpui::view::SurfaceView;
 use gpui::{
-    div, App, AppContext as _, Context, Entity, Global, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    App, AppContext as _, Context, Entity, Global, IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
 use serde_json::{json, Value};
 use sync::Store;
@@ -36,7 +35,6 @@ use crate::queries;
 // ---------------------------------------------------------------------------
 
 /// The page's events (web `CI_PAGE_EVENTS`).
-pub(crate) const EVENT_TAB: &str = "ci-tab";
 pub(crate) const EVENT_STATUS: &str = "ci-filter-status";
 pub(crate) const EVENT_REPOSITORY: &str = "ci-filter-repo";
 pub(crate) const EVENT_SOURCE: &str = "ci-filter-source";
@@ -102,53 +100,44 @@ fn train_section(group: &CiTrainGroup, id: &str) -> Value {
     })
 }
 
+/// The filter bar (ci-page-view.json, #EXP-2169 "one look"): ONE Toolbar of
+/// three `Select{button}` pickers (status, repository, source), the app's
+/// ordinary picker buttons; wide adds the runner Chip at its end.
 fn filters(input: &CiPageInput, state: &PageState) -> Value {
     let id = model::test_id;
-    let items: Vec<Value> = [CiFilter::All, CiFilter::Running, CiFilter::Failed, CiFilter::Mine]
+    let picker = |id: &str, label: &str, value: &str, options: Value, event: &str| {
+        json!({
+            "id": id,
+            "component": "Select",
+            "props": {"name": id, "label": label, "triggerVariant": "button", "value": value, "options": options},
+            "on": change(event),
+        })
+    };
+    let statuses: Vec<Value> = [CiFilter::All, CiFilter::Running, CiFilter::Failed, CiFilter::Mine]
         .iter()
         .map(|value| json!({"label": model::copy(&format!("filters.{}", value.id())), "value": value.id()}))
         .collect();
-    let mut status_props = json!({"items": items, "value": state.filter.status.id(), "size": "sm"});
-    if state.phone {
-        status_props["fill"] = json!(true);
-    }
-    let status = json!({"id": id("statusFilter"), "component": "Segmented", "props": status_props, "on": change(EVENT_STATUS)});
-    let repository = json!({
-        "id": id("repoFilter"),
-        "component": "Select",
-        "props": {
-            "name": id("repoFilter"),
-            "triggerVariant": "pill",
-            "value": state.filter.repository_id.clone().unwrap_or_else(|| "all".into()),
-            "options": model::ci_repo_options(input),
-        },
-        "on": change(EVENT_REPOSITORY),
-    });
-    let source = json!({
-        "id": id("sourceFilter"),
-        "component": "Select",
-        "props": {
-            "name": id("sourceFilter"),
-            "triggerVariant": "pill",
-            "value": state.filter.source.map(CiSource::id).unwrap_or("all"),
-            "options": [
-                {"label": model::copy("sources.all"), "value": "all"},
-                {"label": model::copy("sources.exponential"), "value": "exponential"},
-                {"label": model::copy("sources.github"), "value": "github"},
-            ],
-        },
-        "on": change(EVENT_SOURCE),
-    });
-    if state.phone {
-        return json!({
-            "id": id("filters"),
-            "component": "Stack",
-            "props": {"direction": "vertical", "gap": "sm", "align": "stretch"},
-            "children": [status, {"id": format!("{}.picks", id("filters")), "component": "Toolbar", "children": [repository, source]}],
-        });
-    }
+    let status = picker(id("statusFilter"), model::copy("filterLabels.status"), state.filter.status.id(), json!(statuses), EVENT_STATUS);
+    let repository = picker(
+        id("repoFilter"),
+        model::copy("filterLabels.repository"),
+        state.filter.repository_id.as_deref().unwrap_or("all"),
+        json!(model::ci_repo_options(input)),
+        EVENT_REPOSITORY,
+    );
+    let source = picker(
+        id("sourceFilter"),
+        model::copy("filterLabels.source"),
+        state.filter.source.map(CiSource::id).unwrap_or("all"),
+        json!([
+            {"label": model::copy("sources.all"), "value": "all"},
+            {"label": model::copy("sources.exponential"), "value": "exponential"},
+            {"label": model::copy("sources.github"), "value": "github"},
+        ]),
+        EVENT_SOURCE,
+    );
     let mut node = json!({"id": id("filters"), "component": "Toolbar", "children": [status, repository, source]});
-    if let Some((label, online)) = model::ci_runner_chip(input) {
+    if let Some((label, online)) = model::ci_runner_chip(input).filter(|_| !state.phone) {
         node["slots"] = json!({"trailing": {
             "id": id("runnerChip"),
             "component": "Chip",
@@ -206,32 +195,45 @@ fn run_row(row: &CiRunListRow, phone: bool) -> Value {
     })
 }
 
+/// The runs as day Sections (or the EmptyState): the Runs tab's body, and
+/// the repo page's Runs tab ([`repo_runs_tree`]).
+fn run_sections(input: &CiPageInput, filter: &CiRunFilter, phone: bool, filtered: bool) -> Value {
+    let id = model::test_id;
+    let groups = model::ci_run_groups(input, filter);
+    if groups.is_empty() {
+        let title = if filtered { model::copy("empty.filtered") } else { model::copy("empty.runs") };
+        return json!({"id": id("runs"), "component": "EmptyState", "props": {"icon": "nav-ci", "title": title, "size": "list"}});
+    }
+    let sections: Vec<Value> = groups
+        .iter()
+        .map(|group| {
+            let mut props = json!({"title": group.title});
+            if let Some(count) = group.count {
+                props["count"] = json!(count);
+            }
+            json!({
+                "id": format!("{}.{}", id("runs"), group.id),
+                "component": "Section",
+                "props": props,
+                "children": group.rows.iter().map(|row| run_row(row, phone)).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    vstack(id("runs"), "md", sections)
+}
+
 fn runs_panel(input: &CiPageInput, state: &PageState) -> Value {
     let id = model::test_id;
-    let groups = model::ci_run_groups(input, &state.filter);
-    let mut children = vec![filters(input, state)];
-    if groups.is_empty() {
-        let title = if state.filter.filtered() { model::copy("empty.filtered") } else { model::copy("empty.runs") };
-        children.push(json!({"id": id("runs"), "component": "EmptyState", "props": {"icon": "nav-ci", "title": title, "size": "list"}}));
-    } else {
-        let sections: Vec<Value> = groups
-            .iter()
-            .map(|group| {
-                let mut props = json!({"title": group.title});
-                if let Some(count) = group.count {
-                    props["count"] = json!(count);
-                }
-                json!({
-                    "id": format!("{}.{}", id("runs"), group.id),
-                    "component": "Section",
-                    "props": props,
-                    "children": group.rows.iter().map(|row| run_row(row, state.phone)).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        children.push(vstack(id("runs"), "md", sections));
-    }
-    vstack(&format!("{}.runs", id("page")), "md", children)
+    let sections = run_sections(input, &state.filter, state.phone, state.filter.filtered());
+    vstack(&format!("{}.runs", id("page")), "md", vec![filters(input, state), sections])
+}
+
+/// THE REPO PAGE'S RUNS TAB (#EXP-2169 "one look", web `ciRepoRunsTree`):
+/// the CI page's runs of ONE repository, the same day Sections and rows, no
+/// filter bar. Events: the page's `ci-open-run {run}`.
+pub(crate) fn repo_runs_tree(input: &CiPageInput, repository_id: &str, phone: bool) -> Value {
+    let filter = CiRunFilter { status: CiFilter::All, repository_id: Some(repository_id.to_string()), source: None };
+    run_sections(input, &filter, phone, false)
 }
 
 fn train_panel(input: &CiPageInput) -> Value {
@@ -282,38 +284,29 @@ fn runners_panel(input: &CiPageInput) -> Value {
     json!({"id": id("runners"), "component": "Section", "props": {}, "children": children})
 }
 
-/// The CI page as ONE document (web's `ciPageTree`): the tab strip, then the
-/// current tab's panel (the others are empty stacks).
+/// The CI page's body (web's `ciPageTree`): the CURRENT tab's panel. The tab
+/// switcher is the app's segmented capsule ([`crate::controls::page_tabs`],
+/// #EXP-2169 "one look"), drawn by the view above this tree.
 pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
-    let id = model::test_id;
-    let (train, runners) = model::ci_tab_counts(input);
-    let tab = |value: CiTab, count: usize| {
-        let mut tab = json!({"label": model::copy(&format!("tabs.{}", value.id())), "value": value.id()});
-        if count > 0 {
-            tab["count"] = json!(count);
-        }
-        tab
-    };
-    let mut tabs_props = json!({"tabs": [tab(CiTab::Runs, 0), tab(CiTab::Train, train), tab(CiTab::Runners, runners)], "value": state.tab.id(), "variant": "strip"});
-    if state.phone {
-        tabs_props["fill"] = json!(true);
+    match state.tab {
+        CiTab::Runs => runs_panel(input, state),
+        CiTab::Train => train_panel(input),
+        CiTab::Runners => runners_panel(input),
     }
-    let empty = |tab: CiTab| vstack(&format!("{}.{}", id("page"), tab.id()), "md", Vec::new());
-    let runs = if state.tab == CiTab::Runs { runs_panel(input, state) } else { empty(CiTab::Runs) };
-    let train_tab = if state.tab == CiTab::Train { train_panel(input) } else { empty(CiTab::Train) };
-    let runners_tab = if state.tab == CiTab::Runners { runners_panel(input) } else { empty(CiTab::Runners) };
-    json!({
-        "id": id("page"),
-        "component": "Stack",
-        "props": {"direction": "vertical", "gap": "lg", "align": "stretch"},
-        "children": [{
-            "id": id("tabs"),
-            "component": "Tabs",
-            "props": tabs_props,
-            "on": change(EVENT_TAB),
-            "children": [runs, train_tab, runners_tab],
-        }],
-    })
+}
+
+/// The tab switcher's entries: copy.tabs, Merge train and Runners counted
+/// (`ciTabCounts`; Runs none, zero = none).
+fn page_tabs(input: Option<&CiPageInput>) -> Vec<crate::controls::PageTab> {
+    let (train, runners) = input.map(model::ci_tab_counts).unwrap_or_default();
+    [(CiTab::Runs, 0), (CiTab::Train, train), (CiTab::Runners, runners)]
+        .into_iter()
+        .map(|(tab, count)| crate::controls::PageTab {
+            value: tab.id().to_string(),
+            label: model::copy(&format!("tabs.{}", tab.id())).to_string(),
+            count: (count > 0).then_some(count),
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -371,57 +364,72 @@ pub(crate) fn repo_full_name(repository_id: &str, cx: &mut App) -> Option<String
     repo_names(cx).read(cx).names.get(repository_id).cloned()
 }
 
+/// A synced timestamp (Postgres' `2026-11-26 12:03:05.335+00`) as the ISO
+/// instant the catalog's `formatRelativeTime` reads (web hands it a `Date`).
+pub(crate) fn iso_instant(text: &str) -> String {
+    domain::instant::parse_instant(text)
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// A synced `ci_runs` row as the page's run.
+pub(crate) fn page_run(run: &domain::rows::CiRunRow) -> CiPageRun {
+    CiPageRun {
+        id: run.id.clone(),
+        repository_id: run.repository_id.clone().unwrap_or_default(),
+        number: run.number.unwrap_or_default(),
+        name: run.name.clone(),
+        sha: run.sha.clone(),
+        r#ref: run.r#ref.clone(),
+        trigger: run.trigger.clone().unwrap_or_default(),
+        state: run.state.clone(),
+        pull_request_id: run.pull_request_id.clone(),
+        created_by_user_id: run.created_by_user_id.clone(),
+        provider: run.provider.clone().unwrap_or_else(|| "exponential".into()),
+        started_at: run.started_at.as_deref().map(iso_instant),
+        completed_at: run.completed_at.as_deref().map(iso_instant),
+        created_at: run.created_at.as_deref().map(iso_instant).unwrap_or_default(),
+        title: run.title.clone().filter(|title| !title.is_empty()),
+    }
+}
+
+/// A synced `ci_jobs` row as the page's job.
+pub(crate) fn page_job(job: &domain::rows::CiJobRow) -> CiPageJob {
+    CiPageJob {
+        run_id: job.run_id.clone(),
+        status: job.status.clone(),
+        conclusion: job.conclusion.clone(),
+        runs_on: job
+            .runs_on
+            .as_ref()
+            .and_then(Value::as_array)
+            .map(|labels| labels.iter().filter_map(|label| label.as_str().map(str::to_string)).collect())
+            .unwrap_or_default(),
+        runner_device_id: job.runner_device_id.clone(),
+        provider: job.provider.clone().unwrap_or_else(|| "exponential".into()),
+    }
+}
+
 /// Every synced row the page reads, as [`CiPageInput`] (`repos` = what
 /// [`repo_names`] holds; `None` = no store).
 pub(crate) fn live_input(with_repos: bool, cx: &mut App) -> Option<CiPageInput> {
-    let store = Store::try_global(cx)?;
-    let collections = store.collections().clone();
-    let viewer_id = crate::session_data::signed_in_user(cx).unwrap_or_default();
     let repos: Vec<CiPageRepo> = if with_repos {
         repo_names(cx).read(cx).names.iter().map(|(id, name)| CiPageRepo { id: id.clone(), full_name: name.clone() }).collect()
     } else {
         Vec::new()
     };
-    let runs: Vec<CiPageRun> = collections
-        .ci_runs
-        .read(cx)
-        .iter()
-        .map(|run| CiPageRun {
-            id: run.id.clone(),
-            repository_id: run.repository_id.clone().unwrap_or_default(),
-            number: run.number.unwrap_or_default(),
-            name: run.name.clone(),
-            sha: run.sha.clone(),
-            r#ref: run.r#ref.clone(),
-            trigger: run.trigger.clone().unwrap_or_default(),
-            state: run.state.clone(),
-            pull_request_id: run.pull_request_id.clone(),
-            created_by_user_id: run.created_by_user_id.clone(),
-            provider: run.provider.clone().unwrap_or_else(|| "exponential".into()),
-            started_at: run.started_at.clone(),
-            completed_at: run.completed_at.clone(),
-            created_at: run.created_at.clone().unwrap_or_default(),
-            title: run.title.clone().filter(|title| !title.is_empty()),
-        })
-        .collect();
-    let jobs: Vec<CiPageJob> = collections
-        .ci_jobs
-        .read(cx)
-        .iter()
-        .map(|job| CiPageJob {
-            run_id: job.run_id.clone(),
-            status: job.status.clone(),
-            conclusion: job.conclusion.clone(),
-            runs_on: job
-                .runs_on
-                .as_ref()
-                .and_then(Value::as_array)
-                .map(|labels| labels.iter().filter_map(|label| label.as_str().map(str::to_string)).collect())
-                .unwrap_or_default(),
-            runner_device_id: job.runner_device_id.clone(),
-            provider: job.provider.clone().unwrap_or_else(|| "exponential".into()),
-        })
-        .collect();
+    synced_input(repos, cx)
+}
+
+/// [`live_input`] over the given `repos` (the repo page's Runs tab: that
+/// repository alone).
+pub(crate) fn synced_input(repos: Vec<CiPageRepo>, cx: &App) -> Option<CiPageInput> {
+    let store = Store::try_global(cx)?;
+    let collections = store.collections().clone();
+    let viewer_id = crate::session_data::signed_in_user(cx).unwrap_or_default();
+    let runs: Vec<CiPageRun> = collections.ci_runs.read(cx).iter().map(page_run).collect();
+    let jobs: Vec<CiPageJob> = collections.ci_jobs.read(cx).iter().map(page_job).collect();
     let pull_requests: Vec<CiPagePr> = collections
         .pull_requests
         .read(cx)
@@ -499,6 +507,7 @@ pub(crate) struct CiPageView {
     state: PageState,
     view: Entity<SurfaceView>,
     last: Value,
+    scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -530,17 +539,12 @@ impl CiPageView {
             let names = repo_names(cx);
             subscriptions.push(cx.observe(&names, |_, _, cx| cx.notify()));
         }
-        Self { source, state: PageState::default(), view, last: Value::Null, _subscriptions: subscriptions }
+        Self { source, state: PageState::default(), view, last: Value::Null, scroll: gpui::ScrollHandle::new(), _subscriptions: subscriptions }
     }
 
     fn on_action(&mut self, event: ActionEvent, cx: &mut Context<Self>) {
         let value = event.payload.as_ref().and_then(|payload| payload["value"].as_str()).map(str::to_string);
         match event.name.as_str() {
-            EVENT_TAB => {
-                if let Some(tab) = value.as_deref().and_then(CiTab::parse) {
-                    self.state.tab = tab;
-                }
-            }
             // eUI Select fires `change {open}` on open/close: only a value moves it.
             EVENT_STATUS => {
                 if let Some(value) = value {
@@ -590,12 +594,11 @@ impl CiPageView {
         cx.notify();
     }
 
-    fn tree(&self, cx: &mut Context<Self>) -> Option<Value> {
-        let input = match self.source {
-            Source::Specimen => model::scenario(),
-            Source::Live => live_input(true, cx)?,
-        };
-        Some(page_tree(&input, &self.state))
+    fn input(&self, cx: &mut Context<Self>) -> Option<CiPageInput> {
+        match self.source {
+            Source::Specimen => Some(model::scenario()),
+            Source::Live => live_input(true, cx),
+        }
     }
 }
 
@@ -619,15 +622,29 @@ pub(crate) fn open_pull_request(pr_id: &str, cx: &mut App) {
 impl Render for CiPageView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "CiPageView").entered();
-        let tree = self.tree(cx).unwrap_or_else(|| json!({"id": model::test_id("page"), "component": "Skeleton", "props": {"rows": 6}}));
+        let input = self.input(cx);
+        let tree = input
+            .as_ref()
+            .map(|input| page_tree(input, &self.state))
+            .unwrap_or_else(|| json!({"id": model::test_id("page"), "component": "Skeleton", "props": {"rows": 6}}));
         crate::ci_run::show(&self.view, &mut self.last, tree, cx);
-        div()
-            .id("ci-page")
-            .size_full()
-            .overflow_y_scroll()
-            .p_6()
-            .child(div().w_full().max_w(gpui::px(1100.)).child(self.view.clone()))
-            .child(crate::assistant_fab::page_end(window, cx))
+        let weak = cx.entity().downgrade();
+        let on_pick: Rc<dyn Fn(String, &mut Window, &mut App)> = Rc::new(move |value, _, cx| {
+            let _ = weak.update(cx, |this, cx| {
+                if let Some(tab) = CiTab::parse(&value) {
+                    this.state.tab = tab;
+                    cx.notify();
+                }
+            });
+        });
+        let tabs = crate::controls::page_tabs(model::test_id("tabs"), page_tabs(input.as_ref()), self.state.tab.id(), on_pick, cx);
+        // #EXP-2169 ("one look"): the device page's column and entity heading
+        // (`nav-ci` + "CI").
+        let heading = crate::scroll_pane::page_heading(gpui_component::Icon::new(crate::icons::registry::NAV_CI), model::copy("title").into(), cx);
+        // Web: the heading, then (space-y-4) the switcher over the panel.
+        let body = gpui_component::v_flex().gap_4().child(tabs).child(self.view.clone());
+        let column = gpui_component::v_flex().gap_6().child(crate::controls::web_rem(heading)).child(body);
+        crate::scroll_pane::page_scaffold("ci-page", &self.scroll, column, window, cx)
     }
 }
 
@@ -681,13 +698,24 @@ mod tests {
         let fixture: Value = serde_json::from_str(VIEW_FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
         assert!(!cases.is_empty());
+        assert!(cases.iter().any(|case| case["repositoryId"].is_string()), "the repo page's Runs tab cases");
         for case in cases {
+            let world = world(case["world"].as_str().unwrap());
+            let phone = case["phone"].as_bool() == Some(true);
+            // #EXP-2169: a `repositoryId` case = the repo page's Runs tab.
+            if let Some(repository_id) = case["repositoryId"].as_str() {
+                let got = normalized(&repo_runs_tree(&world, repository_id, phone));
+                if let Some(drift) = first_drift("", &got, &normalized(&case["tree"])) {
+                    panic!("{}: {drift}", case["name"]);
+                }
+                continue;
+            }
             let state = PageState {
                 tab: CiTab::parse(case["tab"].as_str().unwrap()).unwrap(),
                 filter: serde_json::from_value(case["filter"].clone()).unwrap(),
-                phone: case["phone"].as_bool() == Some(true),
+                phone,
             };
-            let got = normalized(&page_tree(&world(case["world"].as_str().unwrap()), &state));
+            let got = normalized(&page_tree(&world, &state));
             if let Some(drift) = first_drift("", &got, &normalized(&case["tree"])) {
                 panic!("{}: {drift}", case["name"]);
             }
