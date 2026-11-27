@@ -15,6 +15,8 @@ export interface SettingsModule {
   kind: SettingsKind
   command?: string
   opens?: string
+  /** #EDE-274: the module's stack switcher (its pages, in order). */
+  tabs?: { value: string; label: string }[]
 }
 
 export interface SettingsTile {
@@ -35,9 +37,10 @@ export interface SettingsCategory {
 export interface SettingsState {
   module: string
   query: string
+  tab: string
 }
 
-export type SettingsEvent = { kind: `open`; id: string } | { kind: `back` } | { kind: `query`; text: string } | { kind: `submit` } | { kind: `link`; target: string } | { kind: string }
+export type SettingsEvent = { kind: `open`; id: string } | { kind: `back` } | { kind: `query`; text: string } | { kind: `submit` } | { kind: `link`; target: string } | { kind: `tab`; value: string } | { kind: string }
 
 export interface SettingsNavigation {
   state: SettingsState
@@ -75,8 +78,10 @@ function open(state: SettingsState, id: string, installed: string[]): SettingsNa
   const m = resolve(id)
   if (!m) return result(state)
   if (m.kind === `launch` && installed.includes(m.id)) return result(state, m.command ?? null)
-  return result({ module: m.id, query: state.query })
+  return result({ module: m.id, query: state.query, tab: firstTab(m) })
 }
+
+const firstTab = (m: SettingsModule): string => m.tabs?.[0]?.value ?? ``
 
 /** One navigation step of the window. */
 export function settingsNavigate(state: SettingsState, event: SettingsEvent, installed: string[]): SettingsNavigation {
@@ -85,7 +90,7 @@ export function settingsNavigate(state: SettingsState, event: SettingsEvent, ins
     case `open`:
       return open(s, (event as { id: string }).id, installed)
     case `back`:
-      return result({ ...s, module: `` })
+      return result({ ...s, module: ``, tab: `` })
     case `query`:
       return result(s.module ? s : { ...s, query: (event as { text: string }).text })
     case `submit`: {
@@ -98,11 +103,16 @@ export function settingsNavigate(state: SettingsState, event: SettingsEvent, ins
       if (t.startsWith(`~/settings`)) t = t.slice(`~/settings`.length)
       t = t.replace(/^\/+|\/+$/g, ``)
       t = SETTINGS_ALIASES[t] ?? t
-      const grid = { module: ``, query: `` }
+      const grid = { module: ``, query: ``, tab: `` }
       const m = t ? resolve(t) : undefined
       if (!m) return result(grid)
       if (m.kind === `launch` && installed.includes(m.id)) return result(grid, m.command ?? null)
-      return result({ module: m.id, query: `` })
+      return result({ module: m.id, query: ``, tab: firstTab(m) })
+    }
+    case `tab`: {
+      const value = (event as { value: string }).value
+      const m = SETTINGS_MODULES.find((x) => x.id === s.module)
+      return result(m?.tabs?.some((t) => t.value === value) ? { ...s, tab: value } : s)
     }
     default:
       return result(s)

@@ -24,12 +24,13 @@ pub struct Nav {
 }
 
 impl Nav {
-    /// The launch modules whose command is on `PATH` (the goldens: all of them).
+    /// The launch modules whose command is on `PATH` (the goldens: none, so
+    /// a capture never starts a tool of the machine it runs on).
     pub fn probe(demo: bool) -> Self {
         let installed = settings_modules()
             .iter()
             .filter(|m| m.kind == SettingsKind::Launch)
-            .filter(|m| demo || m.command.as_deref().and_then(|c| c.split_whitespace().next()).is_some_and(on_path))
+            .filter(|m| !demo && m.command.as_deref().and_then(|c| c.split_whitespace().next()).is_some_and(on_path))
             .map(|m| m.id.clone())
             .collect();
         Self { state: SettingsState::default(), installed }
@@ -68,6 +69,7 @@ impl Nav {
         json!({
             "module": self.state.module,
             "query": self.state.query,
+            "tab": self.state.tab,
             "title": nav.title,
             "inModule": !self.state.module.is_empty(),
             "kind": kind.unwrap_or(""),
@@ -82,7 +84,7 @@ fn on_path(bin: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
 }
 
-/// `ede_settings_nav {action: open|back|query|submit|link, module?, query?, target?}`.
+/// `ede_settings_nav {action: open|back|query|submit|link|tab, module?, query?, target?, tab?}`.
 pub fn event_of(args: &Value) -> Option<SettingsEvent> {
     let text = |k: &str| args.get(k).and_then(Value::as_str).map(String::from);
     Some(match args.get("action").and_then(Value::as_str)? {
@@ -91,6 +93,7 @@ pub fn event_of(args: &Value) -> Option<SettingsEvent> {
         "query" => SettingsEvent::Query { text: text("query").unwrap_or_default() },
         "submit" => SettingsEvent::Submit,
         "link" => SettingsEvent::Link { target: text("target").unwrap_or_default() },
+        "tab" => SettingsEvent::Tab { value: text("tab")? },
         _ => return None,
     })
 }
@@ -127,6 +130,7 @@ mod tests {
         assert_eq!(event_of(&json!({"action": "open", "module": "sound"})), Some(SettingsEvent::Open { id: "sound".into() }));
         assert_eq!(event_of(&json!({"action": "query", "query": "blu"})), Some(SettingsEvent::Query { text: "blu".into() }));
         assert_eq!(event_of(&json!({"action": "open"})), None);
+        assert_eq!(event_of(&json!({"action": "tab", "tab": "input"})), Some(SettingsEvent::Tab { value: "input".into() }));
         assert_eq!(event_of(&json!({"action": "nope"})), None);
         assert!(is_back_key("left", true, false));
         assert!(!is_back_key("left", false, false));

@@ -59,6 +59,9 @@ pub fn pages_json() -> Value {
         "workspaces": workspaces_json(),
         "windows": windows_json(&settings::read_table()),
         "mouse": mouse_json(),
+        "hotcorners": hot_corners_json(&settings::read_table()),
+        "screensaver": screensaver_json(&settings::read_table()),
+        "users": {"list": std::fs::read_to_string("/etc/passwd").map(|t| parse_users(&t)).unwrap_or_default()},
     })
 }
 
@@ -118,6 +121,31 @@ pub fn handle(args: &Value) -> Result<Handled, String> {
             run("xdg-mime", &args)?;
             Ok(Handled::Applied { reload: false })
         }
+        // #EDE-274: Hot Corners (`[hot_corners]`, Cinnamon's hotcorner-layout).
+        "hotcorners" => {
+            let t = settings::read_table();
+            if key == "fullscreen" {
+                settings::persist_key("hot_corners", "fullscreen", toml::Value::Boolean(value.as_bool().ok_or("value is a boolean")?))?;
+            } else {
+                let i = CORNERS.iter().position(|(k, _)| *k == key).ok_or_else(|| format!("{key}: no such corner"))?;
+                let mut layout = corner_layout(&t);
+                layout[i] = corner_set(&layout[i], value.as_str().ok_or("value is an action")?);
+                settings::persist_key("hot_corners", "layout", toml::Value::Array(layout.into_iter().map(toml::Value::String).collect()))?;
+            }
+            Ok(Handled::Applied { reload: true })
+        }
+        // #EDE-274: Screensaver = the lock (`[idle] lock_after`, `[lock] on_suspend`).
+        "screensaver" => {
+            match key {
+                "lock_after" => {
+                    let secs = value.as_str().and_then(|v| v.parse::<i64>().ok()).or_else(|| value.as_i64()).filter(|s| *s >= 0).ok_or("value is seconds")?;
+                    settings::persist_key("idle", "lock_after", toml::Value::Integer(secs))?;
+                }
+                "on_suspend" => settings::persist_key("lock", "on_suspend", toml::Value::Boolean(value.as_bool().ok_or("value is a boolean")?))?,
+                other => return Err(format!("{other}: no such screensaver key")),
+            }
+            Ok(Handled::Applied { reload: true })
+        }
         other => Err(format!("{other}: the compositor applies no such setting yet")),
     }
 }
@@ -175,6 +203,101 @@ pub fn windows_json(table: &toml::Table) -> Value {
         "titleBar": "Maximize",
         "altTab": "Most recent first",
     })
+}
+
+// ---- hot corners, the screensaver, users (#EDE-274) ---------------------------
+
+/// The four corners in `hotcorner-layout`'s order, with Cinnamon's names.
+const CORNERS: [(&str, &str); 4] = [("top-left", "Top left"), ("top-right", "Top right"), ("bottom-left", "Bottom left"), ("bottom-right", "Bottom right")];
+
+/// The compositor's default layout (all off), as `[hot_corners]` reads it.
+const DEFAULT_LAYOUT: [&str; 4] = ["expo:false:0", "scale:false:0", "scale:false:0", "desktop:false:0"];
+
+fn corner_layout(t: &toml::Table) -> Vec<String> {
+    let layout: Vec<String> = t.get("hot_corners").and_then(|h| h.get("layout")).and_then(|l| l.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+    if layout.len() == 4 { layout } else { DEFAULT_LAYOUT.iter().map(|s| s.to_string()).collect() }
+}
+
+/// `action:enabled:delay` split as the compositor does (a command keeps its colons).
+fn corner_parts(entry: &str) -> (String, bool, String) {
+    let mut parts: Vec<&str> = entry.split(':').collect();
+    if parts.len() < 2 {
+        return (entry.to_string(), false, "0".into());
+    }
+    let (delay, enabled) = if parts.len() >= 3 { (parts.pop().unwrap(), parts.pop().unwrap()) } else { ("0", parts.pop().unwrap()) };
+    (parts.join(":"), enabled == "true", delay.to_string())
+}
+
+/// A corner set to `value` (`off`, or an action): off keeps the action, as Cinnamon's toggle does.
+pub fn corner_set(entry: &str, value: &str) -> String {
+    let (action, _, delay) = corner_parts(entry);
+    match value {
+        "off" => format!("{action}:false:{delay}"),
+        other => format!("{other}:true:{delay}"),
+    }
+}
+
+/// The Hot Corners page: each corner's action (`off` when disabled) and
+/// what it may do; a command the person wrote by hand is offered as itself.
+pub fn hot_corners_json(t: &toml::Table) -> Value {
+    let layout = corner_layout(t);
+    let corners: Vec<Value> = CORNERS
+        .iter()
+        .zip(layout.iter())
+        .map(|((id, label), entry)| {
+            let (action, enabled, _) = corner_parts(entry);
+            let mut options = vec![json!({"label": "Off", "value": "off"}), json!({"label": "Show all workspaces", "value": "expo"}), json!({"label": "Show all windows", "value": "scale"}), json!({"label": "Show the desktop", "value": "desktop"})];
+            if !["expo", "scale", "desktop"].contains(&action.as_str()) {
+                options.push(json!({"label": format!("Run {action}"), "value": action}));
+            }
+            json!({"id": id, "label": label, "value": if enabled { action } else { "off".to_string() }, "options": options})
+        })
+        .collect();
+    let fullscreen = t.get("hot_corners").and_then(|h| h.get("fullscreen")).and_then(|v| v.as_bool()).unwrap_or(false);
+    json!({"corners": corners, "fullscreen": fullscreen})
+}
+
+/// The Screensaver page: the lock after idle (`[idle] lock_after`,
+/// seconds as the Select's value), before suspend, and the locker.
+pub fn screensaver_json(t: &toml::Table) -> Value {
+    let lock_after = t.get("idle").and_then(|i| i.get("lock_after")).and_then(|v| v.as_integer()).unwrap_or(600);
+    let on_suspend = t.get("lock").and_then(|l| l.get("on_suspend")).and_then(|v| v.as_bool()).unwrap_or(true);
+    let command: Vec<String> = t.get("lock").and_then(|l| l.get("command")).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+    let mut steps: Vec<i64> = vec![0, 60, 120, 300, 600, 900, 1800, 3600];
+    if !steps.contains(&lock_after) {
+        steps.push(lock_after);
+        steps.sort();
+    }
+    let label = |s: i64| match s {
+        0 => "Never".to_string(),
+        s if s % 60 == 0 && s / 60 == 1 => "1 minute".to_string(),
+        s if s % 60 == 0 => format!("{} minutes", s / 60),
+        s => format!("{s} seconds"),
+    };
+    json!({
+        "lockAfter": lock_after.to_string(),
+        "options": steps.into_iter().map(|s| json!({"label": label(s), "value": s.to_string()})).collect::<Vec<_>>(),
+        "onSuspend": on_suspend,
+        "locker": if command.is_empty() { "Exponential's lock screen".to_string() } else { command.join(" ") },
+    })
+}
+
+/// The people who log in here (`/etc/passwd`: uid 1000 to 59999 with a login shell), by name.
+pub fn parse_users(text: &str) -> Vec<Value> {
+    let mut out: Vec<(String, String)> = text
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(':').collect();
+            let uid: u32 = f.get(2)?.parse().ok()?;
+            let shell = f.get(6).copied().unwrap_or_default();
+            ((1000..60000).contains(&uid) && !shell.ends_with("nologin") && !shell.ends_with("false")).then(|| {
+                let name = f.get(4).and_then(|g| g.split(',').next()).filter(|n| !n.is_empty()).unwrap_or(f[0]);
+                (name.to_string(), f[0].to_string())
+            })
+        })
+        .collect();
+    out.sort();
+    out.into_iter().map(|(name, login)| json!({"name": name, "login": login})).collect()
 }
 
 // ---- keyboard layouts: xkb's evdev.lst ----------------------------------------
@@ -632,6 +755,9 @@ fn demo_pages() -> Value {
         "workspaces": workspaces_json(),
         "windows": windows_json(&toml::Table::new()),
         "mouse": mouse_json(),
+        "hotcorners": hot_corners_json(&toml::Table::new()),
+        "screensaver": screensaver_json(&toml::Table::new()),
+        "users": {"list": parse_users("root:x:0:0:root:/root:/bin/bash\ndanny:x:1000:1000:Danny,,,:/home/danny:/bin/bash\nguest:x:1001:1001:Guest:/home/guest:/bin/bash\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n")},
     })
 }
 
@@ -746,6 +872,25 @@ mod tests {
         assert_eq!(roles[2]["value"], "", "a default that is not installed shows no pick");
         assert_eq!(roles[2]["options"], json!([{"label": "Files", "value": "nemo.desktop"}]));
         assert_eq!(role_mimes("mail"), Some(&["x-scheme-handler/mailto"][..]));
+    }
+
+    #[test]
+    fn hot_corners_screensaver_and_users_read_as_cinnamon_shows_them() {
+        let t: toml::Table = "[hot_corners]\nlayout = [\"expo:true:0\", \"scale:false:0\", \"xdg-open http://x:8080:true:0\", \"desktop:false:250\"]\n".parse().unwrap();
+        let h = hot_corners_json(&t);
+        assert_eq!(h["corners"][0]["value"], "expo");
+        assert_eq!(h["corners"][1]["value"], "off");
+        assert_eq!(h["corners"][2]["value"], "xdg-open http://x:8080", "a hand-written command is offered as itself");
+        assert_eq!(h["corners"][2]["options"].as_array().unwrap().len(), 5);
+        assert_eq!(corner_set("desktop:false:250", "scale"), "scale:true:250", "the delay stays");
+        assert_eq!(corner_set("expo:true:0", "off"), "expo:false:0", "off keeps the action");
+        assert_eq!(hot_corners_json(&toml::Table::new())["corners"][3]["value"], "off", "all off by default");
+        let s = screensaver_json(&"[idle]\nlock_after = 420\n".parse().unwrap());
+        assert_eq!((s["lockAfter"].as_str(), s["onSuspend"].as_bool()), (Some("420"), Some(true)));
+        assert!(s["options"].as_array().unwrap().iter().any(|o| o["label"] == "7 minutes"));
+        assert_eq!(screensaver_json(&toml::Table::new())["options"][0]["label"], "Never");
+        let users = parse_users("root:x:0:0:root:/root:/bin/bash\nana:x:1001:1001:Ana Lu,,,:/home/ana:/bin/bash\nbob:x:1000:1000::/home/bob:/bin/zsh\nsvc:x:1002:1002::/:/usr/sbin/nologin\n");
+        assert_eq!(users, vec![json!({"name": "Ana Lu", "login": "ana"}), json!({"name": "bob", "login": "bob"})]);
     }
 
     #[test]

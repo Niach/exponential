@@ -1307,6 +1307,22 @@ fn settings_show(shell: &SharedShell, cx: &mut App) {
     let title = shell.borrow().settings_nav.feed()["title"].as_str().unwrap_or_default().to_string();
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &title, cx);
     refresh(shell, cx);
+    settings_focus_search(shell, cx);
+}
+
+/// #EDE-274: on the grid the keyboard is in the search, as cinnamon-settings
+/// has it (the window opening, Back, Alt+Left), after the frame that shows it.
+fn settings_focus_search(shell: &SharedShell, cx: &mut App) {
+    if !shell.borrow().settings_nav.state.module.is_empty() {
+        return;
+    }
+    // The search shows from the next layout on: focus it once that frame is drawn.
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(120)).await;
+        let _ = cx.update(|cx| shell.borrow().surfaces.focus_component(system_settings::DOCUMENT, "search", cx));
+    })
+    .detach();
 }
 
 /// A settings window the person closed from its frame starts on the grid next time.
@@ -1336,6 +1352,9 @@ fn settings_step(shell: &SharedShell, event: uicore_model::settings::SettingsEve
     }
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &next.title, cx);
     refresh(shell, cx);
+    if matches!(event, uicore_model::settings::SettingsEvent::Back) || (show && matches!(event, uicore_model::settings::SettingsEvent::Link { .. })) {
+        settings_focus_search(shell, cx);
+    }
 }
 
 /// #VAPP-273: the apps on the Engine for the current switcher entry: a

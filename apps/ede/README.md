@@ -318,7 +318,17 @@ the workspace count and wrap-around, the 24-hour clock) is a read-only
 value row, never a dead control; the Exponential category (Account, This
 Device with the Local desktop's Share as a team…, Agents, Computer Use,
 Voice) shows what this desktop has and leads to the Exponential app for the
-rest. `EDE_SHELL_SETTINGS_PAGE=<module>` under `EDE_SHELL_DEMO` opens a
+rest. #EDE-274: a module with pages (Sound, Windows, Keyboard) has
+cinnamon-settings' stack switcher in the header (`tab`); on the grid the
+keyboard is in the search (the window opening, Back, Alt+Left). Themes
+and Font Selection pick the bridge's GTK, icon and cursor themes and fonts
+(`[theme]` + `exponential-theme sync`), Hot Corners writes `[hot_corners]`,
+Screensaver `[idle] lock_after` and `[lock] on_suspend` (`ede_settings
+{page: hotcorners|screensaver}`), General holds the scaling switches;
+Backgrounds, Panel and Privacy are read-only rows of what eDE does; Users
+and Groups without Mint's tool is the Users list with Manage users. The
+goldens never start a Mint tool (none counts as installed under the demo).
+`EDE_SHELL_SETTINGS_PAGE=<module>` under `EDE_SHELL_DEMO` opens a
 golden on that module (the goldens `ede-settings`, `ede-settings-module`,
 `ede-settings-share`).
 
