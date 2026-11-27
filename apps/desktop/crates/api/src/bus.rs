@@ -24,8 +24,14 @@
 //!   thumbnails and window list wear them. The holder keeps them on a
 //!   [`WindowBoard`].
 //!
-//! Later phases ride the same socket (the shell's feeds): new ops, new
-//! replies.
+//! - **Feeds (#EDE-258):** what the shell's start menu navigates, from the
+//!   holder's store: [`Request::Feeds`] long-polls one JSON object (the
+//!   IDE sidebar's tree, the recent chats, the Assistant's last messages,
+//!   the account; the holder keeps it on a [`FeedBoard`]).
+//!   [`Request::Page`] opens a page by its #EDE-237 window key,
+//!   [`Request::Search`] ranks the holder's issues, [`Request::Ask`] sends a
+//!   line to the viewer's Assistant. A reply may be large: a client reads
+//!   one up to [`MAX_REPLY`].
 
 use std::{
     io::{self, BufRead, BufReader, Read as _, Write},
@@ -44,10 +50,13 @@ use serde::{Deserialize, Serialize};
 pub const SOCKET: &str = "exp-desktop.bus";
 
 /// This end's version of the bus (in [`Reply::Hello`]).
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
-/// The longest line either end reads (a link, a command, a token).
+/// The longest request line the holder reads (a link, a command, a token).
 pub const MAX_LINE: usize = 64 * 1024;
+
+/// #EDE-258: the longest reply line a client reads (the feeds).
+pub const MAX_REPLY: usize = 8 * 1024 * 1024;
 
 /// How long a client waits for the holder to take and answer a request.
 pub const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -59,6 +68,12 @@ pub const WINDOWS_WAIT: Duration = Duration::from_secs(25);
 
 /// A [`Request::Windows`] client's read timeout.
 pub const WINDOWS_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// #EDE-258: [`WINDOWS_WAIT`] for [`Request::Feeds`].
+pub const FEEDS_WAIT: Duration = Duration::from_secs(25);
+
+/// A [`Request::Feeds`] client's read timeout.
+pub const FEEDS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The bus socket of the app whose data directory is `data_dir`.
 pub fn socket_path(data_dir: &Path) -> PathBuf {
@@ -94,6 +109,30 @@ pub enum Request {
     Windows {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<u64>,
+    },
+    /// #EDE-258: the start menu's feeds ([`Reply::Feeds`]), long-polled
+    /// like [`Request::Windows`] ([`FEEDS_WAIT`]).
+    Feeds {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<u64>,
+    },
+    /// #EDE-258: focus the window holding the page `key` (an #EDE-237
+    /// window key, `board:<id>`, `chat:<root>`, `home`, …), else open it;
+    /// it comes to the front with `activation_token`. [`Reply::Done`], or
+    /// [`Reply::Refused`] for a key that names no page.
+    Page {
+        key: String,
+        #[serde(default, rename = "activationToken", skip_serializing_if = "Option::is_none")]
+        activation_token: Option<String>,
+    },
+    /// #EDE-258: the holder's issues ranked for `query` ([`Reply::Search`]).
+    Search { query: String },
+    /// #EDE-258: send `text` to the viewer's Assistant (no window opens).
+    /// [`Reply::Done`], or [`Reply::Refused`] with no Assistant.
+    Ask {
+        text: String,
+        #[serde(default, rename = "activationToken", skip_serializing_if = "Option::is_none")]
+        activation_token: Option<String>,
     },
 }
 
@@ -142,6 +181,12 @@ pub enum Reply {
     /// #EDE-237: the holder's windows at `generation`, oldest first; its
     /// toplevels carry the app id `app_id`.
     Windows { generation: u64, #[serde(rename = "appId")] app_id: String, windows: Vec<WindowMeta> },
+    /// #EDE-258: the feeds object at `generation`.
+    Feeds { generation: u64, feeds: serde_json::Value },
+    /// #EDE-258: the ranked issues, at most 8, each a start menu issue
+    /// (`id`, `identifier`, `title`, `status`, `source`, `sourceId`,
+    /// `sourceName`, `board`) plus its page `key` (`issue:<id>`).
+    Search { issues: Vec<serde_json::Value> },
 }
 
 /// #EDE-237: the holder's windows as the bus hands them out: the
@@ -169,6 +214,47 @@ impl WindowBoard {
     /// (`None` = at once) or `wait` ran out.
     pub fn wait(&self, after: Option<u64>, wait: Duration) -> (u64, Vec<WindowMeta>) {
         let Ok(state) = self.state.lock() else { return (0, Vec::new()) };
+        let state = match after {
+            Some(after) => match self.changed.wait_timeout_while(state, wait, |state| state.0 <= after) {
+                Ok((state, _)) => state,
+                Err(poisoned) => poisoned.into_inner().0,
+            },
+            None => state,
+        };
+        (state.0, state.1.clone())
+    }
+}
+
+/// #EDE-258: the start menu's feeds as the bus hands them out: the
+/// foreground [`FeedBoard::set`]s them, a [`Request::Feeds`] waits on them
+/// from a bus thread ([`WindowBoard`]'s twin).
+pub struct FeedBoard {
+    state: std::sync::Mutex<(u64, serde_json::Value)>,
+    changed: std::sync::Condvar,
+}
+
+impl Default for FeedBoard {
+    fn default() -> Self {
+        FeedBoard { state: std::sync::Mutex::new((0, serde_json::Value::Null)), changed: std::sync::Condvar::new() }
+    }
+}
+
+impl FeedBoard {
+    /// The feeds now; a change bumps the generation and wakes the waits.
+    pub fn set(&self, feeds: serde_json::Value) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.1 == feeds {
+            return;
+        }
+        state.0 += 1;
+        state.1 = feeds;
+        self.changed.notify_all();
+    }
+
+    /// The generation and the feeds, once the generation is past `after`
+    /// (`None` = at once) or `wait` ran out. Nothing published = `null`.
+    pub fn wait(&self, after: Option<u64>, wait: Duration) -> (u64, serde_json::Value) {
+        let Ok(state) = self.state.lock() else { return (0, serde_json::Value::Null) };
         let state = match after {
             Some(after) => match self.changed.wait_timeout_while(state, wait, |state| state.0 <= after) {
                 Ok((state, _)) => state,
@@ -223,10 +309,15 @@ pub fn same_user(peer: &Peer) -> bool {
     peer.uid == own_uid()
 }
 
-/// Reads one request or reply line; `None` at the end of the stream.
+/// Reads one request line; `None` at the end of the stream.
 fn read_line<T: for<'de> Deserialize<'de>>(reader: &mut impl BufRead) -> io::Result<Option<Result<T, String>>> {
+    read_line_max(reader, MAX_LINE)
+}
+
+/// Reads one line of at most `max` bytes; `None` at the end of the stream.
+fn read_line_max<T: for<'de> Deserialize<'de>>(reader: &mut impl BufRead, max: usize) -> io::Result<Option<Result<T, String>>> {
     let mut line = Vec::new();
-    let n = reader.take(MAX_LINE as u64 + 1).read_until(b'\n', &mut line)?;
+    let n = reader.take(max as u64 + 1).read_until(b'\n', &mut line)?;
     if n == 0 {
         return Ok(None);
     }
@@ -307,7 +398,7 @@ impl Client {
     /// One request, its reply.
     pub fn call(&mut self, request: &Request) -> io::Result<Reply> {
         write_line(&mut self.writer, request)?;
-        match read_line::<Reply>(&mut self.reader)? {
+        match read_line_max::<Reply>(&mut self.reader, MAX_REPLY)? {
             Some(Ok(reply)) => Ok(reply),
             // A reply this end does not know (a newer holder).
             Some(Err(_)) => Ok(Reply::Unsupported),
@@ -366,7 +457,7 @@ mod tests {
         assert_eq!(client.call(&open).unwrap(), Reply::Done);
         assert_eq!(client.call(&Request::Handover).unwrap(), Reply::Refused { message: "no".into() });
         // A newer client's op: answered, the connection stays.
-        write_line(&mut client.writer, &serde_json::json!({"op": "feeds"})).unwrap();
+        write_line(&mut client.writer, &serde_json::json!({"op": "later-phase"})).unwrap();
         assert_eq!(read_line::<Reply>(&mut client.reader).unwrap().unwrap().unwrap(), Reply::Unsupported);
         assert_eq!(client.call(&Request::Hello).unwrap(), Reply::Hello { version: VERSION, pid: std::process::id(), role: Role::Standalone });
         assert_eq!(seen.lock().unwrap().len(), 4, "the unknown op never reached the handler");
@@ -407,6 +498,56 @@ mod tests {
         board.set(vec![meta("a"), meta("b")]);
         let (generation, windows) = waiter.join().unwrap();
         assert_eq!((generation, windows.len()), (2, 2));
+    }
+
+    #[test]
+    fn feeds_page_search_and_ask_keep_their_wire_shape() {
+        assert_eq!(serde_json::to_value(Request::Feeds { after: None }).unwrap(), serde_json::json!({"op": "feeds"}));
+        assert_eq!(serde_json::to_value(Request::Feeds { after: Some(2) }).unwrap(), serde_json::json!({"op": "feeds", "after": 2}));
+        let page = Request::Page { key: "board:b1".into(), activation_token: Some("t0k".into()) };
+        assert_eq!(serde_json::to_value(&page).unwrap(), serde_json::json!({"op": "page", "key": "board:b1", "activationToken": "t0k"}));
+        assert_eq!(serde_json::from_value::<Request>(serde_json::json!({"op": "page", "key": "home"})).unwrap(), Request::Page { key: "home".into(), activation_token: None });
+        assert_eq!(serde_json::to_value(Request::Search { query: "crash".into() }).unwrap(), serde_json::json!({"op": "search", "query": "crash"}));
+        let ask = Request::Ask { text: "hi".into(), activation_token: None };
+        assert_eq!(serde_json::to_value(&ask).unwrap(), serde_json::json!({"op": "ask", "text": "hi"}));
+        let feeds = serde_json::json!({"tree": [], "recents": [], "assistant": null, "account": null, "onLocal": false});
+        assert_eq!(
+            serde_json::to_value(Reply::Feeds { generation: 5, feeds: feeds.clone() }).unwrap(),
+            serde_json::json!({"reply": "feeds", "generation": 5, "feeds": feeds})
+        );
+        let issue = serde_json::json!({"id": "i1", "identifier": "EXP-1", "title": "A", "status": "backlog", "source": "team", "sourceId": "t1", "sourceName": "Exponential", "board": "Core", "key": "issue:i1"});
+        let search = Reply::Search { issues: vec![issue.clone()] };
+        assert_eq!(serde_json::to_value(&search).unwrap(), serde_json::json!({"reply": "search", "issues": [issue]}));
+        assert_eq!(serde_json::from_value::<Reply>(serde_json::to_value(&search).unwrap()).unwrap(), search);
+    }
+
+    #[test]
+    fn a_feeds_wait_answers_on_a_change_or_when_it_runs_out() {
+        let board = Arc::new(FeedBoard::default());
+        assert_eq!(board.wait(None, Duration::ZERO), (0, serde_json::Value::Null));
+        board.set(serde_json::json!({"tree": []}));
+        board.set(serde_json::json!({"tree": []}));
+        assert_eq!(board.wait(None, Duration::ZERO).0, 1, "the same feeds are no change");
+        let started = std::time::Instant::now();
+        assert_eq!(board.wait(Some(1), Duration::from_millis(50)).0, 1);
+        assert!(started.elapsed() >= Duration::from_millis(50));
+        let waiter = { let board = board.clone(); std::thread::spawn(move || board.wait(Some(1), Duration::from_secs(10))) };
+        std::thread::sleep(Duration::from_millis(30));
+        board.set(serde_json::json!({"tree": [1]}));
+        let (generation, feeds) = waiter.join().unwrap();
+        assert_eq!((generation, feeds), (2, serde_json::json!({"tree": [1]})));
+    }
+
+    #[test]
+    fn a_client_reads_a_reply_past_the_request_limit() {
+        let dir = dir();
+        let path = socket_path(&dir);
+        let big = serde_json::json!({"blob": "x".repeat(MAX_LINE * 4)});
+        let feeds = big.clone();
+        serve(&path, move |_, _| Reply::Feeds { generation: 1, feeds: feeds.clone() }).unwrap();
+        let reply = call(&path, &Request::Feeds { after: None }).unwrap();
+        assert_eq!(reply, Reply::Feeds { generation: 1, feeds: big });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
