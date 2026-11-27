@@ -498,8 +498,13 @@ async fn receive(inner: &Arc<Inner>, command: &PendingCommand, transfer_id: &str
                         ..base(transfer_id, role, "running")
                     }).await;
                     if let Some(answer) = answer.filter(|a| !a.ok) {
+                        // Wait for the abort to land: its file workers stop with it
+                        // (no byte is written after the command completes).
                         abort.abort();
+                        let _ = (&mut fetch).await;
                         let _ = node.xfer_fail(peer, transfer_id, answer.status.clone()).await;
+                        // An ended transfer never resumes: its journal goes (what arrived stays).
+                        let _ = tokio::fs::remove_file(&journal).await;
                         return (false, format!("Transfer {} on the server.", answer.status));
                     }
                 }
@@ -546,6 +551,7 @@ async fn receive(inner: &Arc<Inner>, command: &PendingCommand, transfer_id: &str
                 backoff = (backoff * 2).min(BACKOFF_MAX);
                 if let Some(answer) = report(inner, base(transfer_id, role, "running")).await {
                     if !answer.ok {
+                        let _ = tokio::fs::remove_file(&journal).await;
                         return (false, format!("Transfer {} on the server.", answer.status));
                     }
                 }
@@ -553,6 +559,7 @@ async fn receive(inner: &Arc<Inner>, command: &PendingCommand, transfer_id: &str
             Err(e) => {
                 let error = if enet_core::xfer_retryable(&e) { format!("no progress for {} min: {e}", STALL_LIMIT.as_secs() / 60) } else { e.to_string() };
                 let _ = node.xfer_fail(peer, transfer_id, error.clone()).await;
+                let _ = tokio::fs::remove_file(&journal).await;
                 return fail(inner, transfer_id, role, error).await;
             }
         }

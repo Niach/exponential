@@ -326,3 +326,41 @@ async fn a_symlinked_directory_inside_the_destination_is_never_followed() {
     src.shutdown().await.unwrap();
     dst.shutdown().await.unwrap();
 }
+
+/// A cancel aborts the fetch's task: the files in flight stop with it (the
+/// e2e run on 2026-11-27 caught detached workers streaming on for 90 s).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_aborted_fetch_stops_writing_at_once() {
+    let (src, dst) = (node().await, node().await);
+    pair(&src, &dst);
+    let dir = tmp("abort");
+    let root = dir.0.join("src");
+    std::fs::create_dir_all(&root).unwrap();
+    for i in 0..4u8 {
+        write_big(&root.join(format!("f{i}.bin")), 64, i);
+    }
+    src.xfer_offer(offer("c", &[&dst], &root));
+    let dest = dir.0.join("copy");
+    let dst = Arc::new(dst);
+    let progress = Arc::new(XferProgress::default());
+    let task = {
+        let (dst, progress, dest, journal, peer) = (dst.clone(), progress.clone(), dest.clone(), dir.0.join("journal"), src.endpoint_id());
+        tokio::spawn(async move { dst.xfer_fetch(peer, "c", &dest, &journal, progress).await })
+    };
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while progress.bytes_done.load(Ordering::Relaxed) < 16 << 20 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("progress");
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    // Let anything still running flush, then nothing may grow any more.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let at_abort = bytes_on_disk(&dest);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(bytes_on_disk(&dest), at_abort, "no byte lands after the abort");
+    assert!(at_abort < 4 * (64u64 << 20), "{at_abort}");
+    src.shutdown().await.unwrap();
+}

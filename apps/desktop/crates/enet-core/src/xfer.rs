@@ -632,7 +632,9 @@ async fn fetch_on(conn: &Connection, id: &str, dest: &Path, journal_path: &Path,
     for _ in 0..XFER_PARALLEL {
         let (conn, queue, journal, stop, progress) = (conn.clone(), queue.clone(), journal.clone(), stop.clone(), progress.clone());
         let (id, dest) = (id.to_string(), dest.to_path_buf());
-        workers.push(n0_future::task::spawn(async move {
+        // Aborted with this future: a cancelled fetch (the caller aborts its
+        // task) must stop the in-flight files too, not only the queue.
+        workers.push(n0_future::task::AbortOnDropHandle::new(n0_future::task::spawn(async move {
             loop {
                 if stop.load(Ordering::SeqCst) {
                     return Ok(());
@@ -643,7 +645,7 @@ async fn fetch_on(conn: &Connection, id: &str, dest: &Path, journal_path: &Path,
                     return Err(e);
                 }
             }
-        }));
+        })));
     }
     let mut first_err = None;
     for w in workers {
