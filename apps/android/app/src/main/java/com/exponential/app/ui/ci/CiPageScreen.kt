@@ -113,6 +113,8 @@ class CiPageViewModel @Inject constructor(
         val pick = value?.takeIf { it != "all" }
         when (name) {
             CiPageView.Events.TAB -> if (value in TABS) _tab.value = value!!
+            // The runner chip opens the Runners tab.
+            CiPageView.Events.RUNNERS -> _tab.value = "runners"
             CiPageView.Events.STATUS -> if (value != null && value in CiPage.Copy.FILTERS) _filter.value = _filter.value.copy(status = value)
             CiPageView.Events.REPOSITORY -> if (value != null) _filter.value = _filter.value.copy(repositoryId = pick)
             CiPageView.Events.SOURCE -> if (value != null) _filter.value = _filter.value.copy(source = pick)

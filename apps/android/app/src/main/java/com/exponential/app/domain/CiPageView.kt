@@ -29,16 +29,25 @@ object CiPageView {
         const val OPEN_RUN = "ci-open-run"
         const val OPEN_PR = "ci-open-pr"
         const val OPEN_RUNNER = "ci-open-runner"
+        const val RUNNERS = "ci-open-runners"
     }
 
     data class State(val tab: String = "runs", val filter: CiPage.RunFilter = CiPage.RunFilter(), val phone: Boolean = true)
 
     private val ids = CiPage.TestIds
 
-    private fun iconTone(tone: PrChecks.Tone): String = when (tone) {
-        PrChecks.Tone.Muted -> "neutral"
-        PrChecks.Tone.Green -> "success"
-        PrChecks.Tone.Red -> "danger"
+    private fun trainTone(glyph: PrChecks.Glyph): String = when (glyph) {
+        PrChecks.Glyph.Running -> CiPage.STATUS_TONES.getValue(CiRun.RunStatus.Running).second
+        PrChecks.Glyph.Queued, PrChecks.Glyph.Skipped -> "neutral"
+        PrChecks.Glyph.Failed -> "danger"
+        PrChecks.Glyph.Passed -> "success"
+    }
+
+    private fun JsonObjectBuilder.call(key: String, name: String, args: JsonObjectBuilder.() -> Unit) {
+        putJsonObject(key) {
+            put("@call", name)
+            putJsonObject("args", args)
+        }
     }
 
     private fun node(
@@ -74,7 +83,7 @@ object CiPageView {
     private fun trainSection(group: CiPage.TrainGroup, id: String) = node(
         id,
         "Section",
-        { put("title", CiPage.Copy.TRAIN_SECTION); put("caption", "${group.title} · ${group.caption}"); put("icon", "pr-batch") },
+        { put("title", group.title); put("caption", group.caption); put("icon", "pr-batch") },
         group.rows.map { row ->
             val rowId = "${ids.TRAIN_ROW}.${row.id}"
             node(rowId, "Row", {
@@ -84,7 +93,7 @@ object CiPageView {
                 put("pressable", true)
             }) {
                 putJsonObject("slots") {
-                    put("leading", node("$rowId.glyph", "Icon", { put("name", row.glyph.wire); put("tone", "neutral"); put("size", "sm") }))
+                    put("leading", node("$rowId.glyph", "Icon", { put("name", row.glyph.wire); put("tone", trainTone(row.glyph)); put("size", "sm") }))
                     put("trailing", node("$rowId.badge", "Badge", { put("text", row.badge); put("variant", "secondary") }))
                 }
                 on("press", Events.OPEN_PR) { put("pr", row.pullRequestId) }
@@ -115,95 +124,97 @@ object CiPageView {
                 add(option(CiPage.Copy.SOURCES.getValue("github"), "github"))
             }
         }) { on("change", Events.SOURCE) }
+        val chip = CiPage.runnerChip(input)
+        val runners = chip?.let {
+            node(ids.RUNNER_CHIP, "Chip", {
+                put("label", it.label)
+                put("dot", if (it.online) "\$color.success" else "\$color.mutedForeground")
+                put("pressable", true)
+            }) { on("press", Events.RUNNERS) }
+        }
         if (state.phone) {
             return node(
                 ids.FILTERS, "Stack", { put("direction", "vertical"); put("gap", "sm"); put("align", "stretch") },
                 listOf(status, node("${ids.FILTERS}.picks", "Toolbar", children = listOf(repository, source))),
             )
         }
-        return node(ids.FILTERS, "Toolbar", children = listOf(status, repository, source))
+        return node(ids.FILTERS, "Toolbar", children = listOf(status, repository, source)) {
+            if (runners != null) putJsonObject("slots") { put("trailing", runners) }
+        }
+    }
+
+    /** One run's row. Wide: title, subtitle, trailing duration · age, the
+     *  source mark and the author; phones: meta = duration | queued. */
+    private fun runRow(row: CiPage.RunListRow, phone: Boolean): JsonObject {
+        val id = "${ids.RUN_ROW}.${row.id}"
+        val leading = node("$id.glyph", "Icon", { put("name", row.glyph.wire); put("tone", row.tone); put("size", "sm") })
+        if (phone) {
+            return node(id, "Row", {
+                put("title", row.title)
+                put("subtitle", row.phoneSubtitle)
+                put("meta", row.phoneMeta)
+                put("pressable", true)
+            }) {
+                putJsonObject("slots") { put("leading", leading) }
+                on("press", Events.OPEN_RUN) { put("run", row.id) }
+            }
+        }
+        val meta: JsonObjectBuilder.() -> Unit = {
+            call("text", "fill") {
+                val duration = row.duration
+                put("template", if (duration != null) "{duration} · {age}" else "{queued} · {age}")
+                putJsonObject("params") {
+                    if (duration != null) put("duration", duration) else put("queued", CiPage.Copy.WAITING_FOR_RUNNER)
+                    call("age", "formatRelativeTime") { put("value", row.at) }
+                }
+            }
+            put("variant", "muted")
+        }
+        val trailing = mutableListOf<JsonElement>(
+            node("$id.meta", "Text", meta),
+            node(
+                "$id.source", "Tooltip", { put("content", row.sourceLabel) },
+                listOf(node("$id.source.icon", "Icon", { put("name", row.sourceIcon); put("size", "sm"); put("tone", "neutral"); put("label", row.sourceLabel) })),
+            ),
+        )
+        row.author?.let { author ->
+            trailing += node("$id.author", "Avatar", {
+                put("name", author.name)
+                author.image?.let { put("src", it) }
+                put("seed", author.id)
+                put("size", "sm")
+            })
+        }
+        return node(id, "Row", { put("title", row.title); put("subtitle", row.subtitle); put("pressable", true) }) {
+            putJsonObject("slots") {
+                put("leading", leading)
+                put("trailing", node("$id.trailing", "Stack", { put("direction", "horizontal"); put("gap", "sm"); put("align", "center") }, trailing))
+            }
+            on("press", Events.OPEN_RUN) { put("run", row.id) }
+        }
     }
 
     private fun runsPanel(input: CiPage.Input, state: State): JsonObject {
-        val rows = CiPage.runList(input, state.filter)
+        val groups = CiPage.runGroups(input, state.filter)
         val children = mutableListOf<JsonElement>(filters(input, state))
-        CiPage.trainGroups(input, false).forEach { children += trainSection(it, "${ids.TRAIN}.${it.repositoryId}") }
         val filtered = state.filter.status != "all" || state.filter.repositoryId != null || state.filter.source != null
-        when {
-            rows.isEmpty() -> children += node(ids.RUNS, "EmptyState", {
+        children += if (groups.isEmpty()) {
+            node(ids.RUNS, "EmptyState", {
                 put("icon", "nav-ci")
                 put("title", if (filtered) CiPage.Copy.EMPTY_FILTERED else CiPage.Copy.EMPTY_RUNS)
                 put("size", "list")
             })
-            state.phone -> children += node(
-                ids.RUNS, "Section", { put("title", CiPage.Copy.RUNS_SECTION) },
-                rows.map { row ->
-                    val rowId = "${ids.RUN_ROW}.${row.id}"
-                    node(rowId, "Row", {
-                        put("title", row.title)
-                        put("subtitle", row.subtitle)
-                        row.duration?.let { put("meta", it) }
-                        put("pressable", true)
-                    }) {
-                        putJsonObject("slots") {
-                            put("leading", node("$rowId.glyph", "Icon", { put("name", row.glyph.wire); put("tone", iconTone(row.tone)); put("size", "sm") }))
-                        }
-                        on("press", Events.OPEN_RUN) { put("run", row.id) }
-                    }
+        } else {
+            stack(
+                ids.RUNS, "vertical", "md",
+                groups.map { group ->
+                    node(
+                        "${ids.RUNS}.${group.id}", "Section",
+                        { put("title", group.title); group.count?.let { put("count", it) } },
+                        group.rows.map { runRow(it, state.phone) },
+                    )
                 },
             )
-            else -> children += node(ids.RUNS, "Table", {
-                putJsonArray("columns") {
-                    fun col(key: String, label: String, more: JsonObjectBuilder.() -> Unit = {}) =
-                        add(buildJsonObject { put("key", key); put("label", label); more() })
-                    with(CiPage.Copy) {
-                        col("status", COL_STATUS) { put("type", "slot"); put("slot", "status"); put("width", 120) }
-                        col("run", COL_RUN)
-                        col("repository", COL_REPOSITORY)
-                        col("source", COL_SOURCE) { put("type", "badge") }
-                        col("ref", COL_REF) { put("truncate", true) }
-                        col("trigger", COL_TRIGGER)
-                        col("duration", COL_DURATION) { put("align", "end"); put("width", 96) }
-                        col("started", COL_STARTED) { put("type", "relativeTime"); put("width", 140) }
-                    }
-                }
-                putJsonArray("rows") {
-                    for (row in rows) {
-                        add(buildJsonObject {
-                            put("id", row.id)
-                            put("status", row.statusLabel)
-                            put("glyph", row.glyph.wire)
-                            put("tone", iconTone(row.tone))
-                            put("run", row.title)
-                            put("repository", row.repository)
-                            put("source", row.sourceLabel)
-                            put("ref", row.ref)
-                            put("trigger", row.trigger)
-                            put("duration", row.duration ?: "")
-                            put("started", row.startedAt ?: "")
-                        })
-                    }
-                }
-                put("rowKey", "id")
-            }) {
-                putJsonObject("slots") {
-                    put(
-                        "status",
-                        node(
-                            "${ids.RUNS}.status", "Stack", { put("direction", "horizontal"); put("gap", "xs"); put("align", "center") },
-                            listOf(
-                                node("${ids.RUNS}.status.glyph", "Icon", {
-                                    putJsonObject("name") { put("@path", "glyph") }
-                                    putJsonObject("tone") { put("@path", "tone") }
-                                    put("size", "sm")
-                                }),
-                                node("${ids.RUNS}.status.label", "Text", { putJsonObject("text") { put("@path", "status") } }),
-                            ),
-                        ),
-                    )
-                }
-                on("rowPress", Events.OPEN_RUN) { putJsonObject("run") { put("@path", "id") } }
-            }
         }
         return stack("${ids.PAGE}.runs", "vertical", "md", children)
     }
@@ -262,23 +273,11 @@ object CiPageView {
     /** The CI page (ci-page.json LAYOUT): the tiles, then the tabs; only the
      *  current tab's panel is built (the others are empty stacks). */
     fun ciPageTree(input: CiPage.Input, state: State): JsonObject {
-        val tiles = CiPage.tiles(input)
         val counts = CiPage.tabCounts(input)
         fun empty(tab: String) = stack("${ids.PAGE}.$tab", "vertical", "md", emptyList())
         return stack(
             ids.PAGE, "vertical", "lg",
             listOf(
-                node(
-                    ids.TILES, "Grid", { put("columns", if (state.phone) 2 else 4); put("gap", if (state.phone) "sm" else "md") },
-                    tiles.mapIndexed { i, tile ->
-                        node("${ids.TILES}.$i", "StatTile", {
-                            put("label", tile.label)
-                            put("value", tile.value)
-                            put("tone", tile.tone)
-                            tile.delta?.let { put("delta", it) }
-                        })
-                    },
-                ),
                 node(
                     ids.TABS, "Tabs",
                     {
@@ -288,6 +287,7 @@ object CiPageView {
                             add(buildJsonObject { put("label", CiPage.Copy.TAB_RUNNERS); put("value", "runners"); if (counts.runners > 0) put("count", counts.runners) })
                         })
                         put("value", state.tab)
+                        put("variant", "strip")
                         if (state.phone) put("fill", true)
                     },
                     listOf(

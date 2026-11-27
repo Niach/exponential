@@ -66,6 +66,8 @@ class CiRunViewTest {
         provider = o.str("provider") ?: "exponential",
         externalUrl = o.str("externalUrl"),
         externalAccess = o.str("externalAccess"),
+        title = o.str("title"),
+        createdAt = o.str("createdAt") ?: "",
     )
 
     private fun settings(o: JsonObject) = RunnerSettings.Settings(
@@ -103,7 +105,9 @@ class CiRunViewTest {
                 phone = case.getValue("phone").jsonPrimitive.boolean,
                 busy = busy,
                 repository = model.str("repository"),
-                pullRequestNumber = (model["pullRequestNumber"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.toInt(),
+                pullRequest = (model["pullRequest"] as? JsonObject)?.let { CiRun.PullRequest(it.getValue("number").jsonPrimitive.int, it.str("base")!!) },
+                author = model.str("author"),
+                jobOpen = (case["jobOpen"] as? JsonPrimitive)?.content == "true",
             )
             assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(actual))
         }

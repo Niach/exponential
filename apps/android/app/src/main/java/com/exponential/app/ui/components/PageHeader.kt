@@ -2,6 +2,7 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -68,6 +69,9 @@ fun PageHeader(
     actions: PageHeaderActions? = LocalPageHeaderActions.current,
     /** EXP-1635: false = no Search + Inbox circles (a share's own step). */
     buttons: Boolean = true,
+    /** #EXP-2172: a detail header's second line (the chat header's subtitle
+     *  style), e.g. a CI run's repository under `name #n`. */
+    subtitle: String? = null,
 ) {
     val circle = Chats.Shell.Header.CIRCLE.dp
     if (onBack != null) {
@@ -82,14 +86,28 @@ fun PageHeader(
         ) {
             PageHeaderBack(onClick = onBack)
             leading?.invoke()
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrEmpty()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontSize = Chats.Shell.ChatHeader.SUBTITLE.sp,
+                            fontWeight = FontWeight.Normal,
+                            letterSpacing = 0.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (ownActions != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(HeaderActions.GAP.dp)) { ownActions() }
             }

@@ -126,7 +126,9 @@ import androidx.room.TypeConverters
     // v136 (#EXP-2172): ci_runs + ci_jobs provider / external_* (GitHub
     //      Actions runs), explicit [MIGRATION_135_136]; only the ci_runs and
     //      ci_jobs shapes refetch.
-    version = 136,
+    // v137 (#EXP-2172 redesign): ci_runs.title, explicit [MIGRATION_136_137];
+    //      only the ci_runs shape refetches.
+    version = 137,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

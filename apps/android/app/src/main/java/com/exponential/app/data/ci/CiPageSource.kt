@@ -7,6 +7,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CiPage
@@ -48,6 +49,7 @@ class CiPageSource @Inject constructor(
         val prs: List<PullRequestEntity>,
         val sessions: List<SessionEntity>,
         val devices: List<DeviceEntity>,
+        val users: List<UserEntity>,
     )
 
     /** Every input but `repos` and `now`. */
@@ -57,7 +59,8 @@ class CiPageSource @Inject constructor(
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() },
         dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAll() },
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-    ) { runs, jobs, prs, sessions, devices -> Rows(runs, jobs, prs, sessions, devices) }
+    ) { runs, jobs, prs, sessions, devices -> Rows(runs, jobs, prs, sessions, devices, emptyList()) }
+        .combine(dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }) { rows, users -> rows.copy(users = users) }
         .combine(auth.userId) { rows, viewer -> toInput(rows, viewer.orEmpty()) }
         .flowOn(Dispatchers.Default)
 
@@ -95,7 +98,12 @@ class CiPageSource @Inject constructor(
                 lastSeenAt = device.lastSeenAt,
             )
         },
+        // Only the people a run names (its author).
+        users = rows.runs.mapNotNull { it.createdByUserId }.toSet().let { ids ->
+            rows.users.filter { it.id in ids }.map { CiPage.User(it.id, it.name?.takeIf(String::isNotBlank) ?: it.email, it.image) }
+        },
         viewerId = viewerId,
+        utcOffsetMinutes = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000,
     )
 }
 
@@ -114,6 +122,7 @@ internal fun CiRunEntity.toPageRun(): CiPage.Run = CiPage.Run(
     startedAt = startedAt,
     completedAt = completedAt,
     createdAt = createdAt,
+    title = title,
 )
 
 private val lenient = Json { ignoreUnknownKeys = true }

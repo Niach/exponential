@@ -60,7 +60,8 @@ fun CiRunSpecimenScreen() {
                 onCancel = {},
                 onBack = {},
                 repository = CiRun.SPECIMEN_REPOSITORY,
-                pullRequestNumber = CiRun.SPECIMEN_PULL_REQUEST_NUMBER,
+                pullRequest = CiRun.SPECIMEN_PULL_REQUEST,
+                author = CiRun.SPECIMEN_AUTHOR,
             )
         }
     }
@@ -84,6 +85,7 @@ fun CiPageSpecimenScreen() {
                     val pick = value?.takeIf { it != "all" }
                     state = when (name) {
                         CiPageView.Events.TAB -> if (value != null) state.copy(tab = value) else state
+                        CiPageView.Events.RUNNERS -> state.copy(tab = "runners")
                         CiPageView.Events.STATUS -> if (value != null) state.copy(filter = state.filter.copy(status = value)) else state
                         CiPageView.Events.REPOSITORY -> state.copy(filter = state.filter.copy(repositoryId = pick))
                         CiPageView.Events.SOURCE -> state.copy(filter = state.filter.copy(source = pick))
