@@ -61,7 +61,7 @@ internal fun AgentIssuePickerPage(
     val multiRepo = checked.map { it.repositoryId }.toSet().size > 1
     val tooMany = checked.size > MAX_BATCH_ISSUES
     val caption = when {
-        multiRepo -> "Pick issues from a single repository per session."
+        multiRepo -> MULTI_REPO_NOTE
         tooMany -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
         checked.size > LARGE_BATCH_HINT_THRESHOLD -> "Large batches are token-expensive."
         else -> null

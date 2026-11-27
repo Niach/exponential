@@ -17,6 +17,7 @@ import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.SkillEntity
+import com.exponential.app.data.db.RepositoryEntity
 import com.exponential.app.data.db.SidebarLayoutEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
@@ -427,6 +428,7 @@ class SyncManager @Inject constructor(
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val sidebarLayoutDao = db.sidebarLayoutDao()
+        val repositoryDao = db.repositoryDao()
         val issueDraftDao = db.issueDraftDao()
         val composerDraftDao = db.composerDraftDao()
         val sessionDao = db.sessionDao()
@@ -610,6 +612,18 @@ class SyncManager @Inject constructor(
                 onInsert = { sidebarLayoutDao.upsert(it) },
                 onDelete = { sidebarLayoutDao.deleteById(it.id) },
                 onRefetch = { sidebarLayoutDao.clear() },
+            ),
+            // #EXP-2171: the team's repositories (the 34th shape; the Teams
+            // tab's repository rows), member-only by team. Optional: an older
+            // server without the shape 404s here alone.
+            launchShape(
+                shape = "repositories", path = "/api/shapes/repositories", tableName = "repositories",
+                serializer = RepositoryEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("repositories", optional = true),
+                onInsert = { repositoryDao.upsert(it) },
+                onDelete = { repositoryDao.deleteById(it.id) },
+                onRefetch = { repositoryDao.clear() },
             ),
             // EXP-878: unsent issue drafts — static per user, never
             // team/trash scoped (a row renders once its board resolves).

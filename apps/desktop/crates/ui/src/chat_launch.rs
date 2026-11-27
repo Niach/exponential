@@ -194,15 +194,24 @@ pub(crate) enum RepoState {
     Error(String),
 }
 
+/// #EXP-2171: issues defaulting to different repositories ask for one
+/// (web `launch-notes.tsx`).
+pub(crate) const SPANS_REPOS: &str = "These issues default to different repositories. Pick one in +.";
+
 /// The one-repository / one-base-branch gate over the checked issues
-/// (EXP-712: a session cuts ONE branch, so every issue must resolve to the
-/// same repository AND the same base). `None` = fine; a checked issue whose
-/// probe has not answered blocks with "Checking linked repositories…".
+/// (EXP-712: a session cuts ONE branch on ONE base). `None` = fine; a
+/// checked issue whose probe has not answered blocks with "Checking linked
+/// repositories…". #EXP-2171 (coding-readiness.json `chatRepo`): a board's
+/// repository is only a DEFAULT: an issue resolving none starts anyway (the
+/// server resolves it), and issues defaulting to DIFFERENT repositories
+/// ask for one: the composer's `picked` repository lets them start.
 pub(crate) fn repo_blocker(
     rows: &[IssueRow],
     checked: &HashSet<String>,
     repos: &std::collections::HashMap<String, RepoState>,
+    picked: Option<&str>,
 ) -> Option<String> {
+    let mut spans = false;
     let mut repo: Option<&str> = None;
     let mut bases: Vec<Option<String>> = Vec::new();
     for row in rows {
@@ -214,22 +223,23 @@ pub(crate) fn repo_blocker(
                 match repo {
                     None => repo = Some(&resolved.repository_id),
                     Some(existing) if existing == resolved.repository_id => {}
-                    Some(_) => return Some("One repository per session. Deselect the others.".into()),
+                    Some(_) => spans = true,
                 }
                 bases.push(
                     Some(resolved.default_branch.clone())
                         .filter(|branch| !branch.trim().is_empty()),
                 );
             }
-            // #N-15: say WHICH issue cannot start and why.
-            Some(RepoState::Ready(None)) => {
-                return Some(format!("{} has no repository linked.", row.identifier));
-            }
+            // #EXP-2171: no default: the server resolves it.
+            Some(RepoState::Ready(None)) => {}
             Some(RepoState::Error(err)) => {
                 return Some(format!("Couldn't check {}'s repository: {err}", row.identifier));
             }
             _ => return Some("Checking linked repositories…".into()),
         }
+    }
+    if spans && picked.is_none() {
+        return Some(SPANS_REPOS.into());
     }
     if let Some((first, second)) = crate::repo_resolver::batch_branch_conflict(&bases) {
         return Some(format!(
@@ -239,16 +249,27 @@ pub(crate) fn repo_blocker(
     None
 }
 
-/// The repository the checked issues resolved to (the gate above already
-/// made it ONE), so the start names it.
+/// The repository the start names: the one the checked issues resolved
+/// to, or (#EXP-2171) the composer's `picked` one while they default to
+/// different repositories; none resolved = none named (the server applies
+/// `chatRepository` over the first issue).
 pub(crate) fn issues_repository(
     checked: &HashSet<String>,
     repos: &std::collections::HashMap<String, RepoState>,
+    picked: Option<&str>,
 ) -> Option<String> {
-    checked.iter().find_map(|issue_id| match repos.get(issue_id) {
-        Some(RepoState::Ready(Some(resolved))) => Some(resolved.repository_id.clone()),
-        _ => None,
-    })
+    let resolved: HashSet<&str> = checked
+        .iter()
+        .filter_map(|issue_id| match repos.get(issue_id) {
+            Some(RepoState::Ready(Some(resolved))) => Some(resolved.repository_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    match resolved.len() {
+        0 => None,
+        1 => resolved.into_iter().next().map(str::to_string),
+        _ => picked.map(str::to_string),
+    }
 }
 
 #[cfg(test)]
@@ -282,12 +303,13 @@ mod tests {
         let mut repos = std::collections::HashMap::new();
         assert_eq!(issue_count_blocker(checked.len()), None);
         repos.insert("i1".to_string(), RepoState::Loading);
-        assert_eq!(repo_blocker(&rows, &checked, &repos).as_deref(), Some("Checking linked repositories…"));
+        assert_eq!(repo_blocker(&rows, &checked, &repos, None).as_deref(), Some("Checking linked repositories…"));
+        // #EXP-2171: no default repository: the server resolves it.
         repos.insert("i1".to_string(), RepoState::Ready(None));
-        assert_eq!(repo_blocker(&rows, &checked, &repos).as_deref(), Some("APP-3 has no repository linked."));
+        assert_eq!(repo_blocker(&rows, &checked, &repos, None), None);
         repos.insert("i1".to_string(), RepoState::Error("HTTP 412".to_string()));
         assert_eq!(
-            repo_blocker(&rows, &checked, &repos).as_deref(),
+            repo_blocker(&rows, &checked, &repos, None).as_deref(),
             Some("Couldn't check APP-3's repository: HTTP 412")
         );
         repos.insert(
@@ -298,7 +320,29 @@ mod tests {
                 default_branch: "main".to_string(),
             })),
         );
-        assert_eq!(repo_blocker(&rows, &checked, &repos), None);
+        assert_eq!(repo_blocker(&rows, &checked, &repos, None), None);
+    }
+
+    /// #EXP-2171: issues defaulting to different repositories ask for one;
+    /// the composer's pick lets them start on it.
+    #[test]
+    fn issues_spanning_repositories_ask_for_one() {
+        let rows = vec![issue_row("i1", "APP-3"), issue_row("i2", "WEB-4")];
+        let checked: HashSet<String> = ["i1".to_string(), "i2".to_string()].into_iter().collect();
+        let repo = |id: &str| {
+            RepoState::Ready(Some(api::repositories::IssueRepository { repository_id: id.to_string(), full_name: format!("acme/{id}"), default_branch: "main".to_string() }))
+        };
+        let mut repos = std::collections::HashMap::new();
+        repos.insert("i1".to_string(), repo("r-a"));
+        repos.insert("i2".to_string(), repo("r-b"));
+        assert_eq!(repo_blocker(&rows, &checked, &repos, None).as_deref(), Some(SPANS_REPOS));
+        assert_eq!(repo_blocker(&rows, &checked, &repos, Some("r-b")), None);
+        assert_eq!(issues_repository(&checked, &repos, Some("r-b")).as_deref(), Some("r-b"));
+        assert_eq!(issues_repository(&checked, &repos, None), None);
+        repos.insert("i2".to_string(), repo("r-a"));
+        assert_eq!(issues_repository(&checked, &repos, Some("r-b")).as_deref(), Some("r-a"));
+        repos.insert("i2".to_string(), RepoState::Ready(None));
+        assert_eq!(repo_blocker(&rows, &checked, &repos, None), None);
     }
 
     fn options() -> LaunchOptions {

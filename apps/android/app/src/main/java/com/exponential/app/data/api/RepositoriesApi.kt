@@ -167,9 +167,8 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /**
-     * Sharer-or-owner (server-enforced, EXP-557): remove a repo. Blocked
-     * (CONFLICT — "repository backs N boards") while any board still points at
-     * it, via the `boards.repository_id` FK `restrict`.
+     * Sharer-or-owner (server-enforced, EXP-557): remove a repo. #EXP-2171:
+     * never refused; the boards defaulting to it keep none.
      */
     suspend fun remove(accountId: String, repositoryId: String) =
         trpc.mutationUnit(
@@ -246,6 +245,34 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             },
             inputSerializer = JsonElement.serializer(),
         )
+
+    /**
+     * #EXP-2171 New › Repository (repo-page.json NEW › REPOSITORY): a hosted
+     * repository, its id back (the page opens it). [description] optional.
+     */
+    suspend fun createHosted(
+        accountId: String,
+        teamId: String,
+        name: String,
+        description: String?,
+        defaultBranch: String,
+        mirrorUrl: String?,
+    ): String {
+        val out = trpc.mutation(
+            accountId,
+            path = "repositories.create",
+            input = buildJsonObject {
+                put("teamId", teamId)
+                put("name", name)
+                description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+                put("defaultBranch", defaultBranch)
+                put("mirrorUrl", mirrorUrl?.let(::JsonPrimitive) ?: JsonNull)
+            },
+            inputSerializer = JsonElement.serializer(),
+            outputSerializer = JsonElement.serializer(),
+        )
+        return ((out as JsonObject)["repository"] as JsonObject)["id"].let { (it as JsonPrimitive).content }
+    }
 
     /** #EXP-1616 (members): an ecode repo's Settings tab. */
     suspend fun settings(accountId: String, repositoryId: String): RepoSettings =

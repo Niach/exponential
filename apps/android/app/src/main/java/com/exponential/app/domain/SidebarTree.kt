@@ -22,15 +22,19 @@ object SidebarTree {
         const val SETTINGS = "Settings"
         const val NEW_TEAM = "New team"
         const val JOIN_TEAM = "Join team"
+        const val REPOSITORY = "Repository"
     }
 
-    enum class Kind(val wire: String) { Board("board"), Agent("agent"), App("app"), Session("session") }
+    enum class Kind(val wire: String) { Board("board"), Repository("repository"), Agent("agent"), App("app"), Session("session") }
 
     data class Team(val id: String, val name: String, val kind: String = "team")
 
     data class Sortable(val id: String, val sortOrder: Double, val role: String? = null)
 
     data class Named(val id: String, val name: String)
+
+    /** #EXP-2171: a team's repository (the synced `repositories` shape). */
+    data class Repo(val id: String, val sortOrder: Double, val fullName: String)
 
     data class SessionLike(val id: String, val teamId: String, val parentId: String?)
 
@@ -42,11 +46,13 @@ object SidebarTree {
     fun teams(teams: List<Team>): List<String> =
         teams.filter { it.kind != "personal" }.map { Named(it.id, it.name) }.sortedWith(byName).map { it.id }
 
-    /** A team's targets in DEFAULT order: boards, agents (never an Assistant),
-     *  apps, then the team's root sessions the member placed. */
+    /** A team's targets in DEFAULT order: boards, repositories (#EXP-2171, by
+     *  sortOrder then full name), agents (never an Assistant), apps, then the
+     *  team's root sessions the member placed. */
     fun teamItems(
         teamId: String,
         boards: List<Sortable>,
+        repositories: List<Repo> = emptyList(),
         agents: List<Sortable>,
         apps: List<Named>,
         sessions: List<SessionLike>,
@@ -60,7 +66,9 @@ object SidebarTree {
             .mapNotNull { byId[it.targetId] }
             .filter { it.teamId == teamId && it.parentId == null }
             .distinct()
+        val repoOrder = compareBy<Repo>({ it.sortOrder }, { it.fullName.lowercase(java.util.Locale.ENGLISH) }, { it.id })
         return boards.sortedWith(bySort).map { Item(it.id, Kind.Board) } +
+            repositories.sortedWith(repoOrder).map { Item(it.id, Kind.Repository) } +
             agents.filter { it.role == DomainContract.agentRoleAgent }.sortedWith(bySort).map { Item(it.id, Kind.Agent) } +
             apps.sortedWith(byName).map { Item(it.id, Kind.App) } +
             placed.map { Item(it.id, Kind.Session) }
@@ -120,4 +128,28 @@ object SidebarTree {
      *  shows under the group; null = none. */
     fun phoneTeamsEmpty(teams: List<Pair<String, Int>>): String? =
         teams.singleOrNull()?.takeIf { it.second == 0 }?.first
+
+    // ── #EXP-2171: the repository row (`repositoryRow`) ──────────────────
+
+    /** The row's glyph and a GitHub repository's mark (concept names). */
+    const val REPOSITORY_GLYPH = "action-repository"
+    const val REPOSITORY_GITHUB_ICON = "ui-github"
+
+    /** The row's trailing side: [kind] = `checks` (a dot of [state]) or `github`. */
+    data class RepositoryTrailing(val kind: String, val state: String?)
+
+    /** Its checks chip (`success` | `pending` | `failure`), else a GitHub
+     *  repository's mark, else nothing. */
+    fun repositoryTrailing(provider: String, checks: String?): RepositoryTrailing? = when {
+        checks != null -> RepositoryTrailing("checks", checks)
+        provider == "github" -> RepositoryTrailing("github", null)
+        else -> null
+    }
+
+    /** Copy clone URL: a hosted repository's `exp://` remote, else GitHub's. */
+    fun repositoryCloneUrl(provider: String, fullName: String): String =
+        if (provider == "ecode") "exp://$fullName" else "https://github.com/$fullName.git"
+
+    /** The row's title: the full name's last segment. */
+    fun repositoryName(fullName: String): String = fullName.substringAfterLast('/').ifEmpty { fullName }
 }

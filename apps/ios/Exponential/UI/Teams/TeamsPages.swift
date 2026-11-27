@@ -177,6 +177,8 @@ struct TeamsView: View {
         case .item(.board): pushRoute(.board(accountId: accountId, id: row.id))
         case .item(.agent): pushRoute(.agentChannel(accountId: accountId, agentId: row.id))
         case .item(.app): pushRoute(.appRun(accountId: accountId, appId: row.id))
+        case .item(.repository):
+            pushRoute(.repo(accountId: accountId, teamId: row.teamId, repositoryId: row.id, isOwner: tree.isOwner(row.teamId)))
         case .item(.session): pushRoute(.chat(accountId: accountId, chatId: row.id))
         }
     }

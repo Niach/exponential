@@ -1363,3 +1363,37 @@ data class ElectricOffsetEntity(
     // to its own batch, so the swap is one transaction and the UI never blanks.
     @ColumnInfo(name = "needs_refetch") val needsRefetch: Boolean = false,
 )
+
+// #EXP-2171 (sidebar-tree.json `teamItems`, the 34th shape): a team's
+// repositories, member-only by team (archived rows drop out server-side). The
+// server's columns (provider_config, remote_url, ci_config) stay behind the
+// proxy's allowlist. `sync` = jsonb {mode: none|mirror|import, url?,
+// lastSyncedAt?, lastError?} kept as JSON text. Every field but the PK
+// defaults.
+@Entity(
+    tableName = "repositories",
+    indices = [Index(value = ["team_id"])],
+)
+@Serializable
+data class RepositoryEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // github | ecode
+    val provider: String = "github",
+    @ColumnInfo(name = "full_name") @SerialName("full_name") @JsonNames("fullName") val fullName: String = "",
+    val slug: String = "",
+    val description: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val sync: String? = null,
+    @ColumnInfo(name = "default_branch") @SerialName("default_branch") @JsonNames("defaultBranch") val defaultBranch: String = "main",
+    @ColumnInfo(name = "default_branch_override") @SerialName("default_branch_override") @JsonNames("defaultBranchOverride")
+    val defaultBranchOverride: String? = null,
+    val private: PgBool = false,
+    @ColumnInfo(name = "inaccessible_at") @SerialName("inaccessible_at") @JsonNames("inaccessibleAt") val inaccessibleAt: String? = null,
+    @ColumnInfo(name = "shared_by_user_id") @SerialName("shared_by_user_id") @JsonNames("sharedByUserId") val sharedByUserId: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+) {
+    /** The row's title: the full name's last segment. */
+    val name: String get() = com.exponential.app.domain.SidebarTree.repositoryName(fullName)
+}

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { REPO_PAGE_COPY as COPY } from "@exp/domain-contract/repo-page"
 import {
   Button,
@@ -21,16 +21,21 @@ const NAME = /^[A-Za-z0-9._-]+$/
 
 /** #EXP-1616 (repo-page.json `copy.add`): the Exponential side of Add
  *  repository: name, default branch, the optional GitHub mirror, then
- *  Cancel / Create (`repositories.create`, owners). */
+ *  Cancel / Create (`repositories.create`, owners). #EXP-2171 `page`: New ›
+ *  Repository's hosted tile (`copy.new`): + Description and Run CI (on). */
 export function AddEcodeRepositoryForm({
   teamId,
   onCancel,
   onCreated,
+  page = false,
 }: {
   teamId: string
   onCancel: () => void
-  onCreated: () => void | Promise<void>
+  onCreated: (repository: { id: string; slug: string }) => void | Promise<void>
+  page?: boolean
 }) {
+  const [description, setDescription] = useState(``)
+  const [runCi, setRunCi] = useState(true)
   const [name, setName] = useState(``)
   const [branch, setBranch] = useState<string>(`main`)
   const [mirror, setMirror] = useState(false)
@@ -42,11 +47,24 @@ export function AddEcodeRepositoryForm({
     if (!valid || pending) return
     setPending(true)
     try {
-      await trpc.repositories.create.mutate(
-        { teamId, name, defaultBranch: branch, mirrorUrl: mirror ? mirrorUrl.trim() : null },
+      const { repository } = await trpc.repositories.create.mutate(
+        {
+          teamId,
+          name,
+          defaultBranch: branch,
+          mirrorUrl: mirror ? mirrorUrl.trim() : null,
+          ...(page && description.trim() ? { description: description.trim() } : {}),
+        },
         SKIP_ERROR_TOAST
       )
-      await onCreated()
+      // Run CI: our CI on (repositories configure_ci); a failure here leaves
+      // the repository created, its Settings tab turns it on later.
+      if (page && runCi) {
+        await trpc.ci.setRepoConfig
+          .mutate({ repositoryId: repository.id, enabled: true }, SKIP_ERROR_TOAST)
+          .catch((err: unknown) => failedAction(`turn on`, `CI`, err))
+      }
+      await onCreated(repository)
     } catch (err) {
       failedAction(`create`, `the repository`, err, { retry: () => void create() })
     } finally {
@@ -54,6 +72,7 @@ export function AddEcodeRepositoryForm({
     }
   }
 
+  const Footer = page ? PageFooter : DialogFooter
   return (
     <form
       data-testid="add-ecode-repository"
@@ -73,6 +92,14 @@ export function AddEcodeRepositoryForm({
           aria-invalid={name.length > 0 && !NAME.test(name)}
           onChange={(e) => setName(e.target.value.trim())}
         />
+        {page && (
+          <GlassInputRow
+            id="ecode-repo-description"
+            label={COPY.new.description}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        )}
         <ListRow className="gap-3 px-4 py-3">
           <span className="flex-1 text-sm">{COPY.add.defaultBranch}</span>
           <Select value={branch} onValueChange={setBranch}>
@@ -88,6 +115,7 @@ export function AddEcodeRepositoryForm({
             </SelectContent>
           </Select>
         </ListRow>
+        {page && <GlassToggleRow id="ecode-repo-ci" label={COPY.new.runCi} checked={runCi} onCheckedChange={setRunCi} />}
         <GlassToggleRow id="ecode-repo-mirror" label={COPY.add.mirror} checked={mirror} onCheckedChange={setMirror} />
         {mirror && (
           <GlassInputRow
@@ -99,14 +127,19 @@ export function AddEcodeRepositoryForm({
           />
         )}
       </div>
-      <DialogFooter>
+      <Footer>
         <Button type="button" variant="ghost" onClick={onCancel}>
           {COPY.add.cancel}
         </Button>
         <Button type="submit" disabled={!valid} pending={pending}>
-          {COPY.add.create}
+          {page ? COPY.new.create : COPY.add.create}
         </Button>
-      </DialogFooter>
+      </Footer>
     </form>
   )
+}
+
+/** THE FormActions row on a page (end-aligned, Cancel then the submit). */
+function PageFooter({ children }: { children: ReactNode }) {
+  return <div className="flex justify-end gap-2">{children}</div>
 }

@@ -291,6 +291,9 @@ export function useCodingReadiness({
         teamName: team?.name ?? ``,
         boardName: board?.name ?? ``,
         boardRepository,
+        // #EXP-2171: the board's repository is a default; a team with one
+        // can code on any of its issues.
+        teamRepositoryCount: repos?.length ?? 0,
         github: githubInput,
         devices,
         nowMs: now.getTime(),
@@ -301,6 +304,7 @@ export function useCodingReadiness({
       team?.name,
       board?.name,
       boardRepository,
+      repos,
       githubInput,
       devices,
       now,

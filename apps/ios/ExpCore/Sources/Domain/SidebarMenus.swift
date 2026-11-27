@@ -12,6 +12,9 @@ public enum SidebarMenus {
         case new = "new"
         case newFolder = "new-folder"
         case newIssue = "new-issue"
+        case newRepoChat = "new-repo-chat"
+        case pullRequests = "pull-requests"
+        case runs = "runs"
         case newTeam = "new-team"
         case joinTeam = "join-team"
         case addDevice = "add-device"
@@ -20,6 +23,7 @@ public enum SidebarMenus {
         case edit = "edit"
         case rename = "rename"
         case copyLink = "copy-link"
+        case copyCloneUrl = "copy-clone-url"
         case move = "move"
         case ungroup = "ungroup"
         case addToSidebar = "add-to-sidebar"
@@ -33,10 +37,10 @@ public enum SidebarMenus {
     public enum Kind: String, Sendable, CaseIterable {
         case assistant, home
         case needsYou = "needs-you"
-        case chats, drafts, devices, device, teams, team, folder, board, app, agent, session
+        case chats, drafts, devices, device, teams, team, folder, board, repository, app, agent, session
     }
 
-    public enum NewKind: String, Sendable, CaseIterable { case session, agent, app, board }
+    public enum NewKind: String, Sendable, CaseIterable { case session, agent, app, board, repository }
 
     public static let copy: [Action: String] = [
         .open: "Open",
@@ -45,6 +49,9 @@ public enum SidebarMenus {
         .new: "New",
         .newFolder: "New folder",
         .newIssue: "New issue",
+        .newRepoChat: "New chat in this repository",
+        .pullRequests: "Pull requests",
+        .runs: "Runs",
         .newTeam: "New team",
         .joinTeam: "Join team",
         .addDevice: "Add device",
@@ -53,6 +60,7 @@ public enum SidebarMenus {
         .edit: "Edit",
         .rename: "Rename",
         .copyLink: "Copy link",
+        .copyCloneUrl: "Copy clone URL",
         .move: "Move to folder",
         .ungroup: "Ungroup",
         .addToSidebar: "Add to sidebar",
@@ -63,6 +71,7 @@ public enum SidebarMenus {
     ]
     public static let topLevel = "Top level"
     public static let linkCopied = "Link copied"
+    public static let cloneUrlCopied = "Clone URL copied"
 
     /// The icon CONCEPT of a verb.
     public static let icons: [Action: String] = [
@@ -72,6 +81,9 @@ public enum SidebarMenus {
         .new: "ui-add",
         .newFolder: "ui-folder",
         .newIssue: "nav-create-issue",
+        .newRepoChat: "action-chat",
+        .pullRequests: "pr-open",
+        .runs: "nav-ci",
         .newTeam: "ui-add",
         .joinTeam: "ui-invite",
         .addDevice: "ui-add",
@@ -80,6 +92,7 @@ public enum SidebarMenus {
         .edit: "ui-edit",
         .rename: "ui-edit",
         .copyLink: "ui-link",
+        .copyCloneUrl: "ui-copy",
         .move: "ui-folder",
         .ungroup: "ui-minus",
         .addToSidebar: "ui-add",
@@ -93,14 +106,16 @@ public enum SidebarMenus {
         .agent: "Agent",
         .app: "App",
         .board: "Board",
+        .repository: "Repository",
     ]
     public static let newIcons: [NewKind: String] = [
         .session: "action-chat",
         .agent: "settings-agents",
         .app: "nav-apps",
         .board: "nav-boards",
+        .repository: "action-repository",
     ]
-    private static let newOwnerOnly: Set<NewKind> = [.agent, .app, .board]
+    private static let newOwnerOnly: Set<NewKind> = [.agent, .app, .board, .repository]
     /// `phone.drops`: a phone has no tabs.
     private static let phoneDrops: Set<Action> = [.openNewTab]
 
@@ -201,6 +216,14 @@ public enum SidebarMenus {
             [.init(action: .copyLink), .init(action: .move)],
             [.init(action: .settings, owner: true)],
             [.init(action: .archive, owner: true)],
+        ],
+        // #EXP-2171: removing one stays in its page's Settings tab.
+        .repository: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [.init(action: .newRepoChat), .init(action: .pullRequests), .init(action: .runs)],
+            [.init(action: .copyCloneUrl), .init(action: .move)],
+            [.init(action: .settings)],
+            [],
         ],
         .app: [
             [.init(action: .open), .init(action: .openNewTab)],

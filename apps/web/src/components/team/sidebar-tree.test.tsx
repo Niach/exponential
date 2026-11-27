@@ -94,6 +94,12 @@ const h = vi.hoisted(() => ({
   newDraft: vi.fn(),
   send: vi.fn(),
   clipboard: vi.fn(),
+  repositories: [] as unknown[],
+}))
+// #EXP-2171: the team's repositories (read once for the tree).
+vi.mock(`@/components/team/sidebar-repositories`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/team/sidebar-repositories")>()),
+  useSidebarRepositoriesByTeam: () => new Map([[`t-acme`, h.repositories]]),
 }))
 vi.mock(`@/hooks/use-sidebar-folders`, () => ({
   useSidebarFolders: (_teamId: string, _section: string, ids: (entries: SidebarEntry[]) => string[]) => ({
@@ -398,7 +404,43 @@ describe(`#EXP-2124 a team's menus`, () => {
     expect(openMenu(row)).toEqual([`New`, `New folder`, `—`, `Settings`])
     fireEvent.click(within(screen.getByRole(`menu`)).getByText(`New`))
     const subs = document.querySelectorAll<HTMLElement>(`[data-slot="dropdown-menu-sub-content"]`)
-    expect(menuLabels(subs[subs.length - 1]!)).toEqual([`Chat`, `Agent`, `App`, `Board`])
+    expect(menuLabels(subs[subs.length - 1]!)).toEqual([`Chat`, `Agent`, `App`, `Board`, `Repository`])
+  })
+
+  it(`#EXP-2171 a repository: after the boards, its checks chip, its menu off THE table`, () => {
+    h.repositories = [
+      {
+        repo: { id: `r-1`, teamId: `t-acme`, slug: `engine`, fullName: `acme/engine`, provider: `ecode`, sortOrder: 0 },
+        name: `engine`,
+        trailing: { kind: `checks`, state: `failure` },
+      },
+    ]
+    renderTeams()
+    const list = screen.getByTestId(`sidebar-team-items`)
+    const keys = [...list.querySelectorAll(`[data-reorder-key]`)].map((el) => el.getAttribute(`data-reorder-key`))
+    expect(keys).toEqual([`t-acme`, `b-1`, `r-1`, `a-1`, `p-1`])
+    const row = screen.getByTestId(`sidebar-repository-row`)
+    expect(row.querySelector(`a`)?.getAttribute(`href`)).toBe(`/t/acme/repos/engine`)
+    expect(within(row).getByTestId(`sidebar-repository-checks`).textContent).toBe(`Failing`)
+    expect(openMenu(row.querySelector(`a`)!)).toEqual([
+      `Open`,
+      `Open in new tab`,
+      `—`,
+      `New chat in this repository`,
+      `Pull requests`,
+      `Runs`,
+      `—`,
+      `Copy clone URL`,
+      `Move to folder`,
+      `—`,
+      `Settings`,
+    ])
+    pick(`New chat in this repository`)
+    expect(h.navigate).toHaveBeenCalledWith({ href: `/home?team=t-acme&repo=r-1` })
+    openMenu(screen.getByTestId(`sidebar-repository-row`).querySelector(`a`)!)
+    pick(`Runs`)
+    expect(h.navigate).toHaveBeenCalledWith({ href: `/t/acme/repos/engine?tab=runs` })
+    h.repositories = []
   })
 
   it(`a board (owner): New issue on it, Move to folder, its settings and Archive behind the confirm`, async () => {

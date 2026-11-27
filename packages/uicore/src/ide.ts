@@ -226,7 +226,7 @@ const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: numb
   ...badge({ count, tone }),
 })
 
-/** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board for owners). */
+/** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board, repository for owners). */
 export const newItems = (owner: boolean): IdeMenuEntry[] => [
   { label: COPY.session, value: `session`, icon: `action-chat` },
   ...(owner
@@ -234,6 +234,7 @@ export const newItems = (owner: boolean): IdeMenuEntry[] => [
         { label: COPY.agent, value: `agent`, icon: `settings-agents` },
         { label: COPY.app, value: `app`, icon: `nav-apps` },
         { label: COPY.board, value: `board`, icon: `nav-boards` },
+        { label: COPY.repository, value: `repository`, icon: `action-repository` },
       ]
     : []),
 ]

@@ -3502,7 +3502,36 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v116 (#EXP-2171, sidebar-tree.json `teamItems`): the synced
+        // `repositories` table (the repositories shape; a brand-new table, no
+        // cursor yet): the Teams tab's repository rows.
+        migrator.registerMigration("v116_repositories") { db in
+            try createRepositoriesTable(db)
+        }
+
         return migrator
+    }
+
+    /// #EXP-2171: the `repositories` table, mirroring the shape allowlist
+    /// (`/api/shapes/repositories`); jsonb `sync` as JSON text.
+    static func createRepositoriesTable(_ db: Database) throws {
+        try db.create(table: "repositories", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("provider", .text).notNull().defaults(to: "github")
+            t.column("full_name", .text).notNull().defaults(to: "")
+            t.column("slug", .text).notNull().defaults(to: "")
+            t.column("description", .text)
+            t.column("sync", .text)
+            t.column("default_branch", .text).notNull().defaults(to: "main")
+            t.column("default_branch_override", .text)
+            t.column("private", .boolean).notNull().defaults(to: false)
+            t.column("inaccessible_at", .text)
+            t.column("shared_by_user_id", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1832: the `sidebar_layout` table, mirroring the shape allowlist
@@ -3917,6 +3946,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM composer_drafts")
             // #EXP-1832: the sidebar layout places boards, agents and apps.
             try db.execute(sql: "DELETE FROM sidebar_layout")
+            // #EXP-2171: the team's repositories.
+            try db.execute(sql: "DELETE FROM repositories")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")

@@ -419,6 +419,9 @@ pub(crate) struct ChatScreenView {
     repos_team: Option<String>,
     /// EXP-822: the session's optional repository anchor (no-subject only).
     chat_repo: Option<ActionRepoRow>,
+    /// #EXP-2171: a seeded repository pick (New chat in this repository),
+    /// applied once the team's repositories are in.
+    repo_seed: Option<String>,
     /// The ONE launch cluster's state (agent, model, effort, toggles, MCP,
     /// account). Built once the coding hub exists (the page can render
     /// before it does).
@@ -605,6 +608,7 @@ impl ChatScreenView {
             team_repos: Vec::new(),
             repos_team: None,
             chat_repo: None,
+            repo_seed: None,
             launch: None,
             device: DevicePick::default(),
             mcp: None,
@@ -896,6 +900,10 @@ impl ChatScreenView {
     /// is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
         // #EXP-2027: New › Session = this team as the primary team and pick.
+        if let Some(repo) = seed.repository_id.clone() {
+            self.repo_seed = Some(repo);
+            self.apply_repo_seed();
+        }
         if let Some(team) = seed.team_id.clone() {
             self.team_override = Some(team);
             self.teams_picked = None;
@@ -1382,10 +1390,28 @@ impl ChatScreenView {
                 }
                 this.chat_repo = action_run::preselect_repo(&rows);
                 this.team_repos = rows;
+                this.apply_repo_seed();
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// #EXP-2171 (coding-readiness.json `chatRepo`): a seeded pick wins
+    /// once it is one of the loaded team's repositories (the seed's team
+    /// loads after a team switch); consumed then.
+    fn apply_repo_seed(&mut self) {
+        let Some(seed) = self.repo_seed.clone() else { return };
+        let input = domain::coding_readiness::ChatRepoInput {
+            pick: Some(seed.clone()),
+            issue: None,
+            team_repository_ids: self.team_repos.iter().map(|repo| repo.id.clone()).collect(),
+        };
+        if domain::coding_readiness::chat_repository(&input).as_deref() != Some(seed.as_str()) {
+            return;
+        }
+        self.chat_repo = self.team_repos.iter().find(|repo| repo.id == seed).cloned();
+        self.repo_seed = None;
     }
 
     /// EXP-792: one `mcpServers.list` per team (it carries the person's own
@@ -1765,7 +1791,8 @@ impl ChatScreenView {
                 if let Some(reason) = chat_launch::issue_count_blocker(issues.checked.len()) {
                     return Some(reason.into());
                 }
-                chat_launch::repo_blocker(&issues.rows, &issues.checked, &issues.repos).map(Into::into)
+                let picked = self.chat_repo.as_ref().map(|repo| repo.id.as_str());
+                chat_launch::repo_blocker(&issues.rows, &issues.checked, &issues.repos, picked).map(Into::into)
             }
         }
     }
@@ -1946,7 +1973,7 @@ impl ChatScreenView {
                     .filter(|row| issues.checked.contains(&row.issue_id))
                     .map(|row| row.issue_id.clone())
                     .collect(),
-                repository_id: chat_launch::issues_repository(&issues.checked, &issues.repos),
+                repository_id: chat_launch::issues_repository(&issues.checked, &issues.repos, self.chat_repo.as_ref().map(|repo| repo.id.as_str())),
                 ..Default::default()
             },
             Subject::Action(subject) => {
@@ -2340,7 +2367,8 @@ impl ChatScreenView {
                     .iter()
                     .filter_map(|row| {
                         let note: SharedString = match issues.repos.get(&row.issue_id)? {
-                            RepoState::Ready(None) => "no repository linked".into(),
+                            // #EXP-2171: no default: the server resolves it.
+                            RepoState::Ready(None) => return None,
                             RepoState::Error(err) => format!("repository check failed: {err}").into(),
                             RepoState::Loading if issues.checked.contains(&row.issue_id) => {
                                 "resolving repository…".into()

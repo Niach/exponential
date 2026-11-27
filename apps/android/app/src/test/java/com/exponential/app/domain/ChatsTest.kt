@@ -663,6 +663,12 @@ class ChatsTest {
         assertEquals(newMenu.getValue("rowHeight").jsonPrimitive.int, Chats.Shell.NewMenu.ROW_HEIGHT)
         assertEquals(newMenu.getValue("radius").jsonPrimitive.int, Chats.Shell.NewMenu.RADIUS)
         assertEquals(newMenu.getValue("gap").jsonPrimitive.int, Chats.Shell.NewMenu.GAP)
+        val moreMenu = shell.getValue("moreMenu").jsonObject
+        assertEquals(moreMenu.getValue("items").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.MoreMenu.ALL)
+        assertTrue(Chats.Shell.MoreMenu.ALL.containsAll(Chats.Shell.MoreMenu.ITEMS))
+        assertEquals(moreMenu.getValue("icons").jsonObject.mapValues { it.value.jsonPrimitive.content }, Chats.Shell.MoreMenu.ICONS)
+        assertEquals(moreMenu.getValue("badges").jsonObject.mapValues { moreMenu.getValue("badges").jsonObject.str(it.key) }, Chats.Shell.MoreMenu.BADGES)
+        assertEquals(moreMenu.getValue("copy").jsonObject.mapValues { it.value.jsonPrimitive.content }, Chats.Shell.MoreMenu.COPY)
         assertEquals(
             shell.getValue("pages").jsonObject.mapValues { (_, v) -> Chats.Shell.Page(v.jsonObject.str("tab"), v.jsonObject.bool("bar")) },
             Chats.Shell.PAGES,
@@ -671,7 +677,7 @@ class ChatsTest {
         assertEquals(Chats.Shell.Page(null, false), Chats.Shell.page("issue"))
         assertEquals(
             setOf(
-                "tabs", "tabIcons", "dock", "newMenu", "pages", "bar", "header", "boardChips", "chatHeader", "leadDisc",
+                "tabs", "tabIcons", "dock", "newMenu", "moreMenu", "pages", "bar", "header", "boardChips", "chatHeader", "leadDisc",
                 "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph", "dimOpacity",
                 "chatLead", "markGlyph", "markGap",
             ),
@@ -710,7 +716,9 @@ class ChatsTest {
         assertEquals(ids.str("tabTeams"), Chats.TestIds.TAB_TEAMS)
         assertEquals(ids.str("tabAssistant"), Chats.TestIds.TAB_ASSISTANT)
         assertEquals(ids.str("tabNew"), Chats.TestIds.TAB_NEW)
-        assertEquals(ids.str("tabSettings"), Chats.TestIds.TAB_SETTINGS)
+        assertEquals(ids.str("tabMore"), Chats.TestIds.TAB_MORE)
+        assertEquals(ids.str("moreMenu"), Chats.TestIds.MORE_MENU)
+        assertEquals(ids.str("moreMenuRow"), Chats.TestIds.MORE_MENU_ROW)
         assertEquals(ids.str("newMenu"), Chats.TestIds.NEW_MENU)
         assertEquals(ids.str("newMenuRow"), Chats.TestIds.NEW_MENU_ROW)
         assertEquals(ids.str("boardChip"), Chats.TestIds.BOARD_CHIP)
@@ -723,7 +731,7 @@ class ChatsTest {
         assertEquals(ids.str("appRow"), Chats.TestIds.APP_ROW)
         assertEquals(ids.str("chatMarkTeam"), Chats.TestIds.CHAT_MARK_TEAM)
         assertEquals(ids.str("chatMarkUnencrypted"), Chats.TestIds.CHAT_MARK_UNENCRYPTED)
-        assertEquals(21, ids.size)
+        assertEquals(23, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

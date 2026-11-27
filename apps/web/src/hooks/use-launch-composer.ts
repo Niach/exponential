@@ -143,6 +143,9 @@ export function buildSendInput(args: {
   attachmentIds: readonly string[]
   subject: LaunchSubject
   repoId: string
+  /** #EXP-2171: issues defaulting to different repositories: the picked one
+   *  (else the server resolves it from the first issue). */
+  issuesRepoId?: string
   /** S-3: the agent row's pick (null = Temporary session). */
   agentId?: string | null
   /** EXP-1686: the forwarded issues' identifiers (a to-agent send's refs). */
@@ -192,7 +195,7 @@ export function buildSendInput(args: {
     // teams (its own = `teamId`); none = its own team only, nothing sent.
     ...(args.scopeTeamIds && args.scopeTeamIds.length > 0 ? { scopeTeamIds: [...args.scopeTeamIds] } : {}),
     ...(subject?.kind === `issues`
-      ? { issueIds: [...subject.ids] }
+      ? { issueIds: [...subject.ids], ...(args.issuesRepoId ? { repositoryId: args.issuesRepoId } : {}) }
       : {
           ...(subject?.kind === `prompt` ? { promptId: subject.id } : {}),
           ...(args.repoId ? { repositoryId: args.repoId } : {}),
@@ -242,7 +245,7 @@ export interface LaunchComposerHome {
   /** `/home?team=<id>` (a team menu's New › Session): that team as the plain
    *  chat's Teams pick, the agent row on Temporary session. A fresh object
    *  applies again. */
-  seedTeam?: { id: string } | null
+  seedTeam?: { id: string; repositoryId?: string } | null
 }
 
 /** The plain chat's teams (#EXP-2027): the pick kept in team order, at least
@@ -458,6 +461,8 @@ export function useLaunchComposer({
   }, [seedTeam])
 
   const repos = useTeamRepos(effectiveTeamId)
+  const seedRepoRef = useRef<string | null>(null)
+  seedRepoRef.current = seedTeam?.repositoryId ?? null
   // The default repository, seeded once per team: a team change waits for
   // that team's list (never the previous team's stale one).
   const repoSeed = useRef<{ team: string; stale: ChatRepoOption[] | null; done: boolean } | null>(null)
@@ -470,9 +475,16 @@ export function useLaunchComposer({
     const latch = repoSeed.current
     if (latch.done || !repos || repos === latch.stale) return
     latch.done = true
-    setRepoId(defaultChatRepoId(repos))
+    // #EXP-2171: a seeded repository (New chat in this repository) wins.
+    const seededRepo = seedRepoRef.current
+    setRepoId(seededRepo && repos.some((repo) => repo.id === seededRepo) ? seededRepo : defaultChatRepoId(repos))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos, effectiveTeamId])
+  // A repository seeded into an already loaded team applies at once.
+  useEffect(() => {
+    const seeded = seedTeam?.repositoryId
+    if (seeded && seedTeam?.id === effectiveTeamId && repos?.some((repo) => repo.id === seeded)) setRepoId(seeded)
+  }, [seedTeam, repos, effectiveTeamId])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
 
   const { prompts } = usePrompts(effectiveTeamId)
@@ -522,22 +534,23 @@ export function useLaunchComposer({
     })
   }, [effectiveTeamId])
 
-  // Codeable issues live on boards that HAVE a repo (coding gates on repo
-  // presence). Sorted ids keep the dep string stable.
+  // #EXP-2171: a board's repository is only its DEFAULT: every issue of the
+  // team is on offer (the server resolves its repository, coding-readiness
+  // .json `chatRepo`). Sorted ids keep the dep string stable.
   const boards = useTeamBoards(effectiveTeamId)
-  const repoBoardIds = useMemo(() => {
-    const ids = boards.filter((board) => board.repositoryId).map((board) => board.id)
+  const teamBoardIds = useMemo(() => {
+    const ids = boards.map((board) => board.id)
     ids.sort()
     return ids
   }, [boards])
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      repoBoardIds.length > 0
+      teamBoardIds.length > 0
         ? query
             .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.boardId, repoBoardIds))
+            .where(({ issues }) => inArray(issues.boardId, teamBoardIds))
         : undefined,
-    [repoBoardIds.join(`,`)]
+    [teamBoardIds.join(`,`)]
   )
   const allById = useMemo(
     () => new Map(((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])),
@@ -559,10 +572,11 @@ export function useLaunchComposer({
     [checkedIds, allById]
   )
 
-  // A batch is ONE repository on ONE base branch (the server enforces both):
-  // block a cross-repo / cross-branch selection client-side. A board with no
-  // branch override rides the repo's default, which only the server knows,
-  // so the branch guard fires only on two DIFFERENT overrides.
+  // A batch is ONE repository on ONE base branch. #EXP-2171: issues whose
+  // boards default to DIFFERENT repositories ask for one (the + menu's
+  // repository pick rides the send); two different branch overrides still
+  // block (a board with none rides the repo's default, only the server
+  // knows it).
   const boardById = useMemo(
     () => new Map(boards.map((board) => [board.id, board as Board])),
     [boards]
@@ -726,7 +740,7 @@ export function useLaunchComposer({
       ? // A subjectless session needs SOMETHING to say: text or a file.
         !hasText && images.length === 0
       : subject.kind === `issues`
-        ? overCap || spansRepos || spansBranches
+        ? overCap || spansBranches || (spansRepos && !repoId)
         : !selectedPrompt
   // S-3: a message to the picked agent runs on the agent's device: the
   // composer's machine and its readiness never gate it.
@@ -781,6 +795,7 @@ export function useLaunchComposer({
         attachmentIds,
         subject,
         repoId,
+        issuesRepoId: spansRepos ? repoId : undefined,
         agentId: recipient?.id ?? null,
         issueIdentifiers: checkedIssues.map((issue) => issue.identifier),
         ...(toAssistant && teams

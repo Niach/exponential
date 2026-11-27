@@ -4,8 +4,8 @@ import GRDB
 
 /// #EXP-2109 (sidebar-tree.json): what the Teams tab and the iPad sidebar
 /// read beside `TeamState` (teams, boards) and `SessionListsModel` (sessions):
-/// my synced `sidebar_layout` (section `team`), the agents and the apps, and
-/// the teams I own, live off GRDB for the navigator's lifetime.
+/// my synced `sidebar_layout` (section `team`), the agents, the apps, the
+/// repositories (#EXP-2171) with their checks rollup, and the teams I own, live off GRDB for the navigator's lifetime.
 @MainActor @Observable
 final class SidebarTreeModel {
     struct Agent: Equatable, Sendable {
@@ -32,6 +32,9 @@ final class SidebarTreeModel {
         var entries: [String: [SidebarFolders.Entry]] = [:]
         var agents: [Agent] = []
         var apps: [App] = []
+        var repositories: [RepositoryEntity] = []
+        /// Each repository's `RepoPage.checksRollup` over its live PRs.
+        var checks: [String: String] = [:]
         var owned: Set<String> = []
         var boardsSynced = false
     }
@@ -50,6 +53,12 @@ final class SidebarTreeModel {
 
     func agent(_ id: String) -> Agent? { rows.agents.first { $0.id == id } }
     func app(_ id: String) -> App? { rows.apps.first { $0.id == id } }
+    func repository(_ id: String) -> RepositoryEntity? { rows.repositories.first { $0.id == id } }
+    func repositories(of teamId: String) -> [RepositoryEntity] { rows.repositories.filter { $0.teamId == teamId } }
+    /// The repository row's trailing side (`repositoryRow.cases`).
+    func repositoryTrailing(_ id: String) -> SidebarTree.RepositoryTrailing? {
+        repository(id).flatMap { SidebarTree.repositoryTrailing(provider: $0.provider, checks: rows.checks[$0.id]) }
+    }
 
     /// The folder whose name is being edited in place (#EXP-2124 Rename; a
     /// new folder's, SHOWN while it has no item).
@@ -68,6 +77,7 @@ final class SidebarTreeModel {
         SidebarTree.teamItems(
             teamId: teamId,
             boards: teamState.boards(of: teamId).map { (id: $0.id, sortOrder: $0.sortOrder ?? 0) },
+            repositories: repositories(of: teamId).map { (id: $0.id, sortOrder: $0.sortOrder, fullName: $0.fullName) },
             // An app's own agent lists as its app only.
             agents: Chats.sidebarAgents(
                 rows.agents.filter { $0.teamId == teamId }, agentId: \.id, appAgentIds: rows.apps.map(\.agentId)
@@ -118,7 +128,7 @@ final class SidebarTreeModel {
                 unreadCount: Chats.unreadCount(rootId: id, messages: lists.chatMessages, reads: lists.reads),
                 needsYou: lists.chatRow(id)?.needsYou ?? false
             )
-        case .board, .app: .none
+        case .board, .repository, .app: .none
         }
     }
 
@@ -236,6 +246,9 @@ final class SidebarTreeModel {
                         color: $0.color ?? AppGlyph.neutralColor, agentId: $0.agentId
                     )
                 },
+                repositories: try RepositoryEntity.fetchAll(db),
+                checks: Dictionary(grouping: try PullRequestEntity.fetchAll(db), by: \.repositoryId)
+                    .compactMapValues { RepoPage.checksRollup($0.map(RepoPage.Pr.init)) },
                 owned: try userId.map { userId in
                     Set(try TeamMemberEntity
                         .filter(Column("user_id") == userId)

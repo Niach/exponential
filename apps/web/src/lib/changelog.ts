@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-repositories-in-navigation`,
+    date: `2026-11-27`,
+    title: `Repositories in the sidebar`,
+    summary: `Your team's repositories now sit in the sidebar and on the Teams tab beside boards, agents and apps, with their checks at a glance.`,
+    body: `- **A row per repository**: each one shows whether its checks pass, opens its page, and moves into folders like any other row. Its menu starts a chat in it, opens its pull requests or runs, and copies its clone URL.
+- **New › Repository**: owners create one hosted on Exponential, or link one from GitHub, on one page.
+- **A board names a default repository**: a chat on an issue uses the repository of the issue's open pull request, then the board's default, then the team's only repository. Pull requests may link issues from any board of the team, and removing a repository just clears that default.
+- **More on phones**: the last tab opens Devices and Settings.`,
+  },
+  {
     id: `2026-11-27-ci-runner-in-the-app`,
     date: `2026-11-27`,
     title: `The desktop app runs your CI on Linux`,

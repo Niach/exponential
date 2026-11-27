@@ -5,11 +5,15 @@ import SwiftUI
 /// #EXP-2109 (chats.json `shell.dock`, ×3 phones): THE DOCKED BAR: full width
 /// at the bottom edge, the opaque `popover` fill over the safe area under one
 /// hairline, `shell.tabs` as five equal cells: Chats · Teams · Assistant ·
-/// New · Settings, each an icon over its label, muted, the selected one in
+/// New · More, each an icon over its label, muted, the selected one in
 /// the foreground colour. THE ASSISTANT cell is the Exponential mark on a
 /// round raised disc, its selection a soft glow. NEW never selects: a tap
 /// opens THE NEW POPUP above its cell (`shell.newMenu`: Issue, Chat), the
 /// cell's icon turned into `openIcon`; a tap outside or on the cell closes it.
+/// #EXP-2171 MORE never selects either: a tap opens THE same menu upwards
+/// from its cell, aligned to its end (`shell.moreMenu`: Devices · CI ·
+/// Settings, the rows this app has a page for); the cell wears their badges'
+/// sum (nav-badges.json `more`).
 ///
 /// Hung by MainNavigator as an overlay; a page under it reserves
 /// `PhoneDockMetrics.clearance` (`phoneDockInset`).
@@ -25,8 +29,14 @@ struct PhoneDock: View {
     var issueEnabled = true
     /// The New popup is up.
     @Binding var newOpen: Bool
+    /// #EXP-2171: the More menu is up.
+    @Binding var moreOpen: Bool
+    /// The More menu's rows (`MoreMenu.items(available:)`), each with its badge.
+    var moreItems: [Chats.Shell.MoreMenu.Item] = []
+    var moreBadges: [Chats.Shell.MoreMenu.Item: NavBadges.Value] = [:]
     var onSelect: (Chats.Shell.Tab) -> Void = { _ in }
     var onNew: (Chats.Shell.NewMenu.Item) -> Void = { _ in }
+    var onMore: (Chats.Shell.MoreMenu.Item) -> Void = { _ in }
     /// Styleguide only: the bar alone, no full-screen scrim under the popup.
     var specimen = false
 
@@ -34,22 +44,28 @@ struct PhoneDock: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if newOpen, !specimen {
+            if newOpen || moreOpen, !specimen {
                 Color.black.opacity(GlassAlertMetrics.scrimOpacity)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
-                    .onTapGesture { newOpen = false }
+                    .onTapGesture { close() }
                     .accessibilityHidden(true)
                     .transition(.opacity)
             }
             bar
         }
         .animation(motion.standard, value: newOpen)
+        .animation(motion.standard, value: moreOpen)
         // The bar is a fixed `shell.dock` size (its labels are too): a larger
         // text size must not grow the icons over them.
         .dynamicTypeSize(.large)
         // VoiceOver's two-finger scrub closes the popup (the system back).
-        .accessibilityAction(.escape) { newOpen = false }
+        .accessibilityAction(.escape) { close() }
+    }
+
+    private func close() {
+        newOpen = false
+        moreOpen = false
     }
 
     private var bar: some View {
@@ -75,13 +91,18 @@ struct PhoneDock: View {
 
     @ViewBuilder
     private func cell(_ tab: Chats.Shell.Tab) -> some View {
-        let lit = newOpen ? tab == .new : selected == tab
+        let lit = newOpen ? tab == .new : moreOpen ? tab == .more : selected == tab
         Button {
             if tab == .new {
                 UIApplication.endEditing()
+                moreOpen = false
                 newOpen.toggle()
-            } else {
+            } else if tab == .more {
+                UIApplication.endEditing()
                 newOpen = false
+                moreOpen.toggle()
+            } else {
+                close()
                 onSelect(tab)
             }
         } label: {
@@ -103,7 +124,16 @@ struct PhoneDock: View {
                     .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
             }
         }
-        .zIndex(tab == .new ? 1 : 0)
+        // align end: the menu's trailing edge on the cell's.
+        .overlay(alignment: .bottomTrailing) {
+            if tab == .more, moreOpen {
+                more
+                    .padding(.trailing, 8)
+                    .padding(.bottom, PhoneDockMetrics.height + PhoneDockMetrics.menuGap)
+                    .transition(.scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity))
+            }
+        }
+        .zIndex(tab == .new || tab == .more ? 1 : 0)
     }
 
     private func face(_ tab: Chats.Shell.Tab, lit: Bool) -> some View {
@@ -129,6 +159,7 @@ struct PhoneDock: View {
         case .chats: chatsBadge
         case .teams: teamsBadge
         case .assistant: assistantBadge
+        case .more: NavBadges.sumBadges(moreItems.map { moreBadges[$0] ?? .none })
         default: .none
         }
     }
@@ -165,40 +196,64 @@ struct PhoneDock: View {
     // MARK: - The New popup
 
     private var menu: some View {
-        let shape = RoundedRectangle(cornerRadius: PhoneDockMetrics.menuRadius, style: .continuous)
-        return VStack(spacing: 0) {
+        popup {
             ForEach(Chats.Shell.NewMenu.items, id: \.self) { item in
-                let enabled = item != .issue || issueEnabled
-                Button {
+                popupRow(icon: item.icon, label: item.label, enabled: item != .issue || issueEnabled) {
                     newOpen = false
                     onNew(item)
-                } label: {
-                    HStack(spacing: 14) {
-                        AppIcon(AppIcons.conceptOrName(item.icon) ?? AppIcons.uiAdd, size: AppIcon.Size.large)
-                            .frame(width: 20, height: 20)
-                        Text(item.label)
-                            .font(.system(size: 15))
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(.white.opacity(enabled ? 1 : TextOpacity.tertiary))
-                    .padding(.horizontal, 14)
-                    .frame(height: PhoneDockMetrics.menuRowHeight)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .disabled(!enabled)
                 .accessibilityIdentifier(Chats.TestIds.newMenuRow)
             }
         }
-        .padding(6)
-        .frame(width: PhoneDockMetrics.menuWidth)
-        // THE glass menu fill (GlassMenu's opaque card composite + its tint).
-        .background(GlassTokens.opaqueCardFill, in: shape)
-        .overlay(shape.fill(Color.white.opacity(GlassMenuTokens.tintOpacity)).allowsHitTesting(false))
-        .overlay(shape.stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
-        .fixedSize()
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Chats.TestIds.newMenu)
+    }
+
+    /// #EXP-2171 `shell.moreMenu`: each row its page, its count badge.
+    private var more: some View {
+        popup {
+            ForEach(moreItems, id: \.self) { item in
+                popupRow(icon: item.icon, label: item.label, badge: moreBadges[item] ?? .none) {
+                    moreOpen = false
+                    onMore(item)
+                }
+                .accessibilityIdentifier(Chats.TestIds.moreMenuRow)
+            }
+        }
+        .accessibilityIdentifier(Chats.TestIds.moreMenu)
+    }
+
+    private func popupRow(
+        icon: String, label: String, enabled: Bool = true, badge: NavBadges.Value = .none, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                AppIcon(AppIcons.conceptOrName(icon) ?? AppIcons.uiAdd, size: AppIcon.Size.large)
+                    .frame(width: 20, height: 20)
+                Text(label)
+                    .font(.system(size: 15))
+                Spacer(minLength: 0)
+                CountBadge(badge)
+            }
+            .foregroundStyle(.white.opacity(enabled ? 1 : TextOpacity.tertiary))
+            .padding(.horizontal, 14)
+            .frame(height: PhoneDockMetrics.menuRowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    private func popup<Rows: View>(@ViewBuilder _ rows: () -> Rows) -> some View {
+        let shape = RoundedRectangle(cornerRadius: PhoneDockMetrics.menuRadius, style: .continuous)
+        return VStack(spacing: 0) { rows() }
+            .padding(6)
+            .frame(width: PhoneDockMetrics.menuWidth)
+            // THE glass menu fill (GlassMenu's opaque card composite + its tint).
+            .background(GlassTokens.opaqueCardFill, in: shape)
+            .overlay(shape.fill(Color.white.opacity(GlassMenuTokens.tintOpacity)).allowsHitTesting(false))
+            .overlay(shape.stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
+            .fixedSize()
+            .accessibilityElement(children: .contain)
     }
 }
 
