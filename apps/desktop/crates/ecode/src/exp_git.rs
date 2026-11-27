@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::http::{client, send, transfer_client, with_json};
+use crate::http::{client, net_error, send, transfer_client, with_json};
 use crate::{Error, GitCommand, Result};
 
 /// The refs the server holds.
@@ -141,12 +141,12 @@ impl ExpGit {
 
     /// Downloads a presigned URL into `path`.
     pub fn download(&self, url: &str, path: &Path) -> Result<()> {
-        let mut response = self.transfer.get(url).send().map_err(|e| Error::Http { status: 0, detail: e.to_string() })?;
+        let mut response = self.transfer.get(url).send().map_err(net_error)?;
         if !response.status().is_success() {
             return Err(Error::Http { status: response.status().as_u16(), detail: "download from the bucket failed".into() });
         }
         let mut file = std::fs::File::create(path).map_err(|e| Error::git("write pack", e))?;
-        response.copy_to(&mut file).map_err(|e| Error::Http { status: 0, detail: e.to_string() })?;
+        response.copy_to(&mut file).map_err(net_error)?;
         Ok(())
     }
 
@@ -165,7 +165,7 @@ impl ExpGit {
             .header("content-length", bytes)
             .body(reqwest::blocking::Body::sized(file, bytes))
             .send()
-            .map_err(|e| Error::Http { status: 0, detail: e.to_string() })?;
+            .map_err(net_error)?;
         if !response.status().is_success() {
             return Err(Error::Http { status: response.status().as_u16(), detail: "upload to the bucket failed".into() });
         }
