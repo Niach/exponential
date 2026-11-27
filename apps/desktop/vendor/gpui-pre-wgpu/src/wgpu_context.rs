@@ -539,6 +539,28 @@ impl WgpuContext {
 
         Self::sort_adapters(&mut adapters, device_id_filter, compositor_gpu);
 
+        // Exponential patch (#EXP-2211): lavapipe (Mesa's software Vulkan) before
+        // Mesa 24 presents nothing but black to an X11 window with a 32-bit ARGB
+        // visual (gpui's X11 windows always take one when the server offers it),
+        // and no Vulkan call reports an error: Ubuntu 22.04's Mesa 23.2 under Xvfb.
+        // Its OpenGL twin (llvmpipe) paints, so the other adapters go first and
+        // lavapipe stays the last resort.
+        if adapters.len() > 1
+            && let Some(position) = adapters
+                .iter()
+                .position(|adapter| is_black_presenting_lavapipe(&adapter.get_info()))
+        {
+            let lavapipe = adapters.remove(position);
+            let info = lavapipe.get_info();
+            log::warn!(
+                "{} ({}) paints X11 windows black (Mesa before 24, #EXP-2211); \
+                 trying the other adapters first",
+                info.name,
+                info.driver_info,
+            );
+            adapters.push(lavapipe);
+        }
+
         // Log all available adapters (in sorted order)
         log::info!("Found {} GPU adapter(s):", adapters.len());
         for adapter in &adapters {
@@ -753,6 +775,28 @@ impl WgpuContext {
     pub fn errors(&self) -> &Arc<DeviceErrorState> {
         &self.errors
     }
+}
+
+/// Exponential patch (#EXP-2211): lavapipe from a Mesa before 24.0, whose X11
+/// software present leaves a 32-bit-visual window black (23.2.1 does, 24.0.5
+/// does not). `apps/desktop/crates/eui-gpui/tests/software_adapters.rs`.
+#[cfg(not(target_family = "wasm"))]
+pub fn is_black_presenting_lavapipe(info: &wgpu::AdapterInfo) -> bool {
+    info.backend == wgpu::Backend::Vulkan
+        && info.device_type == wgpu::DeviceType::Cpu
+        && info.driver == "llvmpipe"
+        && mesa_version(&info.driver_info).is_some_and(|(major, _)| major < 24)
+}
+
+/// `(major, minor)` out of a Mesa driver string (`Mesa 23.2.1-1ubuntu3.1~22.04.4
+/// (LLVM 15.0.7)`).
+#[cfg(not(target_family = "wasm"))]
+pub fn mesa_version(driver_info: &str) -> Option<(u32, u32)> {
+    let version = driver_info.split("Mesa ").nth(1)?;
+    let mut parts = version.split(|c: char| !c.is_ascii_digit());
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
 }
 
 #[cfg(not(target_family = "wasm"))]
