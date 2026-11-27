@@ -26,7 +26,11 @@ object CiRunView {
     object Events {
         const val SELECT = "ci-select-job"
         const val RERUN = "ci-rerun"
+        const val RERUN_ALL = "ci-rerun-all"
         const val CANCEL = "ci-cancel"
+        const val FIX = "ci-fix"
+        const val OPEN_EXTERNAL = "ci-open-external"
+        const val BREADCRUMB = "ci-breadcrumb"
     }
 
     /** Events the runner section fires. */
@@ -42,7 +46,7 @@ object CiRunView {
     const val RUNNER_LABELS_PATH = "/labels"
 
     /** Which button's call is in flight. */
-    enum class Busy { Rerun, Cancel }
+    enum class Busy { Rerun, RerunAll, Cancel }
 
     private fun iconTone(tone: PrChecks.Tone): String = when (tone) {
         PrChecks.Tone.Muted -> "neutral"
@@ -131,18 +135,39 @@ object CiRunView {
         nowMs: Long,
         phone: Boolean,
         busy: Busy? = null,
+        repository: String? = null,
+        pullRequestNumber: Int? = null,
     ): JsonObject {
         val ids = CiRun.TestIds
         val tiles = CiRun.tiles(run, jobs, nowMs)
-        val actions = CiRun.actions(run.state, run.error)
+        val actions = CiRun.actions(run)
+        val title = CiRun.Copy.title(run.number)
+        val source = if (run.provider == "github") "github" else "exponential"
+        val head = mutableListOf<JsonElement>()
+        // #EXP-2172: wide, the way back to the CI page and the repository.
+        if (!phone) {
+            head += node(ids.BREADCRUMB, "Breadcrumb", {
+                putJsonArray("items") {
+                    add(buildJsonObject { put("label", CiRun.Copy.BREADCRUMB_ROOT); put("value", "ci") })
+                    if (repository != null) add(buildJsonObject { put("label", repository); put("value", "repository") })
+                    add(buildJsonObject { put("label", title); put("value", "run") })
+                }
+            }) { on("select", Events.BREADCRUMB) }
+        }
+        val headingRow = mutableListOf<JsonElement>(
+            node("ci-run-heading", "Heading", { put("text", title); put("level", "h2") }),
+            node(ids.SOURCE, "Badge", { put("text", CiRun.Copy.SOURCES.getValue(source)); put("variant", "secondary") }),
+        )
+        if (pullRequestNumber != null) {
+            headingRow += node("ci-run-pull-request", "Badge", {
+                put("text", CiRun.Copy.PULL_REQUEST.replace("{number}", pullRequestNumber.toString()))
+                put("variant", "outline")
+            })
+        }
+        head += stack("ci-run-heading-row", "horizontal", "sm", "center", headingRow)
+        head += node("ci-run-name", "Text", { put("text", if (run.ref != null) "${run.name} · ${run.ref}" else run.name); put("variant", "muted") })
         val children = mutableListOf<JsonElement>(
-            stack(
-                "ci-run-title", "vertical", "xs", "stretch",
-                listOf(
-                    node("ci-run-heading", "Heading", { put("text", CiRun.Copy.title(run.number)); put("level", "h2") }),
-                    node("ci-run-name", "Text", { put("text", run.name); put("variant", "muted") }),
-                ),
-            ),
+            stack("ci-run-title", "vertical", "xs", "stretch", head),
             node(
                 ids.TILES,
                 "Grid",
@@ -152,27 +177,28 @@ object CiRunView {
                 },
             ),
         )
-        if (actions.rerunFailed || actions.cancel) {
-            val buttons = mutableListOf<JsonElement>()
-            if (actions.rerunFailed) {
-                buttons += node(ids.RERUN, "Button", {
-                    put("label", CiRun.Copy.RERUN_FAILED)
-                    put("loading", busy == Busy.Rerun)
-                    put("disabled", busy != null)
-                }) { on("press", Events.RERUN) }
+        fun button(id: String, label: String, event: String, which: Busy?, extra: JsonObjectBuilder.() -> Unit = {}) =
+            node(id, "Button", {
+                put("label", label)
+                extra()
+                if (which != null) put("loading", busy == which)
+                put("disabled", busy != null)
+            }) { on("press", event) }
+        val buttons = mutableListOf<JsonElement>()
+        if (actions.rerunFailed) buttons += button(ids.RERUN, CiRun.Copy.RERUN_FAILED, Events.RERUN, Busy.Rerun)
+        if (actions.rerunAll) {
+            buttons += button(ids.RERUN_ALL, CiRun.Copy.RERUN_ALL, Events.RERUN_ALL, Busy.RerunAll) {
+                if (actions.rerunFailed) put("variant", "outline")
             }
-            if (actions.cancel) {
-                // ci-run.json: variant destructive-outline (the catalog's
-                // `destructive`; it has no outline twin).
-                buttons += node(ids.CANCEL, "Button", {
-                    put("label", CiRun.Copy.CANCEL)
-                    put("variant", "destructive")
-                    put("loading", busy == Busy.Cancel)
-                    put("disabled", busy != null)
-                }) { on("press", Events.CANCEL) }
-            }
-            children += stack("ci-run-actions", "horizontal", "sm", "center", buttons)
         }
+        // ci-run.json: variant destructive-outline (the catalog's
+        // `destructive`; it has no outline twin).
+        if (actions.cancel) buttons += button(ids.CANCEL, CiRun.Copy.CANCEL, Events.CANCEL, Busy.Cancel) { put("variant", "destructive") }
+        if (actions.fix) buttons += button(ids.FIX, CiRun.Copy.FIX, Events.FIX, null) { put("variant", "outline"); put("icon", "bot") }
+        if (actions.openExternal) {
+            buttons += button(ids.OPEN_EXTERNAL, CiRun.Copy.OPEN_EXTERNAL, Events.OPEN_EXTERNAL, null) { put("variant", "outline"); put("icon", "github") }
+        }
+        if (buttons.isNotEmpty()) children += node("ci-run-actions", "Toolbar", children = buttons)
         val error = run.error
         if (error != null) {
             children += node("ci-run-error", "Alert", { put("type", "error"); put("title", CiRun.Copy.PIPELINE_ERROR); put("message", error) })

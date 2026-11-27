@@ -43,6 +43,9 @@ sealed interface LinkDestination {
 
     /** #EXP-1804 (ci-run.json): THE run page of our own CI (`?job=` rides the uri). */
     data class CiRun(val runId: String) : LinkDestination
+
+    /** #EXP-2172 (ci-page.json): THE CI page (`/ci`, no team). */
+    data object CiPage : LinkDestination
 }
 
 /**
@@ -78,6 +81,11 @@ class WebLinkResolver @Inject constructor(
      */
     suspend fun resolveLink(link: AppLink, host: String): LinkResolution {
         val browserOnly = LinkResolution(member = true, found = true, webOnly = true)
+        // #EXP-2172: the CI page spans every team: any account on the host opens it.
+        if (link is AppLink.App && com.exponential.app.domain.isCiPagePath(link.path)) {
+            val account = accountsOn(host).firstOrNull() ?: return browserOnly
+            return LinkResolution(true, found = true, webOnly = false, accountId = account.id, destination = LinkDestination.CiPage)
+        }
         val slug = appLinkTeam(link) ?: return browserOnly
         val accounts = accountsOn(host)
         if (accounts.isEmpty()) return browserOnly

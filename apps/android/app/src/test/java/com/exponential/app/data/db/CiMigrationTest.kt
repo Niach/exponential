@@ -93,4 +93,34 @@ class CiMigrationTest {
         val bare = json.decodeFromString(DeviceEntity.serializer(), """{"id": "d1", "user_id": "u1", "device_id": "dev-1"}""")
         assertNull(RunnerSettings.parse(bare.runner))
     }
+
+    @Test
+    fun `v136 adds the GitHub columns to ci_runs and ci_jobs and refetches only those shapes`() {
+        assertEquals(135, MIGRATION_135_136.startVersion)
+        assertEquals(136, MIGRATION_135_136.endVersion)
+        val statements = mutableListOf<String>()
+        MIGRATION_135_136.migrate(recording(statements))
+        for (column in listOf("provider", "external_id", "external_url", "external_attempt", "external_access")) {
+            assertTrue(column, statements.any { it.startsWith("ALTER TABLE `ci_runs` ADD COLUMN `$column`") })
+        }
+        for (column in listOf("provider", "external_id", "external_url")) {
+            assertTrue(column, statements.any { it.startsWith("ALTER TABLE `ci_jobs` ADD COLUMN `$column`") })
+        }
+        val refetches = statements.filter { it.contains("electric_offsets") }
+        assertEquals(1, refetches.size)
+        assertTrue(refetches.single().endsWith("WHERE `shape` IN ('ci_runs', 'ci_jobs')"))
+    }
+
+    @Test
+    fun `a GitHub ci_runs row decodes its external columns`() {
+        val row = json.decodeFromString(
+            CiRunEntity.serializer(),
+            """{"id": "g1", "number": "1207", "state": "failure", "provider": "github", "external_id": "998", "external_url": "https://github.com/acme/mobile/actions/runs/998", "external_attempt": "2", "external_access": "write"}""",
+        )
+        assertEquals("github", row.provider)
+        assertEquals(2, row.externalAttempt)
+        assertEquals("write", row.externalAccess)
+        val ours = json.decodeFromString(CiRunEntity.serializer(), """{"id": "r1", "state": "pending"}""")
+        assertEquals("exponential", ours.provider)
+    }
 }

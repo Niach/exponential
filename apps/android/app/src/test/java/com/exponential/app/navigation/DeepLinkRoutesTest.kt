@@ -95,7 +95,7 @@ class DeepLinkRoutesTest {
     @Test
     fun `fills the full agent pattern`() {
         assertEquals(
-            "agent?issues=&action=p-1&device=&pr=i-1&text=&icon=&chat=&team=",
+            "agent?issues=&action=p-1&device=&pr=i-1&text=&icon=&chat=&team=&repo=",
             DeepLinkRoutes.concreteRoute(
                 AGENT_ROUTE_PATTERN,
                 args(
@@ -107,6 +107,7 @@ class DeepLinkRoutesTest {
                     "icon" to "",
                     "chat" to "",
                     "team" to "",
+                    "repo" to "",
                 ),
             ),
         )

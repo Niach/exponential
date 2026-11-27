@@ -11,8 +11,11 @@ import com.exponential.app.data.db.CiJobEntity
 import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.CiPage
 import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.CiRunView
 import com.exponential.app.domain.RunnerSettings
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -68,6 +72,10 @@ internal fun CiRunEntity.toRun(): CiRun.Run = CiRun.Run(
     sha = sha,
     startedAt = startedAt,
     completedAt = completedAt,
+    ref = ref,
+    provider = provider,
+    externalUrl = externalUrl,
+    externalAccess = externalAccess,
 )
 
 /**
@@ -83,6 +91,7 @@ class CiRunViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val api: CiApi,
+    private val repositoriesApi: RepositoriesApi,
 ) : ViewModel() {
 
     val runId: String = savedStateHandle["runId"] ?: ""
@@ -95,6 +104,30 @@ class CiRunViewModel @Inject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val devices = dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+
+    /** #EXP-2172: the run's pull request number (the head's badge), when synced. */
+    val pullRequestNumber: StateFlow<Int?> = run.map { it?.pullRequestId }.distinctUntilChanged().flatMapLatest { id ->
+        if (id == null) flowOf(null) else dbFlow.scopedQuery(null as PullRequestEntity?) { it.pullRequestDao().observeById(id) }.map { it?.number }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-2172: the repository's full name (null until its team's list is read). */
+    private val _repository = MutableStateFlow<String?>(null)
+    val repository: StateFlow<String?> = _repository
+    private var repoAsked: String? = null
+
+    private fun loadRepository(run: CiRunEntity) {
+        if (repoAsked == run.repositoryId) return
+        val accountId = auth.activeAccountId.value ?: return
+        repoAsked = run.repositoryId
+        viewModelScope.launch {
+            runCatching { repositoriesApi.list(accountId, run.teamId) }
+                .onSuccess { repos -> _repository.value = repos.firstOrNull { it.id == run.repositoryId }?.fullName }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    repoAsked = null
+                }
+        }
+    }
 
     val jobs: StateFlow<List<CiRun.Job>> = combine(
         dbFlow.scopedQuery(emptyList<CiJobEntity>()) { it.ciJobDao().observeByRun(runId) },
@@ -123,6 +156,9 @@ class CiRunViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             selectedJobId.collect { jobId -> startTail(jobId) }
+        }
+        viewModelScope.launch {
+            run.collect { row -> if (row != null) loadRepository(row) }
         }
     }
 
@@ -165,13 +201,45 @@ class CiRunViewModel @Inject constructor(
         viewModelScope.launch {
             _busy.value = CiRunView.Busy.Rerun
             runCatching { api.rerunFailed(accountId, runId) }
-                .onSuccess { _opened.tryEmit(it) }
+                .onSuccess { if (it != runId) _opened.tryEmit(it) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _failure.value = FailedAction("re-run", "the failed jobs", trpcErrorMessage(t, ""), retry = ::rerunFailed)
                 }
             _busy.value = null
         }
+    }
+
+    /** #EXP-2172: Re-run all = `ci.rerun{failedOnly: false}`; ours opens the
+     *  new run, a GitHub run stays (a new attempt of the same row). */
+    fun rerunAll() {
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            _busy.value = CiRunView.Busy.RerunAll
+            runCatching { api.rerun(accountId, runId, failedOnly = false) }
+                .onSuccess { if (it != runId) _opened.tryEmit(it) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _failure.value = FailedAction("re-run", "the run", trpcErrorMessage(t, ""), retry = ::rerunAll)
+                }
+            _busy.value = null
+        }
+    }
+
+    /** #EXP-2172: Fix with an agent = the new-chat composer on the run's
+     *  repository (its team), its text = [CiRun.fixPrompt] over the selected
+     *  failing job and the log read so far. Null while the run is not synced. */
+    fun fixSeed(): AgentComposerSeed? {
+        val row = run.value ?: return null
+        val jobId = selectedJobId.value
+        val job = jobs.value.firstOrNull { it.id == jobId }?.takeIf(CiRun::isFailing)
+        val log = _log.value.takeIf { it.jobId == job?.id && it.loaded }?.text
+        val text = CiRun.fixPrompt(row.toRun(), _repository.value ?: CiPage.Copy.UNKNOWN_REPOSITORY, job?.check, log)
+        return AgentComposerSeed(
+            text = text,
+            teamId = row.teamId.takeIf { it.isNotEmpty() },
+            repositoryId = row.repositoryId.takeIf { it.isNotEmpty() },
+        )
     }
 
     fun cancel() {

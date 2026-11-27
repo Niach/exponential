@@ -123,7 +123,10 @@ import androidx.room.TypeConverters
     // v135 (#EXP-2161): devices.assistant_team_ids, space_host_id,
     //      space_team_id (member spaces), explicit [MIGRATION_134_135]; only
     //      the devices shape refetches.
-    version = 135,
+    // v136 (#EXP-2172): ci_runs + ci_jobs provider / external_* (GitHub
+    //      Actions runs), explicit [MIGRATION_135_136]; only the ci_runs and
+    //      ci_jobs shapes refetch.
+    version = 136,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

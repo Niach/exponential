@@ -17,12 +17,17 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.RepoCiConfig
 import com.exponential.app.data.api.RepoCiSecret
 import com.exponential.app.data.api.RepoCiSettings
+import com.exponential.app.domain.CiPageSpecimen
+import com.exponential.app.domain.CiPageView
 import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.RepoCi
 import com.exponential.app.domain.RepoPage
 import com.exponential.app.domain.RunnerSettings
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.ui.ci.CiPageContent
 import com.exponential.app.ui.ci.CiRunPage
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import com.exponential.app.ui.ci.RunnerSettingsView
 import com.exponential.app.ui.repo.RepoCiSection
 import com.exponential.app.ui.repo.RepoRunsTab
@@ -54,6 +59,37 @@ fun CiRunSpecimenScreen() {
                 onRerunFailed = {},
                 onCancel = {},
                 onBack = {},
+                repository = CiRun.SPECIMEN_REPOSITORY,
+                pullRequestNumber = CiRun.SPECIMEN_PULL_REQUEST_NUMBER,
+            )
+        }
+    }
+}
+
+const val CiPageSpecimenTestId = "ci-page-specimen"
+
+/** #EXP-2172 (ci-page.json `scenario`, shot sg_ci): THE CI page's Runs tab as
+ *  a phone draws it; the tabs and filters work in place. */
+@Composable
+fun CiPageSpecimenScreen() {
+    var state by remember { mutableStateOf(CiPageView.State()) }
+    AppBackground {
+        Box(Modifier.fillMaxSize().testTag(CiPageSpecimenTestId)) {
+            CiPageContent(
+                input = CiPageSpecimen.INPUT,
+                state = state,
+                onBack = null,
+                onEvent = { name, _, payload ->
+                    val value = (payload?.get("value") as? JsonPrimitive)?.contentOrNull
+                    val pick = value?.takeIf { it != "all" }
+                    state = when (name) {
+                        CiPageView.Events.TAB -> if (value != null) state.copy(tab = value) else state
+                        CiPageView.Events.STATUS -> if (value != null) state.copy(filter = state.filter.copy(status = value)) else state
+                        CiPageView.Events.REPOSITORY -> state.copy(filter = state.filter.copy(repositoryId = pick))
+                        CiPageView.Events.SOURCE -> state.copy(filter = state.filter.copy(source = pick))
+                        else -> state
+                    }
+                },
             )
         }
     }

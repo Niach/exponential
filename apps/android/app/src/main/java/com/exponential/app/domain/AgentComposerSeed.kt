@@ -43,6 +43,8 @@ data class AgentComposerSeed(
     val chatId: String? = null,
     /** #EXP-2109: the team the Teams pick starts on (a team's New › Chat). */
     val teamId: String? = null,
+    /** #EXP-2172: the chat's repository (a CI run's Fix with an agent). */
+    val repositoryId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */
     val hasSubject: Boolean get() = promptId != null || issueIds.isNotEmpty()
@@ -75,6 +77,7 @@ data class AgentComposerSeed(
             icon = get(ARG_ICON)?.takeIf { it.isNotEmpty() },
             chatId = get(ARG_CHAT)?.takeIf { UUID_RE.matches(it) },
             teamId = get(ARG_PICK_TEAM)?.takeIf { UUID_RE.matches(it) },
+            repositoryId = get(ARG_REPO)?.takeIf { UUID_RE.matches(it) },
         )
 
         /** The seed the `agent?…` route entry carries. */
@@ -100,10 +103,11 @@ const val ARG_TEXT = "text"
 const val ARG_ICON = "icon"
 const val ARG_CHAT = "chat"
 const val ARG_PICK_TEAM = "team"
+const val ARG_REPO = "repo"
 
 /** Every query arg the `agent` destination declares, in pattern order. */
 val AGENT_ROUTE_ARGS: List<String> =
-    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CHAT, ARG_PICK_TEAM)
+    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CHAT, ARG_PICK_TEAM, ARG_REPO)
 
 /**
  * The NavHost pattern: every arg is a `{placeholder}` query value so an absent
@@ -129,6 +133,7 @@ fun agentRoute(seed: AgentComposerSeed): String {
         seed.icon?.takeIf { it.isNotEmpty() }?.let { add(ARG_ICON to it) }
         seed.chatId?.takeIf { it.isNotEmpty() }?.let { add(ARG_CHAT to it) }
         seed.teamId?.takeIf { it.isNotEmpty() }?.let { add(ARG_PICK_TEAM to it) }
+        seed.repositoryId?.takeIf { it.isNotEmpty() }?.let { add(ARG_REPO to it) }
     }
     if (params.isEmpty()) return AGENT_ROUTE
     return AGENT_ROUTE + "?" + params.joinToString("&") { (key, value) -> "$key=${encodeRouteValue(value)}" }

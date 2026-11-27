@@ -99,6 +99,9 @@ object SidebarMenus {
         "drafts" to kind(
             "open" to listOf(Entry("open"), Entry("open-new-tab")),
         ),
+        "ci" to kind(
+            "open" to listOf(Entry("open"), Entry("open-new-tab")),
+        ),
         "devices" to kind(
             "kind" to listOf(Entry("add-device")),
         ),
