@@ -150,6 +150,11 @@
       "refresh",
       "service"
     ],
+    "ede_tray_input": [
+      "button",
+      "direction",
+      "service"
+    ],
     "ede_tray_menu": [
       "id",
       "service"

@@ -21,6 +21,7 @@ import { deviceCommands, devices, teamMembers } from "@/db/schema"
 import { ForgeError, type ForgeRepo } from "@/lib/ecode/forge"
 import type { EcodeJob, EcodeJobOutcome } from "@/lib/ecode/forge-ecode"
 import { mintRepoToken } from "@/lib/ecode/repo-token"
+import { redactUrlQueries } from "@/lib/ecode/redact-urls"
 
 export const ECODE_JOB_KIND = `ecode_job`
 export const ECODE_JOBS_CAP = `ecode-jobs`
@@ -94,7 +95,9 @@ export async function queueJob(
 }
 
 /** Parses a device's answer (the completed row's `result`). */
-export function parseJobAnswer<K extends EcodeJob[`op`]>(status: string, result: string | null): EcodeJobOutcome<K> {
+export function parseJobAnswer<K extends EcodeJob[`op`]>(status: string, raw: string | null): EcodeJobOutcome<K> {
+  // #EXP-2191: a device's text never brings a presigned URL's query along.
+  const result = redactUrlQueries(raw)
   try {
     const parsed = JSON.parse(result ?? ``) as { ok?: boolean; result?: unknown; reason?: ForgeReason; message?: string }
     if (status === `done` && parsed.ok === true) return { ok: true, result: parsed.result as never }
