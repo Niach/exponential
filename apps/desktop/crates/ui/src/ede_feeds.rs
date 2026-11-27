@@ -293,9 +293,10 @@ impl Publisher {
                 return;
             };
             // #EDE-239: the traces off the main thread, then the feeds.
-            let store = cx.update(|cx| crate::chat_store::store(cx));
+            // #EDE-266: a run of this machine reads its own journal (live).
+            let (store, data_dir) = cx.update(|cx| (crate::chat_store::store(cx), crate::coding_flow::coding_data_dir(cx)));
             if let (Some(store), false) = (store, reads.is_empty()) {
-                let traces = cx.background_executor().spawn(async move { crate::ede_sessions::read_traces(&store, &reads) }).await;
+                let traces = cx.background_executor().spawn(async move { crate::ede_sessions::read_traces(&store, Some(data_dir.as_path()), &reads) }).await;
                 crate::ede_sessions::with_traces(&mut feeds, &traces);
             }
             let working = feeds["sessions"].as_array().is_some_and(|sessions| sessions.iter().any(|s| s["state"] == "running"));

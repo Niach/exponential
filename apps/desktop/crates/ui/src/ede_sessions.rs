@@ -133,14 +133,25 @@ pub(crate) fn trace_lines(events: &[ActivityEvent], working: bool) -> Vec<Value>
         .collect()
 }
 
-/// The traces of `reads` from the chat store (off the main thread), by root.
-pub(crate) fn read_traces(store: &SqliteStore, reads: &[TraceRead]) -> HashMap<String, Vec<Value>> {
+/// The traces of `reads` (off the main thread), by root: a session this
+/// machine runs from its own journal (#EDE-266: live; the chat store gets
+/// it only on the slow catch-up), else from the chat store.
+pub(crate) fn read_traces(store: &SqliteStore, data_dir: Option<&std::path::Path>, reads: &[TraceRead]) -> HashMap<String, Vec<Value>> {
     reads
         .iter()
         .filter_map(|read| {
-            let mut stored = store.read_events(&read.session, &read.device, None, Some(TRACE_READ)).ok()?;
-            stored.sort_by_key(|event| event.seq);
-            let events: Vec<ActivityEvent> = stored.into_iter().filter_map(|event| serde_json::from_value(event.event).ok()).collect();
+            let journal = data_dir.and_then(|dir| steer::history::read_journal(dir, &read.session)).filter(|events| !events.is_empty());
+            let events: Vec<ActivityEvent> = match journal {
+                Some(events) => {
+                    let skip = events.len().saturating_sub(TRACE_READ);
+                    events.into_iter().skip(skip).collect()
+                }
+                None => {
+                    let mut stored = store.read_events(&read.session, &read.device, None, Some(TRACE_READ)).ok()?;
+                    stored.sort_by_key(|event| event.seq);
+                    stored.into_iter().filter_map(|event| serde_json::from_value(event.event).ok()).collect()
+                }
+            };
             Some((read.root.clone(), trace_lines(&events, read.working)))
         })
         .collect()
@@ -228,6 +239,24 @@ mod tests {
 
     fn update(id: &str, status: &str) -> ActivityEvent {
         serde_json::from_value(json!({"kind": "tool_update", "id": id, "status": status})).unwrap()
+    }
+
+    /// #EDE-266: a run this machine holds is read from its journal, live;
+    /// one it does not (no journal) from the chat store.
+    #[test]
+    fn a_local_run_reads_its_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = steer::history::journal_path(dir.path(), "s1").unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let lines = [json!({"kind": "tool", "name": "Bash", "id": "t1", "toolKind": "execute", "detail": "foot"}), json!({"kind": "tool_update", "id": "t1", "status": "completed"}), json!({"kind": "tool", "name": "Bash", "id": "t2", "toolKind": "execute", "detail": "cargo check"})];
+        std::fs::write(&path, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        let store = SqliteStore::open_in_memory().unwrap();
+        let read = |session: &str| TraceRead { root: "r".into(), session: session.into(), device: "d".into(), working: true };
+        let traces = read_traces(&store, Some(dir.path()), &[read("s1")]);
+        let statuses: Vec<&str> = traces["r"].iter().map(|l| l["status"].as_str().unwrap()).collect();
+        assert_eq!(statuses, ["done", "running"], "{traces:?}");
+        let none = read_traces(&store, Some(dir.path()), &[read("s2")]);
+        assert_eq!(none["r"], Vec::<Value>::new(), "no journal: the (empty) chat store");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 # #EXP-2024: the pinned live view of an agent's space on this machine (f5-f6-design.md section 6 on
-# #EXP-1514). A press on a row of the taskbar's Agent spaces list pins its session's view (ONE at a
+# #EXP-1514). Watch in the taskbar's computer-use tray (#EDE-266) pins its session's view (ONE at a
 # time, by session: it follows a session whose space is made anew): this on-demand top layer at the
 # bottom right of the first display, above the taskbar, that never takes the keyboard (no `keyboard`
 # key: none) when it maps, is pressed, resized or closed. The header: the session's title (`Agent
