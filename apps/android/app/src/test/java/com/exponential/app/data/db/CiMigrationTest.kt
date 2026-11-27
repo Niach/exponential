@@ -112,6 +112,20 @@ class CiMigrationTest {
     }
 
     @Test
+    fun `v137 adds ci_runs title and refetches only ci_runs`() {
+        assertEquals(136, MIGRATION_136_137.startVersion)
+        assertEquals(137, MIGRATION_136_137.endVersion)
+        val statements = mutableListOf<String>()
+        MIGRATION_136_137.migrate(recording(statements))
+        assertEquals("ALTER TABLE `ci_runs` ADD COLUMN `title` TEXT", statements.first())
+        val refetches = statements.filter { it.contains("electric_offsets") }
+        assertEquals(1, refetches.size)
+        assertTrue(refetches.single().endsWith("WHERE `shape` = 'ci_runs'"))
+        val row = json.decodeFromString(CiRunEntity.serializer(), """{"id": "r1", "state": "pending", "title": "Mirror prunes deleted branches"}""")
+        assertEquals("Mirror prunes deleted branches", row.title)
+    }
+
+    @Test
     fun `a GitHub ci_runs row decodes its external columns`() {
         val row = json.decodeFromString(
             CiRunEntity.serializer(),

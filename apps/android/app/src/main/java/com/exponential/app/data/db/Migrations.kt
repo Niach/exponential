@@ -556,3 +556,18 @@ val MIGRATION_135_136: Migration = object : Migration(135, 136) {
         )
     }
 }
+
+/**
+ * v137 (#EXP-2172 redesign, ci-page.json): `ci_runs.title` (the commit / PR
+ * line a run row and the run page lead with). Only the ci_runs shape
+ * refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_136_137: Migration = object : Migration(136, 137) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `title` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'ci_runs'",
+        )
+    }
+}

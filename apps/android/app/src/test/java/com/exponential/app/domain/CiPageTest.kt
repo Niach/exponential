@@ -37,6 +37,7 @@ class CiPageTest {
             state = o.str("state")!!, pullRequestId = o.str("pullRequestId"), createdByUserId = o.str("createdByUserId"),
             provider = o.str("provider") ?: "exponential", startedAt = o.str("startedAt"), completedAt = o.str("completedAt"),
             createdAt = o.str("createdAt") ?: "",
+            title = o.str("title"),
         )
 
         fun job(o: JsonObject) = CiPage.Job(
@@ -66,19 +67,28 @@ class CiPageTest {
             pullRequests = o.list("pullRequests").map(::pr),
             sessions = o.list("sessions").map { CiPage.Session(it.str("id")!!, it.str("userId")!!) },
             runners = o.list("runners").map(::runner),
+            users = o.list("users").map { CiPage.User(it.str("id")!!, it.str("name")!!, it.str("image")) },
             viewerId = o.str("viewerId") ?: "",
             now = o.str("now") ?: "",
+            utcOffsetMinutes = (o["utcOffsetMinutes"] as? JsonPrimitive)?.intOrNull ?: 0,
         )
     }
 
     private fun s(v: String?): JsonElement = v?.let(::JsonPrimitive) ?: JsonNull
 
     private fun json(r: CiPage.RunListRow) = buildJsonObject {
-        put("id", r.id); put("identifier", r.identifier); put("title", r.title); put("status", r.status.wire)
-        put("statusLabel", r.statusLabel); put("glyph", r.glyph.wire); put("tone", r.tone.wire)
-        put("repositoryId", r.repositoryId); put("repository", r.repository); put("source", r.source)
-        put("sourceLabel", r.sourceLabel); put("ref", r.ref); put("trigger", r.trigger)
-        put("duration", s(r.duration)); put("startedAt", s(r.startedAt)); put("subtitle", r.subtitle)
+        put("id", r.id); put("status", r.status.wire); put("statusLabel", r.statusLabel); put("glyph", r.glyph.wire)
+        put("tone", r.tone); put("title", r.title); put("workflow", r.workflow); put("repositoryId", r.repositoryId)
+        put("repository", r.repository); put("repo", r.repo); put("ref", r.ref); put("sha", r.sha); put("trigger", r.trigger)
+        put("source", r.source); put("sourceLabel", r.sourceLabel); put("sourceIcon", r.sourceIcon)
+        put("duration", s(r.duration)); put("at", r.at)
+        put("author", r.author?.let { a -> buildJsonObject { put("id", a.id); put("name", a.name); put("image", s(a.image)) } } ?: JsonNull)
+        put("subtitle", r.subtitle); put("phoneSubtitle", r.phoneSubtitle); put("phoneMeta", r.phoneMeta)
+    }
+
+    private fun json(g: CiPage.RunGroup) = buildJsonObject {
+        put("id", g.id); put("title", g.title); put("count", g.count?.let(::JsonPrimitive) ?: JsonNull)
+        put("rows", JsonArray(g.rows.map(::json)))
     }
 
     private fun json(g: CiPage.TrainGroup) = buildJsonObject {
@@ -105,18 +115,23 @@ class CiPageTest {
         assertEquals(sources.str("github"), CiPage.Copy.SOURCES["github"])
         val tabs = copy.getValue("tabs").jsonObject
         assertEquals(listOf(tabs.str("runs"), tabs.str("train"), tabs.str("runners")), listOf(CiPage.Copy.TAB_RUNS, CiPage.Copy.TAB_TRAIN, CiPage.Copy.TAB_RUNNERS))
-        val tiles = copy.getValue("tiles").jsonObject
         assertEquals(
-            listOf(tiles.str("running"), tiles.str("queued"), tiles.str("failedToday"), tiles.str("runners"), tiles.str("runnersValue")),
-            listOf(CiPage.Copy.TILE_RUNNING, CiPage.Copy.TILE_QUEUED, CiPage.Copy.TILE_FAILED_TODAY, CiPage.Copy.TILE_RUNNERS, CiPage.Copy.TILE_RUNNERS_VALUE),
+            listOf("inProgress", "today", "yesterday", "queued", "batchTitle", "runnerChip", "waitingForRunner").map { copy.str(it) },
+            with(CiPage.Copy) { listOf(IN_PROGRESS, TODAY, YESTERDAY, QUEUED, BATCH_TITLE, RUNNER_CHIP, WAITING_FOR_RUNNER) },
         )
+        assertEquals(copy.getValue("months").jsonArray.map { it.jsonPrimitive.content }, CiPage.Copy.MONTHS)
+        val tones = fixture.getValue("statusTones").jsonObject
+        assertEquals(tones.keys, CiPage.STATUS_TONES.keys.map { it.wire }.toSet())
+        for ((status, pair) in CiPage.STATUS_TONES) {
+            val t = tones.getValue(status.wire).jsonObject
+            assertEquals(listOf(t.str("glyph"), t.str("tone")), listOf(pair.first.wire, pair.second))
+        }
         val cols = copy.getValue("columns").jsonObject
         assertEquals(
             listOf("status", "run", "repository", "source", "ref", "trigger", "duration", "started").map { cols.str(it) },
             with(CiPage.Copy) { listOf(COL_STATUS, COL_RUN, COL_REPOSITORY, COL_SOURCE, COL_REF, COL_TRIGGER, COL_DURATION, COL_STARTED) },
         )
         assertEquals(copy.getValue("repositories").jsonObject.str("all"), CiPage.Copy.REPOSITORIES_ALL)
-        assertEquals(copy.str("runsSection"), CiPage.Copy.RUNS_SECTION)
         assertEquals(copy.str("trainSection"), CiPage.Copy.TRAIN_SECTION)
         assertEquals(copy.str("pullRequest"), CiPage.Copy.PULL_REQUEST)
         assertEquals(copy.str("unknownRepository"), CiPage.Copy.UNKNOWN_REPOSITORY)
@@ -137,20 +152,27 @@ class CiPageTest {
         val ids = fixture.getValue("testIds").jsonObject
         with(CiPage.TestIds) {
             assertEquals(
-                listOf("page", "tiles", "tabs", "filters", "statusFilter", "repoFilter", "sourceFilter", "runs", "runRow", "train", "trainRow", "runners", "runnerRow").map { ids.str(it) },
-                listOf(PAGE, TILES, TABS, FILTERS, STATUS_FILTER, REPO_FILTER, SOURCE_FILTER, RUNS, RUN_ROW, TRAIN, TRAIN_ROW, RUNNERS, RUNNER_ROW),
+                listOf("page", "tiles", "tabs", "filters", "statusFilter", "repoFilter", "sourceFilter", "runs", "runRow", "train", "trainRow", "runners", "runnerRow", "runnerChip").map { ids.str(it) },
+                listOf(PAGE, TILES, TABS, FILTERS, STATUS_FILTER, REPO_FILTER, SOURCE_FILTER, RUNS, RUN_ROW, TRAIN, TRAIN_ROW, RUNNERS, RUNNER_ROW, RUNNER_CHIP),
             )
         }
     }
 
     @Test
     fun `every run list case matches the fixture`() {
-        val cases = fixture.list("runListCases")
+        val cases = fixture.list("runGroupsCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val f = case.getValue("filter").jsonObject
             val filter = CiPage.RunFilter(f.str("status")!!, f.str("repositoryId"), f.str("source"))
-            assertEquals(case.str("name"), case.getValue("expected"), JsonArray(CiPage.runList(scenario, filter).map(::json)))
+            assertEquals(case.str("name"), case.getValue("expected"), JsonArray(CiPage.runGroups(scenario, filter).map(::json)))
+        }
+        for (case in fixture.list("dayTitleCases")) {
+            assertEquals(
+                case.str("day"),
+                case.str("expected"),
+                CiPage.dayTitle(case.str("day")!!, case.str("now")!!, case.getValue("utcOffsetMinutes").jsonPrimitive.int),
+            )
         }
     }
 
@@ -160,10 +182,8 @@ class CiPageTest {
             fixture.getValue("repoOptions"),
             JsonArray(CiPage.repoOptions(scenario).map { buildJsonObject { put("label", it.label); put("value", it.value) } }),
         )
-        assertEquals(
-            fixture.getValue("tiles"),
-            JsonArray(CiPage.tiles(scenario).map { buildJsonObject { put("label", it.label); put("value", it.value); put("tone", it.tone); put("delta", s(it.delta)) } }),
-        )
+        val chip = CiPage.runnerChip(scenario)!!
+        assertEquals(fixture.getValue("runnerChip"), buildJsonObject { put("label", chip.label); put("online", chip.online) })
         val counts = CiPage.tabCounts(scenario)
         assertEquals(fixture.getValue("tabCounts"), buildJsonObject { put("train", counts.train); put("runners", counts.runners) })
         assertEquals(

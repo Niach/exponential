@@ -1301,6 +1301,9 @@ data class CiRunEntity(
     @ColumnInfo(name = "external_attempt") @SerialName("external_attempt") @JsonNames("externalAttempt")
     @Serializable(with = PgIntSerializer::class) val externalAttempt: Int? = null,
     @ColumnInfo(name = "external_access") @SerialName("external_access") @JsonNames("externalAccess") val externalAccess: String? = null,
+    // #EXP-2172 redesign ([MIGRATION_136_137]): what the run is about (the
+    // commit / PR line); null = the pipeline's name stands in.
+    val title: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

@@ -12,6 +12,7 @@ import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AgentComposerSeed
@@ -76,6 +77,8 @@ internal fun CiRunEntity.toRun(): CiRun.Run = CiRun.Run(
     provider = provider,
     externalUrl = externalUrl,
     externalAccess = externalAccess,
+    title = title,
+    createdAt = createdAt,
 )
 
 /**
@@ -105,10 +108,35 @@ class CiRunViewModel @Inject constructor(
 
     private val devices = dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
 
-    /** #EXP-2172: the run's pull request number (the head's badge), when synced. */
-    val pullRequestNumber: StateFlow<Int?> = run.map { it?.pullRequestId }.distinctUntilChanged().flatMapLatest { id ->
-        if (id == null) flowOf(null) else dbFlow.scopedQuery(null as PullRequestEntity?) { it.pullRequestDao().observeById(id) }.map { it?.number }
+    /** #EXP-2172: the run's pull request (number, base: the chip strip), when synced. */
+    val pullRequest: StateFlow<CiRun.PullRequest?> = run.map { it?.pullRequestId }.distinctUntilChanged().flatMapLatest { id ->
+        if (id == null) {
+            flowOf(null)
+        } else {
+            dbFlow.scopedQuery(null as PullRequestEntity?) { it.pullRequestDao().observeById(id) }
+                .map { pr -> pr?.number?.let { CiRun.PullRequest(it, pr.base) } }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-2172: the author's name (the users row of createdByUserId), when synced. */
+    val author: StateFlow<String?> = combine(
+        run.map { it?.createdByUserId }.distinctUntilChanged(),
+        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
+    ) { id, users -> users.firstOrNull { it.id == id }?.let { it.name?.takeIf(String::isNotBlank) ?: it.email } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-2172 (phones): drilled into the selected job (its Card alone). */
+    private val _jobOpen = MutableStateFlow(false)
+    val jobOpen: StateFlow<Boolean> = _jobOpen
+
+    fun openJob(jobId: String) {
+        picked.value = jobId
+        _jobOpen.value = true
+    }
+
+    fun closeJob() {
+        _jobOpen.value = false
+    }
 
     /** #EXP-2172: the repository's full name (null until its team's list is read). */
     private val _repository = MutableStateFlow<String?>(null)

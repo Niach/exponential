@@ -26,7 +26,22 @@ object CiRun {
         const val LOG = "Log"
         const val RERUN_FAILED = "Re-run failed"
         const val CANCEL = "Cancel"
-        const val RERUN_ALL = "Re-run all"
+        const val RERUN_ALL = "Re-run all jobs"
+        const val MORE = "More actions"
+        val JOBS_CAPTION: Map<RunStatus, String> = linkedMapOf(
+            RunStatus.Failed to "{count} failed",
+            RunStatus.Running to "{count} running",
+            RunStatus.Queued to "{count} queued",
+            RunStatus.Passed to "{count} passed",
+            RunStatus.Cancelled to "{count} skipped",
+        )
+        const val SUMMARY_FAILED = "Failed after {duration}"
+        const val SUMMARY_RUNNING = "Running for {duration}"
+        const val SUMMARY_PASSED = "Passed in {duration}"
+        const val SUMMARY_QUEUED = "Waiting for a runner"
+        const val SUMMARY_SKIPPED = "Skipped"
+        const val SUMMARY_ON = " on {runner}"
+        const val FAILURE_TITLE = "Failed in {job}"
         const val FIX = "Fix with an agent"
         const val OPEN_EXTERNAL = "Open on GitHub"
         const val BREADCRUMB_ROOT = "CI"
@@ -37,13 +52,8 @@ object CiRun {
         const val FIX_READ = "Read its whole log with exponential_repositories {op: \"run_log\", runId: \"{runId}\"}, find the cause, fix it on {ref} and push."
         const val FIX_TAIL = "The end of its log:"
         const val EMPTY_LOG = "No log yet."
-        const val FAILED_JOBS = "{count} failed"
         const val PIPELINE_ERROR = "The pipeline file did not plan"
         const val NONE = "—"
-        const val TILE_STATUS = "Status"
-        const val TILE_DURATION = "Duration"
-        const val TILE_RUNNER = "Runner"
-        const val TILE_COMMIT = "Commit"
         val STATUS: Map<RunStatus, String> = mapOf(
             RunStatus.Queued to "Queued",
             RunStatus.Running to "Running",
@@ -65,7 +75,6 @@ object CiRun {
     /** ci-run.json `testIds`. */
     object TestIds {
         const val PAGE = "ci-run"
-        const val TILES = "ci-run-tiles"
         const val JOB_ROW = "ci-run-job"
         const val STEPS = "ci-run-steps"
         const val LOG = "ci-run-log"
@@ -76,6 +85,10 @@ object CiRun {
         const val OPEN_EXTERNAL = "ci-run-open-external"
         const val BREADCRUMB = "ci-run-breadcrumb"
         const val SOURCE = "ci-run-source"
+        const val CHIPS = "ci-run-chips"
+        const val MORE = "ci-run-more"
+        const val FAILURE = "ci-run-failure"
+        const val JOB_CARD = "ci-run-job-card"
     }
 
     /** ci-run.json `liveTailMs`: the log re-read while incomplete. */
@@ -89,7 +102,7 @@ object CiRun {
         Queued("queued"), Running("running"), Passed("passed"), Failed("failed"), Cancelled("cancelled")
     }
 
-    enum class Tone(val wire: String) { Neutral("neutral"), Primary("primary"), Success("success"), Danger("danger") }
+    enum class Tone(val wire: String) { Neutral("neutral"), Info("info"), Success("success"), Danger("danger") }
 
     enum class StepStatus(val wire: String) {
         Pending("pending"), Running("running"), Done("done"), Skipped("skipped"), Error("error")
@@ -133,10 +146,10 @@ object CiRun {
         val provider: String = "exponential",
         val externalUrl: String? = null,
         val externalAccess: String? = null,
+        /** #EXP-2172 redesign: what the run is about (else the pipeline's name). */
+        val title: String? = null,
+        val createdAt: String = "",
     )
-
-    /** `delta`: the Status tile of a failed run, `{count} failed` (red); else null. */
-    data class Tile(val label: String, val value: String, val tone: Tone, val delta: String? = null)
 
     data class JobRow(
         val id: String,
@@ -145,19 +158,25 @@ object CiRun {
         val glyph: PrChecks.Glyph,
         val tone: PrChecks.Tone,
         val duration: String?,
+        /** #EXP-2172: the run page's status and its tone (`statusTones`). */
+        val status: RunStatus = RunStatus.Queued,
+        val statusTone: Tone = Tone.Neutral,
     )
 
     data class TraceItem(val title: String, val status: StepStatus, val description: String?)
 
     data class LogView(val code: String, val highlight: List<Int>)
 
-    data class Actions(
-        val rerunFailed: Boolean,
-        val rerunAll: Boolean,
-        val cancel: Boolean,
-        val fix: Boolean,
-        val openExternal: Boolean,
-    )
+    /** THE one default button ([primary], null = not ours to change), Fix
+     *  with an agent, and the ⋯ menu (`rerunAll`, `openExternal`). */
+    data class Actions(val primary: String?, val fix: Boolean, val menu: List<String>)
+
+    /** One chip under the title (`dot` = the status chip's colour token). */
+    data class Chip(val id: String, val label: String, val icon: String?, val dot: String?)
+
+    data class Failure(val title: String, val message: String)
+
+    data class PullRequest(val number: Int, val base: String)
 
     /** ci-run.json `fixLogLines`: the log tail Fix with an agent quotes. */
     const val FIX_LOG_LINES = 40
@@ -177,29 +196,15 @@ object CiRun {
                 if (failing.isNotEmpty() && failing.all { it.second == "cancelled" }) RunStatus.Cancelled else RunStatus.Failed
             }
         }
-        val tone = when (status) {
-            RunStatus.Running -> Tone.Primary
-            RunStatus.Passed -> Tone.Success
-            RunStatus.Failed -> Tone.Danger
-            RunStatus.Queued, RunStatus.Cancelled -> Tone.Neutral
-        }
-        return status to tone
+        return status to toneOf(status)
     }
 
-    /** Status, Duration, Runner, Commit. */
-    fun tiles(run: Run, jobs: List<Job>, nowMs: Long): List<Tile> {
-        val (status, tone) = runStatus(run.state, jobs.map { it.status to it.conclusion })
-        val started = msOf(run.startedAt)
-        val end = msOf(run.completedAt) ?: nowMs
-        val runners = jobs.mapNotNull { it.runnerLabel?.takeIf(String::isNotEmpty) }.distinct()
-        val failing = jobs.count(::isFailing)
-        val delta = if (status == RunStatus.Failed && failing > 0) Copy.FAILED_JOBS.replace("{count}", failing.toString()) else null
-        return listOf(
-            Tile(Copy.TILE_STATUS, Copy.STATUS.getValue(status), tone, delta),
-            Tile(Copy.TILE_DURATION, if (started == null) Copy.NONE else PrChecks.formatDuration(end - started), Tone.Neutral),
-            Tile(Copy.TILE_RUNNER, if (runners.isEmpty()) Copy.NONE else runners.joinToString(", "), Tone.Neutral),
-            Tile(Copy.TILE_COMMIT, run.sha.take(7), Tone.Neutral),
-        )
+    /** ci-page.json `statusTones`' tone as this page's [Tone]. */
+    fun toneOf(status: RunStatus): Tone = when (CiPage.STATUS_TONES.getValue(status).second) {
+        "info" -> Tone.Info
+        "success" -> Tone.Success
+        "danger" -> Tone.Danger
+        else -> Tone.Neutral
     }
 
     private fun byPosition(jobs: List<Job>): List<Job> = jobs.sortedBy { it.position }
@@ -222,7 +227,73 @@ object CiRun {
             glyph = glyph,
             tone = tone,
             duration = duration,
+            status = jobStatus(job.status, job.conclusion),
+            statusTone = toneOf(jobStatus(job.status, job.conclusion)),
         )
+    }
+
+    /** A job's status in the run page's terms. */
+    fun jobStatus(status: String, conclusion: String?): RunStatus = when {
+        status == DomainContract.prCheckStatusQueued -> RunStatus.Queued
+        status != DomainContract.prCheckStatusCompleted -> RunStatus.Running
+        PrChecks.isFailing(check(status, conclusion)) && conclusion != "cancelled" -> RunStatus.Failed
+        conclusion == "success" -> RunStatus.Passed
+        else -> RunStatus.Cancelled
+    }
+
+    /** The Jobs section's caption: `1 failed · 3 passed · 1 skipped`. */
+    fun jobsCaption(jobs: List<Pair<String, String?>>): String {
+        val counts = jobs.groupingBy { jobStatus(it.first, it.second) }.eachCount()
+        return Copy.JOBS_CAPTION.entries
+            .filter { (counts[it.key] ?: 0) > 0 }
+            .joinToString(" · ") { it.value.replace("{count}", counts.getValue(it.key).toString()) }
+    }
+
+    /** The selected job's card line: `Failed after 8m 25s on mint`. */
+    fun jobSummary(job: Job, nowMs: Long): String {
+        val status = jobStatus(job.status, job.conclusion)
+        val duration = PrChecks.checkDuration(check(job.status, job.conclusion, job.startedAt, job.completedAt, job.check), nowMs)
+        val head = when (status) {
+            RunStatus.Queued -> return Copy.SUMMARY_QUEUED
+            RunStatus.Cancelled -> return reasonText(job.reason) ?: Copy.SUMMARY_SKIPPED
+            RunStatus.Failed -> Copy.SUMMARY_FAILED
+            RunStatus.Running -> Copy.SUMMARY_RUNNING
+            RunStatus.Passed -> Copy.SUMMARY_PASSED
+        }.replace("{duration}", duration ?: Copy.NONE)
+        val runner = job.runnerLabel
+        return if (!runner.isNullOrEmpty()) head + Copy.SUMMARY_ON.replace("{runner}", runner) else head
+    }
+
+    private val DOT: Map<Tone, String> = mapOf(
+        Tone.Success to "\$color.success",
+        Tone.Danger to "\$color.destructive",
+        Tone.Info to "\$color.info",
+        Tone.Neutral to "\$color.mutedForeground",
+    )
+
+    /** The chip strip: status · ref (→ base) · sha · #PR · author · duration · runners. */
+    fun chips(run: Run, jobs: List<Job>, pullRequest: PullRequest?, author: String?, nowMs: Long): List<Chip> {
+        val (status, tone) = runStatus(run.state, jobs.map { it.status to it.conclusion })
+        val started = msOf(run.startedAt)
+        val end = msOf(run.completedAt) ?: nowMs
+        val runners = jobs.mapNotNull { it.runnerLabel?.takeIf(String::isNotEmpty) }.distinct()
+        val chips = mutableListOf(Chip("status", Copy.STATUS.getValue(status), null, DOT.getValue(tone)))
+        run.ref?.let { ref -> chips += Chip("ref", if (pullRequest != null) "$ref → ${pullRequest.base}" else ref, "git-branch", null) }
+        chips += Chip("sha", run.sha.take(7), "hash", null)
+        if (pullRequest != null) chips += Chip("pr", "#${pullRequest.number}", "git-pull-request", null)
+        if (!author.isNullOrEmpty()) chips += Chip("author", author, "user", null)
+        if (started != null) chips += Chip("duration", PrChecks.formatDuration(end - started), "clock", null)
+        if (runners.isNotEmpty()) chips += Chip("runner", runners.joinToString(", "), "server", null)
+        return chips
+    }
+
+    /** `Failed in {job}` and the first error line of its log as read. */
+    fun failureSummary(jobCheck: String?, log: String?): Failure? {
+        if (jobCheck == null || log.isNullOrEmpty()) return null
+        val view = logView(log)
+        val first = view.highlight.firstOrNull() ?: return null
+        val line = view.code.split('\n').getOrNull(first - 1).orEmpty()
+        return Failure(Copy.FAILURE_TITLE.replace("{job}", jobCheck), line.removePrefix("Error: "))
     }
 
     fun isFailing(job: Job): Boolean = PrChecks.isFailing(check(job.status, job.conclusion))
@@ -299,13 +370,17 @@ object CiRun {
     ): Actions {
         val github = provider == "github"
         val writable = !github || externalAccess == "write"
-        return Actions(
-            rerunFailed = writable && state == "failure",
-            rerunAll = writable && state != "pending",
-            cancel = writable && state == "pending",
-            fix = state == "failure",
-            openExternal = github && !externalUrl.isNullOrEmpty(),
-        )
+        val primary = when {
+            !writable -> null
+            state == "pending" -> "cancel"
+            state == "failure" -> "rerunFailed"
+            else -> "rerunAll"
+        }
+        val menu = buildList {
+            if (writable && primary != "rerunAll") add("rerunAll")
+            if (github && !externalUrl.isNullOrEmpty()) add("openExternal")
+        }
+        return Actions(primary, fix = state == "failure", menu = menu)
     }
 
     fun actions(run: Run): Actions = actions(run.state, run.error, run.provider, run.externalAccess, run.externalUrl)
@@ -382,9 +457,12 @@ object CiRun {
         completedAt = "2026-11-13T10:12:40.000Z",
         ref = "exp/APP-33",
         provider = "exponential",
+        title = "Mirror prunes deleted branches",
+        createdAt = "2026-11-13T09:59:50.000Z",
     )
     const val SPECIMEN_REPOSITORY = "acme/engine"
-    const val SPECIMEN_PULL_REQUEST_NUMBER = 213
+    val SPECIMEN_PULL_REQUEST = PullRequest(213, "main")
+    const val SPECIMEN_AUTHOR = "Mara Lind"
     val SPECIMEN_JOBS: List<Job> = listOf(
         Job("j1", "build", 0, "completed", "success", null, "mint", "2026-11-13T10:00:00.000Z", "2026-11-13T10:04:10.000Z"),
         Job(

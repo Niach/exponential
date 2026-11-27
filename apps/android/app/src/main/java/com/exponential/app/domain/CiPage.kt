@@ -14,11 +14,6 @@ object CiPage {
         const val TAB_RUNS = "Runs"
         const val TAB_TRAIN = "Merge train"
         const val TAB_RUNNERS = "Runners"
-        const val TILE_RUNNING = "Running"
-        const val TILE_QUEUED = "Queued"
-        const val TILE_FAILED_TODAY = "Failed today"
-        const val TILE_RUNNERS = "Runners"
-        const val TILE_RUNNERS_VALUE = "{online} of {total} online"
         val FILTERS: Map<String, String> = linkedMapOf("all" to "All", "running" to "Running", "failed" to "Failed", "mine" to "Mine")
         const val REPOSITORIES_ALL = "All repositories"
         const val SOURCES_ALL = "Every source"
@@ -31,7 +26,6 @@ object CiPage {
         const val COL_TRIGGER = "Trigger"
         const val COL_DURATION = "Duration"
         const val COL_STARTED = "Started"
-        const val RUNS_SECTION = "Runs"
         const val TRAIN_SECTION = "Merge train"
         const val PULL_REQUEST = "Pull request #{number}"
         val TRIGGERS: Map<String, String> = linkedMapOf(
@@ -52,6 +46,14 @@ object CiPage {
         const val EMPTY_FILTERED = "No runs match"
         const val EMPTY_TRAIN = "Nothing in the merge train"
         const val EMPTY_RUNNERS = "No runners"
+        const val IN_PROGRESS = "In progress"
+        const val TODAY = "Today"
+        const val YESTERDAY = "Yesterday"
+        val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        const val QUEUED = "queued"
+        const val BATCH_TITLE = "Testing {numbers} together"
+        const val RUNNER_CHIP = "{online} of {total} runners"
+        const val WAITING_FOR_RUNNER = "waiting for a runner"
     }
 
     /** ci-page.json `testIds`. */
@@ -69,7 +71,18 @@ object CiPage {
         const val TRAIN_ROW = "ci-train-row"
         const val RUNNERS = "ci-runners"
         const val RUNNER_ROW = "ci-runner-row"
+        const val RUNNER_CHIP = "ci-runner-chip"
     }
+
+    /** ci-page.json `statusTones`: THE status table (running = the only
+     *  blue `info` mark; queued and cancelled stay neutral). */
+    val STATUS_TONES: Map<CiRun.RunStatus, Pair<PrChecks.Glyph, String>> = mapOf(
+        CiRun.RunStatus.Passed to (PrChecks.Glyph.Passed to "success"),
+        CiRun.RunStatus.Failed to (PrChecks.Glyph.Failed to "danger"),
+        CiRun.RunStatus.Running to (PrChecks.Glyph.Running to "info"),
+        CiRun.RunStatus.Queued to (PrChecks.Glyph.Queued to "neutral"),
+        CiRun.RunStatus.Cancelled to (PrChecks.Glyph.Skipped to "neutral"),
+    )
 
     /** ci-page.json `limits`. */
     const val LIMIT_RUNS = 100
@@ -90,6 +103,8 @@ object CiPage {
         val startedAt: String?,
         val completedAt: String?,
         val createdAt: String,
+        /** What the run is about (`ci_runs.title`). */
+        val title: String? = null,
     )
 
     data class Job(
@@ -118,6 +133,9 @@ object CiPage {
     /** A session row: its starter. */
     data class Session(val id: String, val userId: String)
 
+    /** A person a run names (its author), from the users shape. */
+    data class User(val id: String, val name: String, val image: String?)
+
     data class Runner(
         val id: String,
         val label: String,
@@ -134,34 +152,48 @@ object CiPage {
         val pullRequests: List<Pr> = emptyList(),
         val sessions: List<Session> = emptyList(),
         val runners: List<Runner> = emptyList(),
+        val users: List<User> = emptyList(),
         val viewerId: String = "",
         val now: String = "",
+        /** The viewer's clock offset from UTC (Today / Yesterday). */
+        val utcOffsetMinutes: Int = 0,
     )
 
     data class RunFilter(val status: String = "all", val repositoryId: String? = null, val source: String? = null)
 
     data class RunListRow(
         val id: String,
-        val identifier: String,
-        val title: String,
         val status: CiRun.RunStatus,
         val statusLabel: String,
         val glyph: PrChecks.Glyph,
-        val tone: PrChecks.Tone,
+        val tone: String,
+        /** The commit / PR line, else the merge train batch, else the pipeline. */
+        val title: String,
+        /** `name #n`. */
+        val workflow: String,
         val repositoryId: String,
         val repository: String,
+        val repo: String,
+        val ref: String,
+        val sha: String,
+        val trigger: String,
         val source: String,
         val sourceLabel: String,
-        val ref: String,
-        val trigger: String,
+        val sourceIcon: String,
         val duration: String?,
-        val startedAt: String?,
+        /** When it started, else when it was queued. */
+        val at: String,
+        val author: User?,
         val subtitle: String,
+        val phoneSubtitle: String,
+        val phoneMeta: String,
     )
 
-    data class Option(val label: String, val value: String)
+    data class RunGroup(val id: String, val title: String, val count: Int?, val rows: List<RunListRow>)
 
-    data class Tile(val label: String, val value: String, val tone: String, val delta: String?)
+    data class RunnerChip(val label: String, val online: Boolean)
+
+    data class Option(val label: String, val value: String)
 
     data class TrainRow(
         val id: String,
@@ -188,14 +220,6 @@ object CiPage {
     data class TabCounts(val train: Int, val runners: Int)
 
     private fun msOf(value: String?): Long? = value?.takeIf { it.isNotBlank() }?.let(WireTimestamps::parseEpochMs)
-
-    private fun glyph(status: CiRun.RunStatus): Pair<PrChecks.Glyph, PrChecks.Tone> = when (status) {
-        CiRun.RunStatus.Queued -> PrChecks.Glyph.Queued to PrChecks.Tone.Muted
-        CiRun.RunStatus.Running -> PrChecks.Glyph.Running to PrChecks.Tone.Muted
-        CiRun.RunStatus.Passed -> PrChecks.Glyph.Passed to PrChecks.Tone.Green
-        CiRun.RunStatus.Failed -> PrChecks.Glyph.Failed to PrChecks.Tone.Red
-        CiRun.RunStatus.Cancelled -> PrChecks.Glyph.Skipped to PrChecks.Tone.Muted
-    }
 
     /** A run's source; anything but `github` is ours. */
     fun source(provider: String?): String = if (provider == "github") "github" else "exponential"
@@ -230,9 +254,57 @@ object CiPage {
 
     fun repoName(repos: List<Repo>, id: String): String = repos.firstOrNull { it.id == id }?.fullName ?: Copy.UNKNOWN_REPOSITORY
 
+    /** A running merge train run is its batch: `Testing #a, #b together`. */
+    private fun batchTitle(run: Run, pullRequests: List<Pr>): String? {
+        if (run.trigger != "merge_train" || run.state != "pending") return null
+        val members = pullRequests.filter { it.repositoryId == run.repositoryId && it.mergeState == "testing" }.map { it.number }.sorted()
+        if (members.isEmpty()) return null
+        return Copy.BATCH_TITLE.replace("{numbers}", members.joinToString(", ") { "#$it" })
+    }
+
+    /** One row of the list (both form factors' strings). */
+    fun runRow(run: Run, input: Input): RunListRow {
+        val at = msOf(input.now) ?: 0L
+        val status = statusOf(run, input.jobs)
+        val source = source(run.provider)
+        val started = msOf(run.startedAt)
+        val repository = repoName(input.repos, run.repositoryId)
+        val repo = repository.substringAfterLast('/')
+        val ref = run.ref ?: RepoCi.Copy.Runs.NO_REF
+        val sha = run.sha.take(7)
+        val workflow = "${run.name} #${run.number}"
+        val trigger = triggerText(run, input.pullRequests)
+        val pr = run.pullRequestId?.let { id -> input.pullRequests.firstOrNull { it.id == id } }
+        val duration = started?.let { PrChecks.formatDuration((msOf(run.completedAt) ?: at) - it) }
+        val (glyph, tone) = STATUS_TONES.getValue(status)
+        return RunListRow(
+            id = run.id,
+            status = status,
+            statusLabel = CiRun.Copy.STATUS.getValue(status),
+            glyph = glyph,
+            tone = tone,
+            title = run.title ?: batchTitle(run, input.pullRequests) ?: pr?.title ?: run.name,
+            workflow = workflow,
+            repositoryId = run.repositoryId,
+            repository = repository,
+            repo = repo,
+            ref = ref,
+            sha = sha,
+            trigger = trigger,
+            source = source,
+            sourceLabel = Copy.SOURCES.getValue(source),
+            sourceIcon = if (source == "github") "github" else "brand-exponential",
+            duration = duration,
+            at = run.startedAt ?: run.createdAt,
+            author = run.createdByUserId?.let { id -> input.users.firstOrNull { it.id == id } },
+            subtitle = listOf(workflow, repo, ref, sha, trigger).joinToString(" · "),
+            phoneSubtitle = listOf(repo, ref, workflow).joinToString(" · "),
+            phoneMeta = duration ?: Copy.QUEUED,
+        )
+    }
+
     /** The Runs tab: the filter's runs, newest first, at most [LIMIT_RUNS]. */
     fun runList(input: Input, filter: RunFilter): List<RunListRow> {
-        val at = msOf(input.now) ?: 0L
         val rows = ArrayList<RunListRow>()
         for (run in newestFirst(input.runs)) {
             val status = statusOf(run, input.jobs)
@@ -242,32 +314,48 @@ object CiPage {
             if (filter.status == "running" && status != CiRun.RunStatus.Running && status != CiRun.RunStatus.Queued) continue
             if (filter.status == "failed" && status != CiRun.RunStatus.Failed) continue
             if (filter.status == "mine" && !isMine(run, input.viewerId, input.pullRequests, input.sessions)) continue
-            val started = msOf(run.startedAt)
-            val repository = repoName(input.repos, run.repositoryId)
-            val ref = run.ref ?: RepoCi.Copy.Runs.NO_REF
-            val sourceLabel = Copy.SOURCES.getValue(source)
-            val (glyph, tone) = glyph(status)
-            rows += RunListRow(
-                id = run.id,
-                identifier = "#${run.number}",
-                title = "#${run.number} ${run.name}",
-                status = status,
-                statusLabel = CiRun.Copy.STATUS.getValue(status),
-                glyph = glyph,
-                tone = tone,
-                repositoryId = run.repositoryId,
-                repository = repository,
-                source = source,
-                sourceLabel = sourceLabel,
-                ref = ref,
-                trigger = triggerText(run, input.pullRequests),
-                duration = started?.let { PrChecks.formatDuration((msOf(run.completedAt) ?: at) - it) },
-                startedAt = run.startedAt,
-                subtitle = "$repository · $ref · $sourceLabel",
-            )
+            rows += runRow(run, input)
             if (rows.size >= LIMIT_RUNS) break
         }
         return rows
+    }
+
+    /** The local day of an instant, `yyyy-mm-dd`, at the viewer's offset. */
+    private fun localDay(ms: Long, offsetMinutes: Int): String =
+        java.time.Instant.ofEpochMilli(ms + offsetMinutes * 60_000L).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+
+    /** A day's section title: Today, Yesterday, else `27 Nov` (+ the year
+     *  when it is not this year's). */
+    fun dayTitle(day: String, now: String, offsetMinutes: Int): String {
+        val nowMs = msOf(now) ?: 0L
+        val today = localDay(nowMs, offsetMinutes)
+        if (day == today) return Copy.TODAY
+        if (day == localDay(nowMs - 86_400_000L, offsetMinutes)) return Copy.YESTERDAY
+        val (y, m, d) = day.split('-')
+        val label = "${d.toInt()} ${Copy.MONTHS[m.toInt() - 1]}"
+        return if (y == today.take(4)) label else "$label $y"
+    }
+
+    private fun live(row: RunListRow) = row.status == CiRun.RunStatus.Running || row.status == CiRun.RunStatus.Queued
+
+    /** The Runs tab's sections: In progress (with a count), then one per
+     *  local day, newest first. */
+    fun runGroups(input: Input, filter: RunFilter): List<RunGroup> {
+        val rows = runList(input, filter)
+        val liveRows = rows.filter(::live)
+        val groups = ArrayList<RunGroup>()
+        if (liveRows.isNotEmpty()) groups += RunGroup("in-progress", Copy.IN_PROGRESS, liveRows.size, liveRows)
+        for (row in rows) {
+            if (live(row)) continue
+            val day = localDay(msOf(row.at) ?: 0L, input.utcOffsetMinutes)
+            val last = groups.lastOrNull()
+            if (last != null && last.id == day) {
+                groups[groups.size - 1] = last.copy(rows = last.rows + row)
+            } else {
+                groups += RunGroup(day, dayTitle(day, input.now, input.utcOffsetMinutes), null, listOf(row))
+            }
+        }
+        return groups
     }
 
     /** `All repositories`, then every repository with a run, by name. */
@@ -282,42 +370,14 @@ object CiPage {
         return now - seen < RUNNER_ONLINE_MS
     }
 
-    /** Running, Queued, Failed today, Runners. */
-    fun tiles(input: Input): List<Tile> {
+    /** The toolbar's runner chip (it opens the Runners tab); null without runners. */
+    fun runnerChip(input: Input): RunnerChip? {
+        if (input.runners.isEmpty()) return null
         val at = msOf(input.now) ?: 0L
-        var running = 0
-        var queued = 0
-        val failed = ArrayList<Run>()
-        for (run in input.runs) {
-            when (statusOf(run, input.jobs)) {
-                CiRun.RunStatus.Running -> running++
-                CiRun.RunStatus.Queued -> queued++
-                CiRun.RunStatus.Failed -> {
-                    val done = msOf(run.completedAt)
-                    if (done != null && at - done < 24 * 3_600_000L) failed += run
-                }
-                else -> Unit
-            }
-        }
-        val newest = failed.sortedByDescending { msOf(it.completedAt) ?: 0L }.firstOrNull()
-        val repo = newest?.let { repoName(input.repos, it.repositoryId) }
-        return listOf(
-            Tile(Copy.TILE_RUNNING, running.toString(), "neutral", null),
-            Tile(Copy.TILE_QUEUED, queued.toString(), "neutral", null),
-            Tile(
-                Copy.TILE_FAILED_TODAY,
-                failed.size.toString(),
-                if (failed.isNotEmpty()) "danger" else "neutral",
-                repo?.substringAfterLast('/'),
-            ),
-            Tile(
-                Copy.TILE_RUNNERS,
-                Copy.TILE_RUNNERS_VALUE
-                    .replace("{online}", input.runners.count { online(it, at) }.toString())
-                    .replace("{total}", input.runners.size.toString()),
-                "neutral",
-                null,
-            ),
+        val count = input.runners.count { online(it, at) }
+        return RunnerChip(
+            Copy.RUNNER_CHIP.replace("{online}", count.toString()).replace("{total}", input.runners.size.toString()),
+            count > 0,
         )
     }
 
