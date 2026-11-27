@@ -263,7 +263,7 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
         "children": heading,
     }));
     let name = match run.r#ref.as_deref() {
-        Some(r#ref) => format!("{} · {ref}", run.name),
+        Some(r#ref) => format!("{} · {}", run.name, r#ref),
         None => run.name.clone(),
     };
     head.push(json!({"id": "ci-run-name", "component": "Text", "props": {"text": name, "variant": "muted"}}));
@@ -392,6 +392,30 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
     })
 }
 
+/// The specimen's data: ci-run.json `specimen`; DEV-ONLY
+/// `EXP_DEV_CI_RUN_SOURCE=github` = ci-run-view.json's GitHub run (the
+/// grant not accepted: Open on GitHub and Fix), for its picture.
+fn specimen_model() -> &'static Value {
+    static GITHUB: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+        let view: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/ci-run-view.json")).unwrap_or_default();
+        let case = view["ciRun"]
+            .as_array()
+            .and_then(|cases| cases.iter().find(|case| case["model"]["run"]["provider"] == "github" && case["phone"] != true))
+            .cloned()
+            .unwrap_or_default();
+        let mut model = case["model"].clone();
+        for key in ["selected", "log", "now"] {
+            model[key] = case[key].clone();
+        }
+        model
+    });
+    if std::env::var("EXP_DEV_CI_RUN_SOURCE").as_deref() == Ok("github") && GITHUB.is_object() {
+        &GITHUB
+    } else {
+        &model::CI_RUN["specimen"]
+    }
+}
+
 /// Where the page's data comes from.
 #[derive(Clone, PartialEq)]
 enum Source {
@@ -434,8 +458,9 @@ impl CiRunView {
     /// ci-run.json `specimen`, no server.
     pub(crate) fn specimen(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut this = Self::build(Source::Specimen, None, window, cx);
-        let log = model::CI_RUN["specimen"]["log"].as_str().unwrap_or_default().to_string();
-        let selected = model::CI_RUN["specimen"]["selected"].as_str().unwrap_or_default().to_string();
+        let specimen = specimen_model();
+        let log = specimen["log"].as_str().unwrap_or_default().to_string();
+        let selected = specimen["selected"].as_str().unwrap_or_default().to_string();
         this.logs.insert(selected, LogState { next_offset: log.len() as u64, text: log, complete: true });
         this
     }
@@ -626,7 +651,7 @@ impl CiRunView {
     fn page(&mut self, cx: &mut Context<Self>) -> Option<Value> {
         match self.source.clone() {
             Source::Specimen => {
-                let specimen = &model::CI_RUN["specimen"];
+                let specimen = specimen_model();
                 let now = specimen["now"].as_str().and_then(domain::instant::parse_instant).unwrap_or_default();
                 let run = model::fixture_run(&specimen["run"]);
                 let jobs = model::fixture_jobs(&specimen["jobs"]);

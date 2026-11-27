@@ -279,6 +279,12 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
         &all_teams.iter().map(|t| domain::sidebar_tree::SidebarTeamInput { id: t.id.clone(), name: t.name.clone(), kind: "team".into() }).collect::<Vec<_>>(),
     );
     input.devices = gather_devices(&shown, &mut glyphs, cx);
+    // #EXP-2172: the CI row's badge (nav-badges.json `ci`).
+    let ci = crate::ci_page::ci_badge(cx);
+    input.ci = uicore_model::ide::IdeCount {
+        count: ci.count,
+        tone: if ci.tone == domain::nav_badges::CountBadgeTone::Attention { IdeTone::Attention } else { IdeTone::Muted },
+    };
     // #EXP-2124: the viewer's Assistant, the first row (its conversation's
     // badge, the FAB's own read).
     input.assistant = crate::session_data::my_assistant_anywhere(None, cx).map(|assistant| {
@@ -421,6 +427,7 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     };
     mark(&mut value["nav"]);
     mark(&mut value["devices"]);
+    mark(&mut value["ci"]);
     // #EXP-2124: the Assistant wears the brand mark in its disc.
     for row in value["nav"].as_array_mut().into_iter().flatten().filter(|row| row["id"] == "assistant") {
         row["icon"] = json!(ASSISTANT_MARK);

@@ -467,6 +467,7 @@ fn sample() -> IdeSidebarInput {
         chats: IdeCount { count: 1, tone: IdeTone::Attention },
         devices: vec![device("d1", "Alex's MacBook Pro", true, None), device("d2", "Mint workstation", true, None), device("d3", "Acme build server", false, Some("ide:team:t1"))],
         devices_open: true,
+        ci: IdeCount { count: 1, tone: IdeTone::Attention },
         teams: vec![
             IdeTeamInput {
                 id: "t1".into(),

@@ -373,7 +373,7 @@ pub fn ci_run_list(input: &CiPageInput, filter: &CiRunFilter) -> Vec<CiRunListRo
             glyph,
             tone,
             repository_id: run.repository_id.clone(),
-            subtitle: format!("{repository} · {ref} · {source_label}"),
+            subtitle: format!("{repository} · {} · {source_label}", r#ref),
             repository,
             source: source.id(),
             source_label,

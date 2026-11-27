@@ -307,6 +307,11 @@ pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
         tabs_props["fill"] = json!(true);
     }
     let empty = |tab: CiTab| vstack(&format!("{}.{}", id("page"), tab.id()), "md", Vec::new());
+    let runs = if state.tab == CiTab::Runs { runs_panel(input, state) } else { empty(CiTab::Runs) };
+    let train_tab = if state.tab == CiTab::Train { train_panel(input) } else { empty(CiTab::Train) };
+    let runners_tab = if state.tab == CiTab::Runners { runners_panel(input) } else { empty(CiTab::Runners) };
+    let columns = if state.phone { 2 } else { 4 };
+    let gap = if state.phone { "sm" } else { "md" };
     json!({
         "id": id("page"),
         "component": "Stack",
@@ -315,7 +320,7 @@ pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
             {
                 "id": id("tiles"),
                 "component": "Grid",
-                "props": {"columns": if state.phone { 2 } else { 4 }, "gap": if state.phone { "sm" } else { "md" }},
+                "props": {"columns": columns, "gap": gap},
                 "children": tiles,
             },
             {
@@ -323,11 +328,7 @@ pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
                 "component": "Tabs",
                 "props": tabs_props,
                 "on": change(EVENT_TAB),
-                "children": [
-                    if state.tab == CiTab::Runs { runs_panel(input, state) } else { empty(CiTab::Runs) },
-                    if state.tab == CiTab::Train { train_panel(input) } else { empty(CiTab::Train) },
-                    if state.tab == CiTab::Runners { runners_panel(input) } else { empty(CiTab::Runners) },
-                ],
+                "children": [runs, train_tab, runners_tab],
             },
         ],
     })
