@@ -64,6 +64,19 @@ pub struct CiPageRun {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub created_at: String,
+    /// #EXP-2172 redesign: what the run is about (`ci_runs.title`).
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// A person a run names (its author), from the users shape.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiPageUser {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -146,9 +159,14 @@ pub struct CiPageInput {
     #[serde(default)]
     pub runners: Vec<CiPageRunner>,
     #[serde(default)]
+    pub users: Vec<CiPageUser>,
+    #[serde(default)]
     pub viewer_id: String,
     #[serde(default)]
     pub now: String,
+    /// The viewer's clock offset from UTC in minutes (Today / Yesterday).
+    #[serde(default)]
+    pub utc_offset_minutes: i64,
 }
 
 fn ms_of(value: Option<&str>) -> Option<i64> {
@@ -276,15 +294,11 @@ fn status_of(run: &CiPageRun, jobs: &[CiPageJob]) -> CiRunStatus {
     ci_run_status_of(&run.state, &jobs)
 }
 
-/// The glyph and tone of a status (repo-ci.json).
-fn glyph_of(status: CiRunStatus) -> (&'static str, &'static str) {
-    match status {
-        CiRunStatus::Queued => ("ci-queued", "muted"),
-        CiRunStatus::Running => ("ci-running", "muted"),
-        CiRunStatus::Passed => ("ci-passed", "green"),
-        CiRunStatus::Failed => ("ci-failed", "red"),
-        CiRunStatus::Cancelled => ("ci-skipped", "muted"),
-    }
+/// ci-page.json `statusTones`: THE status table (glyph, tone); running is
+/// the one blue (`info`) mark.
+pub fn status_tone(status: CiRunStatus) -> (&'static str, &'static str) {
+    let entry = &CI_PAGE["statusTones"][status.id()];
+    (entry["glyph"].as_str().unwrap_or_default(), entry["tone"].as_str().unwrap_or_default())
 }
 
 /// `mine`: the viewer started the run, or its pull request's chat is theirs.
@@ -297,26 +311,49 @@ pub fn ci_is_mine(run: &CiPageRun, viewer_id: &str, pull_requests: &[CiPagePr], 
     sessions.iter().any(|session| session.id == root && session.user_id == viewer_id)
 }
 
-/// One row of the Runs tab.
+/// One row of the Runs tab (both form factors' strings).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CiRunListRow {
     pub id: String,
-    pub identifier: String,
-    pub title: String,
     pub status: &'static str,
     pub status_label: String,
     pub glyph: &'static str,
     pub tone: &'static str,
+    /// The commit / PR line, else the merge train batch, else the pipeline.
+    pub title: String,
+    /// `name #n`.
+    pub workflow: String,
     pub repository_id: String,
     pub repository: String,
+    /// The repository's own name (after the owner).
+    pub repo: String,
+    pub r#ref: String,
+    pub sha: String,
+    pub trigger: String,
     pub source: &'static str,
     pub source_label: String,
-    pub r#ref: String,
-    pub trigger: String,
+    pub source_icon: &'static str,
     pub duration: Option<String>,
-    pub started_at: Option<String>,
+    /// When it started, else when it was queued.
+    pub at: String,
+    pub author: Option<CiPageUser>,
+    /// Wide: `workflow · repo · ref · sha · trigger`.
     pub subtitle: String,
+    /// Phones: `repo · ref · workflow`.
+    pub phone_subtitle: String,
+    /// Phones' meta: the duration, else copy.queued.
+    pub phone_meta: String,
+}
+
+/// A day's (or In progress') section of the Runs tab.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CiRunGroup {
+    /// `in-progress`, else the local day `yyyy-mm-dd`.
+    pub id: String,
+    pub title: String,
+    pub count: Option<usize>,
+    pub rows: Vec<CiRunListRow>,
 }
 
 fn trigger_text(run: &CiPageRun, pull_requests: &[CiPagePr]) -> String {
@@ -336,9 +373,72 @@ pub fn repo_name(repos: &[CiPageRepo], id: &str) -> String {
     repos.iter().find(|repo| repo.id == id).map(|repo| repo.full_name.clone()).unwrap_or_else(|| copy("unknownRepository").to_string())
 }
 
+/// A running merge train run is its batch: `Testing #a, #b together`.
+fn batch_title(run: &CiPageRun, pull_requests: &[CiPagePr]) -> Option<String> {
+    if run.trigger != "merge_train" || run.state != "pending" {
+        return None;
+    }
+    let mut members: Vec<i64> = pull_requests
+        .iter()
+        .filter(|pr| pr.repository_id == run.repository_id && pr.merge_state.as_deref() == Some("testing"))
+        .map(|pr| pr.number)
+        .collect();
+    members.sort();
+    if members.is_empty() {
+        return None;
+    }
+    Some(copy("batchTitle").replace("{numbers}", &members.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")))
+}
+
+/// `ciRunRow`: one row of the list.
+pub fn ci_run_row(run: &CiPageRun, input: &CiPageInput) -> CiRunListRow {
+    let at = ms_of(Some(&input.now)).unwrap_or(0);
+    let status = status_of(run, &input.jobs);
+    let source = ci_source(&run.provider);
+    let started = ms_of(run.started_at.as_deref());
+    let repository = repo_name(&input.repos, &run.repository_id);
+    let repo = repository.rsplit('/').next().unwrap_or(&repository).to_string();
+    let r#ref = run.r#ref.clone().unwrap_or_else(|| crate::repo_ci::copy("runs.noRef").to_string());
+    let sha: String = run.sha.chars().take(7).collect();
+    let workflow = format!("{} #{}", run.name, run.number);
+    let trigger = trigger_text(run, &input.pull_requests);
+    let pr = run.pull_request_id.as_deref().and_then(|id| input.pull_requests.iter().find(|pr| pr.id == id));
+    let duration = started.map(|started| format_check_duration(ms_of(run.completed_at.as_deref()).unwrap_or(at) - started));
+    let (glyph, tone) = status_tone(status);
+    let title = run
+        .title
+        .clone()
+        .or_else(|| batch_title(run, &input.pull_requests))
+        .or_else(|| pr.map(|pr| pr.title.clone()))
+        .unwrap_or_else(|| run.name.clone());
+    CiRunListRow {
+        id: run.id.clone(),
+        status: status.id(),
+        status_label: crate::repo_ci::copy(&format!("status.{}", status.id())).to_string(),
+        glyph,
+        tone,
+        title,
+        subtitle: [workflow.as_str(), repo.as_str(), r#ref.as_str(), sha.as_str(), trigger.as_str()].join(" · "),
+        phone_subtitle: [repo.as_str(), r#ref.as_str(), workflow.as_str()].join(" · "),
+        phone_meta: duration.clone().unwrap_or_else(|| copy("queued").to_string()),
+        workflow,
+        repository_id: run.repository_id.clone(),
+        repository,
+        repo,
+        r#ref,
+        sha,
+        trigger,
+        source: source.id(),
+        source_label: copy(&format!("sources.{}", source.id())).to_string(),
+        source_icon: if source == CiSource::Github { "github" } else { "brand-exponential" },
+        duration,
+        at: run.started_at.clone().unwrap_or_else(|| run.created_at.clone()),
+        author: run.created_by_user_id.as_deref().and_then(|id| input.users.iter().find(|user| user.id == id).cloned()),
+    }
+}
+
 /// `ciRunList`: every run of the filter, newest first, at most `limits.runs`.
 pub fn ci_run_list(input: &CiPageInput, filter: &CiRunFilter) -> Vec<CiRunListRow> {
-    let at = ms_of(Some(&input.now)).unwrap_or(0);
     let max = limit("runs").max(0) as usize;
     let mut rows = Vec::new();
     for run in newest_first(&input.runs) {
@@ -359,34 +459,59 @@ pub fn ci_run_list(input: &CiPageInput, filter: &CiRunFilter) -> Vec<CiRunListRo
         if !keep {
             continue;
         }
-        let started = ms_of(run.started_at.as_deref());
-        let repository = repo_name(&input.repos, &run.repository_id);
-        let r#ref = run.r#ref.clone().unwrap_or_else(|| crate::repo_ci::copy("runs.noRef").to_string());
-        let source_label = copy(&format!("sources.{}", source.id())).to_string();
-        let (glyph, tone) = glyph_of(status);
-        rows.push(CiRunListRow {
-            id: run.id.clone(),
-            identifier: format!("#{}", run.number),
-            title: format!("#{} {}", run.number, run.name),
-            status: status.id(),
-            status_label: crate::repo_ci::copy(&format!("status.{}", status.id())).to_string(),
-            glyph,
-            tone,
-            repository_id: run.repository_id.clone(),
-            subtitle: format!("{repository} · {} · {source_label}", r#ref),
-            repository,
-            source: source.id(),
-            source_label,
-            r#ref,
-            trigger: trigger_text(run, &input.pull_requests),
-            duration: started.map(|started| format_check_duration(ms_of(run.completed_at.as_deref()).unwrap_or(at) - started)),
-            started_at: run.started_at.clone(),
-        });
+        rows.push(ci_run_row(run, input));
         if rows.len() >= max {
             break;
         }
     }
     rows
+}
+
+/// The local day of an instant, `yyyy-mm-dd`, at the viewer's offset.
+fn local_day(ms: i64, offset_minutes: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms + offset_minutes * 60_000)
+        .map(|at| at.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
+}
+
+/// `ciDayTitle`: Today, Yesterday, else `27 Nov` (+ the year when not this year's).
+pub fn ci_day_title(day: &str, now: &str, offset_minutes: i64) -> String {
+    let now_ms = ms_of(Some(now)).unwrap_or(0);
+    let today = local_day(now_ms, offset_minutes);
+    if day == today {
+        return copy("today").to_string();
+    }
+    if day == local_day(now_ms - 86_400_000, offset_minutes) {
+        return copy("yesterday").to_string();
+    }
+    let mut parts = day.split('-');
+    let (y, m, d) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
+    let month = m.parse::<usize>().ok().and_then(|m| CI_PAGE["copy"]["months"][m.saturating_sub(1)].as_str()).unwrap_or_default();
+    let label = format!("{} {month}", d.parse::<i64>().unwrap_or_default());
+    if today.starts_with(y) { label } else { format!("{label} {y}") }
+}
+
+/// `ciRunGroups`: In progress (running + queued, with a count), then one
+/// section per local day, newest first.
+pub fn ci_run_groups(input: &CiPageInput, filter: &CiRunFilter) -> Vec<CiRunGroup> {
+    let rows = ci_run_list(input, filter);
+    let live = |row: &CiRunListRow| row.status == "running" || row.status == "queued";
+    let mut groups = Vec::new();
+    let in_progress: Vec<CiRunListRow> = rows.iter().filter(|row| live(row)).cloned().collect();
+    if !in_progress.is_empty() {
+        groups.push(CiRunGroup { id: "in-progress".into(), title: copy("inProgress").into(), count: Some(in_progress.len()), rows: in_progress });
+    }
+    for row in rows {
+        if live(&row) {
+            continue;
+        }
+        let day = local_day(ms_of(Some(&row.at)).unwrap_or(0), input.utc_offset_minutes);
+        match groups.last_mut() {
+            Some(last) if last.id == day => last.rows.push(row),
+            _ => groups.push(CiRunGroup { title: ci_day_title(&day, &input.now, input.utc_offset_minutes), id: day, count: None, rows: vec![row] }),
+        }
+    }
+    groups
 }
 
 /// A pick's option.
@@ -411,58 +536,19 @@ pub fn ci_repo_options(input: &CiPageInput) -> Vec<CiOption> {
     out
 }
 
-/// One tile.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct CiPageTile {
-    pub label: String,
-    pub value: String,
-    pub tone: &'static str,
-    pub delta: Option<String>,
-}
-
 fn online(runner: &CiPageRunner, now: i64) -> bool {
     ms_of(runner.last_seen_at.as_deref()).is_some_and(|seen| now - seen < limit("runnerOnlineMs"))
 }
 
-/// `ciPageTiles`: Running, Queued, Failed today, Runners.
-pub fn ci_page_tiles(input: &CiPageInput) -> Vec<CiPageTile> {
-    let at = ms_of(Some(&input.now)).unwrap_or(0);
-    let (mut running, mut queued) = (0, 0);
-    let mut failed: Vec<&CiPageRun> = Vec::new();
-    for run in &input.runs {
-        match status_of(run, &input.jobs) {
-            CiRunStatus::Running => running += 1,
-            CiRunStatus::Queued => queued += 1,
-            CiRunStatus::Failed => {
-                if ms_of(run.completed_at.as_deref()).is_some_and(|done| at - done < 24 * 3_600_000) {
-                    failed.push(run);
-                }
-            }
-            _ => {}
-        }
+/// `ciRunnerChip`: the toolbar's `{online} of {total} runners` (it opens
+/// the Runners tab), online = a green dot. None without runners.
+pub fn ci_runner_chip(input: &CiPageInput) -> Option<(String, bool)> {
+    if input.runners.is_empty() {
+        return None;
     }
-    failed.sort_by_key(|run| std::cmp::Reverse(ms_of(run.completed_at.as_deref()).unwrap_or(0)));
-    let delta = failed.first().map(|run| {
-        let repo = repo_name(&input.repos, &run.repository_id);
-        repo.rsplit('/').next().unwrap_or(&repo).to_string()
-    });
-    let online_count = input.runners.iter().filter(|runner| online(runner, at)).count();
-    vec![
-        CiPageTile { label: copy("tiles.running").into(), value: running.to_string(), tone: "neutral", delta: None },
-        CiPageTile { label: copy("tiles.queued").into(), value: queued.to_string(), tone: "neutral", delta: None },
-        CiPageTile {
-            label: copy("tiles.failedToday").into(),
-            value: failed.len().to_string(),
-            tone: if failed.is_empty() { "neutral" } else { "danger" },
-            delta,
-        },
-        CiPageTile {
-            label: copy("tiles.runners").into(),
-            value: copy("tiles.runnersValue").replace("{online}", &online_count.to_string()).replace("{total}", &input.runners.len().to_string()),
-            tone: "neutral",
-            delta: None,
-        },
-    ]
+    let at = ms_of(Some(&input.now)).unwrap_or(0);
+    let count = input.runners.iter().filter(|runner| online(runner, at)).count();
+    Some((copy("runnerChip").replace("{online}", &count.to_string()).replace("{total}", &input.runners.len().to_string()), count > 0))
 }
 
 /// `ciBadge` (nav-badges.json destination `ci`): the viewer's newest run per
@@ -690,24 +776,33 @@ mod tests {
     }
 
     #[test]
-    fn run_lists_match_the_fixture() {
+    fn run_groups_match_the_fixture() {
         let input = scenario();
-        let cases = fixture()["runListCases"].as_array().unwrap();
+        let cases = fixture()["runGroupsCases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {
             let filter: CiRunFilter = serde_json::from_value(case["filter"].clone()).unwrap();
-            assert_eq!(json!(ci_run_list(&input, &filter)), case["expected"], "{}", case["name"]);
+            assert_eq!(json!(ci_run_groups(&input, &filter)), case["expected"], "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn day_titles_match_the_fixture() {
+        for case in fixture()["dayTitleCases"].as_array().unwrap() {
+            let got = ci_day_title(case["day"].as_str().unwrap(), case["now"].as_str().unwrap(), case["utcOffsetMinutes"].as_i64().unwrap());
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["day"]);
+        }
+    }
+
+    #[test]
+    fn runner_chip_matches_the_fixture() {
+        let (label, online) = ci_runner_chip(&scenario()).unwrap();
+        assert_eq!(json!({"label": label, "online": online}), fixture()["runnerChip"]);
     }
 
     #[test]
     fn repo_options_match_the_fixture() {
         assert_eq!(json!(ci_repo_options(&scenario())), fixture()["repoOptions"]);
-    }
-
-    #[test]
-    fn tiles_match_the_fixture() {
-        assert_eq!(json!(ci_page_tiles(&scenario())), fixture()["tiles"]);
     }
 
     #[test]

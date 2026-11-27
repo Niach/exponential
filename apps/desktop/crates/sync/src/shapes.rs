@@ -989,6 +989,7 @@ pub const SHAPES: [ShapeSpec; 37] = [
             "external_url",
             "external_attempt",
             "external_access",
+            "title",
             "created_at",
             "updated_at",
         ],

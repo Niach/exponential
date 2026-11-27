@@ -138,12 +138,13 @@ pub(crate) const EVENT_RERUN_ALL: &str = "ci-rerun-all";
 pub(crate) const EVENT_FIX: &str = "ci-fix";
 pub(crate) const EVENT_OPEN_EXTERNAL: &str = "ci-open-external";
 pub(crate) const EVENT_BREADCRUMB: &str = "ci-breadcrumb";
+pub(crate) const EVENT_MENU: &str = "ci-run-menu";
 
 /// The run page's input (ci-run-view.json `ciRun`).
 pub(crate) struct PageInput<'a> {
     pub run: &'a CiRunRow,
     pub jobs: &'a [CiJobRow],
-    /// The SELECTED job (`defaultJob` already applied).
+    /// The SELECTED job (`None` = `defaultJob`).
     pub selected: Option<&'a str>,
     /// The selected job's log as read so far (`None` = not read).
     pub log: Option<&'a str>,
@@ -153,37 +154,32 @@ pub(crate) struct PageInput<'a> {
     pub busy: Option<&'a str>,
     /// #EXP-2172: the repository's full name (`None` while not synced).
     pub repository: Option<&'a str>,
-    /// The run's pull request number, when known.
-    pub pull_request_number: Option<i64>,
+    /// The run's pull request (number, base), when known.
+    pub pull_request: Option<(i64, &'a str)>,
+    /// The author's name, when known.
+    pub author: Option<&'a str>,
+    /// Phones: drilled into the selected job (the tree is its Card alone).
+    pub job_open: bool,
     pub runner_label: &'a dyn Fn(&CiJobRow) -> Option<String>,
 }
 
-/// One job's detail: its steps as a Trace, then its log.
-fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
+/// `ciRunTitle`: the run's title, else the pipeline's name.
+pub(crate) fn run_title_of(run: &CiRunRow) -> String {
+    run.title.clone().filter(|title| !title.is_empty()).unwrap_or_else(|| run.name.clone())
+}
+
+/// One job's Card (web `jobCard`): its summary, the steps with the open
+/// step holding the log (or the log alone without steps).
+fn job_card(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
     let id = model::test_id;
     let steps = model::ci_steps(&model::ci_steps_of(job.steps.as_ref()), input.now_ms);
     let view = model::ci_log_view(log.unwrap_or_default());
-    let mut children = Vec::new();
-    if !steps.is_empty() {
-        let items: Vec<Value> = steps
-            .iter()
-            .enumerate()
-            .map(|(index, step)| {
-                let mut props = json!({"title": step.title, "status": step.status.id()});
-                if let Some(description) = step.description.as_ref().filter(|d| !d.is_empty()) {
-                    props["description"] = json!(description);
-                }
-                json!({"id": format!("{}.{}.{index}", id("steps"), job.id), "component": "TraceItem", "props": props})
-            })
-            .collect();
-        children.push(json!({"id": format!("{}.{}", id("steps"), job.id), "component": "Trace", "children": items}));
-    }
     let log_id = format!("{}.{}", id("log"), job.id);
-    if view.code.is_empty() && job.status != "in_progress" {
-        children.push(json!({"id": log_id, "component": "Text", "props": {"text": model::copy("emptyLog"), "variant": "muted"}}));
+    let log_node = if view.code.is_empty() && job.status != "in_progress" {
+        json!({"id": log_id, "component": "Text", "props": {"text": model::copy("emptyLog"), "variant": "muted"}})
     } else {
         let max_lines = model::CI_RUN["logMaxLines"][if input.phone { "phone" } else { "wide" }].clone();
-        children.push(json!({
+        json!({
             "id": log_id,
             "component": "CodeBlock",
             "props": {
@@ -197,14 +193,44 @@ fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
                 "highlight": view.highlight,
                 "follow": job.status != "completed",
             },
-        }));
-    }
+        })
+    };
+    let children = if steps.is_empty() {
+        vec![log_node]
+    } else {
+        let open_at = steps
+            .iter()
+            .position(|step| step.status.id() == "error")
+            .or_else(|| steps.iter().position(|step| step.status.id() == "running"))
+            .unwrap_or(steps.len() - 1);
+        let items: Vec<Value> = steps
+            .iter()
+            .enumerate()
+            .map(|(index, step)| {
+                let mut props = json!({"title": step.title, "status": step.status.id(), "collapsible": true, "open": index == open_at});
+                if let Some(description) = step.description.as_ref().filter(|d| !d.is_empty()) {
+                    props["description"] = json!(description);
+                }
+                let mut node = json!({"id": format!("{}.{}.{index}", id("steps"), job.id), "component": "TraceItem", "props": props});
+                if index == open_at {
+                    node["children"] = json!([log_node.clone()]);
+                }
+                node
+            })
+            .collect();
+        vec![json!({"id": format!("{}.{}", id("steps"), job.id), "component": "Trace", "props": {"size": "sm"}, "children": items})]
+    };
+    let runner = (input.runner_label)(job);
     json!({
-        "id": format!("ci-run-detail.{}", job.id),
-        "component": "Stack",
-        "props": {"direction": "vertical", "gap": "md", "align": "stretch"},
+        "id": format!("{}.{}", id("jobCard"), job.id),
+        "component": "Card",
+        "props": {"title": job.check, "description": model::ci_job_summary(job, runner.as_deref(), input.now_ms)},
         "children": children,
     })
+}
+
+fn page(children: Vec<Value>) -> Value {
+    json!({"id": model::test_id("page"), "component": "Stack", "props": {"direction": "vertical", "gap": "lg", "align": "stretch"}, "children": children})
 }
 
 /// The run page as ONE document (ci-run.json LAYOUT; node for node web's
@@ -212,184 +238,176 @@ fn job_detail(input: &PageInput, job: &CiJobRow, log: Option<&str>) -> Value {
 pub(crate) fn page_tree(input: &PageInput) -> Value {
     let id = model::test_id;
     let run = input.run;
-    let tiles = model::ci_run_tiles(run, input.jobs, input.runner_label, input.now_ms);
-    let actions = model::ci_run_actions(run);
-    let tiles: Vec<Value> = tiles
-        .iter()
-        .enumerate()
-        .map(|(index, tile)| {
-            json!({
-                "id": format!("{}.{index}", id("tiles")),
-                "component": "StatTile",
-                "props": match &tile.delta {
-                    Some(delta) => json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id(), "delta": delta}),
-                    None => json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id()}),
-                },
-            })
-        })
-        .collect();
+    let selected: Option<String> = input.selected.map(str::to_string).or_else(|| model::ci_default_job(input.jobs, None));
+    let job_of = |job_id: &str| input.jobs.iter().find(|job| job.id == job_id);
+    if input.phone && input.job_open {
+        if let Some(job) = selected.as_deref().and_then(job_of) {
+            return page(vec![job_card(input, job, input.log)]);
+        }
+    }
     let title = model::run_title(run.number.unwrap_or_default());
-    let source = if run.provider.as_deref() == Some("github") { "github" } else { "exponential" };
+    let number = run.number.unwrap_or_default();
     let mut head = Vec::new();
-    // #EXP-2172: wide, the way back to the CI page and the repository.
     if !input.phone {
         let mut items = vec![json!({"label": model::copy("breadcrumbRoot"), "value": "ci"})];
         if let Some(repository) = input.repository {
             items.push(json!({"label": repository, "value": "repository"}));
         }
         items.push(json!({"label": title, "value": "run"}));
+        head.push(json!({"id": id("breadcrumb"), "component": "Breadcrumb", "props": {"items": items}, "on": {"select": {"event": {"name": EVENT_BREADCRUMB}}}}));
+    }
+    head.push(json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": run_title_of(run), "level": if input.phone { "h3" } else { "h2" }}}));
+    if !input.phone {
+        let at = run.started_at.clone().or_else(|| run.created_at.clone()).unwrap_or_default();
+        let age = json!({"@call": "formatRelativeTime", "args": {"value": at}});
         head.push(json!({
-            "id": id("breadcrumb"),
-            "component": "Breadcrumb",
-            "props": {"items": items},
-            "on": {"select": {"event": {"name": EVENT_BREADCRUMB}}},
+            "id": "ci-run-name",
+            "component": "Text",
+            "props": {
+                "text": {"@call": "fill", "args": {
+                    "template": "{workflow} · {repository}{age}",
+                    "params": {
+                        "workflow": format!("{} #{number}", run.name),
+                        "repository": input.repository.unwrap_or_default(),
+                        "age": {"@call": "fill", "args": {"template": " · {t}", "params": {"t": age}}},
+                    },
+                }},
+                "variant": "muted",
+            },
         }));
     }
-    let mut heading = vec![
-        json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": title, "level": "h2"}}),
-        json!({"id": id("source"), "component": "Badge", "props": {"text": model::copy(&format!("sources.{source}")), "variant": "secondary"}}),
-    ];
-    if let Some(number) = input.pull_request_number {
-        heading.push(json!({
-            "id": "ci-run-pull-request",
-            "component": "Badge",
-            "props": {"text": model::copy("pullRequest").replace("{number}", &number.to_string()), "variant": "outline"},
-        }));
-    }
-    head.push(json!({
-        "id": "ci-run-heading-row",
-        "component": "Stack",
-        "props": {"direction": "horizontal", "gap": "sm", "align": "center"},
-        "children": heading,
-    }));
-    let name = match run.r#ref.as_deref() {
-        Some(r#ref) => format!("{} · {}", run.name, r#ref),
-        None => run.name.clone(),
-    };
-    head.push(json!({"id": "ci-run-name", "component": "Text", "props": {"text": name, "variant": "muted"}}));
-    let mut children = vec![
-        json!({
-            "id": "ci-run-title",
-            "component": "Stack",
-            "props": {"direction": "vertical", "gap": "xs", "align": "stretch"},
-            "children": head,
-        }),
-        json!({"id": id("tiles"), "component": "Grid", "props": {"columns": if input.phone { 2 } else { 4 }, "gap": "md"}, "children": tiles}),
-    ];
-    let button = |key: &str, label: &str, event: &str, busy: Option<&str>, extra: Value| -> Value {
-        let mut props = json!({"label": label});
+    let chips: Vec<Value> = model::ci_run_chips(run, input.jobs, input.runner_label, input.pull_request, input.author, input.now_ms)
+        .iter()
+        .map(|chip| {
+            let mut props = json!({"label": chip.label});
+            if let Some(icon) = chip.icon {
+                props["icon"] = json!(icon);
+            }
+            if let Some(dot) = chip.dot {
+                props["dot"] = json!(dot);
+            }
+            json!({"id": format!("{}.{}", id("chips"), chip.id), "component": "Chip", "props": props})
+        })
+        .collect();
+    let chips = json!({"id": id("chips"), "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center", "wrap": true}, "children": chips});
+    let actions = model::ci_run_actions(run);
+    let busy = input.busy.is_some();
+    let button = |key: &str, label: &str, event: &str, busy_key: Option<&str>, extra: Value| -> Value {
+        let mut props = json!({"label": label, "size": "sm"});
         if let Value::Object(extra) = extra {
             props.as_object_mut().unwrap().extend(extra);
         }
-        if let Some(busy) = busy {
-            props["loading"] = json!(input.busy == Some(busy));
+        if let Some(busy_key) = busy_key {
+            props["loading"] = json!(input.busy == Some(busy_key));
         }
-        props["disabled"] = json!(input.busy.is_some());
+        props["disabled"] = json!(busy);
         json!({"id": id(key), "component": "Button", "props": props, "on": {"press": {"event": {"name": event}}}})
     };
     let mut buttons = Vec::new();
-    if actions.rerun_failed {
-        buttons.push(button("rerun", model::copy("rerunFailed"), EVENT_RERUN, Some("rerun"), json!({})));
-    }
-    if actions.rerun_all {
-        let extra = if actions.rerun_failed { json!({"variant": "outline"}) } else { json!({}) };
-        buttons.push(button("rerunAll", model::copy("rerunAll"), EVENT_RERUN_ALL, Some("rerunAll"), extra));
-    }
-    // ci-run.json: destructive-outline; the catalog's `variant` has
-    // `destructive` as its one danger form.
-    if actions.cancel {
-        buttons.push(button("cancel", model::copy("cancel"), EVENT_CANCEL, Some("cancel"), json!({"variant": "destructive"})));
+    match actions.primary {
+        Some(model::CiPrimary::Cancel) => buttons.push(button("cancel", model::copy("cancel"), EVENT_CANCEL, Some("cancel"), json!({"icon": "circle-stop"}))),
+        Some(model::CiPrimary::RerunFailed) => buttons.push(button("rerun", model::copy("rerunFailed"), EVENT_RERUN, Some("rerun"), json!({"icon": "refresh-cw"}))),
+        Some(model::CiPrimary::RerunAll) => buttons.push(button("rerunAll", model::copy("rerunAll"), EVENT_RERUN_ALL, Some("rerunAll"), json!({"icon": "refresh-cw"}))),
+        None => {}
     }
     if actions.fix {
         buttons.push(button("fix", model::copy("fix"), EVENT_FIX, None, json!({"variant": "outline", "icon": "bot"})));
     }
-    if actions.open_external {
-        buttons.push(button("openExternal", model::copy("openExternal"), EVENT_OPEN_EXTERNAL, None, json!({"variant": "outline", "icon": "github"})));
-    }
-    if !buttons.is_empty() {
-        children.push(json!({"id": "ci-run-actions", "component": "Toolbar", "children": buttons}));
-    }
-    if let Some(error) = run.error.as_ref().filter(|error| !error.is_empty()) {
-        children.push(json!({
-            "id": "ci-run-error",
-            "component": "Alert",
-            "props": {"type": "error", "title": model::copy("pipelineError"), "message": error},
+    if !actions.menu.is_empty() {
+        let items: Vec<Value> = actions
+            .menu
+            .iter()
+            .map(|item| json!({"label": if *item == "rerunAll" { model::copy("rerunAll") } else { model::copy("openExternal") }, "value": item}))
+            .collect();
+        buttons.push(json!({
+            "id": id("more"),
+            "component": "Menu",
+            "props": {"label": model::copy("more"), "align": "end", "items": items},
+            "on": {"select": {"event": {"name": EVENT_MENU}}},
+            "children": [{"id": format!("{}.button", id("more")), "component": "Button", "props": {"icon": "ellipsis", "variant": "ghost", "size": "icon", "label": model::copy("more"), "disabled": busy}}],
         }));
-    } else if !input.jobs.is_empty() {
-        let rows = model::ci_job_rows(input.jobs, input.now_ms);
-        let job_of = |row_id: &str| input.jobs.iter().find(|job| job.id == row_id);
-        let select = |job: &str| json!({"event": {"name": EVENT_SELECT, "context": {"job": job}}});
-        if input.phone {
-            let folds: Vec<Value> = rows
-                .iter()
-                .filter_map(|row| {
-                    let job = job_of(&row.id)?;
-                    let selected = input.selected == Some(row.id.as_str());
-                    Some(json!({
-                        "id": format!("{}.{}", id("jobRow"), row.id),
-                        "component": "Collapsible",
-                        "props": {"title": row.title, "open": selected},
-                        "on": {"change": select(&row.id)},
-                        "children": [job_detail(input, job, if selected { input.log } else { None })],
-                    }))
-                })
-                .collect();
-            children.push(json!({
-                "id": "ci-run-jobs",
-                "component": "Stack",
-                "props": {"direction": "vertical", "gap": "sm", "align": "stretch"},
-                "children": folds,
-            }));
-        } else {
-            let job_rows: Vec<Value> = rows
-                .iter()
-                .map(|row| {
-                    let row_id = format!("{}.{}", id("jobRow"), row.id);
-                    let mut props = row_props(row);
-                    props.insert("selected".into(), json!(input.selected == Some(row.id.as_str())));
-                    props.insert("pressable".into(), json!(true));
-                    json!({
-                        "id": row_id,
-                        "component": "Row",
-                        "props": props,
-                        "slots": {"leading": glyph(&format!("{row_id}.glyph"), row)},
-                        "on": {"press": select(&row.id)},
-                    })
-                })
-                .collect();
-            let mut grid = vec![json!({
-                "id": "ci-run-jobs-list",
-                "component": "Box",
-                "style": {"flexDirection": "column"},
-                "children": [{
-                    "id": "ci-run-jobs-section",
-                    "component": "Section",
-                    "props": {"title": model::copy("jobs")},
-                    "children": job_rows,
-                }],
-            })];
-            if let Some(job) = input.selected.and_then(job_of) {
-                grid.push(json!({
-                    "id": "ci-run-detail",
-                    "component": "Box",
-                    "style": {"minWidth": 0, "flexDirection": "column"},
-                    "children": [job_detail(input, job, input.log)],
-                }));
-            }
-            children.push(json!({
-                "id": "ci-run-jobs",
-                "component": "Box",
-                "style": {"display": "grid", "gridTemplateColumns": "300px minmax(0, 1fr)", "gap": "$spacing.lg", "alignItems": "start"},
-                "children": grid,
-            }));
-        }
     }
-    json!({
-        "id": id("page"),
-        "component": "Stack",
-        "props": {"direction": "vertical", "gap": "lg", "align": "stretch"},
-        "children": children,
-    })
+    let has_buttons = !buttons.is_empty();
+    let actions_node = json!({"id": "ci-run-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": buttons});
+    let bar = if input.phone {
+        let mut children = vec![chips];
+        if has_buttons {
+            children.push(actions_node);
+        }
+        json!({"id": "ci-run-bar", "component": "Stack", "props": {"direction": "vertical", "gap": "sm", "align": "stretch"}, "children": children})
+    } else {
+        let mut node = json!({"id": "ci-run-bar", "component": "Toolbar", "children": [chips]});
+        if has_buttons {
+            node["slots"] = json!({"trailing": actions_node});
+        }
+        node
+    };
+    let mut children = vec![
+        json!({"id": "ci-run-title", "component": "Stack", "props": {"direction": "vertical", "gap": "xs", "align": "stretch"}, "children": head}),
+        bar,
+    ];
+    if let Some(error) = run.error.as_ref().filter(|error| !error.is_empty()) {
+        children.push(json!({"id": "ci-run-error", "component": "Alert", "props": {"type": "error", "title": model::copy("pipelineError"), "message": error}}));
+        return page(children);
+    }
+    let failed = selected
+        .as_deref()
+        .and_then(job_of)
+        .filter(|job| model::ci_job_status(&job.status, job.conclusion.as_deref()) == model::CiRunStatus::Failed);
+    if let Some((title, message)) = model::ci_failure_summary(failed.map(|job| job.check.as_str()), failed.and(input.log)) {
+        children.push(json!({"id": id("failure"), "component": "Alert", "props": {"type": "error", "title": title, "message": message}}));
+    }
+    if input.jobs.is_empty() {
+        return page(children);
+    }
+    let rows = model::ci_job_rows(input.jobs, input.now_ms);
+    let pairs: Vec<(&str, Option<&str>)> = input.jobs.iter().map(|job| (job.status.as_str(), job.conclusion.as_deref())).collect();
+    let job_rows: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            let row_id = format!("{}.{}", id("jobRow"), row.id);
+            let mut props = json!({"title": row.title, "selected": selected.as_deref() == Some(row.id.as_str()), "pressable": true});
+            if let (Some(subtitle), false) = (&row.subtitle, input.phone) {
+                props["subtitle"] = json!(subtitle);
+            }
+            if let Some(duration) = &row.duration {
+                props["meta"] = json!(duration);
+            } else if let (Some(subtitle), true) = (&row.subtitle, input.phone) {
+                props["meta"] = json!(subtitle);
+            }
+            if input.phone {
+                props["chevron"] = json!("right");
+            }
+            json!({
+                "id": row_id,
+                "component": "Row",
+                "props": props,
+                "slots": {"leading": {"id": format!("{row_id}.glyph"), "component": "Icon", "props": {"name": row.glyph.concept(), "tone": row.status_tone.id(), "size": "sm"}}},
+                "on": {"press": {"event": {"name": EVENT_SELECT, "context": {"job": row.id}}}},
+            })
+        })
+        .collect();
+    let section = json!({
+        "id": "ci-run-jobs-section",
+        "component": "Section",
+        "props": {"title": model::copy("jobs"), "caption": model::ci_jobs_caption(&pairs)},
+        "children": job_rows,
+    });
+    if input.phone {
+        children.push(section);
+    } else {
+        let mut grid = vec![json!({"id": "ci-run-jobs-list", "component": "Box", "style": {"flexDirection": "column"}, "children": [section]})];
+        if let Some(job) = selected.as_deref().and_then(job_of) {
+            grid.push(json!({"id": "ci-run-detail", "component": "Box", "style": {"minWidth": 0, "flexDirection": "column"}, "children": [job_card(input, job, input.log)]}));
+        }
+        children.push(json!({
+            "id": "ci-run-jobs",
+            "component": "Box",
+            "style": {"display": "grid", "gridTemplateColumns": "300px minmax(0, 1fr)", "gap": "$spacing.lg", "alignItems": "start"},
+            "children": grid,
+        }));
+    }
+    page(children)
 }
 
 /// The specimen's data: ci-run.json `specimen`; DEV-ONLY
@@ -501,6 +519,15 @@ impl CiRunView {
             EVENT_RERUN_ALL if self.busy.is_none() => self.rerun(false, cx),
             EVENT_CANCEL if self.busy.is_none() => self.cancel(cx),
             EVENT_FIX => self.fix(cx),
+            EVENT_MENU => match event.payload.as_ref().and_then(|payload| payload["value"].as_str()) {
+                Some("rerunAll") if self.busy.is_none() => self.rerun(false, cx),
+                Some("openExternal") => {
+                    if let Some(url) = self.live_run(cx).and_then(|run| run.external_url).filter(|url| !url.is_empty()) {
+                        cx.open_url(&url);
+                    }
+                }
+                _ => {}
+            },
             EVENT_OPEN_EXTERNAL => {
                 if let Some(url) = self.live_run(cx).and_then(|run| run.external_url).filter(|url| !url.is_empty()) {
                     cx.open_url(&url);
@@ -666,7 +693,9 @@ impl CiRunView {
                     phone: false,
                     busy: self.busy,
                     repository: specimen["repository"].as_str(),
-                    pull_request_number: specimen["pullRequestNumber"].as_i64(),
+                    pull_request: specimen["pullRequest"].as_object().and_then(|pr| Some((pr["number"].as_i64()?, pr["base"].as_str()?))),
+                    author: specimen["author"].as_str(),
+                    job_open: false,
                     runner_label: &|job| job.runner_device_id.clone(),
                 }))
             }
@@ -677,10 +706,15 @@ impl CiRunView {
                 let jobs: Vec<CiJobRow> = collections.ci_jobs.read(cx).iter().filter(|job| job.run_id == run_id).cloned().collect();
                 let selected = model::ci_default_job(&jobs, self.requested.as_deref());
                 let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
-                let pull_request_number = run
+                let pull_request: Option<(i64, String)> = run
                     .pull_request_id
                     .as_deref()
-                    .and_then(|id| collections.pull_requests.read(cx).get(id).and_then(|pr| pr.number));
+                    .and_then(|id| collections.pull_requests.read(cx).get(id).and_then(|pr| Some((pr.number?, pr.base.clone().unwrap_or_default()))));
+                let author: Option<String> = run
+                    .created_by_user_id
+                    .as_deref()
+                    .and_then(|id| collections.users.read(cx).get(id).and_then(|user| user.name.clone()))
+                    .filter(|name| !name.is_empty());
                 let repository = run.repository_id.as_deref().and_then(|id| crate::ci_page::repo_full_name(id, cx));
                 let devices = collections.devices.read(cx);
                 let label = |job: &CiJobRow| {
@@ -696,7 +730,9 @@ impl CiRunView {
                     phone: false,
                     busy: self.busy,
                     repository: repository.as_deref(),
-                    pull_request_number,
+                    pull_request: pull_request.as_ref().map(|(number, base)| (*number, base.as_str())),
+                    author: author.as_deref(),
+                    job_open: false,
                     runner_label: &label,
                 });
                 if let Some(job) = selected.as_ref().and_then(|id| jobs.iter().find(|job| &job.id == id)) {
@@ -1229,7 +1265,9 @@ mod tests {
             phone: case["phone"].as_bool() == Some(true),
             busy: case["busy"].as_str(),
             repository: model_json["repository"].as_str(),
-            pull_request_number: model_json["pullRequestNumber"].as_i64(),
+            pull_request: model_json["pullRequest"].as_object().and_then(|pr| Some((pr["number"].as_i64()?, pr["base"].as_str()?))),
+            author: model_json["author"].as_str(),
+            job_open: case["jobOpen"].as_bool() == Some(true),
             runner_label: &|job| job.runner_device_id.clone(),
         })
     }

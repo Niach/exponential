@@ -1725,6 +1725,9 @@ pub struct CiRunRow {
     /// #EXP-2172: `exponential` (ours) | `github` (a GitHub Actions run).
     #[serde(default)]
     pub provider: Option<String>,
+    /// #EXP-2172 redesign: what the run is about (the commit / PR line).
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub external_id: Option<String>,
     /// The run on GitHub (Open on GitHub).
