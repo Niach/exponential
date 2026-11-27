@@ -33,7 +33,7 @@ use smithay::{
         xwayland_shell::{XWaylandShellHandler, XWaylandShellState},
     },
     xwayland::{
-        xwm::{Reorder, ResizeEdge as X11ResizeEdge, XwmId},
+        xwm::{Reorder, ResizeEdge as X11ResizeEdge, WmWindowProperty, XwmId},
         X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler,
     },
 };
@@ -315,6 +315,12 @@ impl Ede {
     fn x11_window(&self, surface: &X11Surface) -> Option<Window> {
         self.desk.space.elements().find(|w| w.x11_surface() == Some(surface)).cloned()
     }
+
+    /// [`Self::x11_window`] on screen, parked on another workspace or
+    /// minimized.
+    fn any_x11_window(&self, surface: &X11Surface) -> Option<Window> {
+        self.all_windows().into_iter().find(|w| w.x11_surface() == Some(surface))
+    }
 }
 
 impl XWaylandShellHandler for Ede {
@@ -498,6 +504,28 @@ impl XwmHandler for Ede {
         if let Some(window) = self.x11_window(&surface) {
             if surface.is_override_redirect() {
                 self.desk.space.map_element(window, geometry.loc, false);
+            }
+        }
+    }
+
+    /// #EDE-255: `_NET_WM_STATE_DEMANDS_ATTENTION` set by the client.
+    fn demands_attention_request(&mut self, xwm: XwmId, surface: X11Surface) {
+        if !matches!(self.desk_of_xwm(xwm), XwmDesk::Person) {
+            return;
+        }
+        if let Some(w) = self.any_x11_window(&surface) {
+            self.mark_urgent(&w);
+        }
+    }
+
+    /// #EDE-255: WM_HINTS' UrgencyHint set (Muffin's `window-marked-urgent`).
+    fn property_notify(&mut self, xwm: XwmId, surface: X11Surface, property: WmWindowProperty) {
+        if property != WmWindowProperty::Hints || !matches!(self.desk_of_xwm(xwm), XwmDesk::Person) {
+            return;
+        }
+        if surface.hints().is_some_and(|h| h.urgent) {
+            if let Some(w) = self.any_x11_window(&surface) {
+                self.mark_urgent(&w);
             }
         }
     }

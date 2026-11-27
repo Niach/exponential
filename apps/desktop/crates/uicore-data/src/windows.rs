@@ -24,7 +24,12 @@ pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent>
         let title = n.title.clone().unwrap_or_default();
         let app = n.app_id.clone().unwrap_or_default();
         match model.windows.iter().find(|w| w.id == id) {
-            None => out.push(ShellEvent::WindowOpened { id: id.clone(), app, title, workspace: n.workspace }),
+            None => {
+                out.push(ShellEvent::WindowOpened { id: id.clone(), app, title, workspace: n.workspace });
+                if n.urgent {
+                    out.push(ShellEvent::WindowUrgent { id: id.clone(), urgent: true });
+                }
+            }
             Some(w) => {
                 if w.title != title {
                     out.push(ShellEvent::WindowTitled { id: id.clone(), title });
@@ -34,6 +39,9 @@ pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent>
                 }
                 if w.minimized != minimized(n) {
                     out.push(if minimized(n) { ShellEvent::WindowMinimized { id: id.clone() } } else { ShellEvent::WindowRestored { id: id.clone() } });
+                }
+                if w.urgent != n.urgent {
+                    out.push(ShellEvent::WindowUrgent { id: id.clone(), urgent: n.urgent });
                 }
             }
         }
@@ -73,7 +81,7 @@ mod tests {
     use uicore_model::reduce;
 
     fn info(id: &str, app: &str, title: &str, focused: bool, workspace: usize) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, maximized: false, space: None }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false, maximized: false, sticky: false, urgent: false, space: None }
     }
 
     fn apply(model: &ShellState, events: &[ShellEvent]) -> ShellState {
@@ -118,6 +126,20 @@ mod tests {
         let after = apply(&model, &window_events(&model, &[info("w1", "terminal", "T", false, 0), agents]));
         assert_eq!(after.windows.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w1"]);
         assert!(after.mru.iter().all(|id| id != "w2"), "its focus is not the person's");
+    }
+
+    /// #EDE-255: the compositor's `urgent` reaches the model; the focus ends it.
+    #[test]
+    fn urgency_follows_the_compositor() {
+        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[info("w1", "firefox", "A", true, 0), info("w2", "terminal", "T", false, 0)]));
+        let mut calling = info("w2", "terminal", "T", false, 0);
+        calling.urgent = true;
+        let next = vec![info("w1", "firefox", "A", true, 0), calling];
+        let after = apply(&model, &window_events(&model, &next));
+        assert!(after.windows[1].urgent);
+        assert!(window_events(&after, &next).is_empty());
+        let answered = apply(&after, &window_events(&after, &[info("w1", "firefox", "A", false, 0), info("w2", "terminal", "T", true, 0)]));
+        assert!(!answered.windows[1].urgent);
     }
 
     #[test]

@@ -34,6 +34,8 @@ export interface ShellWindow {
   focused: boolean
   workspace: number
   minimized: boolean
+  /** #EDE-255: asks for attention until focused (absent when false). */
+  urgent?: boolean
 }
 
 export interface ShellState {
@@ -56,10 +58,12 @@ export type ShellEvent =
   | { kind: `window.minimized`; id: string }
   | { kind: `window.restored`; id: string }
   | { kind: `window.moved`; id: string; workspace: number }
+  | { kind: `window.urgent`; id: string; urgent: boolean }
   | { kind: `workspace.switched`; active: number }
   | { kind: `workspace.count`; count: number }
   | { kind: `taskbar.pin`; app: string }
   | { kind: `taskbar.unpin`; app: string }
+  | { kind: `taskbar.move`; app: string; before?: string; after?: string }
   | { kind: `taskbar.hover`; app: string }
   | { kind: `taskbar.unhover` }
   | { kind: `taskbar.previews`; app: string | null }
@@ -95,7 +99,10 @@ function focus(state: ShellState, id: string): void {
   if (!state.windows.some((w) => w.id === id)) return
   for (const w of state.windows) {
     w.focused = w.id === id
-    if (w.focused) w.minimized = false
+    if (w.focused) {
+      w.minimized = false
+      delete w.urgent
+    }
   }
   state.mru = [id, ...state.mru.filter((m) => m !== id)]
 }
@@ -166,6 +173,14 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       if (w) w.minimized = false
       break
     }
+    case `window.urgent`: {
+      const w = s.windows.find((x) => x.id === e.id)
+      if (w) {
+        if (e.urgent === true && !w.focused) w.urgent = true
+        else delete w.urgent
+      }
+      break
+    }
     case `window.moved`: {
       const w = s.windows.find((x) => x.id === e.id)
       const to = e.workspace as number
@@ -191,6 +206,9 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       break
     case `taskbar.unpin`:
       s.taskbar.pinned = s.taskbar.pinned.filter((a) => a !== e.app)
+      break
+    case `taskbar.move`:
+      moveButton(s, e.app as string, e.before as string | undefined, e.after as string | undefined)
       break
     case `taskbar.hover`:
       s.taskbar.hover = e.app as string
@@ -268,6 +286,28 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
   return s
 }
 
+/** #EDE-255: grouped-window-list's drag (applet.js handleDragOver / moveLauncher): pinned and unpinned buttons stay apart. */
+function moveButton(s: ShellState, app: string, before: string | undefined, after: string | undefined): void {
+  const target = before ?? after
+  if (target === undefined || target === app) return
+  const pinned = s.taskbar.pinned
+  const mine = pinned.includes(app)
+  if (mine !== pinned.includes(target)) return
+  if (mine) {
+    const rest = pinned.filter((a) => a !== app)
+    const i = rest.indexOf(target)
+    rest.splice(before !== undefined ? i : i + 1, 0, app)
+    s.taskbar.pinned = rest
+    return
+  }
+  const moved = s.windows.filter((w) => w.app === app)
+  if (moved.length === 0 || !s.windows.some((w) => w.app === target)) return
+  const rest = s.windows.filter((w) => w.app !== app)
+  const i = before !== undefined ? rest.findIndex((w) => w.app === target) : rest.map((w) => w.app).lastIndexOf(target) + 1
+  rest.splice(i, 0, ...moved)
+  s.windows = rest
+}
+
 function openStartMenu(s: ShellState): void {
   s.startMenu.open = true
   s.taskbar.previews = null
@@ -283,6 +323,8 @@ export interface TaskbarButton {
   focused: boolean
   minimized: boolean
   running: boolean
+  /** #EDE-255: one of its windows asks for attention (absent when false). */
+  urgent?: boolean
 }
 
 const onActive = (state: ShellState): ShellWindow[] => state.windows.filter((w) => w.workspace === state.workspaces.active)
@@ -294,7 +336,7 @@ export function taskbarButtons(state: ShellState): TaskbarButton[] {
   for (const w of active) if (!apps.includes(w.app)) apps.push(w.app)
   return apps.map((app) => {
     const ws = active.filter((w) => w.app === app)
-    return {
+    const button: TaskbarButton = {
       app,
       pinned: state.taskbar.pinned.includes(app),
       windows: ws.map((w) => w.id),
@@ -302,6 +344,8 @@ export function taskbarButtons(state: ShellState): TaskbarButton[] {
       minimized: ws.length > 0 && ws.every((w) => w.minimized),
       running: ws.length > 0,
     }
+    if (ws.some((w) => w.urgent === true)) button.urgent = true
+    return button
   })
 }
 
@@ -310,11 +354,22 @@ export type TaskbarPress = { action: `launch` } | { action: `minimize`; id: stri
 /** #EDE-254: the group's last focused window: of the app's active-workspace windows the one earliest in the mru, else the first. */
 export function lastFocused(state: ShellState, app: string): ShellWindow | null {
   const ws = onActive(state).filter((w) => w.app === app)
-  for (const id of state.mru) {
-    const hit = ws.find((w) => w.id === id)
-    if (hit) return hit
+  const byMru = (list: ShellWindow[]): ShellWindow | null => {
+    for (const id of state.mru) {
+      const hit = list.find((w) => w.id === id)
+      if (hit) return hit
+    }
+    return list[0] ?? null
   }
-  return ws[0] ?? null
+  // #EDE-255: an urgent one first (Cinnamon makes the window that demands attention the group's lastFocused).
+  return byMru(ws.filter((w) => w.urgent === true)) ?? byMru(ws)
+}
+
+/** #EDE-255: grouped-window-list's flash (FLASH_INTERVAL 500 ms, FLASH_MAX_COUNT 4): is an urgent group's highlight lit `ms` after the call? */
+export const TASKBAR_FLASH_MS = 500
+export function urgentLit(ms: number): boolean {
+  const phase = Math.floor(ms / TASKBAR_FLASH_MS)
+  return phase >= 5 || phase % 2 === 1
 }
 
 /** Mint's click on a button (grouped-window-list's left-click-action 2): launch, else toggle the group's last focused window (minimize it while it has the focus, focus it otherwise). */
@@ -342,7 +397,7 @@ export interface MenuRow {
 
 export interface TaskbarMenuContext {
   outputs?: number
-  windows?: Record<string, { output?: number; maximized?: boolean }>
+  windows?: Record<string, { output?: number; maximized?: boolean; sticky?: boolean }>
   recent?: { name: string; uri: string }[]
   actions?: { id: string; name: string }[]
   entry?: boolean
@@ -364,7 +419,10 @@ export function taskbarMenu(state: ShellState, app: string, context: TaskbarMenu
       for (let i = 0; i < outputs; i++) if (i !== own) rows.push({ label: outputs === 2 ? `Move to the other monitor` : `Move to monitor ${i + 1}`, value: `monitor:${i}` })
     }
     const count = state.workspaces.count
-    if (count >= 2) {
+    // #EDE-255: menus.js: a sticky window offers to stay on this workspace only, any other to be on all, then the moves.
+    if (count >= 2 && facts.sticky) rows.push({ label: `Only on this workspace`, value: `unstick` })
+    else if (count >= 2) {
+      rows.push({ label: `Visible on all workspaces`, value: `stick` })
       const items: MenuRow[] = []
       for (let i = 0; i < count; i++) items.push(i === w.workspace ? { label: `Workspace ${i + 1}`, value: `workspace:${i}`, disabled: true } : { label: `Workspace ${i + 1}`, value: `workspace:${i}` })
       rows.push({ kind: `submenu`, label: `Move to another workspace`, items })

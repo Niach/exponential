@@ -84,6 +84,9 @@ pub struct ShellWindow {
     pub focused: bool,
     pub workspace: usize,
     pub minimized: bool,
+    /// #EDE-255: asks for attention until focused (absent when false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +191,9 @@ pub enum ShellEvent {
     WindowRestored { id: String },
     #[serde(rename = "window.moved")]
     WindowMoved { id: String, workspace: i64 },
+    /// #EDE-255: the compositor marked it urgent (true) or the call ended.
+    #[serde(rename = "window.urgent")]
+    WindowUrgent { id: String, urgent: bool },
     #[serde(rename = "workspace.switched")]
     WorkspaceSwitched { active: i64 },
     #[serde(rename = "workspace.count")]
@@ -196,6 +202,15 @@ pub enum ShellEvent {
     TaskbarPin { app: String },
     #[serde(rename = "taskbar.unpin")]
     TaskbarUnpin { app: String },
+    /// #EDE-255: a button dragged before or after another (the List's `move`).
+    #[serde(rename = "taskbar.move")]
+    TaskbarMove {
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
     #[serde(rename = "taskbar.hover")]
     TaskbarHover { app: String },
     #[serde(rename = "taskbar.unhover")]
@@ -235,6 +250,35 @@ pub enum ShellEvent {
     AltTabCancel,
 }
 
+/// #EDE-255: grouped-window-list's drag (applet.js handleDragOver /
+/// moveLauncher): pinned and unpinned buttons stay apart; a pinned one
+/// moves in the pin order, a running one moves its windows as one block.
+fn move_button(s: &mut ShellState, app: &str, before: Option<&str>, after: Option<&str>) {
+    let Some(target) = before.or(after) else { return };
+    if target == app {
+        return;
+    }
+    let mine = s.taskbar.pinned.iter().any(|p| p == app);
+    if mine != s.taskbar.pinned.iter().any(|p| p == target) {
+        return;
+    }
+    if mine {
+        let mut rest: Vec<String> = s.taskbar.pinned.iter().filter(|p| *p != app).cloned().collect();
+        let i = rest.iter().position(|p| p == target).unwrap_or(rest.len());
+        rest.insert(if before.is_some() { i } else { i + 1 }, app.to_string());
+        s.taskbar.pinned = rest;
+        return;
+    }
+    let moved: Vec<ShellWindow> = s.windows.iter().filter(|w| w.app == app).cloned().collect();
+    if moved.is_empty() || !s.windows.iter().any(|w| w.app == target) {
+        return;
+    }
+    let mut rest: Vec<ShellWindow> = s.windows.iter().filter(|w| w.app != app).cloned().collect();
+    let i = if before.is_some() { rest.iter().position(|w| w.app == target).unwrap_or(rest.len()) } else { rest.iter().rposition(|w| w.app == target).map_or(rest.len(), |i| i + 1) };
+    rest.splice(i..i, moved);
+    s.windows = rest;
+}
+
 fn closed_start_menu() -> StartMenu {
     StartMenu { open: false, query: String::new(), category: String::new() }
 }
@@ -247,6 +291,7 @@ fn focus(s: &mut ShellState, id: &str) {
         w.focused = w.id == id;
         if w.focused {
             w.minimized = false;
+            w.urgent = false;
         }
     }
     s.mru.retain(|m| m != id);
@@ -292,7 +337,7 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
         }
         ShellEvent::WindowOpened { id, app, title, workspace } => {
             if !s.windows.iter().any(|w| &w.id == id) {
-                s.windows.push(ShellWindow { id: id.clone(), app: app.clone(), title: title.clone(), focused: false, workspace: *workspace, minimized: false });
+                s.windows.push(ShellWindow { id: id.clone(), app: app.clone(), title: title.clone(), focused: false, workspace: *workspace, minimized: false, urgent: false });
                 s.mru.push(id.clone());
             }
         }
@@ -316,6 +361,11 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
             if let Some(w) = s.windows.iter_mut().find(|w| &w.id == id) {
                 w.minimized = true;
                 w.focused = false;
+            }
+        }
+        ShellEvent::WindowUrgent { id, urgent } => {
+            if let Some(w) = s.windows.iter_mut().find(|w| &w.id == id) {
+                w.urgent = *urgent && !w.focused;
             }
         }
         ShellEvent::WindowRestored { id } => {
@@ -356,6 +406,7 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
             }
         }
         ShellEvent::TaskbarUnpin { app } => s.taskbar.pinned.retain(|a| a != app),
+        ShellEvent::TaskbarMove { app, before, after } => move_button(&mut s, app, before.as_deref(), after.as_deref()),
         ShellEvent::TaskbarHover { app } => s.taskbar.hover = Some(app.clone()),
         ShellEvent::TaskbarUnhover => s.taskbar.hover = None,
         ShellEvent::TaskbarPreviews { app } => {
@@ -430,6 +481,9 @@ pub struct TaskbarButton {
     pub focused: bool,
     pub minimized: bool,
     pub running: bool,
+    /// #EDE-255: one of its windows asks for attention (absent when false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub urgent: bool,
 }
 
 fn on_active(state: &ShellState) -> Vec<&ShellWindow> {
@@ -456,6 +510,7 @@ pub fn taskbar_buttons(state: &ShellState) -> Vec<TaskbarButton> {
                 focused: ws.iter().any(|w| w.focused),
                 minimized: !ws.is_empty() && ws.iter().all(|w| w.minimized),
                 running: !ws.is_empty(),
+                urgent: ws.iter().any(|w| w.urgent),
                 app,
             }
         })
@@ -472,9 +527,23 @@ pub enum TaskbarPress {
 
 /// #EDE-254: the group's last focused window: of the app's
 /// active-workspace windows the one earliest in the mru, else the first.
+/// #EDE-255: an urgent one first (Cinnamon makes the window that demands
+/// attention the group's lastFocused, so a click answers it).
 pub fn last_focused<'a>(state: &'a ShellState, app: &str) -> Option<&'a ShellWindow> {
     let ws: Vec<&ShellWindow> = on_active(state).into_iter().filter(|w| w.app == app).collect();
-    state.mru.iter().find_map(|id| ws.iter().find(|w| &w.id == id).copied()).or(ws.first().copied())
+    let mru = |ws: &[&'a ShellWindow]| state.mru.iter().find_map(|id| ws.iter().find(|w| &w.id == id).copied()).or(ws.first().copied());
+    let urgent: Vec<&ShellWindow> = ws.iter().copied().filter(|w| w.urgent).collect();
+    mru(&urgent).or_else(|| mru(&ws))
+}
+
+/// #EDE-255: grouped-window-list's flash (FLASH_INTERVAL 500 ms, FLASH_MAX_COUNT
+/// 4): is an urgent group's highlight lit `ms` after the call? Off for the
+/// first interval, then on and off by turns, lit for good from the fifth.
+pub const TASKBAR_FLASH_MS: u64 = 500;
+
+pub fn urgent_lit(ms: u64) -> bool {
+    let phase = ms / TASKBAR_FLASH_MS;
+    phase >= 5 || phase % 2 == 1
 }
 
 /// Mint's click on a button (grouped-window-list's left-click-action 2):
@@ -573,6 +642,9 @@ pub struct WindowFacts {
     pub output: usize,
     #[serde(default)]
     pub maximized: bool,
+    /// #EDE-255: Always on Visible Workspace.
+    #[serde(default)]
+    pub sticky: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -605,10 +677,17 @@ pub fn taskbar_menu(state: &ShellState, app: &str, context: &TaskbarMenuContext)
             }
         }
         if state.workspaces.count >= 2 {
-            let items = (0..state.workspaces.count)
-                .map(|i| MenuRow { disabled: (i == w.workspace).then_some(true), ..MenuRow::item(format!("Workspace {}", i + 1), format!("workspace:{i}"), None) })
-                .collect();
-            rows.push(MenuRow::submenu("Move to another workspace", items));
+            // #EDE-255: menus.js: a sticky window offers to stay on this
+            // workspace only, any other to be on all, then the moves.
+            if facts.sticky {
+                rows.push(MenuRow::item("Only on this workspace", "unstick", None));
+            } else {
+                rows.push(MenuRow::item("Visible on all workspaces", "stick", None));
+                let items = (0..state.workspaces.count)
+                    .map(|i| MenuRow { disabled: (i == w.workspace).then_some(true), ..MenuRow::item(format!("Workspace {}", i + 1), format!("workspace:{i}"), None) })
+                    .collect();
+                rows.push(MenuRow::submenu("Move to another workspace", items));
+            }
         }
         rows.push(MenuRow::separator());
     }

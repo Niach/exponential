@@ -96,7 +96,7 @@ impl Ede {
                         let protected = self.is_protected_window(w);
                         let (title, app_id) = window_title(w);
                         let focused = focus.is_some() && smithay::wayland::seat::WaylandFocus::wl_surface(w).map(|s| s.into_owned()) == focus;
-                        Some(WindowInfo { id: window_id(w), title: title.filter(|_| !protected), app_id, x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, focused, fullscreen: false, protected, x11: crate::ipc::is_x11(w), workspace: 0, minimized: false, maximized: false, space: Some(id.clone()) })
+                        Some(WindowInfo { id: window_id(w), title: title.filter(|_| !protected), app_id, x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, focused, fullscreen: false, protected, x11: crate::ipc::is_x11(w), workspace: 0, minimized: false, maximized: false, sticky: false, urgent: false, space: Some(id.clone()) })
                     })
                     .collect();
                 json(serde_json::to_value(windows).unwrap())
