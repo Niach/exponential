@@ -1,7 +1,7 @@
 import { useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router"
 import { ciDefaultJob, ciFixPrompt } from "@exp/domain-contract/ci-run"
-import { conceptIcon, EmptyState, SkeletonRows, useIsMobile } from "@exp/ui"
+import { conceptIcon, EmptyState, MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
 import { LINK_NO_ACCESS } from "@/lib/app-link"
 import { CiRunView, useRunClock } from "@/components/ci/ci-run-page"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -10,7 +10,8 @@ import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
 import { trpc } from "@/lib/trpc-client"
 import { ciRunCollection } from "@/lib/collections"
-import type { CiRunBusy } from "@/lib/ci-run-view"
+import { ciRunHeader, type CiRunBusy } from "@/lib/ci-run-view"
+import { PushedTitle } from "@/components/team/mobile-page-header"
 
 // #EXP-1617 / #EXP-1804 (fixtures/ci-run.json): THE CI run page, the target
 // of every check's `details_url` our CI writes. `?job=<jobId>` = the
@@ -96,8 +97,24 @@ function CiRunRoute() {
     }
   }
 
+  const router = useRouter()
+  const header = model ? ciRunHeader(model) : null
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto max-md:h-dvh">
+      {/* #EXP-2172: phones put `name #n` / the repository in the header. */}
+      {phone && (
+        <div className="sticky top-0 z-20 pt-[env(safe-area-inset-top)]">
+          <MobileDetailHeader
+            title={
+              <PushedTitle>
+                {header?.title ?? ``}
+                {header?.subtitle ? <span className="font-normal text-muted-foreground"> · {header.subtitle}</span> : null}
+              </PushedTitle>
+            }
+            onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/ci` }))}
+          />
+        </div>
+      )}
       <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-6xl md:py-6 ${PAGE_END_CLEARANCE}`}>
         {model ? (
           <CiRunView
