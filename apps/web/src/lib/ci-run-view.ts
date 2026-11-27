@@ -48,7 +48,16 @@ export interface CiRunModel {
     sha: string
     startedAt: string | null
     completedAt: string | null
+    /** #EXP-2172: the run's source and its GitHub handle. */
+    ref: string | null
+    provider: string
+    externalUrl: string | null
+    externalAccess: string | null
   }
+  /** The repository's full name (null while its row has not synced). */
+  repository: string | null
+  /** The run's pull request number, when known. */
+  pullRequestNumber: number | null
   jobs: Array<{
     id: string
     check: string
@@ -64,7 +73,18 @@ export interface CiRunModel {
 }
 
 /** Events the page's tree fires (`onAction` names). */
-export const CI_RUN_EVENTS = { select: `ci-select-job`, rerun: `ci-rerun`, cancel: `ci-cancel` } as const
+export const CI_RUN_EVENTS = {
+  select: `ci-select-job`,
+  rerun: `ci-rerun`,
+  rerunAll: `ci-rerun-all`,
+  cancel: `ci-cancel`,
+  fix: `ci-fix`,
+  openExternal: `ci-open-external`,
+  breadcrumb: `ci-breadcrumb`,
+} as const
+
+/** A busy action (its button spins, the others wait). */
+export type CiRunBusy = `rerun` | `rerunAll` | `cancel` | null
 
 /** A job row's leading glyph, tinted by its tone. */
 function glyphNode(id: string, row: Pick<CiJobRow, `glyph` | `tone`>): NestedNode {
@@ -121,22 +141,47 @@ function jobDetail(
  *  as read so far (null = not read yet). */
 export function ciRunTree(
   model: CiRunModel,
-  options: { selected: string | null; log: string | null; now: Date | string; phone: boolean; busy?: `rerun` | `cancel` | null }
+  options: { selected: string | null; log: string | null; now: Date | string; phone: boolean; busy?: CiRunBusy }
 ): NestedNode {
   const { selected, log, now, phone } = options
   const { run } = model
   const tiles = ciRunTiles(run, model.jobs, now)
   const actions = ciRunActions(run)
-  const children: NestedNode[] = [
+  const title = CI_RUN_COPY.title.replace(`{number}`, String(run.number))
+  const source = run.provider === `github` ? `github` : `exponential`
+  const head: NestedNode[] = []
+  // #EXP-2172: wide, the way back to the CI page and the repository.
+  if (!phone) {
+    head.push({
+      id: CI_RUN_TEST_IDS.breadcrumb,
+      component: `Breadcrumb`,
+      props: {
+        items: [
+          { label: CI_RUN_COPY.breadcrumbRoot, value: `ci` },
+          ...(model.repository ? [{ label: model.repository, value: `repository` }] : []),
+          { label: title, value: `run` },
+        ],
+      },
+      on: { select: { event: { name: CI_RUN_EVENTS.breadcrumb } } },
+    })
+  }
+  head.push(
     {
-      id: `ci-run-title`,
+      id: `ci-run-heading-row`,
       component: `Stack`,
-      props: { direction: `vertical`, gap: `xs`, align: `stretch` },
+      props: { direction: `horizontal`, gap: `sm`, align: `center` },
       children: [
-        { id: `ci-run-heading`, component: `Heading`, props: { text: CI_RUN_COPY.title.replace(`{number}`, String(run.number)), level: `h2` } },
-        { id: `ci-run-name`, component: `Text`, props: { text: run.name, variant: `muted` } },
+        { id: `ci-run-heading`, component: `Heading`, props: { text: title, level: `h2` } },
+        { id: CI_RUN_TEST_IDS.source, component: `Badge`, props: { text: CI_RUN_COPY.sources[source], variant: `secondary` } },
+        ...(model.pullRequestNumber !== null
+          ? [{ id: `ci-run-pull-request`, component: `Badge`, props: { text: CI_RUN_COPY.pullRequest.replace(`{number}`, String(model.pullRequestNumber)), variant: `outline` } } satisfies NestedNode]
+          : []),
       ],
     },
+    { id: `ci-run-name`, component: `Text`, props: { text: run.ref ? `${run.name} · ${run.ref}` : run.name, variant: `muted` } }
+  )
+  const children: NestedNode[] = [
+    { id: `ci-run-title`, component: `Stack`, props: { direction: `vertical`, gap: `xs`, align: `stretch` }, children: head },
     {
       id: CI_RUN_TEST_IDS.tiles,
       component: `Grid`,
@@ -148,28 +193,27 @@ export function ciRunTree(
       })),
     },
   ]
-  if (actions.rerunFailed || actions.cancel) {
-    const buttons: NestedNode[] = []
-    if (actions.rerunFailed) {
-      buttons.push({
-        id: CI_RUN_TEST_IDS.rerun,
-        component: `Button`,
-        props: { label: CI_RUN_COPY.rerunFailed, loading: options.busy === `rerun`, disabled: Boolean(options.busy) },
-        on: { press: { event: { name: CI_RUN_EVENTS.rerun } } },
-      })
-    }
-    if (actions.cancel) {
-      buttons.push({
-        id: CI_RUN_TEST_IDS.cancel,
-        component: `Button`,
-        // ci-run.json: variant destructive-outline (the catalog's
-        // `destructive`; it has no outline twin).
-        props: { label: CI_RUN_COPY.cancel, variant: `destructive`, loading: options.busy === `cancel`, disabled: Boolean(options.busy) },
-        on: { press: { event: { name: CI_RUN_EVENTS.cancel } } },
-      })
-    }
-    children.push({ id: `ci-run-actions`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: buttons })
+  const button = (id: string, label: string, event: string, busy: CiRunBusy, extra: Record<string, unknown> = {}): NestedNode => ({
+    id,
+    component: `Button`,
+    props: { label, ...extra, ...(busy ? { loading: options.busy === busy } : {}), disabled: Boolean(options.busy) },
+    on: { press: { event: { name: event } } },
+  })
+  const buttons: NestedNode[] = []
+  if (actions.rerunFailed) buttons.push(button(CI_RUN_TEST_IDS.rerun, CI_RUN_COPY.rerunFailed, CI_RUN_EVENTS.rerun, `rerun`))
+  if (actions.rerunAll) {
+    buttons.push(
+      button(CI_RUN_TEST_IDS.rerunAll, CI_RUN_COPY.rerunAll, CI_RUN_EVENTS.rerunAll, `rerunAll`, actions.rerunFailed ? { variant: `outline` } : {})
+    )
   }
+  // ci-run.json: variant destructive-outline (the catalog's `destructive`;
+  // it has no outline twin).
+  if (actions.cancel) buttons.push(button(CI_RUN_TEST_IDS.cancel, CI_RUN_COPY.cancel, CI_RUN_EVENTS.cancel, `cancel`, { variant: `destructive` }))
+  if (actions.fix) buttons.push(button(CI_RUN_TEST_IDS.fix, CI_RUN_COPY.fix, CI_RUN_EVENTS.fix, null, { variant: `outline`, icon: `bot` }))
+  if (actions.openExternal) {
+    buttons.push(button(CI_RUN_TEST_IDS.openExternal, CI_RUN_COPY.openExternal, CI_RUN_EVENTS.openExternal, null, { variant: `outline`, icon: `github` }))
+  }
+  if (buttons.length > 0) children.push({ id: `ci-run-actions`, component: `Toolbar`, children: buttons })
   if (run.error) {
     children.push({ id: `ci-run-error`, component: `Alert`, props: { type: `error`, title: CI_RUN_COPY.pipelineError, message: run.error } })
   } else if (model.jobs.length > 0) {

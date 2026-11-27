@@ -174,9 +174,64 @@ export function ciLogView(text: string): { code: string; highlight: number[] } {
   return { code: out.join(`\n`), highlight }
 }
 
-/** Which buttons the run shows. */
-export function ciRunActions(run: { state: string; error: string | null }): { rerunFailed: boolean; cancel: boolean } {
-  return { rerunFailed: run.state === `failure`, cancel: run.state === `pending` }
+export const CI_RUN_FIX_LOG_LINES: number = fixture.fixLogLines
+
+export interface CiRunActions {
+  rerunFailed: boolean
+  rerunAll: boolean
+  cancel: boolean
+  fix: boolean
+  openExternal: boolean
+}
+
+/** Which buttons the run shows (#EXP-2172: a GitHub run re-runs and
+ *  cancels only once its installation accepted Actions: write; it always
+ *  offers Open on GitHub). */
+export function ciRunActions(run: {
+  state: string
+  error: string | null
+  provider?: string | null
+  externalAccess?: string | null
+  externalUrl?: string | null
+}): CiRunActions {
+  const github = run.provider === `github`
+  const writable = !github || run.externalAccess === `write`
+  return {
+    rerunFailed: writable && run.state === `failure`,
+    rerunAll: writable && run.state !== `pending`,
+    cancel: writable && run.state === `pending`,
+    fix: run.state === `failure`,
+    openExternal: github && Boolean(run.externalUrl),
+  }
+}
+
+/** The first message of Fix with an agent (the composer's text). */
+export function ciFixPrompt(input: {
+  run: { id: string; number: number; name: string; sha: string; ref: string | null }
+  repository: string
+  job: string | null
+  log: string | null
+}): string {
+  const copy = CI_RUN_COPY.fixPrompt
+  const ref = input.run.ref ?? CI_RUN_COPY.none
+  const fill = (text: string) =>
+    text
+      .replaceAll(`{number}`, String(input.run.number))
+      .replaceAll(`{name}`, input.run.name)
+      .replaceAll(`{repository}`, input.repository)
+      .replaceAll(`{ref}`, ref)
+      .replaceAll(`{sha}`, input.run.sha.slice(0, 7))
+      .replaceAll(`{runId}`, input.run.id)
+      .replaceAll(`{job}`, input.job ?? ``)
+  const lines = [fill(copy.head)]
+  if (input.job) lines.push(fill(copy.job))
+  lines.push(fill(copy.read))
+  const code = input.log ? ciLogView(input.log).code : ``
+  if (code !== ``) {
+    const tail = code.split(`\n`).slice(-CI_RUN_FIX_LOG_LINES)
+    lines.push(``, copy.tail, `\`\`\`text`, ...tail, `\`\`\``)
+  }
+  return lines.join(`\n`)
 }
 
 /** The specimen every platform's shot renders. */

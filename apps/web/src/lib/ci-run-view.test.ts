@@ -16,6 +16,8 @@ import {
 
 const specimen = (): CiRunModel => ({
   run: { ...CI_RUN_SPECIMEN.run },
+  repository: CI_RUN_SPECIMEN.repository,
+  pullRequestNumber: CI_RUN_SPECIMEN.pullRequestNumber,
   jobs: CI_RUN_SPECIMEN.jobs.map((job) => ({ ...job, steps: [...job.steps] })),
 })
 

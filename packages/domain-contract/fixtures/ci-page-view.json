@@ -1,0 +1,2827 @@
+{
+ "$comment": "#EXP-2172 THE CI PAGE AS ONE genUI TREE, the same on every platform (ci-page.json says what; this pins HOW, node for node). A case: `world` (`scenario` = ci-page.json's scenario; `empty` = it without runs, jobs, pull requests and runners), `tab` (runs | train | runners), `filter` {status, repositoryId, source} (null = All), `phone` → `tree` (A2UI nested nodes: id, component, props, children, slots, on). Only the current tab's panel is built (the others are empty stacks); the platform adds its own page chrome (title, back) and maps the events: ci-tab / ci-filter-status / ci-filter-repo / ci-filter-source carry the control's value (`all` = no filter), ci-open-run {run} (the Table's rowPress carries the row), ci-open-pr {pr}, ci-open-runner {device}. The runner row's offline meta is a `fill` + `formatRelativeTime` call the renderer evaluates. The reference is apps/web/src/lib/ci-page-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-page-view.ts` and review the diff.",
+ "cases": [
+  {
+   "name": "wide, Runs, everything",
+   "world": "scenario",
+   "tab": "runs",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "runs"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-filters",
+          "component": "Toolbar",
+          "children": [
+           {
+            "id": "ci-filter-status",
+            "component": "Segmented",
+            "props": {
+             "items": [
+              {
+               "label": "All",
+               "value": "all"
+              },
+              {
+               "label": "Running",
+               "value": "running"
+              },
+              {
+               "label": "Failed",
+               "value": "failed"
+              },
+              {
+               "label": "Mine",
+               "value": "mine"
+              }
+             ],
+             "value": "all",
+             "size": "sm"
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-status"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-repo",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-repo",
+             "triggerVariant": "pill",
+             "value": "all",
+             "options": [
+              {
+               "label": "All repositories",
+               "value": "all"
+              },
+              {
+               "label": "Repository",
+               "value": "repo-gone"
+              },
+              {
+               "label": "acme/engine",
+               "value": "repo-engine"
+              },
+              {
+               "label": "acme/mobile",
+               "value": "repo-mobile"
+              },
+              {
+               "label": "acme/site",
+               "value": "repo-site"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-repo"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-source",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-source",
+             "triggerVariant": "pill",
+             "value": "all",
+             "options": [
+              {
+               "label": "Every source",
+               "value": "all"
+              },
+              {
+               "label": "Exponential",
+               "value": "exponential"
+              },
+              {
+               "label": "GitHub Actions",
+               "value": "github"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-source"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-train.repo-engine",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/engine · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.batch.train-91",
+            "component": "Row",
+            "props": {
+             "identifier": "#211",
+             "title": "Testing 3 pull requests together",
+             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.batch.train-91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.batch.train-91.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Testing",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-211"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-runs",
+          "component": "Table",
+          "props": {
+           "columns": [
+            {
+             "key": "status",
+             "label": "Status",
+             "type": "slot",
+             "slot": "status",
+             "width": 120
+            },
+            {
+             "key": "run",
+             "label": "Run"
+            },
+            {
+             "key": "repository",
+             "label": "Repository"
+            },
+            {
+             "key": "source",
+             "label": "Source",
+             "type": "badge"
+            },
+            {
+             "key": "ref",
+             "label": "Branch",
+             "truncate": true
+            },
+            {
+             "key": "trigger",
+             "label": "Trigger"
+            },
+            {
+             "key": "duration",
+             "label": "Duration",
+             "align": "end",
+             "width": 96
+            },
+            {
+             "key": "started",
+             "label": "Started",
+             "type": "relativeTime",
+             "width": 140
+            }
+           ],
+           "rows": [
+            {
+             "id": "g1207",
+             "status": "Queued",
+             "glyph": "ci-queued",
+             "tone": "neutral",
+             "run": "#1207 build-ios",
+             "repository": "acme/mobile",
+             "source": "GitHub Actions",
+             "ref": "release/2.4",
+             "trigger": "Tag",
+             "duration": "",
+             "started": ""
+            },
+            {
+             "id": "r91",
+             "status": "Running",
+             "glyph": "ci-running",
+             "tone": "neutral",
+             "run": "#91 Merge train",
+             "repository": "acme/engine",
+             "source": "Exponential",
+             "ref": "main",
+             "trigger": "Merge train",
+             "duration": "1m 40s",
+             "started": "2026-11-27T10:28:20.000Z"
+            },
+            {
+             "id": "r483",
+             "status": "Running",
+             "glyph": "ci-running",
+             "tone": "neutral",
+             "run": "#483 gate",
+             "repository": "acme/engine",
+             "source": "Exponential",
+             "ref": "exp/APP-32",
+             "trigger": "Pull request #214",
+             "duration": "3m 12s",
+             "started": "2026-11-27T10:26:48.000Z"
+            },
+            {
+             "id": "r482",
+             "status": "Failed",
+             "glyph": "ci-failed",
+             "tone": "danger",
+             "run": "#482 gate",
+             "repository": "acme/engine",
+             "source": "Exponential",
+             "ref": "exp/APP-33",
+             "trigger": "Pull request #213",
+             "duration": "12m 40s",
+             "started": "2026-11-27T09:59:20.000Z"
+            },
+            {
+             "id": "g1206",
+             "status": "Passed",
+             "glyph": "ci-passed",
+             "tone": "success",
+             "run": "#1206 test",
+             "repository": "acme/mobile",
+             "source": "GitHub Actions",
+             "ref": "main",
+             "trigger": "Push",
+             "duration": "7m 6s",
+             "started": "2026-11-27T09:22:54.000Z"
+            },
+            {
+             "id": "g58",
+             "status": "Passed",
+             "glyph": "ci-passed",
+             "tone": "success",
+             "run": "#58 deploy",
+             "repository": "acme/site",
+             "source": "GitHub Actions",
+             "ref": "main",
+             "trigger": "Push",
+             "duration": "2m 3s",
+             "started": "2026-11-27T08:27:57.000Z"
+            },
+            {
+             "id": "r481",
+             "status": "Cancelled",
+             "glyph": "ci-skipped",
+             "tone": "neutral",
+             "run": "#481 gate",
+             "repository": "acme/engine",
+             "source": "Exponential",
+             "ref": "exp/APP-32",
+             "trigger": "Pull request #214",
+             "duration": "24s",
+             "started": "2026-11-27T07:30:00.000Z"
+            },
+            {
+             "id": "r480",
+             "status": "Passed",
+             "glyph": "ci-passed",
+             "tone": "success",
+             "run": "#480 nightly",
+             "repository": "Repository",
+             "source": "Exponential",
+             "ref": "—",
+             "trigger": "Schedule",
+             "duration": "14m 12s",
+             "started": "2026-11-27T01:30:00.000Z"
+            },
+            {
+             "id": "g57",
+             "status": "Failed",
+             "glyph": "ci-failed",
+             "tone": "danger",
+             "run": "#57 deploy",
+             "repository": "acme/site",
+             "source": "GitHub Actions",
+             "ref": "main",
+             "trigger": "Push",
+             "duration": "2m 3s",
+             "started": "2026-11-26T08:27:57.000Z"
+            }
+           ],
+           "rowKey": "id"
+          },
+          "slots": {
+           "status": {
+            "id": "ci-runs.status",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "xs",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-runs.status.glyph",
+              "component": "Icon",
+              "props": {
+               "name": {
+                "@path": "glyph"
+               },
+               "tone": {
+                "@path": "tone"
+               },
+               "size": "sm"
+              }
+             },
+             {
+              "id": "ci-runs.status.label",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@path": "status"
+               }
+              }
+             }
+            ]
+           }
+          },
+          "on": {
+           "rowPress": {
+            "event": {
+             "name": "ci-open-run"
+            }
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "phone, Runs, everything",
+   "world": "scenario",
+   "tab": "runs",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": true,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "sm"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "runs",
+       "fill": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-filters",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "sm",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-filter-status",
+            "component": "Segmented",
+            "props": {
+             "items": [
+              {
+               "label": "All",
+               "value": "all"
+              },
+              {
+               "label": "Running",
+               "value": "running"
+              },
+              {
+               "label": "Failed",
+               "value": "failed"
+              },
+              {
+               "label": "Mine",
+               "value": "mine"
+              }
+             ],
+             "value": "all",
+             "size": "sm",
+             "fill": true
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-status"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filters.picks",
+            "component": "Toolbar",
+            "children": [
+             {
+              "id": "ci-filter-repo",
+              "component": "Select",
+              "props": {
+               "name": "ci-filter-repo",
+               "triggerVariant": "pill",
+               "value": "all",
+               "options": [
+                {
+                 "label": "All repositories",
+                 "value": "all"
+                },
+                {
+                 "label": "Repository",
+                 "value": "repo-gone"
+                },
+                {
+                 "label": "acme/engine",
+                 "value": "repo-engine"
+                },
+                {
+                 "label": "acme/mobile",
+                 "value": "repo-mobile"
+                },
+                {
+                 "label": "acme/site",
+                 "value": "repo-site"
+                }
+               ]
+              },
+              "on": {
+               "change": {
+                "event": {
+                 "name": "ci-filter-repo"
+                }
+               }
+              }
+             },
+             {
+              "id": "ci-filter-source",
+              "component": "Select",
+              "props": {
+               "name": "ci-filter-source",
+               "triggerVariant": "pill",
+               "value": "all",
+               "options": [
+                {
+                 "label": "Every source",
+                 "value": "all"
+                },
+                {
+                 "label": "Exponential",
+                 "value": "exponential"
+                },
+                {
+                 "label": "GitHub Actions",
+                 "value": "github"
+                }
+               ]
+              },
+              "on": {
+               "change": {
+                "event": {
+                 "name": "ci-filter-source"
+                }
+               }
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "id": "ci-train.repo-engine",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/engine · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.batch.train-91",
+            "component": "Row",
+            "props": {
+             "identifier": "#211",
+             "title": "Testing 3 pull requests together",
+             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.batch.train-91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.batch.train-91.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Testing",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-211"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-runs",
+          "component": "Section",
+          "props": {
+           "title": "Runs"
+          },
+          "children": [
+           {
+            "id": "ci-run-row.g1207",
+            "component": "Row",
+            "props": {
+             "title": "#1207 build-ios",
+             "subtitle": "acme/mobile · release/2.4 · GitHub Actions",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.g1207.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-queued",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "g1207"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.r91",
+            "component": "Row",
+            "props": {
+             "title": "#91 Merge train",
+             "subtitle": "acme/engine · main · Exponential",
+             "meta": "1m 40s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.r91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "r91"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.r483",
+            "component": "Row",
+            "props": {
+             "title": "#483 gate",
+             "subtitle": "acme/engine · exp/APP-32 · Exponential",
+             "meta": "3m 12s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.r483.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "r483"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.r482",
+            "component": "Row",
+            "props": {
+             "title": "#482 gate",
+             "subtitle": "acme/engine · exp/APP-33 · Exponential",
+             "meta": "12m 40s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.r482.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-failed",
+               "tone": "danger",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "r482"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.g1206",
+            "component": "Row",
+            "props": {
+             "title": "#1206 test",
+             "subtitle": "acme/mobile · main · GitHub Actions",
+             "meta": "7m 6s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.g1206.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "g1206"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.g58",
+            "component": "Row",
+            "props": {
+             "title": "#58 deploy",
+             "subtitle": "acme/site · main · GitHub Actions",
+             "meta": "2m 3s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.g58.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "g58"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.r481",
+            "component": "Row",
+            "props": {
+             "title": "#481 gate",
+             "subtitle": "acme/engine · exp/APP-32 · Exponential",
+             "meta": "24s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.r481.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-skipped",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "r481"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.r480",
+            "component": "Row",
+            "props": {
+             "title": "#480 nightly",
+             "subtitle": "Repository · — · Exponential",
+             "meta": "14m 12s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.r480.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "r480"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-row.g57",
+            "component": "Row",
+            "props": {
+             "title": "#57 deploy",
+             "subtitle": "acme/site · main · GitHub Actions",
+             "meta": "2m 3s",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-row.g57.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-failed",
+               "tone": "danger",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-run",
+               "context": {
+                "run": "g57"
+               }
+              }
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "wide, Runs, failed GitHub runs of one repository",
+   "world": "scenario",
+   "tab": "runs",
+   "filter": {
+    "status": "failed",
+    "repositoryId": "repo-site",
+    "source": "github"
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "runs"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-filters",
+          "component": "Toolbar",
+          "children": [
+           {
+            "id": "ci-filter-status",
+            "component": "Segmented",
+            "props": {
+             "items": [
+              {
+               "label": "All",
+               "value": "all"
+              },
+              {
+               "label": "Running",
+               "value": "running"
+              },
+              {
+               "label": "Failed",
+               "value": "failed"
+              },
+              {
+               "label": "Mine",
+               "value": "mine"
+              }
+             ],
+             "value": "failed",
+             "size": "sm"
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-status"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-repo",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-repo",
+             "triggerVariant": "pill",
+             "value": "repo-site",
+             "options": [
+              {
+               "label": "All repositories",
+               "value": "all"
+              },
+              {
+               "label": "Repository",
+               "value": "repo-gone"
+              },
+              {
+               "label": "acme/engine",
+               "value": "repo-engine"
+              },
+              {
+               "label": "acme/mobile",
+               "value": "repo-mobile"
+              },
+              {
+               "label": "acme/site",
+               "value": "repo-site"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-repo"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-source",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-source",
+             "triggerVariant": "pill",
+             "value": "github",
+             "options": [
+              {
+               "label": "Every source",
+               "value": "all"
+              },
+              {
+               "label": "Exponential",
+               "value": "exponential"
+              },
+              {
+               "label": "GitHub Actions",
+               "value": "github"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-source"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-train.repo-engine",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/engine · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.batch.train-91",
+            "component": "Row",
+            "props": {
+             "identifier": "#211",
+             "title": "Testing 3 pull requests together",
+             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.batch.train-91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.batch.train-91.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Testing",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-211"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-runs",
+          "component": "Table",
+          "props": {
+           "columns": [
+            {
+             "key": "status",
+             "label": "Status",
+             "type": "slot",
+             "slot": "status",
+             "width": 120
+            },
+            {
+             "key": "run",
+             "label": "Run"
+            },
+            {
+             "key": "repository",
+             "label": "Repository"
+            },
+            {
+             "key": "source",
+             "label": "Source",
+             "type": "badge"
+            },
+            {
+             "key": "ref",
+             "label": "Branch",
+             "truncate": true
+            },
+            {
+             "key": "trigger",
+             "label": "Trigger"
+            },
+            {
+             "key": "duration",
+             "label": "Duration",
+             "align": "end",
+             "width": 96
+            },
+            {
+             "key": "started",
+             "label": "Started",
+             "type": "relativeTime",
+             "width": 140
+            }
+           ],
+           "rows": [
+            {
+             "id": "g57",
+             "status": "Failed",
+             "glyph": "ci-failed",
+             "tone": "danger",
+             "run": "#57 deploy",
+             "repository": "acme/site",
+             "source": "GitHub Actions",
+             "ref": "main",
+             "trigger": "Push",
+             "duration": "2m 3s",
+             "started": "2026-11-26T08:27:57.000Z"
+            }
+           ],
+           "rowKey": "id"
+          },
+          "slots": {
+           "status": {
+            "id": "ci-runs.status",
+            "component": "Stack",
+            "props": {
+             "direction": "horizontal",
+             "gap": "xs",
+             "align": "center"
+            },
+            "children": [
+             {
+              "id": "ci-runs.status.glyph",
+              "component": "Icon",
+              "props": {
+               "name": {
+                "@path": "glyph"
+               },
+               "tone": {
+                "@path": "tone"
+               },
+               "size": "sm"
+              }
+             },
+             {
+              "id": "ci-runs.status.label",
+              "component": "Text",
+              "props": {
+               "text": {
+                "@path": "status"
+               }
+              }
+             }
+            ]
+           }
+          },
+          "on": {
+           "rowPress": {
+            "event": {
+             "name": "ci-open-run"
+            }
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "wide, Runs, a filter nothing matches",
+   "world": "scenario",
+   "tab": "runs",
+   "filter": {
+    "status": "failed",
+    "repositoryId": "repo-mobile",
+    "source": null
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "runs"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-filters",
+          "component": "Toolbar",
+          "children": [
+           {
+            "id": "ci-filter-status",
+            "component": "Segmented",
+            "props": {
+             "items": [
+              {
+               "label": "All",
+               "value": "all"
+              },
+              {
+               "label": "Running",
+               "value": "running"
+              },
+              {
+               "label": "Failed",
+               "value": "failed"
+              },
+              {
+               "label": "Mine",
+               "value": "mine"
+              }
+             ],
+             "value": "failed",
+             "size": "sm"
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-status"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-repo",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-repo",
+             "triggerVariant": "pill",
+             "value": "repo-mobile",
+             "options": [
+              {
+               "label": "All repositories",
+               "value": "all"
+              },
+              {
+               "label": "Repository",
+               "value": "repo-gone"
+              },
+              {
+               "label": "acme/engine",
+               "value": "repo-engine"
+              },
+              {
+               "label": "acme/mobile",
+               "value": "repo-mobile"
+              },
+              {
+               "label": "acme/site",
+               "value": "repo-site"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-repo"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filter-source",
+            "component": "Select",
+            "props": {
+             "name": "ci-filter-source",
+             "triggerVariant": "pill",
+             "value": "all",
+             "options": [
+              {
+               "label": "Every source",
+               "value": "all"
+              },
+              {
+               "label": "Exponential",
+               "value": "exponential"
+              },
+              {
+               "label": "GitHub Actions",
+               "value": "github"
+              }
+             ]
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-source"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-train.repo-engine",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/engine · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.batch.train-91",
+            "component": "Row",
+            "props": {
+             "identifier": "#211",
+             "title": "Testing 3 pull requests together",
+             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.batch.train-91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.batch.train-91.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Testing",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-211"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-runs",
+          "component": "EmptyState",
+          "props": {
+           "icon": "workflow",
+           "title": "No runs match",
+           "size": "list"
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "wide, Merge train",
+   "world": "scenario",
+   "tab": "train",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "train"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-train.repo-engine",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/engine · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.batch.train-91",
+            "component": "Row",
+            "props": {
+             "identifier": "#211",
+             "title": "Testing 3 pull requests together",
+             "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.batch.train-91.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-running",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.batch.train-91.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Testing",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-211"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-train-row.pr-215",
+            "component": "Row",
+            "props": {
+             "identifier": "#215",
+             "title": "Cache the planner",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.pr-215.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-queued",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.pr-215.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Queued · 1st",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-215"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-train-row.pr-214",
+            "component": "Row",
+            "props": {
+             "identifier": "#214",
+             "title": "Reduce cold start below 400 ms",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.pr-214.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-queued",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.pr-214.badge",
+              "component": "Badge",
+              "props": {
+               "text": "Checks running",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-214"
+               }
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "id": "ci-train.repo-mobile",
+          "component": "Section",
+          "props": {
+           "title": "Merge train",
+           "caption": "acme/mobile · main",
+           "icon": "pr-batch"
+          },
+          "children": [
+           {
+            "id": "ci-train-row.pr-40",
+            "component": "Row",
+            "props": {
+             "identifier": "#40",
+             "title": "Dark splash",
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-train-row.pr-40.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-skipped",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             },
+             "trailing": {
+              "id": "ci-train-row.pr-40.badge",
+              "component": "Badge",
+              "props": {
+               "text": "On hold",
+               "variant": "secondary"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-open-pr",
+               "context": {
+                "pr": "pr-40"
+               }
+              }
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "phone, Runners",
+   "world": "scenario",
+   "tab": "runners",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": true,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "sm"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "2",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "1",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "1",
+         "tone": "danger",
+         "delta": "engine"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "2 of 3 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train",
+         "count": 4
+        },
+        {
+         "label": "Runners",
+         "value": "runners",
+         "count": 3
+        }
+       ],
+       "value": "runners",
+       "fill": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-runners",
+        "component": "Section",
+        "props": {},
+        "children": [
+         {
+          "id": "ci-runner-row.dev-mac",
+          "component": "Row",
+          "props": {
+           "icon": "server",
+           "title": "Alex's MacBook Pro",
+           "subtitle": "mac",
+           "meta": "0 of 1 busy",
+           "pressable": true
+          },
+          "slots": {
+           "trailing": {
+            "id": "ci-runner-row.dev-mac.queue",
+            "component": "Badge",
+            "props": {
+             "text": "1 queued",
+             "variant": "outline"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-runner",
+             "context": {
+              "device": "dev-mac"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-runner-row.dev-mint",
+          "component": "Row",
+          "props": {
+           "icon": "server",
+           "title": "mint",
+           "subtitle": "linux, gpu",
+           "meta": "2 of 2 busy",
+           "pressable": true
+          },
+          "slots": {
+           "trailing": {
+            "id": "ci-runner-row.dev-mint.queue",
+            "component": "Badge",
+            "props": {
+             "text": "1 queued",
+             "variant": "outline"
+            }
+           }
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-runner",
+             "context": {
+              "device": "dev-mint"
+             }
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-runner-row.dev-old",
+          "component": "Row",
+          "props": {
+           "icon": "server",
+           "title": "build-box",
+           "subtitle": "No labels",
+           "meta": {
+            "@call": "fill",
+            "args": {
+             "template": "Last seen {time}",
+             "params": {
+              "time": {
+               "@call": "formatRelativeTime",
+               "args": {
+                "value": "2026-11-26T22:00:00.000Z"
+               }
+              }
+             }
+            }
+           },
+           "pressable": true
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-open-runner",
+             "context": {
+              "device": "dev-old"
+             }
+            }
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "phone, no runs yet",
+   "world": "empty",
+   "tab": "runs",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": true,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 2,
+       "gap": "sm"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "0 of 0 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train"
+        },
+        {
+         "label": "Runners",
+         "value": "runners"
+        }
+       ],
+       "value": "runs",
+       "fill": true
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-filters",
+          "component": "Stack",
+          "props": {
+           "direction": "vertical",
+           "gap": "sm",
+           "align": "stretch"
+          },
+          "children": [
+           {
+            "id": "ci-filter-status",
+            "component": "Segmented",
+            "props": {
+             "items": [
+              {
+               "label": "All",
+               "value": "all"
+              },
+              {
+               "label": "Running",
+               "value": "running"
+              },
+              {
+               "label": "Failed",
+               "value": "failed"
+              },
+              {
+               "label": "Mine",
+               "value": "mine"
+              }
+             ],
+             "value": "all",
+             "size": "sm",
+             "fill": true
+            },
+            "on": {
+             "change": {
+              "event": {
+               "name": "ci-filter-status"
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-filters.picks",
+            "component": "Toolbar",
+            "children": [
+             {
+              "id": "ci-filter-repo",
+              "component": "Select",
+              "props": {
+               "name": "ci-filter-repo",
+               "triggerVariant": "pill",
+               "value": "all",
+               "options": [
+                {
+                 "label": "All repositories",
+                 "value": "all"
+                }
+               ]
+              },
+              "on": {
+               "change": {
+                "event": {
+                 "name": "ci-filter-repo"
+                }
+               }
+              }
+             },
+             {
+              "id": "ci-filter-source",
+              "component": "Select",
+              "props": {
+               "name": "ci-filter-source",
+               "triggerVariant": "pill",
+               "value": "all",
+               "options": [
+                {
+                 "label": "Every source",
+                 "value": "all"
+                },
+                {
+                 "label": "Exponential",
+                 "value": "exponential"
+                },
+                {
+                 "label": "GitHub Actions",
+                 "value": "github"
+                }
+               ]
+              },
+              "on": {
+               "change": {
+                "event": {
+                 "name": "ci-filter-source"
+                }
+               }
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "id": "ci-runs",
+          "component": "EmptyState",
+          "props": {
+           "icon": "workflow",
+           "title": "No runs yet",
+           "size": "list"
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "wide, empty Merge train",
+   "world": "empty",
+   "tab": "train",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "0 of 0 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train"
+        },
+        {
+         "label": "Runners",
+         "value": "runners"
+        }
+       ],
+       "value": "train"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": [
+         {
+          "id": "ci-train",
+          "component": "EmptyState",
+          "props": {
+           "icon": "pr-batch",
+           "title": "Nothing in the merge train",
+           "size": "list"
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-page.runners",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "wide, no runners",
+   "world": "empty",
+   "tab": "runners",
+   "filter": {
+    "status": "all",
+    "repositoryId": null,
+    "source": null
+   },
+   "phone": false,
+   "tree": {
+    "id": "ci-page",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-tiles",
+      "component": "Grid",
+      "props": {
+       "columns": 4,
+       "gap": "md"
+      },
+      "children": [
+       {
+        "id": "ci-tiles.0",
+        "component": "StatTile",
+        "props": {
+         "label": "Running",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.1",
+        "component": "StatTile",
+        "props": {
+         "label": "Queued",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.2",
+        "component": "StatTile",
+        "props": {
+         "label": "Failed today",
+         "value": "0",
+         "tone": "neutral"
+        }
+       },
+       {
+        "id": "ci-tiles.3",
+        "component": "StatTile",
+        "props": {
+         "label": "Runners",
+         "value": "0 of 0 online",
+         "tone": "neutral"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-tabs",
+      "component": "Tabs",
+      "props": {
+       "tabs": [
+        {
+         "label": "Runs",
+         "value": "runs"
+        },
+        {
+         "label": "Merge train",
+         "value": "train"
+        },
+        {
+         "label": "Runners",
+         "value": "runners"
+        }
+       ],
+       "value": "runners"
+      },
+      "on": {
+       "change": {
+        "event": {
+         "name": "ci-tab"
+        }
+       }
+      },
+      "children": [
+       {
+        "id": "ci-page.runs",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-page.train",
+        "component": "Stack",
+        "props": {
+         "direction": "vertical",
+         "gap": "md",
+         "align": "stretch"
+        },
+        "children": []
+       },
+       {
+        "id": "ci-runners",
+        "component": "EmptyState",
+        "props": {
+         "icon": "server",
+         "title": "No runners",
+         "size": "list"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,2232 @@
+{
+  "$comment": "#EXP-2172 (epic #EXP-2169, plan revision 2 section 4): THE CI PAGE x4 (view `ci`: web /ci, the desktop's CI screen, iOS and Android's CI destination; the More menu's CI entry on phones), one ROOT row after Devices (sidebar-tree.json: Assistant, Home, Needs you, Chats, Drafts, Devices, CI, Teams), across every member team (there is no active team). DATA, all synced, never fetched: `ci_runs` + `ci_jobs` (shapes ci-runs / ci-jobs: our runs AND GitHub Actions runs, `provider` exponential | github, the server ingests GitHub's workflow_run / workflow_job webhooks), `pull_requests` (merge state, position, train id, root session), the sessions shape (a root's starter), the repositories shape (full names), the devices shape (rows whose `runner.enabled` is true = the runners; `lastSeenAt`). RULES (`ciRunList`, `ciRepoOptions`, `ciPageTiles`, `ciBadge`, `ciTrainGroups`, `ciRunnerRows`, `ciTabCounts`, replayed by every mirror over the cases below, comparing the WHOLE result): a run's status is ci-run.json `runStatus` over its jobs; its order is NEWEST FIRST by startedAt (else createdAt), ties by id; source = `github` for provider github, else `exponential` (copy.sources); `mine` = the viewer started it (createdByUserId: a push, a re-run, a GitHub actor linked to the viewer's GitHub account) or its pull request's root session was started by the viewer. FILTERS: status All | Running (running + queued) | Failed | Mine; a repository pick (`ciRepoOptions`: All repositories, then every repository with a run, by name); a source pick (Every source, Exponential, GitHub Actions). At most `limits.runs` rows. A row: identifier `#n`, title `#n name`, the status glyph/tone of repo-ci.json, repository full name (copy.unknownRepository while its row has not synced), source label, ref (repo-ci copy.runs.noRef when none), trigger = copy.pullRequest with the PR's number for a pull request run whose PR is known, else copy.triggers[trigger] (unknown = the raw value), duration = pr-checks formatDuration of (completedAt or now) - startedAt (null before it started), startedAt, subtitle (phones) = `repository · ref · source`. TILES (`ciPageTiles`): Running, Queued, Failed today = failed runs completed in the last 24 hours (tone danger and delta = the newest failure's repository NAME, the part after the last `/`, when any), Runners = copy.tiles.runnersValue over runners online (lastSeenAt younger than `limits.runnerOnlineMs`) of all. THE BADGE (nav-badges.json destination `ci`, `ciBadge`): over the viewer's runs only, the NEWEST run per (repository, pipeline name, ref): any failed = that count, tone `attention` (a green re-run is newer and clears it); else the running or queued ones, tone `muted`; else 0 (no badge). The phones' More tab sums it with its other items (Phase 1). MERGE TRAIN (`ciTrainGroups(input, queue)`): per repository (by name; caption = the PRs' base branch) the TESTING batches (PRs in merge state testing grouped by mergeTrainId, by lowest number): one row each, identifier = the first member's `#n`, title = the PR's title alone or copy.train.batch with {count}, subtitle = the members `#n title` joined by ` · ` (alone: none), glyph ci-running, badge = merge-train.json copy.pill.testing. The Runs tab shows the testing batches only (queue false) above the runs; the Merge train tab (queue true) adds the queued PRs by mergePosition (badge = merge-train.json copy.pill.queuedAt with its `ordinal` position, copy.pill.queued without one; glyph ci-queued) and then the ones waiting (checks | held | conflict | failing, by number, badge = merge-train.json copy.pill checksRunning | onHold | conflict | failing, glyph ci-queued for checks, ci-skipped for held, else ci-failed). A row opens its pull request (a batch: its first member). RUNNERS (`ciRunnerRows`): online first, then by name; title = the device label, subtitle = its labels (runner-settings.json `runnerOsLabel` first, then its own lower-cased; copy.runners.noLabels when none), busy = copy.runners.busy over our in-progress jobs on it and its slots (online only), queue = copy.runners.queue over OUR queued, undispatched jobs whose runsOn it covers (null when none), offlineSince = its lastSeenAt while offline (drawn as the catalog's `fill` of copy.runners.offlineSince with {time} = its `formatRelativeTime`). No lanes. TAB COUNTS (`ciTabCounts`): Merge train = its rows (queue true), Runners = the runners. LAYOUT is pinned node for node by ci-page-view.json (the reference apps/web/src/lib/ci-page-view.ts). testIds name the parts for the e2e and the shots.",
+  "copy": {
+    "title": "CI",
+    "tabs": {
+      "runs": "Runs",
+      "train": "Merge train",
+      "runners": "Runners"
+    },
+    "tiles": {
+      "running": "Running",
+      "queued": "Queued",
+      "failedToday": "Failed today",
+      "runners": "Runners",
+      "runnersValue": "{online} of {total} online"
+    },
+    "filters": {
+      "all": "All",
+      "running": "Running",
+      "failed": "Failed",
+      "mine": "Mine"
+    },
+    "repositories": {
+      "all": "All repositories"
+    },
+    "sources": {
+      "all": "Every source",
+      "exponential": "Exponential",
+      "github": "GitHub Actions"
+    },
+    "columns": {
+      "status": "Status",
+      "run": "Run",
+      "repository": "Repository",
+      "source": "Source",
+      "ref": "Branch",
+      "trigger": "Trigger",
+      "duration": "Duration",
+      "started": "Started"
+    },
+    "runsSection": "Runs",
+    "trainSection": "Merge train",
+    "pullRequest": "Pull request #{number}",
+    "triggers": {
+      "push": "Push",
+      "pull_request": "Pull request",
+      "tag": "Tag",
+      "merge_train": "Merge train",
+      "manual": "Manual",
+      "schedule": "Schedule"
+    },
+    "unknownRepository": "Repository",
+    "train": {
+      "batch": "Testing {count} pull requests together"
+    },
+    "runners": {
+      "busy": "{busy} of {slots} busy",
+      "queue": "{count} queued",
+      "offlineSince": "Last seen {time}",
+      "noLabels": "No labels"
+    },
+    "empty": {
+      "runs": "No runs yet",
+      "filtered": "No runs match",
+      "train": "Nothing in the merge train",
+      "runners": "No runners"
+    }
+  },
+  "limits": {
+    "runs": 100,
+    "runnerOnlineMs": 120000
+  },
+  "testIds": {
+    "page": "ci-page",
+    "tiles": "ci-tiles",
+    "tabs": "ci-tabs",
+    "filters": "ci-filters",
+    "statusFilter": "ci-filter-status",
+    "repoFilter": "ci-filter-repo",
+    "sourceFilter": "ci-filter-source",
+    "runs": "ci-runs",
+    "runRow": "ci-run-row",
+    "train": "ci-train",
+    "trainRow": "ci-train-row",
+    "runners": "ci-runners",
+    "runnerRow": "ci-runner-row"
+  },
+  "scenario": {
+    "viewerId": "u-me",
+    "now": "2026-11-27T10:30:00.000Z",
+    "repos": [
+      {
+        "id": "repo-engine",
+        "fullName": "acme/engine"
+      },
+      {
+        "id": "repo-mobile",
+        "fullName": "acme/mobile"
+      },
+      {
+        "id": "repo-site",
+        "fullName": "acme/site"
+      }
+    ],
+    "sessions": [
+      {
+        "id": "s-mine",
+        "userId": "u-me"
+      },
+      {
+        "id": "s-other",
+        "userId": "u-other"
+      }
+    ],
+    "pullRequests": [
+      {
+        "id": "pr-211",
+        "number": 211,
+        "title": "Fix bisect on a red batch",
+        "repositoryId": "repo-engine",
+        "rootSessionId": "s-other",
+        "base": "main",
+        "mergeState": "testing",
+        "mergePosition": null,
+        "mergeTrainId": "train-91"
+      },
+      {
+        "id": "pr-212",
+        "number": 212,
+        "title": "Runner labels",
+        "repositoryId": "repo-engine",
+        "rootSessionId": "s-other",
+        "base": "main",
+        "mergeState": "testing",
+        "mergePosition": null,
+        "mergeTrainId": "train-91"
+      },
+      {
+        "id": "pr-213",
+        "number": 213,
+        "title": "Log tail",
+        "repositoryId": "repo-engine",
+        "rootSessionId": "s-mine",
+        "base": "main",
+        "mergeState": "testing",
+        "mergePosition": null,
+        "mergeTrainId": "train-91"
+      },
+      {
+        "id": "pr-214",
+        "number": 214,
+        "title": "Reduce cold start below 400 ms",
+        "repositoryId": "repo-engine",
+        "rootSessionId": "s-mine",
+        "base": "main",
+        "mergeState": "checks",
+        "mergePosition": null,
+        "mergeTrainId": null
+      },
+      {
+        "id": "pr-215",
+        "number": 215,
+        "title": "Cache the planner",
+        "repositoryId": "repo-engine",
+        "rootSessionId": "s-other",
+        "base": "main",
+        "mergeState": "queued",
+        "mergePosition": 1,
+        "mergeTrainId": null
+      },
+      {
+        "id": "pr-40",
+        "number": 40,
+        "title": "Dark splash",
+        "repositoryId": "repo-mobile",
+        "rootSessionId": null,
+        "base": "main",
+        "mergeState": "held",
+        "mergePosition": null,
+        "mergeTrainId": null
+      },
+      {
+        "id": "pr-41",
+        "number": 41,
+        "title": "Old",
+        "repositoryId": "repo-mobile",
+        "rootSessionId": null,
+        "base": "main",
+        "mergeState": "merged",
+        "mergePosition": null,
+        "mergeTrainId": null
+      }
+    ],
+    "runs": [
+      {
+        "sha": "r483aaaaaaaaaaaaaaaa",
+        "ref": "exp/APP-32",
+        "trigger": "pull_request",
+        "pullRequestId": "pr-214",
+        "createdByUserId": null,
+        "provider": "exponential",
+        "startedAt": "2026-11-27T10:26:48.000Z",
+        "completedAt": null,
+        "createdAt": "2026-11-27T10:26:48.000Z",
+        "id": "r483",
+        "repositoryId": "repo-engine",
+        "number": 483,
+        "name": "gate",
+        "state": "pending"
+      },
+      {
+        "sha": "r91aaaaaaaaaaaaaaaa",
+        "ref": "main",
+        "trigger": "merge_train",
+        "pullRequestId": null,
+        "createdByUserId": null,
+        "provider": "exponential",
+        "startedAt": "2026-11-27T10:28:20.000Z",
+        "completedAt": null,
+        "createdAt": "2026-11-27T10:28:20.000Z",
+        "id": "r91",
+        "repositoryId": "repo-engine",
+        "number": 91,
+        "name": "Merge train",
+        "state": "pending"
+      },
+      {
+        "sha": "g1207aaaaaaaaaaaaaaaa",
+        "ref": "release/2.4",
+        "trigger": "tag",
+        "pullRequestId": null,
+        "createdByUserId": "u-me",
+        "provider": "github",
+        "startedAt": null,
+        "completedAt": null,
+        "createdAt": "2026-11-27T10:29:00.000Z",
+        "id": "g1207",
+        "repositoryId": "repo-mobile",
+        "number": 1207,
+        "name": "build-ios",
+        "state": "pending"
+      },
+      {
+        "sha": "r482aaaaaaaaaaaaaaaa",
+        "ref": "exp/APP-33",
+        "trigger": "pull_request",
+        "pullRequestId": "pr-213",
+        "createdByUserId": null,
+        "provider": "exponential",
+        "startedAt": "2026-11-27T09:59:20.000Z",
+        "completedAt": "2026-11-27T10:12:00.000Z",
+        "createdAt": "2026-11-27T09:59:20.000Z",
+        "id": "r482",
+        "repositoryId": "repo-engine",
+        "number": 482,
+        "name": "gate",
+        "state": "failure"
+      },
+      {
+        "sha": "g1206aaaaaaaaaaaaaaaa",
+        "ref": "main",
+        "trigger": "push",
+        "pullRequestId": null,
+        "createdByUserId": null,
+        "provider": "github",
+        "startedAt": "2026-11-27T09:22:54.000Z",
+        "completedAt": "2026-11-27T09:30:00.000Z",
+        "createdAt": "2026-11-27T09:22:54.000Z",
+        "id": "g1206",
+        "repositoryId": "repo-mobile",
+        "number": 1206,
+        "name": "test",
+        "state": "success"
+      },
+      {
+        "sha": "g57aaaaaaaaaaaaaaaa",
+        "ref": "main",
+        "trigger": "push",
+        "pullRequestId": null,
+        "createdByUserId": "u-me",
+        "provider": "github",
+        "startedAt": "2026-11-26T08:27:57.000Z",
+        "completedAt": "2026-11-26T08:30:00.000Z",
+        "createdAt": "2026-11-26T08:27:57.000Z",
+        "id": "g57",
+        "repositoryId": "repo-site",
+        "number": 57,
+        "name": "deploy",
+        "state": "failure"
+      },
+      {
+        "sha": "g58aaaaaaaaaaaaaaaa",
+        "ref": "main",
+        "trigger": "push",
+        "pullRequestId": null,
+        "createdByUserId": "u-me",
+        "provider": "github",
+        "startedAt": "2026-11-27T08:27:57.000Z",
+        "completedAt": "2026-11-27T08:30:00.000Z",
+        "createdAt": "2026-11-27T08:27:57.000Z",
+        "id": "g58",
+        "repositoryId": "repo-site",
+        "number": 58,
+        "name": "deploy",
+        "state": "success"
+      },
+      {
+        "sha": "r481aaaaaaaaaaaaaaaa",
+        "ref": "exp/APP-32",
+        "trigger": "pull_request",
+        "pullRequestId": "pr-214",
+        "createdByUserId": null,
+        "provider": "exponential",
+        "startedAt": "2026-11-27T07:30:00.000Z",
+        "completedAt": "2026-11-27T07:30:24.000Z",
+        "createdAt": "2026-11-27T07:30:00.000Z",
+        "id": "r481",
+        "repositoryId": "repo-engine",
+        "number": 481,
+        "name": "gate",
+        "state": "failure"
+      },
+      {
+        "sha": "r480aaaaaaaaaaaaaaaa",
+        "ref": null,
+        "trigger": "schedule",
+        "pullRequestId": null,
+        "createdByUserId": null,
+        "provider": "exponential",
+        "startedAt": "2026-11-27T01:30:00.000Z",
+        "completedAt": "2026-11-27T01:44:12.000Z",
+        "createdAt": "2026-11-27T01:30:00.000Z",
+        "id": "r480",
+        "repositoryId": "repo-gone",
+        "number": 480,
+        "name": "nightly",
+        "state": "success"
+      }
+    ],
+    "jobs": [
+      {
+        "runId": "r483",
+        "status": "in_progress",
+        "conclusion": null,
+        "runsOn": [
+          "linux"
+        ],
+        "runnerDeviceId": "dev-mint",
+        "provider": "exponential"
+      },
+      {
+        "runId": "r483",
+        "status": "queued",
+        "conclusion": null,
+        "runsOn": [
+          "linux"
+        ],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      },
+      {
+        "runId": "r483",
+        "status": "queued",
+        "conclusion": null,
+        "runsOn": [
+          "mac"
+        ],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      },
+      {
+        "runId": "r91",
+        "status": "in_progress",
+        "conclusion": null,
+        "runsOn": [
+          "linux"
+        ],
+        "runnerDeviceId": "dev-mint",
+        "provider": "exponential"
+      },
+      {
+        "runId": "g1207",
+        "status": "queued",
+        "conclusion": null,
+        "runsOn": [
+          "macos-latest"
+        ],
+        "runnerDeviceId": null,
+        "provider": "github"
+      },
+      {
+        "runId": "r482",
+        "status": "completed",
+        "conclusion": "success",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      },
+      {
+        "runId": "r482",
+        "status": "completed",
+        "conclusion": "failure",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      },
+      {
+        "runId": "g1206",
+        "status": "completed",
+        "conclusion": "success",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "github"
+      },
+      {
+        "runId": "g57",
+        "status": "completed",
+        "conclusion": "failure",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "github"
+      },
+      {
+        "runId": "g58",
+        "status": "completed",
+        "conclusion": "success",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "github"
+      },
+      {
+        "runId": "r481",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      },
+      {
+        "runId": "r480",
+        "status": "completed",
+        "conclusion": "success",
+        "runsOn": [],
+        "runnerDeviceId": null,
+        "provider": "exponential"
+      }
+    ],
+    "runners": [
+      {
+        "id": "dev-mint",
+        "label": "mint",
+        "platform": "linux",
+        "labels": [
+          "GPU"
+        ],
+        "slots": 2,
+        "lastSeenAt": "2026-11-27T10:29:40.000Z"
+      },
+      {
+        "id": "dev-mac",
+        "label": "Alex's MacBook Pro",
+        "platform": "macos",
+        "labels": [],
+        "slots": 1,
+        "lastSeenAt": "2026-11-27T10:29:55.000Z"
+      },
+      {
+        "id": "dev-old",
+        "label": "build-box",
+        "platform": null,
+        "labels": [],
+        "slots": 4,
+        "lastSeenAt": "2026-11-26T22:00:00.000Z"
+      }
+    ]
+  },
+  "runListCases": [
+    {
+      "name": "all",
+      "filter": {
+        "status": "all",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "g1207",
+          "identifier": "#1207",
+          "title": "#1207 build-ios",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "release/2.4",
+          "trigger": "Tag",
+          "duration": null,
+          "startedAt": null,
+          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
+        },
+        {
+          "id": "r91",
+          "identifier": "#91",
+          "title": "#91 Merge train",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "main",
+          "trigger": "Merge train",
+          "duration": "1m 40s",
+          "startedAt": "2026-11-27T10:28:20.000Z",
+          "subtitle": "acme/engine · main · Exponential"
+        },
+        {
+          "id": "r483",
+          "identifier": "#483",
+          "title": "#483 gate",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-32",
+          "trigger": "Pull request #214",
+          "duration": "3m 12s",
+          "startedAt": "2026-11-27T10:26:48.000Z",
+          "subtitle": "acme/engine · exp/APP-32 · Exponential"
+        },
+        {
+          "id": "r482",
+          "identifier": "#482",
+          "title": "#482 gate",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-33",
+          "trigger": "Pull request #213",
+          "duration": "12m 40s",
+          "startedAt": "2026-11-27T09:59:20.000Z",
+          "subtitle": "acme/engine · exp/APP-33 · Exponential"
+        },
+        {
+          "id": "g1206",
+          "identifier": "#1206",
+          "title": "#1206 test",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "7m 6s",
+          "startedAt": "2026-11-27T09:22:54.000Z",
+          "subtitle": "acme/mobile · main · GitHub Actions"
+        },
+        {
+          "id": "g58",
+          "identifier": "#58",
+          "title": "#58 deploy",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-27T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        },
+        {
+          "id": "r481",
+          "identifier": "#481",
+          "title": "#481 gate",
+          "status": "cancelled",
+          "statusLabel": "Cancelled",
+          "glyph": "ci-skipped",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-32",
+          "trigger": "Pull request #214",
+          "duration": "24s",
+          "startedAt": "2026-11-27T07:30:00.000Z",
+          "subtitle": "acme/engine · exp/APP-32 · Exponential"
+        },
+        {
+          "id": "r480",
+          "identifier": "#480",
+          "title": "#480 nightly",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-gone",
+          "repository": "Repository",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "—",
+          "trigger": "Schedule",
+          "duration": "14m 12s",
+          "startedAt": "2026-11-27T01:30:00.000Z",
+          "subtitle": "Repository · — · Exponential"
+        },
+        {
+          "id": "g57",
+          "identifier": "#57",
+          "title": "#57 deploy",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-26T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        }
+      ]
+    },
+    {
+      "name": "running = running and queued",
+      "filter": {
+        "status": "running",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "g1207",
+          "identifier": "#1207",
+          "title": "#1207 build-ios",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "release/2.4",
+          "trigger": "Tag",
+          "duration": null,
+          "startedAt": null,
+          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
+        },
+        {
+          "id": "r91",
+          "identifier": "#91",
+          "title": "#91 Merge train",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "main",
+          "trigger": "Merge train",
+          "duration": "1m 40s",
+          "startedAt": "2026-11-27T10:28:20.000Z",
+          "subtitle": "acme/engine · main · Exponential"
+        },
+        {
+          "id": "r483",
+          "identifier": "#483",
+          "title": "#483 gate",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-32",
+          "trigger": "Pull request #214",
+          "duration": "3m 12s",
+          "startedAt": "2026-11-27T10:26:48.000Z",
+          "subtitle": "acme/engine · exp/APP-32 · Exponential"
+        }
+      ]
+    },
+    {
+      "name": "failed",
+      "filter": {
+        "status": "failed",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "r482",
+          "identifier": "#482",
+          "title": "#482 gate",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-33",
+          "trigger": "Pull request #213",
+          "duration": "12m 40s",
+          "startedAt": "2026-11-27T09:59:20.000Z",
+          "subtitle": "acme/engine · exp/APP-33 · Exponential"
+        },
+        {
+          "id": "g57",
+          "identifier": "#57",
+          "title": "#57 deploy",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-26T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        }
+      ]
+    },
+    {
+      "name": "mine: started by me or my PR's chat",
+      "filter": {
+        "status": "mine",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "g1207",
+          "identifier": "#1207",
+          "title": "#1207 build-ios",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "release/2.4",
+          "trigger": "Tag",
+          "duration": null,
+          "startedAt": null,
+          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
+        },
+        {
+          "id": "r483",
+          "identifier": "#483",
+          "title": "#483 gate",
+          "status": "running",
+          "statusLabel": "Running",
+          "glyph": "ci-running",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-32",
+          "trigger": "Pull request #214",
+          "duration": "3m 12s",
+          "startedAt": "2026-11-27T10:26:48.000Z",
+          "subtitle": "acme/engine · exp/APP-32 · Exponential"
+        },
+        {
+          "id": "r482",
+          "identifier": "#482",
+          "title": "#482 gate",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-33",
+          "trigger": "Pull request #213",
+          "duration": "12m 40s",
+          "startedAt": "2026-11-27T09:59:20.000Z",
+          "subtitle": "acme/engine · exp/APP-33 · Exponential"
+        },
+        {
+          "id": "g58",
+          "identifier": "#58",
+          "title": "#58 deploy",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-27T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        },
+        {
+          "id": "r481",
+          "identifier": "#481",
+          "title": "#481 gate",
+          "status": "cancelled",
+          "statusLabel": "Cancelled",
+          "glyph": "ci-skipped",
+          "tone": "muted",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-32",
+          "trigger": "Pull request #214",
+          "duration": "24s",
+          "startedAt": "2026-11-27T07:30:00.000Z",
+          "subtitle": "acme/engine · exp/APP-32 · Exponential"
+        },
+        {
+          "id": "g57",
+          "identifier": "#57",
+          "title": "#57 deploy",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-26T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        }
+      ]
+    },
+    {
+      "name": "one repository",
+      "filter": {
+        "status": "all",
+        "repositoryId": "repo-mobile",
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "g1207",
+          "identifier": "#1207",
+          "title": "#1207 build-ios",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "release/2.4",
+          "trigger": "Tag",
+          "duration": null,
+          "startedAt": null,
+          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
+        },
+        {
+          "id": "g1206",
+          "identifier": "#1206",
+          "title": "#1206 test",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "7m 6s",
+          "startedAt": "2026-11-27T09:22:54.000Z",
+          "subtitle": "acme/mobile · main · GitHub Actions"
+        }
+      ]
+    },
+    {
+      "name": "GitHub Actions only",
+      "filter": {
+        "status": "all",
+        "repositoryId": null,
+        "source": "github"
+      },
+      "expected": [
+        {
+          "id": "g1207",
+          "identifier": "#1207",
+          "title": "#1207 build-ios",
+          "status": "queued",
+          "statusLabel": "Queued",
+          "glyph": "ci-queued",
+          "tone": "muted",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "release/2.4",
+          "trigger": "Tag",
+          "duration": null,
+          "startedAt": null,
+          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
+        },
+        {
+          "id": "g1206",
+          "identifier": "#1206",
+          "title": "#1206 test",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-mobile",
+          "repository": "acme/mobile",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "7m 6s",
+          "startedAt": "2026-11-27T09:22:54.000Z",
+          "subtitle": "acme/mobile · main · GitHub Actions"
+        },
+        {
+          "id": "g58",
+          "identifier": "#58",
+          "title": "#58 deploy",
+          "status": "passed",
+          "statusLabel": "Passed",
+          "glyph": "ci-passed",
+          "tone": "green",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-27T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        },
+        {
+          "id": "g57",
+          "identifier": "#57",
+          "title": "#57 deploy",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-site",
+          "repository": "acme/site",
+          "source": "github",
+          "sourceLabel": "GitHub Actions",
+          "ref": "main",
+          "trigger": "Push",
+          "duration": "2m 3s",
+          "startedAt": "2026-11-26T08:27:57.000Z",
+          "subtitle": "acme/site · main · GitHub Actions"
+        }
+      ]
+    },
+    {
+      "name": "ours, failed",
+      "filter": {
+        "status": "failed",
+        "repositoryId": null,
+        "source": "exponential"
+      },
+      "expected": [
+        {
+          "id": "r482",
+          "identifier": "#482",
+          "title": "#482 gate",
+          "status": "failed",
+          "statusLabel": "Failed",
+          "glyph": "ci-failed",
+          "tone": "red",
+          "repositoryId": "repo-engine",
+          "repository": "acme/engine",
+          "source": "exponential",
+          "sourceLabel": "Exponential",
+          "ref": "exp/APP-33",
+          "trigger": "Pull request #213",
+          "duration": "12m 40s",
+          "startedAt": "2026-11-27T09:59:20.000Z",
+          "subtitle": "acme/engine · exp/APP-33 · Exponential"
+        }
+      ]
+    }
+  ],
+  "repoOptions": [
+    {
+      "label": "All repositories",
+      "value": "all"
+    },
+    {
+      "label": "Repository",
+      "value": "repo-gone"
+    },
+    {
+      "label": "acme/engine",
+      "value": "repo-engine"
+    },
+    {
+      "label": "acme/mobile",
+      "value": "repo-mobile"
+    },
+    {
+      "label": "acme/site",
+      "value": "repo-site"
+    }
+  ],
+  "tiles": [
+    {
+      "label": "Running",
+      "value": "2",
+      "tone": "neutral",
+      "delta": null
+    },
+    {
+      "label": "Queued",
+      "value": "1",
+      "tone": "neutral",
+      "delta": null
+    },
+    {
+      "label": "Failed today",
+      "value": "1",
+      "tone": "danger",
+      "delta": "engine"
+    },
+    {
+      "label": "Runners",
+      "value": "2 of 3 online",
+      "tone": "neutral",
+      "delta": null
+    }
+  ],
+  "tabCounts": {
+    "train": 4,
+    "runners": 3
+  },
+  "trainCases": [
+    {
+      "name": "the Runs tab: testing batches only",
+      "queue": false,
+      "expected": [
+        {
+          "repositoryId": "repo-engine",
+          "title": "acme/engine",
+          "caption": "main",
+          "rows": [
+            {
+              "id": "batch.train-91",
+              "identifier": "#211",
+              "title": "Testing 3 pull requests together",
+              "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+              "glyph": "ci-running",
+              "badge": "Testing",
+              "pullRequestId": "pr-211"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the Merge train tab: batches, the queue, the waiting",
+      "queue": true,
+      "expected": [
+        {
+          "repositoryId": "repo-engine",
+          "title": "acme/engine",
+          "caption": "main",
+          "rows": [
+            {
+              "id": "batch.train-91",
+              "identifier": "#211",
+              "title": "Testing 3 pull requests together",
+              "subtitle": "#211 Fix bisect on a red batch · #212 Runner labels · #213 Log tail",
+              "glyph": "ci-running",
+              "badge": "Testing",
+              "pullRequestId": "pr-211"
+            },
+            {
+              "id": "pr-215",
+              "identifier": "#215",
+              "title": "Cache the planner",
+              "subtitle": null,
+              "glyph": "ci-queued",
+              "badge": "Queued · 1st",
+              "pullRequestId": "pr-215"
+            },
+            {
+              "id": "pr-214",
+              "identifier": "#214",
+              "title": "Reduce cold start below 400 ms",
+              "subtitle": null,
+              "glyph": "ci-queued",
+              "badge": "Checks running",
+              "pullRequestId": "pr-214"
+            }
+          ]
+        },
+        {
+          "repositoryId": "repo-mobile",
+          "title": "acme/mobile",
+          "caption": "main",
+          "rows": [
+            {
+              "id": "pr-40",
+              "identifier": "#40",
+              "title": "Dark splash",
+              "subtitle": null,
+              "glyph": "ci-skipped",
+              "badge": "On hold",
+              "pullRequestId": "pr-40"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "runners": [
+    {
+      "id": "dev-mac",
+      "title": "Alex's MacBook Pro",
+      "subtitle": "mac",
+      "online": true,
+      "busy": "0 of 1 busy",
+      "queue": "1 queued",
+      "offlineSince": null
+    },
+    {
+      "id": "dev-mint",
+      "title": "mint",
+      "subtitle": "linux, gpu",
+      "online": true,
+      "busy": "2 of 2 busy",
+      "queue": "1 queued",
+      "offlineSince": null
+    },
+    {
+      "id": "dev-old",
+      "title": "build-box",
+      "subtitle": "No labels",
+      "online": false,
+      "busy": null,
+      "queue": null,
+      "offlineSince": "2026-11-26T22:00:00.000Z"
+    }
+  ],
+  "badgeCases": [
+    {
+      "name": "the scenario: one failure of mine (#482 via my PR's chat), #57 cleared by #58",
+      "input": {
+        "runs": [
+          {
+            "sha": "r483aaaaaaaaaaaaaaaa",
+            "ref": "exp/APP-32",
+            "trigger": "pull_request",
+            "pullRequestId": "pr-214",
+            "createdByUserId": null,
+            "provider": "exponential",
+            "startedAt": "2026-11-27T10:26:48.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:26:48.000Z",
+            "id": "r483",
+            "repositoryId": "repo-engine",
+            "number": 483,
+            "name": "gate",
+            "state": "pending"
+          },
+          {
+            "sha": "r91aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "merge_train",
+            "pullRequestId": null,
+            "createdByUserId": null,
+            "provider": "exponential",
+            "startedAt": "2026-11-27T10:28:20.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:28:20.000Z",
+            "id": "r91",
+            "repositoryId": "repo-engine",
+            "number": 91,
+            "name": "Merge train",
+            "state": "pending"
+          },
+          {
+            "sha": "g1207aaaaaaaaaaaaaaaa",
+            "ref": "release/2.4",
+            "trigger": "tag",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "github",
+            "startedAt": null,
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:29:00.000Z",
+            "id": "g1207",
+            "repositoryId": "repo-mobile",
+            "number": 1207,
+            "name": "build-ios",
+            "state": "pending"
+          },
+          {
+            "sha": "r482aaaaaaaaaaaaaaaa",
+            "ref": "exp/APP-33",
+            "trigger": "pull_request",
+            "pullRequestId": "pr-213",
+            "createdByUserId": null,
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:59:20.000Z",
+            "completedAt": "2026-11-27T10:12:00.000Z",
+            "createdAt": "2026-11-27T09:59:20.000Z",
+            "id": "r482",
+            "repositoryId": "repo-engine",
+            "number": 482,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "g1206aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": null,
+            "provider": "github",
+            "startedAt": "2026-11-27T09:22:54.000Z",
+            "completedAt": "2026-11-27T09:30:00.000Z",
+            "createdAt": "2026-11-27T09:22:54.000Z",
+            "id": "g1206",
+            "repositoryId": "repo-mobile",
+            "number": 1206,
+            "name": "test",
+            "state": "success"
+          },
+          {
+            "sha": "g57aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "github",
+            "startedAt": "2026-11-26T08:27:57.000Z",
+            "completedAt": "2026-11-26T08:30:00.000Z",
+            "createdAt": "2026-11-26T08:27:57.000Z",
+            "id": "g57",
+            "repositoryId": "repo-site",
+            "number": 57,
+            "name": "deploy",
+            "state": "failure"
+          },
+          {
+            "sha": "g58aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "github",
+            "startedAt": "2026-11-27T08:27:57.000Z",
+            "completedAt": "2026-11-27T08:30:00.000Z",
+            "createdAt": "2026-11-27T08:27:57.000Z",
+            "id": "g58",
+            "repositoryId": "repo-site",
+            "number": 58,
+            "name": "deploy",
+            "state": "success"
+          },
+          {
+            "sha": "r481aaaaaaaaaaaaaaaa",
+            "ref": "exp/APP-32",
+            "trigger": "pull_request",
+            "pullRequestId": "pr-214",
+            "createdByUserId": null,
+            "provider": "exponential",
+            "startedAt": "2026-11-27T07:30:00.000Z",
+            "completedAt": "2026-11-27T07:30:24.000Z",
+            "createdAt": "2026-11-27T07:30:00.000Z",
+            "id": "r481",
+            "repositoryId": "repo-engine",
+            "number": 481,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "r480aaaaaaaaaaaaaaaa",
+            "ref": null,
+            "trigger": "schedule",
+            "pullRequestId": null,
+            "createdByUserId": null,
+            "provider": "exponential",
+            "startedAt": "2026-11-27T01:30:00.000Z",
+            "completedAt": "2026-11-27T01:44:12.000Z",
+            "createdAt": "2026-11-27T01:30:00.000Z",
+            "id": "r480",
+            "repositoryId": "repo-gone",
+            "number": 480,
+            "name": "nightly",
+            "state": "success"
+          }
+        ],
+        "jobs": [
+          {
+            "runId": "r483",
+            "status": "in_progress",
+            "conclusion": null,
+            "runsOn": [
+              "linux"
+            ],
+            "runnerDeviceId": "dev-mint",
+            "provider": "exponential"
+          },
+          {
+            "runId": "r483",
+            "status": "queued",
+            "conclusion": null,
+            "runsOn": [
+              "linux"
+            ],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          },
+          {
+            "runId": "r483",
+            "status": "queued",
+            "conclusion": null,
+            "runsOn": [
+              "mac"
+            ],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          },
+          {
+            "runId": "r91",
+            "status": "in_progress",
+            "conclusion": null,
+            "runsOn": [
+              "linux"
+            ],
+            "runnerDeviceId": "dev-mint",
+            "provider": "exponential"
+          },
+          {
+            "runId": "g1207",
+            "status": "queued",
+            "conclusion": null,
+            "runsOn": [
+              "macos-latest"
+            ],
+            "runnerDeviceId": null,
+            "provider": "github"
+          },
+          {
+            "runId": "r482",
+            "status": "completed",
+            "conclusion": "success",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          },
+          {
+            "runId": "r482",
+            "status": "completed",
+            "conclusion": "failure",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          },
+          {
+            "runId": "g1206",
+            "status": "completed",
+            "conclusion": "success",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "github"
+          },
+          {
+            "runId": "g57",
+            "status": "completed",
+            "conclusion": "failure",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "github"
+          },
+          {
+            "runId": "g58",
+            "status": "completed",
+            "conclusion": "success",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "github"
+          },
+          {
+            "runId": "r481",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          },
+          {
+            "runId": "r480",
+            "status": "completed",
+            "conclusion": "success",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 1,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "nothing of mine: none",
+      "input": {
+        "runs": [
+          {
+            "sha": "x1aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-other",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T10:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:00:00.000Z",
+            "id": "x1",
+            "repositoryId": "repo-engine",
+            "number": 1,
+            "name": "gate",
+            "state": "failure"
+          }
+        ],
+        "jobs": [],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a failure, then a green re-run of the same pipeline and ref: cleared",
+      "input": {
+        "runs": [
+          {
+            "sha": "r1aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:00:00.000Z",
+            "id": "r1",
+            "repositoryId": "repo-engine",
+            "number": 1,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "r2aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T10:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:00:00.000Z",
+            "id": "r2",
+            "repositoryId": "repo-engine",
+            "number": 2,
+            "name": "gate",
+            "state": "success"
+          }
+        ],
+        "jobs": [],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a failure whose re-run is running: muted 1",
+      "input": {
+        "runs": [
+          {
+            "sha": "r1aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:00:00.000Z",
+            "id": "r1",
+            "repositoryId": "repo-engine",
+            "number": 1,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "r2aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T10:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T10:00:00.000Z",
+            "id": "r2",
+            "repositoryId": "repo-engine",
+            "number": 2,
+            "name": "gate",
+            "state": "pending"
+          }
+        ],
+        "jobs": [
+          {
+            "runId": "r2",
+            "status": "in_progress",
+            "conclusion": null,
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 1,
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "two failures on two refs count two, a running one elsewhere stays out",
+      "input": {
+        "runs": [
+          {
+            "sha": "r1aaaaaaaaaaaaaaaa",
+            "ref": "a",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:00:00.000Z",
+            "id": "r1",
+            "repositoryId": "repo-engine",
+            "number": 1,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "r2aaaaaaaaaaaaaaaa",
+            "ref": "b",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:10:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:10:00.000Z",
+            "id": "r2",
+            "repositoryId": "repo-engine",
+            "number": 2,
+            "name": "gate",
+            "state": "failure"
+          },
+          {
+            "sha": "r3aaaaaaaaaaaaaaaa",
+            "ref": "c",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:20:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:20:00.000Z",
+            "id": "r3",
+            "repositoryId": "repo-engine",
+            "number": 3,
+            "name": "gate",
+            "state": "pending"
+          }
+        ],
+        "jobs": [
+          {
+            "runId": "r3",
+            "status": "queued",
+            "conclusion": null,
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 2,
+        "tone": "attention"
+      }
+    },
+    {
+      "name": "a cancelled run is no failure",
+      "input": {
+        "runs": [
+          {
+            "sha": "r1aaaaaaaaaaaaaaaa",
+            "ref": "main",
+            "trigger": "push",
+            "pullRequestId": null,
+            "createdByUserId": "u-me",
+            "provider": "exponential",
+            "startedAt": "2026-11-27T09:00:00.000Z",
+            "completedAt": null,
+            "createdAt": "2026-11-27T09:00:00.000Z",
+            "id": "r1",
+            "repositoryId": "repo-engine",
+            "number": 1,
+            "name": "gate",
+            "state": "failure"
+          }
+        ],
+        "jobs": [
+          {
+            "runId": "r1",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "runsOn": [],
+            "runnerDeviceId": null,
+            "provider": "exponential"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr-211",
+            "number": 211,
+            "title": "Fix bisect on a red batch",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-212",
+            "number": 212,
+            "title": "Runner labels",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-213",
+            "number": 213,
+            "title": "Log tail",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "testing",
+            "mergePosition": null,
+            "mergeTrainId": "train-91"
+          },
+          {
+            "id": "pr-214",
+            "number": 214,
+            "title": "Reduce cold start below 400 ms",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-mine",
+            "base": "main",
+            "mergeState": "checks",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-215",
+            "number": 215,
+            "title": "Cache the planner",
+            "repositoryId": "repo-engine",
+            "rootSessionId": "s-other",
+            "base": "main",
+            "mergeState": "queued",
+            "mergePosition": 1,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-40",
+            "number": 40,
+            "title": "Dark splash",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "held",
+            "mergePosition": null,
+            "mergeTrainId": null
+          },
+          {
+            "id": "pr-41",
+            "number": 41,
+            "title": "Old",
+            "repositoryId": "repo-mobile",
+            "rootSessionId": null,
+            "base": "main",
+            "mergeState": "merged",
+            "mergePosition": null,
+            "mergeTrainId": null
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s-mine",
+            "userId": "u-me"
+          },
+          {
+            "id": "s-other",
+            "userId": "u-other"
+          }
+        ],
+        "viewerId": "u-me"
+      },
+      "expected": {
+        "count": 0,
+        "tone": "muted"
+      }
+    }
+  ]
+}

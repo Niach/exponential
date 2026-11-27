@@ -3,6 +3,7 @@ import fixture from "../fixtures/ci-run.json" with { type: "json" }
 import runner from "../fixtures/runner-settings.json" with { type: "json" }
 import {
   ciDefaultJob,
+  ciFixPrompt,
   ciJobRows,
   ciLogView,
   ciRunActions,
@@ -38,6 +39,9 @@ describe(`ci-run fixture`, () => {
   })
   it.each(fixture.actions)(`actions: $name`, (c) => {
     expect(ciRunActions(c)).toEqual(c.expected)
+  })
+  it.each(fixture.fixPrompt)(`fixPrompt: $name`, (c) => {
+    expect(ciFixPrompt(c.input)).toBe(c.expected)
   })
   it(`the specimen selects its failing job`, () => {
     const s = fixture.specimen

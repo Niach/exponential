@@ -4,7 +4,7 @@
 // deliberate change.
 import runnerFixture from "@exp/domain-contract/fixtures/runner-settings.json"
 import { runnerRecentJobs, type RunnerClient } from "@exp/domain-contract/ci-run"
-import { ciRunTree, runnerSectionTree, runnerSettingsAfter, type CiRunModel, type RunnerSettings } from "@/lib/ci-run-view"
+import { ciRunTree, runnerSectionTree, runnerSettingsAfter, type CiRunBusy, type CiRunModel, type RunnerSettings } from "@/lib/ci-run-view"
 
 type Json = Record<string, unknown>
 
@@ -16,7 +16,7 @@ export function replayCiRun(c: Json): unknown {
     log: (c.log as string | null) ?? null,
     now: c.now as string,
     phone: c.phone === true,
-    busy: (c.busy as `rerun` | `cancel` | null) ?? null,
+    busy: (c.busy as CiRunBusy) ?? null,
   })
 }
 
