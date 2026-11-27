@@ -1,5 +1,5 @@
 {
- "$comment": "#EXP-2172 THE CI PAGE AS ONE genUI TREE, the same on every platform (ci-page.json says what; this pins HOW, node for node). A case: `world` (`scenario` = ci-page.json's scenario; `empty` = it without runs, jobs, pull requests and runners), `tab` (runs | train | runners), `filter` {status, repositoryId, source} (null = All), `phone` → `tree` (A2UI nested nodes: id, component, props, children, slots, on). Only the current tab's panel is built (the others are empty stacks); the platform adds its own page chrome (title, back) and maps the events: ci-tab / ci-filter-status / ci-filter-repo / ci-filter-source carry the control's value (`all` = no filter), ci-open-run {run} (the Table's rowPress carries the row), ci-open-pr {pr}, ci-open-runner {device}. The runner row's offline meta is a `fill` + `formatRelativeTime` call the renderer evaluates. The reference is apps/web/src/lib/ci-page-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-page-view.ts` and review the diff.",
+ "$comment": "#EXP-2172 THE CI PAGE AS ONE genUI TREE, the same on every platform (ci-page.json says what; this pins HOW, node for node). A case: `world` (`scenario` = ci-page.json's scenario; `empty` = it without runs, jobs, pull requests and runners), `tab` (runs | train | runners), `filter` {status, repositoryId, source} (null = All), `phone` → `tree` (A2UI nested nodes: id, component, props, children, slots, on). Only the current tab's panel is built (the others are empty stacks); the platform adds its own page chrome (title, back) and maps the events: ci-tab / ci-filter-status / ci-filter-repo / ci-filter-source carry the control's value (`all` = no filter), ci-open-run {run} (the Table's rowPress context binds `id` relative to the pressed row), ci-open-pr {pr}, ci-open-runner {device}. The runner row's offline meta is a `fill` + `formatRelativeTime` call the renderer evaluates. The reference is apps/web/src/lib/ci-page-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-page-view.ts` and review the diff.",
  "cases": [
   {
    "name": "wide, Runs, everything",
@@ -469,7 +469,12 @@
           "on": {
            "rowPress": {
             "event": {
-             "name": "ci-open-run"
+             "name": "ci-open-run",
+             "context": {
+              "run": {
+               "@path": "id"
+              }
+             }
             }
            }
           }
@@ -1454,7 +1459,12 @@
           "on": {
            "rowPress": {
             "event": {
-             "name": "ci-open-run"
+             "name": "ci-open-run",
+             "context": {
+              "run": {
+               "@path": "id"
+              }
+             }
             }
            }
           }

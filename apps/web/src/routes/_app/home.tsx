@@ -38,6 +38,7 @@ export const Route = createFileRoute(`/_app/home`)({
     issues: str(search.issues),
     device: str(search.device),
     text: str(search.text),
+    repo: str(search.repo),
     share: str(search.share),
     team: str(search.team),
     dev: devView(search.dev),

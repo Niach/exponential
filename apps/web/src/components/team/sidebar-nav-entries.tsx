@@ -9,6 +9,8 @@ import { useDraftEntries } from "@/hooks/use-issue-drafts"
 export const DRAFTS_LABEL = `Drafts`
 
 export const NavDraftsIcon = conceptIcon(`nav-drafts`)
+/** #EXP-2172: THE CI page's row (sidebar-tree.json root `ci`). */
+export const NavCiIcon = conceptIcon(`nav-ci`)
 
 /** The caller's parked drafts in this team — the Drafts entry shows only
  *  while it is above zero. */
