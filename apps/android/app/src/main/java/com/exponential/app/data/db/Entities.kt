@@ -1292,6 +1292,15 @@ data class CiRunEntity(
     @ColumnInfo(name = "created_by_user_id") @SerialName("created_by_user_id") @JsonNames("createdByUserId") val createdByUserId: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
+    // #EXP-2172 ([MIGRATION_135_136]): `exponential` (ours) | `github` (a
+    // GitHub Actions workflow run): its run id, page, attempt and the
+    // installation's Actions access (`read` | `write`; null = unknown).
+    @ColumnInfo(defaultValue = "'exponential'") val provider: String = "exponential",
+    @ColumnInfo(name = "external_id") @SerialName("external_id") @JsonNames("externalId") val externalId: String? = null,
+    @ColumnInfo(name = "external_url") @SerialName("external_url") @JsonNames("externalUrl") val externalUrl: String? = null,
+    @ColumnInfo(name = "external_attempt") @SerialName("external_attempt") @JsonNames("externalAttempt")
+    @Serializable(with = PgIntSerializer::class) val externalAttempt: Int? = null,
+    @ColumnInfo(name = "external_access") @SerialName("external_access") @JsonNames("externalAccess") val externalAccess: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
@@ -1330,6 +1339,11 @@ data class CiJobEntity(
     @ColumnInfo(name = "queued_at") @SerialName("queued_at") @JsonNames("queuedAt") val queuedAt: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
+    // #EXP-2172 ([MIGRATION_135_136]): a GitHub Actions job (its log is read
+    // from GitHub on demand).
+    @ColumnInfo(defaultValue = "'exponential'") val provider: String = "exponential",
+    @ColumnInfo(name = "external_id") @SerialName("external_id") @JsonNames("externalId") val externalId: String? = null,
+    @ColumnInfo(name = "external_url") @SerialName("external_url") @JsonNames("externalUrl") val externalUrl: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

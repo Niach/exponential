@@ -489,6 +489,9 @@ class AgentComposerViewModel @Inject constructor(
      * shown.
      */
     private val _chatRepoId = MutableStateFlow("")
+
+    /** #EXP-2172: (team, repository) a seed named; survives that team's reseed. */
+    private var seededRepo: Pair<String?, String>? = null
     /** S-3: the + menu's Repository › (a team with more than one). */
     val chatRepoId: StateFlow<String> = _chatRepoId
 
@@ -739,6 +742,13 @@ class AgentComposerViewModel @Inject constructor(
             _teamsPick.value = listOf(id)
             _plainPick.value = listOf(id)
         }
+        // #EXP-2172: a CI run's Fix with an agent names its repository (of
+        // the seeded team: the per-team reseed keeps it while that team is
+        // the pick).
+        seed.repositoryId?.let { id ->
+            seededRepo = seed.teamId to id
+            _chatRepoId.value = id
+        }
         val text = seed.text
         if (!text.isNullOrEmpty() && _draft.value.isBlank()) _draft.value = text
     }
@@ -965,7 +975,7 @@ class AgentComposerViewModel @Inject constructor(
                 _mcpServers.value = emptyList()
                 _mcpServerIds.value = emptyList()
                 _skillPick.value = null
-                _chatRepoId.value = ""
+                _chatRepoId.value = seededRepo?.takeIf { it.first == null || it.first == team }?.second.orEmpty()
                 val accountId = auth.activeAccountId.value
                 if (team == null || accountId == null) return@collectLatest
                 val servers = runCatching { mcpServersApi.list(accountId, team) }

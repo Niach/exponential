@@ -12,10 +12,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.CiRunView
 import com.exponential.app.ui.components.ClaimedFailedActionToast
@@ -36,6 +38,7 @@ import kotlinx.serialization.json.contentOrNull
 fun CiRunScreen(
     onBack: () -> Unit,
     onOpenRun: (runId: String) -> Unit,
+    onFix: (AgentComposerSeed) -> Unit = {},
     viewModel: CiRunViewModel = hiltViewModel(),
 ) {
     val run by viewModel.run.collectAsStateWithLifecycle()
@@ -44,6 +47,9 @@ fun CiRunScreen(
     val log by viewModel.log.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val repository by viewModel.repository.collectAsStateWithLifecycle()
+    val pullRequestNumber by viewModel.pullRequestNumber.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
     ClaimedFailedActionToast(failure, viewModel::claimFailure)
     LaunchedEffect(viewModel) { viewModel.opened.collect(onOpenRun) }
     val running = run?.state == "pending" || jobs.any { it.status == "in_progress" }
@@ -55,9 +61,14 @@ fun CiRunScreen(
         log = log.takeIf { it.jobId == selected && it.loaded }?.text,
         nowMs = now,
         busy = busy,
+        repository = repository,
+        pullRequestNumber = pullRequestNumber,
         onSelectJob = viewModel::selectJob,
         onRerunFailed = viewModel::rerunFailed,
+        onRerunAll = viewModel::rerunAll,
         onCancel = viewModel::cancel,
+        onFix = { viewModel.fixSeed()?.let(onFix) },
+        onOpenExternal = { run?.externalUrl?.takeIf { it.isNotEmpty() }?.let { runCatching { uriHandler.openUri(it) } } },
         onBack = onBack,
     )
 }
@@ -76,6 +87,11 @@ fun CiRunPage(
     onRerunFailed: () -> Unit,
     onCancel: () -> Unit,
     onBack: (() -> Unit)?,
+    repository: String? = null,
+    pullRequestNumber: Int? = null,
+    onRerunAll: () -> Unit = {},
+    onFix: () -> Unit = {},
+    onOpenExternal: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().statusBarsPadding()) {
@@ -84,8 +100,11 @@ fun CiRunPage(
             SkeletonRows(rows = 4)
             return@Column
         }
-        val tree = remember(run, jobs, selectedJobId, log, nowMs, busy) {
-            CiRunView.ciRunTree(run, jobs, selectedJobId, log, nowMs, phone = true, busy = busy)
+        val tree = remember(run, jobs, selectedJobId, log, nowMs, busy, repository, pullRequestNumber) {
+            CiRunView.ciRunTree(
+                run, jobs, selectedJobId, log, nowMs, phone = true, busy = busy,
+                repository = repository, pullRequestNumber = pullRequestNumber,
+            )
         }
         Column(
             modifier = Modifier
@@ -104,7 +123,10 @@ fun CiRunPage(
                         if (job != null && job != selectedJobId && open != false) onSelectJob(job)
                     }
                     CiRunView.Events.RERUN -> onRerunFailed()
+                    CiRunView.Events.RERUN_ALL -> onRerunAll()
                     CiRunView.Events.CANCEL -> onCancel()
+                    CiRunView.Events.FIX -> onFix()
+                    CiRunView.Events.OPEN_EXTERNAL -> onOpenExternal()
                 }
             }
         }

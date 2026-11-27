@@ -147,6 +147,10 @@ object Routes {
         return "app-run/$appId?screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
     }
 
+    /** #EXP-2172 (ci-page.json, view `ci`): THE CI page, one destination
+     *  across every member team (web `/ci`); the phones' More menu opens it. */
+    const val CI = "ci"
+
     /** #EXP-1804 (ci-run.json): THE run page of our own CI; `job` = the job
      *  it opens on (absent = the rule's pick, `CiRun.defaultJob`). */
     const val CI_RUN_PATTERN = "ci-run/{runId}?job={job}"

@@ -533,3 +533,26 @@ val MIGRATION_134_135: Migration = object : Migration(134, 135) {
         )
     }
 }
+
+/**
+ * v136 (#EXP-2172, ci-page.json): `ci_runs.provider`, `external_id`,
+ * `external_url`, `external_attempt`, `external_access` and `ci_jobs.provider`,
+ * `external_id`, `external_url` (GitHub Actions runs beside ours). Only the
+ * ci_runs and ci_jobs shapes refetch, so synced rows re-arrive carrying them.
+ */
+val MIGRATION_135_136: Migration = object : Migration(135, 136) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'exponential'")
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `external_id` TEXT")
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `external_url` TEXT")
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `external_attempt` INTEGER")
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `external_access` TEXT")
+        db.execSQL("ALTER TABLE `ci_jobs` ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'exponential'")
+        db.execSQL("ALTER TABLE `ci_jobs` ADD COLUMN `external_id` TEXT")
+        db.execSQL("ALTER TABLE `ci_jobs` ADD COLUMN `external_url` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ('ci_runs', 'ci_jobs')",
+        )
+    }
+}

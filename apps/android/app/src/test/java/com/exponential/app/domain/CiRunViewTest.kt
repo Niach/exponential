@@ -62,6 +62,10 @@ class CiRunViewTest {
         sha = o.str("sha")!!,
         startedAt = o.str("startedAt"),
         completedAt = o.str("completedAt"),
+        ref = o.str("ref"),
+        provider = o.str("provider") ?: "exponential",
+        externalUrl = o.str("externalUrl"),
+        externalAccess = o.str("externalAccess"),
     )
 
     private fun settings(o: JsonObject) = RunnerSettings.Settings(
@@ -86,6 +90,7 @@ class CiRunViewTest {
             val model = case.getValue("model").jsonObject
             val busy = when (case.str("busy")) {
                 "rerun" -> CiRunView.Busy.Rerun
+                "rerunAll" -> CiRunView.Busy.RerunAll
                 "cancel" -> CiRunView.Busy.Cancel
                 else -> null
             }
@@ -97,6 +102,8 @@ class CiRunViewTest {
                 nowMs = WireTimestamps.parseEpochMs(case.str("now")!!)!!,
                 phone = case.getValue("phone").jsonPrimitive.boolean,
                 busy = busy,
+                repository = model.str("repository"),
+                pullRequestNumber = (model["pullRequestNumber"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.toInt(),
             )
             assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(actual))
         }
