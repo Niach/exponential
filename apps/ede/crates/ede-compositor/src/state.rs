@@ -194,6 +194,10 @@ pub struct WindowState {
     pub decorated: bool,
     /// In the taskbar only ([`crate::minimize`]); `parked_at` keeps its place.
     pub minimized: bool,
+    /// Always on Top (#EDE-253, [`crate::window_menu`]).
+    pub above: bool,
+    /// Always on Visible Workspace: rides along on a switch (#EDE-253).
+    pub sticky: bool,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -286,6 +290,7 @@ impl Ede {
                 minimized: Vec::new(),
                 workspaces: crate::workspaces::Workspaces::default(),
                 title_click: None,
+                swallowed_button: None,
                 tile_preview: Default::default(),
             },
             spaces: Default::default(),
@@ -440,6 +445,12 @@ impl Ede {
             if let Some(xauthority) = self.xauthority(DeskId::PERSON) {
                 cmd.env("XAUTHORITY", xauthority);
             }
+            // #EDE-250: Steam's own UI reads neither XSETTINGS nor Xft.dpi;
+            // its variable is read by nothing else.
+            let scale = self.person_x11_scale();
+            if scale > 1.0 && std::env::var_os("STEAM_FORCE_DESKTOPUI_SCALING").is_none() {
+                cmd.env("STEAM_FORCE_DESKTOPUI_SCALING", format!("{scale}"));
+            }
         }
         Some(cmd)
     }
@@ -456,7 +467,8 @@ impl Ede {
     /// applies too ([`crate::outputs`]).
     pub fn add_output(&mut self, output: &Output) {
         let settings = self.config.output(&output.name()).cloned();
-        if let Some(scale) = settings.as_ref().and_then(|s| s.scale) {
+        // Its configured scale, else 200 % on a HiDPI panel (#EDE-250).
+        if let Some(scale) = self.initial_scale(output) {
             output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(scale)), None);
         }
         let at = match settings.as_ref().and_then(|s| s.position) {
@@ -466,6 +478,7 @@ impl Ede {
         self.place_output(output, at.into());
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
+        self.update_x11_scale();
         self.output_changed(output.name());
     }
 
@@ -477,6 +490,7 @@ impl Ede {
         self.desk.space.unmap_output(output);
         self.lock_output_removed(output);
         self.relayout(&before);
+        self.update_x11_scale();
     }
 
     /// Windows in `also`, and any whose centre is on no output, reopen on
@@ -626,6 +640,10 @@ impl Ede {
             #[cfg(feature = "xwayland")]
             if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
                 let _ = xwm.raise_window(x11);
+            }
+            // #EDE-253: Always on Top stays in front of what was raised.
+            if desk == DeskId::PERSON {
+                self.restack_above();
             }
         } else {
             for w in self.desk(desk).space.elements() {

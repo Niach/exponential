@@ -15,6 +15,7 @@
 //   4. the queue positions (`Queued · 2nd`).
 // Every outcome posts ONE waking `pr_merge` line (messages.ts). The train is
 // the only merge, for every team and every repository (#EXP-1711).
+import { redactUrlQueries } from "@/lib/ecode/redact-urls"
 import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
 import { gatedChecks, isFailingCheck, trainChecksState } from "@exp/domain-contract/pr-checks"
@@ -408,9 +409,11 @@ async function loadPrs(ids: string[]): Promise<Map<string, PrRow>> {
 }
 
 async function finishRun(run: RunRow, state: string, extra: Partial<RunRow> = {}): Promise<void> {
+  // #EXP-2191: a forge's or device's error never stores a URL's query.
+  const error = extra.error ? { error: redactUrlQueries(extra.error) } : {}
   await db
     .update(mergeTrains)
-    .set({ state, finishedAt: new Date(), ...extra })
+    .set({ state, finishedAt: new Date(), ...extra, ...error })
     .where(eq(mergeTrains.id, run.id))
 }
 
@@ -850,7 +853,7 @@ async function startRun(
     await landDirect(repo, forge, run!, units, base, now)
     return
   }
-  console.error(`[merge-train] ${repo.fullName}: dispatch failed: ${dispatch.message}`)
+  console.error(`[merge-train] ${repo.fullName}: dispatch failed: ${redactUrlQueries(dispatch.message)}`)
   backoff.set(repo.id, now.getTime() + 5 * 60_000)
   await requeue([...units.flat(), ...plan.pending.flat(2)], base, now)
   await finishRun(run!, `error`, { error: dispatch.message })

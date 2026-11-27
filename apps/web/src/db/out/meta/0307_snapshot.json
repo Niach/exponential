@@ -1,5 +1,5 @@
 {
-  "id": "cea0a964-44f6-43e0-89b6-78cf598de735",
+  "id": "6f7d8f7c-f3fb-4778-bdc5-03560b368614",
   "prevId": "d4064d17-e770-481e-b430-9a0516484ae7",
   "version": "7",
   "dialect": "postgresql",
@@ -2824,31 +2824,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "requeued_at": {
+          "name": "requeued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "log_chunks": {
           "name": "log_chunks",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
-        },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'exponential'"
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_url": {
-          "name": "external_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -2908,27 +2895,6 @@
           ],
           "isUnique": false,
           "where": "status <> 'completed'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_ci_jobs_external": {
-          "name": "idx_ci_jobs_external",
-          "columns": [
-            {
-              "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "external_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3092,43 +3058,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'exponential'"
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_url": {
-          "name": "external_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_attempt": {
-          "name": "external_attempt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_access": {
-          "name": "external_access",
-          "type": "varchar(8)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "title": {
-          "name": "title",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3145,28 +3074,6 @@
         }
       },
       "indexes": {
-        "uniq_ci_runs_number": {
-          "name": "uniq_ci_runs_number",
-          "columns": [
-            {
-              "expression": "repository_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "number",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "provider = 'exponential'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_ci_runs_team": {
           "name": "idx_ci_runs_team",
           "columns": [
@@ -3273,12 +3180,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "uniq_ci_runs_external": {
-          "name": "uniq_ci_runs_external",
+        "uniq_ci_runs_number": {
+          "name": "uniq_ci_runs_number",
           "nullsNotDistinct": false,
           "columns": [
             "repository_id",
-            "external_id"
+            "number"
           ]
         }
       },

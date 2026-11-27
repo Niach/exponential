@@ -85,7 +85,7 @@ fn device_caps_with(advertised: &coding::AgentAdvertisement, key_holder: bool) -
     caps.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
     // #EXP-1617: this build runs `ci_job` commands (the server dispatches
     // only to a device whose owner enabled its runner).
-    caps.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+    caps.push(ci_runner::CI_RUNNER_CAP.to_string());
     // #EXP-1617 (Q6): it also serves GitHub Actions for opted-in repos.
     if crate::actions_runner::platform_asset().is_some() {
         caps.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
@@ -276,6 +276,16 @@ fn update_seen(
     (updater::restart::Observed { required, working, unresumable, ..Default::default() }, rested)
 }
 
+/// #EXP-2174: this daemon's CI runner: jobs under `{data_dir}/ci`, each step
+/// in a capped systemd scope. A server keeps its jobs unhidden (only Linux
+/// desktops require the namespace sandbox, #EXP-2181).
+fn ci_runner_for(ctx: &Ctx) -> Arc<ci_runner::Runner> {
+    static RUNNER: std::sync::OnceLock<Arc<ci_runner::Runner>> = std::sync::OnceLock::new();
+    Arc::clone(RUNNER.get_or_init(|| {
+        Arc::new(ci_runner::Runner::new(ctx.data_dir.join("ci"), ci_runner::Containment::default(), false))
+    }))
+}
+
 /// EXP-641: whether a gated daemon should (re-)arm the update now. Pure so
 /// the retry cadence is unit-testable: the first attempt is immediate, later
 /// ones wait [`GATED_UPDATE_RETRY`] from the previous arm.
@@ -284,6 +294,10 @@ fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) ->
         && last_attempt
             .is_none_or(|last| now.saturating_duration_since(last) >= GATED_UPDATE_RETRY)
 }
+
+/// #EXP-2174: how long a quit or restart waits for its CI jobs to stop
+/// (a step's SIGTERM grace is 5 s) before it goes on.
+const CI_STOP_WAIT: Duration = Duration::from_secs(10);
 
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
 /// EXP-1292: what the session is ABOUT lives on its `sessions` row; the
@@ -1261,6 +1275,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 AccountFollow::SignedOut => log::warn!("{} was signed out on this machine; waiting for the next sign-in", ctx.account.email),
                 AccountFollow::Restart => {
                     log::info!("signed in again; restarting the daemon");
+                    ci_runner::stop_all(CI_STOP_WAIT);
                     suspend_for_restart(&sessions, UpdateTrigger::Now);
                     if let Some(handle) = control.take() {
                         handle.stop();
@@ -1353,6 +1368,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
             log::info!("server rejected this build (426) — updating now");
             pending_update = Some(PendingUpdate::new(UpdateTrigger::Gated));
         }
+        // #EXP-2174: while an update waits, the CI runner takes no new job;
+        // the running ones hold the restart (at most to their timeout).
+        ci_runner::set_draining(pending_update.is_some());
         if let Some(PendingUpdate { trigger, since }) = pending_update {
             // EXP-1489: every live session paused between turns, the cap
             // reached, or an immediate trigger: install, and on a new build
@@ -1376,11 +1394,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
                 let live = guard.iter().filter(|live| !live.session.is_done());
-                let (seen, rested) = update_seen(
+                let (mut seen, rested) = update_seen(
                     live.map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
                     trigger.immediate() && !updater_busy,
                     updater_busy || starting,
                 );
+                seen.ci_left = ci_runner::hold_left(now);
                 updater::restart::decide(&seen, rested, now.saturating_duration_since(since))
             };
             // #EXP-2144: turns are held for an update that is there, never
@@ -1407,6 +1426,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         log::info!("updated to {version} — restarting the daemon");
                         // Nothing starts beside the suspends.
                         coding::pickup::hold_turns(true);
+                        // #EXP-2174: a job still running (Update now, a
+                        // refused build) is cut and queued again once.
+                        ci_runner::stop_all(CI_STOP_WAIT);
                         suspend_for_restart(&sessions, trigger);
                         // #EXP-2161: the spaces come back on the new build.
                         if let Some(members) = &members {
@@ -1562,6 +1584,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // --- Quit sweep (desktop parity): hang up, kill live children (their
     // supervisors end the rows), reap PTY escapees, drop the pidfile. ------
     log::info!("daemon stopping");
+    // #EXP-2174: running CI jobs are cut and handed back (queued again once).
+    ci_runner::stop_all(CI_STOP_WAIT);
     // #EXP-2161: the spaces save and stop beside this daemon's own sweep
     // (a service stop has one time limit); nothing is deleted.
     let members_down = members.clone().map(|members| std::thread::spawn(move || members.stop_all()));
@@ -2893,13 +2917,10 @@ fn run_device_command(
         // binary they hold stays mapped); the doctor re-probes right after
         // so the next beat's `agent_accounts.<agent>.version` moves.
         // #EXP-1617: one CI job; its own thread claims, runs and finishes it.
-        crate::ci_runner::CI_JOB_COMMAND => {
-            match command.payload["jobId"].as_str() {
-                Some(job_id) => crate::ci_runner::spawn(ctx, &command.id, job_id, logins_inflight),
-                None => {
-                    let _ = api::devices::complete_command(&ctx.trpc, &command.id, false, Some("Malformed command payload."));
-                }
-            }
+        // #EXP-2174: the runner crate the desktop app shares; a server keeps
+        // its jobs unhidden (only Linux desktops require the sandbox).
+        ci_runner::CI_JOB_COMMAND => {
+            ci_runner::handle(&ci_runner_for(ctx), &ctx.trpc, &ctx.device_id(), &command.id, &command.payload);
             return;
         }
         coding::AGENT_UPDATE_COMMAND => {
@@ -5066,7 +5087,7 @@ mod tests {
         let mut shared = coding::device_caps(&advert(&["claude"]));
         shared.push(UPDATE_CHECK_CAP.to_string());
         shared.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
-        shared.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
+        shared.push(ci_runner::CI_RUNNER_CAP.to_string());
         if crate::actions_runner::platform_asset().is_some() {
             shared.push(crate::actions_runner::ACTIONS_RUNNER_CAP.to_string());
         }

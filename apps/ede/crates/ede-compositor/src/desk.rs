@@ -120,6 +120,9 @@ pub struct Desk {
     pub workspaces: crate::workspaces::Workspaces,
     /// The last press on a title bar, for the double-click.
     pub title_click: Option<(Window, Instant)>,
+    /// #EDE-253: a button the compositor took (Alt+middle-click's window
+    /// menu): its release never reaches the window either.
+    pub swallowed_button: Option<u32>,
     /// Muffin's tile preview while a move hovers an edge.
     pub tile_preview: crate::grabs::TilePreview,
 }

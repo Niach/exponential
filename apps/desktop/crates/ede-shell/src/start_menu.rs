@@ -1,343 +1,360 @@
-//! #EDE-92: the start menu's keyboard selection (`apps/ede/ui/start-menu.express`).
-//! While the search has text, one result row is the selected one: the first
-//! by default, Up and Down move it and stop at the ends, Enter in the search
-//! box runs it (an app launches, an issue opens) as a press on it would. The
-//! rows are the apps, then the issues, as the menu lists them; the selection
-//! belongs to its query, so a changed query selects the first row again.
-//! Without text the menu is as it was: no row selected, Enter does nothing.
+//! #EDE-92, #EDE-258: the start menu's keyboard (`apps/ede/ui/start-menu.express`),
+//! Cinnamon's. The menu is `/shell/startMenu/nav` (uicore shell.json
+//! `startMenuNav`): the categories and the rows of the selected one, or the
+//! ranked results while the search has text.
+//!
+//! - **No text:** one column has the keyboard, the categories (where the
+//!   menu opens) or the contents. Up and Down in the categories switch the
+//!   category at once (as hovering does); in the contents they move the
+//!   selected row, skipping rows that open nothing (a folder) and stopping
+//!   at the ends. Right enters the contents on their first row, Left goes
+//!   back. Enter on a category opens its page (Home, Chats, the
+//!   Assistant…) or, with none (a team, Devices), enters its contents;
+//!   Enter on a row opens it.
+//! - **Text:** one result row is selected, the first by default and again
+//!   after every change of the text; Up and Down move it and stop at the
+//!   ends; Enter opens it. Left and Right stay the box's (its caret).
+//!
+//! Every other key (the text, Tab, Escape) is the focused component's.
 
 use serde_json::{json, Value};
 
-/// The selected result of one query.
+/// The column the keyboard is in while the box is empty.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Column {
+    #[default]
+    Categories,
+    Contents,
+}
+
+/// The keyboard's place in the menu.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Selection {
+    /// The text the place belongs to (a changed text = the first result).
     query: String,
+    column: Column,
+    /// The selected row among the SELECTABLE rows (those with a target).
     index: usize,
 }
 
-impl Selection {
-    /// The selected row among `rows` results of `query`: none without text
-    /// or results, the first for a query this selection is not of, never
-    /// past the last (the issues arrive after the apps and may shrink).
-    pub fn index(&self, query: &str, rows: usize) -> Option<usize> {
-        if query.trim().is_empty() || rows == 0 {
-            return None;
-        }
-        Some(if self.query == query { self.index.min(rows - 1) } else { 0 })
-    }
+/// A key the menu takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
-    /// Up (`-1`) or Down (`1`): the row it lands on, stopping at the ends;
-    /// `None` when there is nothing to select (the key is not the menu's).
-    pub fn step(&mut self, query: &str, rows: usize, step: i64) -> Option<usize> {
-        let at = self.index(query, rows)? as i64;
-        let next = (at + step).clamp(0, rows as i64 - 1) as usize;
-        *self = Selection { query: query.to_string(), index: next };
-        Some(next)
-    }
+/// What a key did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Moved {
+    /// Switch to this category (the shell dispatches it).
+    Category(String),
+    /// The selected row moved (or the column changed): redraw, reveal it.
+    Row(Option<usize>),
+}
+
+/// What Enter opens.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Activation {
+    /// A row's `target` (`{page}`, `{app}`, `{settings}`, `{issue, …}`, `{local, board}`).
+    Target(Value),
+    /// A category: its page, if it has one (the shell knows its key).
+    Category(String),
+}
+
+fn query_of(nav: &Value, query: &str) -> bool {
+    let _ = nav;
+    !query.trim().is_empty()
+}
+
+fn rows(nav: &Value) -> &[Value] {
+    nav["rows"].as_array().map_or(&[], Vec::as_slice)
+}
+
+fn selectable(nav: &Value) -> Vec<usize> {
+    rows(nav).iter().enumerate().filter(|(_, r)| r["target"].is_object()).map(|(i, _)| i).collect()
+}
+
+fn categories(nav: &Value) -> Vec<String> {
+    nav["categories"].as_array().into_iter().flatten().filter_map(|c| c["id"].as_str().map(String::from)).collect()
 }
 
 impl Selection {
+    /// The selected row of `nav` (an index into its rows) for the text
+    /// `query`: with text the first selectable by default; without, only in
+    /// the contents column.
+    pub fn row(&self, nav: &Value, query: &str) -> Option<usize> {
+        let picks = selectable(nav);
+        if picks.is_empty() {
+            return None;
+        }
+        let searching = query_of(nav, query);
+        if !searching && self.column == Column::Categories {
+            return None;
+        }
+        let index = if searching && self.query != query { 0 } else { self.index.min(picks.len() - 1) };
+        Some(picks[index])
+    }
+
+    #[cfg(test)]
+    pub fn column(&self) -> Column {
+        self.column
+    }
+
+    /// A key pressed with `query` in the box over `nav`; `None` = not the
+    /// menu's key (it goes on to the focused component).
+    pub fn key(&mut self, nav: &Value, query: &str, key: Key) -> Option<Moved> {
+        let picks = selectable(nav).len();
+        if query_of(nav, query) {
+            let step = match key {
+                Key::Up => -1,
+                Key::Down => 1,
+                Key::Left | Key::Right => return None,
+            };
+            if picks == 0 {
+                return None;
+            }
+            let at = if self.query == query { self.index.min(picks - 1) } else { 0 } as i64;
+            *self = Selection { query: query.to_string(), column: Column::Contents, index: (at + step).clamp(0, picks as i64 - 1) as usize };
+            return Some(Moved::Row(self.row(nav, query)));
+        }
+        self.query.clear();
+        match (self.column, key) {
+            (Column::Categories, Key::Up | Key::Down) => {
+                let ids = categories(nav);
+                let current = nav["category"].as_str().unwrap_or_default();
+                let at = ids.iter().position(|id| id == current)? as i64;
+                let next = (at + if key == Key::Up { -1 } else { 1 }).clamp(0, ids.len() as i64 - 1) as usize;
+                (next as i64 != at).then(|| Moved::Category(ids[next].clone())).or(Some(Moved::Row(None)))
+            }
+            (Column::Categories, Key::Right) => {
+                if picks == 0 {
+                    return Some(Moved::Row(None));
+                }
+                self.column = Column::Contents;
+                self.index = 0;
+                Some(Moved::Row(self.row(nav, query)))
+            }
+            (Column::Categories, Key::Left) => Some(Moved::Row(None)),
+            (Column::Contents, Key::Left) => {
+                self.column = Column::Categories;
+                Some(Moved::Row(None))
+            }
+            (Column::Contents, Key::Right) => Some(Moved::Row(self.row(nav, query))),
+            (Column::Contents, Key::Up | Key::Down) => {
+                if picks == 0 {
+                    return Some(Moved::Row(None));
+                }
+                let at = self.index.min(picks - 1) as i64;
+                self.index = (at + if key == Key::Up { -1 } else { 1 }).clamp(0, picks as i64 - 1) as usize;
+                Some(Moved::Row(self.row(nav, query)))
+            }
+        }
+    }
+
+    /// Enter in the box.
+    pub fn activation(&self, nav: &Value, query: &str) -> Option<Activation> {
+        if let Some(row) = self.row(nav, query) {
+            return Some(Activation::Target(rows(nav)[row]["target"].clone()));
+        }
+        if query_of(nav, query) {
+            return None;
+        }
+        nav["category"].as_str().filter(|c| !c.is_empty()).map(|c| Activation::Category(c.to_string()))
+    }
+
+    /// Enter on a category without a page: the keyboard goes into its
+    /// contents (their first row).
+    pub fn enter_contents(&mut self, nav: &Value) -> bool {
+        if selectable(nav).is_empty() {
+            return false;
+        }
+        *self = Selection { query: String::new(), column: Column::Contents, index: 0 };
+        true
+    }
+
     /// After the reducer ran `event` on a menu whose text was `before`: the
-    /// menu opened, closed or its text really changed = back to the first
-    /// row; a closed menu keeps no selection. A query with the text it
-    /// already had changes nothing: Enter flushes the box's text (the same)
-    /// right before it runs the selected row.
+    /// menu opened, closed or its text really changed = back to the start
+    /// (the first result, the categories column); a new category keeps the
+    /// column, on its first row. Enter's flush of the same text changes
+    /// nothing.
     pub fn follow(&mut self, event: &uicore_model::ShellEvent, before: &str, open: bool) {
         use uicore_model::ShellEvent::*;
         let changed = matches!(event, StartMenuQuery { query } if query != before);
         if !open || changed || matches!(event, StartMenuOpen | StartMenuClose | StartMenuToggle) {
             *self = Selection::default();
+        } else if matches!(event, StartMenuCategory { .. }) {
+            self.index = 0;
         }
     }
 }
 
-fn len(start_menu: &Value, list: &str) -> usize {
-    start_menu[list].as_array().map_or(0, Vec::len)
-}
-
-/// The result rows of `/shell/startMenu`: its apps, then its issues.
-pub fn rows(start_menu: &Value) -> usize {
-    len(start_menu, "apps") + len(start_menu, "issues")
-}
-
-/// The selected row of `/shell/startMenu` for `selection`.
-pub fn selected(start_menu: &Value, selection: &Selection) -> Option<usize> {
-    selection.index(start_menu["query"].as_str().unwrap_or_default(), rows(start_menu))
-}
-
-/// Every app and issue row of `/shell/startMenu` says whether it is the
-/// selected one (the document's rows bind `selected`).
-pub fn mark(start_menu: &mut Value, selection: &Selection) {
-    let at = selected(start_menu, selection);
-    let apps = len(start_menu, "apps");
-    for (list, offset) in [("apps", 0), ("issues", apps)] {
-        for (i, row) in start_menu[list].as_array_mut().into_iter().flatten().enumerate() {
-            row["selected"] = json!(at == Some(offset + i));
-        }
+/// Every row of `nav` says whether it is the selected one, every category
+/// whether it has the keyboard's focus (the document binds `selected`).
+pub fn mark(nav: &mut Value, selection: &Selection, query: &str) {
+    let at = selection.row(nav, query);
+    for (i, row) in nav["rows"].as_array_mut().into_iter().flatten().enumerate() {
+        row["selected"] = json!(at == Some(i));
     }
 }
 
-/// Enter in the search box: the host function a press on the selected row
-/// calls, with its args (`ede_launch {app}` or `ede_issue {identifier,
-/// source, sourceId}`); `None` with no row selected.
-pub fn activation(start_menu: &Value) -> Option<(&'static str, Value)> {
-    let is_selected = |row: &&Value| row["selected"] == json!(true);
-    if let Some(app) = start_menu["apps"].as_array().into_iter().flatten().find(is_selected) {
-        return Some(("ede_launch", json!({"app": app["id"]})));
-    }
-    let issue = start_menu["issues"].as_array().into_iter().flatten().find(is_selected)?;
-    Some(("ede_issue", json!({"identifier": issue["identifier"], "source": issue["source"], "sourceId": issue["sourceId"]})))
+/// The row with this id (a press on it).
+pub fn row_target(nav: &Value, id: &str) -> Option<Value> {
+    rows(nav).iter().find(|r| r["id"] == id).map(|r| r["target"].clone()).filter(Value::is_object)
 }
 
-/// The selection's step for a key pressed in the menu: Down and Up without
-/// a modifier; every other key (Enter, Tab, Escape, the text) stays the
-/// focused component's.
-pub fn key_step(key: &str, modified: bool) -> Option<i64> {
+/// The menu's key among a keystroke: arrows without a modifier.
+pub fn key_of(key: &str, modified: bool) -> Option<Key> {
     match key {
         _ if modified => None,
-        "down" => Some(1),
-        "up" => Some(-1),
+        "down" => Some(Key::Down),
+        "up" => Some(Key::Up),
+        "left" => Some(Key::Left),
+        "right" => Some(Key::Right),
         _ => None,
     }
+}
+
+/// #EDE-258: the Settings modules the search finds (settings.express's
+/// device and personal pages: id, title, icon, keywords).
+const SETTINGS_MODULES: &[(&str, &str, &str, &str)] = &[
+    ("display", "Display", "ede-brightness", "screen monitor brightness resolution scale"),
+    ("sound", "Sound", "media-volume-up", "audio volume speaker microphone"),
+    ("network", "Network", "ede-wifi", "wifi wireless ethernet internet vpn"),
+    ("bluetooth", "Bluetooth", "ede-bluetooth", "devices pair headphones"),
+    ("power", "Power", "ede-battery", "battery suspend sleep"),
+    ("themes", "Themes", "editor-text-format", "appearance dark light colours fonts"),
+    ("keyboard", "Keyboard", "coding-command", "layout shortcuts keys"),
+    ("mouse", "Mouse & Touchpad", "ui-device", "pointer trackpad scroll"),
+    ("datetime", "Date & Time", "ui-clock", "clock timezone"),
+    ("users", "Users", "settings-members", "accounts people"),
+    ("notifications", "Notifications", "settings-notifications", "alerts do not disturb"),
+    ("workspaces", "Workspaces", "ede-workspaces", "desktops virtual"),
+    ("windows", "Windows", "ede-window", "tiling titlebar focus"),
+    ("startup", "Startup apps", "action-run", "autostart login"),
+    ("defaults", "Default apps", "nav-apps", "browser mail preferred applications"),
+    ("tools", "Tools", "settings-tools", "coding"),
+    ("coding-clis", "Coding CLIs", "settings-agents", "claude codex agents"),
+    ("worktrees", "Worktrees", "settings-local-repos", "git repositories"),
+    ("sessions", "Sessions", "settings-sessions", "agents running"),
+    ("account", "Account", "settings-account", "sign in sign out exponential"),
+    ("devices", "Devices", "nav-devices", "computers servers"),
+    ("security", "Security", "settings-api", "passkeys tokens"),
+    ("whats-new", "What's new", "nav-changelog", "changelog release"),
+    ("about", "About", "settings-about", "version system"),
+];
+
+/// The Settings modules as the start menu's search takes them.
+pub fn settings_modules() -> &'static [uicore_model::StartMenuSetting] {
+    static MODULES: std::sync::OnceLock<Vec<uicore_model::StartMenuSetting>> = std::sync::OnceLock::new();
+    MODULES.get_or_init(|| {
+        SETTINGS_MODULES
+            .iter()
+            .map(|(id, title, icon, keywords)| uicore_model::StartMenuSetting { id: id.to_string(), title: title.to_string(), icon: icon.to_string(), keywords: keywords.to_string() })
+            .collect()
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `/shell/startMenu` as the shell feeds it: `term` finds three apps and two issues.
-    fn menu(query: &str, apps: &[&str], issues: &[&str]) -> Value {
-        json!({
-            "open": true,
-            "query": query,
-            "apps": apps.iter().map(|id| json!({"id": id, "name": id})).collect::<Vec<_>>(),
-            "issues": issues.iter().map(|id| json!({"id": id, "identifier": id, "source": "team", "sourceId": "t1", "title": "An issue"})).collect::<Vec<_>>(),
-        })
+    fn row(id: &str, target: bool) -> Value {
+        json!({"id": id, "title": id, "target": if target { json!({"page": id}) } else { Value::Null }})
     }
 
-    fn term() -> Value {
-        menu("term", &["org.gnome.Terminal", "uxterm", "xterm"], &["EDE-1", "EDE-2"])
+    /// A team's contents: a folder (opens nothing), two boards, an agent.
+    fn team() -> Value {
+        json!({"category": "team:t1", "categories": [{"id": "home"}, {"id": "chats"}, {"id": "team:t1"}, {"id": "local"}], "rows": [row("folder:f1", false), row("board:b1", true), row("board:b2", true), row("agent:a1", true)]})
     }
 
-    fn marked(mut m: Value, selection: &Selection) -> Value {
-        mark(&mut m, selection);
-        m
+    fn results() -> Value {
+        json!({"category": "team:t1", "categories": [{"id": "team:t1"}], "rows": [row("board:b1", true), row("app:firefox", true), row("issue:i1", true)]})
     }
 
-    fn selected_rows(m: &Value) -> Vec<String> {
-        ["apps", "issues"].iter().flat_map(|l| m[*l].as_array().unwrap().iter()).filter(|r| r["selected"] == json!(true)).map(|r| r["id"].as_str().unwrap().to_string()).collect()
+    fn selected(nav: &Value, s: &Selection, q: &str) -> Option<String> {
+        let mut nav = nav.clone();
+        mark(&mut nav, s, q);
+        nav["rows"].as_array().unwrap().iter().find(|r| r["selected"] == true).map(|r| r["id"].as_str().unwrap().to_string())
     }
 
     #[test]
-    fn a_typed_query_selects_the_first_result() {
-        let m = marked(term(), &Selection::default());
-        assert_eq!(selected_rows(&m), ["org.gnome.Terminal"]);
-        assert!(m["apps"].as_array().unwrap().iter().chain(m["issues"].as_array().unwrap()).all(|r| r["selected"].is_boolean()), "every row says so: {m}");
-        // Issues only: the first of them.
-        assert_eq!(selected_rows(&marked(menu("#12", &[], &["EDE-12", "EDE-120"]), &Selection::default())), ["EDE-12"]);
-    }
-
-    #[test]
-    fn without_text_no_row_is_selected() {
-        for query in ["", "  "] {
-            let m = marked(menu(query, &["firefox", "nemo"], &[]), &Selection::default());
-            assert!(selected_rows(&m).is_empty(), "{query:?}: {m}");
-            assert_eq!(activation(&m), None);
-        }
-    }
-
-    #[test]
-    fn down_and_up_move_the_selection_and_stop_at_the_ends() {
-        let m = term();
+    fn the_menu_opens_in_the_categories_and_arrows_switch_them() {
+        let nav = team();
         let mut s = Selection::default();
-        let mut step = |by: i64| {
-            s.step("term", rows(&m), by).expect("a row");
-            selected_rows(&marked(m.clone(), &s))
-        };
-        assert_eq!(step(-1), ["org.gnome.Terminal"], "Up on the first row stays");
-        assert_eq!(step(1), ["uxterm"]);
-        assert_eq!(step(1), ["xterm"]);
-        assert_eq!(step(1), ["EDE-1"], "the issues follow the apps");
-        assert_eq!(step(1), ["EDE-2"]);
-        assert_eq!(step(1), ["EDE-2"], "Down on the last row stays");
-        assert_eq!(step(-1), ["EDE-1"]);
-        assert_eq!(step(-1), ["xterm"]);
+        assert_eq!(selected(&nav, &s, ""), None, "no row while the categories have the keyboard");
+        assert_eq!(s.key(&nav, "", Key::Down), Some(Moved::Category("local".into())));
+        assert_eq!(s.key(&nav, "", Key::Up), Some(Moved::Category("chats".into())));
+        let first = json!({"category": "home", "categories": [{"id": "home"}, {"id": "chats"}], "rows": []});
+        assert_eq!(s.key(&first, "", Key::Up), Some(Moved::Row(None)), "the first stays");
     }
 
     #[test]
-    fn a_changed_query_selects_the_first_result_again() {
+    fn right_enters_the_contents_and_left_leaves_them() {
+        let nav = team();
         let mut s = Selection::default();
-        s.step("term", 5, 1);
-        s.step("term", 5, 1);
-        assert_eq!(s.index("term", 5), Some(2));
-        assert_eq!(selected_rows(&marked(menu("termi", &["org.gnome.Terminal", "terminator"], &[]), &s)), ["org.gnome.Terminal"]);
-        // Back at the old text after another one: the first again.
-        s.step("termi", 2, 1);
-        assert_eq!(s.index("term", 5), Some(0));
+        assert_eq!(s.key(&nav, "", Key::Right), Some(Moved::Row(Some(1))), "the folder opens nothing: the first board");
+        assert_eq!(selected(&nav, &s, "").as_deref(), Some("board:b1"));
+        assert_eq!(s.key(&nav, "", Key::Down), Some(Moved::Row(Some(2))));
+        assert_eq!(s.key(&nav, "", Key::Down), Some(Moved::Row(Some(3))));
+        assert_eq!(s.key(&nav, "", Key::Down), Some(Moved::Row(Some(3))), "the last stays");
+        assert_eq!(s.activation(&nav, ""), Some(Activation::Target(json!({"page": "agent:a1"}))));
+        assert_eq!(s.key(&nav, "", Key::Left), Some(Moved::Row(None)));
+        assert_eq!(s.column(), Column::Categories);
+        assert_eq!(s.activation(&nav, ""), Some(Activation::Category("team:t1".into())), "Enter on the category");
     }
 
     #[test]
-    fn a_shorter_list_keeps_a_row_selected() {
+    fn enter_on_a_category_without_a_page_goes_into_it() {
+        let nav = team();
         let mut s = Selection::default();
-        for _ in 0..4 {
-            s.step("term", 5, 1);
-        }
-        // The issue search answered with fewer hits.
-        assert_eq!(selected_rows(&marked(menu("term", &["org.gnome.Terminal", "uxterm", "xterm"], &[]), &s)), ["xterm"]);
+        assert!(s.enter_contents(&nav));
+        assert_eq!(selected(&nav, &s, "").as_deref(), Some("board:b1"));
+        let empty = json!({"category": "drafts", "categories": [], "rows": []});
+        assert!(!Selection::default().enter_contents(&empty));
     }
 
     #[test]
-    fn enter_runs_the_selected_row() {
-        let m = term();
+    fn typing_selects_the_first_result_and_enter_opens_it() {
+        let nav = results();
         let mut s = Selection::default();
-        assert_eq!(activation(&marked(m.clone(), &s)), Some(("ede_launch", json!({"app": "org.gnome.Terminal"}))));
-        s.step("term", rows(&m), 1);
-        assert_eq!(activation(&marked(m.clone(), &s)), Some(("ede_launch", json!({"app": "uxterm"}))));
-        s.step("term", rows(&m), 1);
-        s.step("term", rows(&m), 1);
-        assert_eq!(activation(&marked(m.clone(), &s)), Some(("ede_issue", json!({"identifier": "EDE-1", "source": "team", "sourceId": "t1"}))));
+        assert_eq!(selected(&nav, &s, "desk").as_deref(), Some("board:b1"));
+        assert_eq!(s.activation(&nav, "desk"), Some(Activation::Target(json!({"page": "board:b1"}))));
+        assert_eq!(s.key(&nav, "desk", Key::Down), Some(Moved::Row(Some(1))));
+        assert_eq!(s.key(&nav, "desk", Key::Down), Some(Moved::Row(Some(2))));
+        assert_eq!(s.key(&nav, "desk", Key::Down), Some(Moved::Row(Some(2))), "the last stays");
+        assert_eq!(s.key(&nav, "desk", Key::Left), None, "the caret's");
+        assert_eq!(selected(&nav, &s, "deskt").as_deref(), Some("board:b1"), "new text: the first again");
     }
 
     #[test]
-    fn with_no_result_enter_does_nothing() {
-        let m = marked(menu("zzzz", &[], &[]), &Selection::default());
-        assert_eq!(activation(&m), None);
-        let mut s = Selection::default();
-        assert_eq!(s.step("zzzz", rows(&m), 1), None, "and the arrows are not the menu's");
-        // A menu that was never marked (an older shell's feed) runs nothing either.
-        assert_eq!(activation(&term()), None);
-    }
-
-    use uicore_model::{reduce, ShellEvent, ShellState, StartMenuApp};
-
-    /// The shell's path for one event (`dispatch`): the reducer, then the selection follows it.
-    fn send(state: &mut ShellState, selection: &mut Selection, event: ShellEvent) {
-        let before = state.start_menu.query.clone();
-        *state = reduce(state, &event);
-        selection.follow(&event, &before, state.start_menu.open);
-    }
-
-    /// Typing as the search box tells the shell: one query per text.
-    fn type_text(state: &mut ShellState, selection: &mut Selection, text: &str) {
-        for end in 1..=text.len() {
-            send(state, selection, ShellEvent::StartMenuQuery { query: text[..end].into() });
-        }
-    }
-
-    fn down(state: &ShellState, selection: &mut Selection, by: i64) {
-        let menu = fed(state, selection);
-        selection.step(&state.start_menu.query, rows(&menu), by).expect("a row");
-    }
-
-    /// Enter in the product, in its order: the box flushes its text (the
-    /// deferred `StartMenuQuery`, the text unchanged), then `activate` reads
-    /// the marked row.
-    fn enter(state: &mut ShellState, selection: &mut Selection) -> Option<(&'static str, Value)> {
-        let query = state.start_menu.query.clone();
-        send(state, selection, ShellEvent::StartMenuQuery { query });
-        activation(&fed(state, selection))
-    }
-
-    fn launched(app: &str) -> Option<(&'static str, Value)> {
-        Some(("ede_launch", json!({"app": app})))
-    }
-
-    /// The VM's third run (#EDE-92 R2, R3, R5): after Up or Down, Enter ran
-    /// row 0, because the submit's own query (the same text) reset the
-    /// selection before it was read.
-    #[test]
-    fn enter_after_the_arrows_runs_the_highlighted_row() {
-        for (text, moves, app) in [("e", vec![1], "app01"), ("e", vec![1; 24], "app24"), ("te", vec![1, 1, -1], "text01"), ("e", vec![], "app00")] {
-            let (mut state, mut selection) = (ShellState::default(), Selection::default());
-            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-            type_text(&mut state, &mut selection, text);
-            for by in &moves {
-                down(&state, &mut selection, *by);
-            }
-            assert_eq!(enter(&mut state, &mut selection), launched(app), "{text:?} {moves:?}");
-        }
-    }
-
-    /// Delete the last letter and type it again: two real changes, the first row.
-    #[test]
-    fn a_retyped_letter_selects_the_first_row() {
-        let (mut state, mut selection) = (ShellState::default(), Selection::default());
-        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-        type_text(&mut state, &mut selection, "e");
-        for _ in 0..10 {
-            down(&state, &mut selection, 1);
-        }
-        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: String::new() });
-        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-        assert_eq!(enter(&mut state, &mut selection), launched("app00"));
-    }
-
-    /// `/shell/startMenu` as the shell feeds it, marked: 40 apps match "e".
-    fn fed(state: &ShellState, selection: &Selection) -> Value {
-        // "e" finds the Edits first (the name starts with it), then the Texts; "te" the Texts.
-        let app = |id: String, name: String| StartMenuApp { id, name, comment: String::new(), categories: Vec::new(), keywords: String::new() };
-        let apps: Vec<StartMenuApp> = (0..40).map(|i| app(format!("app{i:02}"), format!("Edit {i:02}"))).chain((0..5).map(|i| app(format!("text{i:02}"), format!("Text {i:02}")))).collect();
-        let mut menu = uicore_data::shell_feed(state, &apps, &[])["startMenu"].clone();
-        menu["issues"] = json!([]);
-        mark(&mut menu, selection);
-        menu
-    }
-
-    /// The VM's reopen (#EDE-92, 4 of 4): open, type, Down ×24, close; open,
-    /// the same text: the first row is the selected one again, and Enter
-    /// runs it. Closed by Escape (the popup's dismissal) or by Enter.
-    #[test]
-    fn the_selection_resets_when_the_menu_closes_and_opens() {
-        for close in ["escape", "enter"] {
-            let (mut state, mut selection) = (ShellState::default(), Selection::default());
-            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-            send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-            for _ in 0..24 {
-                let menu = fed(&state, &selection);
-                selection.step("e", rows(&menu), 1).expect("a row");
-            }
-            assert_eq!(selected_rows(&fed(&state, &selection)), ["app24"], "{close}: Down ×24");
-            if close == "enter" {
-                assert_eq!(activation(&fed(&state, &selection)), Some(("ede_launch", json!({"app": "app24"}))));
-            }
-            // Both close the same way: the launch or the dismissal closes the menu.
-            send(&mut state, &mut selection, ShellEvent::StartMenuClose);
-            send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-            send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-            let menu = fed(&state, &selection);
-            assert_eq!(selected_rows(&menu), ["app00"], "{close}: the first row after the reopen");
-            assert_eq!(activation(&menu), Some(("ede_launch", json!({"app": "app00"}))), "{close}: Enter runs row 0");
-        }
-    }
-
-    /// A menu closed without the shell hearing it (Lock closes the popup
-    /// alone) still opens with the first row; a query with the text the
-    /// selection already follows (the submit's flush) changes nothing.
-    #[test]
-    fn opening_selects_the_first_row_and_the_same_text_keeps_it() {
-        let (mut state, mut selection) = (ShellState::default(), Selection::default());
-        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-        for _ in 0..5 {
-            selection.step("e", 40, 1);
-        }
-        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-        assert_eq!(selected_rows(&fed(&state, &selection)), ["app05"], "the same text again changes nothing");
-        send(&mut state, &mut selection, ShellEvent::StartMenuOpen);
-        send(&mut state, &mut selection, ShellEvent::StartMenuQuery { query: "e".into() });
-        assert_eq!(selected_rows(&fed(&state, &selection)), ["app00"], "an open without a close");
-        // A category pick keeps the menu open and its text: the selection stays.
-        selection.step("e", 40, 1);
-        send(&mut state, &mut selection, ShellEvent::StartMenuCategory { category: "all".into() });
-        assert_eq!(selection.index("e", 40), Some(1));
+    fn no_result_no_enter() {
+        let nav = json!({"category": "team:t1", "categories": [], "rows": []});
+        assert_eq!(Selection::default().activation(&nav, "zzz"), None);
+        assert_eq!(Selection::default().key(&nav, "zzz", Key::Down), None);
     }
 
     #[test]
-    fn only_plain_up_and_down_are_the_selections() {
-        assert_eq!((key_step("down", false), key_step("up", false)), (Some(1), Some(-1)));
-        for key in ["enter", "tab", "escape", "left", "right", "home", "end", "pageup", "pagedown", "space", "a"] {
-            assert_eq!(key_step(key, false), None, "{key} stays the focused component's");
+    fn a_press_finds_its_row() {
+        assert_eq!(row_target(&team(), "board:b2"), Some(json!({"page": "board:b2"})));
+        assert_eq!(row_target(&team(), "folder:f1"), None);
+    }
+
+    #[test]
+    fn every_settings_module_is_a_page_of_settings() {
+        let source = uicore_docs::doc("settings").expect("settings").source;
+        for (id, title, ..) in SETTINGS_MODULES {
+            assert!(source.contains(&format!("value=\"{id}\"")), "{id} is no page of settings.express");
+            assert!(source.contains(&format!("title=\"{title}\"")), "{title}");
         }
-        assert_eq!((key_step("down", true), key_step("up", true)), (None, None), "a modifier keeps the key out");
+    }
+
+    #[test]
+    fn only_bare_arrows_are_the_menus() {
+        assert_eq!(key_of("left", false), Some(Key::Left));
+        assert_eq!(key_of("down", true), None);
+        assert_eq!(key_of("enter", false), None);
     }
 }

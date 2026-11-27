@@ -64,6 +64,7 @@ struct RepoCiSectionView: View {
             secrets: settings?.secrets,
             githubStatuses: config.githubStatuses,
             actionsRunners: config.actionsRunners,
+            pullRequestSecrets: config.pullRequestSecrets,
             manager: manager
         )
         CiSurface(
@@ -90,6 +91,8 @@ struct RepoCiSectionView: View {
                 if let on = checked(), manager, on != config.githubStatuses { onSetSwitch(.githubStatuses, on) }
             case RepoCiView.Events.actionsRunners:
                 if let on = checked(), manager, on != config.actionsRunners { onSetSwitch(.actionsRunners, on) }
+            case RepoCiView.Events.pullRequestSecrets:
+                if let on = checked(), manager, on != config.pullRequestSecrets { onSetSwitch(.pullRequestSecrets, on) }
             case RepoCiView.Events.deleteSecret:
                 if manager, case let .string(secret)? = context?["name"] { deleting = DeleteTarget(name: secret) }
             case RepoCiView.Events.addSecret:
@@ -312,6 +315,7 @@ struct RepoCiLive: View {
                     switch key {
                     case .githubStatuses: config.githubStatuses = on
                     case .actionsRunners: config.actionsRunners = on
+                    case .pullRequestSecrets: config.pullRequestSecrets = on
                     }
                 }
                 write(verb: "save", thing: "the CI settings") {
@@ -320,6 +324,8 @@ struct RepoCiLive: View {
                         try await deps.ciApi.setRepoConfig(accountId: accountId, repositoryId: repositoryId, githubStatuses: on)
                     case .actionsRunners:
                         try await deps.ciApi.setRepoConfig(accountId: accountId, repositoryId: repositoryId, actionsRunners: on)
+                    case .pullRequestSecrets:
+                        try await deps.ciApi.setRepoConfig(accountId: accountId, repositoryId: repositoryId, pullRequestSecrets: on)
                     }
                 }
             },

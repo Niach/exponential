@@ -1,0 +1,1 @@
+ALTER TABLE "ci_jobs" ADD COLUMN "requeued_at" timestamp with time zone;

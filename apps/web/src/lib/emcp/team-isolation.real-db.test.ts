@@ -435,6 +435,7 @@ const CASES: Record<string, Case> = {
   [`repositories.run_log jobId`]: r(`repositories.run_log`, (w) => ({ op: `run_log`, jobId: w.b.ciJobId })),
   [`repositories.rerun`]: wr(`repositories.rerun`, (w) => ({ op: `rerun`, runId: w.b.ciRunId })),
   [`repositories.configure_ci`]: wr(`repositories.configure_ci`, (w) => ({ op: `configure_ci`, repositoryId: w.b.repositoryId, enabled: true })),
+  [`repositories.restore`]: wr(`repositories.restore`, (w) => ({ op: `restore`, repositoryId: w.b.repositoryId })),
   // apps
   [`apps.list teamId`]: r(`apps.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`apps.list unfiltered`]: r(`apps.list`, () => ({ op: `list` })),

@@ -15,6 +15,7 @@ public enum RepoCiView {
         public static let required = "repo-ci-required"
         public static let githubStatuses = "repo-ci-github-statuses"
         public static let actionsRunners = "repo-ci-actions-runners"
+        public static let pullRequestSecrets = "repo-ci-pull-request-secrets"
         public static let deleteSecret = "repo-ci-delete-secret"
         public static let addSecret = "repo-ci-add-secret"
 
@@ -22,6 +23,7 @@ public enum RepoCiView {
             switch key {
             case .githubStatuses: githubStatuses
             case .actionsRunners: actionsRunners
+            case .pullRequestSecrets: pullRequestSecrets
             }
         }
     }
@@ -109,6 +111,7 @@ public enum RepoCiView {
         secrets: [RepoCi.Secret]?,
         githubStatuses: Bool,
         actionsRunners: Bool,
+        pullRequestSecrets: Bool = false,
         manager: Bool
     ) -> CardJSON {
         let ids = RepoCi.TestIds.self
@@ -181,7 +184,11 @@ public enum RepoCiView {
         }
         for key in RepoCi.switches(provider: provider) {
             let copy = RepoCi.Copy.switch(key)
-            let checked = key == .githubStatuses ? githubStatuses : actionsRunners
+            let checked = switch key {
+            case .githubStatuses: githubStatuses
+            case .actionsRunners: actionsRunners
+            case .pullRequestSecrets: pullRequestSecrets
+            }
             children.append(node(
                 "\(key.testId)-row", "SettingsRow",
                 props: ["label": .string(copy.label), "description": .string(copy.description)],

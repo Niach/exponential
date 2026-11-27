@@ -1,7 +1,7 @@
 //! eCode's runner scheduling (`fixtures/runner.json` is the spec): jobs wait
 //! for their `needs`, a runner claims the one its labels cover that is
-//! expected to finish first, and the clock times jobs out, fails the jobs of a
-//! lost runner, flags a job queued too long (once) and times out one no runner
+//! expected to finish first, and the clock times jobs out, re-queues the jobs
+//! of a lost runner once (then fails them), flags a job queued too long (once) and times out one no runner
 //! claims.
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,9 @@ pub struct Job {
     pub flagged: bool,
     /// Why it completed without running (a contract skip, `needs`, `runner_lost`, `unclaimed`).
     pub reason: Option<String>,
+    /// Handed back once already (a lost or quitting runner, #EXP-2193): the next loss fails it.
+    #[serde(default)]
+    pub requeued: bool,
 }
 
 /// A runner as its beats report it.
@@ -86,6 +89,30 @@ fn complete(
         Some(reason) => json!({ "kind": "job_completed", "job": job_id, "conclusion": conclusion, "reason": reason }),
         None => json!({ "kind": "job_completed", "job": job_id, "conclusion": conclusion }),
     });
+}
+
+/// A job cut off by a lost or quitting runner goes back to `queued` the first
+/// time (runner cleared, queued afresh); a second loss fails it `runner_lost`.
+/// `true` = re-queued.
+fn requeue_or_fail(state: &mut RunnerState, index: usize, at: i64, events: &mut Vec<Value>, reason: &str) -> bool {
+    if state.jobs[index].requeued {
+        complete(state, index, CheckConclusion::Failure, at, events, Some("runner_lost"));
+        return false;
+    }
+    let job_id = state.jobs[index].id.clone();
+    if let Some(runner_id) = state.jobs[index].runner.clone() {
+        if let Some(runner) = state.runners.iter_mut().find(|r| r.id == runner_id) {
+            runner.running.retain(|id| *id != job_id);
+        }
+    }
+    let job = &mut state.jobs[index];
+    job.status = CheckStatus::Queued;
+    job.runner = None;
+    job.started_at = None;
+    job.queued_at = at;
+    job.requeued = true;
+    events.push(json!({ "kind": "job_requeued", "job": job_id, "reason": reason }));
+    true
 }
 
 /// A completed need lets its dependents start: a satisfying conclusion that
@@ -180,6 +207,7 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
                     completed_at: None,
                     flagged: false,
                     reason: None,
+                    requeued: false,
                 });
                 events.push(json!({ "kind": "job_queued", "job": id }));
                 if let Some(skip) = skip {
@@ -251,6 +279,18 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
             complete(state, index, conclusion, at, events, None);
             Ok(json!({}))
         }
+        "release" => {
+            let Some(index) = state.jobs.iter().position(|j| js::is_str(args.get("job"), &j.id)) else {
+                return Err(Stop::Refused(ForgeReason::Job));
+            };
+            let job = &state.jobs[index];
+            let runs_it = job.runner.as_deref().is_some_and(|r| js::is_str(args.get("runner"), r));
+            if job.status != CheckStatus::InProgress || !runs_it {
+                return Err(Stop::Refused(ForgeReason::NotRunning));
+            }
+            let requeued = requeue_or_fail(state, index, at, events, "released");
+            Ok(json!({ "requeued": requeued }))
+        }
         "cancel" => {
             let ids = args.get("jobs").and_then(Value::as_array).map(|_| strings(args.get("jobs")));
             for index in 0..state.jobs.len() {
@@ -283,7 +323,7 @@ fn apply(state: &mut RunnerState, op: &str, args: &Value, at: i64, events: &mut 
                 }
                 for id in state.runners[r].running.clone() {
                     if let Some(index) = state.jobs.iter().position(|j| j.id == id) {
-                        complete(state, index, CheckConclusion::Failure, at, events, Some("runner_lost"));
+                        requeue_or_fail(state, index, at, events, "runner_lost");
                     }
                 }
             }

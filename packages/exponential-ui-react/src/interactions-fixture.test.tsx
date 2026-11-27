@@ -1311,3 +1311,52 @@ describe(`fixtures/interactions-round1.json fieldInk`, () => {
     })
   }
 })
+
+// #EDE-253 menuOpen: a Menu's bindable `open` (Popover's rule): a host write
+// opens a press or a context menu; a dismiss, a pick or the trigger writes
+// the new value through and fires `change {open}`.
+interface MenuOpenStep {
+  do: `open` | `close` | `escape` | `outside` | `pick` | `pressTrigger` | `none`
+  shown: boolean
+  data?: boolean
+  changes: boolean[]
+  selects?: string[]
+}
+const menuOpenFixture = (fixture as unknown as { menuOpen: { surfaces: Record<string, NestedNode>; cases: { name: string; surface: string; data: Record<string, unknown>; steps: MenuOpenStep[] }[] } }).menuOpen
+
+function MenuOpenSurface({ initial, data, onState, onAction }: { initial: NestedNode; data: Record<string, unknown>; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `mo`, data: structuredClone(data), initial })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="mo" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json menuOpen`, () => {
+  for (const c of menuOpenFixture.cases) {
+    it(`menuOpen: ${c.name}`, async () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<MenuOpenSurface initial={menuOpenFixture.surfaces[c.surface]!} data={c.data} onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+      await settle()
+      const content = () => document.querySelector<HTMLElement>(`[data-xui-overlay="Menu"]`)
+      for (const [i, s] of c.steps.entries()) {
+        const before = actions.length
+        if (s.do === `open` || s.do === `close`) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `mo`, path: `/open`, value: s.do === `open` } }))
+        else if (s.do === `escape`) await act(async () => void fireEvent.keyDown(content()!, { key: `Escape` }))
+        else if (s.do === `outside`) await act(async () => void fireEvent.pointerDown(document.body, { button: 0, pointerType: `mouse` }))
+        else if (s.do === `pick`) await act(async () => void fireEvent.click(content()!.querySelector(`[role="menuitem"]`)!))
+        else if (s.do === `pressTrigger`) fireEvent.pointerDown(container.querySelector(`[data-xui-id="t"]`)!.closest(`.xui-trigger`)!, { button: 0, ctrlKey: false, pointerType: `mouse` })
+        await settle()
+        const at = `${c.name}: step ${i} (${s.do})`
+        expect(content() !== null, `${at} shown`).toBe(s.shown)
+        if (s.data !== undefined) expect((state.data as Record<string, unknown>).open, `${at} data`).toBe(s.data)
+        const fired = actions.slice(before)
+        expect(fired.filter((a) => a.name === `change`).map((a) => (a.context as { open: boolean }).open), `${at} changes`).toEqual(s.changes)
+        expect(fired.filter((a) => a.name === `select`).map((a) => (a.context as { value: string }).value), `${at} selects`).toEqual(s.selects ?? [])
+        if (s.shown && c.surface === `context`) expect(content()!.getAttribute(`data-open-on`)).toBe(`contextmenu`)
+      }
+    })
+  }
+})

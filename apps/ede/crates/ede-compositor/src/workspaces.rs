@@ -44,8 +44,14 @@ impl Ede {
         if index == self.desk.workspaces.active || self.is_locked() {
             return false;
         }
-        // Park the active workspace's windows, bottom to top.
-        let leaving: Vec<Window> = self.desk.space.elements().cloned().collect();
+        // Park the active workspace's windows, bottom to top. #EDE-253: a
+        // sticky one (Always on Visible Workspace) stays and moves along.
+        for w in self.desk.space.elements().filter(|w| window_state(w).sticky).cloned().collect::<Vec<_>>() {
+            let mut st = window_state(&w);
+            st.workspace = index;
+            set_window_state(&w, st);
+        }
+        let leaving: Vec<Window> = self.desk.space.elements().filter(|w| !window_state(w).sticky).cloned().collect();
         for w in &leaving {
             let mut st = window_state(w);
             st.parked_at = self.desk.space.element_location(w);
@@ -60,7 +66,7 @@ impl Ede {
         for w in &arriving {
             self.map_parked(w, false);
         }
-        let top = arriving.last().cloned();
+        let top = arriving.last().cloned().or_else(|| self.focused_window(DeskId::PERSON).filter(|w| window_state(w).sticky));
         self.focus(DeskId::PERSON, top);
         let pos = self.desk.seat.get_pointer().unwrap().current_location();
         self.pointer_motion_to(pos, 0);

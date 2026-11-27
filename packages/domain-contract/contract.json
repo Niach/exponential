@@ -1275,6 +1275,17 @@
         "result": "none"
       },
       {
+        "name": "repositories_restore",
+        "title": "Restore repository",
+        "blurb": "Restores a hosted repository from one of its backups.",
+        "progressive": "Restoring repository",
+        "done": "Restored repository",
+        "progressiveMany": "Restoring repositories {n} times",
+        "doneMany": "Restored repositories {n} times",
+        "subjectKey": "repositoryId",
+        "result": "none"
+      },
+      {
         "name": "repositories_runs",
         "title": "List CI runs",
         "blurb": "Lists CI runs, ours and GitHub Actions, newest first.",
@@ -2223,6 +2234,7 @@
       { "name": "repositories_runs", "refs": "" },
       { "name": "repositories_run_log", "refs": "" },
       { "name": "repositories_rerun", "refs": "" },
+      { "name": "repositories_restore", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },

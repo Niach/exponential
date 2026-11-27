@@ -593,6 +593,12 @@ fn quit_engine_wait(
 /// that clock starts.
 pub fn install_quit_hook(cx: &mut App) {
     cx.on_app_quit(|cx| {
+        // #EXP-2174: running CI jobs are cut and handed back to the server
+        // (queued again once) before the app goes.
+        if ci_runner::running() > 0 {
+            let left = ci_runner::stop_all(crate::ci_runner_host::STOP_WAIT);
+            log::info!("[ui] quit: CI jobs handed back ({left} still stopping)");
+        }
         // EXP-746: an ACP run's agent is OUR child, not a PTY's — nothing
         // SIGHUPs it when we go. Suspend every engine first so the child dies
         // with us and the end sequence has the quit window to land in.

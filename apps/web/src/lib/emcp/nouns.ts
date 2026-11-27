@@ -226,7 +226,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `repositories`,
     label: `repositories`,
     group: `team`,
-    blurb: `A team's repositories and their CI (ours + GitHub Actions).`,
+    blurb: `A team's repositories and their CI (ours + GitHub Actions); restore = a hosted repository from its backup.`,
     ops: {
       list: `repositories_list`,
       create: `repositories_add`,
@@ -235,6 +235,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       runs: `repositories_runs`,
       run_log: `repositories_run_log`,
       rerun: `repositories_rerun`,
+      restore: `repositories_restore`,
     },
   },
   {

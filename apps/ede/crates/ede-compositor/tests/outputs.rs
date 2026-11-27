@@ -276,3 +276,34 @@ fn a_maximized_window_parked_during_a_scale_change_fills_its_output_when_it_come
     c.draw_configured(&t, 0, 0, BLUE);
     wait_for(&mut c, |_| geometry(&h, "max") == rect(0, 0, 640, 400));
 }
+
+/// #EDE-250: clients learn where each output is. Every output said (0, 0)
+/// before: Xwayland stacked Danny's two monitors on each other. A scale
+/// change moves the second one and both tell their clients; the scaled one
+/// says its integer scale.
+#[test]
+fn clients_learn_each_outputs_place_and_scale() {
+    let h = harness(&[(1920, 1080), (1920, 1080)]);
+    let mut c = Session::connect(h.connect());
+    c.roundtrip();
+    assert_eq!(c.state.output_positions, [(0, 0), (1920, 0)]);
+    h.ipc().set_output("HEADLESS-1", None, Some(1.5), None).unwrap();
+    wait_for(&mut c, |c| c.state.output_positions.ends_with(&[(1280, 0)]));
+    assert_eq!(c.state.output_scales.last(), Some(&2), "1.5 rounds up for wl_output.scale");
+}
+
+/// #EDE-250: a layer surface (the taskbar) on the second output takes that
+/// output's fractional scale, not the first output's.
+#[test]
+fn a_panel_takes_its_own_outputs_scale() {
+    let h = harness(&[(1920, 1080), (2560, 1440)]);
+    h.ipc().set_output("HEADLESS-2", None, Some(2.0), None).unwrap();
+    let mut c = Session::connect(h.connect());
+    c.roundtrip();
+    let second = c.state.outputs[1].clone();
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    let layer = c.layer_on("panel", Some(&second), Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 48), 48);
+    c.roundtrip();
+    // 120 = 1.0 in wp_fractional_scale's units.
+    assert_eq!(c.preferred_scale(&layer.surface), Some(240));
+}

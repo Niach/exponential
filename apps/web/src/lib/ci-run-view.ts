@@ -8,6 +8,7 @@ import {
   RUNNER_LIMITS,
   RUNNER_SETTINGS_COPY,
   RUNNER_SETTINGS_TEST_IDS,
+  RUNNER_MEMORY_OPTIONS,
   RUNNER_TIMEOUT_OPTIONS,
   ciJobRows,
   ciLogView,
@@ -17,6 +18,7 @@ import {
   normalizeRunnerLabel,
   runnerNotice,
   runnerOsLabel,
+  runnerUnsupported,
   type CiJobRow,
   type CiStepLike,
   type RunnerClient,
@@ -235,15 +237,20 @@ export interface RunnerSettings {
   labels: string[]
   slots: number
   timeoutMin: number
+  /** #EXP-2193: the job's memory cap; pause jobs while a game runs. */
+  memoryMaxMb: number
+  pauseWhenBusy: boolean
 }
 
-/** The row's settings, `defaults` filling a null `runner`. */
+/** The row's settings, `defaults` filling a null `runner` (and the fields an older row lacks). */
 export function runnerSettingsOf(runner: Partial<RunnerSettings> | null | undefined): RunnerSettings {
   return {
     enabled: runner?.enabled ?? RUNNER_DEFAULTS.enabled,
     labels: runner?.labels ?? [...RUNNER_DEFAULTS.labels],
     slots: runner?.slots ?? RUNNER_DEFAULTS.slots,
     timeoutMin: runner?.timeoutMin ?? RUNNER_DEFAULTS.timeoutMin,
+    memoryMaxMb: runner?.memoryMaxMb ?? RUNNER_DEFAULTS.memoryMaxMb,
+    pauseWhenBusy: runner?.pauseWhenBusy ?? RUNNER_DEFAULTS.pauseWhenBusy,
   }
 }
 
@@ -265,12 +272,20 @@ export function runnerLabelsFrom(entries: readonly string[]): { labels: string[]
  *  normalized list back, so a refused entry leaves the field). */
 export const RUNNER_LABELS_PATH = `/labels`
 
-export const RUNNER_EVENTS = { enabled: `runner-enabled`, labels: `runner-labels`, slots: `runner-slots`, timeout: `runner-timeout` } as const
+export const RUNNER_EVENTS = {
+  enabled: `runner-enabled`,
+  labels: `runner-labels`,
+  slots: `runner-slots`,
+  timeout: `runner-timeout`,
+  memory: `runner-memory`,
+  pause: `runner-pause`,
+} as const
 
 /** The section (runner-settings.json LAYOUT). */
 export function runnerSectionTree(input: {
   client: RunnerClient
   caps: readonly string[]
+  kind: string | null | undefined
   platform: string | null | undefined
   settings: RunnerSettings
   owner: boolean
@@ -280,7 +295,8 @@ export function runnerSectionTree(input: {
   const copy = RUNNER_SETTINGS_COPY
   const ids = RUNNER_SETTINGS_TEST_IDS
   const disabled = !input.owner
-  const notice = runnerNotice(input.client, input.caps)
+  const notice = runnerNotice(input.client, input.caps, input.kind, input.platform)
+  const switchDisabled = disabled || (runnerUnsupported(input.kind, input.platform) && !input.settings.enabled)
   const os = runnerOsLabel(input.platform)
   const children: NestedNode[] = []
   if (notice) {
@@ -295,7 +311,7 @@ export function runnerSectionTree(input: {
       {
         id: ids.switch,
         component: `Switch`,
-        props: { label: ``, name: ids.switch, checked: input.settings.enabled, disabled },
+        props: { label: ``, name: ids.switch, checked: input.settings.enabled, disabled: switchDisabled },
         on: { change: { event: { name: RUNNER_EVENTS.enabled } } },
       },
     ],
@@ -344,6 +360,31 @@ export function runnerSectionTree(input: {
           disabled,
         },
         on: { change: { event: { name: RUNNER_EVENTS.timeout } } },
+      },
+      {
+        id: ids.memory,
+        component: `Select`,
+        props: {
+          label: copy.memory,
+          name: ids.memory,
+          options: RUNNER_MEMORY_OPTIONS,
+          value: String(input.settings.memoryMaxMb),
+          disabled,
+        },
+        on: { change: { event: { name: RUNNER_EVENTS.memory } } },
+      },
+      {
+        id: `runner-pause-row`,
+        component: `SettingsRow`,
+        props: { label: copy.pause },
+        children: [
+          {
+            id: ids.pause,
+            component: `Switch`,
+            props: { label: ``, name: ids.pause, checked: input.settings.pauseWhenBusy, disabled },
+            on: { change: { event: { name: RUNNER_EVENTS.pause } } },
+          },
+        ],
       }
     )
   }
@@ -389,6 +430,14 @@ export function runnerSettingsAfter(
     const timeoutMin = Number(p.value)
     const known = RUNNER_TIMEOUT_OPTIONS.some((o) => o.value === p.value)
     return { settings: !known || timeoutMin === current.timeoutMin ? null : { ...current, timeoutMin }, refused: false }
+  }
+  if (event === RUNNER_EVENTS.memory && typeof p.value === `string`) {
+    const memoryMaxMb = Number(p.value)
+    const known = RUNNER_MEMORY_OPTIONS.some((o) => o.value === p.value)
+    return { settings: !known || memoryMaxMb === current.memoryMaxMb ? null : { ...current, memoryMaxMb }, refused: false }
+  }
+  if (event === RUNNER_EVENTS.pause && typeof p.checked === `boolean`) {
+    return { settings: p.checked === current.pauseWhenBusy ? null : { ...current, pauseWhenBusy: p.checked }, refused: false }
   }
   return { settings: null, refused: false }
 }
