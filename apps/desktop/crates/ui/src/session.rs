@@ -466,6 +466,12 @@ pub fn bootstrap(cx: &mut App) {
     // (it starts after the shell, so it never hears the shell's start link;
     // a link that arrives later still wins).
     match on_exponential_desktop().then(|| ede_pick(elocal::ede_legacy_root().as_deref())) {
+        // #EDE-238: with nothing saved the signed-in account comes first:
+        // the shell reads this app's store (one store per login) and no
+        // longer picks the team for it, so Local only when it was picked.
+        Some(EdePick::Local) if !ede_picked(elocal::ede_legacy_root().as_deref()) && !AuthContext::global(cx).auth.signed_in_accounts().is_empty() => {
+            crate::ui_prefs::set_on_local_desktop(false);
+        }
         Some(EdePick::Local) => {
             if crate::local_desktops::enter_current(cx) {
                 return;
