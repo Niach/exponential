@@ -27,6 +27,7 @@ import {
   parseLineAnchor,
   stripAnsi,
 } from "./ci-log"
+import type { CiStatus } from "./ci-log"
 
 const plain = (v: unknown) => JSON.parse(JSON.stringify(v))
 
@@ -65,7 +66,7 @@ describe(`fixtures/ci-log.json`, () => {
 
 describe(`the CI status table`, () => {
   test(`is style.json ciStatus and the ciStatus enum`, () => {
-    expect([...CI_STATUSES]).toEqual([...coreCatalog.enums.ciStatus!])
+    expect([...CI_STATUSES]).toEqual([...coreCatalog.enums.ciStatus!] as CiStatus[])
     expect(styleJson.ciStatus.spinMs).toBe(CI_STATUS_SPIN_MS)
     for (const status of CI_STATUSES) {
       const style = (styleJson.ciStatus as unknown as Record<string, { icon: string; spin: boolean }>)[status]!
