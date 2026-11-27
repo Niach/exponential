@@ -1,5 +1,5 @@
 {
-  "$comment": "EDE-273 (#EDE-241 P6.1, 2026-11-27): SYSTEM SETTINGS, Mint's cinnamon-settings on eDE. ONE window of the shell (apps/ede/ui/settings.express, a `window` surface: a normal toplevel with eDE's frame and its own taskbar entry, app id at.exponential.settings, a single instance: asked again it comes to the front; closed from its frame, the next open starts on the grid). `title` = the window's title on the grid. `categories` = the grid's sections in order (Cinnamon's Appearance, Preferences, Hardware, then Exponential, then Administration). `modules` = THE catalogue, in each category's order (Cinnamon's: by name; Exponential's own order): {id (the module's route segment: `~/settings/<id>`), name (the tile's label AND the window's title while it is open, Cinnamon's wording), category, icon (a concept of packages/icons), keywords (Cinnamon's keyword list plus eDE's, comma separated: the search reads them), kind: module (a page in the window) | later (listed honestly, its page says it is not built yet) | launch (Mint's own tool: `command` runs, the window stays where it was), opens? (an alias: Account Details and Online Accounts open Exponential's Account)}. `aliases` = the page ids links used before #EDE-273 (the applets, the panel menu, a person's documents) and the module they mean. SELECTORS: settingsGrid(query, installed) -> [{id, title, modules [{id, name, icon, kind, later (kind is later), installed (a launch module: its id is in `installed`, the launch modules whose command the host finds; every other kind true)}]}]: q = query trimmed and lowercased; empty = every module; else a module is listed when its name (lowercased) or its keywords (lowercased) CONTAIN q (Cinnamon's filter_visible_function), and a category with no listed module is left out. settingsNavigate(state, event, installed) -> {state, launch, title}: state = {module (`` = the grid), query (as typed)}; launch = a command to run or null; title = the open module's name, else `title`. EVENTS: open {id} (a tile's press): an unknown id changes nothing; an alias resolves to its target; a launch module whose tool is installed launches (state unchanged), else (not installed) its page opens; any other module opens (module = its id, the query kept for back). back (the header's back button, Alt+Left): in a module the grid again, query kept; on the grid nothing. query {text}: on the grid the search text (it filters live); in a module ignored (the search is the grid's). submit (Enter in the search): on the grid with a non-empty trimmed query, `open` of the FIRST module settingsGrid lists; no match, an empty query or a module open: nothing. link {target} (`~/settings/<module>` from the start menu's search, a link, an applet; `~/settings` alone or a bare id too; an old page id through `aliases`): the query cleared; an unknown target = the grid; a launch module with its tool launches and the window shows the grid; else that module. Any other event changes nothing. The WINDOW: the header carries the back button while a module is open and the search on the grid; Enter in the search = submit; tiles are 104 px wide with a 48 px icon disc and the name under it (a later module's name muted); a module's page is a centred column (640 px) of framed groups (a title, then a bordered box of rows divided by hairlines). A setting the machine cannot apply yet is a read-only value row, never a dead control.",
+  "$comment": "EDE-273 (#EDE-241 P6.1, 2026-11-27): SYSTEM SETTINGS, Mint's cinnamon-settings on eDE. ONE window of the shell (apps/ede/ui/settings.express, a `window` surface: a normal toplevel with eDE's frame and its own taskbar entry, app id at.exponential.settings, a single instance: asked again it comes to the front; closed from its frame, the next open starts on the grid). `title` = the window's title on the grid. `categories` = the grid's sections in order (Cinnamon's Appearance, Preferences, Hardware, then Exponential, then Administration). `modules` = THE catalogue, in each category's order (Cinnamon's: by name; Exponential's own order): {id (the module's route segment: `~/settings/<id>`), name (the tile's label AND the window's title while it is open, Cinnamon's wording), category, icon (a concept of packages/icons), keywords (cinnamon-settings' own `keywords` string where Mint has the module, a few eDE additions; none that only collides, e.g. no `screenshot` on Backgrounds), kind: module (a page in the window) | later (listed honestly, its page says it is not built yet) | launch (Mint's own tool: `command` runs, the window stays where it was), opens? (an alias: Account Details and Online Accounts open Exponential's Account), tabs? (#EDE-274: the module's stack switcher in the header, cinnamon-settings' pages of one module, [{value, label}] in order)}. `aliases` = the page ids links used before #EDE-273 (the applets, the panel menu, a person's documents) and the module they mean. SELECTORS: settingsGrid(query, installed) -> [{id, title, modules [{id, name, icon, kind, later (kind is later), installed (a launch module: its id is in `installed`, the launch modules whose command the host finds; every other kind true)}]}]: q = query trimmed and lowercased; empty = every module; else a module is listed when its name (lowercased) or its keywords (lowercased) CONTAIN q (Cinnamon's filter_visible_function), and a category with no listed module is left out. settingsNavigate(state, event, installed) -> {state, launch, title}: state = {module (`` = the grid), query (as typed), tab (the open module's page of its stack, `` without one)}; launch = a command to run or null; title = the open module's name, else `title`. EVENTS: open {id} (a tile's press): an unknown id changes nothing; an alias resolves to its target; a launch module whose tool is installed launches (state unchanged), else (not installed) its page opens; any other module opens (module = its id, tab = its first page or ``, the query kept for back). back (the header's back button, Alt+Left): in a module the grid again (tab ``), query kept, and the keyboard back in the search; on the grid nothing. query {text}: on the grid the search text (it filters live); in a module ignored (the search is the grid's). submit (Enter in the search; Mint's cinnamon-settings binds none, eDE opens the best match): on the grid with a non-empty trimmed query, `open` of the BEST listed module: rank 0 = its name (lowercased) starts with q, 1 = its name contains q, 2 = only its keywords do; ties keep settingsGrid's order (the tiles stay in Cinnamon's order, only Enter ranks); no match, an empty query or a module open: nothing. link {target} (`~/settings/<module>` from the start menu's search, a link, an applet; `~/settings` alone or a bare id too; an old page id through `aliases`): the query cleared; an unknown target = the grid; a launch module with its tool launches and the window shows the grid; else that module on its first page. tab {value} (#EDE-274, the stack switcher): a page the open module lists becomes `tab`; another value, or on the grid, nothing. Any other event changes nothing. The WINDOW: the header carries the back button and the module's name while a module is open (and its stack switcher, a Segmented, centred) and the search on the grid (focused whenever the grid shows); Enter in the search = submit; tiles are 104 px wide with a 48 px icon disc and the name under it (a later module's name muted); a module's page is a centred column (640 px) of framed groups (a title, then a bordered box of rows divided by hairlines). A setting the machine cannot apply yet is a read-only value row, never a dead control.",
   "title": "System Settings",
   "categories": [
     {
@@ -29,15 +29,15 @@
       "name": "Backgrounds",
       "category": "appearance",
       "icon": "image",
-      "keywords": "background, picture, screenshot, slideshow, wallpaper",
-      "kind": "later"
+      "keywords": "background, picture, slideshow, wallpaper",
+      "kind": "module"
     },
     {
       "id": "effects",
       "name": "Effects",
       "category": "appearance",
       "icon": "sparkles",
-      "keywords": "effects, fancy, window, animation",
+      "keywords": "effects, window",
       "kind": "later"
     },
     {
@@ -45,15 +45,15 @@
       "name": "Font Selection",
       "category": "appearance",
       "icon": "type",
-      "keywords": "font, size, small, large, hinting, antialiasing",
-      "kind": "later"
+      "keywords": "font, size, small, large",
+      "kind": "module"
     },
     {
       "id": "themes",
       "name": "Themes",
       "category": "appearance",
       "icon": "palette",
-      "keywords": "themes, style, dark, accent, colour, color, gtk, qt, rerusted",
+      "keywords": "themes, style, appearance",
       "kind": "module"
     },
     {
@@ -69,7 +69,7 @@
       "name": "Account Details",
       "category": "preferences",
       "icon": "user",
-      "keywords": "users, picture, password, name, exponential, sign in, sign out",
+      "keywords": "user, account, information, details, password",
       "kind": "module",
       "opens": "account"
     },
@@ -78,7 +78,7 @@
       "name": "Applets",
       "category": "preferences",
       "icon": "puzzle",
-      "keywords": "applet, panel, add, remove, version history",
+      "keywords": "applet",
       "kind": "later"
     },
     {
@@ -86,7 +86,7 @@
       "name": "Date & Time",
       "category": "preferences",
       "icon": "calendar",
-      "keywords": "time, date, calendar, format, network, sync, ntp, timezone, clock",
+      "keywords": "time, date, calendar, format, network, sync",
       "kind": "module"
     },
     {
@@ -94,7 +94,7 @@
       "name": "Desklets",
       "category": "preferences",
       "icon": "layout-grid",
-      "keywords": "desklet, desktop, widget, version history",
+      "keywords": "desklet, desktop, slideshow",
       "kind": "later"
     },
     {
@@ -102,7 +102,7 @@
       "name": "Desktop",
       "category": "preferences",
       "icon": "monitor",
-      "keywords": "desktop, home, button, trash, icons",
+      "keywords": "desktop, home, button, trash",
       "kind": "later"
     },
     {
@@ -110,7 +110,7 @@
       "name": "Extensions",
       "category": "preferences",
       "icon": "boxes",
-      "keywords": "extension, addon, version history",
+      "keywords": "extension, addon",
       "kind": "later"
     },
     {
@@ -118,16 +118,16 @@
       "name": "General",
       "category": "preferences",
       "icon": "sliders-horizontal",
-      "keywords": "general, compositing, scaling, hidpi, scale",
-      "kind": "later"
+      "keywords": "logging, click, scaling, hidpi",
+      "kind": "module"
     },
     {
       "id": "hot-corners",
       "name": "Hot Corners",
       "category": "preferences",
       "icon": "maximize-2",
-      "keywords": "hotcorner, hot corner, overview, scale, expo, show desktop",
-      "kind": "later"
+      "keywords": "hotcorner, overview, scale, expo",
+      "kind": "module"
     },
     {
       "id": "input-method",
@@ -150,7 +150,7 @@
       "name": "Notifications",
       "category": "preferences",
       "icon": "bell",
-      "keywords": "notifications, toasts, do not disturb, email, push",
+      "keywords": "notifications",
       "kind": "module"
     },
     {
@@ -167,15 +167,15 @@
       "name": "Panel",
       "category": "preferences",
       "icon": "layout-grid",
-      "keywords": "panel, height, bottom, top, autohide, size, layout, taskbar, group windows, session area",
-      "kind": "later"
+      "keywords": "panel, height, bottom, top, autohide, size, layout, taskbar, group windows",
+      "kind": "module"
     },
     {
       "id": "preferred-applications",
       "name": "Preferred Applications",
       "category": "preferences",
       "icon": "star",
-      "keywords": "media, defaults, applications, programs, removable, browser, email, calendar, music, videos, photos, images, cd, autostart, autoplay, default apps",
+      "keywords": "media, defaults, applications, programs, removable, browser, email, calendar, music, videos, photos, images, cd, autoplay, favorite, apps",
       "kind": "module"
     },
     {
@@ -183,23 +183,23 @@
       "name": "Privacy",
       "category": "preferences",
       "icon": "shield",
-      "keywords": "privacy, recent, files, screen, computer use, consent",
-      "kind": "later"
+      "keywords": "privacy, recent, gtk, private, screen sharing, computer use",
+      "kind": "module"
     },
     {
       "id": "screensaver",
       "name": "Screensaver",
       "category": "preferences",
       "icon": "lock",
-      "keywords": "screensaver, lock, password, away, message, idle, blank",
-      "kind": "later"
+      "keywords": "screensaver, lock, away, message, idle",
+      "kind": "module"
     },
     {
       "id": "startup-applications",
       "name": "Startup Applications",
       "category": "preferences",
       "icon": "rocket",
-      "keywords": "startup, programs, boot, init, session, autostart, login",
+      "keywords": "startup, programs, boot, init, session, autostart, apps",
       "kind": "module"
     },
     {
@@ -207,7 +207,7 @@
       "name": "Window Tiling",
       "category": "preferences",
       "icon": "layers",
-      "keywords": "window, tile, flip, tiling, snap, snapping, edge",
+      "keywords": "window, tile, flip, tiling, snap, snapping",
       "kind": "module"
     },
     {
@@ -215,15 +215,29 @@
       "name": "Windows",
       "category": "preferences",
       "icon": "copy",
-      "keywords": "windows, titlebar, edge, switcher, window list, attention, focus, alt-tab, tiling, snap",
-      "kind": "module"
+      "keywords": "windows, titlebar, edge, switcher, window list, attention, focus, tile, tiling, snap, snapping, alttab",
+      "kind": "module",
+      "tabs": [
+        {
+          "value": "titlebar",
+          "label": "Titlebar"
+        },
+        {
+          "value": "behavior",
+          "label": "Behavior"
+        },
+        {
+          "value": "alt-tab",
+          "label": "Alt-Tab"
+        }
+      ]
     },
     {
       "id": "workspaces",
       "name": "Workspaces",
       "category": "preferences",
       "icon": "layers-2",
-      "keywords": "workspace, osd, expo, monitor, virtual desktops",
+      "keywords": "workspace, osd, expo, monitor",
       "kind": "module"
     },
     {
@@ -247,7 +261,7 @@
       "name": "Display",
       "category": "hardware",
       "icon": "monitor",
-      "keywords": "display, screen, monitor, layout, resolution, dual, lcd, scale, scaling, refresh",
+      "keywords": "display, screen, monitor, layout, resolution, dual, lcd, hidpi",
       "kind": "module"
     },
     {
@@ -263,15 +277,25 @@
       "name": "Keyboard",
       "category": "hardware",
       "icon": "a-large-small",
-      "keywords": "keyboard, keys, shortcut, hotkey, layout, repeat, xkb",
-      "kind": "module"
+      "keywords": "keyboard, shortcut, hotkey, layout",
+      "kind": "module",
+      "tabs": [
+        {
+          "value": "typing",
+          "label": "Typing"
+        },
+        {
+          "value": "layouts",
+          "label": "Layouts"
+        }
+      ]
     },
     {
       "id": "mouse-and-touchpad",
       "name": "Mouse and Touchpad",
       "category": "hardware",
       "icon": "move",
-      "keywords": "mouse, touchpad, synaptic, double-click, pointer, trackpad, scroll, tap",
+      "keywords": "mouse, touchpad, synaptic, double-click, pointer",
       "kind": "module"
     },
     {
@@ -287,7 +311,7 @@
       "name": "Power Management",
       "category": "hardware",
       "icon": "battery-charging",
-      "keywords": "power, suspend, hibernate, laptop, desktop, brightness, battery, profile, shut down, restart",
+      "keywords": "power, suspend, hibernate, laptop, desktop, brightness, screensaver",
       "kind": "module"
     },
     {
@@ -304,15 +328,29 @@
       "name": "Sound",
       "category": "hardware",
       "icon": "media-volume-up",
-      "keywords": "sound, media, music, speakers, audio, microphone, headphone, volume",
-      "kind": "module"
+      "keywords": "sound, media, music, speakers, audio, microphone, headphone",
+      "kind": "module",
+      "tabs": [
+        {
+          "value": "output",
+          "label": "Output"
+        },
+        {
+          "value": "input",
+          "label": "Input"
+        },
+        {
+          "value": "applications",
+          "label": "Applications"
+        }
+      ]
     },
     {
       "id": "system-info",
       "name": "System Info",
       "category": "hardware",
       "icon": "info",
-      "keywords": "system, information, details, graphic, sound, kernel, version, about, cpu, memory, updates, what's new",
+      "keywords": "system, information, details, graphic, sound, kernel, version, about",
       "kind": "module"
     },
     {
@@ -443,8 +481,8 @@
               "id": "backgrounds",
               "name": "Backgrounds",
               "icon": "image",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -459,8 +497,8 @@
               "id": "font-selection",
               "name": "Font Selection",
               "icon": "type",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -537,16 +575,16 @@
               "id": "general",
               "name": "General",
               "icon": "sliders-horizontal",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
               "id": "hot-corners",
               "name": "Hot Corners",
               "icon": "maximize-2",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -585,8 +623,8 @@
               "id": "panel",
               "name": "Panel",
               "icon": "layout-grid",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -601,16 +639,16 @@
               "id": "privacy",
               "name": "Privacy",
               "icon": "shield",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
               "id": "screensaver",
               "name": "Screensaver",
               "icon": "lock",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -905,8 +943,58 @@
               "id": "backgrounds",
               "name": "Backgrounds",
               "icon": "image",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "'hot' lists every name or keyword holding it, in Cinnamon's order",
+      "query": "hot",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "preferences",
+          "title": "Preferences",
+          "modules": [
+            {
+              "id": "hot-corners",
+              "name": "Hot Corners",
+              "icon": "maximize-2",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "preferred-applications",
+              "name": "Preferred Applications",
+              "icon": "star",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "keyboard",
+              "name": "Keyboard",
+              "icon": "a-large-small",
+              "kind": "module",
+              "later": false,
               "installed": true
             }
           ]
@@ -1044,8 +1132,8 @@
               "id": "backgrounds",
               "name": "Backgrounds",
               "icon": "image",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -1060,8 +1148,8 @@
               "id": "font-selection",
               "name": "Font Selection",
               "icon": "type",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -1138,16 +1226,16 @@
               "id": "general",
               "name": "General",
               "icon": "sliders-horizontal",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
               "id": "hot-corners",
               "name": "Hot Corners",
               "icon": "maximize-2",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -1186,8 +1274,8 @@
               "id": "panel",
               "name": "Panel",
               "icon": "layout-grid",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -1202,16 +1290,16 @@
               "id": "privacy",
               "name": "Privacy",
               "icon": "shield",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
               "id": "screensaver",
               "name": "Screensaver",
               "icon": "lock",
-              "kind": "later",
-              "later": true,
+              "kind": "module",
+              "later": false,
               "installed": true
             },
             {
@@ -1471,7 +1559,8 @@
       "name": "open a module from the grid: its page, the window titled by it",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1488,7 +1577,8 @@
       "expected": {
         "state": {
           "module": "sound",
-          "query": ""
+          "query": "",
+          "tab": "output"
         },
         "launch": null,
         "title": "Sound"
@@ -1498,7 +1588,8 @@
       "name": "open keeps the query for back",
       "state": {
         "module": "",
-        "query": "sou"
+        "query": "sou",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1515,7 +1606,8 @@
       "expected": {
         "state": {
           "module": "sound",
-          "query": "sou"
+          "query": "sou",
+          "tab": "output"
         },
         "launch": null,
         "title": "Sound"
@@ -1525,7 +1617,8 @@
       "name": "an alias opens its target: Account Details is Exponential's Account",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1542,7 +1635,8 @@
       "expected": {
         "state": {
           "module": "account",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Account"
@@ -1552,7 +1646,8 @@
       "name": "Online Accounts is Exponential's Account too",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1569,7 +1664,8 @@
       "expected": {
         "state": {
           "module": "account",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Account"
@@ -1579,7 +1675,8 @@
       "name": "an unknown module changes nothing",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1596,7 +1693,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1606,7 +1704,8 @@
       "name": "a later module opens its honest page",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1623,7 +1722,8 @@
       "expected": {
         "state": {
           "module": "effects",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Effects"
@@ -1633,7 +1733,8 @@
       "name": "a launch module with its tool installed launches it and stays on the grid",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1650,7 +1751,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": "system-config-printer",
         "title": "System Settings"
@@ -1660,7 +1762,8 @@
       "name": "a launch module without its tool opens its page (not installed)",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "open",
@@ -1670,7 +1773,8 @@
       "expected": {
         "state": {
           "module": "firewall",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Firewall"
@@ -1680,7 +1784,8 @@
       "name": "back from a module returns to the grid with the query kept",
       "state": {
         "module": "sound",
-        "query": "sou"
+        "query": "sou",
+        "tab": "output"
       },
       "event": {
         "kind": "back"
@@ -1696,7 +1801,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "sou"
+          "query": "sou",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1706,7 +1812,8 @@
       "name": "back on the grid changes nothing",
       "state": {
         "module": "",
-        "query": "sou"
+        "query": "sou",
+        "tab": ""
       },
       "event": {
         "kind": "back"
@@ -1722,7 +1829,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "sou"
+          "query": "sou",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1732,7 +1840,8 @@
       "name": "typing in the search on the grid stores the text as typed",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "query",
@@ -1749,7 +1858,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "Blue"
+          "query": "Blue",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1759,7 +1869,8 @@
       "name": "a query in a module is ignored",
       "state": {
         "module": "sound",
-        "query": ""
+        "query": "",
+        "tab": "output"
       },
       "event": {
         "kind": "query",
@@ -1776,17 +1887,19 @@
       "expected": {
         "state": {
           "module": "sound",
-          "query": ""
+          "query": "",
+          "tab": "output"
         },
         "launch": null,
         "title": "Sound"
       }
     },
     {
-      "name": "Enter opens the first match in grid order",
+      "name": "Enter opens the best match: a name starting with the query first ('sou': Sound)",
       "state": {
         "module": "",
-        "query": "sou"
+        "query": "sou",
+        "tab": ""
       },
       "event": {
         "kind": "submit"
@@ -1802,17 +1915,131 @@
       "expected": {
         "state": {
           "module": "sound",
-          "query": "sou"
+          "query": "sou",
+          "tab": "output"
         },
         "launch": null,
         "title": "Sound"
       }
     },
     {
+      "name": "Enter on 'hot' opens Hot Corners (a name starting with it), never a keyword hit",
+      "state": {
+        "module": "",
+        "query": "hot",
+        "tab": ""
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "hot-corners",
+          "query": "hot",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "Hot Corners"
+      }
+    },
+    {
+      "name": "a name containing the query beats a keyword ('tiling': Window Tiling over Windows)",
+      "state": {
+        "module": "",
+        "query": "tiling",
+        "tab": ""
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "window-tiling",
+          "query": "tiling",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "Window Tiling"
+      }
+    },
+    {
+      "name": "with no name holding the query, the first keyword hit in grid order ('wallpaper': Backgrounds)",
+      "state": {
+        "module": "",
+        "query": "wallpaper",
+        "tab": ""
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "backgrounds",
+          "query": "wallpaper",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "Backgrounds"
+      }
+    },
+    {
+      "name": "ties keep the grid's order ('s': Screensaver before Sound)",
+      "state": {
+        "module": "",
+        "query": "s",
+        "tab": ""
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "screensaver",
+          "query": "s",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "Screensaver"
+      }
+    },
+    {
       "name": "Enter with no match changes nothing",
       "state": {
         "module": "",
-        "query": "zzzz"
+        "query": "zzzz",
+        "tab": ""
       },
       "event": {
         "kind": "submit"
@@ -1828,7 +2055,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "zzzz"
+          "query": "zzzz",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1838,7 +2066,8 @@
       "name": "Enter with an empty query changes nothing",
       "state": {
         "module": "",
-        "query": "  "
+        "query": "  ",
+        "tab": ""
       },
       "event": {
         "kind": "submit"
@@ -1854,7 +2083,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "  "
+          "query": "  ",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -1864,7 +2094,8 @@
       "name": "Enter on a launch module launches it",
       "state": {
         "module": "",
-        "query": "printers"
+        "query": "printers",
+        "tab": ""
       },
       "event": {
         "kind": "submit"
@@ -1880,7 +2111,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": "printers"
+          "query": "printers",
+          "tab": ""
         },
         "launch": "system-config-printer",
         "title": "System Settings"
@@ -1890,7 +2122,8 @@
       "name": "Enter in a module changes nothing",
       "state": {
         "module": "sound",
-        "query": "sou"
+        "query": "sou",
+        "tab": "output"
       },
       "event": {
         "kind": "submit"
@@ -1906,7 +2139,8 @@
       "expected": {
         "state": {
           "module": "sound",
-          "query": "sou"
+          "query": "sou",
+          "tab": "output"
         },
         "launch": null,
         "title": "Sound"
@@ -1916,7 +2150,8 @@
       "name": "a link ~/settings/<module> opens it with the query cleared",
       "state": {
         "module": "",
-        "query": "x"
+        "query": "x",
+        "tab": ""
       },
       "event": {
         "kind": "link",
@@ -1933,7 +2168,8 @@
       "expected": {
         "state": {
           "module": "display",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Display"
@@ -1943,7 +2179,8 @@
       "name": "a bare module id is a link too",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "link",
@@ -1960,7 +2197,8 @@
       "expected": {
         "state": {
           "module": "keyboard",
-          "query": ""
+          "query": "",
+          "tab": "typing"
         },
         "launch": null,
         "title": "Keyboard"
@@ -1970,7 +2208,8 @@
       "name": "an old page id still lands: datetime is Date & Time",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "link",
@@ -1987,7 +2226,8 @@
       "expected": {
         "state": {
           "module": "date-and-time",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Date & Time"
@@ -1997,7 +2237,8 @@
       "name": "an old page id: defaults is Preferred Applications",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "link",
@@ -2014,7 +2255,8 @@
       "expected": {
         "state": {
           "module": "preferred-applications",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Preferred Applications"
@@ -2024,7 +2266,8 @@
       "name": "a link to an alias lands on its target",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "link",
@@ -2041,7 +2284,8 @@
       "expected": {
         "state": {
           "module": "account",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "Account"
@@ -2051,7 +2295,8 @@
       "name": "a link to a launch module with its tool launches it, the window on the grid",
       "state": {
         "module": "sound",
-        "query": ""
+        "query": "",
+        "tab": "output"
       },
       "event": {
         "kind": "link",
@@ -2068,7 +2313,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": "mintsources",
         "title": "System Settings"
@@ -2078,7 +2324,8 @@
       "name": "~/settings alone is the grid",
       "state": {
         "module": "sound",
-        "query": "x"
+        "query": "x",
+        "tab": "input"
       },
       "event": {
         "kind": "link",
@@ -2095,7 +2342,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
@@ -2105,7 +2353,8 @@
       "name": "an unknown link is the grid",
       "state": {
         "module": "sound",
-        "query": ""
+        "query": "",
+        "tab": "output"
       },
       "event": {
         "kind": "link",
@@ -2122,17 +2371,192 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"
       }
     },
     {
+      "name": "a module with a stack opens on its first page",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "windows"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "windows",
+          "query": "",
+          "tab": "titlebar"
+        },
+        "launch": null,
+        "title": "Windows"
+      }
+    },
+    {
+      "name": "the stack switcher picks a page of the open module",
+      "state": {
+        "module": "sound",
+        "query": "",
+        "tab": "output"
+      },
+      "event": {
+        "kind": "tab",
+        "value": "applications"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": "",
+          "tab": "applications"
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "a page the module does not have changes nothing",
+      "state": {
+        "module": "sound",
+        "query": "",
+        "tab": "output"
+      },
+      "event": {
+        "kind": "tab",
+        "value": "layouts"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": "",
+          "tab": "output"
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "the stack switcher on the grid changes nothing",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "tab",
+        "value": "output"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "back leaves the module's page too",
+      "state": {
+        "module": "sound",
+        "query": "",
+        "tab": "input"
+      },
+      "event": {
+        "kind": "back"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "a link to a module with a stack opens its first page",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/keyboard"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "keyboard",
+          "query": "",
+          "tab": "typing"
+        },
+        "launch": null,
+        "title": "Keyboard"
+      }
+    },
+    {
       "name": "an unknown event changes nothing",
       "state": {
         "module": "",
-        "query": ""
+        "query": "",
+        "tab": ""
       },
       "event": {
         "kind": "bogus"
@@ -2148,7 +2572,8 @@
       "expected": {
         "state": {
           "module": "",
-          "query": ""
+          "query": "",
+          "tab": ""
         },
         "launch": null,
         "title": "System Settings"

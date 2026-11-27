@@ -67,11 +67,7 @@ pub fn config_json() -> Value {
             "repeat_rate": kb.get("repeat_rate").and_then(|v| v.as_integer()).unwrap_or(30),
             "repeat_delay": kb.get("repeat_delay").and_then(|v| v.as_integer()).unwrap_or(400),
         },
-        "theme": {
-            "bridge": theme.get("bridge").and_then(|v| v.as_bool()).unwrap_or(true),
-            // What the bridge resolved (#EDE-19): the installed themes and fonts it picked.
-            "summary": theme_summary(),
-        },
+        "theme": theme_json(&theme),
         // #LOGS-2: Settings › About's "Send diagnostics" (ede-observability reads it).
         "diagnostics": {
             "send": diagnostics.get("send").and_then(|v| v.as_bool()).unwrap_or(true),
@@ -119,6 +115,55 @@ pub fn scale_text(scale: f64) -> String {
     }
 }
 
+/// `/config/theme` (#EDE-19, #EDE-274 Themes and Font Selection): the
+/// bridge's switch, what it resolved, and what it offers: the installed
+/// GTK, icon and cursor themes and font families (a `[theme]` key the
+/// person set wins; `exponential-theme sync` applies a change).
+fn theme_json(theme: &toml::Table) -> Value {
+    let bridge = theme.get("bridge").and_then(|v| v.as_bool()).unwrap_or(true);
+    let (choice, installed) = if std::env::var_os("EDE_SHELL_DEMO").is_some() {
+        (
+            ede_theme::Choice { gtk: "Adwaita-dark".into(), icons: "Papirus-Dark".into(), cursor: "Adwaita".into(), cursor_size: 24, font: "Inter".into(), monospace: "JetBrains Mono".into(), font_size: 10, qt_platform_theme: "qt6ct".into() },
+            ede_theme::Installed {
+                gtk_themes: vec!["Adwaita".into(), "Adwaita-dark".into(), "Mint-Y-Dark-Orange".into()],
+                icon_themes: vec!["Adwaita".into(), "Mint-Y".into(), "Papirus-Dark".into()],
+                cursor_themes: vec!["Adwaita".into(), "Bibata-Modern-Classic".into(), "DMZ-White".into()],
+                fonts: vec!["DejaVu Sans".into(), "Inter".into(), "JetBrains Mono".into(), "Noto Sans".into(), "Ubuntu Sans".into()],
+                ..Default::default()
+            },
+        )
+    } else {
+        let paths = ede_theme::Paths::from_env();
+        let installed = ede_theme::Installed::scan(&paths);
+        (ede_theme::Choice::resolve(&ede_theme::Overrides::read(&paths), &installed), installed)
+    };
+    let options = |list: &[String], current: &str| -> Vec<Value> {
+        let mut names: Vec<String> = list.to_vec();
+        if !current.is_empty() && !names.iter().any(|n| n == current) {
+            names.push(current.to_string());
+        }
+        names.sort_by_key(|n| n.to_lowercase());
+        names.dedup();
+        names.into_iter().map(|n| json!({"label": n, "value": n})).collect()
+    };
+    json!({
+        "bridge": bridge,
+        // What the bridge resolved (#EDE-19): the installed themes and fonts it picked.
+        "summary": theme_summary(),
+        "gtk": choice.gtk, "icons": choice.icons, "cursor": choice.cursor,
+        "font": choice.font, "monospace": choice.monospace, "font_size": choice.font_size,
+        "fontSizeText": choice.font_size.to_string(),
+        "options": {
+            "gtk": options(&installed.gtk_themes, &choice.gtk),
+            "icons": options(&installed.icon_themes, &choice.icons),
+            "cursor": options(&installed.cursor_themes, &choice.cursor),
+            "font": options(&installed.fonts, &choice.font),
+            "monospace": options(&installed.fonts, &choice.monospace),
+            "fontSize": (8..=16).map(|n| json!({"label": n.to_string(), "value": n.to_string()})).collect::<Vec<_>>(),
+        },
+    })
+}
+
 /// The bridge's choice as one line; the demo never reads the machine.
 fn theme_summary() -> String {
     if std::env::var_os("EDE_SHELL_DEMO").is_some() {
@@ -137,6 +182,11 @@ pub fn persist_config(args: &Value) -> Result<(), String> {
         let entry = t.entry(section).or_insert(toml::Value::Table(toml::Table::new()));
         let Some(table) = entry.as_table_mut() else { return Err(format!("[{section}] is not a table")) };
         for (k, v) in changes {
+            // #EDE-274: Font Selection's size comes as the Select's text.
+            let v = &match (section, k.as_str(), v) {
+                ("theme", "font_size" | "cursor_size", Value::String(n)) => n.parse::<i64>().map(Value::from).map_err(|_| format!("{k} is a number"))?,
+                _ => v.clone(),
+            };
             let value = match v {
                 Value::String(s) => toml::Value::String(s.clone()),
                 Value::Bool(b) => toml::Value::Boolean(*b),
@@ -147,6 +197,16 @@ pub fn persist_config(args: &Value) -> Result<(), String> {
             table.insert(k.clone(), value);
         }
     }
+    write_table(&t)
+}
+
+/// #EDE-274: one key of a compositor.toml section, written as given
+/// (`[hot_corners] layout`, `[idle] lock_after`, `[lock] on_suspend`).
+pub fn persist_key(section: &str, key: &str, value: toml::Value) -> Result<(), String> {
+    let mut t = read_table();
+    let entry = t.entry(section).or_insert(toml::Value::Table(toml::Table::new()));
+    let table = entry.as_table_mut().ok_or_else(|| format!("[{section}] is not a table"))?;
+    table.insert(key.into(), value);
     write_table(&t)
 }
 
