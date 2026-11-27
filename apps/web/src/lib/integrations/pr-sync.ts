@@ -1532,7 +1532,10 @@ async function forgeOfPr(
   fullName: string,
   token?: string | null
 ): Promise<{ forge: Forge; at: ForgeRepo }> {
-  const bare: ForgeRepo = { id: repositoryId, fullName }
+  // #EXP-2170: the repo's provider picks the forge (a hosted repo's children
+  // retarget on eCode's, not GitHub's).
+  const [row] = await db.select({ provider: repositories.provider }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
+  const bare: ForgeRepo = { id: repositoryId, fullName, ...(row?.provider ? { provider: row.provider } : {}) }
   const forge = await forgeFor(bare)
   const resolved = token ?? (await forge.credentials(bare))?.token ?? null
   return { forge, at: { ...bare, token: resolved } }
