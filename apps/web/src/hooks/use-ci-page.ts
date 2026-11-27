@@ -75,11 +75,11 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
       pullRequests: (prs ?? []).map((pr) => ({
         id: pr.id,
         number: pr.number,
-        title: pr.title,
+        title: pr.title ?? ``,
         repositoryId: pr.repositoryId,
         rootSessionId: pr.rootSessionId ?? null,
         base: pr.base,
-        mergeState: pr.mergeState ?? null,
+        mergeState: (pr.mergeState as string | null | undefined) ?? null,
         mergePosition: pr.mergePosition ?? null,
         mergeTrainId: pr.mergeTrainId ?? null,
       })),

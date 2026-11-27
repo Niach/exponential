@@ -81,6 +81,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/ci",
+      "reason": "#EXP-2172: live runs on every client; the `ci` view shoots ci-page.json's scenario (`?dev=ci`) so ×5 show the same state."
+    },
+    {
       "route": "/t/$teamSlug/team",
       "reason": "#EXP-2109: a link to a team redirects to the Teams tab (`teams`)."
     },

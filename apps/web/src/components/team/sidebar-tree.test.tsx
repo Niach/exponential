@@ -150,6 +150,7 @@ function renderRoot(needsYou: number, drafts: number, devices: SidebarDevice[] =
       needsYou={needsYou}
       drafts={drafts}
       chatsBadge={{ count: 0, tone: `muted` }}
+      ciBadge={{ count: 0, tone: `muted` }}
       devices={devices}
       teams={teams}
       onAddDevice={() => {}}
@@ -220,6 +221,7 @@ describe(`#EXP-2027 the root rows`, () => {
         chats: !!screen.queryByTestId(`nav-chats`),
         drafts: !!screen.queryByTestId(`nav-drafts`),
         devices: !!screen.queryByTestId(`sidebar-devices`),
+        ci: !!screen.queryByTestId(`nav-ci`),
       }
       expect(Object.entries(shown).filter(([, on]) => on).map(([id]) => id)).toEqual(c.expected)
     })
@@ -349,6 +351,8 @@ describe(`#EXP-2124 the root rows' menus`, () => {
         needsYou={0}
         drafts={0}
         chatsBadge={{ count: 0, tone: `muted` }}
+      ciBadge={{ count: 0, tone: `muted` }}
+        ciBadge={{ count: 0, tone: `muted` }}
         devices={[]}
         teams={teams}
         onAddDevice={onAdd}

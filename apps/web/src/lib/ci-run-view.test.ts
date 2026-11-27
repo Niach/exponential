@@ -42,7 +42,7 @@ describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
     const tree = ciRunTree(specimen(), opts)
     expect(tree.id).toBe(ciFixture.testIds.page)
     expect(find(tree, `ci-run-heading`)?.props?.text).toBe(`Run #12`)
-    expect(find(tree, `ci-run-name`)?.props?.text).toBe(`ci`)
+    expect(find(tree, `ci-run-name`)?.props?.text).toBe(`ci · exp/APP-33`)
     const grid = find(tree, ciFixture.testIds.tiles)!
     expect(grid.props?.columns).toBe(4)
     expect(grid.children?.map((t) => t.props?.value)).toEqual([`Failed`, `12m 40s`, `mint`, `8f3c2a9`])
