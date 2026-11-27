@@ -125,6 +125,22 @@ export interface TrayInput {
   sessions?: TraySession[]
   /** The session whose view is pinned. */
   watching?: string | null
+  /** #EDE-272: the sessions the person stopped (parked), oldest first. */
+  stopped?: StoppedInput[]
+}
+
+/** A parked session as the shell resolved it (a row's title and chat). */
+export interface StoppedInput {
+  session: string
+  title?: string | null
+  subtitle?: string | null
+}
+
+export interface TrayStopped {
+  session: string
+  title: string
+  subtitle: string | null
+  allow: TrayAction
 }
 
 export interface TrayAction {
@@ -139,6 +155,7 @@ export interface TrayMenuItem {
   icon?: string
   kind?: `separator`
   destructive?: boolean
+  detail?: string
 }
 
 export interface TraySelected {
@@ -158,11 +175,13 @@ export interface TraySelected {
 
 export interface Tray {
   count: number
+  shown: boolean
   badge: string
   list: boolean
   rows: (SpaceRow & { selected: boolean })[]
   selected: TraySelected | null
   menu: TrayMenuItem[]
+  stopped: TrayStopped[]
 }
 
 /** #EDE-266: the computer-use tray's popup and applet menu. */
@@ -200,5 +219,9 @@ export function cuTray(input: TrayInput): Tray {
   const menu: TrayMenuItem[] = selected
     ? [item(selected.watch), ...(selected.pause ? [item(selected.pause)] : []), item(selected.take), { kind: `separator` }, { ...item(action(`stop`)), destructive: true }]
     : []
-  return { count, badge, list: count > 1, rows: rows.map((r) => ({ ...r, selected: r.id === selected?.id })), selected, menu }
+  // #EDE-272: the parked sessions, each with Allow computer use again.
+  const stopped: TrayStopped[] = (input.stopped ?? []).map((s) => ({ session: s.session, title: trimmed(s.title ?? ``) || copy.stoppedUntitled, subtitle: s.subtitle ?? null, allow: action(`allow`) }))
+  if (stopped.length > 0 && menu.length > 0) menu.push({ kind: `separator` })
+  for (const s of stopped) menu.push({ label: s.allow.label, value: `allow:${s.session}`, icon: s.allow.icon, detail: s.title })
+  return { count, shown: count > 0 || stopped.length > 0, badge, list: count > 1, rows: rows.map((r) => ({ ...r, selected: r.id === selected?.id })), selected, menu, stopped }
 }

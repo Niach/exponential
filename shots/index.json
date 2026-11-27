@@ -2155,8 +2155,8 @@
         "file": "shots/ede-agent-spaces/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 16514,
-        "sha256": "f3fe2f5df6842eb8fb231c3ec4fac66aa267182bfb58a9633a9c369830a9206b"
+        "bytes": 18038,
+        "sha256": "dfe1cadbc05f351fb081d72c6e5dc0208264b1d1f91b48773be73f93d31ab9d0"
       }
     },
     "ede-applet-battery": {

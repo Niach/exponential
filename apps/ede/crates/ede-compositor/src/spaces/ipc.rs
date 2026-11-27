@@ -40,6 +40,8 @@ impl Ede {
         if !super::size_ok(width, height) {
             return Err(super::size_refused());
         }
+        // #EDE-272: Stop parked this session's computer use.
+        self.space_parked_refused(session)?;
         if let Some(space) = self.spaces.iter().find(|s| &s.owner == session) {
             return Ok(info(space));
         }

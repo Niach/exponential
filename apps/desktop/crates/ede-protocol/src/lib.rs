@@ -343,6 +343,20 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         view: Option<SpaceViewRect>,
     },
+    /// #EDE-272: the computer-use tray's Stop parks a session's computer
+    /// use until the person allows it again: while parked, the session's
+    /// space grant's `create_space` and its driving ops (input, focus,
+    /// close, launch, clipboard set) are `conflict` ([`STOPPED_BY_USER`]).
+    /// `session` and `parked` both = set it; either absent = only read.
+    /// Answers every parked session, `Vec<SessionId>`. The park lives in
+    /// the compositor (a holder's restart keeps it, a compositor's ends it
+    /// with the spaces).
+    ParkSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session: Option<SessionId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parked: Option<bool>,
+    },
     /// The caller's space, or every space for `system`: `Vec<SpaceInfo>`.
     ListSpaces,
     /// Starts `argv` inside the caller's space: [`Launched`]. The
@@ -433,6 +447,10 @@ pub const SPACE_TRAY_NAMESPACE: &str = "exponential-shell:cu-tray";
 /// it at the refresh rate, and opened on the output of the focused window.
 /// Only the shell's own layers count; its toasts stay hidden.
 pub const ABOVE_FULLSCREEN_NAMESPACES: [&str; 4] = ["exponential-shell:switcher", "exponential-shell:expo", "exponential-shell:scale", "exponential-shell:osd"];
+
+/// #EDE-272: the words of the `conflict` a parked session's space grant
+/// gets ([`Request::ParkSession`]); a client tells it by its start.
+pub const STOPPED_BY_USER: &str = "stopped by user: the person stopped computer use for this session in the computer-use tray; it stays off until they allow it again";
 
 /// #EDE-266: who drives an agent space: its agent (the default), nobody (paused by the person), or the person through the shell's pinned view.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -730,7 +748,7 @@ impl Request {
             // #EDE-172: `system` ends any grant, a holder its own lineage (checked in the arm).
             Request::RevokeGrant { .. } => None,
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
-            Request::DestroySpace { .. } | Request::ControlSpace { .. } | Request::ListSpaces => Some(Capability::System),
+            Request::DestroySpace { .. } | Request::ControlSpace { .. } | Request::ParkSession { .. } | Request::ListSpaces => Some(Capability::System),
             // #EDE-172: whether a pid is in an agent space tells nothing of
             // the desk: any grant (the polkit agent's holds no capability).
             Request::SpaceOfProcess { .. } => None,
@@ -750,7 +768,7 @@ impl Request {
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
             Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText | Request::LaunchToken => false,
-            Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ControlSpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceBusy => false,
+            Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ControlSpace { .. } | Request::ParkSession { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceBusy => false,
         }
     }
 
@@ -774,7 +792,7 @@ impl Request {
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
             Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => false,
             // #EDE-266: the person's hand on a space, never the space's own.
-            Request::ControlSpace { .. } => false,
+            Request::ControlSpace { .. } | Request::ParkSession { .. } => false,
         }
     }
 }
@@ -1772,6 +1790,13 @@ impl Client {
         self.call(Request::ControlSpace { space, control, view }).map(|_| ())
     }
 
+    /// [`Request::ParkSession`] (#EDE-272): parks `session` (or lets it
+    /// go) and answers every parked session; `None` = only read them.
+    pub fn park_session(&mut self, change: Option<(SessionId, bool)>) -> Result<Vec<SessionId>, Error> {
+        let (session, parked) = change.map_or((None, None), |(s, p)| (Some(s), Some(p)));
+        self.call_as(Request::ParkSession { session, parked })
+    }
+
     pub fn spaces(&mut self) -> Result<Vec<SpaceInfo>, Error> {
         self.call_as(Request::ListSpaces)
     }
@@ -2075,6 +2100,8 @@ mod tests {
                 serde_json::json!({"id": 1, "op": "control_space", "space": "space-1", "control": "person", "view": {"namespace": "exponential-shell:space-view", "x": 8, "y": 40, "width": 384, "height": 240}}),
             ),
             (Request::ControlSpace { space: space(), control: SpaceControl::Agent, view: None }, serde_json::json!({"id": 1, "op": "control_space", "space": "space-1", "control": "agent"})),
+            (Request::ParkSession { session: Some(SessionId::new("run-1").unwrap()), parked: Some(true) }, serde_json::json!({"id": 1, "op": "park_session", "session": "run-1", "parked": true})),
+            (Request::ParkSession { session: None, parked: None }, serde_json::json!({"id": 1, "op": "park_session"})),
             (Request::ListSpaces, serde_json::json!({"id": 1, "op": "list_spaces"})),
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, serde_json::json!({"id": 1, "op": "launch", "argv": ["foot"]})),
             (
@@ -2389,6 +2416,7 @@ mod tests {
             (Request::CreateSpace { width: 1280, height: 800 }, true),
             (Request::DestroySpace { space: space() }, true),
             (Request::ControlSpace { space: space(), control: SpaceControl::Paused, view: None }, false),
+            (Request::ParkSession { session: None, parked: None }, false),
             (Request::ListSpaces, true),
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
             (Request::SpaceOfProcess { pid: 42 }, false),
@@ -2403,12 +2431,13 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 48, "one row per variant at least");
+        assert_eq!(seen.len(), 49, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
         assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
         assert_eq!(Request::ControlSpace { space: space(), control: SpaceControl::Person, view: None }.capability(), Some(Capability::System), "#EDE-266: the person's hand, the shell's");
+        assert_eq!(Request::ParkSession { session: None, parked: None }.capability(), Some(Capability::System), "#EDE-272: the person's Stop, the shell's");
         assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
         assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), None, "#EDE-172: any grant");
         // #EXP-1514: any person-scope grant asks it, as `list_windows`.
@@ -2461,6 +2490,7 @@ mod tests {
             Request::CreateSpace { .. } => "create_space",
             Request::DestroySpace { .. } => "destroy_space",
             Request::ControlSpace { .. } => "control_space",
+            Request::ParkSession { .. } => "park_session",
             Request::ListSpaces => "list_spaces",
             Request::Launch { .. } => "launch",
             Request::SpaceOfProcess { .. } => "space_of_process",
@@ -2746,6 +2776,7 @@ mod tests {
             Request::CreateSpace { width: 1, height: 1 },
             Request::DestroySpace { space: space() },
             Request::ControlSpace { space: space(), control: SpaceControl::Agent, view: None },
+            Request::ParkSession { session: None, parked: None },
             Request::ListSpaces,
             Request::Launch { argv: vec![], env: Default::default(), cwd: None },
             Request::SpaceOfProcess { pid: 1 },
@@ -2760,7 +2791,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 48, "every op has a row");
+        assert_eq!(seen.len(), 49, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

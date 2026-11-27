@@ -36,6 +36,13 @@ jobs:
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
             librsvg2-bin file wget
+      # 22.04's PipeWire headers (0.3.48) are too old for pipewire-rs 0.9:
+      # 1.0.5 headers, the system's 0.3.48 library to link (see the script).
+      - name: PipeWire headers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          eval "$(apps/desktop/scripts/pipewire-headers.sh "$RUNNER_TEMP/pipewire-headers")"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/cargo-fetch
         with:
@@ -137,6 +144,12 @@ jobs:
           BINARIES_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
           BINARIES_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
         run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
+      # The AppImage must start on Ubuntu 22.04 and pass the AppImage
+      # catalog's test: no ELF inside it may need a glibc above 2.35 (the
+      # ubuntu-22.04 runner's, build-desktop.yml).
+      - name: Check the AppImage's glibc floor
+        if: runner.os == 'Linux'
+        run: apps/desktop/scripts/check-appimage-glibc.sh apps/desktop/target/Exponential-${{ matrix.channel }}-*.AppImage 2.35
       - name: Upload AppImage
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4

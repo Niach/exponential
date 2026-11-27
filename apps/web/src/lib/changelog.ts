@@ -34,6 +34,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Visible on all workspaces**: right click a button for Visible on all workspaces, or Only on this workspace for a window that is already there.`,
   },
   {
+    id: `2026-11-27-ede-cu-stop-parks`,
+    date: `2026-11-27`,
+    title: `Stop in the computer-use tray stays stopped`,
+    summary: `On Exponential Desktop, Stop in the computer-use tray now turns computer use off for that session until you allow it again; the agent is told it was stopped instead of opening a new space.`,
+    body: `- **Stop stays stopped**: Stop ends the agent's space and keeps that session's computer use off. Its next step comes back to the agent as "stopped by user", so it can tell you instead of quietly starting over in a new space.
+- **Allow computer use again**: the stopped session stays in the computer-use tray, in its popup and its right-click menu, until you allow it again; the next step then gets a new space.`,
+  },
+  {
     id: `2026-11-27-ede-voice-tray`,
     date: `2026-11-27`,
     title: `Voice in the tray`,

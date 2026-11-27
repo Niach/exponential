@@ -42,15 +42,19 @@ jobs:
           # voice there); still the one Exponential-<channel>.dmg asset.
           # aarch64-apple-darwin here = an arm64-only build.
           #
-          # Linux = ubuntu-24.04: the runner's glibc (2.39) is the AppImage's
-          # compatibility floor (forward-compatible only); the fleet's Linux
-          # desktops are 24.04-based (Mint 22). Computer use is pure-Rust X11
-          # since EXP-1273: nothing system-side at build or load time.
+          # Linux = ubuntu-22.04 on purpose (as build-cli.yml): the runner's
+          # glibc (2.35) is the AppImage's compatibility floor (forward-
+          # compatible only), so it runs on 22.04-era distros and passes the
+          # AppImage catalog's test (24.04 shipped GLIBC_2.39 symbols). The
+          # libraries linuxdeploy bundles come from the same 22.04 image; the
+          # GPU stack stays the host's. Computer use is pure-Rust X11 since
+          # EXP-1273: nothing system-side at build or load time. Check:
+          # apps/desktop/scripts/check-appimage-glibc.sh (Package AppImage).
           all='[
             {"os":"macos-26","target":"universal-apple-darwin","channel":"production"},
             {"os":"macos-26","target":"universal-apple-darwin","channel":"staging"},
-            {"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","channel":"production"},
-            {"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","channel":"staging"},
+            {"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","channel":"production"},
+            {"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","channel":"staging"},
             {"os":"windows-latest","target":"x86_64-pc-windows-msvc","channel":"production"},
             {"os":"windows-latest","target":"x86_64-pc-windows-msvc","channel":"staging"}
           ]'

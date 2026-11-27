@@ -21,7 +21,7 @@
 //! close end it, and what the space still has down is let go. A space
 //! never takes the hold or Esc (L-39): neither reaches this path.
 
-use ede_protocol::{ErrorCode, Failure, SpaceControl, SpaceId, SpaceViewRect};
+use ede_protocol::{ErrorCode, Failure, SessionId, SpaceControl, SpaceId, SpaceViewRect};
 use smithay::{
     backend::input::{ButtonState, KeyState},
     desktop::{layer_map_for_output, WindowSurfaceType},
@@ -86,6 +86,32 @@ fn refused(control: SpaceControl) -> Failure {
 }
 
 impl Ede {
+    /// #EDE-272: a parked session (the tray's Stop) makes no space and
+    /// drives none until the person allows it again: `conflict`, in words
+    /// that start with "stopped by user".
+    pub(crate) fn space_parked_refused(&self, session: &SessionId) -> Result<(), Failure> {
+        if self.spaces.parked.contains(session) {
+            return Err(Failure::new(ErrorCode::Conflict, ede_protocol::STOPPED_BY_USER));
+        }
+        Ok(())
+    }
+
+    /// `park_session`: parks `session` (`true`) or lets it go (`false`);
+    /// the parked sessions, oldest first.
+    pub(crate) fn space_park(&mut self, session: Option<SessionId>, parked: Option<bool>) -> Vec<SessionId> {
+        if let (Some(session), Some(parked)) = (session, parked) {
+            let was = self.spaces.parked.contains(&session);
+            if parked && !was {
+                tracing::info!(session = %session, "computer use stopped by the person");
+                self.spaces.parked.push(session);
+            } else if !parked && was {
+                tracing::info!(session = %session, "computer use allowed again");
+                self.spaces.parked.retain(|s| *s != session);
+            }
+        }
+        self.spaces.parked.clone()
+    }
+
     /// The space grant drives its space: `conflict` while its agent does not.
     pub(crate) fn space_driving_refused(&self, desk: DeskId) -> Result<(), Failure> {
         match self.spaces.get(desk).map(|s| s.control) {

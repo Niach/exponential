@@ -13,6 +13,6 @@ describe(`spaces.json view (#EXP-2024)`, () => {
 })
 
 describe(`spaces.json tray (#EDE-266)`, () => {
-  test(`has its cases`, () => expect(fixture.tray.length).toBeGreaterThanOrEqual(8))
+  test(`has its cases`, () => expect(fixture.tray.length).toBeGreaterThanOrEqual(10))
   for (const c of fixture.tray) test(c.name, () => expect(cuTray(c.input as TrayInput)).toEqual(c.expected as ReturnType<typeof cuTray>))
 })

@@ -1019,6 +1019,15 @@ impl Ede {
                 self.space_control(&space, control, view)?;
                 json(serde_json::Value::Null)
             }
+            // #EDE-272: the tray's Stop and Allow computer use again; computer
+            // use reads its own lineage's only.
+            Request::ParkSession { session, parked } => {
+                let mut list = self.space_park(session, parked);
+                if principal == Principal::ComputerUse {
+                    list.retain(|s| self.ipc.cu_sessions.contains(s));
+                }
+                json(serde_json::to_value(list).unwrap())
+            }
             // Only a space grant has a space to make or to launch into.
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Err(fail(ErrorCode::Forbidden, "a space grant only")),
             // #EDE-127: the polkit agent asks before it shows the person a prompt.
@@ -1149,6 +1158,8 @@ impl Ede {
             Request::OpenServices { .. } => true,
             // #EDE-266: who drives a space is the person's say, in the shell's tray.
             Request::ControlSpace { .. } => true,
+            // #EDE-272: the park is the person's say too; reading it is not.
+            Request::ParkSession { session, parked } => session.is_some() || parked.is_some(),
             Request::Input { bindings, .. } => *bindings,
             _ => false,
         };

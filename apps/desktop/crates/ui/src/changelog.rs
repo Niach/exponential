@@ -57,6 +57,41 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_385: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-cu-stop-parks",
+    date: "2026-11-27",
+    title: "Stop in the computer-use tray stays stopped",
+    summary: "On Exponential Desktop, Stop in the computer-use tray now turns computer use off for that session until you allow it again; the agent is told it was stopped instead of opening a new space.",
+    body: r##"- **Stop stays stopped**: Stop ends the agent's space and keeps that session's computer use off. Its next step comes back to the agent as "stopped by user", so it can tell you instead of quietly starting over in a new space.
+- **Allow computer use again**: the stopped session stays in the computer-use tray, in its popup and its right-click menu, until you allow it again; the next step then gets a new space."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_384: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-voice-tray",
+    date: "2026-11-27",
+    title: "Voice in the tray",
+    summary: "On Exponential Desktop a Voice icon in the taskbar calls your Assistant: the call's wave, what was said, Mute, Open chat and End, and the voice settings on a right click.",
+    body: r##"- **A Voice tray item**: on your voice device the taskbar shows a Voice icon. Click it to call the Assistant; during a call it shows the wave, the timer, the last lines said, Mute, Open chat and End.
+- **The voice menu on a right click**: wake word, microphone mute, meeting mode and Voice settings, the same rows as the tray menu had.
+- **One icon**: the app no longer adds its own tray icon on Exponential Desktop."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_383: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-cu-tray",
+    date: "2026-11-27",
+    title: "Background computer use in the tray",
+    summary: "On Exponential Desktop the taskbar's computer-use icon shows what an agent does in its space: a live picture, its steps, and Stop, Pause, Watch and Take over.",
+    body: r##"- **A tray item for computer use**: while an agent works in its own space, the taskbar shows a computer-use icon. Click it for a live picture of the space, the session and its latest steps; right click for the same actions as a menu.
+- **Pause and take over**: Pause stops the agent's clicks and keys in its space until you resume. Take over lets you drive the space yourself through its view; Hand back gives it to the agent again.
+- **Stop ends the space**, never the session; Watch pins the live view at the bottom right."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_382: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-desktop-cli-0-14-186-android",
     date: "2026-11-27",
