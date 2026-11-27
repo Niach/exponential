@@ -375,12 +375,15 @@ object Prompts {
     object RemoveRepository {
         val spec = destructiveSpec(
             "remove-repository",
-            mapOf("title" to "Remove {fullName} from this team?"),
+            mapOf(
+                "title" to "Remove {fullName} from this team?",
+                "body" to "Its pull requests and runs go with it. Boards that use it as their default repository keep none.",
+            ),
             listOf("fullName"),
             "remove",
             "Remove",
         )
-        fun prompt(fullName: String) = spec.render("title", null, "fullName" to fullName)
+        fun prompt(fullName: String) = spec.render("title", "body", "fullName" to fullName)
     }
 
     object UnlinkSignInMethod {

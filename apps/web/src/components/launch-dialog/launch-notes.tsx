@@ -73,9 +73,9 @@ export function LaunchNotes({ model }: { model: LaunchComposerModel }) {
           {`At most ${MAX_ISSUES_PER_RUN} issues per session. Split the batch.`}
         </FieldError>
       )}
-      {model.spansRepos && (
-        <FieldError>Pick issues from a single repository per session.</FieldError>
-      )}
+      {/* #EXP-2171: issues defaulting to different repositories: the + menu
+          picks the one this session works in. */}
+      {model.spansRepos && <p>These issues default to different repositories. Pick one in +.</p>}
       {model.spansBranches && (
         <FieldError>
           Pick issues that branch from a single base branch per session.

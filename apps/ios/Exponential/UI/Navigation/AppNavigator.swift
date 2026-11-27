@@ -36,6 +36,9 @@ enum AppRoute: Hashable {
     /// check's `details_url`, `/t/<team>/ci/<runId>?job=`); `job` = the
     /// requested job (nil = the default one).
     case ciRun(accountId: String, runId: String, job: String? = nil)
+    /// #EXP-2172 (ci-page.json, view `ci`): THE CI page across every member
+    /// team (the phones' More › CI, the iPad sidebar's CI row, a `/ci` link).
+    case ci(accountId: String)
     /// The Inbox page (EXP-1373: pushed from a root page's inbox circle,
     /// notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -99,7 +102,11 @@ enum AppRoute: Hashable {
     /// #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`).
     case mcpActivity(accountId: String, teamId: String)
     /// #EXP-1616 (repo-page.json): Settings › Repositories › a repo's page.
-    case repo(accountId: String, teamId: String, repositoryId: String, isOwner: Bool)
+    /// #EXP-2171: also a Teams tab repository row (`tab` = its menu's Pull
+    /// requests, Runs or Settings).
+    case repo(accountId: String, teamId: String, repositoryId: String, isOwner: Bool, tab: RepoPage.Tab = .pulls)
+    /// #EXP-2171 (repo-page.json NEW › REPOSITORY): New › Repository's page.
+    case newRepository(accountId: String, teamId: String)
     case invite(token: String)
     case syncDebug
     /// About (EXP-262): the app's version surface, pushed from Settings →
@@ -264,7 +271,9 @@ extension AppRoute {
 /// inside it. A tab's pushes are parked while another tab is up and handed
 /// back on return. The app opens on Chats.
 enum MainTab: Hashable {
-    case chats, teams, assistant, settings
+    /// #EXP-2171: `settings` and `devices` are the More tab's roots (its
+    /// menu's pages).
+    case chats, teams, assistant, settings, devices
 
     var page: Chats.Shell.Page {
         switch self {
@@ -272,17 +281,26 @@ enum MainTab: Hashable {
         case .teams: .teams
         case .assistant: .assistant
         case .settings: .settings
+        case .devices: .devices
         }
     }
 
-    /// nil = New.
+    /// nil = New and More (each opens its menu).
     init?(_ tab: Chats.Shell.Tab) {
         switch tab {
         case .chats: self = .chats
         case .teams: self = .teams
         case .assistant: self = .assistant
+        case .new, .more: return nil
+        }
+    }
+
+    /// A More menu row's page.
+    init?(_ item: Chats.Shell.MoreMenu.Item) {
+        switch item {
+        case .devices: self = .devices
         case .settings: self = .settings
-        case .new: return nil
+        case .ci: return nil
         }
     }
 }
@@ -585,6 +603,12 @@ struct MainNavigator: View {
     @State private var keyboardVisible = false
     /// #EXP-2109: the bar's New popup is up.
     @State private var newMenuOpen = false
+    /// #EXP-2171: the bar's More menu is up.
+    @State private var moreMenuOpen = false
+
+    /// #EXP-2171 (`shell.moreMenu`): the More rows this app has a page for.
+    /// The CI page (#EXP-2172) is one line here once it exists.
+    static let morePages: Set<Chats.Shell.MoreMenu.Item> = [.devices, .settings]
     /// A page of the Assistant's chat a link named before its tab mounted.
     @State private var assistantPage: ChatPage?
     /// #EXP-1674: every read-only markdown render's link tap = THE opener. One
@@ -638,9 +662,13 @@ struct MainNavigator: View {
         .onChange(of: tab) { _, target in
             // #NEW-12: a landing on a phone root lights its sidebar entry.
             newMenuOpen = false
+            moreMenuOpen = false
             if phoneTab(sidebar) != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
         }
-        .onChange(of: path) { _, _ in newMenuOpen = false }
+        .onChange(of: path) { _, _ in
+            newMenuOpen = false
+            moreMenuOpen = false
+        }
         // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
         .onChange(of: viewingRoute, initial: true) { _, route in
             ViewingThread.shared.publish(route, deps: deps)
@@ -848,6 +876,8 @@ struct MainNavigator: View {
                     assistantBadge: sessionLists.assistantBadge,
                     issueEnabled: composeTarget != nil,
                     newOpen: $newMenuOpen,
+                    moreOpen: $moreMenuOpen,
+                    moreItems: Chats.Shell.MoreMenu.items(available: Self.morePages),
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
                     // every other path change.
@@ -857,7 +887,8 @@ struct MainNavigator: View {
                         case .issue: newIssueAction?()
                         case .chat: openNewChat()
                         }
-                    }
+                    },
+                    onMore: { item in MainTab(item).map(selectTab) }
                 )
                 .ignoresSafeArea(.keyboard)
                 // Slides out of the way when a screen claims its slot, so the
@@ -1075,6 +1106,9 @@ struct MainNavigator: View {
         case .settings:
             SettingsTabView()
                 .environment(\.accountId, accountId)
+        case .devices:
+            AgentsView()
+                .environment(\.accountId, accountId)
         }
     }
 
@@ -1117,12 +1151,14 @@ struct MainNavigator: View {
     /// Back from the issue returns to the board, not to an empty draft. One
     /// mutation, so the stack animates as a single push.
     private func replaceTopRoute(with route: AppRoute) {
-        // Only the compose page is swapped out. `create()` is async, so a
+        // Only a compose page (an issue draft, New › Repository) is swapped
+        // out. `create()` is async, so a
         // notification tap or a link can push something else on top meanwhile;
         // that must not be clobbered.
-        if case .issueDraft = path.last {
+        switch path.last {
+        case .issueDraft?, .newRepository?:
             path[path.count - 1] = route
-        } else {
+        default:
             path.append(route)
         }
     }
@@ -1337,6 +1373,7 @@ extension MainNavigator {
         case let .agent(_, seed) where seed == .empty: .agent
         case .needsYou: .needsYou
         case .devices: .devices
+        case .ci: .ci
         case let .board(_, id): .board(id)
         default: nil
         }
@@ -1377,7 +1414,7 @@ extension MainNavigator {
             return AnyView(SettingsTabView().environment(\.accountId, accountId))
         case let .board(boardId):
             return AnyView(BoardPageView(boardId: boardId).id(boardId).environment(\.accountId, accountId))
-        case .agent, .devices, .agentChannel, .app, .chat:
+        case .agent, .devices, .ci, .agentChannel, .app, .chat:
             return nil
         }
     }
@@ -1390,6 +1427,8 @@ extension MainNavigator {
             return AnyView(AgentPageView(seed: .empty).environment(\.accountId, accountId))
         case .devices:
             return AnyView(AgentsView().environment(\.accountId, accountId))
+        case .ci:
+            return AnyView(CiPageScreen().environment(\.accountId, accountId))
         case let .agentChannel(agentId):
             return AnyView(AgentChatRoute(agentId: agentId).id(agentId).environment(\.accountId, accountId))
         case let .app(appId):
@@ -1440,6 +1479,9 @@ extension MainNavigator {
         case let .ciRun(accountId, runId, job):
             CiRunScreen(runId: runId, requestedJob: job)
                 .id(runId)
+                .environment(\.accountId, accountId)
+        case let .ci(accountId):
+            CiPageScreen()
                 .environment(\.accountId, accountId)
         case .myWork:
             InboxPage()
@@ -1528,9 +1570,16 @@ extension MainNavigator {
         case let .mcpActivity(accountId, teamId):
             McpActivityPage(teamId: teamId)
                 .environment(\.accountId, accountId)
-        case let .repo(accountId, teamId, repositoryId, isOwner):
-            RepoPageView(teamId: teamId, repositoryId: repositoryId, isOwner: isOwner)
-                .id(repositoryId)
+        case let .repo(accountId, teamId, repositoryId, isOwner, tab):
+            RepoPageView(teamId: teamId, repositoryId: repositoryId, isOwner: isOwner, initialTab: tab)
+                .id("\(repositoryId)/\(tab.rawValue)")
+                .environment(\.accountId, accountId)
+        case let .newRepository(accountId, teamId):
+            NewRepositoryPage(teamId: teamId) { createdId in
+                // A created repository opens its page in place of this one.
+                replaceTopRoute(with: .repo(accountId: accountId, teamId: teamId, repositoryId: createdId, isOwner: true))
+            }
+            .id(teamId)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)
@@ -1685,9 +1734,9 @@ extension MainNavigator {
         _ = bus.consumeDevice()
         bus.pendingDeviceSettingsRowId = rowId
         // Already on the Devices page: it opens the sheet in place.
+        if tab == .devices, path.isEmpty { return }
         if case .devices? = path.last { return }
-        landOnRoot(of: .settings)
-        path.append(.devices(accountId: accountId))
+        landOnRoot(of: .devices)
     }
 
     /// #EXP-1638 / #EXP-1830 (app-shortcuts.json OPENING): open what an

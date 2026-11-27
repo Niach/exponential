@@ -70,9 +70,21 @@ final class AgentComposerModel {
     /// Wave D: non-image files, uploaded beside the images and sent as
     /// `[<filename>](/api/attachments/<id>)` lines after the embeds.
     var pendingFiles: [PendingSteerFile] = []
-    /// EXP-615/739: a free request's repository — the team's FIRST one (a
-    /// phone never picks it, EXP-993); `""` = none (a scratch dir).
-    var chatRepoId = ""
+    /// #EXP-2171: the + menu's explicit repository pick (nil = none yet).
+    var repoPick: String?
+    /// The repository the chat starts on (coding-readiness.json `chatRepo`):
+    /// the pick, else the first issue's newest live PR's repository, else
+    /// its board's default, else the team's only repository; `""` = none (a
+    /// free request runs in a scratch dir, issues resolve on the server).
+    /// Setting it = the pick.
+    var chatRepoId: String {
+        get {
+            CodingReadiness.chatRepository(
+                pick: repoPick, issue: onIssues ? firstIssueRepo : nil, teamRepositoryIds: repos.map(\.id)
+            ) ?? ""
+        }
+        set { repoPick = newValue.isEmpty ? nil : newValue }
+    }
     /// The explicitly picked machine (nil = the seed's / the default one).
     private(set) var deviceId: String?
     var sending = false
@@ -170,6 +182,7 @@ final class AgentComposerModel {
         if let deviceId = seed.deviceId {
             preferredDeviceId = deviceId
         }
+        if let repositoryId = seed.repositoryId { repoPick = repositoryId }
         if let text = seed.text, !text.isEmpty, draftText.isEmpty {
             draftText = text
             seededDraft = text
@@ -228,12 +241,6 @@ final class AgentComposerModel {
         observePools()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
-        // EXP-993: a phone never picks a free request's repository — the
-        // team's FIRST repository is the anchor (a team with none runs in
-        // the agent's scratch dir).
-        if chatRepoId.isEmpty, let first = repos.first {
-            chatRepoId = first.id
-        }
         await loadMentionMembers(teamId: teamId)
     }
 
@@ -683,7 +690,28 @@ final class AgentComposerModel {
         Set(checkedOptions.compactMap(\.repositoryId))
     }
 
-    var multiRepo: Bool { checkedRepoIds.count > 1 }
+    /// `chatRepo`'s issue input: the FIRST checked issue's live PRs (newest
+    /// first) and its board's default.
+    private var firstIssueRepo: CodingReadiness.ChatRepoIssue? {
+        guard let first = checkedOptions.first else { return nil }
+        let prIds = Set(pullLinks.filter { $0.issueId == first.id }.map(\.pullRequestId))
+        let live = openPulls
+            .filter { prIds.contains($0.id) }
+            .sorted { $0.createdAt > $1.createdAt }
+            .map(\.repositoryId)
+        return CodingReadiness.ChatRepoIssue(livePrRepositoryIds: live, boardRepositoryId: first.repositoryId)
+    }
+
+    private var onIssues: Bool {
+        if case .issues = subject { return true }
+        return false
+    }
+
+    /// #EXP-2171: the checked issues default to different repositories:
+    /// the + menu's pick decides (a start asks for one until then).
+    var spansRepos: Bool { checkedRepoIds.count > 1 }
+    var multiRepo: Bool { spansRepos && repoPick == nil }
+    static let spansReposNote = "These issues default to different repositories. Pick one in +."
     var overCap: Bool { effectiveChecked.count > Self.maxIssues }
 
     /// The reason the composer cannot start right now, worded for the
@@ -695,7 +723,7 @@ final class AgentComposerModel {
         // of the caller's is involved.
         if agentId != nil {
             if selectedAgent == nil { return "That agent is not available on this team." }
-            if multiRepo { return "Pick issues from a single repository per session." }
+            if multiRepo { return Self.spansReposNote }
             if overCap { return "At most \(Self.maxIssues) issues per session." }
             if !AgentComposerPrompt.withinLimit(draftText) {
                 return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
@@ -712,7 +740,7 @@ final class AgentComposerModel {
         if promptId != nil, selectedPrompt == nil {
             return "That prompt is not available on this team."
         }
-        if multiRepo { return "Pick issues from a single repository per session." }
+        if multiRepo { return Self.spansReposNote }
         if overCap { return "At most \(Self.maxIssues) issues per session." }
         if !AgentComposerPrompt.withinLimit(draftText) {
             return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
@@ -902,6 +930,9 @@ final class AgentComposerModel {
                 text: text,
                 attachmentIds: attachments,
                 issueIds: effectiveChecked,
+                // #EXP-2171: only a spanning selection names its pick; else the
+                // server resolves it from the first issue (`chatRepo`).
+                repositoryId: spansRepos ? repoPick : nil,
                 scopeTeamIds: scopeTeamIds
             )
         case .prompt, .agent:

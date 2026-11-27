@@ -99,6 +99,7 @@ pub fn start(account: &api::Account, cx: &mut App) {
         identity_path: steer::enet::identity_path(&auth.data_dir, &account.id, InstallKind::Desktop),
         net: steer::enet::EnetConfig::default(),
     };
+    let transfers_trpc = Arc::clone(&trpc);
     let node = InstallNode::start(
         runtime.handle(),
         spec,
@@ -117,6 +118,13 @@ pub fn start(account: &api::Account, cx: &mut App) {
     });
     // #EXP-2161: the one root a member space takes part in.
     node.set_own_assistant(own_assistant_lookup(own_rows, account.id.clone(), account.user_id.clone()));
+    // #FEED-295: this account's device-to-device transfers run on its node.
+    steer::file_transfer::set_current(Some(steer::file_transfer::FileTransfers::new(
+        runtime.handle().clone(),
+        node.clone(),
+        transfers_trpc,
+        auth.data_dir.clone(),
+    )));
     state.by_account.insert(account.id.clone(), node);
     watch_key_holder(cx);
 }
@@ -229,6 +237,8 @@ pub fn stop(account_id: &str, cx: &mut App) -> Option<InstallNode> {
     }
     let node = cx.global_mut::<EnetInstalls>().by_account.remove(account_id)?;
     node.stop();
+    // #FEED-295: no transfers on a stopped node (the next start sets them).
+    steer::file_transfer::set_current(None);
     Some(node)
 }
 

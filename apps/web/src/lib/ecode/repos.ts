@@ -7,7 +7,7 @@ import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { parseRemote } from "@exp/ecode"
 import { db } from "@/db/connection"
-import { boards, repositories, teams } from "@/db/schema"
+import { repositories, teams, type RepositorySync } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { HEADS, collectRepoStorageKeys, listBundles, listRefs, repositoryByRemote } from "@/lib/ecode/git-store"
 import { queueMaintenance } from "@/lib/ecode/jobs"
@@ -38,6 +38,7 @@ async function loadEcodeRepo(repositoryId: string) {
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       providerConfig: repositories.providerConfig,
+      sync: repositories.sync,
       archivedAt: repositories.archivedAt,
     })
     .from(repositories)
@@ -51,7 +52,7 @@ async function loadEcodeRepo(repositoryId: string) {
 /** Owner: a new, empty repo on eCode's own git. */
 export async function createEcodeRepository(
   userId: string,
-  input: { teamId: string; name: string; defaultBranch?: string; mirrorUrl?: string | null }
+  input: { teamId: string; name: string; defaultBranch?: string; mirrorUrl?: string | null; description?: string | null }
 ) {
   await assertOwner(userId, input.teamId)
   if (input.mirrorUrl && !validMirrorUrl(input.mirrorUrl)) fail(`BAD_REQUEST`, `The mirror must be an https git URL`)
@@ -67,7 +68,8 @@ export async function createEcodeRepository(
       remoteUrl: ecodeRemoteUrl(team.slug, input.name),
       defaultBranch: input.defaultBranch ?? `main`,
       private: true,
-      providerConfig: input.mirrorUrl ? { mirrorUrl: input.mirrorUrl, mirrorEnabled: true } : {},
+      description: input.description?.trim() || null,
+      sync: input.mirrorUrl ? { mode: `mirror`, url: input.mirrorUrl } : { mode: `none` },
     })
     .onConflictDoNothing()
     .returning()
@@ -79,10 +81,8 @@ export async function createEcodeRepository(
 export async function removeEcodeRepository(userId: string, repositoryId: string): Promise<void> {
   const repo = await loadEcodeRepo(repositoryId)
   await assertOwner(userId, repo.teamId)
-  const backing = await db.select({ id: boards.id }).from(boards).where(eq(boards.repositoryId, repo.id))
-  if (backing.length > 0) {
-    fail(`CONFLICT`, `Can't remove this repository. It backs ${backing.length} board${backing.length === 1 ? `` : `s`}. Retarget or delete those boards first.`)
-  }
+  // #EXP-2171: a board naming it as its default loses the default
+  // (`boards.repository_id` is `set null`); the clients confirm first.
   const keys = await collectRepoStorageKeys(db, { repositoryIds: [repo.id] })
   await db.delete(repositories).where(eq(repositories.id, repo.id))
   const { deleteObject } = await import(`@/lib/storage`)
@@ -139,44 +139,74 @@ export async function setEcodeDefaultBranch(userId: string, repositoryId: string
   return updated!
 }
 
-/** Owner: the optional mirror (`provider_config.mirrorUrl`). */
+/** Owner: the optional mirror (#EXP-2171: `repositories.sync`, mode
+ *  `mirror`; off keeps the URL with mode `none`). */
 export async function setEcodeMirror(userId: string, input: { repositoryId: string; mirrorUrl: string | null; enabled: boolean }) {
   const repo = await loadEcodeRepo(input.repositoryId)
   await assertOwner(userId, repo.teamId)
   const url = input.mirrorUrl?.trim() || null
   if (url && !validMirrorUrl(url)) fail(`BAD_REQUEST`, `The mirror must be an https git URL`)
-  const config = { ...((repo.providerConfig ?? {}) as Record<string, unknown>) }
-  if (url) config.mirrorUrl = url
-  else delete config.mirrorUrl
-  config.mirrorEnabled = input.enabled && Boolean(url)
-  await db.update(repositories).set({ providerConfig: config }).where(eq(repositories.id, repo.id))
-  return { mirrorUrl: url, mirrorEnabled: config.mirrorEnabled as boolean }
+  const enabled = input.enabled && Boolean(url)
+  const sync: RepositorySync = { ...repo.sync, mode: enabled ? `mirror` : `none`, url }
+  await db.update(repositories).set({ sync }).where(eq(repositories.id, repo.id))
+  return { mirrorUrl: url, mirrorEnabled: enabled }
 }
 
 /** Member: the repo's settings as its page shows them. */
 export async function ecodeRepositorySettings(userId: string, repositoryId: string) {
   const repo = await loadEcodeRepo(repositoryId)
   await resolveTeamAccess(userId, repo.teamId)
-  const config = (repo.providerConfig ?? {}) as Record<string, unknown>
   const backups = await listBundles(repo.id)
   return {
     id: repo.id,
     fullName: repo.fullName,
     remoteUrl: repo.remoteUrl,
     defaultBranch: repo.defaultBranchOverride ?? repo.defaultBranch,
-    mirrorUrl: typeof config.mirrorUrl === `string` ? config.mirrorUrl : null,
-    mirrorEnabled: config.mirrorEnabled === true,
+    mirrorUrl: repo.sync.url ?? null,
+    mirrorEnabled: repo.sync.mode === `mirror` && Boolean(repo.sync.url),
     backups: backups.map((b) => ({ id: b.id, createdAt: b.createdAt, bytes: b.bytes, refs: Object.keys(b.refs).length })),
   }
 }
 
-/** Owner: restore a backup (a device job replaces every pack and ref). */
-export async function restoreEcodeBackup(userId: string, input: { repositoryId: string; backupId: string }) {
+/** #EXP-2201: what a restore of `backup` would do to the current refs:
+ *  every ref whose sha changes (`to: null` = it goes, `from: null` = it comes
+ *  back). Empty = the backup IS the current state. */
+export function restoreRefChanges(
+  current: Record<string, string>,
+  backup: Record<string, string>
+): Array<{ ref: string; from: string | null; to: string | null }> {
+  const names = [...new Set([...Object.keys(current), ...Object.keys(backup)])].sort()
+  return names.flatMap((ref) => {
+    const from = current[ref] ?? null
+    const to = backup[ref] ?? null
+    return from === to ? [] : [{ ref, from, to }]
+  })
+}
+
+/** How long a restore waits for the fresh backup it takes first. */
+const FRESH_BACKUP_WAIT_MS = 120_000
+
+/** Owner: restore a backup (a device job replaces every pack and ref).
+ *  #EXP-2201: a backup whose refs differ from the current ones (branches
+ *  would roll back, vanish or come back) is refused unless `force`, naming
+ *  them; and every restore first takes a FRESH backup of the current state
+ *  (awaited), so the state it replaces can be restored in turn. */
+export async function restoreEcodeBackup(userId: string, input: { repositoryId: string; backupId: string; force?: boolean }) {
   const repo = await loadEcodeRepo(input.repositoryId)
   await assertOwner(userId, repo.teamId)
   const backup = (await listBundles(repo.id)).find((b) => b.id === input.backupId)
   if (!backup) fail(`NOT_FOUND`, `Backup not found`)
+  const changes = restoreRefChanges(await listRefs(repo.id), backup.refs)
+  if (changes.length > 0 && !input.force) {
+    const names = changes.map((c) => `${c.ref.replace(/^refs\/heads\//, ``)} (${c.to === null ? `removed` : c.from === null ? `restored` : `rolled back`})`)
+    fail(`PRECONDITION_FAILED`, `Restoring this backup would change ${changes.length} ref${changes.length === 1 ? `` : `s`}: ${names.slice(0, 10).join(`, `)}${names.length > 10 ? `, …` : ``}. Pass force to restore anyway.`)
+  }
+  const backupId = await queueMaintenance(repo, { op: `backup` })
+  if (!backupId) fail(`PRECONDITION_FAILED`, `No CI runner of the team is online to restore ${repo.fullName}`)
+  const { awaitDeviceCommand } = await import(`@/lib/trpc/devices`)
+  const fresh = await awaitDeviceCommand(db, backupId, FRESH_BACKUP_WAIT_MS)
+  if (!fresh || fresh.status !== `done`) fail(`PRECONDITION_FAILED`, `The fresh backup before the restore did not finish, so nothing was restored`)
   const commandId = await queueMaintenance(repo, { op: `restore`, bundle: backup.key })
   if (!commandId) fail(`PRECONDITION_FAILED`, `No CI runner of the team is online to restore ${repo.fullName}`)
-  return { commandId }
+  return { commandId, changes }
 }

@@ -534,6 +534,13 @@ mod tests {
         let spaces = std::env::temp_dir().join(format!("ede-sealed-{}.spaces", std::process::id()));
         let mut in_space = Command::new("sleep").arg("30").env("XDG_RUNTIME_DIR", spaces.join("space-5")).spawn().unwrap();
         let mut person = Command::new("sleep").arg("30").spawn().unwrap();
+        // spawn() returns at the fork: until the child's exec its environ is
+        // still ours (no space in it), and a loaded runner can read it then.
+        let execed = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !std::fs::read(format!("/proc/{}/environ", in_space.id())).unwrap_or_default().windows(b"space-5".len()).any(|w| w == b"space-5") {
+            assert!(std::time::Instant::now() < execed, "the sleep never exec'd");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let space = |name: &str| Said { space: Some(name.into()), ..Said::default() };
         let session = Said { session: true, ..Said::default() };
         assert_eq!(space_of_with(&[person.id(), in_space.id()], Some(&spaces), |_| panic!("the environment said it")), Asked::Space("space-5".into()));

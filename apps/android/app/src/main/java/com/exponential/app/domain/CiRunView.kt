@@ -26,7 +26,12 @@ object CiRunView {
     object Events {
         const val SELECT = "ci-select-job"
         const val RERUN = "ci-rerun"
+        const val RERUN_ALL = "ci-rerun-all"
         const val CANCEL = "ci-cancel"
+        const val FIX = "ci-fix"
+        const val OPEN_EXTERNAL = "ci-open-external"
+        const val BREADCRUMB = "ci-breadcrumb"
+        const val MENU = "ci-run-menu"
     }
 
     /** Events the runner section fires. */
@@ -44,7 +49,7 @@ object CiRunView {
     const val RUNNER_LABELS_PATH = "/labels"
 
     /** Which button's call is in flight. */
-    enum class Busy { Rerun, Cancel }
+    enum class Busy { Rerun, RerunAll, Cancel }
 
     private fun iconTone(tone: PrChecks.Tone): String = when (tone) {
         PrChecks.Tone.Muted -> "neutral"
@@ -84,31 +89,25 @@ object CiRunView {
     private fun glyphNode(id: String, row: CiRun.JobRow) =
         node(id, "Icon", { put("name", row.glyph.wire); put("tone", iconTone(row.tone)); put("size", "sm") })
 
-    /** One job's detail: its steps as a Trace, then its log. */
-    private fun jobDetail(jobs: List<CiRun.Job>, jobId: String, log: String?, nowMs: Long, phone: Boolean): JsonObject {
+    private fun JsonObjectBuilder.call(key: String, name: String, args: JsonObjectBuilder.() -> Unit) {
+        putJsonObject(key) {
+            put("@call", name)
+            putJsonObject("args", args)
+        }
+    }
+
+    /** One job's Card: its summary line, the steps with the open step
+     *  holding the log (or the log alone when the job reported no steps). */
+    private fun jobCard(jobs: List<CiRun.Job>, jobId: String, log: String?, nowMs: Long, phone: Boolean): JsonObject {
         val ids = CiRun.TestIds
         val job = jobs.first { it.id == jobId }
         val steps = CiRun.steps(job.steps, nowMs)
         val view = CiRun.logView(log ?: "")
         val running = job.status != "completed"
-        val children = mutableListOf<JsonElement>()
-        if (steps.isNotEmpty()) {
-            children += node(
-                "${ids.STEPS}.${job.id}",
-                "Trace",
-                children = steps.mapIndexed { i, step ->
-                    node("${ids.STEPS}.${job.id}.$i", "TraceItem", {
-                        put("title", step.title)
-                        put("status", step.status.wire)
-                        if (!step.description.isNullOrEmpty()) put("description", step.description)
-                    })
-                },
-            )
-        }
-        if (view.code.isEmpty() && job.status != "in_progress") {
-            children += node("${ids.LOG}.${job.id}", "Text", { put("text", CiRun.Copy.EMPTY_LOG); put("variant", "muted") })
+        val logNode = if (view.code.isEmpty() && job.status != "in_progress") {
+            node("${ids.LOG}.${job.id}", "Text", { put("text", CiRun.Copy.EMPTY_LOG); put("variant", "muted") })
         } else {
-            children += node("${ids.LOG}.${job.id}", "CodeBlock", {
+            node("${ids.LOG}.${job.id}", "CodeBlock", {
                 put("code", view.code)
                 put("title", CiRun.Copy.LOG)
                 put("language", "ansi")
@@ -120,11 +119,44 @@ object CiRunView {
                 put("follow", running)
             })
         }
-        return stack("ci-run-detail.${job.id}", "vertical", "md", "stretch", children)
+        val error = steps.indexOfFirst { it.status == CiRun.StepStatus.Error }
+        val runningAt = steps.indexOfFirst { it.status == CiRun.StepStatus.Running }
+        val openAt = if (error >= 0) error else if (runningAt >= 0) runningAt else steps.size - 1
+        val children: List<JsonElement> = if (steps.isEmpty()) {
+            listOf(logNode)
+        } else {
+            listOf(
+                node(
+                    "${ids.STEPS}.${job.id}", "Trace", { put("size", "sm") },
+                    steps.mapIndexed { i, step ->
+                        node(
+                            "${ids.STEPS}.${job.id}.$i", "TraceItem",
+                            {
+                                put("title", step.title)
+                                put("status", step.status.wire)
+                                if (!step.description.isNullOrEmpty()) put("description", step.description)
+                                put("collapsible", true)
+                                put("open", i == openAt)
+                            },
+                            if (i == openAt) listOf(logNode) else null,
+                        )
+                    },
+                ),
+            )
+        }
+        return node(
+            "${ids.JOB_CARD}.${job.id}", "Card",
+            { put("title", job.check); put("description", CiRun.jobSummary(job, nowMs)) },
+            children,
+        )
     }
 
+    /** The phones' page header over the tree: `name #n` over the repository. */
+    fun ciRunHeader(run: CiRun.Run, repository: String?): Pair<String, String?> = "${run.name} #${run.number}" to repository
+
     /** The run page (ci-run.json LAYOUT). [log] = the SELECTED job's log
-     *  text as read so far (null = not read yet). */
+     *  as read so far (null = not read yet). Phones: [jobOpen] = drilled
+     *  into the selected job (the tree is its Card alone). */
     fun ciRunTree(
         run: CiRun.Run,
         jobs: List<CiRun.Job>,
@@ -133,103 +165,159 @@ object CiRunView {
         nowMs: Long,
         phone: Boolean,
         busy: Busy? = null,
+        repository: String? = null,
+        pullRequest: CiRun.PullRequest? = null,
+        author: String? = null,
+        jobOpen: Boolean = false,
     ): JsonObject {
         val ids = CiRun.TestIds
-        val tiles = CiRun.tiles(run, jobs, nowMs)
-        val actions = CiRun.actions(run.state, run.error)
-        val children = mutableListOf<JsonElement>(
-            stack(
-                "ci-run-title", "vertical", "xs", "stretch",
-                listOf(
-                    node("ci-run-heading", "Heading", { put("text", CiRun.Copy.title(run.number)); put("level", "h2") }),
-                    node("ci-run-name", "Text", { put("text", run.name); put("variant", "muted") }),
-                ),
-            ),
-            node(
-                ids.TILES,
-                "Grid",
-                { put("columns", if (phone) 2 else 4); put("gap", "md") },
-                tiles.mapIndexed { i, tile ->
-                    node("${ids.TILES}.$i", "StatTile", { put("label", tile.label); put("value", tile.value); put("tone", tile.tone.wire); tile.delta?.let { put("delta", it) } })
-                },
-            ),
-        )
-        if (actions.rerunFailed || actions.cancel) {
-            val buttons = mutableListOf<JsonElement>()
-            if (actions.rerunFailed) {
-                buttons += node(ids.RERUN, "Button", {
-                    put("label", CiRun.Copy.RERUN_FAILED)
-                    put("loading", busy == Busy.Rerun)
-                    put("disabled", busy != null)
-                }) { on("press", Events.RERUN) }
-            }
-            if (actions.cancel) {
-                // ci-run.json: variant destructive-outline (the catalog's
-                // `destructive`; it has no outline twin).
-                buttons += node(ids.CANCEL, "Button", {
-                    put("label", CiRun.Copy.CANCEL)
-                    put("variant", "destructive")
-                    put("loading", busy == Busy.Cancel)
-                    put("disabled", busy != null)
-                }) { on("press", Events.CANCEL) }
-            }
-            children += stack("ci-run-actions", "horizontal", "sm", "center", buttons)
+        val pick = selected ?: CiRun.defaultJob(jobs, null)
+        if (phone && jobOpen && pick != null) {
+            return stack(ids.PAGE, "vertical", "lg", "stretch", listOf(jobCard(jobs, pick, log, nowMs, phone)))
         }
+        val title = CiRun.Copy.title(run.number)
+        val head = mutableListOf<JsonElement>()
+        if (!phone) {
+            head += node(ids.BREADCRUMB, "Breadcrumb", {
+                putJsonArray("items") {
+                    add(buildJsonObject { put("label", CiRun.Copy.BREADCRUMB_ROOT); put("value", "ci") })
+                    if (repository != null) add(buildJsonObject { put("label", repository); put("value", "repository") })
+                    add(buildJsonObject { put("label", title); put("value", "run") })
+                }
+            }) { on("select", Events.BREADCRUMB) }
+        }
+        head += node("ci-run-heading", "Heading", { put("text", run.title ?: run.name); put("level", if (phone) "h3" else "h2") })
+        if (!phone) {
+            head += node("ci-run-name", "Text", {
+                call("text", "fill") {
+                    put("template", "{workflow} · {repository}{age}")
+                    putJsonObject("params") {
+                        put("workflow", "${run.name} #${run.number}")
+                        put("repository", repository ?: "")
+                        call("age", "fill") {
+                            put("template", " · {t}")
+                            putJsonObject("params") {
+                                call("t", "formatRelativeTime") { put("value", run.startedAt ?: run.createdAt) }
+                            }
+                        }
+                    }
+                }
+                put("variant", "muted")
+            })
+        }
+        val chips = node(
+            ids.CHIPS, "Stack", { put("direction", "horizontal"); put("gap", "xs"); put("align", "center"); put("wrap", true) },
+            CiRun.chips(run, jobs, pullRequest, author, nowMs).map { chip ->
+                node("${ids.CHIPS}.${chip.id}", "Chip", {
+                    put("label", chip.label)
+                    chip.icon?.let { put("icon", it) }
+                    chip.dot?.let { put("dot", it) }
+                })
+            },
+        )
+        val actions = CiRun.actions(run)
+        fun button(id: String, label: String, event: String, which: Busy?, extra: JsonObjectBuilder.() -> Unit = {}) =
+            node(id, "Button", {
+                put("label", label)
+                put("size", "sm")
+                extra()
+                if (which != null) put("loading", busy == which)
+                put("disabled", busy != null)
+            }) { on("press", event) }
+        val buttons = mutableListOf<JsonElement>()
+        when (actions.primary) {
+            "cancel" -> buttons += button(ids.CANCEL, CiRun.Copy.CANCEL, Events.CANCEL, Busy.Cancel) { put("icon", "circle-stop") }
+            "rerunFailed" -> buttons += button(ids.RERUN, CiRun.Copy.RERUN_FAILED, Events.RERUN, Busy.Rerun) { put("icon", "refresh-cw") }
+            "rerunAll" -> buttons += button(ids.RERUN_ALL, CiRun.Copy.RERUN_ALL, Events.RERUN_ALL, Busy.RerunAll) { put("icon", "refresh-cw") }
+        }
+        if (actions.fix) buttons += button(ids.FIX, CiRun.Copy.FIX, Events.FIX, null) { put("variant", "outline"); put("icon", "bot") }
+        if (actions.menu.isNotEmpty()) {
+            buttons += node(
+                ids.MORE, "Menu",
+                {
+                    put("label", CiRun.Copy.MORE)
+                    put("align", "end")
+                    putJsonArray("items") {
+                        for (item in actions.menu) {
+                            add(buildJsonObject {
+                                put("label", if (item == "rerunAll") CiRun.Copy.RERUN_ALL else CiRun.Copy.OPEN_EXTERNAL)
+                                put("value", item)
+                            })
+                        }
+                    }
+                },
+                listOf(
+                    node("${ids.MORE}.button", "Button", {
+                        put("icon", "ellipsis")
+                        put("variant", "ghost")
+                        put("size", "icon")
+                        put("label", CiRun.Copy.MORE)
+                        put("disabled", busy != null)
+                    }),
+                ),
+            ) { on("select", Events.MENU) }
+        }
+        val actionsNode = stack("ci-run-actions", "horizontal", "sm", "center", buttons)
+        val children = mutableListOf<JsonElement>(
+            stack("ci-run-title", "vertical", "xs", "stretch", head),
+            if (phone) {
+                stack("ci-run-bar", "vertical", "sm", "stretch", listOf(chips) + (if (buttons.isNotEmpty()) listOf(actionsNode) else emptyList()))
+            } else {
+                node("ci-run-bar", "Toolbar", children = listOf(chips)) {
+                    if (buttons.isNotEmpty()) putJsonObject("slots") { put("trailing", actionsNode) }
+                }
+            },
+        )
         val error = run.error
         if (error != null) {
             children += node("ci-run-error", "Alert", { put("type", "error"); put("title", CiRun.Copy.PIPELINE_ERROR); put("message", error) })
-        } else if (jobs.isNotEmpty()) {
-            val rows = CiRun.jobRows(jobs, nowMs)
-            if (phone) {
-                children += stack(
-                    "ci-run-jobs", "vertical", "sm", "stretch",
-                    rows.map { row ->
-                        node(
-                            "${ids.JOB_ROW}.${row.id}",
-                            "Collapsible",
-                            { put("title", row.title); put("open", row.id == selected) },
-                            listOf(jobDetail(jobs, row.id, if (row.id == selected) log else null, nowMs, phone)),
-                        ) { on("change", Events.SELECT) { put("job", row.id) } }
+            return stack(ids.PAGE, "vertical", "lg", "stretch", children)
+        }
+        val failedJob = jobs.firstOrNull { it.id == pick && CiRun.jobStatus(it.status, it.conclusion) == CiRun.RunStatus.Failed }
+        CiRun.failureSummary(failedJob?.check, if (failedJob != null) log else null)?.let { failure ->
+            children += node(ids.FAILURE, "Alert", { put("type", "error"); put("title", failure.title); put("message", failure.message) })
+        }
+        if (jobs.isEmpty()) return stack(ids.PAGE, "vertical", "lg", "stretch", children)
+        val rows = CiRun.jobRows(jobs, nowMs)
+        val section = node(
+            "ci-run-jobs-section", "Section",
+            { put("title", CiRun.Copy.JOBS); put("caption", CiRun.jobsCaption(jobs.map { it.status to it.conclusion })) },
+            rows.map { row ->
+                node(
+                    "${ids.JOB_ROW}.${row.id}", "Row",
+                    {
+                        put("title", row.title)
+                        if (row.subtitle != null && !phone) put("subtitle", row.subtitle)
+                        if (row.duration != null) put("meta", row.duration) else if (row.subtitle != null && phone) put("meta", row.subtitle)
+                        put("selected", row.id == pick)
+                        put("pressable", true)
+                        if (phone) put("chevron", "right")
                     },
-                )
-            } else {
-                val list = node(
-                    "ci-run-jobs-list", "Box",
-                    children = listOf(
-                        node(
-                            "ci-run-jobs-section", "Section", { put("title", CiRun.Copy.JOBS) },
-                            rows.map { row ->
-                                node(
-                                    "${ids.JOB_ROW}.${row.id}",
-                                    "Row",
-                                    {
-                                        put("title", row.title)
-                                        row.subtitle?.let { put("subtitle", it) }
-                                        row.duration?.let { put("meta", it) }
-                                        put("selected", row.id == selected)
-                                        put("pressable", true)
-                                    },
-                                ) {
-                                    putJsonObject("slots") { put("leading", glyphNode("${ids.JOB_ROW}.${row.id}.glyph", row)) }
-                                    on("press", Events.SELECT) { put("job", row.id) }
-                                }
-                            },
-                        ),
-                    ),
-                ) { putJsonObject("style") { put("flexDirection", "column") } }
-                val grid = mutableListOf<JsonElement>(list)
-                if (selected != null) {
-                    grid += node("ci-run-detail", "Box", children = listOf(jobDetail(jobs, selected, log, nowMs, phone))) {
-                        putJsonObject("style") { put("minWidth", 0); put("flexDirection", "column") }
+                ) {
+                    putJsonObject("slots") {
+                        put("leading", node("${ids.JOB_ROW}.${row.id}.glyph", "Icon", { put("name", row.glyph.wire); put("tone", row.statusTone.wire); put("size", "sm") }))
                     }
+                    on("press", Events.SELECT) { put("job", row.id) }
                 }
-                children += node("ci-run-jobs", "Box", children = grid) {
-                    putJsonObject("style") {
-                        put("display", "grid")
-                        put("gridTemplateColumns", "300px minmax(0, 1fr)")
-                        put("gap", "\$spacing.lg")
-                        put("alignItems", "start")
-                    }
+            },
+        )
+        if (phone) {
+            children += section
+        } else {
+            val grid = mutableListOf<JsonElement>(
+                node("ci-run-jobs-list", "Box", children = listOf(section)) { putJsonObject("style") { put("flexDirection", "column") } },
+            )
+            if (pick != null) {
+                grid += node("ci-run-detail", "Box", children = listOf(jobCard(jobs, pick, log, nowMs, phone))) {
+                    putJsonObject("style") { put("minWidth", 0); put("flexDirection", "column") }
+                }
+            }
+            children += node("ci-run-jobs", "Box", children = grid) {
+                putJsonObject("style") {
+                    put("display", "grid")
+                    put("gridTemplateColumns", "300px minmax(0, 1fr)")
+                    put("gap", "\$spacing.lg")
+                    put("alignItems", "start")
                 }
             }
         }

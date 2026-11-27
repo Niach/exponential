@@ -130,6 +130,15 @@ class RepoPageTest {
             ),
             group("add"),
         )
+        assertEquals(
+            mapOf(
+                "title" to RepoPage.Copy.New.TITLE, "hosted" to RepoPage.Copy.New.HOSTED, "hostedHint" to RepoPage.Copy.New.HOSTED_HINT,
+                "github" to RepoPage.Copy.New.GITHUB, "githubHint" to RepoPage.Copy.New.GITHUB_HINT,
+                "description" to RepoPage.Copy.New.DESCRIPTION, "runCi" to RepoPage.Copy.New.RUN_CI, "create" to RepoPage.Copy.New.CREATE,
+                "link" to RepoPage.Copy.New.LINK, "connectGithub" to RepoPage.Copy.New.CONNECT_GITHUB,
+            ),
+            group("new"),
+        )
         assertEquals(mapOf("empty" to RepoPage.Copy.Pulls.EMPTY), group("pulls"))
         assertEquals(mapOf("empty" to RepoPage.Copy.Runs.EMPTY), group("runs"))
         assertEquals(mapOf("empty" to RepoPage.Copy.Branches.EMPTY, "default" to RepoPage.Copy.Branches.DEFAULT), group("branches"))
@@ -140,6 +149,7 @@ class RepoPageTest {
                 "noBackups" to RepoPage.Copy.Settings.NO_BACKUPS, "restore" to RepoPage.Copy.Settings.RESTORE,
                 "restoreTitle" to RepoPage.Copy.Settings.RESTORE_TITLE, "restoreConfirm" to RepoPage.Copy.Settings.RESTORE_CONFIRM,
                 "mirror" to RepoPage.Copy.Settings.MIRROR, "mirrorUrl" to RepoPage.Copy.Settings.MIRROR_URL,
+                "remove" to RepoPage.Copy.Settings.REMOVE,
             ),
             group("settings"),
         )

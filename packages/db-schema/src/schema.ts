@@ -430,13 +430,15 @@ export const boards = pgTable(
     // Curated display icon (boardIconValues in domain.ts / the domain
     // contract). NULL = clients derive a fallback from repo presence.
     icon: text(),
-    // A repo-backed board is backed by exactly one repo from the team
-    // registry; the desktop launcher clones this. Nullable: boards need no
-    // repo. `restrict` (not cascade): a repo that still backs a board can't
-    // be deleted — retarget or delete the boards first. One repo may back
-    // several boards (monorepo); plan limits still count registry rows.
+    // #EXP-2171: the board's DEFAULT repository (Board settings › Default
+    // repository): a chat started from one of its issues with no pick, no
+    // live PR of the issue elsewhere, uses it (coding-readiness.json
+    // `chatRepo`). Not a link: an issue's PRs may live in any repository of
+    // the team. Nullable; `set null`: removing a repository clears the
+    // default of the boards naming it (after a confirm). One repo may be
+    // several boards' default (monorepo).
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
-      onDelete: `restrict`,
+      onDelete: `set null`,
     }),
     // EXP-712: the branch THIS board's coding sessions branch from and its PRs
     // target. NULL = follow the repo (its team-pinned `default_branch_override`,
@@ -1445,6 +1447,14 @@ export interface DeviceRunnerSettings {
 }
 
 // #EXP-1617: `repositories.ci_config`.
+/** #EXP-2171: `repositories.sync`. */
+export interface RepositorySync {
+  mode: `none` | `mirror` | `import`
+  url?: string | null
+  lastSyncedAt?: string | null
+  lastError?: string | null
+}
+
 export interface RepositoryCiConfig {
   /** Our CI plans runs at all: opt-in on GitHub repos (unset = off there),
    *  on by default for ecode repos (unset = on). `ciEnabled` reads it. */
@@ -1988,6 +1998,45 @@ export const deviceCommands = pgTable(
   ]
 )
 
+// #FEED-295: device-to-device file transfers, ONE row per transfer = the
+// log (SERVER-ONLY, never synced; read through `devices.transfers` and MCP
+// `exponential_devices {op: "transfers"}`). Both machines are the SAME
+// person's (`user_id` owns both devices rows at creation). The bytes never
+// touch the server: the source gets a `file_send` command, the destination
+// a `file_receive` one, and the destination pulls over eNet (enet-core
+// `xfer`: resumable, BLAKE3 per file). Machines are named by their public
+// `device_id` (no FK) so the log outlives a removed machine.
+// status: `queued` → `running` → `done` | `failed` | `cancelled`.
+export const deviceTransfers = pgTable(
+  `device_transfers`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // The session that asked (it wakes when the transfer ends); null = a person.
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+    fromDeviceId: varchar(`from_device_id`, { length: 128 }).notNull(),
+    toDeviceId: varchar(`to_device_id`, { length: 128 }).notNull(),
+    srcPath: text(`src_path`).notNull(),
+    destPath: text(`dest_path`).notNull(),
+    status: varchar({ length: 16 }).notNull().default(`queued`),
+    files: integer(),
+    filesDone: integer(`files_done`).notNull().default(0),
+    bytes: bigint({ mode: `number` }),
+    bytesDone: bigint(`bytes_done`, { mode: `number` }).notNull().default(0),
+    // Symlinks, special files and protected paths the source left out.
+    skipped: jsonb().$type<string[]>(),
+    error: text(),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [index(`idx_device_transfers_user`).on(table.userId, table.createdAt)]
+)
+
 // EXP-1111: one-time CLI install tokens (SERVER-ONLY, never synced). The Add
 // device dialog mints one (`devices.createInstallToken`) and bakes it into
 // the install one-liner as EXP_INSTALL_TOKEN; the freshly installed daemon
@@ -2470,8 +2519,9 @@ export const mcpTasks = pgTable(
     grant: varchar({ length: 160 }).notNull(),
     principal: varchar({ length: 256 }).notNull(),
     teamId: uuid(`team_id`).references(() => teams.id, { onDelete: `cascade` }),
-    // `session` (ref = the watched session) | `events` (its event watches).
-    kind: varchar({ length: 16 }).$type<`session` | `events`>().notNull(),
+    // `session` (ref = the watched session) | `events` (its event watches) |
+    // #FEED-295 `transfer` (ref = the watched device_transfers row).
+    kind: varchar({ length: 16 }).$type<`session` | `events` | `transfer`>().notNull(),
     ref: uuid(),
     status: varchar({ length: 24 }).$type<McpTaskStatus>().notNull().default(`working`),
     statusMessage: text(`status_message`),
@@ -3536,10 +3586,32 @@ export const ciRuns = pgTable(
     }),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    // #EXP-2172: who ran it. `exponential` = our runner (everything above);
+    // `github` = a GitHub Actions workflow run ingested from the App's
+    // `workflow_run` webhook: `number` = GitHub's run number (unique per
+    // workflow, not per repository), `external_id` = the run id, `external_url`
+    // = its page, `external_attempt` = the attempt the row shows,
+    // `external_access` = the installation's Actions permission when it was
+    // last written (`read` | `write`; null = unknown): Re-run and Cancel need
+    // `write`, else the run page offers Open on GitHub. Our scheduler, ticks,
+    // numbering and check reports never touch a `github` row.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
+    externalAttempt: integer(`external_attempt`),
+    externalAccess: varchar(`external_access`, { length: 8 }),
+    // #EXP-2172 (the approved CI redesign): what the run is about, the CI
+    // list's and the run page's title: the head commit's first line or the
+    // pull request's title (GitHub: the run's `display_title`). Null = not
+    // known (a hosted push): the clients fall back to the pipeline's name.
+    title: varchar({ length: 255 }),
     ...timestamps,
   },
   (table) => [
-    unique(`uniq_ci_runs_number`).on(table.repositoryId, table.number),
+    uniqueIndex(`uniq_ci_runs_number`)
+      .on(table.repositoryId, table.number)
+      .where(sql`provider = 'exponential'`),
+    unique(`uniq_ci_runs_external`).on(table.repositoryId, table.externalId),
     index(`idx_ci_runs_team`).on(table.teamId),
     index(`idx_ci_runs_repo_sha`).on(table.repositoryId, table.sha),
   ]
@@ -3599,6 +3671,12 @@ export const ciJobs = pgTable(
     requeuedAt: timestamp(`requeued_at`, { withTimezone: true }),
     // Byte length of each log chunk object, in order.
     logChunks: jsonb(`log_chunks`).$type<number[]>().notNull().default([]),
+    // #EXP-2172: `github` = a GitHub Actions job (`workflow_job` webhook):
+    // `external_id` = the job id, `external_url` = its page; its log is read
+    // from GitHub on demand, `spec` is empty, no runner device.
+    provider: varchar({ length: 16 }).notNull().default(`exponential`),
+    externalId: varchar(`external_id`, { length: 64 }),
+    externalUrl: text(`external_url`),
     ...timestamps,
   },
   (table) => [
@@ -3607,6 +3685,7 @@ export const ciJobs = pgTable(
     index(`idx_ci_jobs_open`)
       .on(table.status)
       .where(sql`status <> 'completed'`),
+    index(`idx_ci_jobs_external`).on(table.runId, table.externalId),
     index(`idx_ci_jobs_runner`).on(table.runnerDeviceId),
   ]
 )
@@ -3788,7 +3867,7 @@ export const composerDrafts = pgTable(
 // a per-kind FOLDER links the team folder it mirrors in `target_id`). Per USER like the drafts (the shape is the static
 // `user_id = me`), team-scoped for the cascade and for grouping. One row per
 // node: a FOLDER (`name`, top level only: two layers max) or an ITEM placing
-// `target_id` (a board / agent / app id; no FK, the section names the table:
+// `target_id` (a board / repository / agent / app / session id; no FK, the section names the table:
 // a row whose target is gone simply never resolves) at the top level or in a
 // folder (`parent_id`). A target with no row keeps the default order, so
 // nothing moves until the member drags. `sort_order` = position in its
@@ -3813,7 +3892,7 @@ export const sidebarLayout = pgTable(
     ...timestamps,
   },
   (table) => [
-    check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app')`),
+    check(`sidebar_layout_section_check`, sql`section IN ('team', 'board', 'agent', 'app', 'repository')`),
     check(
       `sidebar_layout_kind_check`,
       sql`(kind = 'folder' AND parent_id IS NULL AND (target_id IS NULL OR section <> 'team')) OR (kind = 'item' AND target_id IS NOT NULL)`
@@ -3874,9 +3953,11 @@ export const issueEvents = pgTable(
   ]
 )
 
-// Team repository registry (SERVER-ONLY, tRPC-managed — never an Electric
-// shape). One row per connected GitHub repo; the desktop "Start coding"
-// launcher resolves its clone target through the board's `repositoryId`.
+// Team repository registry (tRPC-managed). #EXP-2171: synced as the 34th
+// shape (`routes/api/shapes/repositories.ts`) behind a column allowlist:
+// `provider_config`, `ci_config`, `pr_sequence` and `remote_url` stay on
+// the server. One row per GitHub repo or hosted (`ecode`) repo; the sidebar
+// lists them as an item kind (sidebar-tree.json `teamItems`).
 // GitHub itself stays storage-free (App JWT → JIT installation token on demand).
 export const repositories = pgTable(
   `repositories`,
@@ -3889,6 +3970,23 @@ export const repositories = pgTable(
     provider: repositoryProviderEnum().notNull().default(`github`),
     // The repo's name on its forge (`owner/name` on GitHub).
     fullName: text(`full_name`).notNull(),
+    // #EXP-2171: the route key (`/t/$teamSlug/repos/$slug`), unique per
+    // team. Written by the `populate_repository_slug` trigger when an insert
+    // leaves it '' (the default): the name's last segment, the whole
+    // owner/name on a clash (repo-page.json `slug`).
+    slug: varchar({ length: 100 }).notNull().default(``),
+    // #EXP-2171: a line of prose under the name (repository page, New
+    // repository). NULL = none.
+    description: text(),
+    // #EXP-2171: moved out of `provider_config` (`mirrorUrl`/`mirrorEnabled`):
+    // `mode` none | mirror (Exponential is the source, pushed after each
+    // landing) | import (a one-time copy); `url` the other side;
+    // `lastSyncedAt` / `lastError` its last outcome. Synced (the URL is a
+    // remote, never a credential: tokens are minted per push).
+    sync: jsonb()
+      .$type<RepositorySync>()
+      .notNull()
+      .default({ mode: `none` }),
     // The git remote devices fetch and push (`repositories.credentials`
     // hands it out). NULL = the provider's default (GitHub:
     // `https://github.com/<full_name>.git`).
@@ -3935,6 +4033,7 @@ export const repositories = pgTable(
   },
   (table) => [
     unique().on(table.teamId, table.fullName),
+    unique(`repositories_team_slug_unique`).on(table.teamId, table.slug),
     index(`idx_repositories_team`).on(table.teamId),
     // EXP-835: the admin console's per-user correlated subqueries filter on
     // the sharer alone — without this they seq-scan the whole registry.
@@ -5154,6 +5253,22 @@ export const selectIssueEventSchema = createSelectSchema(issueEvents, {
 
 
 export const selectRepositorySchema = createSelectSchema(repositories)
+// #EXP-2171: the 34th shape's projection (routes/api/shapes/repositories.ts):
+// the server's columns stay behind the allowlist. A tolerant `sync` read (a
+// future mode must never brick the collection).
+export const selectSyncedRepositorySchema = createSelectSchema(repositories, {
+  sync: z.custom<RepositorySync>((value) => typeof value === `object` && value !== null),
+}).omit({
+  providerConfig: true,
+  remoteUrl: true,
+  ciConfig: true,
+  prSequence: true,
+  archivedAt: true,
+})
+export type SyncedRepository = Omit<
+  InferSelectModel<typeof repositories>,
+  `providerConfig` | `remoteUrl` | `ciConfig` | `prSequence` | `archivedAt`
+>
 
 // EXP-1291: the synced projections of the session tree. Tolerant jsonb reads
 // (a future card kind or trigger must never brick a collection).
@@ -5418,3 +5533,4 @@ export type SyncedDeviceWorktree = Omit<
 >
 export type VoiceCallRecord = InferSelectModel<typeof voiceCalls>
 export type DeviceCommand = InferSelectModel<typeof deviceCommands>
+export type DeviceTransfer = InferSelectModel<typeof deviceTransfers>

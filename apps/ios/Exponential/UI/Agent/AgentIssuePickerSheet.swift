@@ -107,7 +107,7 @@ struct AgentIssuePickerPage: View {
     private var guards: some View {
         VStack(alignment: .leading, spacing: 4) {
             if model.multiRepo {
-                Text("Pick issues from a single repository per session.")
+                Text(AgentComposerModel.spansReposNote)
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
             if model.overCap {

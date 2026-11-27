@@ -25,7 +25,6 @@ import { deleteIssuesPrompt, promptActions } from "@/lib/prompts"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgentRows } from "@/hooks/use-agent-row"
 import { visibleAgent } from "@exp/domain-contract/agent-settings"
 import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
@@ -565,10 +564,8 @@ const LabelsIcon = conceptIcon(`settings-labels`)
 
 // EXP-642: bulk "Start coding" — the desktop/iOS/Android selection bars have
 // had it since EXP-439, only web lacked it. Gates, in order: member, relay
-// configured, at least one selected issue on a REPO-BACKED board. That last
-// one matters because the composer (EXP-825) seeds its chips from the ids
-// but only LISTS repo-backed boards, so an unfiltered seed would silently
-// include issues the composer can neither show nor start.
+// configured, at least one selected issue (#EXP-2171: on any board; the
+// composer lists every issue of the team).
 //
 // EXP-1121: a missing step no longer hides the button. The readiness model
 // (`useCodingReadiness`, judged by the first repo-backed board of the
@@ -588,7 +585,6 @@ function BulkStartCodingButton({
 }) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
-  const boards = useTeamBoards(teamId)
   const boardIds = useMemo(
     () => [...new Set(issues.map((issue) => issue.boardId))],
     [issues]
@@ -602,14 +598,9 @@ function BulkStartCodingButton({
   const { readiness } = readinessState
   const [open, setOpen] = useState(false)
 
-  const startableIds = useMemo(() => {
-    const repoBacked = new Set(
-      boards.filter((board) => board.repositoryId).map((board) => board.id)
-    )
-    return issues
-      .filter((issue) => repoBacked.has(issue.boardId))
-      .map((issue) => issue.id)
-  }, [boards, issues])
+  // #EXP-2171: a board's repository is only a default: every selected
+  // issue is startable (the composer offers every issue of the team).
+  const startableIds = useMemo(() => issues.map((issue) => issue.id), [issues])
 
   if (!currentUserId || !readiness.visible) return null
 

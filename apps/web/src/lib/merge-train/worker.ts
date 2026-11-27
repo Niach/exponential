@@ -275,7 +275,8 @@ async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
           .selectDistinct({ pullRequestId: ciRuns.pullRequestId, check: ciJobs.check })
           .from(ciJobs)
           .innerJoin(ciRuns, eq(ciRuns.id, ciJobs.runId))
-          .where(inArray(ciRuns.pullRequestId, ids))
+          // #EXP-2172: GitHub Actions jobs are not ours.
+          .where(and(inArray(ciRuns.pullRequestId, ids), eq(ciRuns.provider, `exponential`)))
   const informational = new Map<string, string[]>()
   for (const row of own) {
     if (!row.pullRequestId) continue

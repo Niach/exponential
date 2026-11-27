@@ -24,7 +24,7 @@ fn glyph(tab: &str, selected: bool) -> Icon {
         "teams" => registry::UI_TEAM,
         "new" if selected => registry::UI_CLOSE,
         "new" => registry::UI_ADD,
-        _ => registry::NAV_SETTINGS,
+        _ => registry::UI_MORE,
     })
 }
 
@@ -34,7 +34,7 @@ fn label(tab: &str) -> String {
         "chats" => tabs.chats.clone(),
         "teams" => tabs.teams.clone(),
         "new" => tabs.new.clone(),
-        _ => tabs.settings.clone(),
+        _ => tabs.more.clone(),
     }
 }
 
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn the_bar_follows_the_shell() {
-        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "settings"]);
+        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "more"]);
         assert_eq!(CHATS.shell.new_menu.items, ["issue", "chat"]);
     }
 }

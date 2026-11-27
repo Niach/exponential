@@ -30,7 +30,8 @@
 // #EXP-2124 (sidebar-menus.json `tabs`): tabs hold ANY page, by the same
 // rules: Needs you, Chats and Drafts (`page`, team-less), a device page
 // (`device`, team-less), a board page and an app (`board`, `app`, each with
-// its team). Home and the New session tab are ONE tab (key `new`): visiting
+// its team). #EXP-2171: a repository's page (`repository`, with its team;
+// sidebar-menus.json `tabs.pages`). Home and the New session tab are ONE tab (key `new`): visiting
 // Home opens or activates it, and its chip is Home's. A row's "Open in new
 // tab" adds a tab in the BACKGROUND (`openTabInBackground`), never twice.
 //
@@ -102,9 +103,15 @@ export type WorkTab =
       appId: string
       from: null
     } & TabTeam)
+  | ({
+      /** #EXP-2171: a repository's page (`/repos/$name`, any `?tab=`). */
+      kind: `repository`
+      repositoryId: string
+      from: null
+    } & TabTeam)
 
 /** #EXP-2124: the team-less list pages a tab holds. */
-export const WORK_TAB_PAGES = [`needs-you`, `chats`, `drafts`] as const
+export const WORK_TAB_PAGES = [`needs-you`, `chats`, `drafts`, `ci`] as const
 export type WorkTabPage = (typeof WORK_TAB_PAGES)[number]
 
 function isWorkTabPage(value: unknown): value is WorkTabPage {
@@ -150,6 +157,8 @@ export function tabKey(tab: WorkTab): string {
       return `board:${tab.boardId}`
     case `app`:
       return `app:${tab.appId}`
+    case `repository`:
+      return `repository:${tab.repositoryId}`
   }
 }
 
@@ -179,6 +188,8 @@ export type RoutePath =
   | { kind: `device`; deviceId: string; from: null }
   | { kind: `board`; teamSlug: string; boardSlug: string; from: null }
   | { kind: `app`; teamSlug: string; appSlug: string; from: null }
+  // #EXP-2171: a repository's page.
+  | { kind: `repository`; teamSlug: string; repoSlug: string; from: null }
 
 /** A route path that names a team (`/t/<slug>/…`). */
 export type TeamRoutePath = Extract<RoutePath, { teamSlug: string }>
@@ -186,7 +197,8 @@ export type TeamRoutePath = Extract<RoutePath, { teamSlug: string }>
 /** The work item or page a pathname shows — `null` for every other screen
  * (settings, creation pages, the app editor, Home: `isNewRunPath`).
  * #EXP-2124: Needs you, Chats, Drafts, a device's page, a board's page and
- * an app's run view (any screen) are tabs too. `view` = the `?view=` search value:
+ * an app's run view (any screen) are tabs too; #EXP-2171: a repository's
+ * page (`/repos/<slug>`; its `/pulls/<n>` only redirects). `view` = the `?view=` search value:
  * `/sessions/<id>?view=guide` only redirects to the chat's conversation, so
  * it names no tab. A `/sessions/<id>` path is resolved against the row
  * (`WorkTabsSync`): a root = its chat tab, an agent's child = a session tab. */
@@ -228,6 +240,11 @@ export function routePathFromLocation(
   if (board) {
     const boardSlug = decode(board[1])
     return boardSlug === null ? null : { kind: `board`, teamSlug, boardSlug, from: null }
+  }
+  const repo = rest.match(/^\/repos\/([^/]+)$/)
+  if (repo) {
+    const repoSlug = decode(repo[1])
+    return repoSlug === null ? null : { kind: `repository`, teamSlug, repoSlug, from: null }
   }
   const app = rest.match(/^\/apps\/([^/]+)(?:\/[^/]+)?$/)
   if (app) {
@@ -380,14 +397,15 @@ export function pruneTabs(
  * `resolveIssue` resolves an issue id to its board slug and identifier (null
  * while it syncs — the tab then waits); `teamSlugOf` a team id to its current
  * slug (null = unknown: the slug the tab was opened under, if any);
- * `boardSlugOf` / `appSlugOf` a board's / an app's id to its slug (null =
- * unknown: the tab waits). */
+ * `boardSlugOf` / `appSlugOf` / `repoSlugOf` (#EXP-2171) a board's / an
+ * app's / a repository's id to its slug (null = unknown: the tab waits). */
 export function tabHref(
   tab: WorkTab,
   resolveIssue: (issueId: string) => { boardSlug: string; identifier: string } | null,
   teamSlugOf: (teamId: string) => string | null = () => null,
   boardSlugOf: (boardId: string) => string | null = () => null,
-  appSlugOf: (appId: string) => string | null = () => null
+  appSlugOf: (appId: string) => string | null = () => null,
+  repoSlugOf: (repositoryId: string) => string | null = () => null
 ): { to: string; params: Record<string, string>; search: { from?: string } } | null {
   if (tab.kind === `new`) return { to: NEW_RUN_PATH, params: {}, search: {} }
   if (tab.kind === `page`) return { to: `/${tab.page}`, params: {}, search: {} }
@@ -426,6 +444,11 @@ export function tabHref(
       if (!appSlug) return null
       return { to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug }, search: {} }
     }
+    case `repository`: {
+      const repoSlug = repoSlugOf(tab.repositoryId)
+      if (!repoSlug) return null
+      return { to: `/t/$teamSlug/repos/$name`, params: { teamSlug, name: repoSlug }, search: {} }
+    }
     case `issue`: {
       const issue = resolveIssue(tab.issueId)
       if (!issue) return null
@@ -456,7 +479,8 @@ export { partitionTabs } from "@exp/domain-contract/session-tree"
 /** EXP-1293: v2 — the v1 blobs named coding-session runs, which are gone.
  *  EXP-1733: v3 — chat tabs are `chat` tabs (the old kind is dropped).
  *  #EXP-2027: v4 — ONE store for the person, every tab carrying its team.
- *  #EXP-2124: v5 — page, device, board and app tabs. */
+ *  #EXP-2124: v5 — page, device, board and app tabs. #EXP-2171: repository
+ *  tabs join v5 (a new kind parses or drops: older builds drop it). */
 export const WORK_TABS_STORAGE_KEY = `exp:work-tabs:v5`
 
 /** The v4 blob `migrateLegacyWorkTabs` merges (its tabs parse unchanged). */
@@ -517,6 +541,10 @@ function parseTab(value: unknown, team?: string): WorkTab | null {
       return str(raw.boardId) ? { kind: `board`, boardId: raw.boardId, from: null, ...owner } : null
     case `app`:
       return str(raw.appId) ? { kind: `app`, appId: raw.appId, from: null, ...owner } : null
+    case `repository`:
+      return str(raw.repositoryId)
+        ? { kind: `repository`, repositoryId: raw.repositoryId, from: null, ...owner }
+        : null
     default:
       return null
   }

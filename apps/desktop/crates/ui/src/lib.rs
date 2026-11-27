@@ -21,6 +21,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
+mod ci_runner_host;
 mod call_view;
 // #EXP-1958: taps on sealed replies / suggestions cards.
 mod card_taps;
@@ -203,6 +204,7 @@ mod pr_merge;
 // #EXP-1611: CI on the chat's PR (Checks submenu, failing-merge confirm).
 mod pr_checks;
 // #EXP-1804: the CI run page and a device's CI runner section (genUI documents).
+mod ci_page;
 mod ci_run;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
 mod pr_rows;

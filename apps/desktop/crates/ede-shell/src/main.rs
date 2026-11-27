@@ -641,6 +641,12 @@ impl HostPlugin for Host {
             return;
         }
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
+        // A Menu's pick: its function with the picked value (window_menu::MENU_PICKS).
+        if let Some(args) = window_menu::menu_pick_args(&event.name, &event.context) {
+            let call = FunctionCallEvent { surface_id: event.surface_id.clone(), component_id: event.component_id.clone(), name: event.name.clone(), args };
+            self.on_function_call(&call, cx);
+            return;
+        }
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
         // The composer's menu keys ride an event: genUI hands an event's
@@ -5037,7 +5043,7 @@ fn main() {
         Ok(w) => w,
         Err(e) => fail_start("the desktops and accounts could not be opened", e.to_string()),
     };
-    workspaces.start_sync();
+    // #EDE-238: no sync of its own: the holder's store, watched.
     let team_deltas = workspaces.deltas();
     let account_changes = workspaces.account_changes();
     let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();

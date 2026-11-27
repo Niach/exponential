@@ -196,6 +196,8 @@ pub(crate) struct ReadinessSubject {
     pub board_slug: String,
     /// `boards.repository_id`.
     pub repository_id: Option<String>,
+    /// #EXP-2171: the team's synced repositories (> 0 = somewhere to code).
+    pub team_repository_count: usize,
 }
 
 /// The model input on the desktop (see the module doc for the device and
@@ -216,6 +218,7 @@ pub(crate) fn readiness_input(
             .repository_id
             .as_ref()
             .map(|_| probed_full_name.unwrap_or_default().to_string()),
+        team_repository_count: subject.team_repository_count,
         github: github.map(|facts| ReadinessGithub {
             connected: facts.connected,
             label: facts.label.clone(),
@@ -922,6 +925,7 @@ mod tests {
             board_name: "App".into(),
             board_slug: "app".into(),
             repository_id: repository_id.map(str::to_string),
+            team_repository_count: 0,
         }
     }
 

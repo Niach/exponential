@@ -71,6 +71,7 @@ private data class CiRepoInput(@SerialName("repositoryId") val repositoryId: Str
 @Serializable
 private data class CiSetRepoConfigInput(
     @SerialName("repositoryId") val repositoryId: String,
+    @SerialName("enabled") val enabled: Boolean? = null,
     @SerialName("requiredChecks") val requiredChecks: List<String>? = null,
     @SerialName("githubStatuses") val githubStatuses: Boolean? = null,
     @SerialName("actionsRunners") val actionsRunners: Boolean? = null,
@@ -101,11 +102,15 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** `ci.rerun{runId, failedOnly: true}`: the new run's id (the page opens it). */
-    suspend fun rerunFailed(accountId: String, runId: String): String =
+    suspend fun rerunFailed(accountId: String, runId: String): String = rerun(accountId, runId, failedOnly = true)
+
+    /** `ci.rerun{runId, failedOnly}` (#EXP-2172: GitHub runs too): the run to
+     *  open (ours: a new run; GitHub: the same run, a new attempt). */
+    suspend fun rerun(accountId: String, runId: String, failedOnly: Boolean): String =
         trpc.mutation(
             accountId,
             path = "ci.rerun",
-            input = CiRerunInput(runId, failedOnly = true),
+            input = CiRerunInput(runId, failedOnly = failedOnly),
             inputSerializer = CiRerunInput.serializer(),
             outputSerializer = CiRerunResult.serializer(),
         ).runId
@@ -155,10 +160,19 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
         githubStatuses: Boolean? = null,
         actionsRunners: Boolean? = null,
         pullRequestSecrets: Boolean? = null,
+        /** #EXP-2171: New › Repository's Run CI. */
+        enabled: Boolean? = null,
     ) = trpc.mutationUnit(
         accountId,
         path = "ci.setRepoConfig",
-        input = CiSetRepoConfigInput(repositoryId, requiredChecks, githubStatuses, actionsRunners, pullRequestSecrets),
+        input = CiSetRepoConfigInput(
+            repositoryId = repositoryId,
+            enabled = enabled,
+            requiredChecks = requiredChecks,
+            githubStatuses = githubStatuses,
+            actionsRunners = actionsRunners,
+            pullRequestSecrets = pullRequestSecrets,
+        ),
         inputSerializer = CiSetRepoConfigInput.serializer(),
     )
 

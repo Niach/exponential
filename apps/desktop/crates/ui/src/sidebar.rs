@@ -766,6 +766,9 @@ impl RailView {
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
             // #EXP-1616: the Pull requests tree.
             cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
+            // #EXP-2172: the CI row's badge.
+            cx.observe(&collections.ci_runs, |_, _, cx| cx.notify()),
+            cx.observe(&collections.ci_jobs, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),

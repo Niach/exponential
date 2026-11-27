@@ -81,6 +81,14 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/new/repository",
+      "reason": "#EXP-2171's New › Repository page landed without a view (its pictures ride #3652); a `new-repository` view with shots per platform is a follow-up."
+    },
+    {
+      "route": "/ci",
+      "reason": "#EXP-2172: live runs on every client; the `ci` view shoots ci-page.json's scenario (`?dev=ci`) so ×5 show the same state."
+    },
+    {
       "route": "/t/$teamSlug/team",
       "reason": "#EXP-2109: a link to a team redirects to the Teams tab (`teams`)."
     },
@@ -6483,6 +6491,51 @@
         "ios": "The specimen in StyleguideScreenshots, shot sg_pr-checks.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:pr-checks`: the IDE styleguide entry drawn full-window."
+      }
+    },
+    {
+      "id": "ci",
+      "group": "reviews",
+      "title": "CI",
+      "blurb": "THE CI page (#EXP-2172, ci-page.json): one root row after Devices across every team; Running, Queued, Failed today and Runners tiles, then Runs (our runs and GitHub Actions in one list with a Source badge, filters All/Running/Failed/Mine, a repository and a source pick, the merge train's testing batches above), Merge train and Runners tabs.",
+      "order": 10,
+      "web": {
+        "route": "/home?dev=ci",
+        "anchor": {
+          "testId": "ci-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/home?dev=ci",
+        "anchor": {
+          "testId": "ci-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_ci",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_ci",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "specimen:ci"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=ci` on the Agent route: the page over ci-page.json `scenario` (the live route is /ci).",
+        "web-mobile": "Inherits web.",
+        "ios": "The scenario in StyleguideScreenshots, shot sg_ci.",
+        "android": "See ios: the same scenario in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:ci`: the IDE styleguide entry drawn full-window."
       }
     },
     {

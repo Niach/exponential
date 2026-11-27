@@ -1203,6 +1203,20 @@ fn run_device_command(
         }
         return CommandDisposition::Deferred(command.clone());
     }
+    // #EXP-2174: one CI job; its own thread declines, or claims, runs and
+    // finishes it (Linux only: elsewhere this app never advertised the cap).
+    if command.kind == ci_runner::CI_JOB_COMMAND {
+        match crate::ci_runner_host::runner() {
+            Some(runner) => {
+                ci_runner::handle(&runner, &snapshot.trpc, &snapshot.device_id, &command.id, &command.payload);
+                return CommandDisposition::Spawned;
+            }
+            None => {
+                complete(snapshot, &command.id, false, crate::ci_runner_host::UNAVAILABLE);
+                return CommandDisposition::Completed;
+            }
+        }
+    }
     // EXP-765: the code claude's browser page handed the requester — typed
     // into the login tab on the foreground, the only place the PTY handle
     // lives. Same claim set: it completes at once, but the completion is a
@@ -1316,6 +1330,17 @@ fn run_device_command(
             return CommandDisposition::Completed;
         }
         return CommandDisposition::Spawned;
+    }
+    // #FEED-295: one side of a device-to-device transfer, on this account's
+    // eNet node; the task completes the command (a redelivery is a no-op).
+    if command.kind == steer::file_transfer::SEND_KIND || command.kind == steer::file_transfer::RECEIVE_KIND {
+        return match steer::file_transfer::dispatch(command) {
+            None => CommandDisposition::Spawned,
+            Some((ok, message)) => {
+                complete(snapshot, &command.id, ok, &message);
+                CommandDisposition::Completed
+            }
+        };
     }
     // #FEED-244: one app screen painted headless and uploaded, on its OWN
     // thread (the first one fetches the renderer), completing itself; the

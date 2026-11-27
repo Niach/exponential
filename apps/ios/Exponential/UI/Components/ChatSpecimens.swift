@@ -197,7 +197,8 @@ struct ChatListSpecimens: View {
                 .padding(.bottom, 4)
             } else {
                 PhoneDock(
-                    selected: .chats, chatsBadge: NavBadges.Value(count: 2, tone: .attention), newOpen: .constant(false)
+                    selected: .chats, chatsBadge: NavBadges.Value(count: 2, tone: .attention), newOpen: .constant(false),
+                    moreOpen: .constant(false)
                 )
             }
         }
@@ -213,8 +214,8 @@ private func specimenCaption(_ text: String) -> some View {
 }
 
 /// `phone-tab-bar` (#EXP-2109): the docked bar: Chats selected, Teams
-/// selected, the Assistant selected (its glow), the New popup open; the
-/// count badge on Chats.
+/// selected, the Assistant selected (its glow), the New popup open, the
+/// More menu open (#EXP-2171); the count badge on Chats.
 struct PhoneTabBarSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -227,18 +228,29 @@ struct PhoneTabBarSpecimens: View {
             specimenCaption("New open")
             bar(.chats, newOpen: true)
                 .padding(.top, 2 * PhoneDockMetrics.menuRowHeight + 12 + PhoneDockMetrics.menuGap)
+            specimenCaption("More open")
+            bar(.more, moreOpen: true)
+                .padding(
+                    .top,
+                    CGFloat(Self.moreItems.count) * PhoneDockMetrics.menuRowHeight + 12 + PhoneDockMetrics.menuGap
+                )
         }
         .padding(.horizontal, -16)
         .accessibilityIdentifier("phone-tab-bar-specimen")
     }
 
-    private func bar(_ selected: Chats.Shell.Tab, newOpen: Bool = false) -> some View {
+    /// The rows this app has a page for (no CI page yet: #EXP-2172).
+    static let moreItems = Chats.Shell.MoreMenu.items(available: MainNavigator.morePages)
+
+    private func bar(_ selected: Chats.Shell.Tab, newOpen: Bool = false, moreOpen: Bool = false) -> some View {
         PhoneDock(
             selected: selected,
             chatsBadge: NavBadges.Value(count: 2, tone: .attention),
             teamsBadge: NavBadges.Value(count: 1, tone: .attention),
             assistantBadge: NavBadges.Value(count: 3, tone: .muted),
             newOpen: .constant(newOpen),
+            moreOpen: .constant(moreOpen),
+            moreItems: Self.moreItems,
             specimen: true
         )
         .padding(.top, PhoneDockMetrics.raise + PhoneDockMetrics.ring)

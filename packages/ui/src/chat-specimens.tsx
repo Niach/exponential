@@ -750,10 +750,9 @@ const ChatsIcon = conceptIcon(`nav-chats`)
 const TeamsIcon = conceptIcon(`ui-team`)
 const NewIcon = conceptIcon(`ui-add`)
 const NewOpenIcon = conceptIcon(`ui-close`)
-const SettingsIcon = conceptIcon(`nav-settings`)
 const BackIcon = conceptIcon(`ui-back`)
 
-type BarTab = `chats` | `teams` | `assistant` | `new` | `settings`
+type BarTab = `chats` | `teams` | `assistant` | `new` | `more`
 
 function Dock({ selected }: { selected: BarTab }) {
   return (
@@ -762,7 +761,7 @@ function Dock({ selected }: { selected: BarTab }) {
       <PhoneDockTab label={COPY.tabs.teams} icon={<TeamsIcon />} selected={selected === `teams`} />
       <PhoneDockAssistant selected={selected === `assistant`} />
       <PhoneDockTab label={COPY.tabs.new} icon={selected === `new` ? <NewOpenIcon /> : <NewIcon />} selected={selected === `new`} />
-      <PhoneDockTab label={COPY.tabs.settings} icon={<SettingsIcon />} selected={selected === `settings`} />
+      <PhoneDockTab label={COPY.tabs.more} icon={<MoreIcon />} selected={selected === `more`} />
     </PhoneDock>
   )
 }

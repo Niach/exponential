@@ -31,15 +31,22 @@ export interface TaskCall {
   liveTasks: number
 }
 
-export type TaskWatch = { kind: `session`; target: `started` | `sessionId` | `agentId` } | { kind: `events`; specs: string[] }
+export type TaskWatch =
+  | { kind: `session`; target: `started` | `sessionId` | `agentId` }
+  | { kind: `events`; specs: string[] }
+  /** #FEED-295: the transfer the call started. */
+  | { kind: `transfer` }
 
 const EVENT_SPEC = new RegExp(fixture.eventSpecPattern)
 
 /** The watch a call's task holds, or null = no task (the ordinary result). */
 export function taskWatchFor(call: TaskCall): TaskWatch | null {
-  if (call.inSession || !call.declared || call.tool !== fixture.tool) return null
+  if (call.inSession || !call.declared) return null
   if (call.liveTasks >= fixture.maxLivePerPrincipal) return null
   const a = call.args
+  // #FEED-295: a transfer's send watches that transfer; its other ops never make a task.
+  if (call.tool === fixture.transferTool.tool) return a.op === fixture.transferTool.op ? { kind: `transfer` } : null
+  if (call.tool !== fixture.tool) return null
   if (a.stop === true || a.answer !== undefined) return null
   const has = (key: string) => typeof a[key] === `string` && a[key] !== ``
   if (has(`sessionId`)) return { kind: `session`, target: `sessionId` }
@@ -68,9 +75,11 @@ export type Card =
 export interface TaskState {
   taskId: string
   principal: string
-  watch: `session` | `events`
+  watch: `session` | `events` | `transfer`
   /** The watched session (a session watch). */
   sessionId: string | null
+  /** #FEED-295: the watched transfer (a transfer watch). */
+  transferId?: string | null
   status: TaskStatus
   statusMessage: string | null
   createdAt: number
@@ -88,6 +97,10 @@ export type TaskEvent =
   /** #NEW-149: `surface` = the last surface card the session posted (its genUI view). */
   | { kind: `session.end`; at: number; summary: string; reason?: string | null; surface?: SurfaceCard | null }
   | { kind: `watch.fire`; at: number; text: string }
+  /** #FEED-295: the destination's counters. */
+  | { kind: `transfer.progress`; at: number; files: number; filesDone: number; bytes: number; bytesDone: number }
+  /** #FEED-295: the transfer ended; `text` = its end line. */
+  | { kind: `transfer.end`; at: number; status: `done` | `failed` | `cancelled`; text: string }
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
 
@@ -95,6 +108,27 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 export function lastLine(digest: string): string | null {
   const lines = digest.split(`\n`).map((l) => l.trim()).filter(Boolean)
   return lines.length ? clip(lines.at(-1)!, fixture.statusMessageMax) : null
+}
+
+/** Decimal units, one decimal under 100 (`5.9 GB`, `164 MB`, `999 B`). */
+export function formatBytes(bytes: number): string {
+  const units = [`B`, `KB`, `MB`, `GB`, `TB`]
+  let value = bytes
+  let unit = 0
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000
+    unit += 1
+  }
+  return unit === 0 ? `${bytes} B` : `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`
+}
+
+/** A transfer's progress line (`copy.transferProgress`). */
+export function transferProgressLine(p: { files: number; filesDone: number; bytes: number; bytesDone: number }): string {
+  return fixture.copy.transferProgress
+    .replace(`{bytesDone}`, formatBytes(p.bytesDone))
+    .replace(`{bytes}`, formatBytes(p.bytes))
+    .replace(`{filesDone}`, String(p.filesDone))
+    .replace(`{files}`, String(p.files))
 }
 
 /** Status of a live task: input_required while a card it can render is open. */
@@ -141,6 +175,22 @@ export function taskReduce(task: TaskState, event: TaskEvent): TaskState {
       next.status = `completed`
       next.result = { content: [{ type: `text`, text: event.text }], isError: false }
       next.statusMessage = clip(event.text, fixture.statusMessageMax)
+      return next
+    case `transfer.progress`:
+      next.statusMessage = clip(transferProgressLine(event), fixture.statusMessageMax)
+      break
+    case `transfer.end`:
+      next.cards = {}
+      next.statusMessage = clip(event.text, fixture.statusMessageMax)
+      if (event.status === `done`) {
+        next.status = `completed`
+        next.result = { content: [{ type: `text`, text: event.text }], isError: false }
+      } else if (event.status === `failed`) {
+        next.status = `failed`
+        next.error = { code: fixture.failureCode, message: event.text }
+      } else {
+        next.status = `cancelled`
+      }
       return next
   }
   next.status = liveStatus(next.cards)
@@ -240,7 +290,12 @@ export interface TaskRequest {
   now: number
 }
 
-export type TaskEffect = { kind: `answer`; sessionId: string; answer: Record<string, unknown> } | { kind: `stop`; sessionId: string } | { kind: `unwatch`; taskId: string }
+export type TaskEffect =
+  | { kind: `answer`; sessionId: string; answer: Record<string, unknown> }
+  | { kind: `stop`; sessionId: string }
+  /** #FEED-295: cancelling a transfer task cancels the transfer. */
+  | { kind: `cancel_transfer`; transferId: string }
+  | { kind: `unwatch`; taskId: string }
 
 export type TaskOutcome =
   | { ok: true; result: Record<string, unknown>; task: TaskState | null; effects: TaskEffect[] }
@@ -263,8 +318,11 @@ export function taskHandle(req: TaskRequest, lookup: (taskId: string) => TaskSta
   if (req.method === `tasks/get`) return { ok: true, result: { ...taskWire(task), resultType: `complete` }, task, effects: [] }
   if (req.method === `tasks/cancel`) {
     if (isTerminal(task.status)) return { ok: true, result: { resultType: `complete` }, task, effects: [] }
-    const cancelled: TaskState = { ...task, status: `cancelled`, cards: {}, statusMessage: fixture.copy.cancelled, lastUpdatedAt: req.now }
+    const transfer = task.watch === `transfer` && task.transferId ? task.transferId : null
+    const statusMessage = transfer ? fixture.copy.transferCancelled : fixture.copy.cancelled
+    const cancelled: TaskState = { ...task, status: `cancelled`, cards: {}, statusMessage, lastUpdatedAt: req.now }
     const effects: TaskEffect[] = task.watch === `session` && task.sessionId ? [{ kind: `stop`, sessionId: task.sessionId }] : []
+    if (transfer) effects.push({ kind: `cancel_transfer`, transferId: transfer })
     effects.push({ kind: `unwatch`, taskId: task.taskId })
     return { ok: true, result: { resultType: `complete` }, task: cancelled, effects }
   }

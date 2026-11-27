@@ -831,13 +831,13 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        // ── sg_settings-root: the SETTINGS tab (#EXP-2109): the viewer's
-        // card, the account rows, Devices, About.
-        showTab(app, "tab-settings", root: "settings-tab")
+        // ── sg_settings-root: the SETTINGS page (#EXP-2109; #EXP-2171: More ›
+        // Settings): the viewer's card, the account rows, About.
+        showMore(app, "settings", root: "settings-tab")
         expect(
-            app.buttons["settings-devices-row"],
+            app.buttons["settings-viewer"],
             within: Wait.nav,
-            "The Settings tab has no Devices row"
+            "The Settings page has no viewer card"
         )
         snapshot("sg_settings-root", settle: 2)
 
@@ -996,7 +996,7 @@ final class StyleguideScreenshots: XCTestCase {
         // page ensures it): identity, Runs on, Check in, the Voice block. A
         // detour: nothing is edited.
         if ScreenshotShots.isWanted("sg_settings-assistant") || ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
-            showTab(app, "tab-settings", root: "settings-tab")
+            showMore(app, "settings", root: "settings-tab")
             let assistantRow = app.buttons["assistant-settings-row"]
             scrollUntilVisible(app, assistantRow, attempts: 8)
             expect(assistantRow, within: Wait.sync, "Settings has no Personal › Assistant row")
@@ -1072,7 +1072,7 @@ final class StyleguideScreenshots: XCTestCase {
         // detail view. The row is titled by the SERVER, with the email below,
         // so match on the email.
         // #EXP-2109: the Settings tab's viewer card opens it.
-        showTab(app, "tab-settings", root: "settings-tab")
+        showMore(app, "settings", root: "settings-tab")
         app.buttons["settings-viewer"].tap()
         scrollUntilVisible(app, app.buttons["Sign out"], attempts: 4)
         expect(
@@ -1238,7 +1238,7 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_pr-checks (#EXP-1611) ·
-        // sg_ci-run · sg_runner-settings (#EXP-1804) ·
+        // sg_ci-run · sg_runner-settings (#EXP-1804) · sg_ci (#EXP-2172) ·
         // sg_repo-runs · sg_repo-ci (#EXP-1617) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
@@ -1306,12 +1306,16 @@ final class StyleguideScreenshots: XCTestCase {
         return button
     }
 
-    /// Settings › Devices.
+    /// More › Devices (#EXP-2171; the iPad: its sidebar entry).
     @MainActor
     private func openDevices(_ app: XCUIApplication) {
-        showTab(app, "tab-settings", root: "settings-tab")
-        let row = app.buttons["settings-devices-row"]
-        expect(row, within: Wait.nav, "Settings has no Devices row")
+        let sidebar = app.buttons["sidebar-devices"]
+        if sidebar.exists, sidebar.isHittable { return sidebar.tap() }
+        let cell = shellEntry(app, "tab-more", within: Wait.nav)
+        expect(cell, within: 1, "The bar has no More")
+        cell.tap()
+        let row = moreRow(app, "devices")
+        expect(row, within: Wait.nav, "The More menu has no Devices")
         row.tap()
     }
 
@@ -1321,7 +1325,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness",
-        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
+        "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "ci", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states", "elicitation-card",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
@@ -1395,6 +1399,8 @@ final class StyleguideScreenshots: XCTestCase {
             // #EXP-1804: the CI run page + the CI runner section (fixtures'
             // `specimen`s).
             case "ci-run": snapshot("sg_ci-run", settle: 2)
+            // #EXP-2172: the CI page, Runs tab (ci-page.json `scenario`).
+            case "ci": snapshot("sg_ci", settle: 2)
             case "runner-settings": snapshot("sg_runner-settings", settle: 2)
             // #EXP-1617: the repo page's Runs tab + the CI section of a
             // GitHub repo (repo-ci.json runRows[0]).

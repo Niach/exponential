@@ -9,5 +9,5 @@
 surface("window-menu", extensions={ede: {layer: "overlay", anchor: ["top", "left"], size: {width: 1, height: 1}, onDemand: true, functions: ["ede_window_menu"]}})
 $/windowMenu/items = []
 $/windowMenu/open = false
-root = Menu(items=$/windowMenu/items, open=$/windowMenu/open, side="bottom", align="start", children=[spot], on={select: ede_window_menu(value=$value), change: ede_window_menu(value="dismiss")})
+root = Menu(items=$/windowMenu/items, open=$/windowMenu/open, side="bottom", align="start", children=[spot], on={select: Event("ede_window_menu"), change: ede_window_menu(value="dismiss")})
 spot = Box(style={width: 1, height: 1})

@@ -17,6 +17,8 @@ import {
   appRecords,
   apps,
   attachments,
+  ciJobs,
+  ciRuns,
   comments,
   devices,
   events,
@@ -218,7 +220,19 @@ async function world() {
     .values({ userId: u.id, teamId: teamB, issueId: issueB!.id, boardId: boardB.id, type: `issue_comment`, title: `${MARK} notification` })
     .returning({ id: notifications.id })
 
+  // #EXP-2172: a CI run of B with one job (the CI ops).
+  const [ciRunB] = await db
+    .insert(ciRuns)
+    .values({ teamId: teamB, repositoryId: repoB, number: 1, name: `ci`, sha: `a`.repeat(40), trigger: `push`, state: `failure` })
+    .returning({ id: ciRuns.id })
+  const [ciJobB] = await db
+    .insert(ciJobs)
+    .values({ teamId: teamB, runId: ciRunB!.id, key: `test`, check: `test`, position: 0, status: `completed`, conclusion: `failure`, spec: { env: {}, secrets: [], steps: [] } })
+    .returning({ id: ciJobs.id })
+
   const b = {
+    ciRunId: ciRunB!.id,
+    ciJobId: ciJobB!.id,
     teamId: teamB,
     boardId: boardB.id,
     repositoryId: repoB,
@@ -309,7 +323,7 @@ async function snapshotB(w: World): Promise<Record<string, string>> {
 }
 
 /** B's ids, the strings a read must never carry. */
-const secretIds = (w: World) => [w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.skillId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
+const secretIds = (w: World) => [w.b.ciRunId, w.b.ciJobId, w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.skillId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
 
 type Kind = `read` | `write`
 interface Case {
@@ -415,6 +429,11 @@ const CASES: Record<string, Case> = {
   [`repositories.list`]: r(`repositories.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`repositories.create`]: wr(`repositories.create`, (w) => ({ op: `create`, teamId: w.b.teamId, fullName: `leak/leak` })),
   [`repositories.credentials`]: wr(`repositories.credentials`, (w) => ({ op: `credentials`, repositoryId: w.b.repositoryId })),
+  [`repositories.runs teamId`]: r(`repositories.runs`, (w) => ({ op: `runs`, teamId: w.b.teamId })),
+  [`repositories.runs repositoryId`]: r(`repositories.runs`, (w) => ({ op: `runs`, repositoryId: w.b.repositoryId })),
+  [`repositories.run_log runId`]: r(`repositories.run_log`, (w) => ({ op: `run_log`, runId: w.b.ciRunId })),
+  [`repositories.run_log jobId`]: r(`repositories.run_log`, (w) => ({ op: `run_log`, jobId: w.b.ciJobId })),
+  [`repositories.rerun`]: wr(`repositories.rerun`, (w) => ({ op: `rerun`, runId: w.b.ciRunId })),
   [`repositories.configure_ci`]: wr(`repositories.configure_ci`, (w) => ({ op: `configure_ci`, repositoryId: w.b.repositoryId, enabled: true })),
   [`repositories.restore`]: wr(`repositories.restore`, (w) => ({ op: `restore`, repositoryId: w.b.repositoryId })),
   // apps
@@ -481,6 +500,12 @@ const CASES: Record<string, Case> = {
   [`devices.list unfiltered`]: r(`devices.list`, () => ({ op: `list` })),
   [`devices.list teamId`]: r(`devices.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`devices.account_login`]: wr(`devices.account_login`, (w) => ({ op: `account_login`, deviceId: w.b.deviceId, agent: `claude` })),
+  // #FEED-295: b's box is U's own machine, but shared only with team B.
+  [`transfers.send push to B`]: wr(`transfers.send`, (w) => ({ op: `send`, fromDeviceId: w.personal, toDeviceId: w.b.deviceId, srcPath: `~/a`, destPath: `~/b` })),
+  [`transfers.send pull from B`]: wr(`transfers.send`, (w) => ({ op: `send`, fromDeviceId: w.b.deviceId, toDeviceId: w.personal, srcPath: `~/a`, destPath: `~/b` })),
+  [`transfers.list`]: r(`transfers.list`, () => ({ op: `list` })),
+  [`transfers.status`]: r(`transfers.status`, () => ({ op: `status`, transferId: crypto.randomUUID() })),
+  [`transfers.cancel`]: wr(`transfers.cancel`, () => ({ op: `cancel`, transferId: crypto.randomUUID() })),
   // events
   [`events.emit`]: wr(`events.emit`, (w) => ({ op: `emit`, name: `leak`, teamId: w.b.teamId })),
   [`events.list teamId`]: r(`events.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),

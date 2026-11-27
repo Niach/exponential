@@ -1069,6 +1069,11 @@ interface CiRunDao {
     @Query("SELECT * FROM ci_runs WHERE id IN (:ids)")
     fun observeByIds(ids: List<String>): Flow<List<CiRunEntity>>
 
+    /** #EXP-2172 (ci-page.json): every run of every member team (the CI page
+     *  and its badge; the rule orders and caps). */
+    @Query("SELECT * FROM ci_runs")
+    fun observeAll(): Flow<List<CiRunEntity>>
+
     /** #EXP-1617 (repo-ci.json): a repository's runs (the Runs tab, the CI section). */
     @Query("SELECT * FROM ci_runs WHERE repository_id = :repositoryId ORDER BY number DESC")
     fun observeByRepository(repositoryId: String): Flow<List<CiRunEntity>>
@@ -1093,6 +1098,10 @@ interface CiJobDao {
     /** #EXP-1617 (repo-ci.json): the jobs of a repository's runs. */
     @Query("SELECT * FROM ci_jobs WHERE run_id IN (SELECT id FROM ci_runs WHERE repository_id = :repositoryId) ORDER BY position, id")
     fun observeByRepository(repositoryId: String): Flow<List<CiJobEntity>>
+
+    /** #EXP-2172 (ci-page.json): every job (run statuses, runner slots). */
+    @Query("SELECT * FROM ci_jobs")
+    fun observeAll(): Flow<List<CiJobEntity>>
 
     @Query("SELECT * FROM ci_jobs WHERE runner_device_id = :deviceRowId ORDER BY started_at DESC LIMIT :limit")
     fun observeByRunner(deviceRowId: String, limit: Int): Flow<List<CiJobEntity>>
@@ -1312,4 +1321,26 @@ internal suspend fun agentChatLookup(
     if (!group.isNullOrEmpty()) return byId(group)?.takeIf { it.parentId == null }
     if (userId.isNullOrEmpty()) return null
     return own(agentId, userId)
+}
+
+/** #EXP-2171: the synced `repositories` shape (a team's repositories). */
+@Dao
+interface RepositoryDao {
+    @Query("SELECT * FROM repositories ORDER BY sort_order, full_name COLLATE NOCASE, id")
+    fun observeAll(): Flow<List<RepositoryEntity>>
+
+    @Query("SELECT * FROM repositories WHERE team_id = :teamId ORDER BY sort_order, full_name COLLATE NOCASE, id")
+    fun observeByTeam(teamId: String): Flow<List<RepositoryEntity>>
+
+    @Query("SELECT * FROM repositories WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<RepositoryEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: RepositoryEntity)
+
+    @Query("DELETE FROM repositories WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM repositories")
+    suspend fun clear()
 }

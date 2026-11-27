@@ -66,6 +66,10 @@ export const CI_RUNNER_CAP = `ci-runner`
 export const CI_JOB_COMMAND = `ci_job`
 /** A dispatched job its runner has not claimed by then goes to another. */
 export const CI_DISPATCH_STALE_MS = 90_000
+/** #EXP-2172: `ci_runs.provider` / `ci_jobs.provider` of OUR runs; a
+ *  `github` row (lib/ci/github-runs.ts) is never planned, numbered,
+ *  dispatched, ticked or reported here. */
+export const OWN_CI = `exponential`
 /** A runner beats its job about this often (the daemon's job thread). */
 export const CI_BEAT_MS = 15_000
 
@@ -127,6 +131,15 @@ export interface StartRunInput {
   rerunOf?: string | null
   /** A file already read (tests, a re-run): skips the forge read. */
   file?: unknown
+  /** #EXP-2172: the head commit's message (its first line is kept); a pull
+   *  request run takes its PR's title. */
+  title?: string | null
+}
+
+/** A commit message's first line, as a run's title (null when empty). */
+export function runTitle(text: string | null | undefined): string | null {
+  const line = (text ?? ``).split(`\n`)[0]?.trim() ?? ``
+  return line ? line.slice(0, 255) : null
 }
 
 export type StartRunResult =
@@ -172,7 +185,7 @@ async function nextRunNumber(tx: Tx, repositoryId: string): Promise<number> {
   const [row] = await tx
     .select({ max: sql<number | null>`max(${ciRuns.number})` })
     .from(ciRuns)
-    .where(eq(ciRuns.repositoryId, repositoryId))
+    .where(and(eq(ciRuns.repositoryId, repositoryId), eq(ciRuns.provider, OWN_CI)))
   return (row?.max ?? 0) + 1
 }
 
@@ -286,6 +299,10 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
   if (errors.length === 0 && !plan) return { started: false, reason: `not_triggered` }
 
   const now = new Date()
+  const prTitle = input.pullRequestId
+    ? ((await db.select({ title: pullRequests.title }).from(pullRequests).where(eq(pullRequests.id, input.pullRequestId)).limit(1))[0]?.title ?? null)
+    : null
+  const title = runTitle(prTitle) ?? runTitle(input.title)
   const runId = await db.transaction(async (tx) => {
     const number = await nextRunNumber(tx, repo.id)
     const [run] = await tx
@@ -304,6 +321,7 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
         rerunOf: input.rerunOf ?? null,
         createdByUserId: input.createdByUserId ?? null,
         completedAt: errors.length > 0 ? now : null,
+        title,
       })
       .returning({ id: ciRuns.id })
     if (!plan) return run.id
@@ -382,6 +400,7 @@ async function supersedeOlderRuns(args: { repositoryId: string; pullRequestId: s
         eq(ciRuns.repositoryId, args.repositoryId),
         eq(ciRuns.pullRequestId, args.pullRequestId),
         eq(ciRuns.trigger, `pull_request`),
+        eq(ciRuns.provider, OWN_CI),
         eq(ciRuns.name, args.name),
         eq(ciRuns.state, `pending`),
         sql`${ciRuns.sha} <> ${args.sha}`,
@@ -632,6 +651,7 @@ async function expectedDurations(teamId: string, repositoryIds: readonly string[
     .where(
       and(
         eq(ciJobs.teamId, teamId),
+        eq(ciJobs.provider, OWN_CI),
         inArray(ciRuns.repositoryId, [...repositoryIds]),
         inArray(ciJobs.check, [...checks]),
         eq(ciJobs.status, `completed`),
@@ -663,6 +683,7 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
     .where(
       and(
         eq(ciJobs.status, `queued`),
+        eq(ciJobs.provider, OWN_CI),
         scope.teamId ? eq(ciJobs.teamId, scope.teamId) : undefined,
         or(isNull(ciJobs.dispatchedAt), lt(ciJobs.dispatchedAt, staleBefore))
       )
@@ -996,6 +1017,7 @@ export async function rerunRun(args: { runId: string; failedOnly: boolean; userI
         state: `pending`,
         rerunOf: run.id,
         createdByUserId: args.userId,
+        title: run.title,
       })
       .returning({ id: ciRuns.id })
     const ids = new Map(old.map((job) => [job.id, crypto.randomUUID()]))
@@ -1050,6 +1072,7 @@ export async function rerunRun(args: { runId: string; failedOnly: boolean; userI
       pullRequestId: run.pullRequestId,
       createdByUserId: args.userId,
       rerunOf: run.id,
+      title: run.title,
     })
     if (!result.started) throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `The pipeline file is gone` })
     return result.runId
@@ -1067,7 +1090,7 @@ export async function ciTick(now: Date = new Date()): Promise<number> {
   const open = await db
     .selectDistinct({ runId: ciJobs.runId })
     .from(ciJobs)
-    .where(sql`${ciJobs.status} <> 'completed'`)
+    .where(and(sql`${ciJobs.status} <> 'completed'`, eq(ciJobs.provider, OWN_CI)))
     .limit(500)
   let moved = 0
   for (const { runId } of open) {

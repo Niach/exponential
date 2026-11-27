@@ -8,6 +8,7 @@ import { SIDEBAR_MENU_COPY, sidebarMoveTargets, type SidebarMenuKind } from "@ex
 import {
   SIDEBAR_DEVICES_OPEN_KEY,
   SIDEBAR_TREE_COPY,
+  repositoryCloneUrl,
   sidebarRootRows,
   sidebarTeamItems,
   sidebarTeamOpenKey,
@@ -64,12 +65,20 @@ import {
 import { SidebarFolderRows, SidebarNameInput, useSidebarTreeDensity, type SidebarRowItemProps } from "@/components/team/sidebar-folders"
 import { SidebarAgentRow } from "@/components/team/sidebar-agents"
 import { SidebarAppRow } from "@/components/team/sidebar-apps"
+import {
+  sidebarRepositoriesOf,
+  SidebarRepositoryRow,
+  useSidebarRepositoriesByTeam,
+  type SidebarRepository,
+} from "@/components/team/sidebar-repositories"
 import { ChatRunMark } from "@/components/team/sidebar-running"
 import { NavCountBadge } from "@/components/team/sidebar-shared"
-import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { DRAFTS_LABEL, NavCiIcon, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
 import { AssistantMark } from "@/components/team/assistant-mark"
 import {
   headerMenuEntries,
+  copyCloneUrl,
+  newSessionHref,
   newTeamEntries,
   openHandlers,
   sidebarMenuEntries,
@@ -84,7 +93,7 @@ import { useAgentSends } from "@/components/chat/chat-menu"
 // Drafts while they count, Chats, Devices with each device a row), the
 // `Teams` label (its + = New team / Join team), then one row per team
 // (`sidebarTeams`) holding that team's ONE mixed list (`sidebarTeamItems`
-// through `SidebarFolderRows`, section `team`): boards, agents, apps and the
+// through `SidebarFolderRows`, section `team`): boards, repositories (#EXP-2171), agents, apps and the
 // root sessions the member placed. A team row folds on a press. Open flags
 // are device-local (open by default).
 //
@@ -127,7 +136,7 @@ export type { SidebarAssistant }
 
 /** The pathname's place in the tree: what each row reads to light up. */
 export function sidebarActive(pathname: string) {
-  const team = /^\/t\/([^/]+)\/(boards|agents|apps|app-editor|sessions)\/([^/]+)/.exec(pathname)
+  const team = /^\/t\/([^/]+)\/(boards|agents|apps|app-editor|sessions|repos)\/([^/]+)/.exec(pathname)
   const device = /^\/devices\/([^/]+)/.exec(pathname)
   return {
     pathname,
@@ -136,6 +145,7 @@ export function sidebarActive(pathname: string) {
     agent: team?.[2] === `agents` ? team[3] : null,
     app: team?.[2] === `apps` || team?.[2] === `app-editor` ? team[3] : null,
     session: team?.[2] === `sessions` ? team[3] : null,
+    repository: team?.[2] === `repos` ? team[3] : null,
     device: device ? decodeURIComponent(device[1]) : null,
   }
 }
@@ -147,6 +157,7 @@ const ROOT_PAGES = {
   "needs-you": { href: `/needs-you`, title: NEEDS_YOU_COPY.entry, tab: { kind: `page`, page: `needs-you`, from: null } as WorkTab },
   chats: { href: `/chats`, title: CHATS_COPY.title, tab: { kind: `page`, page: `chats`, from: null } as WorkTab },
   drafts: { href: `/drafts`, title: DRAFTS_LABEL, tab: { kind: `page`, page: `drafts`, from: null } as WorkTab },
+  ci: { href: `/ci`, title: SIDEBAR_TREE_COPY.ci, tab: { kind: `page`, page: `ci`, from: null } as WorkTab },
 } as const
 
 /* ─── root rows ─────────────────────────────────────────────────────────── */
@@ -156,6 +167,7 @@ export function SidebarRootRows({
   needsYou,
   drafts,
   chatsBadge,
+  ciBadge,
   devices,
   teams,
   assistant,
@@ -167,6 +179,8 @@ export function SidebarRootRows({
   needsYou: number
   drafts: number
   chatsBadge: CountBadgeValue
+  /** #EXP-2172: nav-badges.json `ci` (ci-page.json `ciBadge`). */
+  ciBadge: CountBadgeValue
   devices: readonly SidebarDevice[]
   /** Member teams by id: a teammate's server wears its team's mark. */
   teams: ReadonlyMap<string, Team>
@@ -290,6 +304,18 @@ export function SidebarRootRows({
             <SidebarMenuTrailing className="pointer-events-none">
               <Badge count={drafts} tone="muted" data-testid="drafts-count-badge" />
             </SidebarMenuTrailing>
+          </SidebarMenuItem>
+        )
+      case `ci`:
+        return (
+          <SidebarMenuItem key={kind}>
+            <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/ci`}>
+              <Link to="/ci" data-testid="nav-ci" {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
+                <NavCiIcon className="h-4 w-4" />
+                <span>{SIDEBAR_TREE_COPY.ci}</span>
+              </Link>
+            </SidebarMenuButton>
+            <NavCountBadge value={ciBadge} data-testid="nav-ci-badge" />
           </SidebarMenuItem>
         )
       case `devices`:
@@ -543,10 +569,12 @@ export function SidebarTeamSections({
 }) {
   const teamIds = useMemo(() => teams.map((team) => team.id), [teams])
   const data = useSidebarTeamsData(teamIds, me, chatRows)
+  const repositories = useSidebarRepositoriesByTeam(teamIds)
   return teams.map((team) => (
     <SidebarTeamSection
       key={team.id}
       team={team}
+      repositories={sidebarRepositoriesOf(repositories, team.id)}
       owner={owners.has(team.id)}
       needsYou={needsYou.get(team.id) ?? 0}
       data={sidebarTeamSlice(data, team.id)}
@@ -602,6 +630,7 @@ export function moveEntries(folders: Pick<SidebarFolders, `rows` | `move` | `mov
  *  THIS team's rows renders nothing here. */
 const SidebarTeamSection = memo(function SidebarTeamSection({
   team,
+  repositories,
   owner,
   needsYou,
   data,
@@ -609,6 +638,8 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   onCount,
 }: {
   team: Team
+  /** #EXP-2171: the team's repositories (read once for every team). */
+  repositories: SidebarRepository[]
   owner: boolean
   needsYou: number
   data: SidebarTeamSlice
@@ -622,6 +653,11 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   const { boards, boardsReady } = useTeamBoardsWithReady(team.id)
   const { agents, badges, titles, chatRows } = data
   const { apps } = useApps(team.id)
+  // #EXP-2171: the team's repositories, an item kind of the list.
+  const repositoryInputs = useMemo(
+    () => repositories.map(({ repo }) => ({ id: repo.id, sortOrder: repo.sortOrder, fullName: repo.fullName })),
+    [repositories]
+  )
   const openNewDraft = useOpenNewDraft(team.slug)
   // #EXP-2124 board Archive: the board settings' archive behind its confirm.
   const here = active.teamSlug === team.slug
@@ -639,6 +675,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
       sidebarTeamItems({
         teamId: team.id,
         boards,
+        repositories: repositoryInputs,
         // `listAgents` order IS the default order.
         agents: agentRows.map((agent, index) => ({
           id: agent.agentId,
@@ -649,7 +686,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         sessions: sessionInputs,
         entries,
       }).map((item) => item.id),
-    [team.id, boards, agentRows, apps, sessionInputs]
+    [team.id, boards, repositoryInputs, agentRows, apps, sessionInputs]
   )
   const folders = useSidebarFolders(team.id, `team`, itemsOf)
 
@@ -666,10 +703,20 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   const boardsById = useMemo(() => new Map(boards.map((board) => [board.id, board])), [boards])
   const agentsById = useMemo(() => new Map(agentRows.map((agent) => [agent.agentId, agent])), [agentRows])
   const appsById = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps])
+  const repositoriesById = useMemo(() => new Map(repositories.map((entry) => [entry.repo.id, entry])), [repositories])
   // An item's kind is never stored (sidebar-tree.json): its id resolves
-  // against the team's boards, agents and apps, else it is a session.
+  // against the team's boards, repositories, agents and apps, else it is a
+  // session.
   const kindOf = (id: string): SidebarItemKind =>
-    boardsById.has(id) ? `board` : agentsById.has(id) ? `agent` : appsById.has(id) ? `app` : `session`
+    boardsById.has(id)
+      ? `board`
+      : repositoriesById.has(id)
+        ? `repository`
+        : agentsById.has(id)
+          ? `agent`
+          : appsById.has(id)
+            ? `app`
+            : `session`
   const base = `/t/${encodeURIComponent(team.slug)}`
   const tabTeam = { teamId: team.id, teamSlug: team.slug }
 
@@ -709,6 +756,27 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
               move,
               settings: () => go(`${base}/settings/boards/${board.id}`),
               archive: () => boardArchive.ask(board),
+            })}
+          />
+        )
+      }
+      case `repository`: {
+        const entry = repositoriesById.get(id)
+        if (!entry) return null
+        const href = `${base}/repos/${encodeURIComponent(entry.repo.slug)}`
+        const tab = (name: string) => go(`${href}?tab=${name}`)
+        return (
+          <SidebarPointerMenu
+            session={session}
+            title={entry.name}
+            entries={sidebarMenuEntries(`repository`, { owner }, {
+              ...openHandlers(href, () => go(href), { kind: `repository`, repositoryId: entry.repo.id, from: null, ...tabTeam }),
+              "new-repo-chat": () => go(newSessionHref(team.id, entry.repo.id)),
+              "pull-requests": () => tab(`pulls`),
+              runs: () => tab(`runs`),
+              "copy-clone-url": () => copyCloneUrl(repositoryCloneUrl(entry.repo)),
+              move,
+              settings: () => tab(`settings`),
             })}
           />
         )
@@ -860,6 +928,20 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             menu={itemMenuProps(agent.agentId)}
             active={here && active.agent === agent.agentId}
             badge={badges.get(agent.agentId)}
+            itemProps={itemProps}
+            guides={guides}
+          />
+        ) : null
+      }
+      case `repository`: {
+        const entry = repositoriesById.get(id)
+        return entry ? (
+          <SidebarRepositoryRow
+            key={id}
+            entry={entry}
+            teamSlug={team.slug}
+            menu={itemMenuProps(id)}
+            active={here && active.repository === entry.repo.slug}
             itemProps={itemProps}
             guides={guides}
           />

@@ -12,7 +12,7 @@ export const PERSONAL_SETTINGS_PAGES = [`account`, `assistant`, `notifications`,
 export type PersonalSettingsPage = (typeof PERSONAL_SETTINGS_PAGES)[number]
 
 /** The creation pages a team menu's New › X opens (sidebar-tree.json). */
-export const NEW_PAGE_KINDS = [`board`, `agent`, `app`] as const
+export const NEW_PAGE_KINDS = [`board`, `agent`, `app`, `repository`] as const
 export type NewPageKind = (typeof NEW_PAGE_KINDS)[number]
 
 const TEAM_REST = /^\/t\/([^/]+)(\/.*)?$/
