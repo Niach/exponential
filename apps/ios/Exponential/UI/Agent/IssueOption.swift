@@ -37,7 +37,9 @@ struct IssueOption: Identifiable, Sendable, Equatable {
         )
     }
 
-    /// The ×4 eligibility rule: a repo-backed board and a non-terminal status
+    /// The ×4 eligibility rule: a non-terminal status on one of the team's
+    /// boards (#EXP-2171: a board's repository is only its DEFAULT, every
+    /// issue of the team is on offer; `repositoryId` = that default)
     /// (custom statuses anchor to one of the enum values, EXP-314). `exempt`
     /// ids skip the issue-level checks — a seeded issue
     /// the user opened the composer FROM must always be on offer, whatever
@@ -48,10 +50,12 @@ struct IssueOption: Identifiable, Sendable, Equatable {
         teamId: String?,
         exempt: Set<String> = []
     ) -> [IssueOption] {
-        // Repo-backed boards only — boardId → repositoryId.
+        // The team's boards — boardId → its default repository (if any).
+        var teamBoards = Set<String>()
         var repoByBoard: [String: String] = [:]
         for board in boards {
             if let teamId, board.teamId != teamId { continue }
+            teamBoards.insert(board.id)
             if let repoId = board.repositoryId {
                 repoByBoard[board.id] = repoId
             }
@@ -63,7 +67,7 @@ struct IssueOption: Identifiable, Sendable, Equatable {
         ]
         return issues
             .filter { row in
-                guard repoByBoard[row.boardId] != nil else { return false }
+                guard teamBoards.contains(row.boardId) else { return false }
                 if exempt.contains(row.id) { return true }
                 return !terminal.contains(row.status)
             }

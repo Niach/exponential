@@ -64,6 +64,7 @@ pub(crate) fn window_key(screen: &Screen, chat_root: impl Fn(&str) -> Option<Str
         Screen::Agent { agent_id } => format!("agent:{agent_id}"),
         Screen::Device { device_id } => format!("device:{device_id}"),
         Screen::DeviceSettings { device_id } => format!("device-settings:{device_id}"),
+        Screen::Repository { repository_id } => format!("repository:{repository_id}"),
         // An app's run view and its editor are one page (one tab before).
         Screen::AppRun { app } | Screen::App { app } => format!("app:{app}"),
         Screen::IssueDraft { draft_id, .. } => format!("draft:{draft_id}"),
@@ -73,6 +74,7 @@ pub(crate) fn window_key(screen: &Screen, chat_root: impl Fn(&str) -> Option<Str
         Screen::NeedsYou => "needs-you".into(),
         Screen::Chats => "chats".into(),
         Screen::Drafts => "drafts".into(),
+        Screen::Ci => "ci-page".into(),
         Screen::Settings => "settings".into(),
         Screen::Files => "files".into(),
         Screen::SourceControl => "source-control".into(),
@@ -85,6 +87,7 @@ fn new_item_word(kind: NewItemKind) -> &'static str {
         NewItemKind::Board => "board",
         NewItemKind::Agent => "agent",
         NewItemKind::App => "app",
+        NewItemKind::Repository => "repository",
     }
 }
 
@@ -103,6 +106,7 @@ pub(crate) fn screen_of_key(key: &str) -> Option<Screen> {
         // `device:` = this device.
         "device" => Some(Screen::Device { device_id: id }),
         "device-settings" => Some(Screen::DeviceSettings { device_id: id }),
+        "repository" => with_id(Screen::Repository { repository_id: id.clone() }),
         // The run view: reopening the editor would start its live session.
         "app" => with_id(Screen::AppRun { app: id.clone() }),
         "draft" => with_id(Screen::IssueDraft { draft_id: id.clone(), board_id: String::new(), status_id: None }),
@@ -111,6 +115,7 @@ pub(crate) fn screen_of_key(key: &str) -> Option<Screen> {
         "needs-you" => Some(Screen::NeedsYou),
         "chats" => Some(Screen::Chats),
         "drafts" => Some(Screen::Drafts),
+        "ci-page" => Some(Screen::Ci),
         "settings" => Some(Screen::Settings),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
@@ -129,6 +134,7 @@ pub(crate) fn kind_and_icon(screen: &Screen) -> (&'static str, &'static str) {
         Screen::Agent { .. } => ("agent", "settings-agents"),
         Screen::Device { .. } => ("device", "nav-devices"),
         Screen::DeviceSettings { .. } => ("device-settings", "nav-settings"),
+        Screen::Repository { .. } => ("repository", "action-repository"),
         Screen::AppRun { .. } | Screen::App { .. } => ("app", "nav-apps"),
         Screen::IssueDraft { .. } => ("draft", "nav-create-issue"),
         Screen::NewItem { .. } => ("new", "ui-add"),
@@ -137,6 +143,7 @@ pub(crate) fn kind_and_icon(screen: &Screen) -> (&'static str, &'static str) {
         Screen::NeedsYou => ("needs-you", "nav-needs-you"),
         Screen::Chats => ("chats", "nav-chats"),
         Screen::Drafts => ("drafts", "nav-drafts"),
+        Screen::Ci => ("ci-page", "nav-ci"),
         Screen::Settings => ("settings", "nav-settings"),
         Screen::Files => ("files", "nav-files"),
         Screen::SourceControl => ("source-control", "nav-source-control"),
@@ -585,6 +592,7 @@ mod tests {
             Screen::NeedsYou,
             Screen::Chats,
             Screen::Drafts,
+            Screen::Ci,
             Screen::Settings,
         ] {
             let key = window_key(&screen, no_chat).unwrap();
@@ -633,6 +641,7 @@ mod tests {
             Screen::NeedsYou,
             Screen::Chats,
             Screen::Drafts,
+            Screen::Ci,
             Screen::Settings,
             Screen::Files,
             Screen::SourceControl,

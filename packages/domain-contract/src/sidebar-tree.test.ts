@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/sidebar-tree.json" with { type: "json" }
 import type { SidebarEntry, SidebarMove, SidebarRow } from "./sidebar-folders"
 import {
+  repositoryCloneUrl,
+  repositoryName,
+  sidebarRepositoryTrailing,
   SIDEBAR_DEVICES_OPEN_KEY,
   SIDEBAR_TREE_MAX_DEPTH,
   sidebarDeviceRows,
@@ -40,6 +43,12 @@ describe(`sidebar tree (#EXP-2027)`, () => {
   for (const c of fixture.phone.rows) {
     test(`phone rows: ${c.name}`, () => expect(phoneTreeRows(c.teams as never)).toEqual(c.expected as never))
   }
+  for (const c of fixture.repositoryRow.cases) {
+    test(`repository row: ${c.name}`, () =>
+      expect(sidebarRepositoryTrailing({ provider: c.provider, checks: c.checks as never })).toEqual(c.expected as never))
+  }
+  for (const c of fixture.repositoryRow.cloneUrl) test(`clone url: ${c.name}`, () => expect(repositoryCloneUrl(c)).toBe(c.expected))
+  for (const c of fixture.repositoryRow.nameCases) test(`repository name: ${c.fullName}`, () => expect(repositoryName(c.fullName)).toBe(c.expected))
   for (const c of fixture.phone.empty) test(`phone empty: ${c.name}`, () => expect(phoneTeamsEmpty(c.teams)).toBe(c.expected))
   for (const c of fixture.edeLocal) test(`ede local: ${c.name}`, () => expect(sidebarLocalRows(c.desktops)).toEqual(c.expected as never))
   for (const c of fixture.drop) {

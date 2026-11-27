@@ -26,6 +26,13 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertFalse(AgentComposerSeed(teamId: "team-2").hasSubject)
     }
 
+    // #EXP-2172: Fix with an agent seeds the run's repository (the
+    // composer's #EXP-2171 pick); no subject of its own.
+    func testASeededRepositoryIsNoSubject() {
+        XCTAssertNil(AgentComposerSeed.empty.repositoryId)
+        XCTAssertFalse(AgentComposerSeed(text: "fix", teamId: "t", repositoryId: "r2").hasSubject)
+    }
+
     func testIssuesAreASubjectInPickOrder() {
         let seed = AgentComposerSeed(issueIds: ["b", "a"])
         XCTAssertTrue(seed.hasSubject)

@@ -91,6 +91,8 @@ import {
   messages,
   notifications,
   boards,
+  ciJobs,
+  ciRuns,
   repositories,
   sessions,
   users,
@@ -175,11 +177,12 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
+import { TRANSFER_COPY, TRANSFER_PATH_MAX } from "@/lib/device-transfers"
 import { reconcileDeviceUsage } from "@/lib/usage-reconcile"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
-import { createEventTask, createSessionTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
+import { createEventTask, createSessionTask, createTransferTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
 import type { EmcpToolContext } from "@/lib/emcp/request-context"
 import { downloadMetaFor } from "@/lib/emcp/files"
 import {
@@ -409,6 +412,8 @@ interface CallerSession {
   /** NEW-2: the root is an agent's conversation (never ends). */
   rootAgentId: string | null
   unattended: boolean
+  /** #FEED-295: the machine it runs on (a transfer's default side). */
+  deviceId: string | null
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
@@ -762,6 +767,7 @@ export function registerExponentialTools(
       userId: row.userId,
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
+      deviceId: row.deviceId ?? null,
     }
   }
 
@@ -3633,6 +3639,104 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
+  // Transfers (#FEED-295): a file or directory copied between two of YOUR
+  // machines over eNet (lib/device-transfers.ts), no prompt. Its own noun
+  // (deferred, found by tool search): send, list, status, cancel.
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_transfers_send`,
+    {
+      description: `Copy a file or directory between two of your own machines over P2P: streamed, resumable, no size cap, end-to-end encrypted, every file's checksum verified. Push {toDeviceId} from this session's machine, pull {fromDeviceId} into it, or name both. destPath must not exist yet. Returns transferId; the session wakes when it ends.`,
+      inputSchema: strictInput({
+        fromDeviceId: z.string().min(1).max(128).optional(),
+        toDeviceId: z.string().min(1).max(128).optional(),
+        srcPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+        destPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+      }),
+    },
+    async ({ fromDeviceId, toDeviceId, srcPath, destPath }, extra?: unknown) => {
+      try {
+        // A machine's files sit outside any selectable grant: full access only.
+        assertFullAccess(access)
+        const own = await loadCallerSession()
+        const from = fromDeviceId ?? own?.deviceId
+        const to = toDeviceId ?? own?.deviceId
+        if (!from || !to) throw new Error(TRANSFER_COPY.noDevice)
+        // An outside host that declared MCP tasks gets the transfer as a task
+        // (emcp tasks.json TRANSFERS); our own sessions wake on its end line.
+        const ctx = extra as EmcpToolContext | undefined
+        const taskSpec: TaskCallSpec | null = ctx?.client
+          ? { ctx, tool: `exponential_transfers_write`, args: { op: `send` }, inSession: sessionId !== null, access }
+          : null
+        const planned = taskSpec ? await plannedTaskWatch(taskSpec) : null
+        const started = await caller(user, request).devices.startTransfer({
+          fromDeviceId: from,
+          toDeviceId: to,
+          srcPath,
+          destPath,
+          sessionId: own?.id ?? null,
+          teamId: own?.teamId ?? null,
+        })
+        if (planned?.kind === `transfer`) return (await createTransferTask(taskSpec!, started.transferId, own?.teamId ?? null)) as never
+        return ok(started)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_list`,
+    {
+      annotations: READ_ONLY,
+      description: `Your device-to-device transfers, newest first (every one is logged).`,
+      inputSchema: strictInput({ limit: z.number().int().min(1).max(50).optional() }),
+    },
+    async ({ limit }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.transfers({ limit: limit ?? 20 }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_status`,
+    {
+      annotations: READ_ONLY,
+      description: `One transfer: status queued|running|done|failed|cancelled, files/filesDone, bytes/bytesDone, skipped, error.`,
+      inputSchema: strictInput({ transferId: uuidString }),
+    },
+    async ({ transferId }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.transfer({ transferId }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_cancel`,
+    {
+      description: `Cancel a queued or running transfer (both machines stop; what arrived stays).`,
+      inputSchema: strictInput({ transferId: uuidString }),
+    },
+    async ({ transferId }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.cancelTransfer({ transferId }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
   // Comments (edit / delete)
   // -----------------------------------------------------------------------
 
@@ -4005,6 +4109,129 @@ export function registerExponentialTools(
     }
   )
 
+  // #EXP-2172: the CI list (our runs + GitHub Actions runs, one table) for
+  // an agent: the newest runs of a repository or a team, a job's log (the
+  // first failing job when only a run is named) and Re-run (GitHub re-runs
+  // need the App's Actions: write on that installation).
+  server.registerTool(
+    `exponential_repositories_runs`,
+    {
+      annotations: READ_ONLY,
+      description: `CI runs, newest first (ours and GitHub Actions; source = provider), with their jobs.`,
+      inputSchema: strictInput({
+        repositoryId: uuidString.optional(),
+        teamId: uuidString.optional(),
+        state: z.enum([`pending`, `success`, `failure`]).optional(),
+        ...pageInput,
+      }),
+    },
+    async ({ repositoryId, teamId, state, limit, offset }) => {
+      try {
+        if (!repositoryId && !teamId) throw new Error(`Name a repositoryId or a teamId`)
+        let team = teamId ?? null
+        if (repositoryId) {
+          const [repo] = await db.select({ teamId: repositories.teamId }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
+          if (!repo) throw new Error(`Repository not found`)
+          team = repo.teamId
+        }
+        assertTeamVisible(access, team!)
+        const take = Math.min(limit ?? 20, 50)
+        const runs = await db
+          .select({
+            id: ciRuns.id,
+            repositoryId: ciRuns.repositoryId,
+            fullName: repositories.fullName,
+            number: ciRuns.number,
+            name: ciRuns.name,
+            source: ciRuns.provider,
+            ref: ciRuns.ref,
+            sha: ciRuns.sha,
+            trigger: ciRuns.trigger,
+            state: ciRuns.state,
+            error: ciRuns.error,
+            url: ciRuns.externalUrl,
+            startedAt: ciRuns.startedAt,
+            completedAt: ciRuns.completedAt,
+          })
+          .from(ciRuns)
+          .innerJoin(repositories, eq(repositories.id, ciRuns.repositoryId))
+          .where(
+            and(
+              eq(ciRuns.teamId, team!),
+              repositoryId ? eq(ciRuns.repositoryId, repositoryId) : undefined,
+              state ? eq(ciRuns.state, state) : undefined
+            )
+          )
+          .orderBy(desc(ciRuns.createdAt))
+          .limit(take)
+          .offset(offset ?? 0)
+        const jobs =
+          runs.length === 0
+            ? []
+            : await db
+                .select({ id: ciJobs.id, runId: ciJobs.runId, check: ciJobs.check, status: ciJobs.status, conclusion: ciJobs.conclusion })
+                .from(ciJobs)
+                .where(inArray(ciJobs.runId, runs.map((run) => run.id)))
+                .orderBy(asc(ciJobs.position))
+        return ok(runs.map((run) => ({ ...run, jobs: jobs.filter((job) => job.runId === run.id).map(({ runId: _r, ...job }) => job) })))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_run_log`,
+    {
+      annotations: READ_ONLY,
+      description: `A CI job's log (jobId, or runId = its first failing job); page with offset = nextOffset until complete.`,
+      inputSchema: strictInput({ runId: uuidString.optional(), jobId: uuidString.optional(), offset: z.number().int().min(0).optional() }),
+    },
+    async ({ runId, jobId, offset }) => {
+      try {
+        let id = jobId ?? null
+        if (!id && runId) {
+          const [run] = await db.select({ teamId: ciRuns.teamId }).from(ciRuns).where(eq(ciRuns.id, runId)).limit(1)
+          if (!run) throw new Error(`Run not found`)
+          assertTeamVisible(access, run.teamId)
+          const rows = await db
+            .select({ id: ciJobs.id, status: ciJobs.status, conclusion: ciJobs.conclusion })
+            .from(ciJobs)
+            .where(eq(ciJobs.runId, runId))
+            .orderBy(asc(ciJobs.position))
+          const failing = rows.find((row) => row.status === `completed` && row.conclusion !== null && ![`success`, `skipped`, `neutral`].includes(row.conclusion))
+          id = (failing ?? rows.find((row) => row.status === `in_progress`) ?? rows[0])?.id ?? null
+        }
+        if (!id) throw new Error(`Name a jobId or a runId with jobs`)
+        const [job] = await db.select({ teamId: ciJobs.teamId, check: ciJobs.check }).from(ciJobs).where(eq(ciJobs.id, id)).limit(1)
+        if (!job) throw new Error(`Job not found`)
+        assertTeamVisible(access, job.teamId)
+        const page = await caller(user, request).ci.log({ jobId: id, offset: offset ?? 0 })
+        return ok({ jobId: id, check: job.check, ...page })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_rerun`,
+    {
+      description: `Re-run a CI run (failedOnly default true); ours = a new run, GitHub = a new attempt of the same run.`,
+      inputSchema: strictInput({ runId: uuidString, failedOnly: z.boolean().optional() }),
+    },
+    async ({ runId, failedOnly }) => {
+      try {
+        const [run] = await db.select({ teamId: ciRuns.teamId }).from(ciRuns).where(eq(ciRuns.id, runId)).limit(1)
+        if (!run) throw new Error(`Run not found`)
+        assertTeamFullyGranted(access, run.teamId)
+        return ok(await caller(user, request).ci.rerun({ runId, failedOnly: failedOnly ?? true }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // #EXP-2170 (Phase 0's restore drill): a hosted repository back to one of
   // its bundle backups, the same owner-only `repositories.restore` as the
   // repository's Settings tab (a device job replaces every pack and ref).
@@ -4012,10 +4239,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_restore`,
     {
-      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner. backupId omitted = the newest. Owners. → {commandId, backup, backups}.`,
-      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional() }),
+      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner, after a fresh backup of the current state. backupId omitted = the newest. Refused when it would change refs (named) unless force. Owners. → {commandId, backup, backups, changes}.`,
+      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional(), force: z.boolean().optional() }),
     },
-    async ({ repositoryId, backupId }) => {
+    async ({ repositoryId, backupId, force }) => {
       try {
         const [repo] = await db
           .select({ teamId: repositories.teamId })
@@ -4029,8 +4256,8 @@ export function registerExponentialTools(
         const newest = [...backups].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
         const backup = backupId ? backups.find((b) => b.id === backupId) : newest
         if (!backup) throw new Error(backupId ? `Backup not found` : `This repository has no backup yet`)
-        const { commandId } = await trpc.repositories.restore({ repositoryId, backupId: backup.id })
-        return ok({ commandId, backup, backups: backups.length })
+        const { commandId, changes } = await trpc.repositories.restore({ repositoryId, backupId: backup.id, force: force ?? false })
+        return ok({ commandId, backup, backups: backups.length, changes })
       } catch (e) {
         return err(e)
       }
@@ -4997,7 +5224,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
+      description: `Set a board's (UUID) DEFAULT repository (same team), or repositoryId: null to clear it. Owner/admin only. New chats on its issues without a pick or a live PR use it. The branch pin resets unless defaultBranch is passed.`,
       inputSchema: strictInput({
         id: uuidString,
         repositoryId: uuidString.nullable(),

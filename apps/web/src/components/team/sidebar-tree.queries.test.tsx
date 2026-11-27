@@ -70,6 +70,7 @@ vi.mock(`@/lib/collections`, () => {
     sessionReadsCollection: named(`sessionReadsCollection`),
     sidebarLayoutCollection: named(`sidebarLayoutCollection`),
     pullRequestCollection: named(`pullRequestCollection`),
+    repositoryCollection: named(`repositoryCollection`),
     messageCollection: named(`messageCollection`),
     appCollection: named(`appCollection`),
     deviceCollection: named(`deviceCollection`),

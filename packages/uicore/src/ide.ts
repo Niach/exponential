@@ -57,6 +57,8 @@ export interface IdeSidebarInput {
   /** #EXP-2027: the Devices row's children in `sidebarDeviceRows` order, and whether it is open. */
   devices?: { id: string; name: string; icon: string; online: boolean; teamMark?: string | null }[]
   devicesOpen?: boolean
+  /** #EXP-2172: the CI row's badge (nav-badges.json `ci`, ci-page.json `ciBadge`). */
+  ci?: IdeCount
   /** #EXP-2027: one entry per team (`sidebarTeams`). */
   teams?: IdeTeamInput[]
   active: { id: string; title: string; icon: string; sessionIds: string[]; teamMark?: string | null; team?: string | null }[]
@@ -193,6 +195,8 @@ const FOLDER_ICON = `ui-folder`
 export interface IdeSidebar {
   nav: IdeNavRow[]
   devices: IdeDeviceRow[]
+  /** #EXP-2172: THE CI row, after the Devices rows (one row). */
+  ci: IdeNavRow[]
   teams: { id: string; rows: IdeRow[] }[]
   active: { id: string; title: string; icon: string; selected: boolean; teamMark: string | null }[]
   prs: IdePrRow[]
@@ -226,7 +230,7 @@ const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: numb
   ...badge({ count, tone }),
 })
 
-/** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board for owners). */
+/** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board, repository for owners). */
 export const newItems = (owner: boolean): IdeMenuEntry[] => [
   { label: COPY.session, value: `session`, icon: `action-chat` },
   ...(owner
@@ -234,6 +238,7 @@ export const newItems = (owner: boolean): IdeMenuEntry[] => [
         { label: COPY.agent, value: `agent`, icon: `settings-agents` },
         { label: COPY.app, value: `app`, icon: `nav-apps` },
         { label: COPY.board, value: `board`, icon: `nav-boards` },
+        { label: COPY.repository, value: `repository`, icon: `action-repository` },
       ]
     : []),
 ]
@@ -303,6 +308,7 @@ export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   return {
     nav: rows,
     devices,
+    ci: [nav(`ci`, `nav-ci`, screen === `ci`, (input.ci ?? NONE).count, (input.ci ?? NONE).tone)],
     teams,
     active: input.active.map((a) => ({
       id: a.id,

@@ -24,6 +24,7 @@ import androidx.room.TypeConverters
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         SidebarLayoutEntity::class,
+        RepositoryEntity::class,
         IssueDraftEntity::class,
         ComposerDraftEntity::class,
         SessionEntity::class,
@@ -123,7 +124,12 @@ import androidx.room.TypeConverters
     // v135 (#EXP-2161): devices.assistant_team_ids, space_host_id,
     //      space_team_id (member spaces), explicit [MIGRATION_134_135]; only
     //      the devices shape refetches.
-    version = 135,
+    // v136 (#EXP-2171): the `repositories` table (the 34th shape), explicit
+    //      [MIGRATION_135_136]; the new shape starts fresh.
+    // v137 (#EXP-2172): ci_runs provider / external_* / title and ci_jobs
+    //      provider / external_* (GitHub Actions runs beside ours), explicit
+    //      [MIGRATION_136_137]; only the ci_runs and ci_jobs shapes refetch.
+    version = 137,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -146,6 +152,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun sidebarLayoutDao(): SidebarLayoutDao
+    abstract fun repositoryDao(): RepositoryDao
     abstract fun issueDraftDao(): IssueDraftDao
     abstract fun composerDraftDao(): ComposerDraftDao
     abstract fun sessionDao(): SessionDao

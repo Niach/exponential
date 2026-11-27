@@ -63,10 +63,16 @@ class CiRunTest {
         sha = o.str("sha")!!,
         startedAt = o.str("startedAt"),
         completedAt = o.str("completedAt"),
+        ref = o.str("ref"),
+        provider = o.str("provider") ?: "exponential",
+        externalUrl = o.str("externalUrl"),
+        externalAccess = o.str("externalAccess"),
+        title = o.str("title"),
+        createdAt = o.str("createdAt") ?: "",
     )
 
-    private fun row(o: JsonObject) = listOf(o.str("id"), o.str("title"), o.str("subtitle"), o.str("glyph"), o.str("tone"), o.str("duration"))
-    private fun row(r: CiRun.JobRow) = listOf(r.id, r.title, r.subtitle, r.glyph.wire, r.tone.wire, r.duration)
+    private fun row(o: JsonObject) = listOf(o.str("id"), o.str("title"), o.str("subtitle"), o.str("glyph"), o.str("tone"), o.str("duration"), o.str("status"), o.str("statusTone"))
+    private fun row(r: CiRun.JobRow) = listOf(r.id, r.title, r.subtitle, r.glyph.wire, r.tone.wire, r.duration, r.status.wire, r.statusTone.wire)
 
     @Test
     fun `copy, testIds and the tail rate are the fixture's`() {
@@ -80,23 +86,38 @@ class CiRunTest {
         assertEquals(copy.str("emptyLog"), CiRun.Copy.EMPTY_LOG)
         assertEquals(copy.str("pipelineError"), CiRun.Copy.PIPELINE_ERROR)
         assertEquals(copy.str("none"), CiRun.Copy.NONE)
-        val tiles = copy.obj("tiles")
+        assertEquals(copy.str("more"), CiRun.Copy.MORE)
+        val caption = copy.obj("jobsCaption")
+        for ((status, text) in CiRun.Copy.JOBS_CAPTION) assertEquals(caption.str(status.wire), text)
+        assertEquals(caption.keys, CiRun.Copy.JOBS_CAPTION.keys.map { it.wire }.toSet())
+        val summary = copy.obj("jobSummary")
         assertEquals(
-            listOf(tiles.str("status"), tiles.str("duration"), tiles.str("runner"), tiles.str("commit")),
-            listOf(CiRun.Copy.TILE_STATUS, CiRun.Copy.TILE_DURATION, CiRun.Copy.TILE_RUNNER, CiRun.Copy.TILE_COMMIT),
+            listOf("failed", "running", "passed", "queued", "skipped", "on").map { summary.str(it) },
+            with(CiRun.Copy) { listOf(SUMMARY_FAILED, SUMMARY_RUNNING, SUMMARY_PASSED, SUMMARY_QUEUED, SUMMARY_SKIPPED, SUMMARY_ON) },
         )
+        assertEquals(copy.obj("failure").str("title"), CiRun.Copy.FAILURE_TITLE)
         val status = copy.obj("status")
         assertEquals(status.keys, CiRun.RunStatus.entries.map { it.wire }.toSet())
         for (s in CiRun.RunStatus.entries) assertEquals(status.str(s.wire), CiRun.Copy.STATUS[s])
         val reasons = copy.obj("reasons")
         assertEquals(reasons.mapValues { (it.value as JsonPrimitive).content }, CiRun.Copy.REASONS)
+        assertEquals(
+            listOf("rerunAll", "fix", "openExternal", "breadcrumbRoot", "pullRequest").map { copy.str(it) },
+            listOf(CiRun.Copy.RERUN_ALL, CiRun.Copy.FIX, CiRun.Copy.OPEN_EXTERNAL, CiRun.Copy.BREADCRUMB_ROOT, CiRun.Copy.PULL_REQUEST),
+        )
+        assertEquals(copy.obj("sources").mapValues { (it.value as JsonPrimitive).content }, CiRun.Copy.SOURCES)
+        val fix = copy.obj("fixPrompt")
+        assertEquals(
+            listOf("head", "job", "read", "tail").map { fix.str(it) },
+            listOf(CiRun.Copy.FIX_HEAD, CiRun.Copy.FIX_JOB, CiRun.Copy.FIX_READ, CiRun.Copy.FIX_TAIL),
+        )
+        assertEquals((fixture["fixLogLines"] as JsonPrimitive).int, CiRun.FIX_LOG_LINES)
         val ids = fixture.obj("testIds")
         assertEquals(
-            listOf("page", "tiles", "jobRow", "steps", "log", "rerun", "cancel").map { ids.str(it) },
-            listOf(
-                CiRun.TestIds.PAGE, CiRun.TestIds.TILES, CiRun.TestIds.JOB_ROW, CiRun.TestIds.STEPS,
-                CiRun.TestIds.LOG, CiRun.TestIds.RERUN, CiRun.TestIds.CANCEL,
-            ),
+            listOf("page", "jobRow", "steps", "log", "rerun", "cancel", "rerunAll", "fix", "openExternal", "breadcrumb", "source", "chips", "more", "failure", "jobCard").map { ids.str(it) },
+            with(CiRun.TestIds) {
+                listOf(PAGE, JOB_ROW, STEPS, LOG, RERUN, CANCEL, RERUN_ALL, FIX, OPEN_EXTERNAL, BREADCRUMB, SOURCE, CHIPS, MORE, FAILURE, JOB_CARD)
+            },
         )
         assertEquals(fixture.long("liveTailMs"), CiRun.LIVE_TAIL_MS)
         val lines = fixture.obj("logMaxLines")
@@ -115,11 +136,24 @@ class CiRunTest {
     }
 
     @Test
-    fun `every tiles case matches the fixture`() {
-        for (case in fixture.cases("tiles")) {
-            val actual = CiRun.tiles(run(case.obj("run")), case.getValue("jobs").jsonArray.map(::job), epoch(case.str("now")!!))
-            val expected = case.getValue("expected").jsonArray.map { it.jsonObject.let { o -> listOf(o.str("label"), o.str("value"), o.str("tone"), o.str("delta")) } }
-            assertEquals(case.str("name"), expected, actual.map { listOf(it.label, it.value, it.tone.wire, it.delta) })
+    fun `every jobsCaption, jobSummary, chips and failureSummary case matches the fixture`() {
+        for (case in fixture.cases("jobsCaption")) {
+            val jobs = case.getValue("jobs").jsonArray.map { it.jsonObject.let { o -> o.str("status")!! to o.str("conclusion") } }
+            assertEquals(case.str("name"), case.str("expected"), CiRun.jobsCaption(jobs))
+        }
+        for (case in fixture.cases("jobSummary")) {
+            assertEquals(case.str("name"), case.str("expected"), CiRun.jobSummary(job(case.obj("job")), epoch(case.str("now")!!)))
+        }
+        for (case in fixture.cases("chips")) {
+            val pr = (case["pullRequest"] as? JsonObject)?.let { CiRun.PullRequest(it.getValue("number").jsonPrimitive.int, it.str("base")!!) }
+            val actual = CiRun.chips(run(case.obj("run")), case.getValue("jobs").jsonArray.map(::job), pr, case.str("author"), epoch(case.str("now")!!))
+            val expected = case.getValue("expected").jsonArray.map { it.jsonObject.let { o -> listOf(o.str("id"), o.str("label"), o.str("icon"), o.str("dot")) } }
+            assertEquals(case.str("name"), expected, actual.map { listOf(it.id, it.label, it.icon, it.dot) })
+        }
+        for (case in fixture.cases("failureSummary")) {
+            val actual = CiRun.failureSummary((case["job"] as? JsonObject)?.str("check"), case.str("log"))
+            val expected = (case["expected"] as? JsonObject)?.let { CiRun.Failure(it.str("title")!!, it.str("message")!!) }
+            assertEquals(case.str("name"), expected, actual)
         }
     }
 
@@ -170,12 +204,28 @@ class CiRunTest {
     fun `every actions case matches the fixture`() {
         for (case in fixture.cases("actions")) {
             val expected = case.obj("expected")
-            val actual = CiRun.actions(case.str("state")!!, case.str("error"))
-            assertEquals(
-                case.str("name"),
-                listOf(expected.getValue("rerunFailed").jsonPrimitive.boolean, expected.getValue("cancel").jsonPrimitive.boolean),
-                listOf(actual.rerunFailed, actual.cancel),
+            val actual = CiRun.actions(case.str("state")!!, case.str("error"), case.str("provider"), case.str("externalAccess"), case.str("externalUrl"))
+            val expectedActions = CiRun.Actions(
+                primary = expected.str("primary"),
+                fix = expected.getValue("fix").jsonPrimitive.boolean,
+                menu = expected.getValue("menu").jsonArray.map { it.jsonPrimitive.content },
             )
+            assertEquals(case.str("name"), expectedActions, actual)
+        }
+    }
+
+    @Test
+    fun `every fix prompt case matches the fixture`() {
+        val cases = fixture.cases("fixPrompt")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.obj("input")
+            val r = input.obj("run")
+            val run = CiRun.Run(
+                id = r.str("id")!!, number = r.getValue("number").jsonPrimitive.int, name = r.str("name")!!, state = "failure",
+                error = null, sha = r.str("sha")!!, startedAt = null, completedAt = null, ref = r.str("ref"),
+            )
+            assertEquals(case.str("name"), case.str("expected"), CiRun.fixPrompt(run, input.str("repository")!!, input.str("job"), input.str("log")))
         }
     }
 
@@ -184,6 +234,10 @@ class CiRunTest {
         val specimen = fixture.obj("specimen")
         assertEquals(specimen.str("now"), CiRun.SPECIMEN_NOW)
         assertEquals(run(specimen.obj("run")), CiRun.SPECIMEN_RUN)
+        assertEquals(specimen.str("repository"), CiRun.SPECIMEN_REPOSITORY)
+        val pr = specimen.obj("pullRequest")
+        assertEquals(CiRun.PullRequest(pr.getValue("number").jsonPrimitive.int, pr.str("base")!!), CiRun.SPECIMEN_PULL_REQUEST)
+        assertEquals(specimen.str("author"), CiRun.SPECIMEN_AUTHOR)
         assertEquals(specimen.getValue("jobs").jsonArray.map(::job), CiRun.SPECIMEN_JOBS)
         assertEquals(specimen.str("selected"), CiRun.SPECIMEN_SELECTED)
         assertEquals(specimen.str("log"), CiRun.SPECIMEN_LOG)
@@ -321,7 +375,7 @@ class CiRunTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val actual = RunnerSettings.recentJobs(case.str("deviceId")!!, case.getValue("jobs").jsonArray.map(::runnerJob), epoch(case.str("now")!!))
-            assertEquals(case.str("name"), case.getValue("expected").jsonArray.map { row(it.jsonObject) }, actual.map(::row))
+            assertEquals(case.str("name"), case.getValue("expected").jsonArray.map { row(it.jsonObject).take(6) }, actual.map { row(it).take(6) })
         }
     }
 

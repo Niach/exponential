@@ -27,7 +27,7 @@ const mockState = vi.hoisted(() => ({
 }))
 
 // #EXP-1616: the rows' checks chips read the synced pull_requests.
-vi.mock(`@/lib/collections`, () => ({ pullRequestCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ pullRequestCollection: {}, repositoryCollection: {} }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-db")>()),
   useLiveQuery: () => ({ data: mockState.prs }),
@@ -450,7 +450,7 @@ describe(`TeamRepositoriesSection`, () => {
   it(`each row names its provider, rolls up its PRs' checks and opens the repo page`, async () => {
     mockState.listQuery.mockResolvedValue([
       repoRow(),
-      repoRow({ id: `repo-2`, fullName: `acme/engine`, provider: `ecode`, defaultBranch: `main`, installationId: null }),
+      repoRow({ id: `repo-2`, fullName: `acme/engine`, slug: `engine`, provider: `ecode`, defaultBranch: `main`, installationId: null }),
     ])
     mockState.prs = [
       { id: `p1`, repositoryId: `repo-2`, state: `open`, checksState: `success` },

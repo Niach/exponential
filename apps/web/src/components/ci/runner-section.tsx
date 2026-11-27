@@ -6,7 +6,7 @@ import {
   RUNNER_SETTINGS_SPECIMEN,
   RUNNER_SETTINGS_TEST_IDS,
   runnerRecentJobs,
-  type CiJobRow,
+  type RunnerRecentRow,
   type RunnerClient,
   type RunnerJobInput,
 } from "@exp/domain-contract/ci-run"
@@ -45,7 +45,7 @@ export function RunnerSectionView({
   platform: string | null | undefined
   settings: RunnerSettings
   owner: boolean
-  recent: CiJobRow[]
+  recent: RunnerRecentRow[]
   /** A changed settings object (never called for a refused entry alone). */
   onChange: (next: RunnerSettings) => void
 }) {

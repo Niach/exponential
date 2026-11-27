@@ -32,6 +32,7 @@ import {
 } from "@exp/ui"
 import { pullRequestCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { promptActions, removeRepositoryPrompt } from "@/lib/prompts"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { PullRequestStatusPill } from "@/components/session-merge-button"
 import { checksDotColor, checksLabel } from "@/components/repo/checks-dot"
@@ -40,14 +41,17 @@ import { useSession } from "@/hooks/use-session"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 const RepositoriesIcon = conceptIcon(`settings-repositories`)
+/** The danger row's pill: the prompt's own destructive action label. */
+const REMOVE_LABEL = removeRepositoryPrompt(``).actions.find((action) => action.role === `destructive`)?.label ?? `Remove`
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type Repo = RepoList[number]
 type Settings = Awaited<ReturnType<typeof trpc.repositories.settings.query>>
 
-/** The repo a `$name` route param names: the full name's last segment. */
+/** The repo a `$name` route param names: #EXP-2171 its `slug` (repo-page
+ *  .json THE ROUTE KEY; never the name's last segment). */
 export function repoByName(repos: RepoList, name: string): Repo | null {
-  return repos.find((repo) => repo.fullName.split(`/`).pop() === name) ?? null
+  return repos.find((repo) => repo.slug === name) ?? null
 }
 
 /** `Badge` naming the provider (repo-page.json `copy.provider`). */
@@ -132,7 +136,11 @@ export function RepoPage({
         ) : tab === `branches` ? (
           <BranchesTab repo={repo} prs={prRows} />
         ) : (
-          <SettingsTab repo={repo} isOwner={isOwner} />
+          <SettingsTab
+            repo={repo}
+            isOwner={isOwner}
+            onRemoved={() => void navigate({ to: `/t/$teamSlug/settings/repositories`, params: { teamSlug }, replace: true })}
+          />
         )}
       </div>
     </div>
@@ -222,7 +230,9 @@ export function isRepoManager(repo: { sharedByUserId?: string | null }, userId: 
   return isOwner || (Boolean(userId) && repo.sharedByUserId === userId)
 }
 
-function SettingsTab({ repo, isOwner }: { repo: Repo; isOwner: boolean }) {
+function SettingsTab({ repo, isOwner, onRemoved }: { repo: Repo; isOwner: boolean; onRemoved?: () => void }) {
+  const [removeOpen, setRemoveOpen] = useState(false)
+  const removeCopy = removeRepositoryPrompt(repo.fullName)
   const { data: session } = useSession()
   const manager = isRepoManager(repo, session?.user?.id, isOwner)
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -362,6 +372,40 @@ function SettingsTab({ repo, isOwner }: { repo: Repo; isOwner: boolean }) {
       )}
 
       <RepoCiSection repositoryId={repo.id} provider={repo.provider ?? `github`} manager={manager} />
+
+      {/* #EXP-2171 (sidebar-tree.json REMOVING): the repository's own
+          Settings tab removes it, behind prompts.json `remove-repository`;
+          boards naming it as their default keep none. */}
+      {manager && (
+        <div className={SETTINGS_LIST_CLASS}>
+          <ListRow className="gap-3 px-4 py-3">
+            <span className="flex-1 text-sm">{COPY.settings.remove}</span>
+            <Pill mode="action" size="sm" disabled={busy} onClick={() => setRemoveOpen(true)} data-testid="repo-remove">
+              {REMOVE_LABEL}
+            </Pill>
+          </ListRow>
+        </div>
+      )}
+      <Prompt
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={removeCopy.title}
+        body={removeCopy.body}
+        busy={busy}
+        actions={promptActions(removeCopy, {
+          remove: {
+            onSelect: () => {
+              setRemoveOpen(false)
+              setBusy(true)
+              trpc.repositories.remove
+                .mutate({ repositoryId: repo.id }, SKIP_ERROR_TOAST)
+                .then(() => onRemoved?.())
+                .catch((err: unknown) => failedAction(`remove`, `the repository`, err))
+                .finally(() => setBusy(false))
+            },
+          },
+        })}
+      />
 
       <Prompt
         open={restoreId !== null}

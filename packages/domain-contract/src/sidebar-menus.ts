@@ -10,7 +10,7 @@ export type SidebarMenuKind = keyof typeof fixture.kinds
 export type SidebarMenuAction = keyof typeof fixture.icons
 export type SidebarMenuEntryId = SidebarMenuAction | `separator`
 export type SidebarMenuFlag = `owner` | `mine` | `canDelete`
-export type SidebarNewKind = `session` | `agent` | `app` | `board`
+export type SidebarNewKind = `session` | `agent` | `app` | `board` | `repository`
 
 /** What decides a kind's conditional rows. */
 export type SidebarMenuInput = Partial<Record<SidebarMenuFlag, boolean>>

@@ -161,7 +161,7 @@ struct BoardRepoField: View {
             }
         ) {
             HStack(spacing: 10) {
-                Text("Repository")
+                Text("Default repository")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                 Spacer(minLength: 8)

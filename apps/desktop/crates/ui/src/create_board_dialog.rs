@@ -746,7 +746,7 @@ impl CreateBoardDialogView {
             });
 
         let mut rows = vec![crate::surface::glass_picker_row(
-            "Repository",
+            "Default repository",
             None,
             select.into_any_element(),
             cx,

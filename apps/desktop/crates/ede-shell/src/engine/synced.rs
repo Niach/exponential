@@ -18,7 +18,7 @@ use eengine::{SyncedListener, SyncedRecordStore};
 use eengine_runner::paint::Inbound;
 use eui_core::host::RecordRow;
 use serde_json::{Map, Value};
-use sync::app_outbox::{PublishedVersions, ReplayErrors, SqliteLog, TrpcTransport};
+use sync::app_outbox::{PublishedVersions, ReplayErrors, StoreLog, TrpcTransport};
 
 use super::EngineApp;
 
@@ -136,12 +136,13 @@ pub struct TeamStores {
 }
 
 impl TeamStores {
-    /// Opens the team's store over the account's sync sqlite and tRPC.
+    /// Opens the team's store over the holder's synced rows, the shell's own outbox and tRPC.
     pub fn open(workspaces: &crate::accounts::Workspaces, account: &api::accounts::Account, team_id: &str) -> Result<Self, String> {
         let published: PublishedVersions = Arc::default();
         let errors: ReplayErrors = Arc::default();
         let transport = Arc::new(TrpcTransport::new(workspaces.trpc(account), published.clone(), errors.clone()));
-        let log = Arc::new(SqliteLog::new(workspaces.manager(), account.id.clone()));
+        // #EDE-238: the queue is the shell's own; the synced rows are the holder's store.
+        let log = Arc::new(StoreLog::new(workspaces.outbox(&account.id).ok_or("no outbox for the account")?));
         let pumps: Arc<Mutex<Vec<flume::Sender<Inbound>>>> = Arc::default();
         let store = SyncedRecordStore::new(log, transport, Arc::new(SystemClock), Some(Arc::new(Pumps(pumps.clone())))).map_err(|e| e.message)?;
         Ok(TeamStores { account_id: account.id.clone(), team_id: team_id.to_string(), store: Arc::new(store), published, errors, online: Arc::new(AtomicBool::new(true)), pumps })

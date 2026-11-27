@@ -630,6 +630,46 @@ pub fn report_worktrees(
     Ok(())
 }
 
+/// #FEED-295 `devices.reportTransfer`: a machine's progress or outcome of a
+/// device-to-device transfer (`file_send` / `file_receive`). Only the
+/// receiver's `done` makes the transfer done.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferReport {
+    pub transfer_id: String,
+    /// `send` | `receive`.
+    pub role: String,
+    /// `running` | `done` | `failed`.
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_done: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_done: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// The transfer's status after a report: `ok: false` = it had already ended
+/// (`done`, `failed`, `cancelled`), so the machine stops.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct TransferAnswer {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub status: String,
+}
+
+/// `devices.reportTransfer` (#FEED-295).
+pub fn report_transfer(trpc: &TrpcClient, report: &TransferReport) -> Result<TransferAnswer, ApiError> {
+    trpc.mutation("devices.reportTransfer", report)
+}
+
 /// `devices.completeCommand` — report a pulled command's outcome. `ok:
 /// false` in the RESULT means the row was already terminal (a redelivered
 /// duplicate raced the first completion, or the requester cancelled it):

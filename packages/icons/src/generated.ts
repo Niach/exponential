@@ -557,6 +557,7 @@ export const SEMANTIC_ICONS = {
   "nav-boards": `folder-kanban`,
   "nav-changelog": `megaphone`,
   "nav-chats": `list-tree`,
+  "nav-ci": `workflow`,
   "nav-computer": `computer`,
   "nav-create-issue": `square-pen`,
   "nav-devices": `monitor`,

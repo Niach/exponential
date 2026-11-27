@@ -1,5 +1,5 @@
 {
-  "$comment": "#NEW-145 / #NEW-143 D4 (Danny 2026-11-26): MCP TASKS on Exponential's MCP server, the `io.modelcontextprotocol/tasks` extension (tasks.extensions.modelcontextprotocol.io/specification/2026-07-28), UNIFIED with the session watches (#NEW-49): an MCP task is the second kind of WATCHER on `session_watches` (packages/eagent fixtures/rules.json `watcher`, kind `watcherKind`), next to a session; ONE system, not two. ROW (server-side, #NEW-147): `mcp_tasks` {id = the taskId (`tsk_` + 32 random bytes base64url: unguessable), principal (`user:<id>|client:<oauth client id or token prefix>`, elicitation.json's), status, status_message, cards (the open cards it renders, by message id), result, error, created_at, last_updated_at, expires_at = created_at + `ttlMs`}; `session_watches` gains `watcher_kind` (`session` | `mcp_task`, default `session`) and `task_id`; a task watcher's `session_id` is null. WHO GETS ONE (`taskWatchFor`, `eligibilityCases`): only a `tool` call (`exponential_sessions_send`) from an EXTERNAL caller (not inside a session of its own: our own agents keep wake messages) whose request's `_meta[\"io.modelcontextprotocol/clientCapabilities\"].extensions` declared the extension, while it holds fewer than `maxLivePerPrincipal` live tasks; past it, or for anyone else, the call answers as today. The server decides, the client never asks (no request field). What it watches, first match: a message to `sessionId` or `agentId` (the agent's conversation) = that session; a start (`text`, `promptId` or `issueIds`, no target) = the started session; else a `wakeOn` of EVENT specs only (`eventSpecPattern`: `pr:N`, `pr:N:closed`, `issue:X[:status]`, `at:<ISO>`) = those events (one task, all its watches). A stop or an answer never makes a task. The call's ordinary work happens first; its result is then the CreateTaskResult = the Task (`taskWire`) + `resultType` \"task\", returned only once tasks/get would find it. STATUS MAPPING (`taskReduce`, `reduceCases`; the bus that posts a `session` watcher's wake lines drives a task watcher instead, and never posts for it): a watched session's TRANSITION (any bus line about it) = `working`, `statusMessage` = the last non-blank line of its digest (`sessions.digest`), clipped to `statusMessageMax`; an OPEN ask or plan card = `input_required` with `inputRequests` keyed by the CARD MESSAGE ID (unique for the task's life, never reused), each an `elicitation/create` form (`cardRequest`, `cardCases`: an ask = `answer` oneOf its options (`answers` array anyOf when multi) plus a free `text` unless `custom` is false, or `text` alone without options; a plan = its text clipped to `planMax` (eagent rules.ask.planMax), `decision` approved/rejected plus `q_<id>` oneOf per question); a SEALED card cannot be rendered by the server: the task stays `working` with `copy.sealedCard` and the card is answered in the app; the card answered (by anyone: first wins) = back to `working` unless another card is open; the END REPORT = `completed`, `result` = a CallToolResult {content: [{type: text, text: the summary (empty = `copy.noSummary`)}], isError: false}; an end with a failure reason (`failures`: the device's stall watchdog (eagent rules.report.reasons.stalled), the watchdog or a person killing it, a failed start) = `failed`, `error` {code `failureCode`, message}; an EVENT watch FIRING (`watch.fire`, a `gone` subject included) = `completed` with the host's fire text as the result. A terminal task ignores everything after. Every change stamps `lastUpdatedAt`. METHODS (`taskHandle`, `handleCases`; over Streamable HTTP the Mcp-Name header = params.taskId): `tasks/get {taskId}` = the Task + `resultType` \"complete\"; `tasks/update {taskId, inputResponses}` = {resultType \"complete\"}; each response keyed by an OPEN card goes through CARD-ANSWER (`cardAnswer`, `sessions.send {sessionId, answer}`: first wins; accept = `answers` (the picked labels; a label not offered = nothing) or `answer` (the free text), a plan = `decision` + `answers` {id: [label]}; decline = `dismissed`; cancel = nothing, the card stays open); unknown, answered or sealed keys are ignored; the status moves when the bus reports the card answered (eventually consistent); `tasks/cancel {taskId}` = {resultType \"complete\"}: a live task turns `cancelled` (`copy.cancelled`), its watcher row goes, and a session task STOPS its session (`sessions.send {sessionId, stop: true}`: the turn is interrupted; the session itself stays, like any stopped session); cancelling a terminal task changes nothing. ERRORS (`errors`, `errorCodes`): a client that did not declare the extension = -32021 with data.requiredCapabilities (`missingCapability`); more than `rateLimit.max` tasks/* calls by one principal within `rateLimit.windowSeconds` (deletes.json's sliding window; clients poll at `pollIntervalMs`) = `rateLimited`; a missing taskId, an unknown one or ANOTHER PRINCIPAL'S (same answer: no leak) = -32602 `missingTaskId` / `notFound`; past `ttlMs` from creation = -32602 `expired` (the watcher row is gone at expiry; the session keeps running, it is an ordinary session); inputResponses not an object = -32602. No tasks/list (the spec has none). Times are unix ms in, ISO 8601 out. GENUI (#NEW-149, MCP Apps): when the watched session posted a SURFACE card (`exponential_show` with a surface, kind `surface`), its end report's result also carries that card for the host's genUI view: `structuredContent` = {shown: \"inline\", card: {kind: \"surface\", surface, title}} (the LAST surface card it posted; the inline show's answer, packages/mcp-apps genui/result.ts) and `_meta.ui.resourceUri` = `genuiResourceUri`; the text content stays the summary. A failure or an event firing never carries one.",
+  "$comment": "#NEW-145 / #NEW-143 D4 (Danny 2026-11-26): MCP TASKS on Exponential's MCP server, the `io.modelcontextprotocol/tasks` extension (tasks.extensions.modelcontextprotocol.io/specification/2026-07-28), UNIFIED with the session watches (#NEW-49): an MCP task is the second kind of WATCHER on `session_watches` (packages/eagent fixtures/rules.json `watcher`, kind `watcherKind`), next to a session; ONE system, not two. ROW (server-side, #NEW-147): `mcp_tasks` {id = the taskId (`tsk_` + 32 random bytes base64url: unguessable), principal (`user:<id>|client:<oauth client id or token prefix>`, elicitation.json's), status, status_message, cards (the open cards it renders, by message id), result, error, created_at, last_updated_at, expires_at = created_at + `ttlMs`}; `session_watches` gains `watcher_kind` (`session` | `mcp_task`, default `session`) and `task_id`; a task watcher's `session_id` is null. WHO GETS ONE (`taskWatchFor`, `eligibilityCases`): only a `tool` call (`exponential_sessions_send`) from an EXTERNAL caller (not inside a session of its own: our own agents keep wake messages) whose request's `_meta[\"io.modelcontextprotocol/clientCapabilities\"].extensions` declared the extension, while it holds fewer than `maxLivePerPrincipal` live tasks; past it, or for anyone else, the call answers as today. The server decides, the client never asks (no request field). What it watches, first match: a message to `sessionId` or `agentId` (the agent's conversation) = that session; a start (`text`, `promptId` or `issueIds`, no target) = the started session; else a `wakeOn` of EVENT specs only (`eventSpecPattern`: `pr:N`, `pr:N:closed`, `issue:X[:status]`, `at:<ISO>`) = those events (one task, all its watches). A stop or an answer never makes a task. The call's ordinary work happens first; its result is then the CreateTaskResult = the Task (`taskWire`) + `resultType` \"task\", returned only once tasks/get would find it. STATUS MAPPING (`taskReduce`, `reduceCases`; the bus that posts a `session` watcher's wake lines drives a task watcher instead, and never posts for it): a watched session's TRANSITION (any bus line about it) = `working`, `statusMessage` = the last non-blank line of its digest (`sessions.digest`), clipped to `statusMessageMax`; an OPEN ask or plan card = `input_required` with `inputRequests` keyed by the CARD MESSAGE ID (unique for the task's life, never reused), each an `elicitation/create` form (`cardRequest`, `cardCases`: an ask = `answer` oneOf its options (`answers` array anyOf when multi) plus a free `text` unless `custom` is false, or `text` alone without options; a plan = its text clipped to `planMax` (eagent rules.ask.planMax), `decision` approved/rejected plus `q_<id>` oneOf per question); a SEALED card cannot be rendered by the server: the task stays `working` with `copy.sealedCard` and the card is answered in the app; the card answered (by anyone: first wins) = back to `working` unless another card is open; the END REPORT = `completed`, `result` = a CallToolResult {content: [{type: text, text: the summary (empty = `copy.noSummary`)}], isError: false}; an end with a failure reason (`failures`: the device's stall watchdog (eagent rules.report.reasons.stalled), the watchdog or a person killing it, a failed start) = `failed`, `error` {code `failureCode`, message}; an EVENT watch FIRING (`watch.fire`, a `gone` subject included) = `completed` with the host's fire text as the result. A terminal task ignores everything after. Every change stamps `lastUpdatedAt`. METHODS (`taskHandle`, `handleCases`; over Streamable HTTP the Mcp-Name header = params.taskId): `tasks/get {taskId}` = the Task + `resultType` \"complete\"; `tasks/update {taskId, inputResponses}` = {resultType \"complete\"}; each response keyed by an OPEN card goes through CARD-ANSWER (`cardAnswer`, `sessions.send {sessionId, answer}`: first wins; accept = `answers` (the picked labels; a label not offered = nothing) or `answer` (the free text), a plan = `decision` + `answers` {id: [label]}; decline = `dismissed`; cancel = nothing, the card stays open); unknown, answered or sealed keys are ignored; the status moves when the bus reports the card answered (eventually consistent); `tasks/cancel {taskId}` = {resultType \"complete\"}: a live task turns `cancelled` (`copy.cancelled`), its watcher row goes, and a session task STOPS its session (`sessions.send {sessionId, stop: true}`: the turn is interrupted; the session itself stays, like any stopped session); cancelling a terminal task changes nothing. ERRORS (`errors`, `errorCodes`): a client that did not declare the extension = -32021 with data.requiredCapabilities (`missingCapability`); more than `rateLimit.max` tasks/* calls by one principal within `rateLimit.windowSeconds` (deletes.json's sliding window; clients poll at `pollIntervalMs`) = `rateLimited`; a missing taskId, an unknown one or ANOTHER PRINCIPAL'S (same answer: no leak) = -32602 `missingTaskId` / `notFound`; past `ttlMs` from creation = -32602 `expired` (the watcher row is gone at expiry; the session keeps running, it is an ordinary session); inputResponses not an object = -32602. No tasks/list (the spec has none). Times are unix ms in, ISO 8601 out. GENUI (#NEW-149, MCP Apps): when the watched session posted a SURFACE card (`exponential_show` with a surface, kind `surface`), its end report's result also carries that card for the host's genUI view: `structuredContent` = {shown: \"inline\", card: {kind: \"surface\", surface, title}} (the LAST surface card it posted; the inline show's answer, packages/mcp-apps genui/result.ts) and `_meta.ui.resourceUri` = `genuiResourceUri`; the text content stays the summary. A failure or an event firing never carries one. TRANSFERS (#FEED-295, Danny 2026-11-27: a transfer's end reaches an outside host as an MCP task, never a push notification): `exponential_transfers_write {op: send}` (`transferTool`) from an EXTERNAL caller that declared the extension also gets a task, watching that TRANSFER (`watch` `transfer`, `transferId`; under `maxLivePerPrincipal` like any task); its other ops (cancel) never make one, and our own agents keep their wake line. The transfer's progress = `working`, `statusMessage` = `copy.transferProgress` (sizes in decimal units B, KB, MB, GB, TB with one decimal under 100); its end = `completed` with the end line as the result (`done`), `failed` with `error` {code `failureCode`, message = the end line} (`failed`), or `cancelled` with the end line (`cancelled`). `tasks/cancel` on a live transfer task CANCELS THE TRANSFER (effect `cancel_transfer`: both machines stop, what arrived stays; `copy.transferCancelled`).",
   "extension": "io.modelcontextprotocol/tasks",
   "watcherKind": "mcp_task",
   "tool": "exponential_sessions_send",
@@ -24,7 +24,9 @@
     "plan": "Proposes a plan.",
     "sealedCard": "Waiting for an answer in Exponential.",
     "noSummary": "Ended without a summary.",
-    "cancelled": "Cancelled; the session's turn was stopped."
+    "cancelled": "Cancelled; the session's turn was stopped.",
+    "transferProgress": "{bytesDone} of {bytes}, {filesDone} of {files} files",
+    "transferCancelled": "Cancelled; both machines stopped the transfer."
   },
   "form": {
     "answer": "Answer",
@@ -271,6 +273,70 @@
         "args": {
           "text": "Fix EXP-12",
           "deviceId": "d1"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 100
+      },
+      "expected": null
+    },
+    {
+      "name": "an outside host sends a transfer",
+      "call": {
+        "tool": "exponential_transfers_write",
+        "args": {
+          "op": "send",
+          "toDeviceId": "deck",
+          "srcPath": "~/WoW",
+          "destPath": "~/WoW"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": {
+        "kind": "transfer"
+      }
+    },
+    {
+      "name": "a transfer cancel never makes a task",
+      "call": {
+        "tool": "exponential_transfers_write",
+        "args": {
+          "op": "cancel",
+          "transferId": "t1"
+        },
+        "inSession": false,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "our own agent's transfer keeps its wake line",
+      "call": {
+        "tool": "exponential_transfers_write",
+        "args": {
+          "op": "send",
+          "toDeviceId": "deck",
+          "srcPath": "~/a",
+          "destPath": "~/b"
+        },
+        "inSession": true,
+        "declared": true,
+        "liveTasks": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "a transfer past the live cap answers as today",
+      "call": {
+        "tool": "exponential_transfers_write",
+        "args": {
+          "op": "send",
+          "toDeviceId": "deck",
+          "srcPath": "~/a",
+          "destPath": "~/b"
         },
         "inSession": false,
         "declared": true,
@@ -1248,6 +1314,193 @@
           }
         }
       ]
+    },
+    {
+      "name": "a transfer's progress is working, its end completes it, nothing moves it after",
+      "task": {
+        "taskId": "tsk_T",
+        "principal": "user:u1|client:c1",
+        "watch": "transfer",
+        "sessionId": null,
+        "transferId": "t1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "transfer.progress",
+            "at": 1764158401000,
+            "files": 812,
+            "filesDone": 100,
+            "bytes": 5900000000,
+            "bytesDone": 1234000000
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "working",
+            "statusMessage": "1.2 GB of 5.9 GB, 100 of 812 files",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z"
+          }
+        },
+        {
+          "event": {
+            "kind": "transfer.end",
+            "at": 1764158402000,
+            "status": "done",
+            "text": "Transfer t1 done: mint:~/WoW → steamdeck:~/WoW, 812 files, 5.9 GB, every checksum verified."
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "completed",
+            "statusMessage": "Transfer t1 done: mint:~/WoW → steamdeck:~/WoW, 812 files, 5.9 GB, every checksum verified.",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Transfer t1 done: mint:~/WoW → steamdeck:~/WoW, 812 files, 5.9 GB, every checksum verified."
+                }
+              ],
+              "isError": false
+            }
+          }
+        },
+        {
+          "event": {
+            "kind": "transfer.progress",
+            "at": 1764158403000,
+            "files": 812,
+            "filesDone": 1,
+            "bytes": 5900000000,
+            "bytesDone": 1
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "completed",
+            "statusMessage": "Transfer t1 done: mint:~/WoW → steamdeck:~/WoW, 812 files, 5.9 GB, every checksum verified.",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Transfer t1 done: mint:~/WoW → steamdeck:~/WoW, 812 files, 5.9 GB, every checksum verified."
+                }
+              ],
+              "isError": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failed transfer fails its task with the end line",
+      "task": {
+        "taskId": "tsk_T",
+        "principal": "user:u1|client:c1",
+        "watch": "transfer",
+        "sessionId": null,
+        "transferId": "t1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "transfer.progress",
+            "at": 1764158401000,
+            "files": 3,
+            "filesDone": 0,
+            "bytes": 999,
+            "bytesDone": 0
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "working",
+            "statusMessage": "0 B of 999 B, 0 of 3 files",
+            "lastUpdatedAt": "2025-11-26T12:00:01.000Z"
+          }
+        },
+        {
+          "event": {
+            "kind": "transfer.end",
+            "at": 1764158402000,
+            "status": "failed",
+            "text": "Transfer t1 failed: mint:~/a → steamdeck:~/b: ~/b already exists"
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "failed",
+            "statusMessage": "Transfer t1 failed: mint:~/a → steamdeck:~/b: ~/b already exists",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z",
+            "error": {
+              "code": -32603,
+              "message": "Transfer t1 failed: mint:~/a → steamdeck:~/b: ~/b already exists"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a transfer cancelled elsewhere cancels its task",
+      "task": {
+        "taskId": "tsk_T",
+        "principal": "user:u1|client:c1",
+        "watch": "transfer",
+        "sessionId": null,
+        "transferId": "t1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "transfer.end",
+            "at": 1764158402000,
+            "status": "cancelled",
+            "text": "Transfer t1 cancelled: mint:~/a → steamdeck:~/b."
+          },
+          "expected": {
+            "taskId": "tsk_T",
+            "createdAt": "2025-11-26T12:00:00.000Z",
+            "ttlMs": 604800000,
+            "pollIntervalMs": 5000,
+            "status": "cancelled",
+            "statusMessage": "Transfer t1 cancelled: mint:~/a → steamdeck:~/b.",
+            "lastUpdatedAt": "2025-11-26T12:00:02.000Z"
+          }
+        }
+      ]
     }
   ],
   "cardCases": [
@@ -1738,6 +1991,20 @@
         "cards": {},
         "result": null,
         "error": null
+      },
+      {
+        "taskId": "tsk_T",
+        "principal": "user:u1|client:c1",
+        "watch": "transfer",
+        "sessionId": null,
+        "transferId": "t1",
+        "status": "working",
+        "statusMessage": null,
+        "createdAt": 1764158400000,
+        "lastUpdatedAt": 1764158400000,
+        "cards": {},
+        "result": null,
+        "error": null
       }
     ]
   },
@@ -2125,6 +2392,35 @@
           }
         }
       }
+    },
+    {
+      "name": "cancel on a transfer task cancels the transfer",
+      "request": {
+        "method": "tasks/cancel",
+        "params": {
+          "taskId": "tsk_T"
+        },
+        "principal": "user:u1|client:c1",
+        "declared": true,
+        "now": 1764158401000
+      },
+      "expected": {
+        "ok": true,
+        "result": {
+          "resultType": "complete"
+        },
+        "effects": [
+          {
+            "kind": "cancel_transfer",
+            "transferId": "t1"
+          },
+          {
+            "kind": "unwatch",
+            "taskId": "tsk_T"
+          }
+        ],
+        "status": "cancelled"
+      }
     }
   ],
   "rateCases": [
@@ -2144,5 +2440,9 @@
       "calls": 130,
       "expectedRefused": 10
     }
-  ]
+  ],
+  "transferTool": {
+    "tool": "exponential_transfers_write",
+    "op": "send"
+  }
 }

@@ -83,6 +83,7 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
 import {
+  MCP_WIRE_TOOLS,
   mcpContextBudget,
   serializeToolDefs,
 } from "@/lib/emcp/context-budget"
@@ -98,7 +99,8 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // NEW-4: the surface is the 22 nouns and verbs (EXP-1657, + skills EXP-1663),
+  // NEW-4: the surface is the 23 nouns and verbs (EXP-1657, + skills EXP-1663,
+  // + #FEED-295 transfers),
   // the same for every caller; #VAPP-293: a noun with reads and writes
   // registers its writes as the `_write` twin (only session_self has no reads).
   const twins = NOUN_TOOLS.filter((spec) => !spec.verb && spec.name !== `session_self`).map(
@@ -107,7 +109,7 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect(defs.map((def) => def.name).sort()).toEqual(
     [...NOUN_TOOLS.map((spec) => `exponential_${spec.name}`), ...twins].sort()
   )
-  expect(defs).toHaveLength(41)
+  expect(defs).toHaveLength(MCP_WIRE_TOOLS)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -130,10 +132,10 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect(flagged).toHaveLength(8)
 })
 
-// NEW-4 (plan 3.11): NO conditional registration — the 22 (41 tools since
-// #VAPP-293's read/write split) register for every caller; an op the caller
+// NEW-4 (plan 3.11): NO conditional registration — the 23 (43 tools since
+// #VAPP-293's read/write split and #FEED-295's transfers, MCP_WIRE_TOOLS) register for every caller; an op the caller
 // cannot use errors when called.
-it(`registers the same 41 tools for every caller`, () => {
+it(`registers the same MCP_WIRE_TOOLS tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -145,7 +147,7 @@ it(`registers the same 41 tools for every caller`, () => {
     agent: false,
   }).map((def) => def.name)
   expect([...headerless].sort()).toEqual([...inSession].sort())
-  expect(headerless).toHaveLength(41)
+  expect(headerless).toHaveLength(MCP_WIRE_TOOLS)
   // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,

@@ -26,7 +26,8 @@ import {
   type TaskState,
 } from "@exp/emcp/tasks"
 import { db } from "@/db/connection"
-import { mcpTasks, messages, sessions, sessionWatches } from "@/db/schema"
+import { deviceTransfers, mcpTasks, messages, sessions, sessionWatches } from "@/db/schema"
+import { cancelTransfer } from "@/lib/device-transfers"
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { reportSummary } from "@/lib/sessions/bus"
 import { stopSession } from "@/lib/sessions/lifecycle"
@@ -81,7 +82,25 @@ export async function loadTaskState(taskId: string): Promise<TaskState | null> {
   const [row] = await db.select().from(mcpTasks).where(eq(mcpTasks.id, taskId)).limit(1)
   if (!row) return null
   let state = taskStateOf(row)
-  if (!(LIVE as readonly string[]).includes(row.status) || row.kind !== `session` || !row.ref) return state
+  if (!(LIVE as readonly string[]).includes(row.status) || !row.ref) return state
+  // #FEED-295: a transfer task's progress is the destination's counters, read live.
+  if (row.kind === `transfer`) {
+    const [transfer] = await db
+      .select({ files: deviceTransfers.files, filesDone: deviceTransfers.filesDone, bytes: deviceTransfers.bytes, bytesDone: deviceTransfers.bytesDone })
+      .from(deviceTransfers)
+      .where(eq(deviceTransfers.id, row.ref))
+      .limit(1)
+    if (!transfer || transfer.files === null) return state
+    return taskReduce(state, {
+      kind: `transfer.progress`,
+      at: row.lastUpdatedAt.getTime(),
+      files: transfer.files,
+      filesDone: transfer.filesDone,
+      bytes: transfer.bytes ?? 0,
+      bytesDone: transfer.bytesDone,
+    })
+  }
+  if (row.kind !== `session`) return state
   const [session] = await db
     .select({ id: sessions.id, status: sessions.status, digest: sessions.digest })
     .from(sessions)
@@ -119,7 +138,10 @@ async function liveTaskCount(principal: string, now: Date): Promise<number> {
 
 export interface TaskCallSpec {
   ctx: EmcpContext
-  /** The raw arguments of `exponential_sessions_send`. */
+  /** The wire tool called (default `exponential_sessions_send`; #FEED-295
+   *  `exponential_transfers_write`). */
+  tool?: string
+  /** The raw arguments of the call. */
   args: Record<string, unknown>
   /** The caller runs inside a session of its own (our agents). */
   inSession: boolean
@@ -131,7 +153,7 @@ export async function plannedTaskWatch(spec: TaskCallSpec) {
   if (spec.inSession || !spec.ctx.client.tasks) return null
   const principal = taskPrincipal(spec.ctx.principal)
   return taskWatchFor({
-    tool: `exponential_sessions_send`,
+    tool: spec.tool ?? `exponential_sessions_send`,
     args: spec.args,
     inSession: spec.inSession,
     declared: spec.ctx.client.tasks,
@@ -141,7 +163,7 @@ export async function plannedTaskWatch(spec: TaskCallSpec) {
 
 async function insertTask(
   spec: TaskCallSpec,
-  values: { kind: `session` | `events`; ref: string | null; teamId: string | null },
+  values: { kind: `session` | `events` | `transfer`; ref: string | null; teamId: string | null },
   watches: Array<Omit<typeof sessionWatches.$inferInsert, `taskId` | `watcherKind` | `sessionId`>>
 ): Promise<Record<string, unknown>> {
   const now = new Date()
@@ -170,7 +192,7 @@ async function insertTask(
     }
     return task!
   })
-  const state = values.kind === `session` ? ((await loadTaskState(row.id)) ?? taskStateOf(row)) : taskStateOf(row)
+  const state = values.kind === `events` ? taskStateOf(row) : ((await loadTaskState(row.id)) ?? taskStateOf(row))
   return { ...taskWire(state), resultType: `task` }
 }
 
@@ -181,6 +203,12 @@ export async function createSessionTask(spec: TaskCallSpec, sessionId: string): 
   return insertTask(spec, { kind: `session`, ref: sessionId, teamId: session?.teamId ?? null }, [
     { kind: `session`, subjectId: sessionId, label: labels.get(sessionId) ?? `a session` },
   ])
+}
+
+/** #FEED-295: the CreateTaskResult of a transfer the call started (no
+ *  watcher row: the transfer's end finds its tasks by `ref`). */
+export async function createTransferTask(spec: TaskCallSpec, transferId: string, teamId: string | null): Promise<Record<string, unknown>> {
+  return insertTask(spec, { kind: `transfer`, ref: transferId, teamId }, [])
 }
 
 /** The CreateTaskResult of a `wakeOn` of event specs (an external caller
@@ -243,6 +271,11 @@ async function applyEffects(userId: string, task: TaskState | null, effects: rea
     } else if (effect.kind === `stop`) {
       await stopSession({ userId, sessionId: effect.sessionId }).catch((err) =>
         console.warn(`[emcp-tasks] stop not delivered:`, err instanceof Error ? err.message : err)
+      )
+    } else if (effect.kind === `cancel_transfer`) {
+      // The transfer's end turns its tasks cancelled (endTransferTasks).
+      await cancelTransfer(db, userId, effect.transferId).catch((err) =>
+        console.warn(`[emcp-tasks] transfer not cancelled:`, err instanceof Error ? err.message : err)
       )
     } else if (effect.kind === `unwatch` && task) {
       await db.transaction(async (tx) => {

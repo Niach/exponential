@@ -612,6 +612,8 @@ pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 pub const NAV_CHANGELOG: ExpIcon = ExpIcon::Megaphone;
 /// Registry concept `nav-chats` -> Lucide `list-tree`.
 pub const NAV_CHATS: ExpIcon = ExpIcon::ListTree;
+/// Registry concept `nav-ci` -> Lucide `workflow`.
+pub const NAV_CI: ExpIcon = ExpIcon::Workflow;
 /// Registry concept `nav-computer` -> Lucide `computer`.
 pub const NAV_COMPUTER: ExpIcon = ExpIcon::Computer;
 /// Registry concept `nav-create-issue` -> Lucide `square-pen`.
@@ -1184,6 +1186,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-boards" => NAV_BOARDS,
         "nav-changelog" => NAV_CHANGELOG,
         "nav-chats" => NAV_CHATS,
+        "nav-ci" => NAV_CI,
         "nav-computer" => NAV_COMPUTER,
         "nav-create-issue" => NAV_CREATE_ISSUE,
         "nav-devices" => NAV_DEVICES,

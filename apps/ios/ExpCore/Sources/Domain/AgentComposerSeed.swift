@@ -22,14 +22,19 @@ public struct AgentComposerSeed: Hashable, Sendable {
     /// team-scoped, so the page builds for this team. nil = the page picks
     /// (the New chat page: every team).
     public var teamId: String?
+    /// #EXP-2171: a repository row's New chat in this repository: the
+    /// composer's repository pick (coding-readiness.json `chatRepo`).
+    public var repositoryId: String?
 
     public init(
         issueIds: [String] = [],
         promptId: String? = nil,
         deviceId: String? = nil,
         text: String? = nil,
-        teamId: String? = nil
+        teamId: String? = nil,
+        repositoryId: String? = nil
     ) {
+        self.repositoryId = repositoryId
         self.issueIds = issueIds
         self.promptId = promptId
         self.deviceId = deviceId

@@ -18,7 +18,7 @@ import { fileArgumentShape, routeFileArgument } from "./files"
 import { HOST_CONFIRMS_META } from "@exp/mcp-apps/genui-result"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 
-// NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 23 tools (#FEED-295: + transfers), the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
 // that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); two
 // verbs stay whole (`sessions_send`, S-3's `show`). EXP-1657 split the old
@@ -226,12 +226,15 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `repositories`,
     label: `repositories`,
     group: `team`,
-    blurb: `A team's repositories: list, create (connect a GitHub one, or provider exponential = hosted), credentials (a git remote + short-lived token), configure_ci (Exponential's own CI on or off), restore (a hosted repository from its backup).`,
+    blurb: `A team's repositories and their CI (ours + GitHub Actions); restore = a hosted repository from its backup.`,
     ops: {
       list: `repositories_list`,
       create: `repositories_add`,
       credentials: `repositories_credentials`,
       configure_ci: `repositories_configure_ci`,
+      runs: `repositories_runs`,
+      run_log: `repositories_run_log`,
+      rerun: `repositories_rerun`,
       restore: `repositories_restore`,
     },
   },
@@ -241,6 +244,19 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     group: `team`,
     blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in).`,
     ops: { list: `devices_list`, account_login: `devices_account_login` },
+  },
+  // #FEED-295: its own noun, deferred like every tool outside ALWAYS_LOAD_TOOLS.
+  {
+    name: `transfers`,
+    label: `transfers`,
+    group: `team`,
+    blurb: `Files between two of your own machines over P2P (no size cap, resumable, checksummed): send (one side defaults to this session's machine), list, status, cancel.`,
+    ops: {
+      send: `transfers_send`,
+      list: `transfers_list`,
+      status: `transfers_status`,
+      cancel: `transfers_cancel`,
+    },
   },
   // ── Agents (EXP-1663: + skills) ──
   {
@@ -633,7 +649,7 @@ export function nounHalves(spec: NounSpec, isRead: (op: string) => boolean): Nou
   return halves
 }
 
-/** Every wire name the 22 nouns and verbs register as, in surface order. */
+/** Every wire name the 23 nouns and verbs register as, in surface order. */
 export function wireToolNames(isRead: (row: string) => boolean): string[] {
   return NOUN_TOOLS.flatMap((spec) =>
     spec.verb ? [`${PREFIX}${spec.name}`] : nounHalves(spec, (op) => isRead(`${spec.name}_${op}`)).map((half) => half.name)

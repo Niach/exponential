@@ -4,7 +4,7 @@ import { CI_RUN_SPECIMEN, CI_RUN_TEST_IDS, ciDefaultJob } from "@exp/domain-cont
 import { useIsMobile } from "@exp/ui"
 import { CiSurface } from "@/components/ci/ci-surface"
 import { useNow } from "@/hooks/use-now"
-import { CI_RUN_EVENTS, ciRunTree, type CiRunModel } from "@/lib/ci-run-view"
+import { CI_RUN_EVENTS, ciRunTree, type CiRunBusy, type CiRunModel } from "@/lib/ci-run-view"
 
 // #EXP-1617 / #EXP-1804 (fixtures/ci-run.json): THE CI run page's body over
 // a run model; the route (`/t/$teamSlug/ci/$runId`) owns the data, the
@@ -17,9 +17,14 @@ export function CiRunView({
   log,
   now,
   busy = null,
+  jobOpen = false,
   onSelectJob,
   onRerun,
+  onRerunAll,
   onCancel,
+  onFix,
+  onOpenExternal,
+  onBreadcrumb,
 }: {
   model: CiRunModel
   /** The `job` query param. */
@@ -27,21 +32,43 @@ export function CiRunView({
   /** The selected job's log as read so far (null = none yet). */
   log: string | null
   now: Date | string
-  busy?: `rerun` | `cancel` | null
+  busy?: CiRunBusy
+  /** Phones: drilled into the selected job (`?open=1`). */
+  jobOpen?: boolean
+  /** A job row's press (phones drill into it). */
   onSelectJob: (jobId: string) => void
   onRerun: () => void
+  onRerunAll: () => void
   onCancel: () => void
+  /** #EXP-2172: Fix with an agent (the selected job). */
+  onFix: (selectedJobId: string | null) => void
+  onOpenExternal: () => void
+  /** The breadcrumb's `ci` | `repository`. */
+  onBreadcrumb: (value: string) => void
 }) {
   const phone = useIsMobile()
   const selected = ciDefaultJob(model.jobs, requestedJob)
-  const tree = useMemo(() => ciRunTree(model, { selected, log, now, phone, busy }), [model, selected, log, now, phone, busy])
+  const tree = useMemo(
+    () => ciRunTree(model, { selected, log, now, phone, busy, jobOpen: phone && jobOpen }),
+    [model, selected, log, now, phone, busy, jobOpen]
+  )
   const onAction = (event: SurfaceActionEvent) => {
     if (event.name === CI_RUN_EVENTS.select) {
       const job = event.context.job
-      // A phone's Collapsible: closing the open one keeps the selection.
-      if (typeof job === `string` && job !== selected && event.payload?.open !== false) onSelectJob(job)
+      if (typeof job === `string` && (phone || job !== selected)) onSelectJob(job)
+    } else if (event.name === CI_RUN_EVENTS.menu) {
+      const value = event.payload?.value
+      if (value === `rerunAll`) onRerunAll()
+      else if (value === `openExternal`) onOpenExternal()
     } else if (event.name === CI_RUN_EVENTS.rerun) onRerun()
+    else if (event.name === CI_RUN_EVENTS.rerunAll) onRerunAll()
     else if (event.name === CI_RUN_EVENTS.cancel) onCancel()
+    else if (event.name === CI_RUN_EVENTS.fix) onFix(selected)
+    else if (event.name === CI_RUN_EVENTS.openExternal) onOpenExternal()
+    else if (event.name === CI_RUN_EVENTS.breadcrumb) {
+      const value = event.payload?.value
+      if (typeof value === `string`) onBreadcrumb(value)
+    }
   }
   return (
     <div data-testid={CI_RUN_TEST_IDS.page} className="w-full min-w-0">
@@ -55,6 +82,9 @@ export function ciRunSpecimenModel(): CiRunModel {
   const s = CI_RUN_SPECIMEN
   return {
     run: { ...s.run },
+    repository: s.repository,
+    pullRequest: s.pullRequest,
+    author: s.author,
     jobs: s.jobs.map((job) => ({ ...job, steps: job.steps.map((step) => ({ ...step })) })),
   }
 }
@@ -71,7 +101,11 @@ export function CiRunSpecimen() {
       now={CI_RUN_SPECIMEN.now}
       onSelectJob={setJob}
       onRerun={() => undefined}
+      onRerunAll={() => undefined}
       onCancel={() => undefined}
+      onFix={() => undefined}
+      onOpenExternal={() => undefined}
+      onBreadcrumb={() => undefined}
     />
   )
 }

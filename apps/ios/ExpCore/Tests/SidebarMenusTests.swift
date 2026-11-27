@@ -52,6 +52,7 @@ final class SidebarMenusTests: XCTestCase {
         }
         XCTAssertEqual(SidebarMenus.topLevel, copy["top-level"])
         XCTAssertEqual(SidebarMenus.linkCopied, copy["linkCopied"])
+        XCTAssertEqual(SidebarMenus.cloneUrlCopied, copy["cloneUrlCopied"])
         let newCopy = try XCTUnwrap(fixture["newCopy"] as? [String: String])
         let newIcons = try XCTUnwrap(fixture["newIcons"] as? [String: String])
         for kind in SidebarMenus.NewKind.allCases {

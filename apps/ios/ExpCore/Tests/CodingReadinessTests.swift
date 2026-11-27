@@ -46,6 +46,7 @@ final class CodingReadinessTests: XCTestCase {
         let boardRepository: String?
         let github: FixtureGithub?
         let devices: [FixtureDevice]?
+        let teamRepositoryCount: Int?
 
         var input: CodingReadiness.Input {
             CodingReadiness.Input(
@@ -60,7 +61,8 @@ final class CodingReadinessTests: XCTestCase {
                         label: $0.label, own: $0.own, online: $0.online, lastSeenAtMs: $0.lastSeenAtMs
                     )
                 },
-                nowMs: nowMs
+                nowMs: nowMs,
+                teamRepositoryCount: teamRepositoryCount ?? 0
             )
         }
     }
@@ -153,5 +155,30 @@ final class CodingReadinessTests: XCTestCase {
     func testFixLabels() {
         XCTAssertEqual(CodingReadiness.Fix.chooseRepository.label, "Choose repository")
         XCTAssertEqual(CodingReadiness.Fix.setUpServer.label, "Set up a server")
+    }
+
+    /// #EXP-2171 `chatRepo.cases`: the composer's repository chip.
+    func testChatRepoCases() throws {
+        struct Issue: Decodable { let livePrRepositoryIds: [String]; let boardRepositoryId: String? }
+        struct Input: Decodable { let pick: String?; let issue: Issue?; let teamRepositoryIds: [String] }
+        struct Case: Decodable { let name: String; let input: Input; let expected: String? }
+        struct ChatRepo: Decodable { let cases: [Case] }
+        struct File: Decodable { let chatRepo: ChatRepo }
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/domain-contract/fixtures/coding-readiness.json")
+        let cases = try JSONDecoder().decode(File.self, from: try Data(contentsOf: url)).chatRepo.cases
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let got = CodingReadiness.chatRepository(
+                pick: c.input.pick,
+                issue: c.input.issue.map {
+                    CodingReadiness.ChatRepoIssue(livePrRepositoryIds: $0.livePrRepositoryIds, boardRepositoryId: $0.boardRepositoryId)
+                },
+                teamRepositoryIds: c.input.teamRepositoryIds
+            )
+            XCTAssertEqual(got, c.expected, c.name)
+        }
     }
 }

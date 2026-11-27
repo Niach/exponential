@@ -36,6 +36,8 @@ pub struct SidebarTreeCopy {
     pub chats: String,
     pub drafts: String,
     pub devices: String,
+    /// #EXP-2172: THE CI page's root row.
+    pub ci: String,
     pub teams: String,
     pub add_device: String,
     pub device_settings: String,
@@ -47,6 +49,7 @@ pub struct SidebarTreeCopy {
     pub agent: String,
     pub app: String,
     pub session: String,
+    pub repository: String,
     pub new_team: String,
     pub join_team: String,
     pub remove_from_sidebar: String,
@@ -69,6 +72,8 @@ pub enum SidebarRootRow {
     Chats,
     Drafts,
     Devices,
+    /// #EXP-2172: THE CI page, one root row across every team.
+    Ci,
 }
 
 impl SidebarRootRow {
@@ -80,6 +85,7 @@ impl SidebarRootRow {
             SidebarRootRow::Chats => "chats",
             SidebarRootRow::Drafts => "drafts",
             SidebarRootRow::Devices => "devices",
+            SidebarRootRow::Ci => "ci",
         }
     }
 }
@@ -96,6 +102,7 @@ pub fn sidebar_root_rows(needs_you: usize, drafts: usize, assistant: bool) -> Ve
         rows.push(SidebarRootRow::Drafts);
     }
     rows.push(SidebarRootRow::Devices);
+    rows.push(SidebarRootRow::Ci);
     rows
 }
 
@@ -186,6 +193,7 @@ pub enum SidebarNewKind {
     Agent,
     App,
     Board,
+    Repository,
 }
 
 impl SidebarNewKind {
@@ -195,6 +203,7 @@ impl SidebarNewKind {
             SidebarNewKind::Agent => "agent",
             SidebarNewKind::App => "app",
             SidebarNewKind::Session => "session",
+            SidebarNewKind::Repository => "repository",
         }
     }
 
@@ -204,6 +213,7 @@ impl SidebarNewKind {
             "agent" => Some(SidebarNewKind::Agent),
             "app" => Some(SidebarNewKind::App),
             "session" => Some(SidebarNewKind::Session),
+            "repository" => Some(SidebarNewKind::Repository),
             _ => None,
         }
     }
@@ -249,6 +259,7 @@ pub fn sidebar_team_menu(owner: bool) -> Vec<SidebarMenuItem> {
 #[serde(rename_all = "lowercase")]
 pub enum SidebarItemKind {
     Board,
+    Repository,
     Agent,
     App,
     Session,
@@ -274,6 +285,15 @@ pub struct SidebarSessionInput {
 pub struct SidebarBoardInput {
     pub id: String,
     pub sort_order: f64,
+}
+
+/// #EXP-2171: a repository of the team (the repositories shape).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarRepositoryInput {
+    pub id: String,
+    pub sort_order: f64,
+    pub full_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -302,12 +322,14 @@ fn by_sort(a_sort: f64, a_id: &str, b_sort: f64, b_id: &str) -> Ordering {
     }
 }
 
-/// A team's targets in DEFAULT order: boards by sortOrder, agents (never an
+/// A team's targets in DEFAULT order: boards by sortOrder, repositories
+/// (#EXP-2171) by sortOrder then full name (case-insensitive) then id, agents (never an
 /// Assistant) by sortOrder, apps by name, then the team's root sessions the
 /// member placed (an item entry), in entry order. Feeds `sidebar_tree`.
 pub fn sidebar_team_items(
     team_id: &str,
     boards: &[SidebarBoardInput],
+    repositories: &[SidebarRepositoryInput],
     agents: &[SidebarAgentInput],
     apps: &[SidebarAppInput],
     sessions: &[SidebarSessionInput],
@@ -316,6 +338,11 @@ pub fn sidebar_team_items(
     let item = |id: &str, kind| SidebarTeamItem { id: id.to_string(), kind };
     let mut boards: Vec<&SidebarBoardInput> = boards.iter().collect();
     boards.sort_by(|a, b| by_sort(a.sort_order, &a.id, b.sort_order, &b.id));
+    let mut repositories: Vec<&SidebarRepositoryInput> = repositories.iter().collect();
+    repositories.sort_by(|a, b| match a.sort_order.partial_cmp(&b.sort_order) {
+        Some(Ordering::Equal) | None => by_name(&a.full_name, &a.id, &b.full_name, &b.id),
+        Some(order) => order,
+    });
     let mut agents: Vec<&SidebarAgentInput> = agents.iter().filter(|agent| agent.role == "agent").collect();
     agents.sort_by(|a, b| by_sort(a.sort_order, &a.id, b.sort_order, &b.id));
     let mut apps: Vec<&SidebarAppInput> = apps.iter().collect();
@@ -334,6 +361,7 @@ pub fn sidebar_team_items(
     boards
         .into_iter()
         .map(|board| item(&board.id, SidebarItemKind::Board))
+        .chain(repositories.into_iter().map(|repo| item(&repo.id, SidebarItemKind::Repository)))
         .chain(agents.into_iter().map(|agent| item(&agent.id, SidebarItemKind::Agent)))
         .chain(apps.into_iter().map(|app| item(&app.id, SidebarItemKind::App)))
         .chain(placed_sessions.map(|session| item(&session.id, SidebarItemKind::Session)))
@@ -416,6 +444,23 @@ pub fn sidebar_drop_session(
     sidebar_move(&items, entries, mv, new_folder_id)
 }
 
+// ── #EXP-2171: a repository row (`repositoryRow`) ──────────────────────
+
+/// The repository row's glyph.
+pub const SIDEBAR_REPOSITORY_GLYPH: &str = "action-repository";
+/// A GitHub repository's trailing mark.
+pub const SIDEBAR_REPOSITORY_GITHUB_ICON: &str = "ui-github";
+
+/// The checks rollup of a repository's live PRs (repo-page.json
+/// `repoChecksRollup`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepositoryChecks {
+    Success,
+    Pending,
+    Failure,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SidebarLocalBoardInput {
@@ -430,6 +475,45 @@ pub struct SidebarLocalDesktopInput {
     pub id: String,
     pub name: String,
     pub boards: Vec<SidebarLocalBoardInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepositoryTrailingKind {
+    Checks,
+    Github,
+}
+
+/// A repository row's trailing side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryTrailing {
+    pub kind: RepositoryTrailingKind,
+    pub state: Option<RepositoryChecks>,
+}
+
+/// Its checks chip, else a GitHub repository's mark, else nothing.
+pub fn sidebar_repository_trailing(provider: &str, checks: Option<RepositoryChecks>) -> Option<RepositoryTrailing> {
+    if let Some(state) = checks {
+        return Some(RepositoryTrailing { kind: RepositoryTrailingKind::Checks, state: Some(state) });
+    }
+    (provider == "github").then_some(RepositoryTrailing { kind: RepositoryTrailingKind::Github, state: None })
+}
+
+/// Copy clone URL: a hosted repository's `exp://` remote, else GitHub's.
+pub fn repository_clone_url(provider: &str, full_name: &str) -> String {
+    if provider == "ecode" {
+        format!("exp://{full_name}")
+    } else {
+        format!("https://github.com/{full_name}.git")
+    }
+}
+
+/// The row's title: the full name's last segment.
+pub fn repository_name(full_name: &str) -> &str {
+    match full_name.rsplit('/').next() {
+        Some(last) if !last.is_empty() => last,
+        _ => full_name,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

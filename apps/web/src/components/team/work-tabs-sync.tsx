@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { and, eq, isNull, or, useLiveQuery } from "@tanstack/react-db"
-import type { App, Board, Device, Issue } from "@/db/schema"
+import type { App, Board, Device, Issue, SyncedRepository } from "@/db/schema"
 import { isAssistant } from "@exp/domain-contract/agent-settings"
 import {
   agentCollection,
   appCollection,
   deviceCollection,
   issueCollection,
+  repositoryCollection,
   sessionCollection,
   teamCollection,
 } from "@/lib/collections"
@@ -56,7 +57,8 @@ function sessionInTeam(session: { teamId: string } | undefined | null, teamId: s
 //      with that team (`upsertFromRoute`). #EXP-2124: pages are tabs too:
 //      Needs you, Chats, Drafts (no lookup), a device page (its row in
 //      `devices`), a board page (the route team's board) and an app's run
-//      view (the route team's live app). Settings and creation pages name
+//      view (the route team's live app); #EXP-2171: a repository's page (the
+//      route team's repository by slug). Settings and creation pages name
 //      no tab. The active tab is never stored: the strip derives it from
 //      the same URL.
 //   2. The New session tab = Home's tab (#EXP-2124): visiting Home opens or
@@ -65,7 +67,7 @@ function sessionInTeam(session: { teamId: string } | undefined | null, teamId: s
 //      start navigates to its chat, and that chat takes the tab's place.
 //      The flag survives until the route resolves (a fresh chat's row may
 //      sync a moment after the navigation).
-//   3. Prune: a tab whose issue, session, board, app or device row is gone
+//   3. Prune: a tab whose issue, session, board, app, repository or device row is gone
 //      from its (READY) collection, or whose team the person left, is
 //      dropped — never while a collection is still syncing, so a cold load
 //      cannot wipe the strip. Page tabs and Home's never prune.
@@ -161,6 +163,17 @@ export function WorkTabsSync({
         : undefined,
     [teamId, routeAppSlug]
   )
+  // #EXP-2171: a repository's page names the route team's repository by slug.
+  const routeRepoSlug = path?.kind === `repository` ? path.repoSlug : null
+  const { data: repoRows } = useLiveQuery(
+    (query) =>
+      teamId && routeRepoSlug
+        ? query
+            .from({ r: repositoryCollection })
+            .where(({ r }) => and(eq(r.teamId, teamId), eq(r.slug, routeRepoSlug)))
+        : undefined,
+    [teamId, routeRepoSlug]
+  )
   // A device page's param is the LOGICAL id (the row id still resolves).
   const routeDeviceId = path?.kind === `device` ? path.deviceId : null
   const { data: deviceRows } = useLiveQuery(
@@ -218,6 +231,10 @@ export function WorkTabsSync({
       const app = ((appRows ?? []) as App[])[0]
       return app ? { kind: `app`, appId: app.id, from: null, ...team } : null
     }
+    if (path.kind === `repository`) {
+      const repository = ((repoRows ?? []) as SyncedRepository[])[0]
+      return repository ? { kind: `repository`, repositoryId: repository.id, from: null, ...team } : null
+    }
     if (path.kind === `issue`) {
       const issue = ((issueRows ?? []) as Issue[])[0]
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from, ...team } : null
@@ -240,7 +257,7 @@ export function WorkTabsSync({
     return sessionRoot?.agentId
       ? { kind: `session`, sessionId: path.sessionId, from: path.from, ...team }
       : null
-  }, [path, routeTeam, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent, routeBoard, appRows, deviceRows])
+  }, [path, routeTeam, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent, routeBoard, appRows, repoRows, deviceRows])
   const routeKey = route ? JSON.stringify(route) : null
 
   useEffect(() => {
@@ -294,6 +311,10 @@ export function WorkTabsSync({
           if (!appCollection.isReady()) return true
           const app = appCollection.get(tab.appId)
           return app !== undefined && !app.deletedAt && app.teamId === tab.teamId
+        }
+        if (tab.kind === `repository`) {
+          if (!repositoryCollection.isReady()) return true
+          return repositoryCollection.get(tab.repositoryId)?.teamId === tab.teamId
         }
         if (tab.kind === `issue`) {
           const issue = issueCollection.get(tab.issueId)

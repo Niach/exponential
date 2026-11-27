@@ -69,7 +69,8 @@ function Cell({
     )
   }
   return (
-    <button type="button" {...shared} {...props}>
+    // #EXP-2171: a cell wrapped as a Menu trigger (More) keeps ITS slot.
+    <button type="button" {...shared} {...props} data-slot={shared[`data-slot`]}>
       {body}
     </button>
   )

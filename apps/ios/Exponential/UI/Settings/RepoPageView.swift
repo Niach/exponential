@@ -16,7 +16,15 @@ struct RepoPageView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
-    @State private var tab: RepoPage.Tab = .pulls
+    @Environment(\.dismiss) private var dismiss
+    @State private var tab: RepoPage.Tab
+
+    init(teamId: String, repositoryId: String, isOwner: Bool, initialTab: RepoPage.Tab = .pulls) {
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.isOwner = isOwner
+        _tab = State(initialValue: initialTab)
+    }
     /// nil = the first load is in flight (skeletons).
     @State private var repo: TeamRepo?
     @State private var loaded = false
@@ -87,7 +95,11 @@ struct RepoPageView: View {
             case .branches:
                 RepoBranchesTab(repo: repo, prs: prs)
             case .settings:
-                RepoSettingsTab(repo: repo, isOwner: isOwner, ci: ci, ciManager: isManager(repo))
+                RepoSettingsTab(repo: repo, isOwner: isOwner, ci: ci, ciManager: isManager(repo)) {
+                    // #EXP-2171: removed: back to where it was opened from.
+                    RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
+                    dismiss()
+                }
             }
         } else {
             EmptyState(title: "Repository not found", icon: AppIcons.settingsRepositories, size: .list)
@@ -304,7 +316,10 @@ private struct RepoSettingsTab: View {
     let repo: TeamRepo
     let isOwner: Bool
     let ci: RepoCiModel
+    /// A team owner or the repo's sharer: CI settings and Remove.
     let ciManager: Bool
+    /// #EXP-2171: the repository was removed.
+    var onRemoved: @MainActor () -> Void = {}
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -314,6 +329,7 @@ private struct RepoSettingsTab: View {
     @State private var mirrorUrl = ""
     @State private var busy = false
     @State private var restoreTarget: EcodeRepoSettings.Backup?
+    @State private var confirmRemove = false
 
     var body: some View {
         Group {
@@ -329,6 +345,9 @@ private struct RepoSettingsTab: View {
                     }
                     // #EXP-1617: the CI section, after the repo's own rows.
                     RepoCiLive(model: ci, repositoryId: repo.id, provider: repo.provider, manager: ciManager)
+                    // #EXP-2171: removing it, behind prompts.json
+                    // `remove-repository` (its boards keep no default).
+                    if ciManager { removeSection }
                 }
                 .accessibilityIdentifier("repo-settings")
             }
@@ -359,6 +378,24 @@ private struct RepoSettingsTab: View {
     }
 
     private var defaultBranch: String { settings?.defaultBranch ?? repo.defaultBranch }
+
+    private var removeSection: some View {
+        let copy = Prompts.RemoveRepository.copy(fullName: repo.fullName)
+        // THE destructive button, under the page, left-aligned, on no card.
+        return DestructiveButton(RepoPage.Copy.Settings.remove, enabled: !busy, loading: busy) { confirmRemove = true }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("repo-remove")
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $confirmRemove) {
+                    GlassAlert(prompt: copy, handlers: [
+                        "remove": { remove() },
+                    ])
+                }
+        }
+    }
 
     private var generalSection: some View {
         VStack(spacing: 0) {
@@ -509,6 +546,24 @@ private struct RepoSettingsTab: View {
                 FeedbackStates.Errors.title(verb: "load", thing: "the repository settings"),
                 description: error.trpcUserMessage
             )
+        }
+    }
+
+    /// The page goes with it; a failure = a toast with Retry.
+    private func remove() {
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await deps.repositoriesApi.remove(accountId: accountId, repositoryId: repo.id)
+                onRemoved()
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "remove", thing: "the repository"),
+                    description: error.trpcUserMessage,
+                    action: ToastAction(label: FeedbackStates.Errors.retry) { Task { @MainActor in remove() } }
+                )
+            }
         }
     }
 

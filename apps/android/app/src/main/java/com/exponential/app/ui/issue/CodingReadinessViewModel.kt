@@ -153,6 +153,9 @@ class CodingReadinessViewModel @Inject constructor(
                 github = githubInput,
                 devices = if (board == null) null else snapshot.devices,
                 nowMs = snapshot.nowMs,
+                // #EXP-2171: the board names a DEFAULT; any team repository
+                // meets the repository step.
+                teamRepositoryCount = teamRepos?.value?.size ?: 0,
             ),
         )
         UiState(

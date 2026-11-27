@@ -3502,7 +3502,92 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v116 (#EXP-2171, sidebar-tree.json `teamItems`): the synced
+        // `repositories` table (the repositories shape; a brand-new table, no
+        // cursor yet): the Teams tab's repository rows.
+        migrator.registerMigration("v116_repositories") { db in
+            try createRepositoriesTable(db)
+        }
+
+        // v117 (#EXP-2172, ci-page.json): GitHub Actions runs share the CI
+        // tables: `ci_runs.provider`, `external_id`, `external_url`,
+        // `external_attempt`, `external_access` and `ci_jobs.provider`,
+        // `external_id`, `external_url`; each table's cursor resets only when
+        // its columns were added, so synced rows re-arrive carrying them.
+        migrator.registerMigration("v117_ci_external") { db in
+            let tables: [(table: String, shape: String, columns: [(String, Database.ColumnType)])] = [
+                ("ci_runs", "ci-runs", [
+                    ("provider", .text), ("external_id", .text), ("external_url", .text),
+                    ("external_attempt", .integer), ("external_access", .text),
+                ]),
+                ("ci_jobs", "ci-jobs", [("provider", .text), ("external_id", .text), ("external_url", .text)]),
+            ]
+            for entry in tables {
+                guard try db.tableExists(entry.table) else { continue }
+                let existing = Set(try db.columns(in: entry.table).map(\.name))
+                let added = entry.columns.filter { !existing.contains($0.0) }
+                guard !added.isEmpty else { continue }
+                try db.alter(table: entry.table) { t in
+                    for (column, type) in added {
+                        if column == "provider" {
+                            t.add(column: column, type).notNull().defaults(to: "exponential")
+                        } else {
+                            t.add(column: column, type)
+                        }
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = ?
+                        """, arguments: [entry.shape])
+                }
+            }
+        }
+
+        // v118 (#EXP-2172 redesign, ci-page.json): `ci_runs.title`, what the
+        // run is about (the head commit's first line, the PR's title,
+        // GitHub's display_title); the ci-runs cursor resets so synced rows
+        // re-arrive carrying it.
+        migrator.registerMigration("v118_ci_run_title") { db in
+            guard try db.tableExists("ci_runs") else { return }
+            guard try db.columns(in: "ci_runs").contains(where: { $0.name == "title" }) == false else { return }
+            try db.alter(table: "ci_runs") { t in
+                t.add(column: "title", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'ci-runs'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #EXP-2171: the `repositories` table, mirroring the shape allowlist
+    /// (`/api/shapes/repositories`); jsonb `sync` as JSON text.
+    static func createRepositoriesTable(_ db: Database) throws {
+        try db.create(table: "repositories", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("provider", .text).notNull().defaults(to: "github")
+            t.column("full_name", .text).notNull().defaults(to: "")
+            t.column("slug", .text).notNull().defaults(to: "")
+            t.column("description", .text)
+            t.column("sync", .text)
+            t.column("default_branch", .text).notNull().defaults(to: "main")
+            t.column("default_branch_override", .text)
+            t.column("private", .boolean).notNull().defaults(to: false)
+            t.column("inaccessible_at", .text)
+            t.column("shared_by_user_id", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1832: the `sidebar_layout` table, mirroring the shape allowlist
@@ -3917,6 +4002,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM composer_drafts")
             // #EXP-1832: the sidebar layout places boards, agents and apps.
             try db.execute(sql: "DELETE FROM sidebar_layout")
+            // #EXP-2171: the team's repositories.
+            try db.execute(sql: "DELETE FROM repositories")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")
