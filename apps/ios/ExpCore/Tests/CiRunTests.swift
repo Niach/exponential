@@ -223,9 +223,13 @@ final class CiRunTests: XCTestCase {
             """.utf8))
         XCTAssertEqual(run.run.number, 12)
         let device = try JSONDecoder().decode(DeviceEntity.self, from: Data("""
-            {"id":"d1","user_id":"u","device_id":"dev","label":"mint","runner":{"enabled":true,"labels":["gpu"],"slots":2,"timeoutMin":60}}
+            {"id":"d1","user_id":"u","device_id":"dev","label":"mint","runner":{"enabled":true,"labels":["gpu"],"slots":2,"timeoutMin":60,"memoryMaxMb":8192,"pauseWhenBusy":true}}
             """.utf8))
         XCTAssertEqual(RunnerSettings.Settings(json: device.runner), RunnerSettings.specimenSettings)
+        // An older row without the #EXP-2193 fields takes the defaults.
+        let old = RunnerSettings.Settings(json: #"{"enabled":true,"labels":[],"slots":1,"timeoutMin":30}"#)
+        XCTAssertEqual(old.memoryMaxMb, 8192)
+        XCTAssertTrue(old.pauseWhenBusy)
     }
 
     // MARK: - runner-settings.json
@@ -240,6 +244,8 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(labels, ["label": RunnerSettings.Copy.labelsLabel, "placeholder": RunnerSettings.Copy.labelsPlaceholder, "invalid": RunnerSettings.Copy.labelsInvalid])
         XCTAssertEqual(copy["slots"] as? String, RunnerSettings.Copy.slots)
         XCTAssertEqual(copy["timeout"] as? String, RunnerSettings.Copy.timeout)
+        XCTAssertEqual(copy["memory"] as? String, RunnerSettings.Copy.memory)
+        XCTAssertEqual(copy["pause"] as? String, RunnerSettings.Copy.pause)
         XCTAssertEqual(copy["recent"] as? String, RunnerSettings.Copy.recent)
         XCTAssertEqual(copy["noJobs"] as? String, RunnerSettings.Copy.noJobs)
         XCTAssertEqual(copy["runSubtitle"] as? String, RunnerSettings.Copy.runSubtitle)
@@ -256,12 +262,18 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(limits["labels"] as? Int, RunnerSettings.maxLabels)
         XCTAssertEqual(limits["recent"] as? Int, RunnerSettings.maxRecent)
         XCTAssertEqual(limits["slots"] as? [String: Int], ["min": RunnerSettings.minSlots, "max": RunnerSettings.maxSlots])
+        XCTAssertEqual(limits["memoryMaxMb"] as? [String: Int], [
+            "min": RunnerSettings.minMemoryMb, "max": RunnerSettings.maxMemoryMb, "step": RunnerSettings.memoryStepMb,
+        ])
         let options = try XCTUnwrap(fixture["timeoutOptions"] as? [[String: String]])
         XCTAssertEqual(options, RunnerSettings.timeoutOptions.map { ["value": $0.value, "label": $0.label] })
+        let memory = try XCTUnwrap(fixture["memoryOptions"] as? [[String: String]])
+        XCTAssertEqual(memory, RunnerSettings.memoryOptions.map { ["value": $0.value, "label": $0.label] })
         let ids = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(ids, [
             "section": RunnerSettings.TestIds.section, "switch": RunnerSettings.TestIds.toggle, "labels": RunnerSettings.TestIds.labels,
             "slots": RunnerSettings.TestIds.slots, "timeout": RunnerSettings.TestIds.timeout, "recent": RunnerSettings.TestIds.recent,
+            "memory": RunnerSettings.TestIds.memory, "pause": RunnerSettings.TestIds.pause,
         ])
     }
 
@@ -271,10 +283,25 @@ final class CiRunTests: XCTestCase {
         }
     }
 
+    func testUnsupported() throws {
+        for item in try cases("runner-settings.json", "unsupported") {
+            XCTAssertEqual(
+                RunnerSettings.unsupported(kind: ciString(item["kind"]), platform: ciString(item["platform"])),
+                try XCTUnwrap(item["expected"] as? Bool), "\(item["name"] ?? "")"
+            )
+        }
+    }
+
     func testNotice() throws {
         for item in try cases("runner-settings.json", "notice") {
             let caps = try XCTUnwrap(item["caps"] as? [String])
-            XCTAssertEqual(RunnerSettings.notice(client: try XCTUnwrap(ciString(item["client"])), caps: caps), ciString(item["expected"]), "\(item["name"] ?? "")")
+            XCTAssertEqual(
+                RunnerSettings.notice(
+                    client: try XCTUnwrap(ciString(item["client"])), caps: caps,
+                    kind: ciString(item["kind"]), platform: ciString(item["platform"])
+                ),
+                ciString(item["expected"]), "\(item["name"] ?? "")"
+            )
         }
     }
 
@@ -312,6 +339,7 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(ciString(specimen["client"]), RunnerSettings.specimenClient)
         let device = try XCTUnwrap(specimen["device"] as? [String: Any])
         XCTAssertEqual(ciString(device["id"]), RunnerSettings.specimenDeviceId)
+        XCTAssertEqual(ciString(device["kind"]), RunnerSettings.specimenKind)
         XCTAssertEqual(ciString(device["platform"]), RunnerSettings.specimenPlatform)
         XCTAssertEqual(device["caps"] as? [String], RunnerSettings.specimenCaps)
         let runner = try JSONSerialization.data(withJSONObject: try XCTUnwrap(device["runner"]))
@@ -379,6 +407,7 @@ final class CiRunViewTests: XCTestCase {
             let tree = CiRunView.runnerSectionTree(
                 client: try XCTUnwrap(ciString(item["client"])),
                 caps: try XCTUnwrap(item["caps"] as? [String]),
+                kind: ciString(item["kind"]),
                 platform: ciString(item["platform"]),
                 settings: try settings(item["settings"]),
                 owner: try XCTUnwrap(item["owner"] as? Bool),

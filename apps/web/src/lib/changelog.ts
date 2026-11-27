@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-ci-secrets-trusted-runs`,
+    date: `2026-11-27`,
+    title: `CI secrets stay out of pull requests`,
+    summary: `Your CI secrets now reach only runs on the default branch, tags and the merge train, unless a repository lets pull requests have them.`,
+    body: `- **Secrets for trusted runs**: a pull request run gets no secrets, and its log says which ones were held back and why. Turn on **Secrets for pull requests** in a repository's CI settings to give them those too. Every secret change shows in the team's events.
+- **A cut-off job runs again**: a job whose runner crashed or quit goes back to the queue once instead of failing.
+- **Runner limits**: a device's CI runner settings now have **Memory per job** and **Pause for games and full-screen apps**.
+- **Linux and servers only for now**: the desktop app on macOS and Windows can't run CI jobs yet. Run them on Linux or on a server.`,
+  },
+  {
     id: `2026-11-27-ede-page-windows`,
     date: `2026-11-27`,
     title: `Every page of Exponential is its own window`,

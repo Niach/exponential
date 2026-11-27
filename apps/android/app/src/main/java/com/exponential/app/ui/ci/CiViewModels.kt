@@ -280,7 +280,7 @@ class RunnerSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
             runCatching {
-                api.setRunner(accountId, deviceId, settings.enabled, settings.labels, settings.slots, settings.timeoutMin)
+                api.setRunner(accountId, deviceId, settings)
             }.onFailure { t ->
                 if (t is CancellationException) throw t
                 onFailed()

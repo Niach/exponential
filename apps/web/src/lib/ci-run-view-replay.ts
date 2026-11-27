@@ -24,6 +24,7 @@ export function replayRunner(c: Json): unknown {
   return runnerSectionTree({
     client: c.client as RunnerClient,
     caps: c.caps as string[],
+    kind: (c.kind as string | null) ?? `desktop`,
     platform: (c.platform as string | null) ?? null,
     settings: c.settings as RunnerSettings,
     owner: c.owner === true,
