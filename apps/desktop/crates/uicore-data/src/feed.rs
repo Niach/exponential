@@ -153,6 +153,8 @@ mod tests {
     fn shell_feed_resolves_the_selectors() {
         let mut state = ShellState::default();
         state.taskbar.pinned.push("firefox".into());
+        // #EDE-258: the start menu opens on `` (startMenuNav's default); All lists every app.
+        state.start_menu.category = "all".into();
         let apps = vec![StartMenuApp { id: "firefox".into(), name: "Firefox".into(), comment: "Browse".into(), categories: vec!["Network".into()], keywords: String::new() }];
         let v = shell_feed(&state, &apps, &["firefox".into()]);
         assert_eq!(v["taskbar"]["buttons"][0]["app"], "firefox");
