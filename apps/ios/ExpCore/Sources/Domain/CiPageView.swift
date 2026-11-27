@@ -193,7 +193,7 @@ public enum CiPageView {
                     node("\(ids.runs).status.glyph", "Icon", props: ["name": path("glyph"), "tone": path("tone"), "size": .string("sm")]),
                     node("\(ids.runs).status.label", "Text", props: ["text": path("status")]),
                 ])],
-                on: ("rowPress", Events.openRun, nil)
+                on: ("rowPress", Events.openRun, ["run": path("id")])
             ))
         }
         return stack("\(ids.page).runs", "vertical", "md", children)

@@ -272,3 +272,74 @@ extension CiJobEntity: Codable {
         externalUrl = try c.decodeIfPresent(String.self, forKey: .externalUrl)
     }
 }
+
+// MARK: - The CI page's input (#EXP-2172, ci-page.json DATA)
+
+extension CiPage {
+    /// The page's synced input, every member team at once: runs, jobs, pull
+    /// requests, root sessions (their starters), the runner devices (runner
+    /// enabled, never a member space). `repos` and `now` are the caller's
+    /// (repository names come from `repositories.list` per team until the
+    /// repositories shape syncs).
+    public static func fetchRows(_ db: Database, viewerId: String) throws -> Input {
+        let runs = try CiRunEntity.fetchAll(db)
+        let jobs = try CiJobEntity.fetchAll(db)
+        let prs = try PullRequestEntity.fetchAll(db)
+        let roots = Set(prs.compactMap(\.rootSessionId))
+        let sessions = roots.isEmpty ? [] : try SessionEntity.filter(keys: Array(roots)).fetchAll(db)
+        let devices = try DeviceEntity.fetchAll(db)
+        return Input(
+            runs: runs.map(\.pageRun),
+            jobs: jobs.map(\.pageJob),
+            repos: [],
+            pullRequests: prs.map { pr in
+                Pr(
+                    id: pr.id, number: pr.number, title: pr.title ?? "", repositoryId: pr.repositoryId,
+                    rootSessionId: pr.rootSessionId, base: pr.base, mergeState: pr.mergeState.isEmpty ? nil : pr.mergeState,
+                    mergePosition: pr.mergePosition, mergeTrainId: pr.mergeTrainId
+                )
+            },
+            sessions: sessions.filter { $0.rootId == $0.id }.map { Session(id: $0.id, userId: $0.userId) },
+            runners: devices.compactMap { device in
+                let settings = RunnerSettings.Settings(json: device.runner)
+                guard settings.enabled, device.spaceHostId == nil else { return nil }
+                return Runner(
+                    id: device.id, label: device.label.isEmpty ? device.deviceId : device.label, platform: device.platform,
+                    labels: settings.labels, slots: settings.slots, lastSeenAt: device.lastSeenAt
+                )
+            },
+            viewerId: viewerId,
+            now: ""
+        )
+    }
+}
+
+extension CiRunEntity {
+    public var pageRun: CiPage.Run {
+        CiPage.Run(
+            id: id, repositoryId: repositoryId, number: number, name: name, sha: sha, ref: ref, trigger: trigger,
+            state: state, pullRequestId: pullRequestId, createdByUserId: createdByUserId, provider: provider,
+            startedAt: startedAt, completedAt: completedAt, createdAt: createdAt
+        )
+    }
+}
+
+extension CiJobEntity {
+    /// `runs_on` (JSON text) as labels; anything unreadable = none.
+    public var runsOnLabels: [String] {
+        guard let runsOn, let data = runsOn.data(using: .utf8) else { return [] }
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String]) ?? []
+    }
+
+    public var pageJob: CiPage.Job {
+        CiPage.Job(runId: runId, status: status, conclusion: conclusion, runsOn: runsOnLabels, runnerDeviceId: runnerDeviceId, provider: provider)
+    }
+}
+
+extension CiPage {
+    /// nav-badges.json destination `ci` live (the iPad sidebar's CI row, the
+    /// phones' More entry): `ciBadge` over the synced rows.
+    public static func badgeObservation(viewerId: String) -> ValueObservation<ValueReducers.Fetch<NavBadges.Value>> {
+        ValueObservation.tracking { db in ciBadge(try fetchRows(db, viewerId: viewerId)) }
+    }
+}
