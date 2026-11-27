@@ -95,8 +95,13 @@ export function settingsNavigate(state: SettingsState, event: SettingsEvent, ins
       return result(s.module ? s : { ...s, query: (event as { text: string }).text })
     case `submit`: {
       if (s.module || !s.query.trim()) return result(s)
-      const first = settingsGrid(s.query, installed)[0]?.modules[0]
-      return first ? open(s, first.id, installed) : result(s)
+      // Enter opens the best match (a name starting with the query, then a
+      // name holding it, then a keyword hit); ties keep the grid's order.
+      const q = s.query.trim().toLowerCase()
+      const rank = (t: SettingsTile): number => (t.name.toLowerCase().startsWith(q) ? 0 : t.name.toLowerCase().includes(q) ? 1 : 2)
+      const tiles = settingsGrid(s.query, installed).flatMap((c) => c.modules)
+      const best = tiles.reduce<SettingsTile | undefined>((b, t) => (b === undefined || rank(t) < rank(b) ? t : b), undefined)
+      return best ? open(s, best.id, installed) : result(s)
     }
     case `link`: {
       let t = (event as { target: string }).target

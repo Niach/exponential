@@ -203,8 +203,22 @@ pub fn settings_navigate(state: &SettingsState, event: &SettingsEvent, installed
             if !s.module.is_empty() || s.query.trim().is_empty() {
                 return result(s, None);
             }
-            match settings_grid(&s.query, installed).first().and_then(|c| c.modules.first()).map(|t| t.id.clone()) {
-                Some(first) => open(s, &first, installed),
+            // Enter opens the best match (a name starting with the query,
+            // then a name holding it, then a keyword hit); ties keep the grid's order.
+            let q = s.query.trim().to_lowercase();
+            let rank = |t: &SettingsTile| {
+                let n = t.name.to_lowercase();
+                if n.starts_with(&q) {
+                    0
+                } else if n.contains(&q) {
+                    1
+                } else {
+                    2
+                }
+            };
+            let tiles: Vec<SettingsTile> = settings_grid(&s.query, installed).into_iter().flat_map(|c| c.modules).collect();
+            match tiles.iter().enumerate().min_by_key(|(i, t)| (rank(t), *i)).map(|(_, t)| t.id.clone()) {
+                Some(best) => open(s, &best, installed),
                 None => result(s, None),
             }
         }
