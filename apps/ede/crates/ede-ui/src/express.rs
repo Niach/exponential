@@ -71,6 +71,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_service", &["action", "args", "domain"]),
     ("ede_sessions", &["answer", "decision", "menu", "open", "stop", "text"]),
     ("ede_settings", &["key", "page", "value"]),
+    ("ede_settings_nav", &["action", "module", "query", "target"]),
     ("ede_share", &["account", "action", "name"]),
     ("ede_show_desktop", &[]),
     ("ede_space", &["session", "size"]),

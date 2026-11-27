@@ -217,42 +217,15 @@ pub fn key_of(key: &str, modified: bool) -> Option<Key> {
     }
 }
 
-/// #EDE-258: the Settings modules the search finds (settings.express's
-/// device and personal pages: id, title, icon, keywords).
-const SETTINGS_MODULES: &[(&str, &str, &str, &str)] = &[
-    ("display", "Display", "ede-brightness", "screen monitor brightness resolution scale"),
-    ("sound", "Sound", "media-volume-up", "audio volume speaker microphone"),
-    ("network", "Network", "ede-wifi", "wifi wireless ethernet internet vpn"),
-    ("bluetooth", "Bluetooth", "ede-bluetooth", "devices pair headphones"),
-    ("power", "Power", "ede-battery", "battery suspend sleep"),
-    ("themes", "Themes", "editor-text-format", "appearance dark light colours fonts"),
-    ("keyboard", "Keyboard", "coding-command", "layout shortcuts keys"),
-    ("mouse", "Mouse & Touchpad", "ui-device", "pointer trackpad scroll"),
-    ("datetime", "Date & Time", "ui-clock", "clock timezone"),
-    ("users", "Users", "settings-members", "accounts people"),
-    ("notifications", "Notifications", "settings-notifications", "alerts do not disturb"),
-    ("workspaces", "Workspaces", "ede-workspaces", "desktops virtual"),
-    ("windows", "Windows", "ede-window", "tiling titlebar focus"),
-    ("startup", "Startup apps", "action-run", "autostart login"),
-    ("defaults", "Default apps", "nav-apps", "browser mail preferred applications"),
-    ("tools", "Tools", "settings-tools", "coding"),
-    ("coding-clis", "Coding CLIs", "settings-agents", "claude codex agents"),
-    ("worktrees", "Worktrees", "settings-local-repos", "git repositories"),
-    ("sessions", "Sessions", "settings-sessions", "agents running"),
-    ("account", "Account", "settings-account", "sign in sign out exponential"),
-    ("devices", "Devices", "nav-devices", "computers servers"),
-    ("security", "Security", "settings-api", "passkeys tokens"),
-    ("whats-new", "What's new", "nav-changelog", "changelog release"),
-    ("about", "About", "settings-about", "version system"),
-];
-
-/// The Settings modules as the start menu's search takes them.
+/// #EDE-258, #EDE-273: the Settings modules the search finds: System
+/// Settings' catalogue (uicore system-settings.json), every module by its
+/// name and keywords; a row opens `~/settings/<id>`.
 pub fn settings_modules() -> &'static [uicore_model::StartMenuSetting] {
     static MODULES: std::sync::OnceLock<Vec<uicore_model::StartMenuSetting>> = std::sync::OnceLock::new();
     MODULES.get_or_init(|| {
-        SETTINGS_MODULES
+        uicore_model::settings::settings_modules()
             .iter()
-            .map(|(id, title, icon, keywords)| uicore_model::StartMenuSetting { id: id.to_string(), title: title.to_string(), icon: icon.to_string(), keywords: keywords.to_string() })
+            .map(|m| uicore_model::StartMenuSetting { id: m.id.clone(), title: m.name.clone(), icon: m.icon.clone(), keywords: m.keywords.replace(',', "") })
             .collect()
     })
 }
@@ -343,11 +316,13 @@ mod tests {
     }
 
     #[test]
-    fn every_settings_module_is_a_page_of_settings() {
+    fn every_settings_module_is_a_module_of_the_window() {
         let source = uicore_docs::doc("settings").expect("settings").source;
-        for (id, title, ..) in SETTINGS_MODULES {
-            assert!(source.contains(&format!("value=\"{id}\"")), "{id} is no page of settings.express");
-            assert!(source.contains(&format!("title=\"{title}\"")), "{title}");
+        for m in settings_modules() {
+            let module = uicore_model::settings::settings_modules().iter().find(|x| x.id == m.id).unwrap();
+            if module.opens.is_none() && module.kind == uicore_model::settings::SettingsKind::Module {
+                assert!(source.contains(&format!("b=\"{}\"", m.id)), "{} is no module of settings.express", m.id);
+            }
         }
     }
 

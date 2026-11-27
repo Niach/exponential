@@ -12,7 +12,7 @@ pub const LAYERS: &[&str] = &["background", "bottom", "top", "overlay"];
 pub const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 pub const KEYBOARD: &[&str] = &["none", "on-demand", "exclusive"];
 pub const PLACEMENTS: &[&str] = &["bottom-start", "bottom-end", "top-start", "top-end", "left-start", "right-start"];
-pub const SURFACE_KEYS: &[&str] = &["layer", "anchor", "size", "exclusiveZone", "margin", "keyboard", "onDemand", "popup", "functions"];
+pub const SURFACE_KEYS: &[&str] = &["layer", "anchor", "size", "exclusiveZone", "margin", "keyboard", "onDemand", "popup", "window", "functions"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +75,15 @@ pub struct Popup {
     pub size: PopupSize,
 }
 
+/// #EDE-273: a normal toplevel of the shell.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowSpec {
+    pub title: String,
+    #[serde(rename = "appId")]
+    pub app_id: String,
+    pub size: PopupSize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PopupSize {
     pub width: u32,
@@ -90,13 +99,16 @@ pub enum SurfaceHeader {
     Layer { layer: Layer, anchor: Vec<Edge>, size: Size, #[serde(rename = "exclusiveZone")] exclusive_zone: i32, margin: Margin, keyboard: Keyboard, #[serde(rename = "onDemand")] on_demand: bool, functions: Vec<String> },
     /// A popup of another document's surface (an `xdg_popup` under one of its components).
     Popup { popup: Popup, functions: Vec<String> },
+    /// #EDE-273: a normal toplevel (the compositor's frame, a taskbar
+    /// entry), opened only when asked and never twice.
+    Window { window: WindowSpec, functions: Vec<String> },
 }
 
 impl SurfaceHeader {
     /// The host functions the document may call.
     pub fn functions(&self) -> &[String] {
         match self {
-            SurfaceHeader::Layer { functions, .. } | SurfaceHeader::Popup { functions, .. } => functions,
+            SurfaceHeader::Layer { functions, .. } | SurfaceHeader::Popup { functions, .. } | SurfaceHeader::Window { functions, .. } => functions,
         }
     }
 }
@@ -130,6 +142,41 @@ pub fn normalize_surface(input: &Value) -> Result<SurfaceHeader, Vec<Issue>> {
         if !SURFACE_KEYS.contains(&key.as_str()) {
             issues.push(Issue::new(format!("surface.{key}"), format!("unknown key; known: {}", SURFACE_KEYS.join("|"))));
         }
+    }
+    if let Some(window) = input.get("window") {
+        for key in ["layer", "anchor", "exclusiveZone", "margin", "keyboard", "onDemand", "popup"] {
+            if input.contains_key(key) {
+                issues.push(Issue::new(format!("surface.{key}"), "a window surface has no layer, anchor, exclusiveZone, margin, keyboard, onDemand or popup"));
+                break;
+            }
+        }
+        let Some(window) = window.as_object() else {
+            issues.push(Issue::new("surface.window", "expected an object {title, appId, size}"));
+            return Err(issues);
+        };
+        let title = window.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).map(String::from);
+        if title.is_none() {
+            issues.push(Issue::new("surface.window.title", "expected the window's title"));
+        }
+        let app_id = window.get("appId").and_then(Value::as_str).filter(|a| !a.is_empty() && a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))).map(String::from);
+        if app_id.is_none() {
+            issues.push(Issue::new("surface.window.appId", "expected an app id (letters, digits, ., - and _)"));
+        }
+        let size = match window.get("size") {
+            Some(v) if v.is_object() => match (v.get("width").and_then(is_px), v.get("height").and_then(is_px)) {
+                (Some(width), Some(height)) => Some(PopupSize { width, height }),
+                _ => None,
+            },
+            _ => None,
+        };
+        if size.is_none() {
+            issues.push(Issue::new("surface.window.size", "expected {width, height} in positive whole px"));
+        }
+        let functions = functions_of(input, &mut issues);
+        return match (issues.is_empty(), title, app_id, size) {
+            (true, Some(title), Some(app_id), Some(size)) => Ok(SurfaceHeader::Window { window: WindowSpec { title, app_id, size }, functions }),
+            _ => Err(issues),
+        };
     }
     if let Some(popup) = input.get("popup") {
         for key in ["layer", "anchor", "exclusiveZone", "margin", "keyboard", "onDemand"] {

@@ -74,6 +74,9 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 [ -n "$sock" ] || { echo "the compositor did not come up:" >&2; tail -20 "$log" >&2; exit 1; }
+# The capture names the compositor's own private display, never a person's
+# (smithay numbers its sockets from wayland-1; wayland-0 is a live session's).
+case "$sock" in wayland-0) echo "refusing to capture $sock: not this shot's display" >&2; exit 1 ;; esac
 # #EDE-106: wait for what the view needs to be drawn, never for time (a loaded
 # runner captured the empty desktop): every surface the shell opened and every
 # document asked for logs "drawn" once its first frame is presented. Nothing
