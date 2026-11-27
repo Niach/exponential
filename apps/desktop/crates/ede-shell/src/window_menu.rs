@@ -72,6 +72,24 @@ pub fn pick(value: &str, menu: &WindowMenu) -> Option<Pick> {
     })
 }
 
+/// The Menus whose pick rides an Event: genUI hands a `select`'s payload
+/// (`{value}`) to an Event's context, never to a function's args, so a
+/// Menu's `on.select` is `Event("<host function>", {…})` and the shell runs
+/// that function with the picked value under the arg it reads.
+pub const MENU_PICKS: [(&str, &str); 6] = [("ede_window_menu", "value"), ("ede_keyboard_layout", "value"), ("ede_panel_menu", "value"), ("ede_taskbar_menu", "value"), ("ede_tray_menu", "id"), ("ede_power", "action")];
+
+/// The host function's args for Menu pick `name` with event `context`
+/// (the Menu's own context plus the payload's `value`); `None` = not a
+/// Menu pick, or no value picked.
+pub fn menu_pick_args(name: &str, context: &Value) -> Option<Value> {
+    let (_, arg) = MENU_PICKS.iter().find(|(n, _)| *n == name)?;
+    let mut args = context.as_object()?.clone();
+    let value = args.remove("value").filter(|v| !v.is_null())?;
+    args.remove("checked");
+    args.insert(arg.to_string(), value);
+    Some(Value::Object(args))
+}
+
 /// `/windowMenu`: open, and the entries.
 pub fn feed(menu: Option<&WindowMenu>, open: bool) -> Value {
     json!({"open": open && menu.is_some(), "items": menu.map(items).unwrap_or_else(|| json!([]))})
@@ -156,6 +174,72 @@ mod tests {
         assert_eq!(margin_on(&outputs, 100, 50), (100, 50));
         assert_eq!(margin_on(&outputs, 2000, 70), (80, 70), "on the second output");
         assert_eq!(margin_on(&outputs, -5, 3000), (0, 1079), "off every output: the first one, kept on it");
+    }
+
+    /// The factory documents' Menus: a press on an entry reaches the
+    /// host function with the entry's value (genUI's real event path: the
+    /// Menu opened, its item pressed, the Event it fires, the shell's
+    /// bridge). A `fn(value=$value)` select resolved `$value` without the
+    /// payload, so every pick arrived empty.
+    #[test]
+    fn a_menu_pick_reaches_its_host_function_with_the_value() {
+        use eui_core::measure::FixedMeasure;
+        use eui_core::surface::{OutEvent, Surface, SurfaceOptions};
+        use eui_core::types::NestedNode;
+
+        fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+            if n.get("id").and_then(Value::as_str) == Some(id) {
+                return Some(n);
+            }
+            match n {
+                Value::Object(m) => m.values().find_map(|v| node(v, id)),
+                Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+                _ => None,
+            }
+        }
+        // (document, Menu, its data scope, the entry pressed: kind, value; the function, its args)
+        let cases = [
+            ("window-menu", "root", json!({}), "item", json!("maximize"), "ede_window_menu", json!({"value": "maximize"})),
+            ("window-menu", "root", json!({}), "checkbox", json!("above"), "ede_window_menu", json!({"value": "above"})),
+            ("taskbar", "applet_keyboard", json!({}), "checkbox", json!("1"), "ede_keyboard_layout", json!({"value": "1"})),
+            ("taskbar", "start_menu", json!({}), "item", json!("history"), "ede_panel_menu", json!({"value": "history"})),
+            ("taskbar", "session", json!({}), "item", json!("datetime"), "ede_panel_menu", json!({"value": "datetime"})),
+            ("taskbar", "group", json!({"app": "org.gnome.Ptyxis"}), "item", json!("close"), "ede_taskbar_menu", json!({"app": "org.gnome.Ptyxis", "value": "close"})),
+            ("taskbar", "group", json!({"app": "org.gnome.Ptyxis"}), "checkbox", json!("pin"), "ede_taskbar_menu", json!({"app": "org.gnome.Ptyxis", "value": "pin"})),
+            ("taskbar", "tray_menu", json!({"service": ":1.42/StatusNotifierItem"}), "item", json!("7"), "ede_tray_menu", json!({"service": ":1.42/StatusNotifierItem", "id": "7"})),
+            ("taskbar", "tray_menu_press", json!({"service": ":1.42/StatusNotifierItem"}), "item", json!("7"), "ede_tray_menu", json!({"service": ":1.42/StatusNotifierItem", "id": "7"})),
+            ("start-menu", "power", json!({}), "item", json!("suspend"), "ede_power", json!({"action": "suspend"})),
+        ];
+        for (doc, menu_id, scope, kind, value, function, want) in cases {
+            let name = format!("{doc}/{menu_id}/{value}");
+            let factory = uicore_docs::doc(doc).unwrap_or_else(|| panic!("{name}: no factory document")).json();
+            let on = node(&factory["root"], menu_id).unwrap_or_else(|| panic!("{name}: no Menu"))["on"].clone();
+            let functions: Vec<&str> = factory["surface"]["functions"].as_array().or_else(|| factory["surface"]["extensions"]["ede"]["functions"].as_array()).map(|f| f.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            assert!(functions.contains(&function), "{name}: {function} is not among the document's functions");
+            let item = json!({"kind": kind, "label": "Entry", "value": value});
+            let tree: NestedNode = serde_json::from_value(json!({"id": "m", "component": "Menu", "props": {"label": "Open", "items": [item]}, "on": on})).expect("tree");
+            let mut s = Surface::new(doc, SurfaceOptions::default());
+            s.set_nested(tree);
+            for (k, v) in scope.as_object().unwrap() {
+                s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+            }
+            s.set_viewport(400.0, 0.0, None);
+            let mut m = FixedMeasure { sizes: Default::default(), wrap: true };
+            let _ = s.set_open("m", true);
+            s.layout(&mut m);
+            let at = s.nodes().iter().position(|n| n.id == "m.item.0").unwrap_or_else(|| panic!("{name}: no entry")) as u32;
+            let out = s.event(at, "press", None);
+            let calls: Vec<(String, Value)> = out
+                .iter()
+                .filter_map(|e| match e {
+                    OutEvent::Action { name, context, .. } => menu_pick_args(name, context).map(|args| (name.clone(), args)),
+                    // The window menu's close (`change`) says `dismiss` on its own.
+                    OutEvent::FunctionCall { name, args, .. } if name == function && args["value"] != "dismiss" => Some((name.clone(), args.clone())),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(calls, vec![(function.to_string(), want)], "{name}: {out:?}");
+        }
     }
 
     #[test]
