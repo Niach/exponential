@@ -2158,6 +2158,15 @@
         "sha256": "09e662a9f8ec2c63c55c78495ec9326f3e12bd426f04a86ad3e3d926fab26225"
       }
     },
+    "ede-applet-keyboard": {
+      "ede": {
+        "file": "shots/ede-applet-keyboard/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7174,
+        "sha256": "16afeeb51292cee3ce53eb71b820baa45ffe8b4dfa3b4b34089db9cbc9fa6a8f"
+      }
+    },
     "ede-applet-network": {
       "ede": {
         "file": "shots/ede-applet-network/ede.webp",
@@ -2262,8 +2271,8 @@
         "file": "shots/ede-panel/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 6440,
-        "sha256": "d9c8e993d1ffa1a9b16dc649adfde6e92d79032aecb882460a5c867da678f08e"
+        "bytes": 6490,
+        "sha256": "ed278c8f5255044d533f9d2eb9f8bb5385f940d1438ca1e64756148fbd05bed9"
       }
     },
     "ede-panel-menu": {
@@ -2327,6 +2336,15 @@
         "height": 720,
         "bytes": 8648,
         "sha256": "8ee47a940cdcf1aafc354cece452fe74ebe877f1310eb77fe5a4a9335d913cd5"
+      }
+    },
+    "ede-window-menu": {
+      "ede": {
+        "file": "shots/ede-window-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 11578,
+        "sha256": "878b29bc8f58549fbc241f05d7c9aee43208e43c854785a0e733e9c735aeff94"
       }
     },
     "elicitation-card": {

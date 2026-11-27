@@ -9691,6 +9691,48 @@
       }
     },
     {
+      "id": "ede-window-menu",
+      "group": "ede",
+      "title": "Exponential Desktop · window menu",
+      "blurb": "#EDE-253: Cinnamon's window menu (apps/ede/ui/window-menu.express), opened by Alt+Space at the focused window's corner, Alt+middle-click or a right click on the title bar at the pointer: Minimize, Maximize or Unmaximize, Move, Resize, Move Titlebar Onscreen (only off screen), Always on Top (checked in the golden), Always on Visible Workspace / Only on This Workspace and Move to Another Workspace past one workspace, Close; the panel's one Menu look, its open bound, with the keyboard.",
+      "order": 26,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "window-menu"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-keyboard",
+      "group": "ede",
+      "title": "Exponential Desktop · keyboard applet",
+      "blurb": "#EDE-253: Cinnamon's keyboard applet (apps/ede/ui/taskbar.express), left of the network applet only with more than one keyboard layout: the active layout's short label, its menu (open in the golden, two sample layouts) the layouts with the active one checked (a pick switches, as Super+Space does) and Keyboard settings.",
+      "order": 27,
+      "ede": {
+        "size": "1280x720",
+        "env": {
+          "EDE_SHELL_DEMO_KEYBOARD": "open"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
       "id": "record-form-field-states",
       "group": "coding",
       "title": "Record form field states",
