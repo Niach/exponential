@@ -14,11 +14,17 @@ function Device({ className }: { className?: string }) {
   return <svg data-testid="device-glyph" className={className} />
 }
 
-/** The row's direct children, minus the connector layer. */
+/** The row's direct children, minus the connector layer; the lead counts as
+ *  what it holds first (#EXP-2145: the team mark sits ON the lead, so the run
+ *  mark comes wrapped in `team-lead`). */
 function slotsOf(row: HTMLElement): (string | null)[] {
   return Array.from(row.children)
     .filter((child) => child.getAttribute(`data-testid`) !== `tree-guides`)
-    .map((child) => child.getAttribute(`data-slot`))
+    .map((child) =>
+      child.getAttribute(`data-slot`) === `team-lead`
+        ? child.firstElementChild?.getAttribute(`data-slot`) ?? null
+        : child.getAttribute(`data-slot`)
+    )
 }
 
 describe(`SessionRow`, () => {
