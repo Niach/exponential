@@ -445,6 +445,12 @@ impl Ede {
             if let Some(xauthority) = self.xauthority(DeskId::PERSON) {
                 cmd.env("XAUTHORITY", xauthority);
             }
+            // #EDE-250: Steam's own UI reads neither XSETTINGS nor Xft.dpi;
+            // its variable is read by nothing else.
+            let scale = self.person_x11_scale();
+            if scale > 1.0 && std::env::var_os("STEAM_FORCE_DESKTOPUI_SCALING").is_none() {
+                cmd.env("STEAM_FORCE_DESKTOPUI_SCALING", format!("{scale}"));
+            }
         }
         Some(cmd)
     }
@@ -461,7 +467,8 @@ impl Ede {
     /// applies too ([`crate::outputs`]).
     pub fn add_output(&mut self, output: &Output) {
         let settings = self.config.output(&output.name()).cloned();
-        if let Some(scale) = settings.as_ref().and_then(|s| s.scale) {
+        // Its configured scale, else 200 % on a HiDPI panel (#EDE-250).
+        if let Some(scale) = self.initial_scale(output) {
             output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(scale)), None);
         }
         let at = match settings.as_ref().and_then(|s| s.position) {
@@ -471,6 +478,7 @@ impl Ede {
         self.place_output(output, at.into());
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
+        self.update_x11_scale();
         self.output_changed(output.name());
     }
 
@@ -482,6 +490,7 @@ impl Ede {
         self.desk.space.unmap_output(output);
         self.lock_output_removed(output);
         self.relayout(&before);
+        self.update_x11_scale();
     }
 
     /// Windows in `also`, and any whose centre is on no output, reopen on

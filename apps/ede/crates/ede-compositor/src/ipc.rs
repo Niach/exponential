@@ -1617,6 +1617,7 @@ impl Ede {
         }
         keyboard.change_repeat_info(kb.repeat_rate, kb.repeat_delay);
         self.apply_output_settings();
+        self.update_x11_scale();
         self.emit(events::CONFIG_RELOADED, serde_json::Value::Null);
         Ok(())
     }

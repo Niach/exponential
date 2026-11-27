@@ -99,6 +99,7 @@ mod connect;
 mod session_account;
 mod control;
 mod dbus;
+mod display_confirm;
 mod inbox;
 mod local_runs;
 mod off_loop;
@@ -371,6 +372,8 @@ struct Shell {
     locked: bool,
     /// The first person output's x, y, width, height (a fullscreen window over it covers the view).
     first_output: Option<(i32, i32, i32, i32)>,
+    /// #EDE-250: a Display page change waiting for Keep.
+    display_confirm: display_confirm::Confirm,
     /// #EDE-225: every person output's x, y, width, height: the switcher
     /// opens on the one with the focused window.
     person_outputs: Vec<(i32, i32, i32, i32)>,
@@ -928,18 +931,47 @@ impl HostPlugin for Host {
                 }
             }
             "ede_output" => {
-                if let Some(output) = args.get("name").and_then(Value::as_str).map(String::from) {
-                    let mode = args.get("mode").and_then(Value::as_str).map(String::from);
-                    let scale = args.get("scale").and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())));
-                    with_ede(&self.shell, |ede| ede.set_output(&output, mode.as_deref(), scale, None));
-                    if let Err(e) = settings::persist_output(&output, mode.as_deref(), scale) {
-                        tracing::warn!("compositor.toml: {e}");
+                // #EDE-250: a change applies at once and is written only once
+                // kept; Revert, or no answer within 15 s, goes back.
+                match args.get("action").and_then(Value::as_str) {
+                    Some("keep") => {
+                        let kept = self.shell.borrow_mut().display_confirm.keep();
+                        if let Some((name, setting)) = kept {
+                            persist_display(&name, &setting);
+                        }
                     }
-                    cx.defer(move |cx| {
-                        outputs_refresh(&shell);
-                        refresh(&shell, cx);
-                    });
+                    Some("revert") => {
+                        let back = self.shell.borrow_mut().display_confirm.revert();
+                        if let Some((name, setting)) = back {
+                            with_ede(&self.shell, |ede| ede.set_output(&name, setting.mode.as_deref(), setting.scale, None));
+                        }
+                    }
+                    _ => {
+                        if let Some(output) = args.get("name").and_then(Value::as_str).map(String::from) {
+                            let mode = args.get("mode").and_then(Value::as_str).map(String::from);
+                            let scale = args.get("scale").and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())));
+                            let current = current_output_setting(&self.shell.borrow(), &output);
+                            // A Select fires `change` as it opens (the value it has):
+                            // no change, no question.
+                            let same_mode = mode.is_none() || mode == current.mode;
+                            let same_scale = scale.is_none_or(|s| current.scale.is_some_and(|c| (c - s).abs() < 0.001));
+                            if !(same_mode && same_scale) {
+                                let step = self.shell.borrow_mut().display_confirm.change(&output, current, display_confirm::OutputSetting { mode, scale });
+                                let display_confirm::Step::Apply { name, after, persist } = step;
+                                if let Some((other, setting)) = persist {
+                                    persist_display(&other, &setting);
+                                }
+                                with_ede(&self.shell, |ede| ede.set_output(&name, after.mode.as_deref(), after.scale, None));
+                                let generation = self.shell.borrow().display_confirm.generation();
+                                display_countdown(&shell, generation, cx);
+                            }
+                        }
+                    }
                 }
+                cx.defer(move |cx| {
+                    outputs_refresh_relayout(&shell, cx);
+                    refresh(&shell, cx);
+                });
             }
             "ede_config" => {
                 match settings::persist_config(args) {
@@ -954,6 +986,8 @@ impl HostPlugin for Host {
                 }
                 cx.defer(move |cx| {
                     shell.borrow_mut().feed.set("/config", settings::config_json());
+                    // #EDE-250: the scale steps follow "Fractional scaling".
+                    outputs_refresh(&shell);
                     refresh(&shell, cx);
                 });
             }
@@ -4570,6 +4604,71 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 }
 
 /// The outputs as the Displays page binds them (#EDE-14).
+/// #EDE-250: what `name` runs at now, as the Display page shows it.
+fn current_output_setting(s: &Shell, name: &str) -> display_confirm::OutputSetting {
+    let outputs = s.feed.get("/outputs").and_then(Value::as_array).cloned().unwrap_or_default();
+    let o = outputs.iter().find(|o| o["name"].as_str() == Some(name));
+    display_confirm::OutputSetting {
+        mode: o.and_then(|o| o["current"].as_str()).filter(|m| !m.is_empty()).map(String::from),
+        scale: o.and_then(|o| o["scale"].as_f64()),
+    }
+}
+
+/// A kept Display change into `compositor.toml`.
+fn persist_display(name: &str, setting: &display_confirm::OutputSetting) {
+    if let Err(e) = settings::persist_output(name, setting.mode.as_deref(), setting.scale) {
+        tracing::warn!("compositor.toml: {e}");
+    }
+}
+
+/// One second at a time until Keep, Revert, a newer change, or the end:
+/// then the output goes back. `/display/confirm` shows the seconds.
+fn display_countdown(shell: &SharedShell, generation: u64, cx: &mut App) {
+    let shell = shell.clone();
+    {
+        let mut s = shell.borrow_mut();
+        let confirm = s.display_confirm.json();
+        s.feed.set("/display/confirm", confirm);
+    }
+    cx.spawn(async move |cx| loop {
+        cx.background_executor().timer(Duration::from_secs(1)).await;
+        let ran_out = {
+            let mut s = shell.borrow_mut();
+            if s.display_confirm.generation() != generation {
+                return;
+            }
+            let ran_out = s.display_confirm.tick(generation);
+            let confirm = s.display_confirm.json();
+            s.feed.set("/display/confirm", confirm);
+            ran_out
+        };
+        let done = ran_out.is_some();
+        if let Some((name, setting)) = ran_out {
+            tracing::info!("display change on {name} not kept: back to {:?} at {:?}", setting.mode, setting.scale);
+            with_ede(&shell, |ede| ede.set_output(&name, setting.mode.as_deref(), setting.scale, None));
+            let _ = cx.update(|cx| outputs_refresh_relayout(&shell, cx));
+        }
+        let _ = cx.update(|cx| refresh(&shell, cx));
+        if done {
+            return;
+        }
+    })
+    .detach();
+}
+
+/// [`outputs_refresh`], and the open layer surfaces take the output's new
+/// logical size when it changed. #EDE-250: a scale picked on the Display
+/// page refreshed `/outputs` itself before the compositor's event came, so
+/// the event saw no change and the taskbar and Settings kept the old size
+/// (overflowing the output at a larger scale, short of it at a smaller one).
+fn outputs_refresh_relayout(shell: &SharedShell, cx: &mut App) {
+    let before = output_size(&shell.borrow());
+    outputs_refresh(shell);
+    if output_size(&shell.borrow()) != before {
+        relayout(shell, cx);
+    }
+}
+
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
     let mut s = shell.borrow_mut();
@@ -5146,6 +5245,7 @@ fn main() {
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
             first_output: None,
+            display_confirm: Default::default(),
             person_outputs: Vec::new(),
             layers_opened: HashMap::new(),
             osd_until: None,
@@ -5348,11 +5448,7 @@ fn main() {
                     dirty = true;
                 }
                 if outputs_rx.try_iter().count() > 0 {
-                    let before = output_size(&s.borrow());
-                    outputs_refresh(&s);
-                    if output_size(&s.borrow()) != before {
-                        cx.update(|cx| relayout(&s, cx));
-                    }
+                    cx.update(|cx| outputs_refresh_relayout(&s, cx));
                     // #EXP-2024: the pinned view's box follows the display
                     // (relayout resized its layer through header_for).
                     spaces_feed(&s);
