@@ -60,6 +60,10 @@
       "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
+      "package": "ci-runner@0.14.185",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "cocoa-foundation@0.1.2",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },

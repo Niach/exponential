@@ -29,7 +29,7 @@
  */
 import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { ciJobs, devices, repositories, teamMembers } from "@/db/schema"
+import { ciJobs, devices, repositories, teamMembers, type DeviceRunnerSettings } from "@/db/schema"
 
 // What a read-only check on mint found on 2026-11-27 (session 3586166b, for
 // the coordinator): the main repo's `exp-linux` runners mint-1 and mint-2 are
@@ -115,7 +115,11 @@ async function main() {
         )
     : []
 
-  const settings = keepTarget ? target.runner : { ...(target.runner ?? {}), ...(source.runner ?? {}) }
+  const settings: DeviceRunnerSettings | null = keepTarget
+    ? target.runner
+    : source.runner
+      ? { ...(target.runner ?? {}), ...source.runner }
+      : target.runner
   console.log(`[retire] "${source.label}" (${from}, ${source.kind}) → "${target.label}" (${to}, ${target.kind})`)
   console.log(`[retire] runner settings now: ${JSON.stringify(target.runner)}`)
   console.log(`[retire] runner settings after: ${JSON.stringify(settings)}`)
