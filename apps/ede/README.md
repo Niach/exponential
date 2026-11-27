@@ -28,7 +28,7 @@ that the IDE will host too (`ide = shell + uicore`): `uicore-model`, the
 pure shell reducer (`reduce(state, event)` + selectors: the desktop/team
 switcher, the windows and their MRU, the rail's chats (#EDE-65),
 Mint's grouped taskbar with pins, the start menu's categories and search,
-the chat toggle, Alt-Tab), byte-locked by `packages/uicore/fixtures/shell.json`
+Alt-Tab), byte-locked by `packages/uicore/fixtures/shell.json`
 and its TypeScript reference; `uicore-data`, what the documents bind (the
 `Feed` of paths, the desktop entries, the clock, the compositor's window
 list as reducer events, `/shell` from the model); `uicore-gpui`, the
@@ -53,10 +53,10 @@ frame line, which the supervisor reads.
 Data every document may bind: `/time` + `/date` + `/dateText` (local; the
 calendar applet's weekday and date words), `/windows` (the
 active workspace's windows over ede-protocol: id, title, app, focused,
-minimized), `/shell` (the model: `chats` (the rail's), `taskbar.buttons` (Mint's groups:
+minimized), `/shell` (the model: `taskbar.buttons` (Mint's groups:
 app, pinned, windows, focused, minimized, running), `taskbar.previews`,
 `workspaces.badges`, `startMenu` (open, query, category, categories, apps),
-`chat.open`, `altTab`), `/apps` + `/query` (the launcher: the desktop
+`altTab`), `/apps` + `/query` (the launcher: the desktop
 entries of the XDG data directories, filtered as the person types),
 `/switcher` (Alt-Tab's order with the selection and live thumbnails),
 `/previews` (a taskbar group's windows with thumbnails while they show),
@@ -69,11 +69,14 @@ switcher), `ede_alt_tab_select {window}` (a hovered Alt-Tab tile selects it), an
 `~/.config/exponential-desktop/shell.json`), `ede_taskbar {app}` (Mint's
 click: launch, focus, minimize, or the previews of a group),
 `ede_taskbar_scroll {app, direction}`, `ede_previews {app|null}`,
-`ede_start_menu {open?, query?, category?}`, `ede_chat` (toggle; `{sessionId}`
-opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
+`ede_start_menu {open?, query?, category?}`, `ede_chat` (the Assistant: the
+Exponential app's one window on its page key, #EDE-239), `ede_workspace {index}`,
 `ede_history {action: undo|reset}` (the shell documents' history),
 `ede_account {action: sign-out}`, `ede_install {action: approve|remove, id, code}`
-(#EDE-226);
+(#EDE-226), `ede_sessions {menu | open | stop | answer, decision?, text?}` (#EDE-239:
+the session area's applet menu and panel, done by the holder over the session bus);
+`/sessions` feeds the session area (uicore shell.json `sessionArea` over the holder's
+`sessions`, the IDE sidebar's Active band);
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
@@ -84,13 +87,13 @@ margin), `sidebar.express` (left, the IDE's 56 px icon rail for good, #EDE-65:
 only the chats, each the agent's mark with its dot; the IDE mounts the same
 document and eDE prunes the IDE's header and corners), `taskbar.express`
 (bottom, 48 px exclusive zone along the whole edge: the Exponential start
-button, the chat button and the new-issue button bottom-left under the rail,
+button, the Assistant button and the new-issue button bottom-left under the rail,
 then Mint's grouped window list with pins, hover previews
-and a context menu, the applets, the tray, the bell and the clock),
+and a context menu, the session area (#EDE-239: the running and waiting sessions as
+chips, `sessions-panel.express` on a click), the applets, the tray, the bell and the clock),
 `start-menu.express` (the start button's popup: Mint's three columns and the
 search box; its own entries are Files (Nemo, else the default file manager),
-Version history and the Exponential app when installed, #EDE-53), `chat.express`
-(the Assistant's composer, on demand), `history.express` (Version history: the
+Version history and the Exponential app when installed, #EDE-53), `history.express` (Version history: the
 shell documents' commits with Undo and Reset to factory, on demand),
 `switcher.express`, `expo.express` and `scale.express` (`onDemand` overlays the shell
 opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per

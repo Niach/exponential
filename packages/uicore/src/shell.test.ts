@@ -5,6 +5,7 @@ import {
   chatRows,
   hydrate,
   reduce,
+  sessionArea,
   startMenuApps,
   startMenuCategories,
   startMenuIssues,
@@ -18,6 +19,8 @@ import {
   workspaceBadges,
   switcherSections,
   type RailChatInput,
+  type SessionArea,
+  type SessionAreaInput,
   type ShellEvent,
   type ShellState,
   type StartMenuApp,
@@ -43,7 +46,7 @@ describe(`shell.json reduce`, () => {
       `workspace.switched`, `workspace.count`,
       `taskbar.pin`, `taskbar.unpin`, `taskbar.hover`, `taskbar.unhover`, `taskbar.previews`, `taskbar.menu`,
       `startMenu.toggle`, `startMenu.open`, `startMenu.close`, `startMenu.query`, `startMenu.category`,
-      `chat.toggle`, `altTab.next`, `altTab.prev`, `altTab.commit`, `altTab.cancel`,
+      `altTab.next`, `altTab.prev`, `altTab.commit`, `altTab.cancel`,
     ]) expect(kinds.has(kind), kind).toBe(true)
   })
 
@@ -99,6 +102,10 @@ describe(`shell.json selectors`, () => {
   }
 
   test(`the start menu opens on the default category (#EDE-258)`, () => expect(fixture.initial.startMenu.category).toBe(``))
+})
+
+describe(`shell.json sessionArea (#EDE-239)`, () => {
+  for (const c of fixture.selectors.sessionArea) test(c.name, () => expect(sessionArea(c.args.sessions as SessionAreaInput[], (c.args as { room?: number }).room)).toEqual(c.expected as SessionArea))
 })
 
 describe(`shell.json chats (#EDE-65)`, () => {

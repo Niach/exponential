@@ -1,7 +1,7 @@
 # Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer
 # surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px
 # rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu,
-# start-menu.express anchored here), the chat button (chat.express) and the new-issue button right of it
+# start-menu.express anchored here), the Assistant button (the Exponential app's Assistant window, ede_chat) and the new-issue button right of it
 # (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one
 # icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running
 # ones), a dot under a running app, a wider one under the focused app, dimmed when every window is
@@ -47,7 +47,13 @@
 # #EDE-253: the keyboard applet (keyboard@cinnamon.org) left of the network one, only with more than one
 # layout (/keyboard/show): the active layout's short label (us, de), its menu the layouts (the active one
 # checked; a pick switches: ede_keyboard_layout) and Keyboard settings.
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop"]}})
+# #EDE-239: the session area, a Cinnamon applet first on the right, before the status icons, only while
+# a session runs or waits (/sessions/count): THE IDE sidebar's Active band (uicore shell.json sessionArea
+# over the holder's `sessions`, the band's order), up to three chips (the agent mark, the title, a spinner
+# while it runs, the attention dot while it needs you), then `+N`. A left click opens its panel
+# (sessions-panel.express anchored here: per session the trace, Stop, the waiting card's answers in place,
+# Open), a right click the applet menu (All chats, Needs you: ede_sessions {menu}).
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
@@ -61,6 +67,10 @@ $/keyboard/label = ""
 $/keyboard/open = false
 $/keyboard/show = false
 $/needsYou/count = 0
+$/sessions/chips = []
+$/sessions/count = 0
+$/sessions/more = 0
+$/sessions/moreLabel = ""
 $/notifications/count = 0
 $/previews/app = null
 $/previews/windows = []
@@ -75,7 +85,7 @@ left = Stack(direction="horizontal", gap="sm", align="center", children=[corner,
 corner = Stack(direction="horizontal", gap="xs", align="center", children=[start_menu, chat, new])
 start_menu = Menu(items=[{label: "Settings", value: "settings", icon: "nav-settings"}, {label: "Version history", value: "history", icon: "ui-history"}], openOn="contextmenu", children=[start], on={select: Event("ede_panel_menu")})
 start = Button(label="Start", icon="brand-exponential", variant="ghost", size="icon", on={press: ede_start_menu(toggle=true)}, style={width: 40, height: 40})
-chat = Button(label="Chat", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
+chat = Button(label="Assistant", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
 new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
 buttons = Stack(direction="horizontal", gap="xs", align="center", children=_template($/shell/taskbar/buttons, group, key="app"))
 group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {app: $app})})
@@ -100,7 +110,7 @@ window_count = Box(style={position: "absolute", top: 0, left: 0}, children=[wind
 window_count_badge = CountBadge(count=$count, tone="muted")
 notification_count = Box(style={position: "absolute", top: 0, right: 0}, children=[notification_count_badge], visible=lt(a=0, b=$notifications))
 notification_count_badge = CountBadge(count=$notifications, tone="attention")
-right = Stack(direction="horizontal", gap="xs", align="center", children=[tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
+right = Stack(direction="horizontal", gap="xs", align="center", children=[sessions, tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
 tray = Stack(direction="horizontal", gap="none", align="center", children=_template($/tray, tray_entry, key="service"))
 tray_entry = Box(style={display: "flex", alignItems: "center"}, children=[tray_item, tray_menu])
 tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 40, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service), auxPress: Event("ede_tray_input", {service: $service}), scroll: Event("ede_tray_input", {service: $service})}, visible=not(value=cond(if=$hasMenu, then=true, else=false)))
@@ -137,3 +147,13 @@ session = Menu(items=[{label: "Date and time settings", value: "datetime", icon:
 clock = Button(label=$/time, variant="ghost", size="sm", on={press: Event("clock")}, style={fontVariantNumeric: "tabular-nums"})
 corner_bar = Box(style={display: "flex", alignItems: "center", justifyContent: "flex-end", width: 12, height: 48}, pressable=true, children=[corner_line], on={press: ede_show_desktop()})
 corner_line = Box(style={width: 1, height: 24, backgroundColor: "$color.border"})
+sessions = Menu(items=[{label: "All chats", value: "chats", icon: "nav-chats"}, {label: "Needs you", value: "needs-you", icon: "nav-needs-you"}], side="top", align="end", openOn="contextmenu", children=[sessions_box], on={select: ede_sessions(menu=$value)}, visible=not(value=eq(a=$/sessions/count, b=0)))
+sessions_box = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 4, height: 40, paddingLeft: 4, paddingRight: 4, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[sessions_chips, sessions_more], on={press: Event("sessions")})
+sessions_chips = Stack(direction="horizontal", gap="xs", align="center", children=_template($/sessions/chips, session_chip, key="id"))
+session_chip = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 6, height: 32, paddingLeft: 8, paddingRight: 10, maxWidth: 200, borderRadius: "$radius.md", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[session_chip_icon, session_chip_title, session_chip_spinner, session_chip_needs])
+session_chip_icon = Icon(name=$icon, size="sm")
+session_chip_title = Text(text=$title, variant="caption", lines=1, style={minWidth: 0})
+session_chip_spinner = Spinner(size="xs", visible=cond(if=$running, then=true, else=false))
+session_chip_needs = Box(style={width: 8, height: 8, flexShrink: 0, borderRadius: "$radius.full", backgroundColor: "$color.warning"}, visible=cond(if=$needs, then=true, else=false))
+sessions_more = Box(style={display: "flex", alignItems: "center", height: 32, paddingLeft: 8, paddingRight: 8, borderRadius: "$radius.md", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[sessions_more_label], visible=not(value=eq(a=$/sessions/more, b=0)))
+sessions_more_label = Text(text=$/sessions/moreLabel, variant="caption")

@@ -101,7 +101,6 @@ pub fn shell_feed(state: &ShellState, apps: &[StartMenuApp], favourites: &[Strin
             "categories": start_menu_categories(apps, favourites),
             "apps": start_menu_apps(state, apps, favourites),
         },
-        "chat": state.chat,
         "altTab": {
             "open": state.alt_tab.open,
             "selected": state.alt_tab.selected,
