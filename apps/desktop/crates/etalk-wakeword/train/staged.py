@@ -72,8 +72,8 @@ def _generate(job: tuple[str, str, int, int]) -> None:
         phrases = g.generate_adversarial_phrases(target_phrases=config.target_phrases)
         # NEW-129: the classifier hears the window's last ~1.3 s, so a near miss that ENDS in
         # the wake word's last word ("hay claude", "claude") is the wake word there: drop it.
-        last = {phrase.split()[-1] for phrase in config.target_phrases}
-        phrases = [phrase for phrase in phrases if phrase.split()[-1] not in last]
+        wake_ends = {phrase.split()[-1] for phrase in config.target_phrases}
+        phrases = [phrase for phrase in phrases if phrase.split()[-1] not in wake_ends]
         phrases.extend(config.custom_negative_phrases)
     _quiet_threads()
     start = first
