@@ -225,6 +225,17 @@ const SPACE_ENDED: &str = "The agent space had ended, so nothing was done. A new
 /// answered `limit`, every space in use, by the count or by memory.
 const SPACES_FULL: &str = "The person can stop one in the taskbar's computer-use tray.";
 const SPACES_OUT_OF_MEMORY: &str = "The agent spaces on this desktop are out of memory and every one is in use. The person can stop one in the taskbar's computer-use tray.";
+/// #EDE-272: the person pressed Stop in the computer-use tray: the
+/// session's computer use is parked until they allow it again. One tool
+/// error the agent can explain; nothing in ePilot tries again.
+const STOPPED_BY_USER: &str = "Computer use was stopped by user: the person pressed Stop in the computer-use tray, so nothing was done and no new agent space was made. Do not try again: tell the person, who can turn it back on with \"Allow computer use again\" in that tray.";
+
+/// #EDE-272: the compositor's refusal of a parked session (`conflict`, its
+/// words start with [`ede_protocol::STOPPED_BY_USER`]'s "stopped by user").
+fn stopped_by_user(err: &ede_protocol::Error) -> bool {
+    matches!(err, ede_protocol::Error::Failed(failure) if failure.code == ErrorCode::Conflict && failure.message.starts_with("stopped by user"))
+}
+
 /// The cause of [`SpaceBlock::Unavailable`] for a root that cannot mint.
 const NO_MINT: &str = "the token here cannot mint a space grant";
 
@@ -732,6 +743,9 @@ impl Session {
     /// not make one.
     fn refused_space(&self, err: &ede_protocol::Error) -> String {
         let ede_protocol::Error::Failed(failure) = err else { return format!("eDE space: {err}") };
+        if stopped_by_user(err) {
+            return STOPPED_BY_USER.to_string();
+        }
         match failure.code {
             ErrorCode::Limit => {
                 let max = READINESS.lock().unwrap_or_else(|p| p.into_inner()).get(&self.socket).and_then(|(said, _)| said.as_ref()?.max);
@@ -1088,7 +1102,12 @@ impl Ede {
     /// [`Ede::ask`] with the answer's words of `told`.
     fn ask_told<T>(&self, call: impl FnOnce(&mut Client) -> Result<T, ede_protocol::Error>, told: impl FnOnce(&ede_protocol::Error) -> String) -> Result<T, String> {
         let mut client = self.client.lock().unwrap_or_else(|p| p.into_inner());
-        call(&mut client).map_err(|err| self.space_ended(&mut client, &err).unwrap_or_else(|| told(&err)))
+        call(&mut client).map_err(|err| {
+            if stopped_by_user(&err) {
+                return STOPPED_BY_USER.to_string();
+            }
+            self.space_ended(&mut client, &err).unwrap_or_else(|| told(&err))
+        })
     }
 
     fn space_ended(&self, client: &mut Client, err: &ede_protocol::Error) -> Option<String> {
@@ -1104,6 +1123,8 @@ impl Ede {
         }
         Some(match self.session.space_ready().and_then(|_| create_space(&self.session, client, run)) {
             Ok(_) => SPACE_ENDED.to_string(),
+            // #EDE-272: Stop ended it; the refusal says so on its own.
+            Err(err) if err == STOPPED_BY_USER => err,
             Err(err) => format!("The agent space had ended, and no new one was made. {err}"),
         })
     }
@@ -1637,6 +1658,9 @@ mod tests {
         /// #EXP-2098: a mint is logged, then answered only once this is
         /// free: a test that holds it stops a mint half way.
         mint_gate: Arc<Mutex<()>>,
+        /// #EDE-272: the person stopped computer use (the tray's Stop):
+        /// `create_space` is `conflict` "stopped by user" while it is set.
+        parked: Arc<AtomicBool>,
     }
 
     impl Faked {
@@ -1703,13 +1727,15 @@ mod tests {
         let (seen, end, forgets, rooted) = (log.clone(), end_spaces.clone(), forget.clone(), roots.clone());
         let mint_gate = Arc::new(Mutex::new(()));
         let gate = mint_gate.clone();
+        let parked = Arc::new(AtomicBool::new(false));
+        let park = parked.clone();
         let (all_minted, all_spaces, all_mints, all_revoked) = (minted.clone(), spaces.clone(), mints.clone(), revoked.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
                 let (log, minted, spaces, end, root) = (seen.clone(), minted.clone(), spaces.clone(), end.clone(), root.clone());
                 let (forgets, forgotten, rooted, mints, revoked) = (forgets.clone(), forgotten.clone(), rooted.clone(), mints.clone(), revoked.clone());
-                let gate = gate.clone();
+                let (gate, park) = (gate.clone(), park.clone());
                 std::thread::spawn(move || {
                     let mut me = SessionId::new("s").unwrap();
                     let mut is_root = false;
@@ -1795,6 +1821,10 @@ mod tests {
                                 revoked.lock().unwrap().insert(token.as_str().to_string());
                                 Ok(serde_json::Value::Null)
                             }
+                            Request::CreateSpace { width, height } if park.load(Ordering::SeqCst) => {
+                                log.lock().unwrap().push(format!("create_space {width}x{height}"));
+                                Err(Failure::new(ErrorCode::Conflict, ede_protocol::STOPPED_BY_USER))
+                            }
                             Request::CreateSpace { width, height } if fake.create.is_some() => {
                                 log.lock().unwrap().push(format!("create_space {width}x{height}"));
                                 let (code, words) = fake.create.unwrap();
@@ -1873,6 +1903,7 @@ mod tests {
             expired_ticks: Default::default(),
             clock: fake.clock,
             mint_gate,
+            parked,
         }
     }
 
@@ -1985,6 +2016,35 @@ mod tests {
         open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap().mouse_move(10, 10).unwrap();
         assert_eq!(logged(&faked)[2..], ["list_spaces", "create_space 1280x800", "focus_window", "list_spaces", "input", "list_spaces", "create_space 1280x800", "input"]);
         assert_eq!(lock(&KEPT).get(run).unwrap().space.as_ref().unwrap().id.as_str(), "space-2");
+        close_space(&faked.session, run);
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EDE-272: Stop ended the space and parked the session: the next call
+    /// is ONE tool error "stopped by user" (one `create_space`, no new
+    /// space, no retry), as is a new run's first call; once the person
+    /// allows it again the next call makes a new space and says so.
+    #[test]
+    fn a_stopped_session_is_told_stopped_by_user_until_allowed() {
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-space-stopped";
+        let ede = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap();
+        ede.mouse_move(10, 10).unwrap();
+        faked.parked.store(true, Ordering::SeqCst);
+        faked.end_spaces.store(true, Ordering::SeqCst);
+        let creates_before = creates(&faked);
+        assert_eq!(ede.mouse_move(10, 10).unwrap_err(), STOPPED_BY_USER);
+        assert_eq!(creates(&faked), creates_before + 1, "asked once, never again in a loop");
+        assert!(STOPPED_BY_USER.starts_with("Computer use was stopped by user") && STOPPED_BY_USER.contains("Allow computer use again"));
+        assert_eq!(ede.mouse_move(20, 20).unwrap_err(), STOPPED_BY_USER, "every call while parked");
+        drop(ede);
+        assert_eq!(open_as(&faked.session, Some(admitted(run)), Target::Space(1)).err().unwrap(), STOPPED_BY_USER, "a new run of the session too");
+        assert!(faked.spaces.lock().unwrap().1.is_empty(), "no space was made");
+        // Allow computer use again: a new space, told new and empty once.
+        faked.parked.store(false, Ordering::SeqCst);
+        let told = open_as(&faked.session, Some(admitted(run)), Target::Space(1)).err().unwrap();
+        assert!(told.contains("new and empty"), "{told}");
+        open_as(&faked.session, Some(admitted(run)), Target::Space(1)).unwrap().mouse_move(10, 10).unwrap();
         close_space(&faked.session, run);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }

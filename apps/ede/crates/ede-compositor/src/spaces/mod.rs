@@ -143,11 +143,15 @@ pub struct Spaces {
     pub session_cgroup: Option<String>,
     /// #EDE-266: the person's hand on a space they took over ([`control`]).
     pub(crate) person: control::PersonDrive,
+    /// #EDE-272: the sessions whose computer use the person stopped in the
+    /// tray, until they allow it again ([`ede_protocol::Request::ParkSession`]):
+    /// their space grants make no space and drive none ([`control`]).
+    pub(crate) parked: Vec<SessionId>,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), #[cfg(feature = "xwayland")] x11_scopes: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None, person: Default::default() }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), #[cfg(feature = "xwayland")] x11_scopes: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None, person: Default::default(), parked: Vec::new() }
     }
 }
 

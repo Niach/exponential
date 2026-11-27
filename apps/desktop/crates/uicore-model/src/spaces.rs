@@ -209,6 +209,28 @@ pub struct TrayInput {
     pub sessions: Vec<TraySession>,
     #[serde(default)]
     pub watching: Option<String>,
+    /// #EDE-272: the sessions the person stopped (parked), oldest first.
+    #[serde(default)]
+    pub stopped: Vec<StoppedInput>,
+}
+
+/// A parked session as the shell resolved it (a row's title and chat).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoppedInput {
+    pub session: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+}
+
+/// A parked session's row in the tray, with Allow computer use again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrayStopped {
+    pub session: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub allow: TrayAction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,11 +274,13 @@ pub struct TrayRow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tray {
     pub count: usize,
+    pub shown: bool,
     pub badge: String,
     pub list: bool,
     pub rows: Vec<TrayRow>,
     pub selected: Option<TraySelected>,
     pub menu: Vec<Value>,
+    pub stopped: Vec<TrayStopped>,
 }
 
 fn copy(key: &str) -> String {
@@ -312,7 +336,7 @@ pub fn cu_tray(input: &TrayInput) -> Tray {
         }
     });
     let item = |a: &TrayAction| serde_json::json!({"label": a.label, "value": a.value, "icon": a.icon});
-    let menu = match &selected {
+    let mut menu = match &selected {
         None => Vec::new(),
         Some(s) => {
             let mut menu = vec![item(&s.watch)];
@@ -325,6 +349,21 @@ pub fn cu_tray(input: &TrayInput) -> Tray {
             menu
         }
     };
+    // #EDE-272: the parked sessions, each with Allow computer use again.
+    let stopped: Vec<TrayStopped> = input
+        .stopped
+        .iter()
+        .map(|s| {
+            let title = s.title.as_deref().map(trimmed).filter(|t| !t.is_empty()).map_or_else(|| copy("stoppedUntitled"), str::to_string);
+            TrayStopped { session: s.session.clone(), title, subtitle: s.subtitle.clone(), allow: tray_action("allow") }
+        })
+        .collect();
+    if !stopped.is_empty() && !menu.is_empty() {
+        menu.push(serde_json::json!({"kind": "separator"}));
+    }
+    for s in &stopped {
+        menu.push(serde_json::json!({"label": s.allow.label, "value": format!("allow:{}", s.session), "icon": s.allow.icon, "detail": s.title}));
+    }
     let rows = rows.iter().map(|r| TrayRow { row: r.clone(), selected: selected.as_ref().is_some_and(|s| s.id == r.id) }).collect();
-    Tray { count, badge, list: count > 1, rows, selected, menu }
+    Tray { count, shown: count > 0 || !stopped.is_empty(), badge, list: count > 1, rows, selected, menu, stopped }
 }

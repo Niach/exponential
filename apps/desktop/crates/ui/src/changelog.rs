@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-cu-stop-parks",
+    date: "2026-11-27",
+    title: "Stop in the computer-use tray stays stopped",
+    summary: "On Exponential Desktop, Stop in the computer-use tray now turns computer use off for that session until you allow it again; the agent is told it was stopped instead of opening a new space.",
+    body: r##"- **Stop stays stopped**: Stop ends the agent's space and keeps that session's computer use off. Its next step comes back to the agent as "stopped by user", so it can tell you instead of quietly starting over in a new space.
+- **Allow computer use again**: the stopped session stays in the computer-use tray, in its popup and its right-click menu, until you allow it again; the next step then gets a new space."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_384: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ede-voice-tray",
     date: "2026-11-27",
     title: "Voice in the tray",

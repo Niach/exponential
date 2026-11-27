@@ -262,3 +262,53 @@ fn the_person_drives_a_taken_over_space_through_the_view() {
     person_key(&h, KEY_A);
     wait_for(&mut a, |a| a.state.keys.len() > a_keys);
 }
+
+/// #EDE-272: the tray's Stop parks the session and ends its space: its
+/// grant's next `create_space` and its driving ops are `conflict` "stopped
+/// by user", no new space appears, another session's are not touched;
+/// Allow computer use again lifts it and a new space is made.
+#[test]
+fn a_stopped_session_makes_no_space_until_it_is_allowed_again() {
+    let (h, _dir) = start_with_spaces(&[(1280, 800)]);
+    let mut root = h.ipc();
+    let mut agent = space_grant(&h, "run-1");
+    let mut other = space_grant(&h, "run-2");
+    let space = agent.create_space(640, 480).unwrap();
+    other.create_space(640, 480).unwrap();
+    let run = SessionId::new("run-1").unwrap();
+    assert_eq!(root.park_session(None).unwrap(), Vec::<SessionId>::new());
+
+    // Stop: park, then the space ends.
+    assert_eq!(root.park_session(Some((run.clone(), true))).unwrap(), vec![run.clone()]);
+    root.destroy_space(space.id.clone()).unwrap();
+    let refused = agent.create_space(640, 480);
+    assert!(message(agent.create_space(640, 480)).starts_with("stopped by user"));
+    assert_eq!(code(refused), ErrorCode::Conflict);
+    assert!(agent.spaces().unwrap().is_empty(), "no new space for it");
+    assert_eq!(code(agent.input(InputEvent::Key { key: KEY_A, pressed: true })), ErrorCode::NotFound, "no space to drive");
+    assert_eq!(root.spaces().unwrap().len(), 1, "the other session's space stays");
+    other.input(InputEvent::Key { key: KEY_A, pressed: false }).unwrap();
+    // Parking twice is one park; it is read back as it is.
+    assert_eq!(root.park_session(Some((run.clone(), true))).unwrap(), vec![run.clone()]);
+    assert_eq!(root.park_session(None).unwrap(), vec![run.clone()]);
+
+    // Allow computer use again: a new space, driven as before.
+    assert_eq!(root.park_session(Some((run.clone(), false))).unwrap(), Vec::<SessionId>::new());
+    let again = agent.create_space(640, 480).unwrap();
+    assert_ne!(again.id, space.id, "a new space");
+    agent.input(InputEvent::Key { key: KEY_A, pressed: false }).unwrap();
+}
+
+/// #EDE-272: parked while its space is still there (Stop parks first), the
+/// space's driving ops are `conflict` "stopped by user"; looking answers.
+#[test]
+fn a_parked_sessions_live_space_is_not_driven() {
+    let (h, _dir) = start_with_spaces(&[(1280, 800)]);
+    let mut root = h.ipc();
+    let mut agent = space_grant(&h, "run-1");
+    let space = agent.create_space(640, 480).unwrap();
+    root.park_session(Some((SessionId::new("run-1").unwrap(), true))).unwrap();
+    assert!(message(agent.input(InputEvent::Key { key: KEY_A, pressed: true })).starts_with("stopped by user"));
+    assert_eq!(code(agent.create_space(640, 480)), ErrorCode::Conflict);
+    assert!(agent.capture(CaptureTarget::Space { space: space.id.clone() }).is_ok(), "a look still answers");
+}

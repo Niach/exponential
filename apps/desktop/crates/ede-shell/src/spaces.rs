@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use ede_protocol::SpaceInfo;
 use serde_json::{json, Value};
-use uicore_model::spaces::{cu_tray, space_rows, space_view, Display, Extent, SpaceControl, SpaceInput, SpaceRow, SpaceSession, SpaceView, Tray, TrayInput, TraySession};
+use uicore_model::spaces::{cu_tray, space_rows, space_view, Display, Extent, SpaceControl, SpaceInput, SpaceRow, SpaceSession, SpaceView, StoppedInput, Tray, TrayInput, TraySession};
 
 use crate::captures::{Plan, Shot};
 
@@ -63,6 +63,9 @@ pub struct Spaces {
     /// What the compositor was last told per space (the control and, for
     /// the person, the view's picture rect).
     pub sent: HashMap<String, (SpaceControl, Option<ede_protocol::SpaceViewRect>)>,
+    /// #EDE-272: the sessions whose computer use the person stopped
+    /// (the compositor's `park_session`), oldest first.
+    pub stopped: Vec<String>,
 }
 
 /// The compositor's word for who drives a space, as the fold reads it.
@@ -92,6 +95,8 @@ pub enum TrayPress {
     Unwatch,
     Control(SpaceControl),
     Stop,
+    /// #EDE-272: Allow computer use again, for this session.
+    Allow(String),
 }
 
 pub fn tray_press(args: &Value) -> Option<(TrayPress, Option<String>)> {
@@ -105,7 +110,13 @@ pub fn tray_press(args: &Value) -> Option<(TrayPress, Option<String>)> {
         "resume" | "handBack" => TrayPress::Control(SpaceControl::Agent),
         "takeOver" => TrayPress::Control(SpaceControl::Person),
         "stop" => TrayPress::Stop,
-        _ => return None,
+        // The popup's button names the session; the applet menu's item
+        // carries it in its value.
+        "allow" => TrayPress::Allow(text("session")?),
+        other => match other.strip_prefix("allow:").map(str::trim).filter(|s| !s.is_empty()) {
+            Some(session) => TrayPress::Allow(session.to_string()),
+            None => return None,
+        },
     };
     Some((press, space))
 }
@@ -146,7 +157,21 @@ impl Spaces {
     /// #EDE-266: the tray's fold over the holder's `sessions` feed.
     pub fn tray(&self, sessions: &[TraySession]) -> Tray {
         let watching = self.pinned.as_ref().map(|p| p.session.clone());
-        cu_tray(&TrayInput { rows: self.rows(), selected: self.selected.clone(), controls: self.controls(), sessions: sessions.to_vec(), watching })
+        cu_tray(&TrayInput { rows: self.rows(), selected: self.selected.clone(), controls: self.controls(), sessions: sessions.to_vec(), watching, stopped: self.stopped_inputs() })
+    }
+
+    /// #EDE-272: the parked sessions with their titles, as a row reads them
+    /// (its session's title; a child's chat).
+    fn stopped_inputs(&self) -> Vec<StoppedInput> {
+        self.stopped
+            .iter()
+            .map(|session| {
+                let title = self.sessions.iter().find(|s| &s.id == session).and_then(|s| s.title.clone());
+                // A child's chat, as the rows' fold reads it.
+                let subtitle = space_rows(&[SpaceInput { id: String::new(), session: session.clone() }], &self.sessions).pop().and_then(|r| r.subtitle);
+                StoppedInput { session: session.clone(), title, subtitle }
+            })
+            .collect()
     }
 
     /// The tray's selected space.
@@ -184,7 +209,7 @@ impl Spaces {
 
     /// The session ids whose rows the titles need: the spaces' sessions.
     pub fn wanted_sessions(&self) -> Vec<String> {
-        self.list.iter().map(|s| s.session_id.to_string()).collect()
+        self.list.iter().map(|s| s.session_id.to_string()).chain(self.stopped.iter().cloned()).collect()
     }
 
     /// `/spaces`: the count (the button) and the rows with their pictures.
@@ -265,6 +290,13 @@ impl Spaces {
         }
     }
 
+    /// #EDE-272: the compositor's parked sessions (the demo keeps its own).
+    pub fn parked(&mut self, list: Vec<String>) {
+        if !self.demo {
+            self.stopped = list;
+        }
+    }
+
     /// A capture found `space` gone: it leaves the list at once; a pinned
     /// view on it waits for the next list.
     pub fn gone(&mut self, space: &str) {
@@ -341,7 +373,10 @@ impl Spaces {
                 session("demo-chat", "Fix the sign-in page", None, "demo-chat"),
                 session("demo-root", "Release 1.4", None, "demo-root"),
                 session("demo-child", "Check the store pictures", Some("demo-root"), "demo-root"),
+                session("demo-stopped", "Fill the store listing", None, "demo-stopped"),
             ],
+            // #EDE-272: a session the person stopped, waiting for Allow computer use again.
+            stopped: vec!["demo-stopped".into()],
             demo: true,
             ..Default::default()
         };
@@ -431,6 +466,23 @@ mod tests {
         let mut s = Spaces { list: vec![space("space-1", "s1"), space("space-2", "s2")], ..Default::default() };
         s.sessions = vec![SpaceSession { id: "s1".into(), title: Some("Fix the login page".into()), parent_id: None, root_id: Some("s1".into()) }];
         s
+    }
+
+    /// #EDE-272: a stopped session with no space left keeps the tray's
+    /// icon, carries its title and chat, and its titles are read.
+    #[test]
+    fn a_stopped_session_stays_in_the_tray_with_its_title() {
+        let mut s = Spaces { stopped: vec!["kid".into(), "gone".into()], ..Default::default() };
+        s.sessions = vec![
+            SpaceSession { id: "root".into(), title: Some("Release round".into()), parent_id: None, root_id: Some("root".into()) },
+            SpaceSession { id: "kid".into(), title: Some(" Check the store ".into()), parent_id: Some("root".into()), root_id: Some("root".into()) },
+        ];
+        let tray = s.tray(&[]);
+        assert!(tray.shown && tray.count == 0 && tray.selected.is_none());
+        let rows: Vec<(String, String, Option<String>)> = tray.stopped.iter().map(|r| (r.session.clone(), r.title.clone(), r.subtitle.clone())).collect();
+        assert_eq!(rows, [("kid".into(), "Check the store".into(), Some("Release round".into())), ("gone".into(), "Stopped session".into(), None)]);
+        assert_eq!(tray.menu[0]["value"], "allow:kid");
+        assert!(s.wanted_sessions().contains(&"gone".to_string()), "its title is read");
     }
 
     fn open_everything() -> Spaces {

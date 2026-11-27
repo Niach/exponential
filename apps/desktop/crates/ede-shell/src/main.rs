@@ -3305,6 +3305,19 @@ fn capture_out(shell: &SharedShell, out: captures::Out, cx: &mut App) {
             shell.borrow_mut().spaces.picture(&space, view, String::new());
             spaces_feed(shell);
         }
+        captures::Out::Parked(list) => {
+            let new_session = {
+                let mut s = shell.borrow_mut();
+                let known: HashSet<String> = s.spaces.sessions.iter().map(|x| x.id.clone()).collect();
+                let new = list.iter().any(|x| !known.contains(x));
+                s.spaces.parked(list);
+                new
+            };
+            if new_session {
+                exp_tray_refresh(shell, cx);
+            }
+            spaces_feed(shell);
+        }
         captures::Out::Gone { space } => {
             shell.borrow_mut().spaces.gone(&space);
             shell.borrow().captures.ask(captures::Ask::List);
@@ -3348,10 +3361,18 @@ fn cu_press(shell: &SharedShell, press: spaces::TrayPress, space: Option<String>
             }
         }
         spaces::TrayPress::Unwatch => shell.borrow_mut().spaces.pin(None, None),
+        // #EDE-272: Stop parks the session's computer use first (its next
+        // call is refused "stopped by user" instead of making a new space),
+        // then ends the space.
         spaces::TrayPress::Stop => {
-            if let Some((id, _)) = target {
-                shell.borrow().captures.ask(captures::Ask::Close(id));
+            if let Some((id, session)) = target {
+                let s = shell.borrow();
+                s.captures.ask(captures::Ask::Park { session, parked: true });
+                s.captures.ask(captures::Ask::Close(id));
             }
+        }
+        spaces::TrayPress::Allow(session) => {
+            shell.borrow().captures.ask(captures::Ask::Park { session, parked: false });
         }
         spaces::TrayPress::Control(control) => {
             let Some((id, session)) = target else { return };
@@ -5329,6 +5350,11 @@ mod layer_sizes {
         assert_eq!(press(json!({"action": "select"})), None, "a pick names its space");
         assert_eq!(press(json!({"action": "stop"})), Some((TrayPress::Stop, None)));
         assert_eq!(press(json!({"action": "nonsense"})), None);
+        // #EDE-272: the popup's button names the session, the menu's item carries it.
+        assert_eq!(press(json!({"action": "allow", "session": "s1"})), Some((TrayPress::Allow("s1".into()), None)));
+        assert_eq!(press(json!({"action": "allow:s2"})), Some((TrayPress::Allow("s2".into()), None)));
+        assert_eq!(press(json!({"action": "allow"})), None, "Allow names its session");
+        assert_eq!(press(json!({"action": "allow:"})), None);
     }
 
     /// #EDE-65: Settings open into the sidebar like the IDE's: over the
