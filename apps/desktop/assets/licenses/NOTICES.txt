@@ -2586,7 +2586,7 @@ Apache-2.0
 Applies to the following 8 components:
 
   debugid 0.8.0
-  gethostname 1.1.0  [x86_64-unknown-linux-gnu]
+  gethostname 1.1.0
   memo-map 0.3.4  [build-time only, not linked]
   minijinja 2.24.0  [build-time only, not linked]
   prost 0.14.4
@@ -8700,10 +8700,10 @@ MIT
 
 Applies to the following 2 components:
 
-  x11rb 0.13.2  [x86_64-unknown-linux-gnu]
+  x11rb 0.13.2
     Copyright 2019 x11rb Contributers
     MIT elected from `MIT OR Apache-2.0`
-  x11rb-protocol 0.13.2  [x86_64-unknown-linux-gnu]
+  x11rb-protocol 0.13.2
     Copyright 2019 x11rb Contributers
     MIT elected from `MIT OR Apache-2.0`
 
@@ -13495,7 +13495,7 @@ MIT
 
 Applies to the following component:
 
-  as-raw-xcb-connection 1.0.1  [x86_64-unknown-linux-gnu]
+  as-raw-xcb-connection 1.0.1
     Copyright 2019 as-raw-xcb-connection Contributers
     MIT elected from `MIT OR Apache-2.0`
 
@@ -23333,7 +23333,7 @@ MIT
 
 Applies to the following component:
 
-  xcursor 0.3.10  [x86_64-unknown-linux-gnu]
+  xcursor 0.3.10
     Copyright (c) 2020 Samuele Esposito
 
 ..............................................................................
