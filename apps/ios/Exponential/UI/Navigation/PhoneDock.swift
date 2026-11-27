@@ -246,14 +246,14 @@ struct PhoneDock: View {
     private func popup<Rows: View>(@ViewBuilder _ rows: () -> Rows) -> some View {
         let shape = RoundedRectangle(cornerRadius: PhoneDockMetrics.menuRadius, style: .continuous)
         return VStack(spacing: 0) { rows() }
-        .padding(6)
-        .frame(width: PhoneDockMetrics.menuWidth)
-        // THE glass menu fill (GlassMenu's opaque card composite + its tint).
-        .background(GlassTokens.opaqueCardFill, in: shape)
-        .overlay(shape.fill(Color.white.opacity(GlassMenuTokens.tintOpacity)).allowsHitTesting(false))
-        .overlay(shape.stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
-        .fixedSize()
-        .accessibilityElement(children: .contain)
+            .padding(6)
+            .frame(width: PhoneDockMetrics.menuWidth)
+            // THE glass menu fill (GlassMenu's opaque card composite + its tint).
+            .background(GlassTokens.opaqueCardFill, in: shape)
+            .overlay(shape.fill(Color.white.opacity(GlassMenuTokens.tintOpacity)).allowsHitTesting(false))
+            .overlay(shape.stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
+            .fixedSize()
+            .accessibilityElement(children: .contain)
     }
 }
 
