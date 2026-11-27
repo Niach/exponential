@@ -1,0 +1,5 @@
+- A CI page with your runs and GitHub Actions, and repositories under More and on the Teams tab
+- The same header on every page: round back button, title left, round actions
+- Confirm it's you before adding a passkey on an older sign-in
+- Your Assistant can run on a machine shared with your team
+- A run of quiet scheduled check-ins shows as one line

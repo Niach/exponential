@@ -46,6 +46,25 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-desktop-cli-0-14-186-android",
+    date: "2026-11-27",
+    title: "CI and repositories in the app, one header everywhere, and your Assistant on a team's machine",
+    summary: "Desktop and CLI 0.14.186 and Android 0.14.161: a CI page and repositories in the sidebar, the same header on every page, Confirm it's you, and file copies between your machines. iOS 0.14.148 follows after App Store review.",
+    body: r##"- **CI in one place**: a CI page lists your runs and GitHub Actions together, and repositories sit in the sidebar and on the Teams tab. See "CI: our runs and GitHub Actions in one place" and "Repositories in the sidebar" below.
+- **The desktop app runs CI on Linux**: turn on Run CI jobs for a Linux computer and its app runs your team's pipelines, and CI secrets reach only trusted runs. See "The desktop app runs your CI on Linux" below.
+- **One header everywhere**: every page has the same round back button, the title on the left and round actions on the right, on web, desktop and phones.
+- **Confirm it's you**: adding a passkey on an older sign-in asks you to confirm it's you, then carries on.
+- **Your Assistant on a team's machine**: run your private Assistant on a server shared with your team, once its owner allows it.
+- **Copy files between your machines**: agents copy a file or folder from one of your machines to another over P2P.
+- **Quiet schedule ticks**: a run of quiet scheduled check-ins is one line.
+- **MCP**: Claude and other MCP hosts get your team's skills, follow sessions as tasks and ask before deletes.
+- **Hosted repositories**: pull requests on repositories hosted by Exponential land through the merge train, and a restore takes a fresh backup first.
+- **Everything from 0.14.185**: Teams as one tree on phones, Dismiss in Needs you, and ended chats keep their transcript."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_380: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ci-page",
     date: "2026-11-27",
     title: "CI: our runs and GitHub Actions in one place",
