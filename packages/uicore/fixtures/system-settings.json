@@ -1,0 +1,2158 @@
+{
+  "$comment": "EDE-273 (#EDE-241 P6.1, 2026-11-27): SYSTEM SETTINGS, Mint's cinnamon-settings on eDE. ONE window of the shell (apps/ede/ui/settings.express, a `window` surface: a normal toplevel with eDE's frame and its own taskbar entry, app id at.exponential.settings, a single instance: asked again it comes to the front; closed from its frame, the next open starts on the grid). `title` = the window's title on the grid. `categories` = the grid's sections in order (Cinnamon's Appearance, Preferences, Hardware, then Exponential, then Administration). `modules` = THE catalogue, in each category's order (Cinnamon's: by name; Exponential's own order): {id (the module's route segment: `~/settings/<id>`), name (the tile's label AND the window's title while it is open, Cinnamon's wording), category, icon (a concept of packages/icons), keywords (Cinnamon's keyword list plus eDE's, comma separated: the search reads them), kind: module (a page in the window) | later (listed honestly, its page says it is not built yet) | launch (Mint's own tool: `command` runs, the window stays where it was), opens? (an alias: Account Details and Online Accounts open Exponential's Account)}. `aliases` = the page ids links used before #EDE-273 (the applets, the panel menu, a person's documents) and the module they mean. SELECTORS: settingsGrid(query, installed) -> [{id, title, modules [{id, name, icon, kind, later (kind is later), installed (a launch module: its id is in `installed`, the launch modules whose command the host finds; every other kind true)}]}]: q = query trimmed and lowercased; empty = every module; else a module is listed when its name (lowercased) or its keywords (lowercased) CONTAIN q (Cinnamon's filter_visible_function), and a category with no listed module is left out. settingsNavigate(state, event, installed) -> {state, launch, title}: state = {module (`` = the grid), query (as typed)}; launch = a command to run or null; title = the open module's name, else `title`. EVENTS: open {id} (a tile's press): an unknown id changes nothing; an alias resolves to its target; a launch module whose tool is installed launches (state unchanged), else (not installed) its page opens; any other module opens (module = its id, the query kept for back). back (the header's back button, Alt+Left): in a module the grid again, query kept; on the grid nothing. query {text}: on the grid the search text (it filters live); in a module ignored (the search is the grid's). submit (Enter in the search): on the grid with a non-empty trimmed query, `open` of the FIRST module settingsGrid lists; no match, an empty query or a module open: nothing. link {target} (`~/settings/<module>` from the start menu's search, a link, an applet; `~/settings` alone or a bare id too; an old page id through `aliases`): the query cleared; an unknown target = the grid; a launch module with its tool launches and the window shows the grid; else that module. Any other event changes nothing. The WINDOW: the header carries the back button while a module is open and the search on the grid; Enter in the search = submit; tiles are 104 px wide with a 48 px icon disc and the name under it (a later module's name muted); a module's page is a centred column (640 px) of framed groups (a title, then a bordered box of rows divided by hairlines). A setting the machine cannot apply yet is a read-only value row, never a dead control.",
+  "title": "System Settings",
+  "categories": [
+    {
+      "id": "appearance",
+      "title": "Appearance"
+    },
+    {
+      "id": "preferences",
+      "title": "Preferences"
+    },
+    {
+      "id": "hardware",
+      "title": "Hardware"
+    },
+    {
+      "id": "exponential",
+      "title": "Exponential"
+    },
+    {
+      "id": "administration",
+      "title": "Administration"
+    }
+  ],
+  "modules": [
+    {
+      "id": "backgrounds",
+      "name": "Backgrounds",
+      "category": "appearance",
+      "icon": "image",
+      "keywords": "background, picture, screenshot, slideshow, wallpaper",
+      "kind": "later"
+    },
+    {
+      "id": "effects",
+      "name": "Effects",
+      "category": "appearance",
+      "icon": "sparkles",
+      "keywords": "effects, fancy, window, animation",
+      "kind": "later"
+    },
+    {
+      "id": "font-selection",
+      "name": "Font Selection",
+      "category": "appearance",
+      "icon": "type",
+      "keywords": "font, size, small, large, hinting, antialiasing",
+      "kind": "later"
+    },
+    {
+      "id": "themes",
+      "name": "Themes",
+      "category": "appearance",
+      "icon": "palette",
+      "keywords": "themes, style, dark, accent, colour, color, gtk, qt, rerusted",
+      "kind": "module"
+    },
+    {
+      "id": "accessibility",
+      "name": "Accessibility",
+      "category": "preferences",
+      "icon": "eye",
+      "keywords": "magnifier, talk, access, zoom, keys, contrast",
+      "kind": "later"
+    },
+    {
+      "id": "account-details",
+      "name": "Account Details",
+      "category": "preferences",
+      "icon": "user",
+      "keywords": "users, picture, password, name, exponential, sign in, sign out",
+      "kind": "module",
+      "opens": "account"
+    },
+    {
+      "id": "applets",
+      "name": "Applets",
+      "category": "preferences",
+      "icon": "puzzle",
+      "keywords": "applet, panel, add, remove, version history",
+      "kind": "later"
+    },
+    {
+      "id": "date-and-time",
+      "name": "Date & Time",
+      "category": "preferences",
+      "icon": "calendar",
+      "keywords": "time, date, calendar, format, network, sync, ntp, timezone, clock",
+      "kind": "module"
+    },
+    {
+      "id": "desklets",
+      "name": "Desklets",
+      "category": "preferences",
+      "icon": "layout-grid",
+      "keywords": "desklet, desktop, widget, version history",
+      "kind": "later"
+    },
+    {
+      "id": "desktop",
+      "name": "Desktop",
+      "category": "preferences",
+      "icon": "monitor",
+      "keywords": "desktop, home, button, trash, icons",
+      "kind": "later"
+    },
+    {
+      "id": "extensions",
+      "name": "Extensions",
+      "category": "preferences",
+      "icon": "boxes",
+      "keywords": "extension, addon, version history",
+      "kind": "later"
+    },
+    {
+      "id": "general",
+      "name": "General",
+      "category": "preferences",
+      "icon": "sliders-horizontal",
+      "keywords": "general, compositing, scaling, hidpi, scale",
+      "kind": "later"
+    },
+    {
+      "id": "hot-corners",
+      "name": "Hot Corners",
+      "category": "preferences",
+      "icon": "maximize-2",
+      "keywords": "hotcorner, hot corner, overview, scale, expo, show desktop",
+      "kind": "later"
+    },
+    {
+      "id": "input-method",
+      "name": "Input Method",
+      "category": "preferences",
+      "icon": "a-large-small",
+      "keywords": "input, method, ime, chinese, japanese, korean, ibus, fcitx",
+      "kind": "later"
+    },
+    {
+      "id": "languages",
+      "name": "Languages",
+      "category": "preferences",
+      "icon": "globe",
+      "keywords": "language, install, foreign, locale, region",
+      "kind": "later"
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications",
+      "category": "preferences",
+      "icon": "bell",
+      "keywords": "notifications, toasts, do not disturb, email, push",
+      "kind": "module"
+    },
+    {
+      "id": "online-accounts",
+      "name": "Online Accounts",
+      "category": "preferences",
+      "icon": "at-sign",
+      "keywords": "google, facebook, twitter, yahoo, web, online, chat, calendar, mail, contact, owncloud, kerberos, imap, smtp, pocket, readitlater, account, exponential",
+      "kind": "module",
+      "opens": "account"
+    },
+    {
+      "id": "panel",
+      "name": "Panel",
+      "category": "preferences",
+      "icon": "layout-grid",
+      "keywords": "panel, height, bottom, top, autohide, size, layout, taskbar, group windows, session area",
+      "kind": "later"
+    },
+    {
+      "id": "preferred-applications",
+      "name": "Preferred Applications",
+      "category": "preferences",
+      "icon": "star",
+      "keywords": "media, defaults, applications, programs, removable, browser, email, calendar, music, videos, photos, images, cd, autostart, autoplay, default apps",
+      "kind": "module"
+    },
+    {
+      "id": "privacy",
+      "name": "Privacy",
+      "category": "preferences",
+      "icon": "shield",
+      "keywords": "privacy, recent, files, screen, computer use, consent",
+      "kind": "later"
+    },
+    {
+      "id": "screensaver",
+      "name": "Screensaver",
+      "category": "preferences",
+      "icon": "lock",
+      "keywords": "screensaver, lock, password, away, message, idle, blank",
+      "kind": "later"
+    },
+    {
+      "id": "startup-applications",
+      "name": "Startup Applications",
+      "category": "preferences",
+      "icon": "rocket",
+      "keywords": "startup, programs, boot, init, session, autostart, login",
+      "kind": "module"
+    },
+    {
+      "id": "window-tiling",
+      "name": "Window Tiling",
+      "category": "preferences",
+      "icon": "layers",
+      "keywords": "window, tile, flip, tiling, snap, snapping, edge",
+      "kind": "module"
+    },
+    {
+      "id": "windows",
+      "name": "Windows",
+      "category": "preferences",
+      "icon": "copy",
+      "keywords": "windows, titlebar, edge, switcher, window list, attention, focus, alt-tab, tiling, snap",
+      "kind": "module"
+    },
+    {
+      "id": "workspaces",
+      "name": "Workspaces",
+      "category": "preferences",
+      "icon": "layers-2",
+      "keywords": "workspace, osd, expo, monitor, virtual desktops",
+      "kind": "module"
+    },
+    {
+      "id": "bluetooth",
+      "name": "Bluetooth",
+      "category": "hardware",
+      "icon": "ede-bluetooth",
+      "keywords": "bluetooth, dongle, transfer, mobile, headset, pair",
+      "kind": "module"
+    },
+    {
+      "id": "color",
+      "name": "Color",
+      "category": "hardware",
+      "icon": "droplet",
+      "keywords": "color, profile, display, printer, output, icc",
+      "kind": "later"
+    },
+    {
+      "id": "display",
+      "name": "Display",
+      "category": "hardware",
+      "icon": "monitor",
+      "keywords": "display, screen, monitor, layout, resolution, dual, lcd, scale, scaling, refresh",
+      "kind": "module"
+    },
+    {
+      "id": "graphics-tablet",
+      "name": "Graphics Tablet",
+      "category": "hardware",
+      "icon": "pen-tool",
+      "keywords": "wacom, digitize, tablet, graphics, calibrate, stylus",
+      "kind": "later"
+    },
+    {
+      "id": "keyboard",
+      "name": "Keyboard",
+      "category": "hardware",
+      "icon": "a-large-small",
+      "keywords": "keyboard, keys, shortcut, hotkey, layout, repeat, xkb",
+      "kind": "module"
+    },
+    {
+      "id": "mouse-and-touchpad",
+      "name": "Mouse and Touchpad",
+      "category": "hardware",
+      "icon": "move",
+      "keywords": "mouse, touchpad, synaptic, double-click, pointer, trackpad, scroll, tap",
+      "kind": "module"
+    },
+    {
+      "id": "network",
+      "name": "Network",
+      "category": "hardware",
+      "icon": "ede-wifi",
+      "keywords": "network, wireless, wifi, ethernet, broadband, internet, vpn",
+      "kind": "module"
+    },
+    {
+      "id": "power-management",
+      "name": "Power Management",
+      "category": "hardware",
+      "icon": "battery-charging",
+      "keywords": "power, suspend, hibernate, laptop, desktop, brightness, battery, profile, shut down, restart",
+      "kind": "module"
+    },
+    {
+      "id": "printers",
+      "name": "Printers",
+      "category": "hardware",
+      "icon": "printer",
+      "keywords": "printers, laser, inkjet, print, cups",
+      "kind": "launch",
+      "command": "system-config-printer"
+    },
+    {
+      "id": "sound",
+      "name": "Sound",
+      "category": "hardware",
+      "icon": "media-volume-up",
+      "keywords": "sound, media, music, speakers, audio, microphone, headphone, volume",
+      "kind": "module"
+    },
+    {
+      "id": "system-info",
+      "name": "System Info",
+      "category": "hardware",
+      "icon": "info",
+      "keywords": "system, information, details, graphic, sound, kernel, version, about, cpu, memory, updates, what's new",
+      "kind": "module"
+    },
+    {
+      "id": "account",
+      "name": "Account",
+      "category": "exponential",
+      "icon": "brand-exponential",
+      "keywords": "account, sign in, sign out, exponential, login, email, online accounts",
+      "kind": "module"
+    },
+    {
+      "id": "this-device",
+      "name": "This Device",
+      "category": "exponential",
+      "icon": "laptop",
+      "keywords": "device, this device, tools, coding, cli, worktrees, sessions, repositories",
+      "kind": "module"
+    },
+    {
+      "id": "agents",
+      "name": "Agents",
+      "category": "exponential",
+      "icon": "bot",
+      "keywords": "agents, assistant, claude, codex",
+      "kind": "module"
+    },
+    {
+      "id": "computer-use",
+      "name": "Computer Use",
+      "category": "exponential",
+      "icon": "nav-computer",
+      "keywords": "computer use, agent space, screen, consent, take over",
+      "kind": "module"
+    },
+    {
+      "id": "voice",
+      "name": "Voice",
+      "category": "exponential",
+      "icon": "audio-lines",
+      "keywords": "voice, call, microphone, wake word, speech, talk",
+      "kind": "module"
+    },
+    {
+      "id": "driver-manager",
+      "name": "Driver Manager",
+      "category": "administration",
+      "icon": "cpu",
+      "keywords": "drivers, device, nvidia, graphics, wifi, firmware",
+      "kind": "launch",
+      "command": "driver-manager"
+    },
+    {
+      "id": "firewall",
+      "name": "Firewall",
+      "category": "administration",
+      "icon": "shield-check",
+      "keywords": "firewall, ufw, gufw, network, ports, security",
+      "kind": "launch",
+      "command": "gufw"
+    },
+    {
+      "id": "login-window",
+      "name": "Login Window",
+      "category": "administration",
+      "icon": "log-in",
+      "keywords": "login, lightdm, manager, user, password, startup, switch, greeter",
+      "kind": "launch",
+      "command": "lightdm-settings"
+    },
+    {
+      "id": "software-sources",
+      "name": "Software Sources",
+      "category": "administration",
+      "icon": "package",
+      "keywords": "mirrors, sources, ppa, repositories, apt, packages, updates",
+      "kind": "launch",
+      "command": "mintsources"
+    },
+    {
+      "id": "users-and-groups",
+      "name": "Users and Groups",
+      "category": "administration",
+      "icon": "users",
+      "keywords": "users, groups, accounts, password, administrator",
+      "kind": "launch",
+      "command": "cinnamon-settings-users"
+    }
+  ],
+  "aliases": {
+    "datetime": "date-and-time",
+    "defaults": "preferred-applications",
+    "default-apps": "preferred-applications",
+    "startup": "startup-applications",
+    "mouse": "mouse-and-touchpad",
+    "power": "power-management",
+    "users": "users-and-groups",
+    "about": "system-info",
+    "devices": "this-device",
+    "tools": "this-device",
+    "coding-clis": "this-device",
+    "worktrees": "this-device",
+    "sessions": "this-device",
+    "security": "account",
+    "whats-new": "system-info",
+    "local-agents": "agents",
+    "local-general": "this-device",
+    "appearance": "themes",
+    "hotcorners": "hot-corners"
+  },
+  "grid": [
+    {
+      "name": "no query: every category in Cinnamon's order plus Exponential before Administration, every module",
+      "query": "",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "appearance",
+          "title": "Appearance",
+          "modules": [
+            {
+              "id": "backgrounds",
+              "name": "Backgrounds",
+              "icon": "image",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "effects",
+              "name": "Effects",
+              "icon": "sparkles",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "font-selection",
+              "name": "Font Selection",
+              "icon": "type",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "themes",
+              "name": "Themes",
+              "icon": "palette",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "preferences",
+          "title": "Preferences",
+          "modules": [
+            {
+              "id": "accessibility",
+              "name": "Accessibility",
+              "icon": "eye",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "account-details",
+              "name": "Account Details",
+              "icon": "user",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "applets",
+              "name": "Applets",
+              "icon": "puzzle",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "date-and-time",
+              "name": "Date & Time",
+              "icon": "calendar",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "desklets",
+              "name": "Desklets",
+              "icon": "layout-grid",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "desktop",
+              "name": "Desktop",
+              "icon": "monitor",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "extensions",
+              "name": "Extensions",
+              "icon": "boxes",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "general",
+              "name": "General",
+              "icon": "sliders-horizontal",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "hot-corners",
+              "name": "Hot Corners",
+              "icon": "maximize-2",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "input-method",
+              "name": "Input Method",
+              "icon": "a-large-small",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "languages",
+              "name": "Languages",
+              "icon": "globe",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "notifications",
+              "name": "Notifications",
+              "icon": "bell",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "online-accounts",
+              "name": "Online Accounts",
+              "icon": "at-sign",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "panel",
+              "name": "Panel",
+              "icon": "layout-grid",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "preferred-applications",
+              "name": "Preferred Applications",
+              "icon": "star",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "privacy",
+              "name": "Privacy",
+              "icon": "shield",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "screensaver",
+              "name": "Screensaver",
+              "icon": "lock",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "startup-applications",
+              "name": "Startup Applications",
+              "icon": "rocket",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "window-tiling",
+              "name": "Window Tiling",
+              "icon": "layers",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "windows",
+              "name": "Windows",
+              "icon": "copy",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "workspaces",
+              "name": "Workspaces",
+              "icon": "layers-2",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "bluetooth",
+              "name": "Bluetooth",
+              "icon": "ede-bluetooth",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "color",
+              "name": "Color",
+              "icon": "droplet",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "display",
+              "name": "Display",
+              "icon": "monitor",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "graphics-tablet",
+              "name": "Graphics Tablet",
+              "icon": "pen-tool",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "keyboard",
+              "name": "Keyboard",
+              "icon": "a-large-small",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "mouse-and-touchpad",
+              "name": "Mouse and Touchpad",
+              "icon": "move",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "network",
+              "name": "Network",
+              "icon": "ede-wifi",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "power-management",
+              "name": "Power Management",
+              "icon": "battery-charging",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "printers",
+              "name": "Printers",
+              "icon": "printer",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "sound",
+              "name": "Sound",
+              "icon": "media-volume-up",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "system-info",
+              "name": "System Info",
+              "icon": "info",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "exponential",
+          "title": "Exponential",
+          "modules": [
+            {
+              "id": "account",
+              "name": "Account",
+              "icon": "brand-exponential",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "this-device",
+              "name": "This Device",
+              "icon": "laptop",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "agents",
+              "name": "Agents",
+              "icon": "bot",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "computer-use",
+              "name": "Computer Use",
+              "icon": "nav-computer",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "voice",
+              "name": "Voice",
+              "icon": "audio-lines",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "administration",
+          "title": "Administration",
+          "modules": [
+            {
+              "id": "driver-manager",
+              "name": "Driver Manager",
+              "icon": "cpu",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "firewall",
+              "name": "Firewall",
+              "icon": "shield-check",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "login-window",
+              "name": "Login Window",
+              "icon": "log-in",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "software-sources",
+              "name": "Software Sources",
+              "icon": "package",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "users-and-groups",
+              "name": "Users and Groups",
+              "icon": "users",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a name matches as a substring, case-blind: 'sou' finds Sound, System Info (its keyword sound) and Software Sources",
+      "query": "sou",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "sound",
+              "name": "Sound",
+              "icon": "media-volume-up",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "system-info",
+              "name": "System Info",
+              "icon": "info",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "administration",
+          "title": "Administration",
+          "modules": [
+            {
+              "id": "software-sources",
+              "name": "Software Sources",
+              "icon": "package",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a keyword matches: 'wallpaper' finds Backgrounds",
+      "query": "wallpaper",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "appearance",
+          "title": "Appearance",
+          "modules": [
+            {
+              "id": "backgrounds",
+              "name": "Backgrounds",
+              "icon": "image",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a keyword matches: 'wifi' finds Network and Driver Manager",
+      "query": "wifi",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "network",
+              "name": "Network",
+              "icon": "ede-wifi",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "administration",
+          "title": "Administration",
+          "modules": [
+            {
+              "id": "driver-manager",
+              "name": "Driver Manager",
+              "icon": "cpu",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the query is trimmed and lowercased",
+      "query": "  BLUETOOTH ",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "bluetooth",
+              "name": "Bluetooth",
+              "icon": "ede-bluetooth",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nothing matches: no category",
+      "query": "zzzz",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": []
+    },
+    {
+      "name": "an Exponential module by keyword: 'claude' finds Agents",
+      "query": "claude",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "exponential",
+          "title": "Exponential",
+          "modules": [
+            {
+              "id": "agents",
+              "name": "Agents",
+              "icon": "bot",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "whitespace only is no query",
+      "query": "   ",
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": [
+        {
+          "id": "appearance",
+          "title": "Appearance",
+          "modules": [
+            {
+              "id": "backgrounds",
+              "name": "Backgrounds",
+              "icon": "image",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "effects",
+              "name": "Effects",
+              "icon": "sparkles",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "font-selection",
+              "name": "Font Selection",
+              "icon": "type",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "themes",
+              "name": "Themes",
+              "icon": "palette",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "preferences",
+          "title": "Preferences",
+          "modules": [
+            {
+              "id": "accessibility",
+              "name": "Accessibility",
+              "icon": "eye",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "account-details",
+              "name": "Account Details",
+              "icon": "user",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "applets",
+              "name": "Applets",
+              "icon": "puzzle",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "date-and-time",
+              "name": "Date & Time",
+              "icon": "calendar",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "desklets",
+              "name": "Desklets",
+              "icon": "layout-grid",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "desktop",
+              "name": "Desktop",
+              "icon": "monitor",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "extensions",
+              "name": "Extensions",
+              "icon": "boxes",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "general",
+              "name": "General",
+              "icon": "sliders-horizontal",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "hot-corners",
+              "name": "Hot Corners",
+              "icon": "maximize-2",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "input-method",
+              "name": "Input Method",
+              "icon": "a-large-small",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "languages",
+              "name": "Languages",
+              "icon": "globe",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "notifications",
+              "name": "Notifications",
+              "icon": "bell",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "online-accounts",
+              "name": "Online Accounts",
+              "icon": "at-sign",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "panel",
+              "name": "Panel",
+              "icon": "layout-grid",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "preferred-applications",
+              "name": "Preferred Applications",
+              "icon": "star",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "privacy",
+              "name": "Privacy",
+              "icon": "shield",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "screensaver",
+              "name": "Screensaver",
+              "icon": "lock",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "startup-applications",
+              "name": "Startup Applications",
+              "icon": "rocket",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "window-tiling",
+              "name": "Window Tiling",
+              "icon": "layers",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "windows",
+              "name": "Windows",
+              "icon": "copy",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "workspaces",
+              "name": "Workspaces",
+              "icon": "layers-2",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "bluetooth",
+              "name": "Bluetooth",
+              "icon": "ede-bluetooth",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "color",
+              "name": "Color",
+              "icon": "droplet",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "display",
+              "name": "Display",
+              "icon": "monitor",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "graphics-tablet",
+              "name": "Graphics Tablet",
+              "icon": "pen-tool",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "keyboard",
+              "name": "Keyboard",
+              "icon": "a-large-small",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "mouse-and-touchpad",
+              "name": "Mouse and Touchpad",
+              "icon": "move",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "network",
+              "name": "Network",
+              "icon": "ede-wifi",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "power-management",
+              "name": "Power Management",
+              "icon": "battery-charging",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "printers",
+              "name": "Printers",
+              "icon": "printer",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "sound",
+              "name": "Sound",
+              "icon": "media-volume-up",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "system-info",
+              "name": "System Info",
+              "icon": "info",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "exponential",
+          "title": "Exponential",
+          "modules": [
+            {
+              "id": "account",
+              "name": "Account",
+              "icon": "brand-exponential",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "this-device",
+              "name": "This Device",
+              "icon": "laptop",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "agents",
+              "name": "Agents",
+              "icon": "bot",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "computer-use",
+              "name": "Computer Use",
+              "icon": "nav-computer",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "voice",
+              "name": "Voice",
+              "icon": "audio-lines",
+              "kind": "module",
+              "later": false,
+              "installed": true
+            }
+          ]
+        },
+        {
+          "id": "administration",
+          "title": "Administration",
+          "modules": [
+            {
+              "id": "driver-manager",
+              "name": "Driver Manager",
+              "icon": "cpu",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "firewall",
+              "name": "Firewall",
+              "icon": "shield-check",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "login-window",
+              "name": "Login Window",
+              "icon": "log-in",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "software-sources",
+              "name": "Software Sources",
+              "icon": "package",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "users-and-groups",
+              "name": "Users and Groups",
+              "icon": "users",
+              "kind": "launch",
+              "later": false,
+              "installed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a launch module whose tool is missing is still listed, not installed",
+      "query": "printer",
+      "installed": [],
+      "expected": [
+        {
+          "id": "hardware",
+          "title": "Hardware",
+          "modules": [
+            {
+              "id": "color",
+              "name": "Color",
+              "icon": "droplet",
+              "kind": "later",
+              "later": true,
+              "installed": true
+            },
+            {
+              "id": "printers",
+              "name": "Printers",
+              "icon": "printer",
+              "kind": "launch",
+              "later": false,
+              "installed": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "navigate": [
+    {
+      "name": "open a module from the grid: its page, the window titled by it",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "sound"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "open keeps the query for back",
+      "state": {
+        "module": "",
+        "query": "sou"
+      },
+      "event": {
+        "kind": "open",
+        "id": "sound"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": "sou"
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "an alias opens its target: Account Details is Exponential's Account",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "account-details"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "account",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Account"
+      }
+    },
+    {
+      "name": "Online Accounts is Exponential's Account too",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "online-accounts"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "account",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Account"
+      }
+    },
+    {
+      "name": "an unknown module changes nothing",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "nope"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "a later module opens its honest page",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "effects"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "effects",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Effects"
+      }
+    },
+    {
+      "name": "a launch module with its tool installed launches it and stays on the grid",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "printers"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": "system-config-printer",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "a launch module without its tool opens its page (not installed)",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "firewall"
+      },
+      "installed": [],
+      "expected": {
+        "state": {
+          "module": "firewall",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Firewall"
+      }
+    },
+    {
+      "name": "back from a module returns to the grid with the query kept",
+      "state": {
+        "module": "sound",
+        "query": "sou"
+      },
+      "event": {
+        "kind": "back"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "sou"
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "back on the grid changes nothing",
+      "state": {
+        "module": "",
+        "query": "sou"
+      },
+      "event": {
+        "kind": "back"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "sou"
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "typing in the search on the grid stores the text as typed",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "query",
+        "text": "Blue"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "Blue"
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "a query in a module is ignored",
+      "state": {
+        "module": "sound",
+        "query": ""
+      },
+      "event": {
+        "kind": "query",
+        "text": "x"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "Enter opens the first match in grid order",
+      "state": {
+        "module": "",
+        "query": "sou"
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": "sou"
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "Enter with no match changes nothing",
+      "state": {
+        "module": "",
+        "query": "zzzz"
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "zzzz"
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "Enter with an empty query changes nothing",
+      "state": {
+        "module": "",
+        "query": "  "
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "  "
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "Enter on a launch module launches it",
+      "state": {
+        "module": "",
+        "query": "printers"
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "printers"
+        },
+        "launch": "system-config-printer",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "Enter in a module changes nothing",
+      "state": {
+        "module": "sound",
+        "query": "sou"
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "sound",
+          "query": "sou"
+        },
+        "launch": null,
+        "title": "Sound"
+      }
+    },
+    {
+      "name": "a link ~/settings/<module> opens it with the query cleared",
+      "state": {
+        "module": "",
+        "query": "x"
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/display"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "display",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Display"
+      }
+    },
+    {
+      "name": "a bare module id is a link too",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "keyboard"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "keyboard",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Keyboard"
+      }
+    },
+    {
+      "name": "an old page id still lands: datetime is Date & Time",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "datetime"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "date-and-time",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Date & Time"
+      }
+    },
+    {
+      "name": "an old page id: defaults is Preferred Applications",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/defaults"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "preferred-applications",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Preferred Applications"
+      }
+    },
+    {
+      "name": "a link to an alias lands on its target",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/online-accounts"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "account",
+          "query": ""
+        },
+        "launch": null,
+        "title": "Account"
+      }
+    },
+    {
+      "name": "a link to a launch module with its tool launches it, the window on the grid",
+      "state": {
+        "module": "sound",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/software-sources"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": "mintsources",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "~/settings alone is the grid",
+      "state": {
+        "module": "sound",
+        "query": "x"
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "an unknown link is the grid",
+      "state": {
+        "module": "sound",
+        "query": ""
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/nope"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "an unknown event changes nothing",
+      "state": {
+        "module": "",
+        "query": ""
+      },
+      "event": {
+        "kind": "bogus"
+      },
+      "installed": [
+        "printers",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": ""
+        },
+        "launch": null,
+        "title": "System Settings"
+      }
+    }
+  ]
+}

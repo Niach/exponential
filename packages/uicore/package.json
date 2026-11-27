@@ -15,7 +15,8 @@
     "./layout": "./src/layout.ts",
     "./fixtures/*": "./fixtures/*",
     "./chat": "./src/chat.ts",
-    "./spaces": "./src/spaces.ts"
+    "./spaces": "./src/spaces.ts",
+    "./settings": "./src/settings.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

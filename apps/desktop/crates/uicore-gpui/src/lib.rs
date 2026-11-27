@@ -36,7 +36,7 @@ use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 #[cfg(target_os = "linux")]
 use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer as ShellLayer, LayerShellOptions};
 use gpui::{
-    div, point, popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions}, prelude::*, px, size, AnyWindowHandle, App, Bounds, Entity, Pixels, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    div, point, popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions}, prelude::*, px, size, AnyWindowHandle, App, Bounds, Entity, Pixels, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowHandle, WindowKind, WindowOptions,
 };
 use serde_json::Value;
 use uicore_data::Feed;
@@ -60,6 +60,9 @@ pub struct SurfaceRoot {
     /// keys go to the surface's menu (arrows, Home/End, Enter, Escape,
     /// type-ahead), as the in-surface menu takes them.
     pub keys: Option<gpui::FocusHandle>,
+    /// #EDE-273: a window document: laid out at the window's height, so a
+    /// full-height root fills it whatever its content (and its size).
+    pub fill: bool,
 }
 
 /// The input region a window was last given.
@@ -99,6 +102,13 @@ impl Render for SurfaceRoot {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         match self.hosted.clone() {
             None => {
+                if self.fill {
+                    let height = f32::from(window.viewport_size().height);
+                    self.view.update(cx, |v, cx| {
+                        v.set_viewport_height(height, cx);
+                        v.set_fill_height(true, cx);
+                    });
+                }
                 let root = div().size_full().child(self.view.clone());
                 let Some(input) = self.input.clone() else { return root };
                 // After the view's pass: the region follows this frame's cards.
@@ -269,6 +279,9 @@ pub struct WindowedHost;
 
 /// The size a layer header asks for.
 pub fn layer_bounds(header: &SurfaceHeader) -> Bounds<Pixels> {
+    if let SurfaceHeader::Window { window, .. } = header {
+        return Bounds { origin: point(px(0.0), px(0.0)), size: size(px(window.size.width as f32), px(window.size.height as f32)) };
+    }
     let SurfaceHeader::Layer { size: s, .. } = header else {
         unreachable!("a layer header");
     };
@@ -449,6 +462,10 @@ fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixe
 #[cfg(target_os = "linux")]
 impl ShellHost for LayerShellHost {
     fn layer(&self, name: &str, header: &SurfaceHeader) -> Placed {
+        // #EDE-273: a window document is a normal toplevel, the compositor centres it.
+        if let SurfaceHeader::Window { .. } = header {
+            return Placed { kind: WindowKind::Normal, bounds: layer_bounds(header), namespace: None };
+        }
         let (kind, bounds) = layer_options(&layer_namespace(&self.namespace, name), header);
         Placed { kind, bounds, namespace: None }
     }
@@ -514,15 +531,47 @@ pub struct Surfaces {
     /// #EXP-2047: the anchor frame each hosted popup window was placed
     /// against (surface coordinates).
     hosted_anchors: HashMap<(String, String), Bounds<Pixels>>,
+    /// #EDE-273: the window documents the person closed from their frame
+    /// since the last [`Surfaces::reap_closed`].
+    closed: Rc<RefCell<Vec<String>>>,
 }
 
 impl Surfaces {
     pub fn new(host: Box<dyn ShellHost>, theme: std::sync::Arc<ResolvedTheme>, plugin_for: PluginFor, on_frame: OnFrame, app_id: &str) -> Self {
-        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new(), hosted_anchors: HashMap::new() }
+        Self { host, theme, plugin_for, on_frame, app_id: app_id.into(), open: HashMap::new(), hosted: HashMap::new(), hosted_sizes: HashMap::new(), hosted_anchors: HashMap::new(), closed: Rc::default() }
     }
 
     pub fn is_open(&self, name: &str) -> bool {
-        self.open.contains_key(name)
+        self.open.contains_key(name) && !self.closed.borrow().iter().any(|n| n == name)
+    }
+
+    /// #EDE-273: forgets the window documents closed from their frame (the
+    /// window is gone already) and names them.
+    pub fn reap_closed(&mut self) -> Vec<String> {
+        let names: Vec<String> = self.closed.borrow_mut().drain(..).collect();
+        for n in &names {
+            self.open.remove(n);
+            self.hosted.retain(|(doc, _), _| doc != n);
+            self.hosted_sizes.retain(|(doc, _), _| doc != n);
+            self.hosted_anchors.retain(|(doc, _), _| doc != n);
+        }
+        names
+    }
+
+    /// #EDE-273: an open window document comes to the front (false = not open).
+    pub fn activate(&self, name: &str, cx: &mut App) -> bool {
+        if !self.is_open(name) {
+            return false;
+        }
+        let Some(region) = self.open.get(name) else { return false };
+        region.handle.update(cx, |_, window, _| window.activate_window()).is_ok()
+    }
+
+    /// #EDE-273: a window document's title (the module it shows).
+    pub fn set_title(&self, name: &str, title: &str, cx: &mut App) {
+        if let Some(region) = self.open.get(name) {
+            let _ = region.handle.update(cx, |_, window, _| window.set_window_title(title));
+        }
     }
 
     /// #EDE-235: the theme every surface paints in from now on: the open
@@ -567,8 +616,22 @@ impl Surfaces {
         let input: Option<InputRegion> = clips_input(&doc).then(Default::default);
         let panel = panel_of(&doc.surface);
         let window_input = input.clone();
-        let opened = cx.open_window(
-            WindowOptions {
+        let options = match &doc.surface {
+            // #EDE-273: a normal toplevel: the compositor's frame, its own
+            // title and app id (the taskbar's entry), focused as it maps.
+            SurfaceHeader::Window { window, .. } => WindowOptions {
+                kind: WindowKind::Normal,
+                window_bounds: Some(WindowBounds::Windowed(placed.bounds)),
+                titlebar: Some(TitlebarOptions { title: Some(window.title.clone().into()), ..Default::default() }),
+                app_id: Some(window.app_id.clone()),
+                focus: true,
+                is_resizable: true,
+                window_min_size: Some(size(px(640.0), px(420.0))),
+                window_decorations: Some(WindowDecorations::Server),
+                window_background: WindowBackgroundAppearance::Opaque,
+                ..Default::default()
+            },
+            _ => WindowOptions {
                 kind: placed.kind,
                 window_bounds: Some(WindowBounds::Windowed(placed.bounds)),
                 titlebar: None,
@@ -578,7 +641,19 @@ impl Surfaces {
                 window_background: WindowBackgroundAppearance::Transparent,
                 ..Default::default()
             },
+        };
+        let fill = matches!(doc.surface, SurfaceHeader::Window { .. });
+        let closed = fill.then(|| self.closed.clone());
+        let opened = cx.open_window(
+            options,
             move |window, cx| {
+                if let Some(closed) = closed {
+                    let n = name.clone();
+                    window.on_window_should_close(cx, move |_, _| {
+                        closed.borrow_mut().push(n.clone());
+                        true
+                    });
+                }
                 let view = cx.new(|cx| {
                     let settings = SurfaceSettings { locale: "en-US".into(), mode: ModeSetting::Dark, hosted_popups, ..SurfaceSettings::default() };
                     let mut v = SurfaceView::new(SurfaceViewOptions { surface_id: name.clone(), theme: Some(theme), mode: Mode::Dark, host: plugin, settings: Some(settings), ..Default::default() }, window, cx);
@@ -594,7 +669,7 @@ impl Surfaces {
                     // one starts; the eDE goldens wait for this line, not for time.
                     window.on_next_frame(move |_, _| tracing::info!(document = %n, "drawn"));
                 });
-                cx.new(|_| SurfaceRoot { view, hosted: None, input: window_input, keys: None })
+                cx.new(|_| SurfaceRoot { view, hosted: None, input: window_input, keys: None, fill })
             },
         );
         match opened {
@@ -612,7 +687,8 @@ impl Surfaces {
 
     /// A layer document on screen (not twice).
     pub fn open_layer(&mut self, doc: &Document, feed: &Feed, cx: &mut App) -> bool {
-        if self.open.contains_key(&doc.name) || !matches!(doc.surface, SurfaceHeader::Layer { .. }) {
+        self.reap_closed();
+        if self.open.contains_key(&doc.name) || !matches!(doc.surface, SurfaceHeader::Layer { .. } | SurfaceHeader::Window { .. }) {
             return false;
         }
         let placed = self.host.layer(&doc.name, &doc.surface);
@@ -739,7 +815,7 @@ impl Surfaces {
                         window.focus(&focus, cx);
                         focus
                     });
-                    cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None, keys })
+                    cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None, keys, fill: false })
                 },
             );
             match opened {

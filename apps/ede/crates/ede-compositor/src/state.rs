@@ -198,6 +198,8 @@ pub struct WindowState {
     pub above: bool,
     /// Always on Visible Workspace: rides along on a switch (#EDE-253).
     pub sticky: bool,
+    /// #EDE-255: asks for attention until focused ([`Ede::mark_urgent`]).
+    pub urgent: bool,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -670,6 +672,12 @@ impl Ede {
             self.sync_x11_focus(None);
         }
         if let Some(w) = &window {
+            // #EDE-255: the focus answers the window's call for attention.
+            let mut st = window_state(w);
+            if st.urgent {
+                st.urgent = false;
+                set_window_state(w, st);
+            }
             self.window_event(ede_protocol::events::WINDOW_FOCUSED, w);
         }
         for w in self.desk(desk).space.elements() {
@@ -677,6 +685,22 @@ impl Ede {
                 t.send_pending_configure();
             }
         }
+    }
+
+    /// #EDE-255: `window` asks for the person's attention (Muffin's
+    /// `window-demands-attention` / `window-marked-urgent`): urgent until it
+    /// is focused; the focused window is never urgent.
+    pub fn mark_urgent(&mut self, window: &Window) {
+        if self.focused_window(DeskId::PERSON).as_ref() == Some(window) {
+            return;
+        }
+        let mut st = window_state(window);
+        if st.urgent {
+            return;
+        }
+        st.urgent = true;
+        set_window_state(window, st);
+        self.window_event(ede_protocol::events::WINDOW_CHANGED, window);
     }
 
     pub fn focused_window(&self, desk: DeskId) -> Option<Window> {

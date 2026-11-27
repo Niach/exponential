@@ -164,3 +164,44 @@ fn a_row_from_outside_drops_between_the_named_rows() {
     assert!(s.list_drag_external("row.t", "s", row, None, &ListDragInput::Start { x: 0.0, y: 0.0 }).is_empty());
     assert!(!s.list_dragging());
 }
+
+/// #EDE-255: a `direction: horizontal` List drags along x: the rows'
+/// left/width are the rule's top/height, the line stands across a row's
+/// edge, the lifted copy follows the pointer along x below its row.
+#[test]
+fn a_horizontal_list_drags_along_x() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [
+        {"id": "l", "component": "List", "props": {"reorderable": true, "direction": "horizontal"}, "template": {"component": "row", "path": "/items", "key": "id"}, "on": {"move": {"event": {"name": "move"}}}},
+        {"id": "row", "component": "Box", "style": {"width": 40, "height": 40, "flexShrink": 0}, "children": [{"id": "label", "component": "Text", "props": {"text": {"@path": "id"}}}]}
+    ]}))
+    .unwrap();
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    s.set_nested(tree);
+    s.set_data("", Some(json!({"items": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}))).unwrap();
+    s.set_viewport(300.0, 0.0, None);
+    s.layout(&mut fixed());
+    s.layout(&mut fixed());
+    let frame = |s: &Surface, k: &str| s.last_frame(s.index_of(&format!("row.{k}")).unwrap()).unwrap();
+    let (a, c) = (frame(&s, "a"), frame(&s, "c"));
+    assert!(c.x > a.x && (c.y - a.y).abs() < 0.5, "a row of rows: {a:?} {c:?}");
+    let label = s.index_of("label.a").unwrap();
+    s.list_drag(label, &ListDragInput::Start { x: a.x + 20.0, y: a.y + 20.0 });
+    // Over c's right half (y stays on the row): after c.
+    let at = c.x + c.w * 0.75;
+    s.list_drag(label, &ListDragInput::Move { x: at, y: a.y + 20.0 });
+    let p = s.list_drag_paint().remove(0);
+    assert_eq!(p.drop.as_ref().map(|d| (d.key.as_str(), d.position)), Some(("c", ListDropPosition::After)));
+    let line = p.line.unwrap();
+    assert_eq!((line.x, line.y, line.w, line.h), (c.x + c.w - LIST_DROP_LINE / 2.0, c.y, LIST_DROP_LINE, c.h));
+    let ring = p.ring.unwrap();
+    assert_eq!((ring.x, ring.y), (c.x + c.w - LIST_DROP_RING / 2.0, c.y - LIST_DROP_RING / 2.0));
+    assert_eq!((p.lift.x, p.lift.y), (at - 20.0, a.y + LIST_LIFT_OFFSET));
+    // Over b's left half: before b, whatever the pointer's y.
+    let b = frame(&s, "b");
+    s.list_drag(label, &ListDragInput::Move { x: b.x + 5.0, y: 500.0 });
+    let p = s.list_drag_paint().remove(0);
+    assert_eq!(p.drop.as_ref().map(|d| (d.key.as_str(), d.position)), Some(("b", ListDropPosition::Before)));
+    assert_eq!(p.line.unwrap().x, b.x - LIST_DROP_LINE / 2.0);
+    let fired = moves(&s.list_drag(label, &ListDragInput::End { x: at, y: a.y + 20.0 }));
+    assert_eq!(fired, vec![json!({"id": "a", "after": "c"})]);
+}

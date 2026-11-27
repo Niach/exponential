@@ -2326,8 +2326,17 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21338,
-        "sha256": "b7a380212eed80bf546cb7d504c8b84ffa1711f6d06e8e269ce5d648d0bbb8a7"
+        "bytes": 27784,
+        "sha256": "961fce28b6d1961c99f9f87a69667c9b8287e788830585c6cd90d79603bb7254"
+      }
+    },
+    "ede-settings-module": {
+      "ede": {
+        "file": "shots/ede-settings-module/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 18018,
+        "sha256": "9a5941af7525635ba7ae9cc2aaa54bcac34a5085b6a8183188e49255dc8d9889"
       }
     },
     "ede-settings-share": {
@@ -2335,17 +2344,8 @@
         "file": "shots/ede-settings-share/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14270,
-        "sha256": "2baa047de6a9d7bcb49241355d78158fef54f76981f3823667a5fbeed72a7248"
-      }
-    },
-    "ede-settings-team": {
-      "ede": {
-        "file": "shots/ede-settings-team/ede.webp",
-        "width": 1280,
-        "height": 720,
-        "bytes": 14430,
-        "sha256": "7134bba4e016c79870f1898c34e51fe69677b4a8f0082a31d2a9b098c2b1e9cf"
+        "bytes": 22716,
+        "sha256": "183c4e696fa11c56e4796e9f8e380bd9f4501962adb6c46a7713457e8487ff79"
       }
     },
     "ede-space-view": {
@@ -2364,6 +2364,15 @@
         "height": 720,
         "bytes": 8124,
         "sha256": "a7880c49e9479c9bcfe9e1e5dc7cdc0c413fdb08a87b3e8a3af45edd5a85648b"
+      }
+    },
+    "ede-taskbar-menu": {
+      "ede": {
+        "file": "shots/ede-taskbar-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 11546,
+        "sha256": "c629fff69ef9270b8841798b282260770af801c6fb4c9d46da19982171ce8352"
       }
     },
     "ede-window-menu": {
