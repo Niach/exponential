@@ -18870,7 +18870,7 @@
     ]
   },
   "LogView\/example" : {
-    "height" : 244,
+    "height" : 288,
     "nodes" : [
       {
         "component" : "Box",
@@ -18878,7 +18878,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view"
       },
@@ -18888,14 +18888,14 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view.log"
       }
     ]
   },
   "LogView\/follow=false" : {
-    "height" : 244,
+    "height" : 288,
     "nodes" : [
       {
         "component" : "Box",
@@ -18903,7 +18903,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view"
       },
@@ -18913,14 +18913,14 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view.log"
       }
     ]
   },
   "LogView\/follow=true" : {
-    "height" : 244,
+    "height" : 288,
     "nodes" : [
       {
         "component" : "Box",
@@ -18928,7 +18928,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view"
       },
@@ -18938,14 +18938,14 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view.log"
       }
     ]
   },
   "LogView\/timestamps=false" : {
-    "height" : 244,
+    "height" : 288,
     "nodes" : [
       {
         "component" : "Box",
@@ -18953,7 +18953,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view"
       },
@@ -18963,14 +18963,14 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view.log"
       }
     ]
   },
   "LogView\/timestamps=true" : {
-    "height" : 244,
+    "height" : 288,
     "nodes" : [
       {
         "component" : "Box",
@@ -18978,7 +18978,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view"
       },
@@ -18988,7 +18988,7 @@
           0,
           0,
           390,
-          244
+          288
         ],
         "id" : "log_view.log"
       }

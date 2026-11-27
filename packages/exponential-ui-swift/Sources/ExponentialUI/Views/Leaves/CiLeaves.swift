@@ -134,9 +134,13 @@ struct LogLinesLeaf: View {
         let root = cx.part("LogLines", "root", props: [:])
         let toolbar = cx.part("LogLines", "toolbar", props: [:])
         let gap = root.style.gap > 0 ? root.style.gap : cx.spacing("sm")
-        let barHeight = toolbar.height ?? cx.control("input", 36)
+        let rowHeight = toolbar.height ?? cx.control("input", 36)
+        // §4: `compact` (the core's, the surface below md) stacks the find
+        // row over the toggles row, `$spacing.sm` apart; no width heuristic.
+        let compact = p.flag("compact")
+        let barHeight = compact ? 2 * rowHeight + cx.spacing("sm") : rowHeight
         VStack(alignment: .leading, spacing: gap) {
-            toolbarView(height: barHeight, query: query, total: cache.matches.count, follow: p["follow"]?.bool ?? true, timestamps: p.flag("timestamps"))
+            toolbarView(height: rowHeight, compact: compact, query: query, total: cache.matches.count, follow: p["follow"]?.bool ?? true, timestamps: p.flag("timestamps"))
             bodyView(rows: rows, open: open, height: max(0, cx.size.height - barHeight - gap))
         }
         .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
@@ -152,46 +156,73 @@ struct LogLinesLeaf: View {
     // MARK: toolbar
 
     @ViewBuilder
-    private func toolbarView(height: CGFloat, query: String, total: Int, follow: Bool, timestamps: Bool) -> some View {
+    private func toolbarView(height: CGFloat, compact: Bool, query: String, total: Int, follow: Bool, timestamps: Bool) -> some View {
         let toolbar = cx.part("LogLines", "toolbar", props: [:])
+        let spacing = toolbar.style.gap > 0 ? toolbar.style.gap : cx.spacing("sm")
+        if compact {
+            VStack(alignment: .leading, spacing: cx.spacing("sm")) {
+                HStack(spacing: spacing) {
+                    findGroup(height: height, fill: true, query: query, total: total)
+                }
+                .frame(width: cx.size.width, height: height)
+                HStack(spacing: spacing) {
+                    Spacer(minLength: 0)
+                    toggleGroup(follow: follow, timestamps: timestamps)
+                }
+                .frame(width: cx.size.width, height: height)
+            }
+        } else {
+            HStack(spacing: spacing) {
+                findGroup(height: height, fill: false, query: query, total: total)
+                Spacer(minLength: 0)
+                toggleGroup(follow: follow, timestamps: timestamps)
+            }
+            .frame(width: cx.size.width, height: height)
+        }
+    }
+
+    /// search · count (with a query) · prev · next; `fill` = the search
+    /// takes the row's remaining width (compact), else `searchWidth`.
+    @ViewBuilder
+    private func findGroup(height: CGFloat, fill: Bool, query: String, total: Int) -> some View {
         let search = cx.part("LogLines", "search", props: [:], states: searchFocused ? ["focus"] : [])
         let countPart = cx.part("LogLines", "count", props: [:])
         let sts = CiLook.text(search, cx.textStyle)
         var cts = CiLook.text(countPart, cx.textStyle)
         let _ = cts.tabular = true
         let shown = total == 0 ? 0 : min(current, total - 1) + 1
-        HStack(spacing: toolbar.style.gap > 0 ? toolbar.style.gap : cx.spacing("sm")) {
-            TextField(cx.model.builtinString("searchLog"), text: $text)
-                .textFieldStyle(.plain)
-                .font(Font(ExponentialUIFonts.font(family: sts.fontFamily, weight: sts.fontWeight, size: sts.fontSize, italic: false, tabular: false) as CTFont))
-                .foregroundStyle(search.color ?? cx.ink)
-                .focused($searchFocused)
-                .autocorrectionDisabled()
-                .onSubmit { step(CiLook.shift ? -1 : 1) }
-                .padding(.horizontal, search.style.paddingHorizontal)
-                .frame(minWidth: 48, maxWidth: CiLog.searchWidth, minHeight: search.height ?? height, maxHeight: search.height ?? height)
-                .partBox(search)
-                .layoutPriority(-1)
-                .onChange(of: text) { _, t in
-                    guard t != query else { return }
-                    fire("search", ["query": .string(t)])
-                }
-                .accessibilityLabel(cx.model.builtinString("searchLog"))
-            if !query.isEmpty {
-                MeasuredLabel(text: cx.model.builtinString("matchCount", ["current": .number(Double(shown)), "total": .number(Double(total))]), ts: cts, color: countPart.color ?? cx.ink)
-                    .fixedSize()
+        TextField(cx.model.builtinString("searchLog"), text: $text)
+            .textFieldStyle(.plain)
+            .font(Font(ExponentialUIFonts.font(family: sts.fontFamily, weight: sts.fontWeight, size: sts.fontSize, italic: false, tabular: false) as CTFont))
+            .foregroundStyle(search.color ?? cx.ink)
+            .focused($searchFocused)
+            .autocorrectionDisabled()
+            .onSubmit { step(CiLook.shift ? -1 : 1) }
+            .padding(.horizontal, search.style.paddingHorizontal)
+            .frame(minWidth: 48, maxWidth: fill ? .infinity : CiLog.searchWidth, minHeight: search.height ?? height, maxHeight: search.height ?? height)
+            .partBox(search)
+            .layoutPriority(fill ? 0 : -1)
+            .onChange(of: text) { _, t in
+                guard t != query else { return }
+                fire("search", ["query": .string(t)])
             }
-            stepButton("prev", icon: "ui-chevron-up", label: "previousMatch", enabled: total > 0) { step(-1) }
-            stepButton("next", icon: "ui-chevron-down", label: "nextMatch", enabled: total > 0) { step(1) }
-            Spacer(minLength: 0)
-            toggleButton("follow", on: follow) {
-                fire("follow", ["follow": .bool(!follow)])
-            }
-            toggleButton("timestamps", on: timestamps) {
-                fire("timestamps", ["timestamps": .bool(!timestamps)])
-            }
+            .accessibilityLabel(cx.model.builtinString("searchLog"))
+        if !query.isEmpty {
+            MeasuredLabel(text: cx.model.builtinString("matchCount", ["current": .number(Double(shown)), "total": .number(Double(total))]), ts: cts, color: countPart.color ?? cx.ink)
+                .fixedSize()
         }
-        .frame(width: cx.size.width, height: height)
+        stepButton("prev", icon: "ui-chevron-up", label: "previousMatch", enabled: total > 0) { step(-1) }
+        stepButton("next", icon: "ui-chevron-down", label: "nextMatch", enabled: total > 0) { step(1) }
+    }
+
+    @ViewBuilder
+    private func toggleGroup(follow: Bool, timestamps: Bool) -> some View {
+        toggleButton("follow", on: follow) {
+            fire("follow", ["follow": .bool(!follow)])
+        }
+        toggleButton("timestamps", on: timestamps) {
+            fire("timestamps", ["timestamps": .bool(!timestamps)])
+        }
     }
 
     private func stepButton(_ part: String, icon: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
