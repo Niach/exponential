@@ -175,11 +175,12 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
+import { TRANSFER_COPY, TRANSFER_PATH_MAX } from "@/lib/device-transfers"
 import { reconcileDeviceUsage } from "@/lib/usage-reconcile"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
-import { createEventTask, createSessionTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
+import { createEventTask, createSessionTask, createTransferTask, plannedTaskWatch, type TaskCallSpec } from "@/lib/emcp/tasks"
 import type { EmcpToolContext } from "@/lib/emcp/request-context"
 import { downloadMetaFor } from "@/lib/emcp/files"
 import {
@@ -409,6 +410,8 @@ interface CallerSession {
   /** NEW-2: the root is an agent's conversation (never ends). */
   rootAgentId: string | null
   unattended: boolean
+  /** #FEED-295: the machine it runs on (a transfer's default side). */
+  deviceId: string | null
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
@@ -762,6 +765,7 @@ export function registerExponentialTools(
       userId: row.userId,
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
+      deviceId: row.deviceId ?? null,
     }
   }
 
@@ -3626,6 +3630,104 @@ export function registerExponentialTools(
             getCommand: (commandId) => trpc.devices.getCommand({ commandId }),
           })
         )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Transfers (#FEED-295): a file or directory copied between two of YOUR
+  // machines over eNet (lib/device-transfers.ts), no prompt. Its own noun
+  // (deferred, found by tool search): send, list, status, cancel.
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_transfers_send`,
+    {
+      description: `Copy a file or directory between two of your own machines over P2P: streamed, resumable, no size cap, end-to-end encrypted, every file's checksum verified. Push {toDeviceId} from this session's machine, pull {fromDeviceId} into it, or name both. destPath must not exist yet. Returns transferId; the session wakes when it ends.`,
+      inputSchema: strictInput({
+        fromDeviceId: z.string().min(1).max(128).optional(),
+        toDeviceId: z.string().min(1).max(128).optional(),
+        srcPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+        destPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+      }),
+    },
+    async ({ fromDeviceId, toDeviceId, srcPath, destPath }, extra?: unknown) => {
+      try {
+        // A machine's files sit outside any selectable grant: full access only.
+        assertFullAccess(access)
+        const own = await loadCallerSession()
+        const from = fromDeviceId ?? own?.deviceId
+        const to = toDeviceId ?? own?.deviceId
+        if (!from || !to) throw new Error(TRANSFER_COPY.noDevice)
+        // An outside host that declared MCP tasks gets the transfer as a task
+        // (emcp tasks.json TRANSFERS); our own sessions wake on its end line.
+        const ctx = extra as EmcpToolContext | undefined
+        const taskSpec: TaskCallSpec | null = ctx?.client
+          ? { ctx, tool: `exponential_transfers_write`, args: { op: `send` }, inSession: sessionId !== null, access }
+          : null
+        const planned = taskSpec ? await plannedTaskWatch(taskSpec) : null
+        const started = await caller(user, request).devices.startTransfer({
+          fromDeviceId: from,
+          toDeviceId: to,
+          srcPath,
+          destPath,
+          sessionId: own?.id ?? null,
+          teamId: own?.teamId ?? null,
+        })
+        if (planned?.kind === `transfer`) return (await createTransferTask(taskSpec!, started.transferId, own?.teamId ?? null)) as never
+        return ok(started)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_list`,
+    {
+      annotations: READ_ONLY,
+      description: `Your device-to-device transfers, newest first (every one is logged).`,
+      inputSchema: strictInput({ limit: z.number().int().min(1).max(50).optional() }),
+    },
+    async ({ limit }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.transfers({ limit: limit ?? 20 }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_status`,
+    {
+      annotations: READ_ONLY,
+      description: `One transfer: status queued|running|done|failed|cancelled, files/filesDone, bytes/bytesDone, skipped, error.`,
+      inputSchema: strictInput({ transferId: uuidString }),
+    },
+    async ({ transferId }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.transfer({ transferId }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_transfers_cancel`,
+    {
+      description: `Cancel a queued or running transfer (both machines stop; what arrived stays).`,
+      inputSchema: strictInput({ transferId: uuidString }),
+    },
+    async ({ transferId }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.cancelTransfer({ transferId }))
       } catch (e) {
         return err(e)
       }

@@ -81,6 +81,8 @@ fn device_caps_with(advertised: &coding::AgentAdvertisement, key_holder: bool) -
         caps.push(etalk::call::VOICE_CALL.seal.cap.clone());
     }
     caps.push(UPDATE_CHECK_CAP.to_string());
+    // #FEED-295: it sends and receives files between its owner's machines.
+    caps.push(steer::file_transfer::CAP.to_string());
     // #EXP-1616: this daemon runs eCode's git jobs (`ecode_job`).
     caps.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
     // #EXP-1617: this build runs `ci_job` commands (the server dispatches
@@ -670,6 +672,15 @@ fn run_daemon(args: &[String]) -> CommandResult {
         });
         node
     });
+    // #FEED-295: device-to-device transfers run on this install's node.
+    if let (Some(runtime), Some(node)) = (runtime.as_ref(), enet.as_ref()) {
+        steer::file_transfer::set_current(Some(steer::file_transfer::FileTransfers::new(
+            runtime.handle().clone(),
+            node.clone(),
+            Arc::clone(&ctx.trpc),
+            ctx.data_dir.clone(),
+        )));
+    }
     // VAPP-167: the CLI cannot run a node of its own while this one holds the
     // install's eNet identity, so `sessions log --follow` asks this daemon
     // to view for it over the local socket.
@@ -2990,6 +3001,12 @@ fn run_device_command(
             }
             (false, "This machine could not start the eCode job.".to_string())
         }
+        // #FEED-295: one side of a device-to-device transfer; the task
+        // completes the command itself (a redelivery while it runs is a no-op).
+        "file_send" | "file_receive" => match steer::file_transfer::dispatch(command) {
+            None => return,
+            Some(outcome) => outcome,
+        },
         // #EXP-1960: a writer that may not key a keyless tree of this
         // device's asked it to (`sessionKeys.requestKey`): keyed like at a
         // claim, on its OWN thread (network), completing itself.
@@ -5065,6 +5082,8 @@ mod tests {
         // The shared list, then this daemon's own `update-check` (#EXP-1628).
         let mut shared = coding::device_caps(&advert(&["claude"]));
         shared.push(UPDATE_CHECK_CAP.to_string());
+        // #FEED-295: device-to-device transfers.
+        shared.push(steer::file_transfer::CAP.to_string());
         shared.push(crate::ecode_jobs::ECODE_JOBS_CAP.to_string());
         shared.push(crate::ci_runner::CI_RUNNER_CAP.to_string());
         if crate::actions_runner::platform_asset().is_some() {
@@ -5084,11 +5103,11 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps_with(&advert(&[]), false);
-        // + update-check + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
+        // + update-check + file-transfer (#FEED-295) + ecode-jobs (#EXP-1616) + ci-runner (+ actions-runner) (#EXP-1617).
         let actions = usize::from(crate::actions_runner::platform_asset().is_some());
         // + app-screenshot where a renderer is (#FEED-244).
         let shot = usize::from(updater::app_shot::capable());
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 3 + actions + shot);
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 4 + actions + shot);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");

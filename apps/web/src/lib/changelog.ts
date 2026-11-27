@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-device-file-transfers`,
+    date: `2026-11-27`,
+    title: `Copy files between your own machines`,
+    summary: `Agents copy a file or folder of any size from one of your machines to another over P2P, resumable and checksummed, with no prompt.`,
+    body: `- **Machine to machine**: a session sends a file or folder between two of your own computers running the app or the CLI daemon, end-to-end encrypted, without passing through Exponential's servers or a size limit.
+- **Picks up where it stopped**: a dropped connection or a restart continues the copy, and every file's checksum is verified when it lands.
+- **Your machines only**: another person's machine is always refused; keys, credentials and Exponential's own data are never sent, and a copy never overwrites what is already there.`,
+  },
+  {
     id: `2026-11-27-ede-page-windows`,
     date: `2026-11-27`,
     title: `Every page of Exponential is its own window`,

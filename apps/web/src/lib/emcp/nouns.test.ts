@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-// NEW-4: the noun router — 22 tools (EXP-1657: 7 groups), `op` routes to the per-operation
+// NEW-4: the noun router — 23 tools (EXP-1657: 7 groups), `op` routes to the per-operation
 // definitions, their STRICT schemas validate the flat arguments, an op the
 // caller lacks errors instead of vanishing, the display rows are the
 // contract's. The per-operation handlers themselves are tools.test.ts's.
@@ -105,7 +105,7 @@ function surface(gates = ALL_MCP_TOOL_GATES, access: McpAccess = FULL_ACCESS) {
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 22 nouns and verbs, every caller alike`, () => {
+  it(`registers the 23 nouns and verbs, every caller alike`, () => {
     const names = [...surface().keys()]
     // #VAPP-293: a noun with reads AND writes registers both halves (the
     // mock records only issues' reads, so every other noun is all writes).
@@ -114,7 +114,8 @@ describe(`registerNounTools`, () => {
         spec.name === `issues` ? [`exponential_issues`, `exponential_issues_write`] : [`exponential_${spec.name}`]
       )
     )
-    expect(names).toHaveLength(23)
+    // #FEED-295: + transfers.
+    expect(names).toHaveLength(24)
     expect(names).not.toContain(`exponential_team_config`)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
