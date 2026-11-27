@@ -7,6 +7,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -109,6 +112,8 @@ internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, ki
     }
     // EXP-1495: a Carousel's thumbnail strip keeps the current page's thumbnail in view.
     if (scroll.scrollX) ThumbnailStripFollow(node, model, sx, size)
+    // #EXP-2204: a CodeBlock that scrolls itself keeps its first selected line in view.
+    if (scroll.scrollY) CodeSelectionFollow(node, model, kids, origin, sy, size)
     val content = Size(
         if (scroll.scrollX) max(scroll.contentWidth, size.width) else size.width,
         if (scroll.scrollY) max(scroll.contentHeight, size.height) else size.height,
@@ -120,7 +125,56 @@ internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, ki
     }
     if (scroll.scrollY) m = m.verticalScroll(sy)
     if (scroll.scrollX) m = m.horizontalScroll(sx)
+    // #EXP-2204 (contract §6): a long uniform CodeBlock body builds only
+    // the lines in view ± the overscan, re-windowed per line scrolled.
+    val shown = if (scroll.scrollY && codeWindows(node, kids, model)) {
+        val lh = max(1f, model.frame(kids.first()).height)
+        val first by remember(lh, density) { derivedStateOf { (sy.value / density / lh).toInt() } }
+        remember(kids, first, size.height, lh) { codeWindow(kids, model, origin, first * lh, size.height, lh) }
+    } else {
+        kids
+    }
     Box(m) {
-        ChildrenLayout(content, kids, origin, model)
+        ChildrenLayout(content, shown, origin, model)
+    }
+}
+
+/** style.json `codeBlock`: a self-scrolling body past this many lines windows. */
+internal const val CODE_WINDOW_THRESHOLD = 50
+
+/** layout.json `windowOverscan`: lines built beyond the viewport, each side. */
+internal const val CODE_WINDOW_OVERSCAN = 5
+
+/** #EXP-2204: does this scroll container window its CodeBlock lines (a body, more than the threshold, `wrap: false`)? */
+internal fun codeWindows(node: NodeInfo, kids: List<Int>, model: SurfaceModel): Boolean =
+    node.ownerComponent == "CodeBlock" && node.part == "body" && kids.size > CODE_WINDOW_THRESHOLD && model.ownerProps(node.index)["wrap"]?.bool != true
+
+/** The lines of a windowed CodeBlock body intersecting [offset]…[offset] + [height] ± the overscan (dp, content space). */
+internal fun codeWindow(kids: List<Int>, model: SurfaceModel, origin: Offset, offset: Float, height: Float, lineHeight: Float): List<Int> {
+    val lo = offset - CODE_WINDOW_OVERSCAN * lineHeight
+    val hi = offset + height + CODE_WINDOW_OVERSCAN * lineHeight
+    return kids.filter { k ->
+        val f = model.frame(k)
+        f.bottom - origin.y >= lo && f.top - origin.y <= hi
+    }
+}
+
+/**
+ * #EXP-2204 (contract §6): a CodeBlock body that scrolls itself scrolls its
+ * first `selected` line (the `selection` anchor) into view, once per new
+ * selection.
+ */
+@Composable
+private fun CodeSelectionFollow(node: NodeInfo, model: SurfaceModel, kids: List<Int>, origin: Offset, sy: androidx.compose.foundation.ScrollState, size: Size) {
+    if (node.ownerComponent != "CodeBlock" || node.part != "body") return
+    val line = kids.firstOrNull { model.node(it)?.props?.get("selected")?.bool == true } ?: return
+    val f = model.frame(line)
+    val top = f.top - origin.y
+    val density = LocalDensity.current.density
+    LaunchedEffect(node.id, line, density) {
+        val view = sy.value / density
+        if (top >= view && top + f.height <= view + size.height) return@LaunchedEffect
+        val max = snapshotFlow { sy.maxValue }.first { it > 0 }
+        sy.scrollTo((top * density).roundToInt().coerceIn(0, max))
     }
 }

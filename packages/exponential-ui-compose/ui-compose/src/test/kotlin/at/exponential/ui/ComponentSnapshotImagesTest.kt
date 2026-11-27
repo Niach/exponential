@@ -64,6 +64,9 @@ class ComponentSnapshotImagesTest {
     /** Never touches the network: every media source fails to load (placeholders, initials). */
     private object OfflineHost : HostPlugin {
         override fun resolveUrl(src: String): String = ""
+
+        // #EXP-2204: the `ci-*` status glyphs (not built in), the app registry's Lucide geometry.
+        override fun icon(name: String, size: Float): (@androidx.compose.runtime.Composable () -> Unit)? = CiTestIcons.icon(name)
     }
 
     @Before

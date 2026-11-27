@@ -267,6 +267,21 @@ class SurfaceMeasurer(
                 "CountBadge" -> Content(line(props.shownText("text"), ts), ts.lineHeight, baseline(ts))
                 "Skeleton" -> skeleton(props, inner).let { plain(it.width, it.height) }
                 "Chart" -> chart(leaf, inner).let { plain(it.width, it.height) }
+                // #EXP-2204: the core sizes both (a style height); without one a
+                // LogLines is its toolbar + gap + maxLines lines, a JobGraph its
+                // layout (a compact list fills the width).
+                "LogLines" -> {
+                    val lines = (props.num("maxLines") ?: at.exponential.ui.primitives.CiLog.MAX_LINES).toFloat()
+                    val lh = part("LogLines", "line", props).px("lineHeight") ?: 22.75f
+                    // The body: maxLines lines inside its padding + hairline, per edge.
+                    val body = part("LogLines", "body", props).style
+                    plain(inner?.let { max(it, 0f) } ?: 320f, control("input", 36f) + spacing("sm") + lines * lh + 2f * (body.paddingVertical + body.borderWidth))
+                }
+                "JobGraph" -> {
+                    val compact = props.flag("compact")
+                    val l = at.exponential.ui.primitives.JobGraph.layout(props["jobs"]?.let { at.exponential.ui.compose.plainJson(it) }, compact)
+                    plain(if (compact) inner?.let { max(it, 0f) } ?: 320f else l.width.toFloat(), l.height.toFloat())
+                }
                 "Composer" -> composer(leaf, inner).let { plain(it.width, it.height) }
                 // depth × `treeGuideColumn` wide; no height of its own (it
                 // stretches to its row, round 2 §7).
@@ -424,9 +439,22 @@ class SurfaceMeasurer(
             val small = ts.copy(fontSize = max(ts.fontSize - 2f, 10f))
             return Content(line(raw, small) + 16f, ts.lineHeight, baseline(ts))
         }
+        if (leaf.ownerComponent == "CodeBlock" && leaf.part == "lineNumber" && props.num("digits") != null) {
+            // #EXP-2204: every number as wide as the widest (`digits`), so
+            // the code column never shifts at line 10 (SwiftUI's rule).
+            val digits = props.num("digits")!!.toFloat()
+            return Content(max(line(raw, ts), digits * line("0", ts)), ts.lineHeight, baseline(ts))
+        }
         if (leaf.ownerComponent == "CodeBlock" && leaf.part == "code") {
-            // A code line never wraps (the block scrolls).
-            return if (raw.isEmpty()) Content(0f, ts.lineHeight) else Content(line(raw, ts), ts.lineHeight, baseline(ts))
+            // A `wrap: false` line (the core's `lines: 1`) never wraps: the
+            // block scrolls. #EXP-2204: a `wrap: true` line wraps at its width
+            // and takes its REAL height (it painted wrapped over the next
+            // lines while it measured one line tall); a blank one still
+            // holds one line box.
+            if (raw.isEmpty()) return Content(0f, ts.lineHeight)
+            if (leaf.lines == 1) return Content(line(raw, ts), ts.lineHeight, baseline(ts))
+            val m = para(raw, ts, inner, leaf.lines)
+            return Content(m.w, max(m.h, ts.lineHeight), m.baseline ?: baseline(ts))
         }
         return para(raw, ts, inner, leaf.lines)
     }
