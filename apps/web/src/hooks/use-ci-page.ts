@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { ciBadge, type CiPageInput, type CiPageRepo } from "@exp/domain-contract/ci-page"
 import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection, sessionCollection, userCollection } from "@/lib/collections"
+import { listedDevices } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 
 // #EXP-2172 (ci-page.json DATA): THE CI page's input, every member team at
@@ -87,8 +88,8 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
       })),
       users: (users ?? []).map((user) => ({ id: user.id, name: user.name, image: user.image ?? null })),
       sessions: (sessions ?? []).filter((s) => s.rootId === s.id).map((s) => ({ id: s.id, userId: s.userId })),
-      runners: (devices ?? [])
-        .filter((device) => device.runner?.enabled === true && !device.spaceHostId)
+      runners: listedDevices(devices ?? [])
+        .filter((device) => device.runner?.enabled === true)
         .map((device) => ({
           id: device.id,
           label: device.label,
