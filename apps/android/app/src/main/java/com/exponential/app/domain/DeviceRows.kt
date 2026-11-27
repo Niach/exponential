@@ -185,6 +185,7 @@ fun DeviceEntity.toSteerDevice(
     updateRequested = updateRequestedAt != null,
     updateBlocked = updateRequestedAt != null && activeSessions > 0,
     sharedTeamIds = sharedTeamIds,
+    assistantTeamIds = assistantTeamIds,
     owner = if (userId == currentUserId || currentUserId == null) {
         null
     } else {

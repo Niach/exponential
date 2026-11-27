@@ -140,7 +140,7 @@
           "description": "Extra Box styles for the list frame."
         }
       },
-      "description": "Windowed list for anything past a screen; children may be a data template.",
+      "description": "Windowed list; children may be a data template.",
       "example": {
         "direction": "vertical",
         "divided": true
@@ -3883,6 +3883,9 @@
         },
         "hint": {
           "description": "Small muted text at the row's end (Select popup)."
+        },
+        "section": {
+          "description": "Popup heading it sits under."
         },
         "mono": {
           "description": "Label in the mono type (Select popup)."

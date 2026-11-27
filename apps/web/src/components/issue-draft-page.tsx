@@ -639,7 +639,7 @@ export function IssueDraftPage({
           ref={mobileHeaderRef}
           title={
             titleCollapsed ? (
-              collapsedTitle(`center`)
+              collapsedTitle(`start`)
             ) : (
               <span>{ISSUE_DRAFT_COPY.header}</span>
             )

@@ -27,4 +27,36 @@ public enum HeaderActions {
             kept[index] != "separator" || (index > 0 && index < kept.count - 1 && kept[index - 1] != "separator")
         }.map { kept[$0] }
     }
+
+    /// #EXP-2183 COLLAPSE: the title keeps at least this share of a narrow bar.
+    public static let titleMinShare = 0.6
+    /// The fold order: the Merge pill first, then the waiting chip.
+    public static let collapseOrder: [Action] = [.primary, .status]
+
+    public struct CollapseChip: Sendable, Equatable {
+        public let action: Action
+        public let full: Double
+        public let compact: Double
+        public init(action: Action, full: Double, compact: Double) {
+            self.action = action
+            self.full = full
+            self.compact = compact
+        }
+    }
+
+    /// TS `headerCollapse`: fold the chips in `collapseOrder` until the title
+    /// gets `min(title, titleMinShare × bar)`; the folded actions in fold
+    /// order. `fixed` = what never folds (back, disc, call, +, …, gaps, padding).
+    public static func collapse(bar: Double, title: Double, fixed: Double, chips: [CollapseChip]) -> [Action] {
+        let target = min(title, titleMinShare * bar)
+        var used = fixed + chips.reduce(0) { $0 + $1.full }
+        var folded: [Action] = []
+        for action in collapseOrder {
+            if bar - used >= target { break }
+            guard let chip = chips.first(where: { $0.action == action }) else { continue }
+            used -= chip.full - chip.compact
+            folded.append(action)
+        }
+        return folded
+    }
 }

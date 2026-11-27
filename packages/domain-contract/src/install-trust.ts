@@ -21,6 +21,7 @@ import { hkdf } from "@noble/hashes/hkdf.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 import { b64urlDecode, b64urlEncode, pushPublicKey, treeKeyFromSecret } from "./sealed-content"
 import { acceptVouch, acceptWrap, type ServedWrap, type WrapRefusal, type WrapStatement } from "./wrap-signature"
+import { MEMBER_SPACE, pinCovers, type RootMark } from "./member-space"
 import fixture from "../fixtures/install-trust.json" with { type: "json" }
 
 /** The approval rows' and the waiting state's copy (`copy`), the same ×4. */
@@ -92,14 +93,19 @@ function verifyStrict(signature: string, message: Uint8Array, endpointId: string
   }
 }
 
+/** #EXP-2161 (member-space.json, THE INSTALL): an ordinary install, or a
+ *  member space's, told apart by the label its registration signs. */
+export type InstallClass = `install` | `space`
+const REGISTRATION_LABELS: Record<InstallClass, string> = { install: `exp-install-v1`, space: MEMBER_SPACE.registrationLabel }
+
 /** `installs.register`'s message (install-register.json). */
-export function registrationMessage(userId: string, endpointId: string, x25519Public: string, signedAt: string): string {
-  return `exp-install-v1\n${userId}\n${endpointId}\n${x25519Public}\n${signedAt}`
+export function registrationMessage(userId: string, endpointId: string, x25519Public: string, signedAt: string, kind: InstallClass = `install`): string {
+  return `${REGISTRATION_LABELS[kind]}\n${userId}\n${endpointId}\n${x25519Public}\n${signedAt}`
 }
 
-export function signRegistration(identity: Uint8Array, userId: string, signedAt: string): string {
+export function signRegistration(identity: Uint8Array, userId: string, signedAt: string, kind: InstallClass = `install`): string {
   const endpointId = hex(ed25519.getPublicKey(identity))
-  return b64urlEncode(ed25519.sign(enc.encode(registrationMessage(userId, endpointId, installX25519Of(identity), signedAt)), identity))
+  return b64urlEncode(ed25519.sign(enc.encode(registrationMessage(userId, endpointId, installX25519Of(identity), signedAt, kind)), identity))
 }
 
 export const APPROVAL_LABEL = `exp/enet/install-approval/1`
@@ -109,9 +115,11 @@ export const APPROVAL_MESSAGE_BYTES = 125
  *  (signed by itself: the first install, or a reset); `approve` = a trusted
  *  install of the SAME account approves it; `reset` = a team-mate's trusted
  *  install confirms a member's new chain; `decline` = a team-mate's install
- *  turns that reset down (the row's Remove). */
-export type ApprovalKind = `root` | `approve` | `reset` | `decline`
-export const APPROVAL_KINDS: Record<ApprovalKind, number> = { root: 1, approve: 2, reset: 3, decline: 4 }
+ *  turns that reset down (the row's Remove); `space` = a trusted install of
+ *  the same account lets a member space's install read its Assistant
+ *  conversation (#EXP-2161), never `approve`. */
+export type ApprovalKind = `root` | `approve` | `reset` | `decline` | `space`
+export const APPROVAL_KINDS: Record<ApprovalKind, number> = { root: 1, approve: 2, reset: 3, decline: 4, space: MEMBER_SPACE.approvalKindByte }
 
 /** The install an approval is about, as the registration binds it. */
 export interface ApprovalSubject {
@@ -169,11 +177,23 @@ export interface ServedApproval {
   signature: string
 }
 
-/** Whether the registration binds the row's user, endpoint id and X25519 key. */
+/** #EXP-2161: the class of a served row = the label its registration
+ *  verifies with, never anything the server says; a row that stores none is
+ *  an ordinary install; null = neither verifies. */
+export function registrationClass(install: ServedInstall): InstallClass | null {
+  if (install.registrationSignature === null) return `install`
+  if (!install.registrationSignedAt) return null
+  for (const kind of [`install`, `space`] as const) {
+    const message = enc.encode(registrationMessage(install.userId, install.endpointId, install.x25519Public, install.registrationSignedAt, kind))
+    if (verifyStrict(install.registrationSignature, message, install.endpointId)) return kind
+  }
+  return null
+}
+
+/** Whether the registration binds the row's user, endpoint id and X25519 key
+ *  as an ordinary install. */
 export function registrationValid(install: ServedInstall): boolean {
-  if (!install.registrationSignature || !install.registrationSignedAt) return false
-  const message = enc.encode(registrationMessage(install.userId, install.endpointId, install.x25519Public, install.registrationSignedAt))
-  return verifyStrict(install.registrationSignature, message, install.endpointId)
+  return !!install.registrationSignature && registrationClass(install) === `install`
 }
 
 // ── the pin store ─────────────────────────────────────────────────────────
@@ -192,12 +212,17 @@ export interface Pin {
   via: PinVia
   /** The approver (`approved`, `reset`); null otherwise. */
   by: string | null
+  /** #EXP-2161: `space` = a member space's install of the own account
+   *  (covers its member's own Assistant roots alone); absent = `install`. */
+  class?: `space`
 }
 
 /** What this install recorded about a key it holds. */
 export type KeyRecord = `verified` | `legacy` | `unsigned` | `refused-would-be`
 
 export interface TrustStore {
+  /** #EXP-2161: this install IS a member space's. */
+  space?: true
   /** This install's endpoint id and account. */
   self: string
   userId: string
@@ -216,6 +241,18 @@ export interface TrustStore {
   declined: string[]
   /** Per root: the highest VERIFIED epoch and what each held epoch is. */
   roots: Record<string, { verifiedEpoch: number; epochs: Record<string, KeyRecord> }>
+  /** #EXP-2161 (member-space.json `rootMark`): which roots count, sticky, as
+   *  the member's own Assistant conversation. Absent = a store from before. */
+  rootMarks?: Record<string, RootMark>
+  /** #EXP-2161: endpoint ids ever served with a verifying space registration
+   *  (any account's), sticky, sorted: never an ordinary install again. Absent = none. */
+  knownSpaces?: string[]
+}
+
+/** Whether this install ever knew `endpointId` as a member space's. */
+export function knownSpace(store: TrustStore, endpointId: string | null | undefined): boolean {
+  if (!endpointId) return false
+  return store.knownSpaces?.includes(endpointId) === true || store.pins[endpointId]?.class === `space`
 }
 
 export function emptyTrustStore(self: string, userId: string, existing = false): TrustStore {
@@ -257,6 +294,25 @@ export interface TrustView {
  * the `$comment`).
  */
 export function reconcileTrust(before: TrustStore, served: { installs: ServedInstall[]; approvals: ServedApproval[] }): TrustView {
+  // #EXP-2161: a team-mate's space is none of this account's business, and a
+  // space's row is never an ordinary install of the account.
+  const spaceRows = new Map<string, ServedInstall>()
+  const rowsServed: ServedInstall[] = []
+  // Once a space, always one: a row of it without that registration (the
+  // server's to serve) is skipped whole.
+  const spaces = new Set([...(before.knownSpaces ?? []), ...Object.keys(before.pins).filter((id) => before.pins[id]!.class === `space` && !(before.space && id === before.self))])
+  const ordinary: ServedInstall[] = []
+  for (const install of served.installs) {
+    if (registrationClass(install) !== `space`) {
+      ordinary.push(install)
+      continue
+    }
+    spaces.add(install.endpointId)
+    if (install.userId === before.userId) spaceRows.set(install.endpointId, install)
+  }
+  rowsServed.push(...ordinary.filter((install) => !spaces.has(install.endpointId)))
+  if (spaces.size > 0) before = { ...before, knownSpaces: [...spaces].sort() }
+  if (before.space) return reconcileSpace(before, { installs: rowsServed, approvals: served.approvals }, spaceRows)
   const store: TrustStore = {
     ...before,
     pins: { ...before.pins },
@@ -269,7 +325,7 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
   // signature binds their key, and an existing install pins them once.
   const valid = new Map<string, ServedInstall>()
   const counted = new Map<string, ServedInstall>()
-  for (const install of served.installs) {
+  for (const install of rowsServed) {
     if (registrationValid(install)) valid.set(install.endpointId, install)
     if (valid.has(install.endpointId) || install.registrationSignature === null) counted.set(install.endpointId, install)
   }
@@ -277,7 +333,8 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
 
   // Shrink: what the server no longer lists (or binds) is no longer pinned.
   for (const endpointId of Object.keys(store.pins)) {
-    const row = counted.get(endpointId)
+    // A row whose class changed is another install: its pin goes too.
+    const row = store.pins[endpointId]!.class === `space` ? spaceRows.get(endpointId) : counted.get(endpointId)
     if (endpointId === store.self) continue
     if (!row || row.userId !== store.pins[endpointId]!.userId || row.x25519Public !== store.pins[endpointId]!.x25519Public) {
       delete store.pins[endpointId]
@@ -287,6 +344,8 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
 
   // The approvals that verify, against the subject as its registration binds it.
   const approvals = served.approvals.filter((approval) => {
+    // #EXP-2161: `space` is judged apart, below.
+    if (approval.kind === `space` || spaceRows.has(approval.approverEndpointId)) return false
     const subject = counted.get(approval.subjectEndpointId)
     if (!subject) return false
     if (approval.kind === `root` && approval.approverEndpointId !== approval.subjectEndpointId) return false
@@ -362,6 +421,16 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
         changed = true
       }
     }
+    // #EXP-2161: an own space, by a `space` approval of a pinned ordinary
+    // install of the account.
+    for (const approval of served.approvals) {
+      const subject = approval.kind === `space` ? spaceRows.get(approval.subjectEndpointId) : undefined
+      if (!subject || store.pins[subject.endpointId] || store.declined.includes(subject.endpointId)) continue
+      const approver = store.pins[approval.approverEndpointId]
+      if (!approver || approver.class === `space` || approver.userId !== store.userId) continue
+      if (!verifyApproval(`space`, subject, approval.signature, approval.approverEndpointId)) continue
+      store.pins[subject.endpointId] = { userId: subject.userId, x25519Public: subject.x25519Public, via: `approved`, by: approval.approverEndpointId, class: `space` }
+    }
     for (const pin of Object.values(store.pins)) if (pin.userId !== store.userId && !store.members.includes(pin.userId)) store.members.push(pin.userId)
   }
 
@@ -382,13 +451,18 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
         rows.push({ kind, installId: install.installId, endpointId: install.endpointId, userId: install.userId, label: install.label ?? null, code: installCode(install.endpointId)! })
       }
     }
+    // #EXP-2161: an own space nobody let in asks, whatever existed before.
+    for (const install of spaceRows.values()) {
+      if (store.pins[install.endpointId] || store.declined.includes(install.endpointId)) continue
+      rows.push({ kind: `newInstall`, installId: install.installId, endpointId: install.endpointId, userId: install.userId, label: install.label ?? null, code: installCode(install.endpointId)! })
+    }
     rows.sort((a, b) => (a.kind === b.kind ? (a.endpointId < b.endpointId ? -1 : 1) : a.kind === `newInstall` ? -1 : 1))
   }
 
   // A new install claims a root only ALONE (decision e): next to installs of
   // its account that are on no chain yet (older builds) it waits for one of
   // them to update, adopt and approve it.
-  const alone = !served.installs.some((install) => install.userId === store.userId && install.endpointId !== store.self)
+  const alone = !rowsServed.some((install) => install.userId === store.userId && install.endpointId !== store.self)
   const status: TrustStatus = store.joined ? (ownChain ? `trusted` : `claimRoot`) : ownChain || !alone ? `waiting` : `claimRoot`
 
   // The existing pins its account's chain does not reach yet, approved by
@@ -403,6 +477,65 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
           .sort()
       : []
   return { store, status, rows, approveExisting }
+}
+
+/** #EXP-2161: a member space's own reconcile. It joins only over its
+ *  member's chain (root → approve*) and one `space` edge to itself, pins that
+ *  path, grows with the account's own approvals and never approves, claims a
+ *  root or shows a row. */
+function reconcileSpace(
+  before: TrustStore,
+  served: { installs: ServedInstall[]; approvals: ServedApproval[] },
+  spaceRows: ReadonlyMap<string, ServedInstall>
+): TrustView {
+  const store: TrustStore = { ...before, pins: { ...before.pins }, members: [...before.members], declined: [...before.declined], existing: false }
+  const counted = new Map<string, ServedInstall>()
+  for (const install of served.installs) {
+    if (install.userId === store.userId && (registrationValid(install) || install.registrationSignature === null)) counted.set(install.endpointId, install)
+  }
+  const me = spaceRows.get(store.self)
+  for (const endpointId of Object.keys(store.pins)) {
+    if (endpointId === store.self) continue
+    const row = counted.get(endpointId)
+    if (!row || row.x25519Public !== store.pins[endpointId]!.x25519Public) delete store.pins[endpointId]
+  }
+  if (me) store.pins[store.self] = { userId: store.userId, x25519Public: me.x25519Public, via: `self`, by: null, class: `space` }
+  const approvals = served.approvals.filter((approval) => {
+    if (approval.kind !== `root` && approval.kind !== `approve`) return false
+    const subject = counted.get(approval.subjectEndpointId)
+    if (!subject || (approval.kind === `root` && approval.approverEndpointId !== approval.subjectEndpointId)) return false
+    return verifyApproval(approval.kind, subject, approval.signature, approval.approverEndpointId)
+  })
+  const isRoot = (endpointId: string) => approvals.some((a) => a.kind === `root` && a.subjectEndpointId === endpointId)
+  const userOf = (endpointId: string) => counted.get(endpointId)?.userId
+  if (!store.joined && me) {
+    const edges = served.approvals
+      .filter((a) => a.kind === `space` && a.subjectEndpointId === store.self && verifyApproval(`space`, me, a.signature, a.approverEndpointId))
+      .map((a) => a.approverEndpointId)
+      .sort()
+    for (const approver of edges) {
+      const path = isRoot(approver) ? [approver] : chainTo(approver, store.userId, approvals, isRoot, userOf)
+      if (!path) continue
+      for (const endpointId of path) {
+        const row = counted.get(endpointId)!
+        store.pins[endpointId] = { userId: row.userId, x25519Public: row.x25519Public, via: `chain`, by: null }
+      }
+      store.joined = true
+    }
+  }
+  if (store.joined) {
+    for (let changed = true; changed; ) {
+      changed = false
+      for (const approval of approvals) {
+        const subject = counted.get(approval.subjectEndpointId)!
+        const approver = store.pins[approval.approverEndpointId]
+        if (approval.kind !== `approve` || store.pins[subject.endpointId] || !approver || approver.class === `space`) continue
+        store.pins[subject.endpointId] = { userId: subject.userId, x25519Public: subject.x25519Public, via: `approved`, by: approval.approverEndpointId }
+        changed = true
+      }
+    }
+  }
+  return { store, status: store.joined ? `trusted` : `waiting`, rows: [], approveExisting: [] }
 }
 
 /** The approvals from a root of `userId` down to `target` (`approve` only,
@@ -436,9 +569,19 @@ function chainTo(
   return null
 }
 
-/** The endpoint ids an install takes wraps and vouches from. */
-export function pinnedSigners(store: TrustStore): string[] {
-  return Object.keys(store.pins)
+/** The endpoint ids an install takes wraps and vouches from, for a root.
+ *  #EXP-2161: a space's pin covers its member's own Assistant roots alone. */
+export function pinnedSigners(store: TrustStore, rootIsOwnAssistant = false): string[] {
+  return Object.keys(store.pins).filter((endpointId) => pinCovers(store.pins[endpointId]!.class ?? `install`, rootIsOwnAssistant))
+}
+
+/** #EXP-2161: an unpinned signer this install ever knew as a space, or one
+ *  pinned as a space that does not cover the root, is
+ *  refused in every mode, never recorded like an unpinned older build. */
+function outsideSpacePin(store: TrustStore, endpointId: string | null | undefined, rootIsOwnAssistant: boolean): boolean {
+  const pin = endpointId ? store.pins[endpointId] : undefined
+  if (!pin) return knownSpace(store, endpointId)
+  return pin.class === `space` && !pinCovers(`space`, rootIsOwnAssistant)
 }
 
 // ── the four rules ────────────────────────────────────────────────────────
@@ -463,12 +606,13 @@ export function keepWrap(
   wrap: ServedWrap,
   own: { identity: Uint8Array; installSecret: Uint8Array },
   store: TrustStore,
-  mode: TrustMode
+  mode: TrustMode,
+  rootIsOwnAssistant = false
 ): KeepVerdict {
-  const verdict = acceptWrap(wrap, own, pinnedSigners(store), mode === `mandatory`)
+  const verdict = acceptWrap(wrap, own, pinnedSigners(store, rootIsOwnAssistant), mode === `mandatory`)
   if (verdict.status === `verified`) return { keep: true, record: `verified`, secret: verdict.secret, treePublicKey: verdict.treePublicKey }
   if (verdict.status === `unsigned`) return { keep: true, record: `unsigned`, secret: verdict.secret, treePublicKey: verdict.treePublicKey }
-  if (verdict.reason === `unpinned` && mode === `record`) {
+  if (verdict.reason === `unpinned` && mode === `record` && !outsideSpacePin(store, wrap.signerEndpointId, rootIsOwnAssistant)) {
     // Is it at least its signer's? Then it is kept, and recorded.
     const signer = wrap.signerEndpointId!
     const again = acceptWrap(wrap, own, [signer], false)
@@ -514,7 +658,8 @@ export function sealTo(
     vouch?: { recipientEndpointId: string; wrapped: string; signature: string; signerEndpointId: string } | null
   },
   store: TrustStore,
-  mode: TrustMode
+  mode: TrustMode,
+  rootIsOwnAssistant = false
 ): SealVerdict {
   if (sealEpochCheck(store, input.rootId, input.epoch) === `rollback`) return { seal: false, reason: `rollback` }
   if (input.held) {
@@ -527,13 +672,13 @@ export function sealTo(
   const statement: WrapStatement | null = vouch
     ? { rootId: input.rootId, epoch: input.epoch, treePublicKey: input.publicKey, recipientEndpointId: vouch.recipientEndpointId, wrapped: vouch.wrapped }
     : null
-  const verdict = statement ? acceptVouch(statement, vouch!.signature, vouch!.signerEndpointId, pinnedSigners(store)) : `unsigned`
+  const verdict = statement ? acceptVouch(statement, vouch!.signature, vouch!.signerEndpointId, pinnedSigners(store, rootIsOwnAssistant)) : `unsigned`
   if (verdict === `verified`) return { seal: true, record: `verified` }
   if (verdict === `unsigned`) return mode === `record` ? { seal: true, record: `unsigned` } : { seal: false, reason: `unsigned` }
   if (verdict === `unpinned`) {
     const own = acceptVouch(statement!, vouch!.signature, vouch!.signerEndpointId, [vouch!.signerEndpointId])
     if (own !== `verified`) return { seal: false, reason: own }
-    return mode === `record` ? { seal: true, record: `refused-would-be` } : { seal: false, reason: `unpinned` }
+    return mode === `record` && !outsideSpacePin(store, vouch!.signerEndpointId, rootIsOwnAssistant) ? { seal: true, record: `refused-would-be` } : { seal: false, reason: `unpinned` }
   }
   return { seal: false, reason: verdict }
 }
@@ -552,10 +697,19 @@ export type TargetVerdict = { wrap: true; record: `verified` | `legacy` } | { wr
  * registration that does not verify, or a pinned endpoint served with
  * another key, is refused in every mode.
  */
-export function wrapTarget(target: ServedInstall, store: TrustStore, mode: TrustMode, roots: ReadonlySet<string> = new Set()): TargetVerdict {
+export function wrapTarget(
+  target: ServedInstall,
+  store: TrustStore,
+  mode: TrustMode,
+  roots: ReadonlySet<string> = new Set(),
+  rootIsOwnAssistant = false
+): TargetVerdict {
   if (target.endpointId === store.self) return { wrap: true, record: `verified` }
   if (!store.joined) return { wrap: false, reason: `notTrusted` }
   const pin = store.pins[target.endpointId]
+  if (pin && !pinCovers(pin.class ?? `install`, rootIsOwnAssistant)) return { wrap: false, reason: `unapproved` }
+  // #EXP-2161: a space is wrapped for as the space its member let in, or not at all.
+  if (!pin && (knownSpace(store, target.endpointId) || registrationClass(target) === `space`)) return { wrap: false, reason: `unapproved` }
   if (pin) {
     return pin.x25519Public === target.x25519Public && pin.userId === target.userId ? { wrap: true, record: `verified` } : { wrap: false, reason: `keyMismatch` }
   }

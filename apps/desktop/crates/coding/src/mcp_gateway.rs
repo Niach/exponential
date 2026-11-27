@@ -311,7 +311,10 @@ impl SealingTransform {
         }
         if let Some(seal) = seal {
             obj.insert("seal".into(), serde_json::to_value(&seal).unwrap_or(Value::Null));
-            self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).insert(seal.public_key.clone(), seal);
+            // #EXP-2161: a space starts chats it does not read: nothing kept.
+            if !api::member_spaces::active() {
+                self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).insert(seal.public_key.clone(), seal);
+            }
         }
         Ok(args)
     }
@@ -359,7 +362,12 @@ impl SealingTransform {
         if !service.makes_keys() {
             return Err(SealError::KeyMakerWaits);
         }
+        let space = api::member_spaces::active();
+        let target_device = if space { Some(target_device.unwrap_or_default()) } else { target_device };
         let readers = target_device.map(|device| service.new_root_readers(device)).unwrap_or_default();
+        if space {
+            return sealing::seal_new_root_for(&install_id, &readers);
+        }
         sealing::seal_new_root(&install_id, &public, &readers)
     }
 

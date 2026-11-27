@@ -1,3 +1,6 @@
+import { assertOutsideSpace } from "@/lib/spaces/context"
+import { endSpacesInTx, finishEndedSpaces, spaceIdsOf, type EndedSpace } from "@/lib/spaces/end"
+import { isSpaceDeviceId } from "@/lib/spaces/grant"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm"
@@ -208,6 +211,9 @@ async function deviceAgentAccounts(
     .limit(1)
   return row?.agentAccounts ?? null
 }
+
+/** #EXP-2161: `agents.update` naming a space or another account's machine for the Assistant. */
+export const SPACE_PICK_REFUSAL = `Your Assistant runs on your own devices; a team device is picked with memberSpaces.request`
 
 export const agentsRouter = router({
   /** Member read: the team's agents (MCP `agents_list`; clients sync the
@@ -452,7 +458,13 @@ export const agentsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const agent = await loadOwnedAgent(userId, input.id)
+      let agent = await loadOwnedAgent(userId, input.id)
+      // #EXP-2161 (member-space.json, PICKING): only `memberSpaces.request`
+      // puts the Assistant on a space; a space's own key moves it nowhere.
+      if (input.deviceId !== undefined && input.deviceId !== agent.deviceId) {
+        assertOutsideSpace()
+        if (isSpaceDeviceId(input.deviceId)) throw new TRPCError({ code: `BAD_REQUEST`, message: SPACE_PICK_REFUSAL })
+      }
       const voice = input.voice === undefined ? undefined : agentVoicePatchSql(input.voice)
       // #EXP-1835: the Check in rule (an old Assistant write is tagged).
       // #EXP-1829: a kept trigger keeps its prompt/run/preset unless the
@@ -494,14 +506,27 @@ export const agentsRouter = router({
       const appAgent = (await appOfAgent(agent.id)) !== null
       if (input.deviceId === `` && !appAgent) throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a device` })
       const clearSlot = appAgent && input.deviceId === `` && agent.deviceId !== ``
+      let endedSpaces: EndedSpace[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()
+        // #EXP-2161: a `memberSpaces.request` may have moved it since it was
+        // read: the device it leaves is the one it has NOW.
+        const [fresh] = await tx.select().from(agents).where(eq(agents.id, agent.id)).for(`no key update`)
+        if (!fresh) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+        agent = fresh
         // #EXP-1259: the new device is read under its share lock.
         const moved =
           input.deviceId !== undefined && input.deviceId !== `` && input.deviceId !== agent.deviceId
             ? await resolveSessionDeviceInTx(tx, userId, agent.teamId, input.deviceId)
             : null
+        if (moved && agent.role === `assistant`) {
+          if (moved.ownerId !== userId) throw new TRPCError({ code: `BAD_REQUEST`, message: SPACE_PICK_REFUSAL })
+          // #EXP-2161: away from a space ends it.
+          if (isSpaceDeviceId(agent.deviceId)) {
+            endedSpaces = await endSpacesInTx(tx, await spaceIdsOf(tx, eq(devices.userId, userId)), `picked`)
+          }
+        }
         if (moved && appAgent && !moved.shared) {
           throw new TRPCError({ code: `BAD_REQUEST`, message: `An app's agent runs on a device shared with the team, or on each member's own` })
         }
@@ -515,7 +540,7 @@ export const agentsRouter = router({
         const deviceId = moved ? input.deviceId! : agent.deviceId
         const ownerId = moved
           ? moved.ownerId
-          : await resolveSessionDevice(userId, agent.teamId, deviceId, tx).then(
+          : await resolveSessionDevice(userId, agent.teamId, deviceId, tx, { space: agent.role === `assistant` }).then(
               (device) => device.ownerId,
               () => null
             )
@@ -629,6 +654,7 @@ export const agentsRouter = router({
         const { triggerState: _state, ...rest } = updated!
         return { agent: rest, txid }
       })
+      await finishEndedSpaces(endedSpaces)
       // S-3: the Assistant's device IS the member's voice device.
       if (agent.role === `assistant` && result.agent.deviceId !== agent.deviceId) {
         await syncVoiceMirror(ctx.db, agent.ownerId)

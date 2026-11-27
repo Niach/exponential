@@ -78,6 +78,7 @@ pub mod issues;
 pub mod labels;
 pub mod login;
 pub mod mcp_clients;
+pub mod member_spaces;
 pub mod mcp_servers;
 pub mod mcp_tools;
 pub mod notifications;
@@ -88,6 +89,9 @@ pub mod prompts;
 pub mod pull_requests;
 pub mod relations;
 pub mod boards;
+/// #EDE-227: the session bus between eDE's shell and the login's holder.
+#[cfg(unix)]
+pub mod bus;
 pub mod ci;
 pub mod device_identity;
 pub mod device_store;

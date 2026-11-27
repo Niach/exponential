@@ -120,6 +120,8 @@ pub struct Desk {
     pub workspaces: crate::workspaces::Workspaces,
     /// The last press on a title bar, for the double-click.
     pub title_click: Option<(Window, Instant)>,
+    /// Muffin's tile preview while a move hovers an edge.
+    pub tile_preview: crate::grabs::TilePreview,
 }
 
 impl Ede {

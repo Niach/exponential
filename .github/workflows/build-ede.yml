@@ -42,12 +42,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/apt-mirror
-      - name: Linux system deps (udev backend + the shell's gpui)
+      - name: Linux system deps (udev backend + the shell's gpui + the app, #EDE-227)
         run: |
           sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
-            libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev
+            libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev \
+            libxkbcommon-x11-dev libx11-dev libxi-dev libxtst-dev
       - uses: actions/cache@v4
         id: xwayland
         if: github.event_name == 'pull_request' # #EXP-2151: a release builds its own
@@ -85,6 +86,9 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
           CARGO_PROFILE_RELEASE_STRIP: none
+          # The updater's minisign key: the app's signed binaries list
+          # (first-party screen consent, ede-compositor's signed.rs).
+          EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
         run: apps/ede/packaging/stage.sh "$RUNNER_TEMP/stage"
       - name: Split the debug info
         run: apps/ede/packaging/split-debug.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/debug"

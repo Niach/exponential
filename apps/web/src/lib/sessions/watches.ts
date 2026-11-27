@@ -1,3 +1,5 @@
+import { currentSpace } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { and, asc, eq, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { checksWakeText } from "@exp/domain-contract/pr-checks"
@@ -19,6 +21,7 @@ import { insertMessage } from "@/lib/sessions/messages"
 import { deriveSessionTitles } from "@/lib/sessions/title"
 import { ownAssistantTeam, treeTeams } from "@/lib/sessions/tree-teams"
 import type { Tx } from "@/lib/sessions/tx"
+import { endSessionTasks, fireTaskWatches, handOverTaskWatches } from "@/lib/sessions/task-watchers"
 
 // #NEW-49 (packages/eagent fixtures/wakeups.json WATCH EVENTS, the server
 // half of `send.watch` / `send.unwatch` / `watch.fire` and the watchdog's
@@ -106,6 +109,7 @@ export async function syncWatching(tx: Tx, ids: Iterable<string>): Promise<void>
     .orderBy(asc(sessionWatches.createdAt), asc(sessionWatches.id))
   const bySession = new Map<string, SessionWatchingJson[]>(unique.map((id) => [id, []]))
   for (const row of rows) {
+    if (!row.sessionId) continue
     bySession.get(row.sessionId)!.push({
       id: row.id,
       kind: row.kind,
@@ -150,6 +154,7 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
     .limit(1)
     .for(`update`)
   if (!row) return []
+  const space = currentSpace()
   const own = await ownAssistantTeam(row, row.userId, tx)
   const teams = [...(await treeTeams(row.rootId, tx)), ...(own ? [own] : [])]
   if (teams.length === 0) return []
@@ -161,7 +166,10 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
         inArray(sessions.id, wanted),
         ne(sessions.status, `ended`),
         inArray(sessions.teamId, teams),
-        or(eq(sessions.shared, true), eq(sessions.userId, row.userId))
+        or(eq(sessions.shared, true), eq(sessions.userId, row.userId)),
+        // #EXP-2161: a member space hears its own sessions only (a watched
+        // chat's device seals its lines to the watcher's tree).
+        space ? spaceReachCondition(space) : undefined
       )
     )
   const liveIds = live.map((entry) => entry.id).sort()
@@ -185,14 +193,17 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
   return liveIds
 }
 
-/** The ended sessions leave every watch on them (their watchers keep their other watches). */
+/** The ended sessions leave every watch on them (their watchers keep their other watches).
+ *  #NEW-147: a task still watching one (an end without a report: a deleted
+ *  chat, a space's end) completes without a summary. */
 export async function forgetWatched(tx: Tx, endedIds: readonly string[]): Promise<void> {
   if (endedIds.length === 0) return
+  for (const id of endedIds) await endSessionTasks(tx, id, { summary: `` })
   const gone = await tx
     .delete(sessionWatches)
     .where(and(eq(sessionWatches.kind, `session`), inArray(sessionWatches.subjectId, [...endedIds])))
     .returning({ sessionId: sessionWatches.sessionId })
-  await syncWatching(tx, gone.map((row) => row.sessionId))
+  await syncWatching(tx, gone.flatMap((row) => (row.sessionId ? [row.sessionId] : [])))
 }
 
 /** An ended session waits on no EVENT any more (eagent: End clears its watches); its watched
@@ -203,7 +214,7 @@ export async function dropEventWatchesOf(tx: Tx, ids: readonly string[]): Promis
     .delete(sessionWatches)
     .where(and(inArray(sessionWatches.sessionId, [...ids]), ne(sessionWatches.kind, `session`)))
     .returning({ sessionId: sessionWatches.sessionId })
-  await syncWatching(tx, gone.map((row) => row.sessionId))
+  await syncWatching(tx, gone.flatMap((row) => (row.sessionId ? [row.sessionId] : [])))
 }
 
 /** #EXP-1402: a continuation takes over what `ended` waited on, and every
@@ -216,10 +227,13 @@ export async function handOverWatches(tx: Tx, ended: string, next: string): Prom
       .values(own.map(({ id: _id, sessionId: _s, createdAt: _c, ...rest }) => ({ ...rest, sessionId: next, createdAt: ORDERED_NOW })))
       .onConflictDoNothing()
   }
-  const watchers = await tx
+  // #NEW-147: a task watching `ended` watches the continuation.
+  await handOverTaskWatches(tx, ended, next)
+  const rows = await tx
     .select({ id: sessionWatches.id, sessionId: sessionWatches.sessionId, label: sessionWatches.label })
     .from(sessionWatches)
-    .where(and(eq(sessionWatches.kind, `session`), eq(sessionWatches.subjectId, ended)))
+    .where(and(eq(sessionWatches.watcherKind, `session`), eq(sessionWatches.kind, `session`), eq(sessionWatches.subjectId, ended)))
+  const watchers = rows.flatMap((row) => (row.sessionId ? [{ ...row, sessionId: row.sessionId }] : []))
   for (const watch of watchers) {
     await tx.delete(sessionWatches).where(eq(sessionWatches.id, watch.id))
     if (watch.sessionId === next) continue
@@ -244,7 +258,7 @@ const notFound = (what: string) => new TRPCError({ code: `NOT_FOUND`, message: `
 
 /** The PR an agent names: an id, `owner/repo#N`, or a number (`#N`): its
  *  own repository's first, else its tree teams' only PR with it. */
-async function resolvePr(tx: Pick<Tx, `select`>, watcher: Session, teams: string[], ref: string) {
+async function resolvePr(tx: Pick<Tx, `select`>, watcher: Pick<Session, `repositoryId`>, teams: string[], ref: string) {
   const cols = {
     id: pullRequests.id,
     number: pullRequests.number,
@@ -298,15 +312,18 @@ interface Immediate {
  *  fires at once. */
 export async function resolveWatchSpecs(
   tx: Tx,
-  watcher: Session,
+  watcher: Pick<Session, `rootId` | `repositoryId`>,
   specs: readonly SessionWatchSpec[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** #NEW-147: an external host's task resolves against the teams its grant reaches. */
+  teamsOverride?: string[]
 ): Promise<{ sessionIds: string[]; cancels: string[]; watches: ResolvedWatch[]; immediate: Immediate[] }> {
   const sessionIds: string[] = []
   const cancels: string[] = []
   const watches: ResolvedWatch[] = []
   const immediate: Immediate[] = []
-  const teams = specs.some((spec) => spec.kind === `pr` || spec.kind === `issue`) ? await treeTeams(watcher.rootId, tx) : []
+  const teams =
+    teamsOverride ?? (specs.some((spec) => spec.kind === `pr` || spec.kind === `issue`) ? await treeTeams(watcher.rootId, tx) : [])
   for (const spec of specs) {
     if (spec.kind === `session`) {
       sessionIds.push(spec.id)
@@ -431,6 +448,10 @@ export async function fireWatches(
       )
     )
     .orderBy(asc(sessionWatches.sessionId), asc(sessionWatches.createdAt), asc(sessionWatches.id))
+  // #NEW-147: a task watcher completes with the same text (never `only`: that is a session's own watch).
+  if (!args.only) {
+    await fireTaskWatches(tx, { kinds: firedKinds(args.kind), subjectId: args.subjectId, text: args.text, statuses: args.kind === `issue_status` ? statuses : undefined })
+  }
   return postFired(tx, rows, () => args.text)
 }
 

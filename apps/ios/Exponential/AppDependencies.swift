@@ -2,6 +2,7 @@ import ExpCore
 import ExpPush
 import FirebaseMessaging
 import Foundation
+import GRDB
 import os
 import UIKit
 
@@ -298,7 +299,21 @@ final class AppDependencies: @unchecked Sendable {
                 api: installsApi,
                 crypto: trustCrypto,
                 persistence: trustPersistence,
-                identity: { identityStore.load() }
+                identity: { identityStore.load() },
+                // #EXP-2161: the one root a member space takes part in.
+                see: { accountId, rootId in
+                    guard let me = auth.accounts.first(where: { $0.id == accountId })?.userId,
+                          let pool = try? db.pool(forAccountId: accountId) else { return .unknown }
+                    let sight = try? pool.read { db -> RootSight in
+                        guard let root = try SessionEntity.fetchOne(db, key: rootId) else { return .unknown }
+                        let agent = try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) }
+                        return sightOfRoot(
+                            parentId: root.parentId, userId: root.userId, agentId: root.agentId,
+                            agentIsOwnAssistant: agent.map { $0.isAssistant && $0.ownerId == me }, me: me
+                        )
+                    }
+                    return sight ?? .unknown
+                }
             )
         }
         let treeKeyHolder = TreeKeyHolder(

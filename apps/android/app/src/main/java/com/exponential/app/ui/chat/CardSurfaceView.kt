@@ -1,5 +1,7 @@
 package com.exponential.app.ui.chat
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -69,7 +71,8 @@ import kotlinx.serialization.json.JsonObject
  * answer's `surfaceData`.
  */
 class CardSurfaceHandle {
-    internal var model: SurfaceModel? = null
+    /** Observable (#NEW-146: the elicitation card re-reads [snapshot] per pass). */
+    internal var model: SurfaceModel? by androidx.compose.runtime.mutableStateOf<SurfaceModel?>(null)
 
     /** The surface's data model now (null = no surface / it failed). */
     fun snapshot(): JsonObject? = model?.let { m ->
@@ -241,6 +244,9 @@ fun CardSurfaceView(
     handle: CardSurfaceHandle,
     inert: Boolean,
     modifier: Modifier = Modifier,
+    /** #NEW-146 (elicitation-card.json): the elicitation card's surface has
+     *  no `Preview` caption. */
+    caption: Boolean = true,
 ) {
     if (!surface.readable) {
         FeedMarkerRow(
@@ -251,7 +257,7 @@ fun CardSurfaceView(
         return
     }
     val model = rememberCardSurfaceModel(surface)
-    handle.model = model
+    if (handle.model !== model) handle.model = model
     // plan-card.json `card` (web `PlanCardSurface`): the "Preview" label
     // ABOVE the frame, `surfaceLabelGap` apart; the frame = the row fill
     // inside a 1dp stroke-card border, `surfaceRadius`, `surfacePadding`.
@@ -260,11 +266,13 @@ fun CardSurfaceView(
         modifier = modifier.fillMaxWidth().testTag(PlanCard.TestIds.SURFACE),
         verticalArrangement = Arrangement.spacedBy(PlanCard.Look.SURFACE_LABEL_GAP.dp),
     ) {
-        Text(
-            PlanCard.Copy.SURFACE,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
+        if (caption) {
+            Text(
+                PlanCard.Copy.SURFACE,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()

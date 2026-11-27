@@ -46,12 +46,104 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-26-apps-and-cards-a2ui-1",
-    date: "2026-11-26",
+    id: "2026-11-27-apps-and-cards-a2ui-1",
+    date: "2026-11-27",
     title: "Apps and cards speak A2UI 1.0",
     summary: "Apps and cards now speak A2UI 1.0; your apps and chat cards move over on their own.",
     body: r#"- **A2UI 1.0**: apps and cards now speak A2UI 1.0, and only that. Your apps and chat cards move over on their own.
 - **Older encrypted cards**: a card from before this release in an encrypted chat cannot be moved and shows a short line instead of its view; its title, question and plan text stay."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_374: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-page-windows",
+    date: "2026-11-27",
+    title: "Every page of Exponential is its own window",
+    summary: "On Exponential Desktop each board, issue, chat and device opens in a window of its own, grouped under the Exponential button on the taskbar.",
+    body: r##"- **A window per page**: boards, issues, chats, devices and every other page open as windows of their own, without a sidebar or tabs; a link to a page that is already open brings its window forward.
+- **One taskbar button**: Exponential's windows group under its button, and hovering it shows each window's thumbnail with its page's icon and title.
+- **Back after a restart**: the windows you had open come back when the app restarts or recovers from a crash."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_373: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-app-built-in",
+    date: "2026-11-26",
+    title: "Exponential Desktop brings the app with it",
+    summary: "Exponential Desktop now ships the Exponential app itself: no AppImage to download, no prompt about an unknown program at login.",
+    body: r##"- **No AppImage needed**: Exponential Desktop starts the Exponential app with your session, already signed in with your desktop's account. Its windows wear the desktop's frame and come to the front from any link in the shell.
+- **One Exponential**: an AppImage you installed before hands over to it and closes, keeps the same data, and its own start menu entry stays out of the menu, search, favourites and pins while the built-in app runs.
+- **Updates**: the app updates with the Exponential Desktop package."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_371: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-rerusted-look",
+    date: "2026-11-26",
+    title: "Exponential Desktop wears its own colours",
+    summary: "Exponential Desktop paints every shell surface in a warm dark palette with roomier spacing, from a theme you can edit.",
+    body: r##"- **New look**: the taskbar, start menu, applets, notifications and Settings use a warm dark palette with a rust accent, and controls and rows have more room.
+- **Your theme**: the desktop paints the theme.json in its ui folder; an edit redraws everything at once, a broken one keeps the last good theme, and Version history undoes it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_372: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-mcp-skills-tasks-questions",
+    date: "2026-11-26",
+    title: "Skills, tasks and questions over MCP",
+    summary: "Claude, Claude Code and other MCP hosts get your team's skills, follow sessions as tasks and ask before deletes, and MCP servers' questions reach you as a card.",
+    body: r##"- **Skills over MCP**: Claude, Claude Code and other MCP hosts list and load your teams' skills plus Exponential's genUI and workflow skills, each checked against its digest.
+- **Sessions as tasks**: a session started from Claude Code becomes a task it follows; plans and questions show up there, and the first answer, there or in Exponential, counts.
+- **Confirm before deleting**: deletes and stops from an MCP host ask you first, and sign-ins and payments open on Exponential's own pages.
+- **Questions from MCP servers**: when a team MCP server or Codex asks something, it reaches you as a card on every platform that names the server; a link opens in your browser only after you tap it.
+- **One entry for team servers**: agents reach team MCP servers through your device as `mcp__team__<server>__<tool>`, and an expired login is renewed mid-session."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_370: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-ede-app-screen-without-asking",
+    date: "2026-11-26",
+    title: "Exponential Desktop lets the Exponential app use the screen without asking",
+    summary: "On Exponential Desktop, the genuine Exponential app no longer asks for your screen at login. Other programs still ask.",
+    body: r##"- **No prompt for the app**: Exponential Desktop checks the app's signature and lets it use your screen at login without the Allow Exponential to use your screen question. A copy that was changed, or another program, is still asked. Needs the next desktop release and eDE 0.2.39."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_369: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-confirm-its-you",
+    date: "2026-11-26",
+    title: "Confirm it's you instead of signing in again",
+    summary: "Adding a passkey on a sign-in older than a day now asks you to confirm it's you, then carries on.",
+    body: r##"- **Confirm it's you**: when an action needs a recent sign-in, such as adding a passkey, a sheet asks you to confirm with your passkey, a code to your email or your password. Then the action finishes by itself, without signing you out and without losing what you typed."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_368: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-quiet-schedule-ticks",
+    date: "2026-11-26",
+    title: "Quiet schedule ticks fold into one line",
+    summary: "A run of schedule ticks the agent answered quietly is one Schedule line with the count and time range, opening to each tick.",
+    body: r##"- **One line per run**: consecutive schedule ticks the agent ended quietly draw as one line, such as Schedule ×5 · 11:15–12:15, instead of a Schedule line and an Ended turn quietly line each. Open it to see every tick.
+- **Answers stay**: a tick the agent answered still shows Schedule above its message."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_367: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-26-assistant-on-team-device",
+    date: "2026-11-26",
+    title: "Your Assistant on a team's machine",
+    summary: "Run your private Assistant on a server shared with your team, once its owner allows it.",
+    body: r##"- **Runs on**: Settings › Assistant › Runs on lists the servers your teams allow, under each team's name. Picking one starts a new conversation there; it stays private to you, but the machine's owner and admins can read what it does.
+- **For device owners**: Device settings › Sharing has a Members' Assistants switch per team. Members use the logins on the machine, each in a separate, closed-off space, and you can remove any of them.
+- **Approval**: the new device asks for your approval in Needs you before it reads anything."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

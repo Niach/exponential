@@ -150,6 +150,8 @@ mod drafts;
 mod drafts_view;
 mod device_sync;
 mod machines;
+// #EXP-2161: members' Assistants on a shared device (member-space.json).
+mod member_spaces;
 mod media_tile;
 mod tall_image;
 mod teams_pick;
@@ -181,6 +183,8 @@ mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;
 mod plan_card;
+// #NEW-146: THE elicitation card (a third-party MCP server asks).
+mod elicitation_card;
 mod plan_page;
 // #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).
 mod outline;
@@ -214,6 +218,17 @@ mod scroll_pane;
 mod search_sheet;
 mod session;
 mod session_holder;
+/// #EDE-227: eDE's component and the session bus.
+pub mod ede_component;
+/// #EDE-237: eDE mode's page windows (the session bus is unix-only;
+/// elsewhere a no-op twin keeps the call sites compiling).
+#[cfg(unix)]
+pub mod ede_windows;
+#[cfg(not(unix))]
+#[path = "ede_windows_stub.rs"]
+pub mod ede_windows;
+#[cfg(target_os = "linux")]
+pub mod session_bus;
 mod session_extras;
 mod session_bar;
 mod session_data;

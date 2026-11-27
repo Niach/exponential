@@ -267,17 +267,14 @@ final class PasskeyRegistrationWireTests: XCTestCase {
 
     // MARK: - Error copy
 
-    // Web `PasskeysSection`: a session older than a day gets the sentence that
-    // says what to do; anything else is the server's own message.
-    func testStaleSessionGetsTheWebSentence() {
+    // #EXP-2143 follow-up: a session older than a day is no sentence but the
+    // step-up sheet's cue; anything else is the server's own message.
+    func testStaleSessionIsTheStepUpCue() {
         let stale = Data(#"{"code":"SESSION_NOT_FRESH","message":"Session is not fresh"}"#.utf8)
-        XCTAssertEqual(
-            AuthApi.passkeyRegistrationErrorMessage(from: stale),
-            "Sign in again to add a passkey (your current session is older than a day)."
-        )
+        XCTAssertEqual(AuthApi.passkeyRegistrationFailure(from: stale), .notFresh)
         let other = Data(#"{"code":"FAILED_TO_VERIFY_REGISTRATION","message":"Failed to verify registration"}"#.utf8)
-        XCTAssertEqual(AuthApi.passkeyRegistrationErrorMessage(from: other), "Failed to verify registration")
-        XCTAssertNil(AuthApi.passkeyRegistrationErrorMessage(from: Data("oops".utf8)))
+        XCTAssertEqual(AuthApi.passkeyRegistrationFailure(from: other), .message("Failed to verify registration"))
+        XCTAssertNil(AuthApi.passkeyRegistrationFailure(from: Data("oops".utf8)))
     }
 }
 
@@ -352,5 +349,192 @@ final class PasskeyRelyingPartyGuardTests: XCTestCase {
         XCTAssertFalse(PasskeyWire.relyingPartyMatchesInstance(
             rpId: "app.exponential.at", instanceUrl: "not a url"
         ))
+    }
+}
+
+// #EXP-2143 follow-up: "Confirm it's you" on the wire — the step-up endpoints
+// (bearer + Origin), the passkey proof's challenge-cookie replay, and the
+// server `code` every refusal carries (`StepUp.errorCopy` reads it).
+final class StepUpWireTests: XCTestCase {
+    private struct Seen {
+        let method: String
+        let path: String
+        let headers: [String: String]
+        let body: [String: Any]?
+    }
+
+    /// Answers by path from `Self.answers`, recording every request.
+    private final class Server: URLProtocol {
+        static let seen = Locked<[Seen]>([])
+        static let answers = Locked<[String: (Int, String, [String: String])]>([:])
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            let path = request.url?.path ?? ""
+            let data = request.httpBody ?? request.httpBodyStream.map(Self.read) ?? Data()
+            Self.seen.mutate {
+                $0.append(Seen(
+                    method: request.httpMethod ?? "GET",
+                    path: path,
+                    headers: request.allHTTPHeaderFields ?? [:],
+                    body: (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                ))
+            }
+            let (status, body, headers) = Self.answers.value[path] ?? (404, "{}", [:])
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+
+        private static func read(_ stream: InputStream) -> Data {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let n = stream.read(&buffer, maxLength: buffer.count)
+                if n <= 0 { break }
+                data.append(buffer, count: n)
+            }
+            return data
+        }
+    }
+
+    private final class MemoryKeychain: KeychainStoring, @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String: String] = [:]
+        func get(_ key: String) throws -> String? { lock.withLock { storage[key] } }
+        @discardableResult
+        func set(_ key: String, value: String?) -> Bool {
+            lock.withLock { storage[key] = value }
+            return true
+        }
+        func delete(_ key: String) { lock.withLock { storage[key] = nil } }
+    }
+
+    private let instance = "https://exp.example.com"
+
+    private func api() -> AuthApi {
+        let auth = AuthRepository(accountStore: AccountStore(keychain: MemoryKeychain()))
+        return AuthApi(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth)
+    }
+
+    override func setUp() {
+        super.setUp()
+        Server.seen.mutate { $0 = [] }
+        Server.answers.mutate { $0 = [:] }
+    }
+
+    private func answer(_ path: String, _ status: Int, _ body: String, headers: [String: String] = [:]) {
+        Server.answers.mutate { $0[path] = (status, body, headers) }
+    }
+
+    func testRegistrationOptionsSurfaceTheStaleSessionDistinctly() async {
+        answer("/api/auth/passkey/generate-register-options", 403,
+               #"{"code":"SESSION_NOT_FRESH","message":"Session is not fresh"}"#)
+        guard case .notFresh = await api().passkeyRegistrationOptions(
+            instanceUrl: instance, token: "tok", name: "iPhone"
+        ) else { return XCTFail("SESSION_NOT_FRESH must not become a sentence") }
+    }
+
+    func testRegistrationVerifySurfacesTheStaleSessionDistinctly() async {
+        answer("/api/auth/passkey/verify-registration", 403, #"{"code":"SESSION_NOT_FRESH","message":"x"}"#)
+        let attestation = PasskeyAttestation(credentialId: Data([1]), clientDataJSON: Data([2]), attestationObject: Data([3]))
+        let failure = await api().verifyPasskeyRegistration(
+            instanceUrl: instance, token: "tok", cookieHeader: "", attestation: attestation, name: "iPhone"
+        )
+        XCTAssertEqual(failure, .notFresh)
+    }
+
+    func testMethodsReadTheAccountsWaysInWithTheBearer() async throws {
+        answer("/api/auth/step-up/methods", 200, #"{"methods":["passkey","email","fax"],"email":"dev@example.com"}"#)
+        let result = try await api().stepUpMethods(instanceUrl: instance, token: "tok").get()
+        XCTAssertEqual(result, StepUpMethods(methods: [.passkey, .email], email: "dev@example.com"))
+        let request = try XCTUnwrap(Server.seen.value.first)
+        XCTAssertEqual(request.method, "GET")
+        XCTAssertEqual(request.headers["Authorization"], "Bearer tok")
+    }
+
+    func testCodeAndPasswordPostTheirBodies() async throws {
+        for path in ["email/send", "email/verify", "password"] {
+            answer("/api/auth/step-up/\(path)", 200, #"{"fresh":true}"#)
+        }
+        let api = api()
+        _ = try await api.stepUpSendCode(instanceUrl: instance, token: "tok").get()
+        _ = try await api.stepUpVerifyCode(instanceUrl: instance, token: "tok", code: "123456").get()
+        _ = try await api.stepUpPassword(instanceUrl: instance, token: "tok", password: "hunter2").get()
+        let seen = Server.seen.value
+        XCTAssertEqual(seen.map(\.path), [
+            "/api/auth/step-up/email/send", "/api/auth/step-up/email/verify", "/api/auth/step-up/password",
+        ])
+        XCTAssertEqual(seen.map(\.method), ["POST", "POST", "POST"])
+        for request in seen {
+            XCTAssertEqual(request.headers["Authorization"], "Bearer tok")
+            // Better Auth's CSRF check 403s an Origin-less POST.
+            XCTAssertEqual(request.headers["Origin"], instance)
+        }
+        XCTAssertEqual(seen[1].body?["code"] as? String, "123456")
+        XCTAssertEqual(seen[2].body?["password"] as? String, "hunter2")
+    }
+
+    func testARefusalCarriesTheServerCode() async {
+        answer("/api/auth/step-up/password", 401, #"{"code":"INVALID_PASSWORD","message":"Invalid password"}"#)
+        answer("/api/auth/step-up/email/verify", 500, "oops")
+        let api = api()
+        let password = await api.stepUpPassword(instanceUrl: instance, token: "tok", password: "no")
+        XCTAssertEqual(password.failureCode, "INVALID_PASSWORD")
+        XCTAssertEqual(StepUp.errorCopy(password.failureCode ?? ""), "That password is not right.")
+        let code = await api.stepUpVerifyCode(instanceUrl: instance, token: "tok", code: "1")
+        XCTAssertEqual(code.failureCode, "HTTP_500")
+    }
+
+    /// The options come WITH the bearer (this account's passkeys); their
+    /// challenge cookie rides back on the proof, whose body is the login's.
+    func testPasskeyProofReplaysTheChallengeCookie() async throws {
+        let credential = Data([9, 9])
+        answer(
+            "/api/auth/passkey/generate-authenticate-options", 200,
+            #"{"challenge":"AQID","rpId":"exp.example.com","allowCredentials":[{"id":"\#(Base64URL.encode(credential))","type":"public-key"}]}"#,
+            headers: ["Set-Cookie": "better-auth-passkey=chal.sig; Path=/; HttpOnly"]
+        )
+        answer("/api/auth/step-up/passkey", 200, #"{"fresh":true}"#)
+        let api = api()
+        let options = try await api.stepUpPasskeyOptions(instanceUrl: instance, token: "tok").get()
+        XCTAssertEqual(options.allowedCredentialIds, [credential])
+        XCTAssertEqual(options.cookieHeader, "better-auth-passkey=chal.sig")
+        let assertion = PasskeyAssertion(
+            credentialId: credential, clientDataJSON: Data([1]), authenticatorData: Data([2]),
+            signature: Data([3]), userHandle: nil
+        )
+        _ = try await api.stepUpPasskey(
+            instanceUrl: instance, token: "tok", cookieHeader: options.cookieHeader, assertion: assertion
+        ).get()
+        let seen = Server.seen.value
+        XCTAssertEqual(seen[0].headers["Authorization"], "Bearer tok")
+        XCTAssertEqual(seen[1].path, "/api/auth/step-up/passkey")
+        XCTAssertEqual(seen[1].headers["Cookie"], "better-auth-passkey=chal.sig")
+        let response = try XCTUnwrap(seen[1].body?["response"] as? [String: Any])
+        XCTAssertEqual(response["id"] as? String, Base64URL.encode(credential))
+    }
+
+    func testAForeignPasskeyIsRefused() async {
+        answer("/api/auth/step-up/passkey", 401, #"{"code":"PASSKEY_FAILED","message":"x"}"#)
+        let assertion = PasskeyAssertion(
+            credentialId: Data([1]), clientDataJSON: Data([1]), authenticatorData: Data([2]), signature: Data([3]), userHandle: nil
+        )
+        let result = await api().stepUpPasskey(instanceUrl: instance, token: "tok", cookieHeader: "", assertion: assertion)
+        XCTAssertEqual(result.failureCode, "PASSKEY_FAILED")
+    }
+}
+
+private extension Result where Failure == StepUpRefused {
+    var failureCode: String? {
+        if case let .failure(refused) = self { return refused.code }
+        return nil
     }
 }

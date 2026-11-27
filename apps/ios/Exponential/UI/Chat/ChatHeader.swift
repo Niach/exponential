@@ -6,23 +6,38 @@ private typealias Measures = Chats.Shell.ChatHeader
 
 /// #EXP-1688 (chats.json `shell.chatHeader`): THE chat header on a phone (web
 /// `MobileDetailHeader` + `PhoneHeaderTitle`, Android `ChatHeader`): one row,
-/// ALWAYS leading: the ghost back, the title block taking the width that is
+/// ALWAYS leading: THE round back (#EXP-2168 header-actions.json `leading`,
+/// `HeaderCircleButton`), the title block taking the width that is
 /// left, the trailing slot. It rides the first row of the header band
 /// (`workHeaderBand`); the screen hides its navigation bar, whose edge swipe
 /// stays armed by `bareBackButton`.
 struct ChatHeader<Title: View, Trailing: View>: View {
+    /// #EXP-2183 COLLAPSE (header-actions.json `collapse`): non-nil = the row
+    /// measures itself and writes the trailing chips to fold
+    /// (`HeaderActions.collapse`); the chips mark themselves `headerFoldable`.
+    var folded: Binding<[HeaderActions.Action]>?
     @ViewBuilder var title: () -> Title
     @ViewBuilder var trailing: () -> Trailing
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.detailColumnRoot) private var columnRoot
 
+    init(
+        folded: Binding<[HeaderActions.Action]>? = nil,
+        @ViewBuilder title: @escaping () -> Title,
+        @ViewBuilder trailing: @escaping () -> Trailing
+    ) {
+        self.folded = folded
+        self.title = title
+        self.trailing = trailing
+    }
+
     var body: some View {
-        HStack(spacing: CGFloat(Measures.gap)) {
+        HStack(spacing: CGFloat(HeaderActions.gap)) {
             // The id UI tests find Back by (`bareBackButton`'s too). #NEW-12:
             // none at the iPad detail column's root (its list is beside it).
             if !columnRoot {
-                ChatHeaderGhostButton(icon: AppIcons.uiBack, label: "Back", identifier: "BackButton") {
+                HeaderCircleButton(icon: AppIcons.uiBack, label: "Back", identifier: "BackButton") {
                     dismiss()
                 }
             }
@@ -32,10 +47,78 @@ struct ChatHeader<Title: View, Trailing: View>: View {
         }
         // One row of fixed height: its glyphs and text keep their size.
         .dynamicTypeSize(.large)
-        .padding(.leading, CGFloat(Measures.paddingX))
-        .padding(.trailing, 16)
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, minHeight: CGFloat(Measures.row), maxHeight: CGFloat(Measures.row), alignment: .leading)
+        .headerWidth(HeaderFoldKey.bar)
+        .onPreferenceChange(HeaderFoldWidths.self) { widths in
+            MainActor.assumeIsolated { fold(widths) }
+        }
         .clearsWindowControls()
+    }
+
+    /// `ChatHeaderTitle` reports the title text's slot and intrinsic width
+    /// (Android `HeaderFold`); `fixed` = the bar less that slot and the chips as drawn now
+    /// (back, the buttons that never fold, gaps, padding).
+    private func fold(_ widths: [String: CGFloat]) {
+        guard let folded, let bar = widths[HeaderFoldKey.bar], let slot = widths[HeaderFoldKey.titleSlot],
+              let title = widths[HeaderFoldKey.title] else { return }
+        var now: CGFloat = 0
+        let chips = HeaderActions.collapseOrder.compactMap { action -> HeaderActions.CollapseChip? in
+            guard let full = widths[HeaderFoldKey.full(action)], let compact = widths[HeaderFoldKey.compact(action)],
+                  let drawn = widths[HeaderFoldKey.now(action)] else { return nil }
+            now += drawn
+            return HeaderActions.CollapseChip(action: action, full: Double(full), compact: Double(compact))
+        }
+        let next = HeaderActions.collapse(
+            bar: Double(bar), title: Double(title), fixed: Double(bar - slot - now), chips: chips
+        )
+        if folded.wrappedValue != next { folded.wrappedValue = next }
+    }
+}
+
+/// #EXP-2183: the widths `ChatHeader` folds by.
+struct HeaderFoldWidths: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+enum HeaderFoldKey {
+    static let bar = "bar"
+    static let titleSlot = "titleSlot"
+    static let title = "title"
+    static func full(_ action: HeaderActions.Action) -> String { "\(action.rawValue).full" }
+    static func compact(_ action: HeaderActions.Action) -> String { "\(action.rawValue).compact" }
+    static func now(_ action: HeaderActions.Action) -> String { "\(action.rawValue).now" }
+}
+
+extension View {
+    func headerWidth(_ key: String) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: HeaderFoldWidths.self, value: [key: proxy.size.width])
+            }
+        }
+    }
+
+    /// #EXP-2183: a trailing chip `ChatHeader` may fold: its full and its
+    /// glyph-only form measured off screen, beside its drawn width.
+    func headerFoldable<Full: View, Compact: View>(
+        _ action: HeaderActions.Action,
+        @ViewBuilder full: () -> Full,
+        @ViewBuilder compact: () -> Compact
+    ) -> some View {
+        headerWidth(HeaderFoldKey.now(action))
+            .background {
+                ZStack {
+                    full().fixedSize().headerWidth(HeaderFoldKey.full(action))
+                    compact().fixedSize().headerWidth(HeaderFoldKey.compact(action))
+                }
+                .hidden()
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            }
     }
 }
 
@@ -59,25 +142,10 @@ extension ChatHeader where Title == EmptyView, Trailing == EmptyView {
     }
 }
 
-/// A ghost button's face: the glyph at the secondary text colour, no fill and
-/// no hairline (the filled circle is the page header's).
-struct ChatHeaderGhostGlyph: View {
-    let icon: String
-    var opacity = TextOpacity.secondary
-
-    var body: some View {
-        AppIcon(icon, size: CGFloat(Measures.glyph), weight: .medium)
-            .foregroundStyle(.white.opacity(opacity))
-            .frame(width: CGFloat(Measures.button), height: CGFloat(Measures.button))
-            // #EXP-1759: the WHOLE 36pt square takes the tap; a circle
-            // dropped its corners.
-            .contentShape(Rectangle())
-    }
-}
-
-/// header-actions.json: THE round header action in a custom bar (the native
-/// toolbar circle's twin: Liquid Glass from iOS 26, the floating circle's
-/// chrome before).
+/// header-actions.json: THE round header button's face (`circle` pt, its
+/// `glyph` pt glyph): Liquid Glass from iOS 26, the floating circle's chrome
+/// before. Every header wears it, the custom bars and the navigation bar's
+/// items alike (`PageHeaderGlyph`, the back of `bareBackButton`).
 struct HeaderCircleFace: View {
     let icon: String
     var opacity: Double = 1
@@ -109,22 +177,6 @@ struct HeaderCircleButton: View {
             .buttonStyle(.plain)
             .accessibilityLabel(label)
             .accessibilityIdentifier(identifier ?? "")
-    }
-}
-
-struct ChatHeaderGhostButton: View {
-    let icon: String
-    let label: String
-    var identifier: String?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ChatHeaderGhostGlyph(icon: icon)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(identifier ?? "")
     }
 }
 
@@ -198,6 +250,16 @@ struct ChatHeaderTitle: View {
                             .truncationMode(.tail)
                             .accessibilityAddTraits(.isHeader)
                             .accessibilityIdentifier("chat-title")
+                            .background(alignment: .leading) {
+                                // #EXP-2183: the title's intrinsic width, off screen.
+                                Text(title)
+                                    .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .headerWidth(HeaderFoldKey.title)
+                                    .hidden()
+                                    .accessibilityHidden(true)
+                            }
                         ChatMarksView(marks: marks)
                     }
                     if let titleAccessory { titleAccessory }
@@ -214,6 +276,7 @@ struct ChatHeaderTitle: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .headerWidth(HeaderFoldKey.titleSlot)
         }
     }
 

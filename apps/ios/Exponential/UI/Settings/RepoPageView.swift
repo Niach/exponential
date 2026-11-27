@@ -38,17 +38,8 @@ struct RepoPageView: View {
                 // Add secret and the switches clear the floating tab bar.
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(repo?.fullName ?? "")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // #EXP-2168: the pushed page header: THE round back, the title LEFT.
+        .pageHeader(repo?.fullName ?? "", pushed: true)
         .accessibilityIdentifier(RepoPage.TestIds.page)
         .task(id: "\(accountId)/\(repositoryId)") { await loadRepo() }
         .task(id: "\(accountId)/\(repositoryId)/prs") { await observePrs() }

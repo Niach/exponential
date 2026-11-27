@@ -678,6 +678,7 @@ export async function dispatchQueued(scope: { teamId?: string } = {}, now: Date 
       .innerJoin(teamMembers, and(eq(teamMembers.userId, devices.userId), eq(teamMembers.teamId, teamId)))
       .where(
         and(
+          isNull(devices.spaceHostId),
           sql`(${devices.runner}->>'enabled')::boolean IS TRUE`,
           sql`${devices.caps} ? ${CI_RUNNER_CAP}`,
           gt(devices.lastSeenAt, new Date(now.getTime() - RUNNER_LOST_MS))

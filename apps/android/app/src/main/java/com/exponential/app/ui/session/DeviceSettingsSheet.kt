@@ -35,6 +35,7 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DeviceReadiness
+import com.exponential.app.domain.MemberSpace
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
@@ -122,6 +123,28 @@ fun DeviceSettingsSheet(
     val deviceFailure by agentsViewModel.failure.collectAsStateWithLifecycle()
     ClaimedFailedActionToast(deviceFailure, agentsViewModel::claimFailure)
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
+    // #EXP-2161: members' Assistants (the opt-in rows, `copy.members`).
+    val assistantsBusy by viewModel.assistantsBusy.collectAsStateWithLifecycle()
+    val spaceMembers by viewModel.members.collectAsStateWithLifecycle()
+    val removingSpace by viewModel.removingSpace.collectAsStateWithLifecycle()
+    var optInTeam by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(device.rowId, device.isServer) {
+        viewModel.followMembers(device.rowId.takeIf { device.isServer })
+        onDispose { viewModel.followMembers(null) }
+    }
+    optInTeam?.let { teamId ->
+        PromptAlert(
+            prompt = MemberSpace.optInPrompt(),
+            onDismiss = { optInTeam = null },
+            handlers = mapOf(
+                MemberSpace.ACTION_ALLOW to {
+                    viewModel.setAssistantTeam(device.deviceId, teamId, true) { optInTeam = null }
+                },
+            ),
+            loading = MemberSpace.ACTION_ALLOW.takeIf { assistantsBusy },
+            testTags = mapOf(MemberSpace.ACTION_ALLOW to "member-space-allow"),
+        )
+    }
 
     // A rename/remove/update on THIS machine is in flight: its controls stay
     // put but disable until the change lands.
@@ -350,6 +373,25 @@ fun DeviceSettingsSheet(
                                 },
                                 enabled = !shareBusy,
                             )
+                            // #EXP-2161 (member-space.json): members'
+                            // Assistants, under each shared team's switch.
+                            if (device.sharedTeamIds.contains(team.id)) {
+                                val checked = device.assistantTeamIds.contains(team.id)
+                                val optIn = MemberSpace.optInRow(checked, device.kind, device.doctor)
+                                GroupDivider()
+                                SwitchRow(
+                                    title = MemberSpace.Copy.OPT_IN,
+                                    description = if (optIn.disabled) optIn.detail else null,
+                                    checked = checked,
+                                    onCheckedChange = { next ->
+                                        if (next) optInTeam = team.id
+                                        else viewModel.setAssistantTeam(device.deviceId, team.id, false)
+                                    },
+                                    enabled = !optIn.disabled && !assistantsBusy,
+                                    // Indented under its team (web `pl-8`).
+                                    modifier = Modifier.padding(start = 16.dp).testTag("device-settings-assistants-${team.id}"),
+                                )
+                            }
                         }
                     }
                     Text(
@@ -360,6 +402,38 @@ fun DeviceSettingsSheet(
                         modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                     )
                     Spacer(Modifier.height(8.dp))
+                    // #EXP-2161: `copy.members`, who runs their Assistant here.
+                    if (spaceMembers.isNotEmpty()) {
+                        SectionHeader(MemberSpace.Copy.MEMBERS, modifier = Modifier.padding(horizontal = 16.dp))
+                        OptionGroup {
+                            spaceMembers.forEachIndexed { index, member ->
+                                if (index > 0) GroupDivider()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                        .testTag("member-space-${member.spaceId}"),
+                                ) {
+                                    Text(
+                                        member.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    GlassPill(
+                                        MemberSpace.Copy.REMOVE,
+                                        size = PillSize.Sm,
+                                        onClick = { viewModel.removeSpace(member.spaceId) },
+                                        enabled = removingSpace == null,
+                                        loading = removingSpace == member.spaceId,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
 
                 // ── Readiness (EXP-1196/1218/1219) ──────────────────────

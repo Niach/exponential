@@ -20,6 +20,9 @@ pub struct WgpuContext {
     dual_source_blending: bool,
     color_texture_format: wgpu::TextureFormat,
     errors: Arc<DeviceErrorState>,
+    /// Exponential patch (#EDE-237): the render pipelines every window of
+    /// this device shares ([`crate::wgpu_renderer::PipelineCache`]).
+    pub(crate) pipelines: Arc<crate::wgpu_renderer::PipelineCache>,
 }
 
 /// Errors reported by wgpu's device-wide callbacks.
@@ -320,6 +323,7 @@ impl WgpuContext {
             dual_source_blending,
             color_texture_format,
             errors,
+            pipelines: Default::default(),
         }
     }
 
@@ -419,6 +423,7 @@ impl WgpuContext {
             dual_source_blending,
             color_texture_format,
             errors,
+            pipelines: Default::default(),
         };
         Ok(PreparedWebGraphics { context, surface })
     }

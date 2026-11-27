@@ -28,7 +28,21 @@ function isBlockedCreemEndpoint(pathname: string): boolean {
 // handlers hand better-auth a request whose x-forwarded-for is collapsed to
 // the proxy-attested last hop, so its per-IP rate-limit buckets key on an
 // address the client cannot rotate or spoof.
+// #EXP-2161: the api-key plugin mocks a session for every Better Auth
+// endpoint; a member space's keys (its own and the agent keys minted through
+// it) reach none of them.
+async function refuseSpaceKey(request: Request): Promise<Response | null> {
+  const key = request.headers.get(`x-api-key`) ?? request.headers.get(`authorization`)?.match(/^Bearer\s+(expu_[^\s]+)$/i)?.[1]
+  if (!key) return null
+  const { resolveMcpCredential } = await import(`@/lib/auth/resolve-bearer`)
+  const resolved = await resolveMcpCredential(request).catch(() => undefined)
+  if (resolved === undefined) return new Response(`Service Unavailable`, { status: 503, headers: { "retry-after": `5` } })
+  return resolved.keyKind === `space` || resolved.keySpaceId ? new Response(`Forbidden`, { status: 403 }) : null
+}
+
 async function handleGet(incoming: Request) {
+  const refused = await refuseSpaceKey(incoming)
+  if (refused) return refused
   const request = withCurrentAuthPath(incoming)
   const pathname = new URL(request.url).pathname
   if (isBlockedCreemEndpoint(pathname)) {
@@ -45,6 +59,8 @@ async function handleGet(incoming: Request) {
 }
 
 async function handlePost(incoming: Request) {
+  const refused = await refuseSpaceKey(incoming)
+  if (refused) return refused
   const request = withCurrentAuthPath(incoming)
   if (isBlockedCreemEndpoint(new URL(request.url).pathname)) {
     return new Response(`Not found`, { status: 404 })

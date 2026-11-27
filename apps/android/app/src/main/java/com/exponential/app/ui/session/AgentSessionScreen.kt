@@ -1144,6 +1144,8 @@ private fun RunFaceContent(
     // after the call that posted it (the rest at the head); a waiting one
     // ALSO sits in the Dock (FEED-140).
     val sessionCards by viewModel.sessionCards.collectAsStateWithLifecycle()
+    // #NEW-146: the posted elicitation cards, drawn for their live frames.
+    val elicitationCards by viewModel.elicitationCards.collectAsStateWithLifecycle()
     val cardSlots = remember(feed, sessionCards) {
         val anchors = AskDock.anchorSessionCards(AskDock.feedCalls(feed), sessionCards.map { it.first })
         SessionCardSlots(anchors, sessionCards.associate { it.first.id to it.second })
@@ -1619,6 +1621,7 @@ private fun RunFaceContent(
                     },
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
+                    elicitationCards = elicitationCards,
                     calls = feedCalls,
                     ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
@@ -2145,6 +2148,9 @@ private fun ActivityFeed(
     /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
     sessionCards: SessionCardSlots = SessionCardSlots.None,
     renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
+    /** #NEW-146: the posted elicitation cards a question frame draws as
+     *  ([renderCard]) instead of its bare options. */
+    elicitationCards: ElicitationFeedCards = ElicitationFeedCards.None,
     /** #EXP-1736: who sent each row (null = no grouping: every row full). */
     senders: FeedSenders? = null,
     /** #FEED-237: the viewer's own pending bubbles at the very bottom
@@ -2199,6 +2205,7 @@ private fun ActivityFeed(
         dropHiddenFeedRows(
             splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
                 .filterNot { docked != null && isSameAskRow(it, docked) },
+            workflowIds,
         )
     }
     // #EXP-1943 (session-card.json THE LIVE CHAT): a call's FIRST report
@@ -2232,13 +2239,14 @@ private fun ActivityFeed(
     // ONE origin rule (data first): the feed's first prompt is the origin's
     // while the window holds the feed's start (nothing earlier on the device).
     val fromStart = windowStart == 0 && !onCanLoadEarlier()
-    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds, callFeed) {
+    val feedLayouts = remember(rows, sessionCards, senders, agent, fromStart, workflowIds, callFeed, shownRows) {
         if (senders == null) {
             emptyMap()
         } else {
             feedTranscriptLayout(
                 rows, sessionCards, senders, agent, fromStart = fromStart, workflowIds = workflowIds,
                 callRows = callFeed.first.keys,
+                checkInRows = shownRows.checkIns.keys,
             )
         }
     }
@@ -2405,7 +2413,9 @@ private fun ActivityFeed(
     }
     // EXP-1175: the card inputs, shared with the chat's pending cards.
     // EXP-1521: one instance per input change, so the card rows can skip.
-    val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp) {
+    // #NEW-146: read through a state, so a fresh card lambda never re-keys the cards.
+    val elicitationRender = rememberUpdatedState(ringCard)
+    val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp, elicitationCards) {
         AnswerCards(
             answered = answered,
             activeQuestionIds = activeQuestionIds,
@@ -2414,6 +2424,8 @@ private fun ActivityFeed(
             answerLabels = answerLabels,
             onAnswer = onAnswer,
             onPlanFollowUp = onPlanFollowUp,
+            elicitationCards = elicitationCards,
+            renderCard = { card -> elicitationRender.value(card) },
         )
     }
 
@@ -2701,8 +2713,8 @@ private fun ActivityFeed(
                                 val time = item.at?.let(::feedClock)
                                 // #EXP-1772: a system input = THE inline marker.
                                 val input = TranscriptGrouping.feedInput(item.text)
-                                // #EXP-1873: a quiet check-in (or a run of
-                                // them) = ONE marker line.
+                                // #EXP-1873 + #FEED-317: a quiet tick (or a
+                                // run of them) = ONE tool-group line.
                                 val checkIns = shownRows.checkIns[row.id]
                                 val callId = callFeed.first[item.id]
                                 // #EXP-2067: a press's input = its body's bubble, else THE marker.
@@ -2733,7 +2745,9 @@ private fun ActivityFeed(
                                         status = com.exponential.app.domain.MessageDelivery.State.Read,
                                         tail = layout.hasTail(),
                                     ) { UserMessageBody(action.body, LocalFindPaint.current?.highlightOf(item.id)) }
-                                    checkIns != null -> FeedMarkerRow(TranscriptGrouping.checkInLabel(checkIns, time))
+                                    checkIns != null -> com.exponential.app.ui.chat.ScheduleTicksRow(
+                                        ticks = checkIns.map { at -> at?.let(::feedClock) },
+                                    )
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
                                     input is TranscriptGrouping.FeedInput.Marker -> FeedMarkerRow(input.label)
@@ -3012,21 +3026,29 @@ internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val 
 internal fun nearTranscriptTop(firstVisibleIndex: Int, visibleCount: Int, scrolledUp: Boolean): Boolean =
     scrolledUp && visibleCount > 0 && firstVisibleIndex < visibleCount
 
-/** The main feed's drawn rows; [checkIns] = a quiet check-in row's count
- *  by row id (#EXP-1873: THE marker line covering that many check-ins). */
-internal data class ShownFeedRows(val rows: List<AgentFeedRow>, val checkIns: Map<Long, Int> = emptyMap())
+/** The main feed's drawn rows; [checkIns] = a quiet tick line's ticks by row
+ *  id, each tick's `at` oldest first (#EXP-1873 + #FEED-317: THE tool-group
+ *  line covering that many ticks). */
+internal data class ShownFeedRows(val rows: List<AgentFeedRow>, val checkIns: Map<Long, List<Long?>> = emptyMap())
 
 /**
  * #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
  * without the markers nobody answered (a system input shows only when an
  * agent reply follows it before the next input or marker) and without the
  * blank agent turns, BEFORE the transcript layout (a hidden marker never
- * breaks a group). #EXP-1873 (`feedRows`): a quiet check-in (a schedule
- * firing answered only with quiet) is ONE line, consecutive ones collapse
- * onto the last.
+ * breaks a group). #EXP-1873 + #FEED-317 (`feedRows`): a quiet tick (a
+ * schedule firing whose turn called quiet and said nothing visible: its work
+ * folds in) is ONE line, consecutive ones collapse onto the last.
  */
-internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
+internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>, workflowIds: Set<String> = emptySet()): ShownFeedRows {
     val kinds = rows.map { row ->
+        // #FEED-317: the agent's work (a tool line or run, an Exponential
+        // tool run, a thought, a subagent line) folds into a quiet tick.
+        when (row) {
+            is AgentFeedRow.ToolRun, is AgentFeedRow.ExpRun, is AgentFeedRow.SubagentRun ->
+                return@map TranscriptGrouping.FeedRowRole.Work
+            else -> Unit
+        }
         when (val item = (row as? AgentFeedRow.Single)?.item) {
             is AgentFeedItem.UserMessage -> when (val input = TranscriptGrouping.feedInput(item.text)) {
                 is TranscriptGrouping.FeedInput.Marker ->
@@ -3041,8 +3063,14 @@ internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
             }
             is AgentFeedItem.Narration ->
                 if (!TranscriptGrouping.isBlankText(item.text)) TranscriptGrouping.FeedRowRole.Reply else TranscriptGrouping.FeedRowRole.Blank
-            is AgentFeedItem.Tool ->
-                if (TranscriptGrouping.traceNotice(item.name) != null) TranscriptGrouping.FeedRowRole.Quiet else TranscriptGrouping.FeedRowRole.Other
+            is AgentFeedItem.Tool -> when {
+                TranscriptGrouping.traceNotice(item.name) != null -> TranscriptGrouping.FeedRowRole.Quiet
+                // A card stays drawn: a Workflow call, an edit's patch, a `show` call.
+                item.callId?.let { it in workflowIds } == true || !item.diff.isNullOrEmpty() ||
+                    ExpToolDisplay.row(item.name) == com.exponential.app.domain.AskDock.SHOW_CARD_CALL -> TranscriptGrouping.FeedRowRole.Other
+                else -> TranscriptGrouping.FeedRowRole.Work
+            }
+            is AgentFeedItem.Thought, is AgentFeedItem.Subagent -> TranscriptGrouping.FeedRowRole.Work
             else -> TranscriptGrouping.FeedRowRole.Other
         }
     }
@@ -3050,13 +3078,16 @@ internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
         return ShownFeedRows(rows)
     }
     val shown = TranscriptGrouping.feedRows(kinds)
-    val checkIns = HashMap<Long, Int>()
+    val checkIns = HashMap<Long, List<Long?>>()
     val kept = rows.filterIndexed { index, row ->
         when (val drawn = shown[index]) {
             TranscriptGrouping.FeedRowShown.Hidden -> false
             TranscriptGrouping.FeedRowShown.Row -> true
             is TranscriptGrouping.FeedRowShown.CheckIn -> {
-                checkIns[row.id] = drawn.count
+                // The schedule UserMessages are the ticks: keep each one's `at`.
+                checkIns[row.id] = TranscriptGrouping.checkInTicks(kinds, index, drawn.count).map { tick ->
+                    ((rows[tick] as? AgentFeedRow.Single)?.item as? AgentFeedItem.UserMessage)?.at
+                }
                 true
             }
         }
@@ -3088,6 +3119,8 @@ internal fun feedTranscriptLayout(
     workflowIds: Set<String> = emptySet(),
     /** #EXP-1943: the rows drawn as a call's card (full rows). */
     callRows: Set<Long> = emptySet(),
+    /** #FEED-317: the quiet ticks' lines (the chat's own agent's trace). */
+    checkInRows: Set<Long> = emptySet(),
 ): Map<Long, FeedRowLayout> {
     val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
     senders.origin?.let { sessions[it.sessionId] = TranscriptGrouping.SessionRef(it.sessionId, it.name, it.agentId) }
@@ -3108,7 +3141,10 @@ internal fun feedTranscriptLayout(
                 } else {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 }
-                is AgentFeedItem.UserMessage -> if (
+                // #FEED-317: a quiet tick line = the agent's trace, beside its avatar.
+                is AgentFeedItem.UserMessage -> if (row.id in checkInRows) {
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Trace)
+                } else if (
                     row.id in callRows ||
                     Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
                 ) {
@@ -3347,6 +3383,24 @@ internal class SessionCardSlots(
     }
 }
 
+/** #NEW-146 (elicitation-card.json LIVE): this session's engine-posted
+ *  elicitation cards (opened) and their rows by message id. */
+data class ElicitationFeedCards(
+    val messages: List<SessionTree.Message>,
+    val rows: Map<String, SessionTree.SessionChatRow>,
+) {
+    /** THE card a question frame draws as ([ElicitationCard.feedCard]);
+     *  null = the frame stays. */
+    fun rowFor(questionId: String, resolved: Boolean): SessionTree.SessionChatRow? {
+        if (messages.isEmpty()) return null
+        return com.exponential.app.domain.ElicitationCard.feedCard(messages, questionId, resolved)?.let(rows::get)
+    }
+
+    companion object {
+        val None = ElicitationFeedCards(emptyList(), emptyMap())
+    }
+}
+
 /** One session card in the transcript, the block gap above it. */
 @Composable
 private fun SessionCardRow(row: SessionTree.SessionChatRow, render: @Composable (SessionTree.SessionChatRow) -> Unit) {
@@ -3369,6 +3423,9 @@ private class AnswerCards(
     val answerLabels: Map<String, String>,
     val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
     val onPlanFollowUp: (AgentFeedItem.Question, String, String) -> Unit,
+    /** #NEW-146: the posted elicitation cards and how a card row draws. */
+    val elicitationCards: ElicitationFeedCards = ElicitationFeedCards.None,
+    val renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
 )
 
 /** EXP-1175: one card row — an ask's stepper or a single question/plan card;
@@ -3382,6 +3439,20 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
 
 @Composable
 private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
+    // #NEW-146 (elicitation-card.json LIVE): a third-party MCP server's
+    // elicitation draws THE posted card (its form or URL review, answered
+    // via `sessions.answer`, the × = cancel), never the frame's bare options:
+    // a lone question frame or a one-step ask.
+    val lone = when (row) {
+        is AgentFeedRow.QuestionStepper -> row.steps.singleOrNull()
+        is AgentFeedRow.Single -> row.item as? AgentFeedItem.Question
+        else -> null
+    }
+    val elicitation = lone?.let { cards.elicitationCards.rowFor(it.wireId, it.resolved) }
+    if (elicitation != null) {
+        cards.renderCard(elicitation)
+        return
+    }
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,
@@ -4615,6 +4686,10 @@ internal fun AskCard(
     onDismiss: (() -> Unit)? = null,
     /** #EXP-1562: a header chip scrolled here: the focus ring, fading out. */
     highlighted: Boolean = false,
+    /** #NEW-146 (elicitation-card.json): a glyph before [heading] (the
+     *  asking server's `icons.server`), in the heading's tint. */
+    headingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    headingTestTag: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // N-12: inside THE Dock's sheet the header is the sheet's own; the card
@@ -4666,7 +4741,26 @@ internal fun AskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (heading != null) {
+                    if (heading != null && headingIcon != null) {
+                        Row(
+                            modifier = Modifier.weight(1f, fill = trailing != null)
+                                .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(headingIcon, contentDescription = null, modifier = Modifier.size(12.dp), tint = tint)
+                            Text(
+                                heading,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = tint,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else if (heading != null) {
                         Text(
                             heading,
                             // A trailing link sits at the line's end.
@@ -6207,6 +6301,8 @@ internal fun SessionComposer(
     val slashMatches by viewModel.slashCandidates.collectAsStateWithLifecycle()
     val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
+    val sendFailure by viewModel.sendFailure.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(sendFailure, onShown = viewModel::clearSendFailure)
     val acceptSlash: (com.exponential.app.domain.SlashCandidate) -> Unit = { candidate ->
         when (candidate) {
             is com.exponential.app.domain.SlashCandidate.Command -> {

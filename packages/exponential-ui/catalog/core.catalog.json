@@ -466,6 +466,10 @@
           "type": "string",
           "description": "Small muted text at the row's end (Select popup)."
         },
+        "section": {
+          "type": "string",
+          "description": "Popup heading it sits under."
+        },
         "mono": {
           "type": "boolean",
           "description": "Label in the mono type (Select popup)."
@@ -1648,7 +1652,9 @@
       "events": [
         "press",
         "toggle",
-        "hover"
+        "hover",
+        "auxPress",
+        "scroll"
       ],
       "example": {
         "style": {
@@ -1827,7 +1833,7 @@
         "section"
       ],
       "slotScope": "row",
-      "description": "Windowed list for anything past a screen; children may be a data template.",
+      "description": "Windowed list; children may be a data template.",
       "props": {
         "direction": {
           "type": "enum",
@@ -3763,6 +3769,7 @@
             "shape": "menuItem"
           },
           "required": true,
+          "bindable": true,
           "description": "In order."
         },
         "side": {

@@ -4,7 +4,7 @@ import { viaAppCaption } from "@exp/domain-contract/via-app"
 import { useAppName } from "@/hooks/use-apps"
 import { Link } from "@tanstack/react-router"
 import {
-  Button,
+  HeaderBack,
   CardHighlightContext,
   conceptIcon,
   FloatingComposer,
@@ -45,7 +45,6 @@ import { cn } from "@/lib/utils"
 // opening either marks THIS session read (`useOpenedSessionRead`).
 
 const BackIcon = conceptIcon(`ui-back`)
-const PopIcon = conceptIcon(`ui-chevron-left`)
 
 /** VAPP-229 (via-app.json): a session an app's tool started reads one
  *  muted line `via <app>` in its view's header (none without one). */
@@ -59,21 +58,11 @@ export function SessionViaApp({ viaAppId, className }: { viaAppId: string | null
   )
 }
 
-/** S-3: the header's `‹` popping the route's `back` stack (absent = none). */
+/** S-3: the header's `‹` popping the route's `back` stack (absent = none):
+ *  THE round back (#EXP-2168). */
 export function BackStackButton({ onPop, className }: { onPop?: () => void; className?: string }) {
   if (!onPop) return null
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      aria-label="Back"
-      data-testid="chat-back"
-      onClick={onPop}
-      className={cn(`shrink-0 text-muted-foreground`, className)}
-    >
-      <PopIcon className="size-4" />
-    </Button>
-  )
+  return <HeaderBack data-testid="chat-back" onClick={onPop} className={className} />
 }
 /** session-chat.json: THE session composer's placeholder ×4. */
 const REPLY_PLACEHOLDER = CHAT_COPY.placeholder

@@ -15,7 +15,8 @@ import sessionChatFixture from "@exp/domain-contract/fixtures/session-chat.json"
 import sessionCardFixture from "@exp/domain-contract/fixtures/session-card.json"
 import { CallViewBody } from "./call-view"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
-import { checkInLabel, feedRows, traceNotice } from "@exp/domain-contract/transcript-grouping"
+import { checkInLabel, checkInTicks, feedRows, traceNotice, type FeedRowRole } from "@exp/domain-contract/transcript-grouping"
+import { ScheduleRunRow } from "./schedule-run"
 import transcriptGrouping from "@exp/domain-contract/fixtures/transcript-grouping.json"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
 import { CHAT_SELECTION_ICONS, ChatLeadDisc, ChatList, ChatsHeader } from "./chat-list"
@@ -469,28 +470,48 @@ const DELIVERY_BUBBLES = [
   { id: `o3`, text: `Ping me when it's under a second.`, time: `09:05`, status: `failed` },
 ] as const
 
-/** #EXP-1873 (transcript-grouping.json `checkInSpecimen`): an agent chat's
- *  check-ins through `feedRows`: quiet runs = ONE line each, the one that
- *  answered keeps its marker above the bubble. */
+/** #EXP-1873 + #FEED-317 (transcript-grouping.json `checkInSpecimen`): an
+ *  agent chat's schedule ticks through `feedRows`: a quiet run = ONE
+ *  tool-group line beside the agent's avatar, the tick that answered keeps
+ *  its marker above the bubble. */
 function CheckInSpecimen() {
   const rows = transcriptGrouping.checkInSpecimen
   const agent = transcriptGrouping.checkInSpecimenAgent
-  const shown = feedRows(rows.map((row) => row.kind as never))
+  const kinds = rows.map((row) => row.kind as FeedRowRole)
+  const shown = feedRows(kinds)
+  const avatar = <SenderAvatar sender={{ kind: `agent`, id: `assistant`, name: agent.name, link: null }} agent={agent} />
+  // The agent's group: a run line or the bubble after a full row opens it.
+  let open = false
   return (
     <div data-testid="chat-check-in-specimen" className="mb-3 flex flex-col gap-3">
       {rows.map((row, index) => {
         const drawn = shown[index]
-        if (drawn === false) return null
-        if (typeof drawn === `number`) return <TranscriptMarker key={index} label={checkInLabel(drawn, row.time)} />
-        if (row.kind === `schedule`) return <TranscriptMarker key={index} label={transcriptGrouping.copy.markers.schedule} />
-        if (row.kind === `quiet`) return <TranscriptMarker key={index} label={traceNotice(`exponential_session_self_quiet`) ?? ``} />
+        if (drawn === false || row.kind === `work`) return null
+        if (typeof drawn === `number`) {
+          const times = checkInTicks(kinds, index, drawn).map((tick) => rows[tick]?.time ?? null)
+          const first = open
+          open = true
+          return (
+            <TranscriptRow key={index} layout={{ side: `other`, avatar: !first, gap: 0 }} avatar={first ? undefined : avatar}>
+              <ScheduleRunRow
+                title={checkInLabel(drawn, times[0] ?? null, times[times.length - 1] ?? null)}
+                ticks={drawn > 1 ? times.map((time) => checkInLabel(1, time, time)) : []}
+              />
+            </TranscriptRow>
+          )
+        }
+        if (row.kind === `schedule`) {
+          open = false
+          return <TranscriptMarker key={index} label={transcriptGrouping.copy.markers.schedule} />
+        }
+        if (row.kind === `quiet`) {
+          open = false
+          return <TranscriptMarker key={index} label={traceNotice(`exponential_session_self_quiet`) ?? ``} />
+        }
         // The answer = a real agent bubble: its avatar, name and tail.
+        open = true
         return (
-          <TranscriptRow
-            key={index}
-            layout={{ side: `other`, avatar: true, gap: 0 }}
-            avatar={<SenderAvatar sender={{ kind: `agent`, id: `assistant`, name: agent.name, link: null }} agent={agent} />}
-          >
+          <TranscriptRow key={index} layout={{ side: `other`, avatar: true, gap: 0 }} avatar={avatar}>
             <MessageBubble side="in" author={agent.name} text={row.text ?? ``} renderText={paragraph} time={row.time} tail />
           </TranscriptRow>
         )

@@ -1194,6 +1194,9 @@ pub(crate) fn remote_launch_devices<'a>(
     owner_name: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<LaunchDevice> {
     let mut devices: Vec<LaunchDevice> = rows
+        // #EXP-2161 (member-space.json `listed`): a member space is never
+        // a device to start on.
+        .filter(|row| !row.is_space())
         .filter_map(|row| {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
             if device_id == own_device_id {

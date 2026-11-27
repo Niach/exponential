@@ -39,8 +39,8 @@ pub use enet_core::install_trust::{
     copy, install_code, KeyRecord, RowKind, TrustRow, TrustStore, TrustStatus, TRUST_MODE, WAITING_ICON,
 };
 use enet_core::install_trust::{
-    call_key, keep_wrap, reconcile_trust, seal_to, sign_approval, wrap_target, ApprovalKind, ApprovalSubject, CallKeyVerdict,
-    KeepVerdict, PinVia, SealVerdict, ServedInstall, TargetVerdict, TrustAnswer, TrustMode, Vouch,
+    call_key, keep_wrap, reconcile_trust, registration_class, seal_to, sign_approval, wrap_target, ApprovalKind, ApprovalSubject, CallKeyVerdict,
+    InstallClass, KeepVerdict, RootSight, PinVia, SealVerdict, ServedInstall, TargetVerdict, TrustAnswer, TrustMode, Vouch,
 };
 use enet_core::wrap_sig::{endpoint_id_hex, ServedWrap};
 use enet_core::Identity;
@@ -100,6 +100,15 @@ impl From<TrustStatus> for TrustState {
     }
 }
 
+/// `domain::agent_settings::sight_of_root`'s answer.
+pub fn sight(own_assistant: Option<bool>) -> RootSight {
+    match own_assistant {
+        Some(true) => RootSight::Assistant,
+        Some(false) => RootSight::Other,
+        None => RootSight::Unknown,
+    }
+}
+
 /// What the UI draws: the rows (Needs you) and this install's own waiting
 /// state with its code (derived here from its own endpoint id).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,7 +161,14 @@ pub struct TrustKeeper {
     generation: AtomicU64,
     /// Serializes sync rounds (a press and a holder pass).
     syncing: Mutex<()>,
+    /// #EXP-2161: whether a root is the member's own Assistant conversation
+    /// (None = never: no space takes part).
+    own_assistant: Mutex<Option<OwnAssistant>>,
 }
+
+/// #EXP-2161 (member-space.json `rootMark`): what this install's synced rows
+/// say of a root id; the pin store keeps the answer (sticky).
+pub type OwnAssistant = Arc<dyn Fn(&str) -> RootSight + Send + Sync>;
 
 /// Reads the account's store at `path`. `Ok(None)` = no store (decision e:
 /// an existing install); `Err` = it exists and cannot be read.
@@ -240,7 +256,42 @@ impl TrustKeeper {
             }),
             generation: AtomicU64::new(0),
             syncing: Mutex::new(()),
+            own_assistant: Mutex::new(None),
         }
+    }
+
+    /// #EXP-2161: the member space's own keeper (`exp-install-space-v1`).
+    pub fn open_space(path: PathBuf, identity: &Identity, user_id: &str, install_id: String, api: Arc<dyn TrustApi>, mode: TrustMode) -> TrustKeeper {
+        let keeper = TrustKeeper::open(path, identity, user_id, install_id, api, mode);
+        {
+            let mut state = lock(&keeper.state);
+            if !state.store.space {
+                state.store = TrustStore::empty_space(&keeper.endpoint_id, user_id);
+            }
+        }
+        keeper
+    }
+
+    /// #EXP-2161: how this install knows the member's own Assistant
+    /// conversation (its synced rows); a root it does not answer true for
+    /// has no space among its readers.
+    pub fn set_own_assistant(&self, rule: OwnAssistant) {
+        *lock(&self.own_assistant) = Some(rule);
+    }
+
+    fn see(&self, root_id: &str) -> RootSight {
+        let rule = lock(&self.own_assistant).clone();
+        rule.map_or(RootSight::Unknown, |rule| rule(root_id))
+    }
+
+    /// Whether the root counts for a space's pin; what was seen is kept.
+    fn own_assistant(&self, state: &mut State, root_id: &str, see: RootSight, record: bool) -> bool {
+        let before = state.store.root_marks.get(&root_id.to_ascii_lowercase()).copied();
+        let counts = state.store.own_assistant(root_id, see, record);
+        if state.store.root_marks.get(&root_id.to_ascii_lowercase()).copied() != before {
+            self.persist(state);
+        }
+        counts
     }
 
     pub fn install_id(&self) -> &str {
@@ -425,7 +476,12 @@ impl TrustKeeper {
     /// A person pressed Approve on a row. BLOCKING.
     pub fn approve(&self, row: &TrustRow) -> Result<(), String> {
         let subject = self.pressed(row)?;
-        let kind = if row.kind == RowKind::Reset { ApprovalKind::Reset } else { ApprovalKind::Approve };
+        let kind = match row.kind {
+            RowKind::Reset => ApprovalKind::Reset,
+            // #EXP-2161: a space is approved as one, never as an install.
+            RowKind::NewInstall if registration_class(&subject) == Some(InstallClass::Space) => ApprovalKind::Space,
+            RowKind::NewInstall => ApprovalKind::Approve,
+        };
         let signature = sign_approval(&self.identity, kind, &subject_of(&subject)).ok_or("malformed install")?;
         self.api.approve(&self.install_id, &row.install_id, kind, &signature).map_err(|err| err.to_string())?;
         self.sync();
@@ -447,6 +503,19 @@ impl TrustKeeper {
         Ok(())
     }
 
+    /// #EXP-2161: the pinned ordinary installs of the own account as served
+    /// now, `(install id, X25519 key)`: whom a space makes a new chat's key for.
+    pub fn own_pinned_installs(&self) -> Vec<(String, String)> {
+        let state = lock(&self.state);
+        state
+            .store
+            .pins
+            .iter()
+            .filter(|(_, pin)| pin.user_id == state.store.user_id && pin.class == InstallClass::Install)
+            .filter_map(|(endpoint_id, pin)| Some((state.served.get(endpoint_id)?.install_id.clone(), pin.x25519_public.clone())))
+            .collect()
+    }
+
     // ── the rules, for the key holder ────────────────────────────────────
 
     fn log(&self, state: &mut State, rule: &'static str, subject: String, verdict: String) {
@@ -459,13 +528,16 @@ impl TrustKeeper {
 
     /// R1: whether a served wrap is kept; recorded in the store.
     pub fn keep(&self, wrap: &ServedWrap, install_secret: &[u8; 32]) -> KeepVerdict {
+        let see = self.see(wrap.root_id);
         let mut state = lock(&self.state);
-        let verdict = keep_wrap(wrap, &self.identity, install_secret, &state.store, self.mode);
+        let own_assistant = self.own_assistant(&mut state, wrap.root_id, see, false);
+        let verdict = keep_wrap(wrap, &self.identity, install_secret, &state.store, self.mode, own_assistant);
         let subject = format!("{}#{}", wrap.root_id, wrap.epoch);
         match &verdict {
             KeepVerdict::Keep { record, .. } => {
                 self.log(&mut state, "R1", subject, record.as_str().into());
                 if !state.unreadable && state.store.record(wrap.root_id, wrap.epoch) != Some(*record) {
+                    self.own_assistant(&mut state, wrap.root_id, see, true);
                     state.store.record_key(wrap.root_id, wrap.epoch, *record);
                     self.persist(&state);
                 }
@@ -480,9 +552,14 @@ impl TrustKeeper {
 
     /// Records a key (its own new keys are `verified`: it made them).
     pub fn record(&self, root_id: &str, epoch: u32, record: KeyRecord) {
+        let see = self.see(root_id);
         let mut state = lock(&self.state);
         if state.unreadable || state.store.record(root_id, epoch) == Some(record) {
             return;
+        }
+        // `legacy` = held before the store kept marks: none is made now.
+        if record != KeyRecord::Legacy {
+            self.own_assistant(&mut state, root_id, see, true);
         }
         state.store.record_key(root_id, epoch, record);
         self.persist(&state);
@@ -513,9 +590,11 @@ impl TrustKeeper {
 
     /// R2 + R3: whether this install seals to (root, epoch, key).
     pub fn seal(&self, root_id: &str, epoch: u32, public_key: &str, held: Option<[u8; 32]>, vouch: Option<&Vouch>) -> SealVerdict {
+        let see = self.see(root_id);
         let mut state = lock(&self.state);
+        let own_assistant = self.own_assistant(&mut state, root_id, see, false);
         let held = held.map(|secret| (secret, state.store.record(root_id, epoch).unwrap_or(KeyRecord::Legacy)));
-        let verdict = seal_to(root_id, epoch, public_key, held, vouch, &state.store, self.mode);
+        let verdict = seal_to(root_id, epoch, public_key, held, vouch, &state.store, self.mode, own_assistant);
         let text = match verdict {
             SealVerdict::Seal(record) => record.as_str().to_string(),
             SealVerdict::Refuse(reason) => format!("refused:{}", reason.as_str()),
@@ -524,9 +603,19 @@ impl TrustKeeper {
         verdict
     }
 
-    /// R4: whether this install wraps a key for a target the server names.
-    pub fn target(&self, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>, user_id: Option<&str>) -> TargetVerdict {
+    /// R4: whether this install wraps `root_id`'s key (None = a root that
+    /// does not exist yet, never a space's) for a target the server names.
+    pub fn target(
+        &self,
+        root_id: Option<&str>,
+        install_id: &str,
+        x25519_public: &str,
+        endpoint_id: Option<&str>,
+        user_id: Option<&str>,
+    ) -> TargetVerdict {
+        let see = root_id.map(|root_id| (root_id, self.see(root_id)));
         let mut state = lock(&self.state);
+        let own_assistant = see.is_some_and(|(root_id, see)| self.own_assistant(&mut state, root_id, see, false));
         if install_id == self.install_id {
             return TargetVerdict::Wrap(KeyRecord::Verified);
         }
@@ -554,7 +643,7 @@ impl TrustKeeper {
                 Some(known) if known.x25519_public != x25519_public && !state.store.pins.contains_key(&served.endpoint_id) => {
                     TargetVerdict::Refuse(enet_core::install_trust::TargetRefusal::KeyMismatch)
                 }
-                _ => wrap_target(&served, &state.store, self.mode, &state.roots),
+                _ => wrap_target(&served, &state.store, self.mode, &state.roots, own_assistant),
             }
         };
         let text = match verdict {

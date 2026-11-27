@@ -1,10 +1,13 @@
 //! Input, backend-agnostic: every backend turns its events into these calls,
 //! and the headless tests call them directly.
 //!
-//! Compositor bindings (Mint-like): Alt+drag moves a window, Alt+F4 closes
-//! it, Super+Left/Right tile to a half, Super+Up maximizes, Super+Down
-//! restores, Super+L locks, Super+Shift+E ends the session, Ctrl+Alt+F1…F12
-//! switch VTs. While locked only VT switching stays. The keys the shell
+//! Compositor bindings, Cinnamon's defaults (#EDE-243): Alt+drag moves a
+//! window, Alt+right-drag resizes it, Alt+F4 closes it, Super+arrows walk
+//! Muffin's tiles (halves, quarters by combination), Super+Shift+arrows move
+//! it to the next output, Alt+F10 maximizes, Alt+F5 unmaximizes, Alt+F7 /
+//! Alt+F8 move / resize it with the pointer, Super+D shows the desktop,
+//! Super+Space switches the keyboard layout, Ctrl+Alt+L and Super+L lock,
+//! Super+Shift+E ends the session, Ctrl+Alt+F1…F12 switch VTs. While locked only VT switching stays. The keys the shell
 //! answers (Alt+Tab, Super, the media keys) are [`crate::hotkeys`].
 
 use smithay::{
@@ -21,8 +24,8 @@ use smithay::{
 
 use crate::{
     desk::DeskId,
-    grabs::{MoveSurfaceGrab, BTN_LEFT},
-    layout::Tile,
+    grabs::{MoveSurfaceGrab, BTN_LEFT, BTN_RIGHT},
+    layout::{Push, Tile},
     state::{window_state, Ede},
 };
 
@@ -40,7 +43,7 @@ pub enum Action {
     Lock,
     /// A key the shell answers ([`crate::hotkeys`]); the event is sent after delivery.
     Hotkey,
-    /// Super+1…9, Ctrl+Alt+Left/Right.
+    /// Ctrl+Alt+Left/Right (and ede-protocol's switch).
     Workspace(usize),
     WorkspaceStep(i32),
     /// Super+Shift+1…9, Ctrl+Alt+Shift+Left/Right: the focused window along.
@@ -48,6 +51,21 @@ pub enum Action {
     MoveToWorkspaceStep(i32),
     /// Super+Shift+R: the stock shell documents back, the shell restarted (#EDE-16).
     RestoreShell,
+    /// #EDE-243, Muffin's keys: Super+arrows (push-tile).
+    PushTile(Push),
+    /// Alt+F10.
+    ToggleMaximized,
+    /// Alt+F5.
+    Unmaximize,
+    /// Alt+F7 / Alt+F8: the window follows the pointer, a click ends it.
+    BeginMove,
+    BeginResize,
+    /// Super+D.
+    ShowDesktop,
+    /// Super+Shift+arrows: the focused window to the next output that way.
+    MoveToOutput(Push),
+    /// Super+Space / Shift+Super+Space: the next / previous keyboard layout.
+    NextLayout(bool),
     /// A global shortcut's key (by keycode) went down / up (#EDE-15).
     Shortcut(u32, bool),
 }
@@ -173,12 +191,25 @@ impl Ede {
                 (None, None) => self.focus(DeskId::PERSON, None),
             }
             let alt = self.desk.seat.get_keyboard().unwrap().modifier_state().alt;
-            if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
-                // Alt+drag: move from anywhere in the window.
-                if let Some(loc) = self.desk.space.element_location(&window) {
-                    let start = GrabStartData { focus: None, button, location };
-                    pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
+            match (window, alt, button) {
+                (Some(window), true, BTN_LEFT) => {
+                    // Alt+drag: move from anywhere in the window.
+                    if let Some(loc) = self.desk.space.element_location(&window) {
+                        let start = GrabStartData { focus: None, button, location };
+                        pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
+                    }
                 }
+                // #EDE-243: Alt+right-drag resizes (Muffin's
+                // resize-with-right-button, Mint's default), from the edge
+                // or corner nearest the pointer.
+                (Some(window), true, BTN_RIGHT) => {
+                    if let Some(geo) = self.desk.space.element_geometry(&window) {
+                        let start = GrabStartData { focus: None, button, location };
+                        let edges = alt_resize_edges(geo, location);
+                        pointer.set_grab(self, crate::grabs::ResizeSurfaceGrab::start(start, window, edges, geo), serial, Focus::Clear);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -307,7 +338,127 @@ impl Ede {
                     }
                 }
             }
+            Action::PushTile(push) => {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
+                    self.push_tile(&w, push);
+                }
+            }
+            Action::ToggleMaximized => {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
+                    self.toggle_maximized(&w);
+                }
+            }
+            Action::Unmaximize => {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
+                    if window_state(&w).tile.is_some() {
+                        self.untile(&w, None);
+                    }
+                }
+            }
+            Action::BeginMove => self.begin_keyboard_grab(false),
+            Action::BeginResize => self.begin_keyboard_grab(true),
+            Action::ShowDesktop => self.toggle_desktop(),
+            Action::MoveToOutput(push) => {
+                if let Some(w) = self.focused_window(DeskId::PERSON) {
+                    self.move_to_output(&w, push);
+                }
+            }
+            Action::NextLayout(forward) => self.next_layout(forward),
         }
+    }
+
+    /// Muffin's `do_tile_move`: the next tile of the walk
+    /// ([`crate::layout::push_tile`]); none = restored; the same = nothing.
+    pub fn push_tile(&mut self, window: &smithay::desktop::Window, push: Push) {
+        let current = window_state(window).tile;
+        let next = crate::layout::push_tile(current, push);
+        if next == current {
+            return;
+        }
+        match next {
+            None => self.untile(window, None),
+            Some(tile) => {
+                self.tile(window, tile);
+            }
+        }
+    }
+
+    /// Alt+F7 / Alt+F8 (Muffin's begin-move / begin-resize): the pointer
+    /// jumps to the window's centre (move) or its bottom-right corner
+    /// (resize) and the window follows it until a click.
+    fn begin_keyboard_grab(&mut self, resize: bool) {
+        let Some(window) = self.focused_window(DeskId::PERSON) else { return };
+        let Some(geo) = self.desk.space.element_geometry(&window) else { return };
+        let pointer = self.desk.seat.get_pointer().unwrap();
+        if pointer.is_grabbed() {
+            return;
+        }
+        let at: Point<f64, Logical> = if resize { (geo.loc + geo.size.to_point()).to_f64() - Point::from((1.0, 1.0)) } else { geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0) };
+        let serial = SERIAL_COUNTER.next_serial();
+        let time = self.start_time.elapsed().as_millis() as u32;
+        self.pointer_motion_to(at, time);
+        let start = GrabStartData { focus: None, button: 0, location: at };
+        if resize {
+            let grab = crate::grabs::ResizeSurfaceGrab::start(start, window, crate::grabs::ResizeEdge::BOTTOM_RIGHT, geo);
+            pointer.set_grab(self, grab, serial, Focus::Clear);
+        } else {
+            let loc = self.desk.space.element_location(&window).unwrap_or(geo.loc);
+            pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
+        }
+    }
+
+    /// Muffin's move-to-monitor-*: the nearest output that way, the window at
+    /// the same place relative to it (a tiled one keeps its tile there).
+    pub fn move_to_output(&mut self, window: &smithay::desktop::Window, push: Push) {
+        let Some(geo) = self.desk.space.element_geometry(window) else { return };
+        let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+        let Some(from) = self.output_at(center) else { return };
+        let Some(from_geo) = self.desk.space.output_geometry(&from) else { return };
+        let outputs: Vec<_> = self.desk.space.outputs().filter(|o| *o != &from).cloned().collect();
+        let fc = from_geo.loc.to_f64() + from_geo.size.to_f64().to_point().downscale(2.0);
+        let target = outputs
+            .into_iter()
+            .filter_map(|o| self.desk.space.output_geometry(&o).map(|g| (o, g)))
+            .filter_map(|(o, g)| {
+                let c = g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0);
+                let (dx, dy) = (c.x - fc.x, c.y - fc.y);
+                let ahead = match push {
+                    Push::Left => -dx,
+                    Push::Right => dx,
+                    Push::Up => -dy,
+                    Push::Down => dy,
+                };
+                (ahead > 0.0).then(|| (o, g, dx * dx + dy * dy))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        let Some((to, to_geo, _)) = target else { return };
+        if let Some(tile) = window_state(window).tile {
+            self.tile_on(window, tile, &to);
+            return;
+        }
+        let loc = self.desk.space.element_location(window).unwrap_or(geo.loc);
+        let rel = loc - from_geo.loc;
+        let x = to_geo.loc.x + rel.x.clamp(0, (to_geo.size.w - geo.size.w).max(0));
+        let y = to_geo.loc.y + rel.y.clamp(0, (to_geo.size.h - geo.size.h).max(0));
+        self.desk.space.map_element(window.clone(), (x, y), true);
+    }
+
+    /// Super+Space (Cinnamon's switch-input-source): the next layout of
+    /// `[keyboard] layout` (`us,de`), wrapping; the shell hears
+    /// `keyboard.layout` {index, layouts} for the keyboard applet.
+    pub fn next_layout(&mut self, forward: bool) {
+        let keyboard = self.desk.seat.get_keyboard().unwrap();
+        let (index, layouts) = keyboard.with_xkb_state(self, |mut ctx| {
+            if forward {
+                ctx.cycle_next_layout();
+            } else {
+                ctx.cycle_prev_layout();
+            }
+            let xkb = ctx.xkb().lock().unwrap();
+            let layouts: Vec<String> = xkb.layouts().map(|l| xkb.layout_name(l).to_string()).collect();
+            (xkb.active_layout().0, layouts)
+        });
+        self.emit(ede_protocol::events::KEYBOARD_LAYOUT, serde_json::json!({"index": index, "layouts": layouts}));
     }
 
     fn shortcut_event(&mut self, code: u32, pressed: bool, time: u32) {
@@ -411,33 +562,23 @@ impl Ede {
 }
 
 /// `1`…`9` from the digit keysyms and their US-shifted symbols.
-fn digit(sym: u32) -> Option<usize> {
-    match sym {
-        keysyms::KEY_1..=keysyms::KEY_9 => Some((sym - keysyms::KEY_1 + 1) as usize),
-        keysyms::KEY_exclam => Some(1),
-        keysyms::KEY_at => Some(2),
-        keysyms::KEY_numbersign => Some(3),
-        keysyms::KEY_dollar => Some(4),
-        keysyms::KEY_percent => Some(5),
-        keysyms::KEY_asciicircum => Some(6),
-        keysyms::KEY_ampersand => Some(7),
-        keysyms::KEY_asterisk => Some(8),
-        keysyms::KEY_parenleft => Some(9),
-        _ => None,
+/// Muffin's Alt+right-drag: the window in thirds, the pointer's third
+/// picks the edges (the middle one: bottom-right).
+pub fn alt_resize_edges(geo: smithay::utils::Rectangle<i32, Logical>, at: Point<f64, Logical>) -> crate::grabs::ResizeEdge {
+    use crate::grabs::ResizeEdge as E;
+    let fx = (at.x - geo.loc.x as f64) / geo.size.w.max(1) as f64;
+    let fy = (at.y - geo.loc.y as f64) / geo.size.h.max(1) as f64;
+    let h = if fx < 1.0 / 3.0 { E::LEFT } else if fx > 2.0 / 3.0 { E::RIGHT } else { E::empty() };
+    let v = if fy < 1.0 / 3.0 { E::TOP } else if fy > 2.0 / 3.0 { E::BOTTOM } else { E::empty() };
+    match h | v {
+        e if e.is_empty() => E::BOTTOM_RIGHT,
+        e => e,
     }
 }
 
 pub(crate) fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
     if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&sym) {
         return Some(Action::SwitchVt((sym - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
-    }
-    // Super+1…9 (Shift: move the window along); the keysym of the digit
-    // row stays a digit under Shift on most layouts only through its
-    // keycode, so both the digit and its shifted symbol count.
-    if mods.logo && !mods.alt && !mods.ctrl {
-        if let Some(n) = digit(sym) {
-            return Some(if mods.shift { Action::MoveToWorkspace(n - 1) } else { Action::Workspace(n - 1) });
-        }
     }
     match (mods.alt, mods.logo, mods.ctrl, mods.shift, sym) {
         (true, false, true, false, keysyms::KEY_Left) => Some(Action::WorkspaceStep(-1)),
@@ -448,10 +589,22 @@ pub(crate) fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
         (false, true, false, true, keysyms::KEY_R) => Some(Action::RestoreShell),
         (true, false, false, false, keysyms::KEY_F4) => Some(Action::Close),
         (false, true, false, false, keysyms::KEY_l) => Some(Action::Lock),
-        (false, true, false, false, keysyms::KEY_Left) => Some(Action::Tile(Tile::Left)),
-        (false, true, false, false, keysyms::KEY_Right) => Some(Action::Tile(Tile::Right)),
-        (false, true, false, false, keysyms::KEY_Up) => Some(Action::Tile(Tile::Maximized)),
-        (false, true, false, false, keysyms::KEY_Down) => Some(Action::Restore),
+        // #EDE-243: Cinnamon's defaults (org.cinnamon.desktop.keybindings.wm).
+        (false, true, false, false, keysyms::KEY_Left) => Some(Action::PushTile(Push::Left)),
+        (false, true, false, false, keysyms::KEY_Right) => Some(Action::PushTile(Push::Right)),
+        (false, true, false, false, keysyms::KEY_Up) => Some(Action::PushTile(Push::Up)),
+        (false, true, false, false, keysyms::KEY_Down) => Some(Action::PushTile(Push::Down)),
+        (false, true, false, true, keysyms::KEY_Left) => Some(Action::MoveToOutput(Push::Left)),
+        (false, true, false, true, keysyms::KEY_Right) => Some(Action::MoveToOutput(Push::Right)),
+        (false, true, false, true, keysyms::KEY_Up) => Some(Action::MoveToOutput(Push::Up)),
+        (false, true, false, true, keysyms::KEY_Down) => Some(Action::MoveToOutput(Push::Down)),
+        (true, false, false, false, keysyms::KEY_F10) => Some(Action::ToggleMaximized),
+        (true, false, false, false, keysyms::KEY_F5) => Some(Action::Unmaximize),
+        (true, false, false, false, keysyms::KEY_F7) => Some(Action::BeginMove),
+        (true, false, false, false, keysyms::KEY_F8) => Some(Action::BeginResize),
+        (false, true, false, false, keysyms::KEY_d | keysyms::KEY_D) => Some(Action::ShowDesktop),
+        (true, false, true, false, keysyms::KEY_l | keysyms::KEY_L) => Some(Action::Lock),
+        (false, true, false, shift, keysyms::KEY_space) => Some(Action::NextLayout(!shift)),
         _ => None,
     }
 }

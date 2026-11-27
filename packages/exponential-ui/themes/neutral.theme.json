@@ -3998,6 +3998,18 @@
           }
         }
       ],
+      "sectionHeading": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.sm",
+            "paddingVertical": 6,
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "itemDescription": [
         {
           "style": {
@@ -4152,6 +4164,13 @@
       ]
     },
     "DatePicker": {
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "trigger": [
         {
           "style": {
@@ -6642,6 +6661,13 @@
       ]
     },
     "DateRangePicker": {
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "label": [
         {
           "style": {

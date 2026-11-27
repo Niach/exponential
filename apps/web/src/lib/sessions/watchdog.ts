@@ -7,7 +7,7 @@ import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
-import { fireDueTimeWatches } from "@/lib/sessions/watches"
+import { fireDueTimeWatches, WATCH_COPY } from "@/lib/sessions/watches"
 import { purgeOldAppRecordEvents, purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
@@ -49,6 +49,10 @@ export interface WatchdogRun {
   stuck: number
   /** #NEW-49: time watches that came due and fired. */
   timeWatches: number
+  /** #NEW-147: MCP task time watches fired; expired tasks, spent requestStates and URL elicitations swept. */
+  mcpTasks: { fired: number; tasks: number; states: number; elicitations: number }
+  /** #NEW-149: MCP file uploads staged, never finalized, swept. */
+  mcpFileStagings: number
   offline: number
   /** #FEED-211: parked runs that spoke again, busy again. */
   spoke: number
@@ -58,6 +62,8 @@ export interface WatchdogRun {
   offlineLong: number
   /** FEED-129: usage walls whose reset time passed, cleared this tick. */
   expired: number
+  /** #EXP-2161: member spaces that may no longer live, ended this tick. */
+  spacesEnded: number
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
   fired: number
   pruned: number
@@ -809,6 +815,29 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // #NEW-49 (eagent watchdog.json TIME WATCHES): due `at` watches fire.
     timeWatches: await fireDueTimeWatches(now).catch((err) => {
       console.error(`[watchdog] time watches failed`, err)
+      return 0
+    }),
+    // #NEW-147 (emcp tasks.json): a task's due time watch completes it;
+    // tasks past their TTL, spent requestStates and URL elicitations go.
+    mcpTasks: await import(`@/lib/sessions/task-watchers`)
+      .then(async (m) => ({
+        fired: await m.fireDueTaskTimeWatches(now, WATCH_COPY.at),
+        ...(await m.sweepExpiredMcpRows(now)),
+      }))
+      .catch((err) => {
+        console.error(`[watchdog] mcp tasks failed`, err)
+        return { fired: 0, tasks: 0, states: 0, elicitations: 0 }
+      }),
+    // #NEW-149: MCP file uploads staged and never finalized (files.json).
+    mcpFileStagings: await import(`@/lib/emcp/files`)
+      .then((m) => m.sweepExpiredFileStagings(now))
+      .catch((err) => {
+        console.error(`[watchdog] mcp file stagings failed`, err)
+        return 0
+      }),
+    // #EXP-2161: a member space whose teams are gone ends.
+    spacesEnded: await import(`@/lib/spaces/end`).then((m) => m.endInvalidSpaces()).catch((err) => {
+      console.error(`[watchdog] member spaces failed`, err)
       return 0
     }),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is

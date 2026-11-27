@@ -222,7 +222,7 @@ internal fun transcriptFindRows(
 ): List<TranscriptFindRow> {
     if (query.isEmpty()) return emptyList()
     val keys = transcriptFindKeys(feed, sessionId)
-    val shown = dropHiddenFeedRows(splitWorkflowToolRows(groupFeedRows(feed, 0, workflowIds), workflowIds))
+    val shown = dropHiddenFeedRows(splitWorkflowToolRows(groupFeedRows(feed, 0, workflowIds), workflowIds), workflowIds)
     val out = ArrayList<TranscriptFindRow>()
     fun tool(item: AgentFeedItem.Tool, group: String?) {
         val title = findToolTitle(item, live = item.id == liveRowId) ?: return

@@ -72,6 +72,7 @@ import { Check, X } from "lucide-react"
 import {
   AskCard,
   TranscriptMarker,
+  ScheduleRunRow,
   DockSheetBody,
   markDockOpen,
   AskPrompt,
@@ -215,6 +216,7 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
+import { elicitationFeedCard } from "@exp/domain-contract/elicitation-card"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { loadEarlierMessages, useSessionCard, useSessionMessagePage } from "@/hooks/use-session-tree"
 import { unqueueMessage, useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
@@ -525,6 +527,12 @@ export function AgentSessionView({
   const [findWiden, setFindWiden] = useState<{ sessionId: string; id: string } | null>(null)
   const widenFrom = findWiden?.sessionId === session.id ? findWiden.id : null
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
+  // #NEW-146: the posted elicitation cards, drawn for their live frames.
+  // Keyed by the cards themselves: another message never re-renders the rows.
+  const elicitationMessages = useMemo(() => elicitationCardMessages(sessionMessages), [sessionMessages])
+  const elicitationKey = elicitationCardsKey(elicitationMessages)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const elicitationCards = useMemo(() => elicitationCardRows(session, elicitationMessages), [session.id, elicitationKey])
   const canAnswerCards = !sessionEnded
   // S-3 (dock.json): a waiting plan or question (the relay's
   // own ask or a tool-posted card) is never a Dock source; it stays inline,
@@ -990,6 +998,24 @@ export function AgentSessionView({
 
   /** One transcript row; `list` is the sequence it sits in (its gap reads
    *  the row before it). */
+  // #NEW-146: a third-party MCP server's elicitation draws THE posted card
+  // (its form or URL review, answered via `sessions.answer`), never the
+  // frame's bare options (`elicitationFeedCard`).
+  const elicitationCard = (item: QuestionItem): ReactNode | null => {
+    const id = elicitationFeedCard(elicitationCards.messages, item.questionId, item.resolved === true)
+    const row = id === null ? undefined : elicitationCards.rows.get(id)
+    if (!row) return null
+    return (
+      <ChatConversation
+        rows={[row]}
+        renderText={renderChatText}
+        attachmentSrc={attachmentUrl}
+        onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+        onDismiss={canAnswerCards ? (rowId) => void answerCard(rowId, { dismissed: true }) : undefined}
+        pending={cardsPending}
+      />
+    )
+  }
   const renderTranscriptRow = (
     row: (typeof rows)[number],
     index: number,
@@ -1074,6 +1100,9 @@ export function AgentSessionView({
       )
     }
     if (row.kind === `ask`) {
+      const items = row.items as QuestionItem[]
+      const elicitation = items.length === 1 ? elicitationCard(items[0]) : null
+      if (elicitation) return wrap(elicitation)
       return wrap(
         <AskStepperCard
           items={row.items as QuestionItem[]}
@@ -1156,9 +1185,18 @@ export function AgentSessionView({
         if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
         // #EXP-1772: a system input (a firing, a PR or session line) is
         // THE inline marker (`shownFeedRows` kept it: a reply follows).
-        // #EXP-1873: a quiet check-in (or a run of them) = ONE marker line.
+        // #EXP-1873 + #FEED-317: a quiet schedule tick (or a run of them)
+        // = ONE tool-group line, opening to each tick.
         if (item.checkIns) {
-          return wrap(<TranscriptMarker label={checkInLabel(item.checkIns, item.at ? userMessageTime(item.at) : null)} />)
+          const times = (item.checkInTimes ?? [item.at ?? null]).map((at) => (at ? userMessageTime(at) : null))
+          const first = times[0] ?? null
+          const last = times[times.length - 1] ?? null
+          return wrap(
+            <ScheduleRunRow
+              title={checkInLabel(item.checkIns, first, last)}
+              ticks={item.checkIns > 1 ? times.map((time) => checkInLabel(1, time, time)) : []}
+            />
+          )
         }
         // #EXP-1943: a call's report = its ONE card, at its first report.
         const callId = callIds.size > 0 ? feedCallSession(item.text, callIds) : null
@@ -1226,7 +1264,9 @@ export function AgentSessionView({
             onOpen={() => setAgentTab(item.subagentId)}
           />
         )
-      case `question`:
+      case `question`: {
+        const elicitation = elicitationCard(item)
+        if (elicitation) return wrap(elicitation)
         return wrap(
           <QuestionCard
             item={item}
@@ -1238,6 +1278,7 @@ export function AgentSessionView({
             onSend={sendMessage}
           />
         )
+      }
     }
     return null
   }
@@ -1253,7 +1294,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
-    viewerAvatar, turnLive, surfaceAction,
+    viewerAvatar, turnLive, surfaceAction, elicitationCards, cardsPending, canAnswerCards,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -2086,6 +2127,47 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
 
 type MessageRowLike = Parameters<typeof toTreeMessage>[0]
 
+type TreeMessageLike = ReturnType<typeof toTreeMessage>
+
+/** #NEW-146: this session's ENGINE-posted elicitation cards (excluded from
+ *  `sessionCards`: their live frame draws them), OPENED (a sealed card's
+ *  sidecar reads only after `toTreeMessage`). */
+function elicitationCardMessages(messages: readonly MessageRowLike[]): TreeMessageLike[] {
+  const cards: TreeMessageLike[] = []
+  for (const row of messages) {
+    if (!row.card) continue
+    const message = toTreeMessage(row)
+    const card = message.card as { kind?: unknown; elicitation?: unknown } | null
+    if (card?.kind === `question` && card.elicitation != null) cards.push(message)
+  }
+  return cards
+}
+
+/** What the drawn elicitation cards depend on (their ids, answers, cards). */
+function elicitationCardsKey(cards: readonly TreeMessageLike[]): string {
+  return cards.map((message) => `${message.id}|${String(message.answeredAt)}|${JSON.stringify(message.card)}`).join(`\n`)
+}
+
+/** The cards as THE chat rows by message id, beside the messages
+ *  `elicitationFeedCard` matches a frame against. */
+function elicitationCardRows(
+  session: SessionRow,
+  cards: TreeMessageLike[]
+): { messages: TreeMessageLike[]; rows: ReadonlyMap<string, SessionChatRow> } {
+  if (cards.length === 0) return NO_ELICITATION_CARDS
+  const rows = buildSessionChat({
+    root: toTreeSession(session),
+    sessions: [],
+    sessionIssues: [],
+    issues: [],
+    messages: cards,
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `question`)
+  return { messages: cards, rows: new Map(rows.map((row) => [row.id, row])) }
+}
+const NO_ELICITATION_CARDS = { messages: [] as TreeMessageLike[], rows: new Map<string, SessionChatRow>() }
+
 /** Chat 58cb32df: this session's `surface` cards as THE chat rows. */
 function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): SessionChatRow[] {
   const cards = messages.filter((message) => (message.card as { kind?: unknown } | null)?.kind === `surface`)
@@ -2103,7 +2185,7 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
 
 /** The feed item ids a transcript row draws. */
 /** A raw feed row as the transcript sees it (#EXP-1736). */
-type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; name?: string; workflowId?: string | null } }
+type FeedRowLike = { kind: string; id?: string | number; item?: { id: number; kind: string; text?: string; name?: string; workflowId?: string | null; checkIns?: number } }
 
 /** The key a feed row's layout is stored under. */
 function feedRowKey(row: FeedRowLike): string {
@@ -2222,6 +2304,8 @@ export function feedTranscriptLayout(
       case `user_message`: {
         if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
         if (options.callIds?.size && feedCallSession(item.text ?? ``, options.callIds)) return { id, kind: `full` }
+        // #FEED-317: the schedule line is the agent's own trace line.
+        if (item.checkIns) return { id, kind: `trace` }
         const cross = feedInput(item.text ?? ``)
         if (cross?.kind === `marker`) return { id, kind: `full` }
         // #EXP-1990: a member's line in a team agent's group chat: theirs

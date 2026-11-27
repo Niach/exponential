@@ -245,6 +245,57 @@ describe(`fixtures/interactions-round1.json select`, () => {
   }
 })
 
+// #EXP-2161 selectSections: the unsectioned options first, then each
+// section's run under its `sectionHeading` (never an option), first-seen
+// order; the search keeps a heading over its shown options only; a heading
+// splits a `multiple` block.
+interface SelectSectionsCase {
+  name: string
+  options: Record<string, unknown>[]
+  value: string
+  multiple?: boolean
+  searchable?: boolean
+  query?: string
+  rows: ({ heading: string } | { option: string; joinTop?: boolean; joinBottom?: boolean })[]
+  press: string
+  changes: string[]
+}
+
+describe(`fixtures/interactions-round1.json selectSections`, () => {
+  for (const c of (fixture as unknown as { selectSections: SelectSectionsCase[] }).selectSections) {
+    it(`selectSections: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const props: Record<string, unknown> = { label: `Device`, name: `s`, options: c.options, value: c.value }
+      if (c.multiple !== undefined) props.multiple = c.multiple
+      if (c.searchable !== undefined) props.searchable = c.searchable
+      const { container } = render(<ExponentialSurface root={tree({ id: `s`, component: `Select`, props, on: { change: { event: { name: `change` } } } } as unknown as NestedNode)} theme="neutral" id="ss" host={{ onAction: (e) => void actions.push(e) }} />)
+      // ArrowDown opens either popup (Radix's and the combobox's).
+      act(() => void fireEvent.keyDown(container.querySelector(`[data-xui-id="s.trigger"]`)!, { key: `ArrowDown` }))
+      const content = () => document.querySelector(`[data-xui-overlay="Select"]`)!
+      if (c.query !== undefined) act(() => void fireEvent.change(content().querySelector(`input`)!, { target: { value: c.query } }))
+      const els = Array.from(content().querySelectorAll(`.xui-Select-item, .xui-Select-sectionHeading`))
+      // The DOM shows labels (`build` sits under two sections): the
+      // fixture's option values read as their labels, in order.
+      const labelOf = (value: string) => String(c.options.find((o) => o.value === value)?.label)
+      const rows = els.map((el) => {
+        if (el.classList.contains(`xui-Select-sectionHeading`)) {
+          expect(el.getAttribute(`role`)).not.toBe(`option`)
+          return { heading: el.textContent }
+        }
+        const row: Record<string, unknown> = { option: el.textContent }
+        if (el.getAttribute(`data-r-join-top`) === `true`) row.joinTop = true
+        if (el.getAttribute(`data-r-join-bottom`) === `true`) row.joinBottom = true
+        return row
+      })
+      const want = c.rows.map((r) => (`option` in r ? { ...r, option: labelOf(r.option) } : r))
+      expect(rows).toEqual(want)
+      const at = c.rows.filter((r) => `option` in r).findIndex((r) => (r as { option: string }).option === c.press)
+      fireEvent.click(els.filter((el) => !el.classList.contains(`xui-Select-sectionHeading`))[at]!)
+      expect(actions.filter((a) => a.name === `change` && a.context.value !== undefined).map((a) => a.context.value)).toEqual(c.changes)
+    })
+  }
+})
+
 interface HoldStep {
   do: string
   x?: number
@@ -638,6 +689,50 @@ describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
     })
   }
+})
+
+// #EDE-247 boxPointer: `on.auxPress` (middle on press, right on release, the
+// context menu swallowed) and `on.scroll` (one per wheel step). Every step
+// sends the button's whole DOM sequence, so a double fire would show.
+interface BoxPointerCase {
+  name: string
+  steps: ({ aux: string; button: `middle` | `right` } | { press: string } | { wheel: string; notches: number; axis?: `x` })[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+const boxPointerFixture = (fixture as unknown as { boxPointer: { surface: NestedNode; cases: BoxPointerCase[] } }).boxPointer
+
+describe(`fixtures/interactions-round1.json boxPointer`, () => {
+  for (const c of boxPointerFixture.cases) {
+    it(`boxPointer: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ExponentialSurface root={tree(boxPointerFixture.surface)} theme="neutral" id="bp" host={{ onAction: (e) => void actions.push(e) }} />)
+      const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+      for (const s of c.steps) {
+        if (`aux` in s) {
+          const button = s.button === `middle` ? 1 : 2
+          fireEvent.mouseDown(box(s.aux), { button })
+          if (button === 2) fireEvent.contextMenu(box(s.aux), { button })
+          fireEvent.mouseUp(box(s.aux), { button })
+          fireEvent(box(s.aux), new MouseEvent(`auxclick`, { bubbles: true, cancelable: true, button }))
+        } else if (`wheel` in s) {
+          const delta = -3 * s.notches
+          fireEvent.wheel(box(s.wheel), { deltaMode: 1, deltaX: s.axis === `x` ? delta : 0, deltaY: s.axis === `x` ? 0 : delta })
+        } else fireEvent.click(box(s.press))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+  it(`boxPointer: pixel deltas accumulate to a step per 100 px; the context menu and page scroll are kept only with the handlers`, () => {
+    const actions: SurfaceActionEvent[] = []
+    const { container } = render(<ExponentialSurface root={tree(boxPointerFixture.surface)} theme="neutral" id="bp" host={{ onAction: (e) => void actions.push(e) }} />)
+    const box = (id: string) => container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement
+    for (let i = 0; i < 5; i++) fireEvent.wheel(box(`a`), { deltaMode: 0, deltaY: 40 })
+    expect(actions.map((a) => a.context.direction)).toEqual([`down`, `down`])
+    expect(fireEvent.contextMenu(box(`a`))).toBe(false)
+    expect(fireEvent.wheel(box(`a`), { deltaMode: 1, deltaY: 3 })).toBe(false)
+    expect(fireEvent.contextMenu(box(`b`))).toBe(true)
+    expect(fireEvent.wheel(box(`b`), { deltaMode: 1, deltaY: 3 })).toBe(true)
+  })
 })
 
 // #EXP-1629 keyRecorder: a press while idle starts recording (`start` +

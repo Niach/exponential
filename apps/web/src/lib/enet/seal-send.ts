@@ -101,6 +101,9 @@ export type SealDeps = {
   /** #FEED-248: the server's word on the caller's conversation with an
    *  agent / app (`sessions.sendTarget`): the synced store is a cache. */
   sendTarget: (input: { agentId?: string; appId?: string }) => Promise<ServerTarget>
+  /** #EXP-2161: whether an agent is the caller's own Assistant (its
+   *  conversation is the one root a member space's install reads). */
+  ownAssistantAgent?: (agentId: string) => boolean
   /** The server's current key of a root (`sessionKeys.publicKeys`), if keyed. */
   publicKey: (rootId: string) => Promise<TreePublicKey | undefined>
   /** #EXP-1960: `sessionKeys.requestKey`: the tree's devices key it. */
@@ -280,6 +283,8 @@ export async function sealSendInput(
     }
   }
   const fresh = options.fresh === true
+  // #EXP-2161: a conversation the store has not synced is known by its agent.
+  const ownAssistant = !input.sessionId && !input.parentId && !!input.agentId && (deps.ownAssistantAgent?.(input.agentId) ?? false)
   // #FEED-248: the conversation with an agent / app the store does not
   // have (a missed sync, another device started it) may well exist: ask.
   const conversation = !input.sessionId && !input.parentId && !!(input.agentId || input.appId)
@@ -380,7 +385,8 @@ export async function sealSendInput(
     // install that waits makes none; the send fails, no root is made.
     if (keyMakerStep({ joined: await joined(), write: `newRoot` }) !== `make`) throw new NoKeyError()
     const created = holder.newTreeKey(
-      await readersFor({ teamId: input.teamId ?? ``, userId: deps.me, shared: false, deviceId: input.deviceId ?? null }, deps)
+      await readersFor({ teamId: input.teamId ?? ``, userId: deps.me, shared: false, deviceId: input.deviceId ?? null }, deps),
+      ownAssistant
     )
     key = { epoch: created.epoch, publicKey: created.publicKey }
     seal = { installId: holder.installId, publicKey: created.publicKey, epoch: 1, wraps: created.wraps }
@@ -408,13 +414,14 @@ export async function sealSendInput(
   const rootOfKey = keyRoot ? (deps.session(keyRoot)?.rootId ?? keyRoot) : undefined
   if (rootOfKey && holder.trust) {
     const secret = holder.keysFor(rootOfKey).get(key.epoch)
-    const verdict = holder.trust.seal({
+    const seals = {
       rootId: rootOfKey,
       epoch: key.epoch,
       publicKey: key.publicKey,
       held: secret ? { secret, record: holder.trust.recordOf(rootOfKey, key.epoch) } : null,
       vouch: key.vouch ?? null,
-    })
+    }
+    const verdict = ownAssistant ? holder.trust.seal(seals, true) : holder.trust.seal(seals)
     if (!verdict.seal) throw new NoKeyError()
   }
 

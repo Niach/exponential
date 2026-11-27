@@ -7,7 +7,7 @@ import {
   findInChatQuery,
   findInChatShortcut,
 } from "@exp/domain-contract/find-in-chat"
-import { Button, conceptIcon, MobileDetailHeader, SearchField, type MenuEntry } from "@exp/ui"
+import { conceptIcon, HeaderAction, HeaderBack, MobileDetailHeader, SearchField, type MenuEntry } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // #EDE-129 (fixtures/find-in-chat.json): find in chat ×web. The chat screen
@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils"
 const SearchIcon = conceptIcon(`nav-search`)
 const UpIcon = conceptIcon(`ui-chevron-up`)
 const DownIcon = conceptIcon(`ui-chevron-down`)
-const CloseIcon = conceptIcon(`ui-close`)
 
 export type FindStepDir = `previous` | `next`
 
@@ -218,12 +217,12 @@ function onFieldKey(find: FindInChat) {
 function StepButtons({ find }: { find: FindInChat }) {
   return (
     <>
-      <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={FIND_IN_CHAT_COPY.previous} title={FIND_IN_CHAT_COPY.previous} data-testid={FIND_IN_CHAT_TEST_IDS.previous} onClick={() => find.go(`previous`)}>
-        <UpIcon className="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={FIND_IN_CHAT_COPY.next} title={FIND_IN_CHAT_COPY.next} data-testid={FIND_IN_CHAT_TEST_IDS.next} onClick={() => find.go(`next`)}>
-        <DownIcon className="size-4" />
-      </Button>
+      <HeaderAction aria-label={FIND_IN_CHAT_COPY.previous} title={FIND_IN_CHAT_COPY.previous} data-testid={FIND_IN_CHAT_TEST_IDS.previous} onClick={() => find.go(`previous`)}>
+        <UpIcon />
+      </HeaderAction>
+      <HeaderAction aria-label={FIND_IN_CHAT_COPY.next} title={FIND_IN_CHAT_COPY.next} data-testid={FIND_IN_CHAT_TEST_IDS.next} onClick={() => find.go(`next`)}>
+        <DownIcon />
+      </HeaderAction>
     </>
   )
 }
@@ -266,9 +265,7 @@ export function FindInChatBar({ find }: { find: FindInChat }) {
         </div>
         <Counter text={find.report.counter} />
         <StepButtons find={find} />
-        <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={FIND_IN_CHAT_COPY.close} title={FIND_IN_CHAT_COPY.close} data-testid={FIND_IN_CHAT_TEST_IDS.close} onClick={find.close}>
-          <CloseIcon className="size-4" />
-        </Button>
+        <HeaderBack close label={FIND_IN_CHAT_COPY.close} data-testid={FIND_IN_CHAT_TEST_IDS.close} onClick={find.close} />
       </div>
       <StatusLine text={find.report.status} className="px-6 pt-2" />
     </div>
@@ -295,7 +292,7 @@ export function FindInChatHeader({ find }: { find: FindInChat }) {
           />
         }
         menu={
-          <span className="flex shrink-0 items-center gap-1">
+          <span className="flex shrink-0 items-center gap-2">
             <Counter text={find.report.counter} />
             <StepButtons find={find} />
           </span>

@@ -485,7 +485,8 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
 
 /// What one collection pass produced — the two jsonb columns the register
 /// and the heartbeat carry.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct AgentStatusPayload {
     pub accounts: AgentAccounts,
     pub usage: AgentUsageMap,

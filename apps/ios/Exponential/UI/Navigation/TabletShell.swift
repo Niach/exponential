@@ -148,14 +148,10 @@ struct TabletShell: View {
     @ToolbarContentBuilder
     private var sidebarToggle: some ToolbarContent {
         if !wide {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
+            HeaderToolbarItem(placement: .topBarLeading) {
+                PageHeaderButton(icon: AppIcons.navRailExpand, label: "Show sidebar", identifier: "tablet-sidebar-toggle") {
                     sidebarOpen = true
-                } label: {
-                    AppIcon(AppIcons.navRailExpand, size: AppIcon.Size.medium)
                 }
-                .accessibilityLabel("Show sidebar")
-                .accessibilityIdentifier("tablet-sidebar-toggle")
             }
         }
     }
@@ -264,11 +260,11 @@ struct TabletSidebar: View {
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
             // Each its own circle (header-actions.json).
-            ToolbarItem(placement: .topBarTrailing) {
+            HeaderToolbarItem {
                 PageHeaderButton(icon: AppIcons.navSearch, label: "Search", action: onSearch)
             }
             if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
-            ToolbarItem(placement: .topBarTrailing) {
+            HeaderToolbarItem {
                 PageHeaderButton(icon: AppIcons.navCreateIssue, label: "New issue") { onNewIssue?() }
                     .disabled(onNewIssue == nil)
             }

@@ -61707,6 +61707,106 @@
       }
     },
     {
+      "component": "Select",
+      "part": "sectionHeading",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "field"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 600,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 600,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "paddingHorizontal": 8,
+              "paddingVertical": 6,
+              "fontSize": 12,
+              "lineHeight": 16,
+              "fontWeight": 500,
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "SearchList",
       "part": "root",
       "props": {},
@@ -64762,6 +64862,63 @@
     },
     {
       "component": "DatePicker",
+      "part": "placeholder",
+      "props": {
+        "inline": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "DatePicker",
       "part": "calendar",
       "props": {
         "inline": false
@@ -65938,6 +66095,61 @@
               "lineHeight": 20,
               "fontFamily": "Inter",
               "boxShadow": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "DateRangePicker",
+      "part": "placeholder",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
             }
           }
         }

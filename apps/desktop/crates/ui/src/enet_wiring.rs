@@ -75,6 +75,7 @@ pub fn start(account: &api::Account, cx: &mut App) {
     };
     let auth = AuthContext::global(cx).clone();
     let rows = Store::global(cx).manager();
+    let own_rows = Arc::clone(&rows);
     let state = installs(cx);
     if let Some(node) = state.by_account.get(&account.id) {
         node.refresh();
@@ -114,6 +115,8 @@ pub fn start(account: &api::Account, cx: &mut App) {
         device_id: Some(steer::persistent_device_id(&auth.data_dir)),
         chat_store: Some(crate::chat_store::serving_slot()),
     });
+    // #EXP-2161: the one root a member space takes part in.
+    node.set_own_assistant(own_assistant_lookup(own_rows, account.id.clone(), account.user_id.clone()));
     state.by_account.insert(account.id.clone(), node);
     watch_key_holder(cx);
 }
@@ -169,6 +172,34 @@ fn stored_session_lookup(
             .ok()??;
         let row: domain::rows::SessionRow = serde_json::from_value(serde_json::Value::Object(row)).ok()?;
         steer::StoredSession::of(&row)
+    })
+}
+
+/// #EXP-2161: whether a root is the account's own Assistant conversation.
+fn own_assistant_lookup(
+    manager: Arc<sync::SyncManager>,
+    account_id: String,
+    user_id: String,
+) -> steer::install_trust::OwnAssistant {
+    Arc::new(move |root_id| {
+        let read = || {
+            let store = manager.store(&account_id)?;
+            let row = store
+                .read_by_key(
+                    sync::shapes::shape_by_name("sessions")?,
+                    &sync::protocol::RowKey::Single(root_id.to_ascii_lowercase()),
+                )
+                .ok()??;
+            let root: domain::rows::SessionRow = serde_json::from_value(serde_json::Value::Object(row)).ok()?;
+            let agents: Vec<domain::rows::AgentDefRow> = store
+                .read_all(sync::shapes::shape_by_name("agents")?)
+                .ok()?
+                .into_iter()
+                .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
+                .collect();
+            domain::agent_settings::sight_of_root(Some(&root), &agents, &user_id)
+        };
+        steer::install_trust::sight(read())
     })
 }
 

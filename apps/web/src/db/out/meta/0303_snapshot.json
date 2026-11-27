@@ -1,5 +1,5 @@
 {
-  "id": "9b6d4dbc-dfb1-44f6-ae48-6df7ab2fd19c",
+  "id": "4bf34b5c-061f-4d7f-a211-561ba0043d0b",
   "prevId": "af3f0573-ab64-4ad9-b205-d3087dfd69f5",
   "version": "7",
   "dialect": "postgresql",
@@ -4489,38 +4489,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.data_migrations": {
-      "name": "data_migrations",
-      "schema": "",
-      "columns": {
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "report": {
-          "name": "report",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.device_commands": {
       "name": "device_commands",
       "schema": "",
@@ -5068,6 +5036,25 @@
           "notNull": true,
           "default": "'{}'::uuid[]"
         },
+        "assistant_team_ids": {
+          "name": "assistant_team_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
+        },
+        "space_host_id": {
+          "name": "space_host_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "space_team_id": {
+          "name": "space_team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "is_default": {
           "name": "is_default",
           "type": "boolean",
@@ -5188,6 +5175,38 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
+        },
+        "uniq_devices_space_user": {
+          "name": "uniq_devices_space_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"devices\".\"space_host_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_devices_space_host": {
+          "name": "idx_devices_space_host",
+          "columns": [
+            {
+              "expression": "space_host_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"devices\".\"space_host_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5202,6 +5221,32 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "devices_space_host_id_devices_id_fk": {
+          "name": "devices_space_host_id_devices_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "space_host_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "devices_space_team_id_teams_id_fk": {
+          "name": "devices_space_team_id_teams_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "teams",
+          "columnsFrom": [
+            "space_team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

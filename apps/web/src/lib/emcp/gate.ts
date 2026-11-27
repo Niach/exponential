@@ -5,10 +5,18 @@
 // Exponential's 22 tools are one (`exponentialToolProvider`). The gate owns
 // everything around it: credentials, the 401 with the protected-resource
 // hint, the acting session's confinement and sign of life, the transport,
-// and the `mcp_calls` row of every `tools/call` (audit.ts).
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
+// and the `mcp_calls` row of every request (audit.ts; #NEW-147: every method).
+import { runInSpace, SPACE_KEY_MESSAGE, type SpaceGrant } from "@/lib/spaces/context"
+import { assertSessionOnSpace } from "@/lib/spaces/gate"
+import { loadSpaceGrant } from "@/lib/spaces/grant"
+import {
+  createMcpHandler,
+  isLegacyRequest,
+  WebStandardStreamableHTTPServerTransport,
+  type McpServer,
+  type Server,
+} from "@modelcontextprotocol/server"
+import { clientContextOf } from "@exp/emcp/protocol"
 import { and, eq, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
@@ -16,11 +24,13 @@ import { sessions } from "@/db/schema"
 import { getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
 import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/emcp/helpers"
-import { auditRows, recordMcpCalls, toolCallsOf, type AuditOptions } from "@/lib/emcp/audit"
+import { auditedRequests, auditRows, recordMcpCalls, type AuditOptions } from "@/lib/emcp/audit"
 import { resolveMcpToolGates, type McpToolGates } from "@/lib/emcp/gates"
 import { MCP_SESSION_HEADER, parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { actingSession } from "@exp/emcp/access"
 import { createExponentialMcpServer, type McpUser } from "@/lib/emcp/server"
+import { grantOf, NO_CLIENT, type ClientContext } from "@/lib/emcp/request-context"
+import { callOf, type McpCall } from "@/lib/emcp/mrtr"
 import {
   FULL_ACCESS,
   resolveMcpAccessForGrant,
@@ -50,6 +60,14 @@ export interface EmcpCaller {
    * check ownership; `gates.inSession` says whether it is the caller's). */
   sessionId: string | null
   gates: McpToolGates
+  /** #NEW-144: the credential an MRTR requestState is sealed to
+   *  (`oauth:<clientId>`, `key:<keyId>` or `member`). */
+  grant: string
+  /** #NEW-144: what this request's client declared, read once off its
+   *  body (2026-07-28: the per-request `_meta` envelope; set by `serveMcp`). */
+  client?: ClientContext
+  /** #NEW-144: the one call this request serves (what an MRTR state binds). */
+  call?: McpCall
 }
 
 /** #VAPP-181: what an endpoint adds to its audit rows: the team, the app of
@@ -72,7 +90,12 @@ export const exponentialToolProvider: ToolProvider = async (caller, request) =>
     await requestWithViaAppClaim(request, caller.user.id, caller.access),
     caller.access,
     caller.sessionId,
-    caller.gates
+    caller.gates,
+    {
+      client: caller.client ?? NO_CLIENT,
+      principal: { userId: caller.user.id, grant: caller.grant },
+      ...(caller.call ? { call: caller.call } : {}),
+    }
   )
 
 // Session cookies, bearer session tokens, and UNSCOPED personal `expu_` api
@@ -87,12 +110,29 @@ async function resolveCredential(
   clientId: string | null
   access: McpAccess
   keySessionId?: string | null
+  /** #EXP-2161: the member space the agent key was minted through. */
+  space?: SpaceGrant
   /** A scoped `expu_` key's row id, kind and stored scope (#EXP-2079). */
   key?: { id: string | null; kind: ApiKeyKind | null; scope: ApiKeyScope }
 } | null> {
-  const { session, keyScope, keyKind, keySessionId } = await resolveMcpCredential(request)
+  const { session, keyScope, keyKind, keySessionId, keySpaceId } = await resolveMcpCredential(request)
   if (session?.user) {
     const userId = session.user.id
+    // #EXP-2161: a space's own key is no MCP credential; an agent key minted
+    // through it lives while the space does and reaches its teams only.
+    if (keyKind === `space`) return null
+    if (keySpaceId) {
+      const space = await loadSpaceGrant(db, userId, keySpaceId)
+      if (!space) return null
+      const teamIds = keyScope && !keyScope.assistant ? space.reach.filter((id) => keyScope.teamIds.includes(id)) : space.reach
+      return {
+        userId,
+        clientId: null,
+        access: await resolveMcpAccessForGrant({ allTeams: false, teamIds, boardIds: [] }, keyScope ? `agent` : `session`),
+        keySessionId: keySessionId ?? null,
+        space,
+      }
+    }
     // #EXP-2028: a session-bound launcher key carries the member's access,
     // always clamped below to its session's tree.
     if (!keyScope) return { userId, clientId: null, access: FULL_ACCESS, keySessionId: keySessionId ?? null }
@@ -174,7 +214,7 @@ async function withSessionHeader(request: Request, sessionId: string): Promise<R
  *  header). */
 export async function authenticateMcpRequest(
   incoming: Request
-): Promise<{ caller: EmcpCaller; request: Request } | { response: Response }> {
+): Promise<{ caller: EmcpCaller; request: Request; space?: SpaceGrant } | { response: Response }> {
   const resolved = await resolveCredential(incoming)
   if (!resolved) return { response: unauthorized(incoming) }
 
@@ -189,6 +229,13 @@ export async function authenticateMcpRequest(
   // clamp; a header naming another session, or a bound session that no
   // longer resolves as the caller's, is refused.
   const keySessionId = resolved.keySessionId ?? null
+  // #EXP-2161: a space's agent key speaks for a session running on the space.
+  const space = resolved.space
+  if (space) {
+    const named = keySessionId ?? headerSessionId
+    const onSpace = named ? await assertSessionOnSpace(db, space, named).then(() => true, () => false) : false
+    if (!onSpace) return { response: jsonResponse(403, { error: SPACE_KEY_MESSAGE }) }
+  }
   let request = incoming
   if (keySessionId) {
     const bound = await actingSessionForRequest(incoming, user.id, keySessionId)
@@ -208,7 +255,8 @@ export async function authenticateMcpRequest(
   // `agent_id`) is confined to that session's team, whatever credential
   // carried it. A foreign session id changes nothing (the header grants
   // nothing on its own).
-  const access = await accessForActingSession(resolved, request, user.id, sessionId)
+  const inSpace = <T>(run: () => T): T => (space ? runInSpace(space, run) : run())
+  const access = await inSpace(() => accessForActingSession(resolved, request, user.id, sessionId))
   // EXP-1374: a tool call by a session of the caller's is its sign of life
   // (the stuck rule); best effort, never in the request's way.
   if (sessionId) {
@@ -217,8 +265,9 @@ export async function authenticateMcpRequest(
     ).catch(() => {})
   }
   // EXP-660: which conditional tool families this caller gets to see.
-  const gates = await resolveMcpToolGates(user.id, access, sessionId)
-  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates }, request }
+  const gates = await inSpace(() => resolveMcpToolGates(user.id, access, sessionId))
+  const grant = grantOf({ clientId: resolved.clientId, keyId: resolved.key?.id ?? null })
+  return { caller: { user, access, clientId: resolved.clientId, sessionId, gates, grant }, request, ...(space ? { space } : {}) }
 }
 
 /** The access of a request speaking for `sessionId`: the credential's,
@@ -258,32 +307,73 @@ export async function serveMcp(
 ): Promise<Response> {
   const gated = await authenticateMcpRequest(incoming)
   if (`response` in gated) return gated.response
-  const { caller, request } = gated
+  // #EXP-2161: every read and write of the call narrows to its space.
+  return gated.space
+    ? runInSpace(gated.space, () => serveGated(gated.caller, gated.request, provider, options))
+    : serveGated(gated.caller, gated.request, provider, options)
+}
+
+/**
+ * #NEW-144: one POST through `server`, in the era it speaks. A 2026-07-28
+ * request (the per-request `_meta` envelope) goes to the SDK's modern
+ * handler: `server/discover`, the envelope checks, `resultType`, MRTR; a
+ * 2025 one (`initialize`, and every later request of a 2025-06-18 or
+ * 2025-11-25 client) to the stateless Streamable HTTP transport as before.
+ * Both answer JSON, never a stream: a modern `subscriptions/listen` (a
+ * long-lived stream on a per-request server) is refused until a phase of
+ * #NEW-143 serves it; the 2025 GET stream of `/api/mcp/apps` stays.
+ */
+export async function handleMcpPost(server: McpServer | Server, request: Request, body?: unknown): Promise<Response> {
+  if (await isLegacyRequest(request)) {
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    })
+    try {
+      await server.connect(transport)
+      return await transport.handleRequest(request)
+    } finally {
+      await transport.close().catch(() => {})
+    }
+  }
+  const message = body === undefined ? await request.clone().json().catch(() => null) : body
+  if ((message as { method?: unknown } | null)?.method === `subscriptions/listen`) {
+    const id = (message as { id?: unknown }).id ?? null
+    return jsonResponse(200, { jsonrpc: `2.0`, id, error: { code: -32601, message: `subscriptions/listen is not served by this endpoint` } })
+  }
+  const modern = createMcpHandler(() => server, { legacy: `reject`, responseMode: `json` })
+  try {
+    return await modern.fetch(request)
+  } finally {
+    await modern.close().catch(() => {})
+  }
+}
+
+async function serveGated(gatedCaller: EmcpCaller, request: Request, provider: ToolProvider, options: ServeOptions): Promise<Response> {
 
   const body: unknown = await request
     .clone()
     .json()
     .catch(() => null)
-  const audited = toolCallsOf(body).length > 0
+  // #NEW-144: the client's declared capabilities, read ONCE (ctx.client).
+  const call = callOf(body)
+  const caller: EmcpCaller = { ...gatedCaller, client: clientContextOf(body), ...(call ? { call } : {}) }
 
   const served = await provider(caller, request)
   if (served instanceof Response) return served
   // `audit` tells the pair apart (an McpServer has a `server` of its own).
   const { server, audit } = `audit` in served ? served : { server: served, audit: options }
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  })
+  // #NEW-147: every request is audited (`mcp_calls.method`), not only tools/call.
+  const audited = auditedRequests(body, audit).length > 0
   const started = performance.now()
   // #EXP-1720: an Assistant tree's request reaches several teams; its rows
   // name the team its session works in (a child in its target team), never
   // the personal team (null there: a cross-team read).
   const actingTeam = audited ? await actingAuditTeam(request, caller) : null
   try {
-    await server.connect(transport)
     // #VAPP-236: what this call writes or emits names the caller's own
     // session (the agent loop guard of app automations).
-    const response = await runAsSession(caller.gates.inSession ? caller.sessionId : null, () => transport.handleRequest(request))
+    const response = await runAsSession(caller.gates.inSession ? caller.sessionId : null, () => handleMcpPost(server, request, body))
     if (audited) {
       const latencyMs = performance.now() - started
       void response
@@ -311,7 +401,6 @@ export async function serveMcp(
     }
     return response
   } finally {
-    await transport.close().catch(() => {})
     await server.close().catch(() => {})
   }
 }

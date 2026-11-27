@@ -193,7 +193,7 @@ final class AppEditorModel {
                 .filter(Column("user_id") == me)
                 .filter(Column("parent_id") == nil)
                 .fetchOne(db)
-            let devices = try DeviceEntity.fetchAll(db)
+            let devices = DeviceEntity.listed(try DeviceEntity.fetchAll(db))
             let owners = Set(devices.map(\.userId))
             let deviceOwners = try UserEntity.filter(owners.contains(Column("id"))).fetchAll(db)
             let role = try app.flatMap { row in

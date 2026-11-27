@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { Button, conceptIcon, getDeviceIcon, HeaderAction, Separator, SkeletonRows } from "@exp/ui"
+import { conceptIcon, getDeviceIcon, HeaderAction, HeaderBack, Separator, SkeletonRows } from "@exp/ui"
 import { SIDEBAR_TREE_COPY } from "@exp/domain-contract/sidebar-tree"
 import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { deviceIsMine, deviceIsOnline, deviceUpdateAvailable, type SteerDevice } from "@/lib/steer-devices"
@@ -11,6 +11,8 @@ import { Empty } from "@/components/empty"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { DeviceAccountsSection } from "@/components/devices/device-accounts-section"
 import { DeviceRunningSection } from "@/components/devices/device-running-section"
+import { TeamOwnerSpaces } from "@/components/devices/member-spaces"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useDevicePage } from "@/components/devices/use-device-page"
 
 // #EXP-2027 (sidebar-tree.json DEVICES): a device row opens its DETAIL page
@@ -19,7 +21,6 @@ import { useDevicePage } from "@/components/devices/use-device-page"
 // settings dialog's body as a page). Team-less pages of web md+.
 
 const SettingsIcon = conceptIcon(`nav-settings`)
-const BackIcon = conceptIcon(`ui-back`)
 
 const PAGE_FRAME = `mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`
 
@@ -65,6 +66,8 @@ function DeviceHeading({
 export function DeviceDetailPage({ deviceId, userId }: { deviceId: string; userId: string }) {
   const navigate = useNavigate()
   const page = useDevicePage(deviceId, userId)
+  const { memberships } = useTeamMemberships(userId)
+  const owned = new Set(memberships.filter((row) => row.role === `owner`).map((row) => row.teamId))
   const now = useNow(30_000)
   const device = page.device
   usePageTitle(device ? pageTitle(deviceName(device)) : undefined)
@@ -90,6 +93,8 @@ export function DeviceDetailPage({ deviceId, userId }: { deviceId: string; userI
       {/* A teammate's shared server shows its logins read-only, as the old
           Team devices card did. */}
       <DeviceAccountsSection device={device} now={now} latestVersions={page.latestVersions} />
+      {/* #EXP-2161: a team owner's off switch on a device they do not own. */}
+      {!page.mine && <TeamOwnerSpaces device={device} ownedTeams={page.teams.filter((team) => owned.has(team.id))} />}
       <DeviceRunningSection deviceId={device.deviceId} teams={page.teams} />
     </div>
   )
@@ -110,16 +115,7 @@ export function DeviceSettingsPage({ deviceId, userId }: { deviceId: string; use
         device={device}
         latestVersions={page.latestVersions}
         leading={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={deviceName(device)}
-            className="-ml-2 size-9 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={back}
-            data-testid="device-settings-back"
-          >
-            <BackIcon className="size-5" />
-          </Button>
+          <HeaderBack label={deviceName(device)} onClick={back} data-testid="device-settings-back" />
         }
       />
       <Separator />

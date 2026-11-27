@@ -100,6 +100,15 @@ It runs from any desktop and checks the GPU and its render node, the displays, t
   The session needs `nvidia-drm.modeset=1` (the driver's default from 560 on) and the driver's GBM library (Ubuntu, Mint: `libnvidia-egl-gbm1`; Arch: `egl-gbm`). Driver 555 or newer has explicit sync, so X11 games don't flicker.
 </Aside>
 
+## Battle.net through Proton shows a black window
+
+The Battle.net app draws its pages with its browser's GPU acceleration, and under Xwayland that page stays black (any Wayland desktop: a plain X11 session, like Cinnamon's, has no Xwayland). Turn the browser acceleration off, either way:
+
+- In Steam, Battle.net's **Properties → Launch Options**: `%command% --disable-gpu`.
+- Or in the Proton prefix, `pfx/drive_c/users/steamuser/AppData/Roaming/Battle.net/Battle.net.config`, set `"Client": { "HardwareAcceleration": "false" }` (the app's own setting **Use browser hardware acceleration** writes the same).
+
+Games started from Battle.net keep their GPU.
+
 ## If it does not start
 
 The screen says why and what happens next. A crash restarts the compositor; three quick crashes in a row bring the session back in safe mode. **Ctrl+Alt+F3** gives a text login; `journalctl --user -b` has the session's logs.

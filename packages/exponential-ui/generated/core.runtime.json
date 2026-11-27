@@ -455,6 +455,9 @@
         "hint": {
           "type": "string"
         },
+        "section": {
+          "type": "string"
+        },
         "mono": {
           "type": "boolean"
         },
@@ -1464,7 +1467,9 @@
       "events": [
         "press",
         "toggle",
-        "hover"
+        "hover",
+        "auxPress",
+        "scroll"
       ]
     },
     "Stack": {
@@ -2998,7 +3003,8 @@
             "type": "object",
             "shape": "menuItem"
           },
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "side": {
           "type": "enum",

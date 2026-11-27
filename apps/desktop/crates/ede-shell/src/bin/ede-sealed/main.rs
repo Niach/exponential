@@ -1,6 +1,6 @@
 //! `exponential-sealed` (#EDE-17, Tier B): the surfaces a document on disk must
 //! never be, compiled into this binary (`apps/ede/sealed/*.json`, never
-//! agent-editable; only the theme's accent is anyone's), each a
+//! agent-editable; painted in eDE's factory theme as it ships, #EDE-235), each a
 //! full-screen overlay layer surface with the keyboard to itself:
 //!
 //! - `exponential-sealed lock`: the lock screen, one surface per output
@@ -25,7 +25,7 @@
 //!   its caller; with it, consent (and the share chooser, whose ask says
 //!   its `size`) asks the compositor nothing.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
-//!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
+//!   (#EDE-15): the ask as JSON on stdin (`app_id`, `app_name`, `types`, `multiple`,
 //!   `remote_control`, `outputs`, `windows`, `selected` = the rows a
 //!   restored share starts with), the picks on stdout
 //!   (`output:NAME`, `window:ID`, and `allow` for remote control).
@@ -126,7 +126,9 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
             base.insert(k.clone(), v.clone());
         }
     }
-    let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+    // #EDE-235: eDE's factory theme as it ships, compiled in: never the
+    // person's editable copy (a theme could hide a prompt's words).
+    let theme = uicore_docs::factory_theme();
     let host: Rc<dyn HostPlugin> = Rc::new(Host { acts });
     let kind = WindowKind::LayerShell(LayerShellOptions {
         namespace: "exponential-sealed".into(),
@@ -627,12 +629,13 @@ fn share() {
     let mut input = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
     let ask: Value = serde_json::from_str(&input).unwrap_or(json!({}));
-    let app = ask["app_id"].as_str().filter(|a| !a.is_empty()).unwrap_or("An app").to_string();
+    // The app's desktop-entry name (the portal resolves it), else its id.
+    let app = [&ask["app_name"], &ask["app_id"]].into_iter().find_map(|v| v.as_str().filter(|a| !a.is_empty())).unwrap_or("An app").to_string();
     let types: Vec<String> = ask["types"].as_array().map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
     let multiple = ask["multiple"].as_bool().unwrap_or(false);
     let remote = ask["remote_control"].as_bool().unwrap_or(false);
     let mut outputs: Vec<Value> = ask["outputs"].as_array().map(|l| l.iter().map(|o| json!({"id": format!("output:{}", o["name"].as_str().unwrap_or("")), "label": o["name"], "detail": format!("{}×{}", o["width"], o["height"]), "selected": false})).collect()).unwrap_or_default();
-    let mut windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_id"].as_str().unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
+    let mut windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_name"].as_str().or(w["app_id"].as_str()).unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
     let preselected = preselect(&ask, multiple, &mut outputs, &mut windows);
     let what = match (types.iter().any(|t| t == "monitor"), types.iter().any(|t| t == "window")) {
         (true, true) => "share a screen or a window",
@@ -872,7 +875,7 @@ mod tests {
     /// over nothing let the window under the prompt show through its words.
     #[test]
     fn every_sealed_card_lies_on_an_opaque_colour() {
-        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        let theme = uicore_docs::factory_theme();
         for (name, doc) in [("lock", LOCK), ("polkit", POLKIT), ("consent", CONSENT), ("share", SHARE)] {
             let parsed: Value = serde_json::from_str(doc).expect(name);
             let path = path_to(&parsed["root"], "card").unwrap_or_else(|| panic!("{name} has a card"));

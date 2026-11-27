@@ -8,7 +8,8 @@ import { calendarStop, monthGrid } from "./dates"
 import { HostOwnedController, parseLocaleNumber } from "./inputs"
 import { linkAt, parseList, parseMarkdown } from "./markdown"
 import { FormRegistry, fieldErrorsVisible, type FormField } from "./form"
-import { firstEnabledIndex, listMoreBelow, nextEnabledIndex, selectPopupGeometry, typeaheadStep, valueAnchorOffsets } from "./listbox"
+import { firstEnabledIndex, listMoreBelow, nextEnabledIndex, selectItemJoins, selectPopupGeometry, selectSectionHeading, selectSectionOrder, typeaheadStep, valueAnchorOffsets } from "./listbox"
+import interactions from "../../fixtures/interactions-round1.json" with { type: "json" }
 import { acquireMedia, clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, releaseMedia } from "./media"
 
 describe(`coercions`, () => {
@@ -220,5 +221,31 @@ describe(`#EXP-1629 select popup`, () => {
     expect(listMoreBelow(list(0))).toBe(true)
     expect(listMoreBelow(list(200))).toBe(false)
     expect(listMoreBelow(null)).toBe(false)
+  })
+})
+
+// #EXP-2161: web's Picker sections, the one rule every renderer replays
+// (fixtures/interactions-round1.json `selectSections`).
+describe(`selectSectionOrder / selectSectionHeading`, () => {
+  type Row = { heading: string } | { option: string; joinTop?: boolean; joinBottom?: boolean }
+  const cases = (interactions as unknown as { selectSections: { name: string; options: { label: string; value: string; section?: string }[]; value: string; multiple?: boolean; query?: string; rows: Row[] }[] }).selectSections
+  for (const c of cases) {
+    it(c.name, () => {
+      const q = (c.query ?? ``).toLowerCase()
+      const shown = selectSectionOrder(c.options).filter((o) => o.label.toLowerCase().includes(q))
+      const picked = c.value.split(`,`)
+      const rows: Row[] = []
+      shown.forEach((o, i) => {
+        const heading = selectSectionHeading(shown, i)
+        if (heading !== undefined) rows.push({ heading })
+        const joins = selectItemJoins(Boolean(c.multiple), shown.length, (j) => picked.includes(shown[j]!.value), i, (j) => selectSectionHeading(shown, j) !== undefined)
+        rows.push({ option: o.value, ...joins })
+      })
+      expect(rows).toEqual(c.rows)
+    })
+  }
+  it(`no section returns the same list`, () => {
+    const list: { value: string; section?: string }[] = [{ value: `a` }, { value: `b` }]
+    expect(selectSectionOrder(list)).toBe(list)
   })
 })

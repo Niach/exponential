@@ -236,6 +236,12 @@ struct AgentSessionView: View {
     @State private var noFeedInputsPage = 0
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
+    /// #NEW-146 (elicitation-card.json LIVE): this session's ENGINE-posted
+    /// elicitation cards (`sessionCards` leaves them to their frame), the
+    /// messages `ElicitationCard.feedCard` matches a frame against and
+    /// their chat rows by message id.
+    @State private var elicitationMessages: [TreeMessage] = []
+    @State private var elicitationRows: [String: SessionChatRow] = [:]
     /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
     /// over its tree): a row with an open item rides THE Dock for a viewer
     /// who may post, otherwise it draws inline.
@@ -383,7 +389,7 @@ struct AgentSessionView: View {
 
     // MARK: - Header
 
-    /// The nav bar: the system back button, a two-line title (EXP-1310, web
+    /// The nav bar: THE round back, a two-line title, LEFT (EXP-1310, web
     /// `session-header`, Android `SessionHeaderBar`): the back row naming
     /// the CHAT over the session's name (S-3: no Stop).
     @ViewBuilder
@@ -399,13 +405,12 @@ struct AgentSessionView: View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) { headerTitle }
-            }
+            // #EXP-2168: the title LEFT, after THE round back.
+            .detailHeaderTitle("\(model?.chatTitle ?? "")|\(model?.title ?? session.title ?? "")") { headerTitle }
     }
 
     private var headerTitle: some View {
-        VStack(spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             // The way back to the chat (a chat already on the stack is
             // popped back to — `pushRoute`'s rule).
             if let chatTitle = model?.chatTitle, !chatTitle.isEmpty {
@@ -1158,11 +1163,9 @@ struct AgentSessionView: View {
                                     avatar: grouping.avatars[entry.id]
                                 ) {
                                     TranscriptRowSlot(key: rowKey(entry, isLast: isLast, layout: layout, model: model)) {
-                                        if let count = entry.checkIns {
-                                            // #EXP-1873: a quiet check-in (or a run) = ONE marker line.
-                                            TranscriptMarkerRow(label: TranscriptGrouping.checkInLabel(
-                                                count: count, time: Self.checkInTime(entry.row)
-                                            ))
+                                        if let ticks = entry.checkIns {
+                                            // #EXP-1873 + #FEED-317: a quiet tick (or a run) = THE tool-group line.
+                                            ScheduleRunRow(times: ticks.map(Self.checkInTime))
                                         } else {
                                             feedRow(entry.row, isLast: isLast, layout: layout)
                                         }
@@ -1450,9 +1453,9 @@ struct AgentSessionView: View {
         }
     }
 
-    /// #EXP-1873: the check-in line's `HH:mm` (its schedule firing's `at`).
-    static func checkInTime(_ row: AgentFeedRow) -> String? {
-        guard case let .single(.userMessage(_, _, _, at)) = row, let at else { return nil }
+    /// #EXP-1873 + #FEED-317: a tick's `HH:mm` (its schedule firing's `at`).
+    static func checkInTime(_ at: Int?) -> String? {
+        guard let at else { return nil }
         return GlassTimeRow.formatted(Date(timeIntervalSince1970: Double(at) / 1000))
     }
 
@@ -1540,7 +1543,12 @@ struct AgentSessionView: View {
                 }
             }
         case let .ask(group):
-            askCard(group)
+            // #NEW-146: a one-step ask of an elicitation = THE posted card.
+            if let row = elicitationFeedRow(group) {
+                elicitationCard(row)
+            } else {
+                askCard(group)
+            }
         case let .single(item):
             switch item {
             case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
@@ -1662,7 +1670,12 @@ struct AgentSessionView: View {
                         .modifier(FindRowMark(id: id))
                 }
             case let .question(question):
-                questionCard(question)
+                // #NEW-146: an elicitation's frame = THE posted card.
+                if let row = elicitationFeedRow(question) {
+                    elicitationCard(row)
+                } else {
+                    questionCard(question)
+                }
             case let .subagent(_, _, agentType, status, detail, _, title, _):
                 // A `started` whose `completed` never came reads settled
                 // once the turn is over (the Reasoning line's rule).
@@ -1827,6 +1840,9 @@ struct AgentSessionView: View {
             let id = "row:\(entry.id)"
             var item = TranscriptGrouping.Item(id: id, kind: .full)
             switch entry.row {
+            // #FEED-317: THE schedule line is the chat's own agent's trace line.
+            case _ where entry.checkIns != nil:
+                item = TranscriptGrouping.Item(id: id, kind: .trace)
             case .toolRun, .edits, .expRun, .subagentRun:
                 item = TranscriptGrouping.Item(id: id, kind: .trace)
             case .ask:
@@ -2259,9 +2275,20 @@ struct AgentSessionView: View {
                         asks.append(row)
                     }
                 }
+                // #NEW-146: the engine's elicitation cards, drawn for their
+                // live frames (`elicitationFeedRow`).
+                let elicitations = tree.filter { message in
+                    message.card?.kind == "question" && message.card?.elicitation != nil
+                }
+                var elicitationById: [String: SessionChatRow] = [:]
+                for message in elicitations {
+                    if let row = SessionChatRow.askCard(message) { elicitationById[message.id] = row }
+                }
                 sessionCards = cards.filter { $0.kind != .surface || surfaces[$0.id] != nil }
                 toolAsks = asks
                 surfaceRows = surfaces
+                elicitationMessages = elicitations
+                elicitationRows = elicitationById
                 if !cardsLoaded { cardsLoaded = true }
             }
         } catch {}
@@ -2509,6 +2536,41 @@ struct AgentSessionView: View {
         case "banner:offline" where row.action != nil: deviceMoveControl(model, label: row.action ?? "")
         default: nil
         }
+    }
+
+    /// #NEW-146 (elicitation-card.json LIVE, `ElicitationCard.feedCard`): the
+    /// posted elicitation card for this question frame; nil = the frame
+    /// draws (no such card synced yet, or a withdrawn one).
+    private func elicitationFeedRow(_ question: AgentQuestion) -> SessionChatRow? {
+        guard !elicitationMessages.isEmpty,
+              let id = ElicitationCard.feedCard(
+                  elicitationMessages, questionId: question.wireId, resolved: question.resolved
+              )
+        else { return nil }
+        return elicitationRows[id]
+    }
+
+    /// A one-step ask's posted elicitation card (a longer ask = its stepper).
+    private func elicitationFeedRow(_ group: AgentAskGroup) -> SessionChatRow? {
+        guard group.questions.count == 1, let question = group.questions.first else { return nil }
+        return elicitationFeedRow(question)
+    }
+
+    /// #NEW-146: THE posted elicitation card in a frame's place, drawn and
+    /// answered exactly as `inlineToolCards` draws a tool card
+    /// (`sessions.answer`; the × = cancel).
+    @ViewBuilder
+    private func elicitationCard(_ row: SessionChatRow) -> some View {
+        ChatAskCard(
+            row: row,
+            canAnswer: (model?.mayPost ?? false) && !(model?.sessionEnded ?? true),
+            answeringId: toolAnsweringId,
+            markdownContext: markdownContext,
+            onSubmit: submitToolAnswer
+        )
+        .waitingHighlight(highlightId == row.id)
+        .id(row.id)
+        .accessibilityIdentifier("session-tool-card")
     }
 
     /// A lone question card: a plan approval or a single-question ask.
@@ -3999,6 +4061,9 @@ struct QuestionCard: View {
     /// #EXP-1464 (chat-row-action.json): trailing the label line (a
     /// conversation row's expanded card: `Open chat`).
     var headerTrailing: AnyView? = nil
+    /// #NEW-146 (elicitation-card.json): a glyph leading the heading's
+    /// words in the tint (the asking MCP server's plug).
+    var headerIcon: String? = nil
 
     @State private var expanded = false
     /// Tap order is the submit order of the semantic answer frame.
@@ -4095,11 +4160,17 @@ struct QuestionCard: View {
                 if hasHeader {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if let headerText {
-                            Text(headerText)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(tint)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            HStack(spacing: 4) {
+                                if let headerIcon {
+                                    AppIcon(headerIcon, size: 12)
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                }
+                                Text(headerText)
+                                    .font(.caption.weight(.medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .foregroundStyle(tint)
                         }
                         if let stepLabel {
                             Text(stepLabel)
@@ -5078,6 +5149,41 @@ private struct ToolGroupRow: View {
         }
         .onChange(of: findOpens, initial: true) { _, open in
             if open { expanded = true }
+        }
+    }
+}
+
+/// #EXP-1873 + #FEED-317 (transcript-grouping.json): a run of quiet
+/// schedule ticks = THE tool-group row (the Trace sm collapsible `ToolGroupRow`
+/// draws): the schedule glyph + `checkInLabel(n, first, last)`; n > 1 opens
+/// (closed by default) to one line per tick, oldest first; n = 1 never opens.
+/// `times` = each tick's `HH:mm` (nil = unknown), oldest first.
+struct ScheduleRunRow: View {
+    let times: [String?]
+
+    private var icon: some View {
+        AppIcon(AppIcons.triggerSchedule, size: TraceSize.sm.geometry.icon)
+    }
+
+    private func line(_ title: String) -> some View {
+        TraceLine(title: title, size: .sm) { icon }
+    }
+
+    var body: some View {
+        let label = TranscriptGrouping.checkInLabel(
+            count: times.count, first: times.first ?? nil, last: times.last ?? nil
+        )
+        if times.count > 1 {
+            TraceCollapsible(size: .sm, accessibilityId: "session-schedule-run") {
+                line(label)
+            } content: {
+                ForEach(Array(times.enumerated()), id: \.offset) { _, time in
+                    line(TranscriptGrouping.checkInLabel(count: 1, first: time, last: time))
+                }
+            }
+        } else {
+            line(label)
+                .accessibilityIdentifier("session-schedule-run")
         }
     }
 }

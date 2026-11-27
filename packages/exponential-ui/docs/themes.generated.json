@@ -4167,7 +4167,8 @@
         "itemText",
         "itemLabel",
         "itemDescription",
-        "itemHint"
+        "itemHint",
+        "sectionHeading"
       ],
       "props": [
         "multiple",
@@ -4280,6 +4281,7 @@
         "root",
         "label",
         "trigger",
+        "placeholder",
         "calendar",
         "day"
       ],
@@ -4296,6 +4298,7 @@
         "root",
         "label",
         "trigger",
+        "placeholder",
         "calendar",
         "day",
         "range"

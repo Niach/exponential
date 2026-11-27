@@ -1,3 +1,4 @@
+import { endLeaverSpacesInTx, finishEndedSpaces, type EndedSpace } from "@/lib/spaces/end"
 import { revokeMemberMcpInTx } from "@/lib/emcp/revoke"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -289,6 +290,7 @@ export const teamMembersRouter = router({
       // assignee_changed events: this is bulk offboarding hygiene, not an
       // editorial change by the remover.
       let ending: string[] = []
+      let endedSpaces: EndedSpace[] = []
       await ctx.db.transaction(async (tx) => {
         await lockTeamMembers(tx, target.teamId)
         // Prevent removing the last owner — inside the team-locked
@@ -384,6 +386,8 @@ export const teamMembersRouter = router({
         // `rotation`): the ex-member's installs (their devices' too) lose
         // their wraps of this team's trees, which are due for rotation.
         await dropReaderKeysInTx(tx, { userId: target.userId }, [target.teamId])
+        // #EXP-2161: their member space of this team, and their machines'.
+        endedSpaces = await endLeaverSpacesInTx(tx, target.userId)
         // EXP-630: an unclaimed placeholder nothing references any more has
         // no reason to exist once it is off its last roster (its invites
         // cascade with it). A referenced one stays, like any former member.
@@ -395,6 +399,7 @@ export const teamMembersRouter = router({
       // The share was the consent that let teammates run sessions on the
       // ex-member's box — end the still-live foreign-hosted runs read above.
       await endHostedSessions(ending)
+      await finishEndedSpaces(endedSpaces)
       // #EXP-1935: their Assistant in this team is no longer theirs to talk
       // to: voice moves to one of a team they are still in, or clears.
       await syncVoiceMirror(ctx.db, target.userId).catch((error: unknown) =>

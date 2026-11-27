@@ -1038,7 +1038,7 @@ pub(crate) fn add_account_devices(
     let now_ms = chrono::Utc::now().timestamp_millis();
     let mut out: Vec<LoginDevice> = Vec::new();
     for row in store.collections().devices.read(cx).iter() {
-        if row.user_id.as_deref() != Some(me.user_id.as_str()) {
+        if row.user_id.as_deref() != Some(me.user_id.as_str()) || row.is_space() {
             continue;
         }
         let device_id = row.device_id.clone().unwrap_or_default();

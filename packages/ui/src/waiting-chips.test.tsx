@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ChatWaitingChips } from "./waiting-chips"
+import { HeaderFoldContext } from "./header-collapse"
+import { PrStatusPill } from "./pr-checks"
 import { TooltipProvider } from "./tooltip"
 
 // #EXP-1785 (waiting-cards.json CHIPS): the session screen header's waiting
@@ -39,5 +41,22 @@ describe(`ChatWaitingChips`, () => {
       </TooltipProvider>
     )
     expect(screen.queryByTestId(`waiting-button`)).toBeNull()
+  })
+
+  it(`#EXP-2183: a folded header keeps the icons, the text only read out`, () => {
+    render(
+      <TooltipProvider>
+        <HeaderFoldContext.Provider value={new Set([`status`, `primary`] as const)}>
+          <ChatWaitingChips cards={cards} phone onSelect={() => {}} />
+          <PrStatusPill view={{ label: `Checks running`, glyph: `spinner`, tone: `muted`, primary: false, tap: null } as never} folded />
+        </HeaderFoldContext.Provider>
+      </TooltipProvider>
+    )
+    const button = screen.getByTestId(`waiting-button`)
+    expect(button.getAttribute(`aria-label`)).toBe(`2 waiting`)
+    expect(button.querySelector(`[data-header-fold-label]`)?.className).toContain(`sr-only`)
+    const pill = document.querySelector(`[data-header-fold=primary]`)!
+    expect(pill.getAttribute(`aria-label`)).toBe(`Checks running`)
+    expect(pill.querySelector(`[data-header-fold-label]`)?.className).toContain(`sr-only`)
   })
 })

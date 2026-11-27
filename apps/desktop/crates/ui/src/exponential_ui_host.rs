@@ -571,7 +571,8 @@ fn upstream_resolver(feeds: Weak<RefCell<Feeds>>, app_id: Option<String>, async_
 fn refresh_devices(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
     let Some(store) = sync::Store::try_global(cx) else { return };
     let devices = store.collections().devices.read(cx);
-    let value = devices_value(devices.iter(), chrono::Utc::now().timestamp_millis());
+    // #EXP-2161: a member space is never a device of a list.
+    let value = devices_value(devices.iter().filter(|row| !row.is_space()), chrono::Utc::now().timestamp_millis());
     let mut f = feeds.borrow_mut();
     f.devices = value;
     f.publish();

@@ -6,8 +6,8 @@
 // carrying the case's query, called over MCP, the server read (read policy +
 // RLS, covered by the real-db suites) handing the case's rows over.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { Client } from "@modelcontextprotocol/client"
+import { InMemoryTransport } from "@modelcontextprotocol/client"
 import fixture from "@exponential_app/eui/fixtures/records-query.json" with { type: "json" }
 import { withComputed, type RecordRefTarget, type RecordRow } from "@exponential_app/eui/host/query"
 import type { Expose } from "@exp/emcp/exposes"

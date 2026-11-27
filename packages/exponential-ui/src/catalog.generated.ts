@@ -204,7 +204,7 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; iconColor?: string | Dynamic; disabled?: boolean; description?: string; trailing?: string; hint?: string; mono?: boolean; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; iconColor?: string | Dynamic; disabled?: boolean; description?: string; trailing?: string; hint?: string; section?: string; mono?: boolean; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
   menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; iconColor?: string | Dynamic; shortcut?: string; identifier?: string; detail?: string; preview?: Record<string, unknown> | Dynamic; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
@@ -282,7 +282,7 @@ export interface ComponentProps {
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
   Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue; matchAnchorWidth?: boolean }
   Tooltip: { content: string | Dynamic; side?: SideValue }
-  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
+  Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][] | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
   Alert: { title: string; message?: string | Dynamic; type?: AlertTypeValue }

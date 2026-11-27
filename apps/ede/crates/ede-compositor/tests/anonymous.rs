@@ -47,6 +47,7 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::MoveWindow { window: w(), x: 5, y: 5 },
         Request::MinimizeWindow { window: w() },
         Request::RestoreWindow { window: w() },
+        Request::ToggleDesktop,
         Request::Capture { target: CaptureTarget::Output { name: "HEADLESS-1".into() }, since: None },
         Request::Capture { target: CaptureTarget::Window { window: w() }, since: None },
         Request::Input { event: key(), bindings: false },
@@ -83,21 +84,22 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::SpaceOfProcess { pid: std::process::id() },
         Request::SpaceReadiness,
         Request::SpaceBusy,
+        Request::PickRegion { mode: ede_protocol::PickMode::Area },
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 41, "one request per op at least");
+    assert_eq!(ops.len(), 43, "one request per op at least");
     all
 }
 
 fn every(request: &Request) -> std::mem::Discriminant<Request> {
     match request {
         Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => {}
-        Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput => {}
+        Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput => {}
         Request::ReleaseInput | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } => {}
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => {}
         Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } => {}
         Request::ClipboardText | Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
-        Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy => {}
+        Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy | Request::PickRegion { .. } => {}
     }
     std::mem::discriminant(request)
 }

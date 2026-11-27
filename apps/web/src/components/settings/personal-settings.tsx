@@ -4,7 +4,7 @@
 // its own loader + search; the body is the same.
 import { useMemo } from "react"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
-import { EmptyState, SkeletonRows, conceptIcon } from "@exp/ui"
+import { EmptyState, GlassGroup, GlassSectionHeader, SkeletonRows, conceptIcon } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { AccountOverview } from "@/components/account/account-overview"
@@ -19,7 +19,9 @@ import { EmailNotificationsCard } from "@/components/account/email-notifications
 import { NotificationSourcesCard } from "@/components/account/notification-sources-card"
 import { ApiKeysSection } from "@/components/account/api-keys-section"
 import { AgentSettingsPage } from "@/components/team/agents-section"
-import { useAgentRow } from "@/hooks/use-agent-row"
+import { AssistantDeviceRow, useSpaceRows } from "@/components/team/assistant-device-row"
+import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
+import { useAgentRow, useAllAgentRows } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useTeamById } from "@/hooks/use-team-data"
@@ -123,7 +125,11 @@ export function AssistantSettingsBody({ team, isOwner }: { team?: Team | null; i
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
   const assistantId = useEnsureAssistant(null)
-  const { agent: row } = useAgentRow(assistantId ?? null)
+  const agents = useAllAgentRows()
+  // #EXP-2161: a member without a machine picks a team device, which makes
+  // the Assistant; its row then syncs.
+  const ownId = assistantId ?? agents.find((candidate) => candidate.role === `assistant` && candidate.ownerId === me)?.id ?? null
+  const { agent: row } = useAgentRow(ownId)
   const agent = row && row.role === `assistant` && row.ownerId === me ? row : null
   const home = useTeamById(team === undefined ? agent?.teamId : null)
   const homePermissions = useTeamPermissions(team === undefined ? home : null)
@@ -138,7 +144,18 @@ export function AssistantSettingsBody({ team, isOwner }: { team?: Team | null; i
   )
   const pageIsOwner = team === undefined ? homePermissions.isOwner : Boolean(isOwner)
 
-  if (assistantId === null) {
+  const { picks } = useSpaceRows(null, assistantId === null && ownId === null)
+  if (assistantId === null && ownId === null) {
+    if (picks.length > 0) {
+      return (
+        <div className="space-y-2">
+          <GlassSectionHeader label={AGENT_SETTINGS_COPY.runsOn} />
+          <GlassGroup>
+            <AssistantDeviceRow deviceId={null} devices={[]} onPickOwn={() => {}} onPickedSpace={() => {}} />
+          </GlassGroup>
+        </div>
+      )
+    }
     return <EmptyState icon={DevicesIcon} title={ASSISTANT_COPY.noDevice} size="list" />
   }
   if (pageTeam && agent) {

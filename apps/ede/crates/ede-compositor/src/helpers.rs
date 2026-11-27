@@ -5,7 +5,8 @@
 //! - **The list** ([`session_specs`]): the shell under its supervisor
 //!   (`exponential-ui supervise -- exponential-shell`), the polkit agent
 //!   (`exponential-sealed polkit`), the portal and the services daemon
-//!   (`exponential-services serve`, its intake at fd 3: [`crate::services`]).
+//!   (`exponential-services serve`, its intake at fd 3: [`crate::services`]),
+//!   and the app as the session's component (`exponential-app`, #EDE-227).
 //! - **Each in a scope of its own** (`systemd-run --user --scope
 //!   --slice=session.slice`, part of the session's targets as the units
 //!   were) where the person's user manager answers, else in the
@@ -176,7 +177,7 @@ pub fn session_specs() -> Vec<Spec> {
     if Path::new(PIPEWIRE_SYSTEM).join("client.conf").is_file() {
         portal_env.push(("PIPEWIRE_CONFIG_DIR".to_string(), PIPEWIRE_SYSTEM.to_string()));
     }
-    vec![
+    let mut specs = vec![
         Spec {
             name: "exponential-shell".into(),
             argv: vec![installed("exponential-ui", false), "supervise".into(), "--".into(), installed("exponential-shell", false)],
@@ -202,8 +203,24 @@ pub fn session_specs() -> Vec<Spec> {
         },
         // #EDE-172 (P13): no services.sock; connections come over its intake.
         Spec { name: "exponential-services".into(), argv: vec![installed("exponential-services", false), "serve".into()], channel: Some(Channel::Intake), wayland: None, env: vec![("RUST_LOG".into(), "info".into())] },
-    ]
+    ];
+    // #EDE-227: the app as the session's component, the login's holder
+    // (its account, install, keys, device and coding sessions). Started
+    // here, it is known: the root token from it is root's with no prompt
+    // ([`crate::consent::Own`]), and the shell hands it launch tokens over
+    // the session bus. An ordinary Wayland client of the person's desk
+    // (its windows wear eDE's frame); a package without it runs none.
+    specs.extend(app_spec(&installed("exponential-app", false)));
+    specs
 }
+
+/// #EDE-227: the component's spec when `path` is an installed program.
+pub fn app_spec(path: &str) -> Option<Spec> {
+    Path::new(path).is_file().then(|| Spec { name: APP.into(), argv: vec![path.to_string()], channel: None, wayland: None, env: vec![] })
+}
+
+/// #EDE-227: the component's helper name (its scope's, its log's).
+pub const APP: &str = "exponential-app";
 
 /// A running (or waiting) helper.
 #[derive(Debug)]

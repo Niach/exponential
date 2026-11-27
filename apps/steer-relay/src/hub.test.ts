@@ -80,6 +80,22 @@ function quietly(fn: () => void) {
   }
 }
 
+test(`#EXP-2161: a control ticket naming its device announces that one only`, () => {
+  const hub = new Hub()
+  const laptop = new FakeSocket()
+  hub.onOpen(laptop, claims({}))
+  hub.onMessage(laptop, JSON.stringify({ t: `online`, deviceId: `laptop` }))
+  const space = new FakeSocket()
+  hub.onOpen(space, claims({ deviceId: `space-1` }))
+  hub.onMessage(space, JSON.stringify({ t: `online`, deviceId: `laptop` }))
+  expect(laptop.closed).toBeNull()
+  expect(hub.nudge(`user-1`, `laptop`)).toBe(true)
+  expect(space.framesOf(`check_in`)).toEqual([])
+  hub.onMessage(space, JSON.stringify({ t: `online`, deviceId: `space-1` }))
+  expect(hub.nudge(`user-1`, `space-1`)).toBe(true)
+  expect(space.framesOf(`check_in`)).toHaveLength(1)
+})
+
 describe(`device presence`, () => {
   test(`online registers, nudge routes, close evicts`, () => {
     const hub = new Hub()

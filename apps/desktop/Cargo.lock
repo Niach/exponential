@@ -374,6 +374,7 @@ dependencies = [
  "observability",
  "resvg 0.45.1",
  "rust-embed",
+ "serde_json",
  "steer",
  "sync",
  "terminal",
@@ -1802,6 +1803,7 @@ dependencies = [
  "domain",
  "eagent",
  "ecode",
+ "emcp",
  "enet-core",
  "epilot",
  "epilot-screen",
@@ -2861,6 +2863,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.23",
+ "url",
  "uuid",
  "wait-timeout",
 ]
@@ -3016,9 +3019,11 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
+ "image",
  "libc",
  "libloading",
  "png 0.17.16",
+ "resvg 0.45.1",
  "rust-embed",
  "serde",
  "serde_json",
@@ -3031,6 +3036,7 @@ dependencies = [
  "uicore-gpui",
  "uicore-model",
  "uuid",
+ "x11rb",
  "zbus",
 ]
 
@@ -3612,6 +3618,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "etherparse"
+version = "0.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73d959354dc058031f9944438972841ce014100e8692bbfe56d4ba7947fed59c"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "euclid"
 version = "0.22.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3751,6 +3766,7 @@ dependencies = [
  "git-remote-exp",
  "libc",
  "log",
+ "member-space",
  "observability",
  "open",
  "serde",
@@ -6763,6 +6779,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
+name = "ipstack"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e889a45c1ce3e97268ad2249951528563ec1d02a120fecbd4db690beac34f7fd"
+dependencies = [
+ "ahash",
+ "etherparse",
+ "log",
+ "rand 0.10.3",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "iroh"
 version = "1.4.1"
 dependencies = [
@@ -7744,6 +7775,18 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "member-space"
+version = "0.14.185"
+dependencies = [
+ "ipstack",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -10977,9 +11020,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.8.0"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
+checksum = "391f153431ab68664d946513ea0cb3edbca78eaf99c5a983036cacab6220d85b"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -10993,12 +11036,14 @@ dependencies = [
  "libc",
  "oauth2",
  "pastey 0.2.3",
+ "percent-encoding",
  "pin-project-lite",
  "rand 0.10.3",
  "reqwest",
  "schemars 1.2.1",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -11006,6 +11051,8 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "unicode-general-category",
+ "unicode-normalization",
  "url",
  "uuid",
 ]
@@ -13916,6 +13963,7 @@ dependencies = [
  "gpui-markdown-editor",
  "gpui-pre",
  "gpui-pre-apple",
+ "gpui-pre-linux",
  "gpui-pre-platform",
  "iana-time-zone",
  "image",
@@ -14043,6 +14091,12 @@ name = "unicode-ccc"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce61d488bcdc9bc8b5d1772c404828b17fc481c0a582b5581e95fb233aef503e"
+
+[[package]]
+name = "unicode-general-category"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-id"

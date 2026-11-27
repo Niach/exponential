@@ -901,6 +901,55 @@ pub(crate) fn conversation_cards(session_id: &str, cx: &App) -> Rc<Vec<SessionCh
     cards
 }
 
+/// #NEW-146 (elicitation-card.json LIVE, `feedCardCases`): a session's
+/// ENGINE-posted elicitation cards (a `question` card with a `questionId`
+/// and an `elicitation` sidecar: `session_cards` leaves them to their
+/// frame), as `elicitation_feed_card` matches a live frame against them,
+/// beside each one's chat row (by message id) and its measure.
+#[derive(Default)]
+pub(crate) struct ElicitationCards {
+    pub(crate) messages: Vec<MessageRow>,
+    pub(crate) rows: HashMap<String, (SessionChatRow, u64)>,
+}
+
+/// [`ElicitationCards`] of `session_id`. #LOGS-7: derived once per change
+/// of the session's messages, never per frame. Sealed rows are already
+/// opened by sync; a locked one cannot be answered here and stays out
+/// (its frame stays).
+pub(crate) fn elicitation_cards(session_id: &str, cx: &App) -> Rc<ElicitationCards> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<HashMap<String, (Rc<Vec<MessageRow>>, Rc<ElicitationCards>)>> = Default::default();
+    }
+    let messages = messages_of_session(session_id, cx);
+    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(session_id).filter(|(at, _)| Rc::ptr_eq(at, &messages)).map(|(_, cards)| cards.clone())) {
+        return hit;
+    }
+    let mut cards = ElicitationCards::default();
+    for message in messages.iter() {
+        if message.locked().is_some() || message.card_kind() != Some("question") {
+            continue;
+        }
+        let card = message.card.as_ref();
+        let engine = card.and_then(|card| card.get("questionId")).is_some_and(|id| !id.is_null());
+        if !engine || !card.and_then(|card| card.get("elicitation")).is_some_and(serde_json::Value::is_object) {
+            continue;
+        }
+        let Some(row) = domain::session_tree::ask_card_row(message) else { continue };
+        let print = crate::steer_viewer::conversation_card_fingerprint(Some(&row));
+        cards.rows.insert(message.id.clone(), (row, print));
+        cards.messages.push(message.clone());
+    }
+    let cards = Rc::new(cards);
+    MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.len() > 64 {
+            memo.clear();
+        }
+        memo.insert(session_id.to_string(), (messages.clone(), cards.clone()));
+    });
+    cards
+}
+
 /// THE chat view of `root_id` (no focus, its own tree): the session
 /// screen's model and a root view's suggested tasks read the same one.
 /// #LOGS-7: derived once per change of what it reads (and per second: a

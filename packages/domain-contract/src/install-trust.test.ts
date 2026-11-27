@@ -104,7 +104,9 @@ describe(`install-trust.json`, () => {
     expect(fixture.approval.messageBytes).toBe(APPROVAL_MESSAGE_BYTES)
     expect(Object.values(fixture.approval.layout).reduce((sum, n) => sum + n, 0)).toBe(APPROVAL_MESSAGE_BYTES)
     expect(fixture.approval.layout.label).toBe(APPROVAL_LABEL.length + 1)
-    expect(fixture.approval.kinds).toEqual(APPROVAL_KINDS)
+    // `space` (#EXP-2161) is the `space` section's (install-trust-space.test.ts).
+    const { space: _space, ...kinds } = APPROVAL_KINDS
+    expect(fixture.approval.kinds).toEqual(kinds)
     for (const key of Object.values(keys)) {
       const identity = fromHex(key.identity)
       expect(endpointIdOf(identity)).toBe(key.endpointId)

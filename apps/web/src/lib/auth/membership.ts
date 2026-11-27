@@ -17,6 +17,7 @@ import {
   readableUserIdsCache,
   userTeamIdsCache,
 } from "@/lib/auth/membership-cache"
+import { currentSpace, narrowTeamIds, spaceOf } from "@/lib/spaces/context"
 
 export type TeamMemberRecord = Pick<
   TeamMember,
@@ -73,6 +74,7 @@ export async function getReadableUserIdsInTeams(
 ): Promise<string[]> {
   if (!userId) return []
   // REV2-7: cached ~10s (see membership-cache.ts).
+  if (spaceOf(userId)) return queryReadableUserIdsInTeams(userId)
   return readableUserIdsCache.get(userId, () =>
     queryReadableUserIdsInTeams(userId)
   )
@@ -84,7 +86,7 @@ async function queryReadableUserIdsInTeams(userId: string): Promise<string[]> {
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId))
-  const joinedTeamIds = membershipRows.map((row) => row.teamId)
+  const joinedTeamIds = narrowTeamIds(userId, membershipRows.map((row) => row.teamId))
   if (joinedTeamIds.length === 0) return [userId]
   const rows = await db
     .select({ userId: teamMembers.userId })
@@ -96,7 +98,8 @@ async function queryReadableUserIdsInTeams(userId: string): Promise<string[]> {
 export async function getUserTeamIds(userId: string): Promise<string[]> {
   // REV2-7: cached ~10s (see membership-cache.ts) — 12 of the 14 shape
   // long-poll renewals per client per cycle resolve this same list.
-  return userTeamIdsCache.get(userId, () => queryUserTeamIds(userId))
+  // #EXP-2161: a request through a member space sees the space's teams only.
+  return narrowTeamIds(userId, await userTeamIdsCache.get(userId, () => queryUserTeamIds(userId)))
 }
 
 // #EXP-1720: the joined teams + the personal team, in ONE query (every
@@ -122,7 +125,7 @@ async function queryUserTeamIds(userId: string): Promise<string[]> {
  *  Assistant's scope). `getUserTeamIds` = these + the personal team (every
  *  other shape: its Assistant, conversation and messages sync). */
 export async function getMemberTeamIds(userId: string): Promise<string[]> {
-  return memberTeamIdsCache.get(userId, () => queryMemberTeamIds(userId))
+  return narrowTeamIds(userId, await memberTeamIdsCache.get(userId, () => queryMemberTeamIds(userId)))
 }
 
 async function queryMemberTeamIds(userId: string): Promise<string[]> {
@@ -187,6 +190,8 @@ export function isTeamMemberSql(userId: SQLWrapper, teamId: SQLWrapper): SQL {
 }
 
 export async function getTeamMember(userId: string, teamId: string) {
+  const space = spaceOf(userId)
+  if (space && !space.reach.includes(teamId)) return undefined
   const db = await getDb()
   const [member] = await db
     .select({
@@ -445,7 +450,10 @@ export async function getSessionAttachmentTeamContext(attachmentId: string) {
     )
     .limit(1)
 
-  if (!attachmentContext) {
+  // #EXP-2161: through a member space, a message's file of its own trees only.
+  const space = currentSpace()
+  const outside = space && attachmentContext && !(await import(`@/lib/spaces/shapes`).then((m) => m.attachmentInSpace(db, space, attachmentContext)))
+  if (!attachmentContext || outside) {
     throw new TRPCError({
       code: `NOT_FOUND`,
       message: `Attachment not found`,

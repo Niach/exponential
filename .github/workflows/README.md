@@ -164,6 +164,28 @@ sessions; a relay that ignores the claim shows those sessions as Ended.
 
 Bench timings never fail (warnings only); counts and bytes still gate.
 
+## Exponential Desktop follows the desktop floor (#EDE-227)
+
+Since #EDE-227 the eDE package carries the app: `exponential-app`, its
+session component, built from `apps/desktop` at the tag's commit
+(`apps/ede/packaging/stage.sh`). It talks to the server as the desktop app
+does and reports the desktop workspace's version (`apps/desktop/Cargo.toml`,
+0.14.x), not the package's (`apps/ede/Cargo.toml`, 0.2.x). So
+`CLIENT_MIN_VERSION_DESKTOP` gates eDE too: past the floor the component
+gets 426 and shows "Update Exponential Desktop" (it has no updater of its
+own; the package manager updates it).
+
+- **Raising the floor:** first publish an `ede-v*` tag cut from a commit
+  whose `apps/desktop/Cargo.toml` version is at or above the new floor (its
+  install tests green, the repositories synced to the package host), then
+  set `CLIENT_MIN_VERSION_DESKTOP` on next, then on the cloud. The same round
+  that ships the desktop release the floor needs ships that eDE release.
+- **Which version an eDE release carries:** the desktop version at its tag's
+  commit (`git show ede-v<x>:apps/desktop/Cargo.toml`); say it in the release
+  notes ("component: desktop 0.14.x").
+- **Never** raise the floor past the desktop version of the newest published
+  eDE: every eDE machine would stop syncing until a package exists.
+
 ## Release trust boundary (#EXP-2151)
 
 What ships never reads what a pull request job wrote.
@@ -205,8 +227,8 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `GLITCHTIP_AUTH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secret | `build-ios.yml` | #LOGS-2: dSYM upload to GlitchTip (upload-only token + Cloudflare Access service token); absent = step skipped | person |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | secret | `windows-sign` | an Entra app registration with the "Artifact Signing Certificate Profile Signer" role | person (Azure; identity validation first). A PARTIAL set fails the Windows leg |
 | `WINDOWS_SIGNING_ENDPOINT`, `WINDOWS_SIGNING_ACCOUNT`, `WINDOWS_SIGNING_PROFILE` | variable | `windows-sign` | Artifact Signing region endpoint, account, certificate profile | person |
-| `UPDATE_SIGNING_KEY` | secret | `updater-feed` | minisign secret key (`minisign -G -W`, base64 of the file) signing `SHA256SUMS.txt` | person (generate once, keep in KeePass) |
-| `UPDATE_SIGNING_PUBKEY` | variable | `updater-feed`, the desktop + CLI builds (`EXP_UPDATE_PUBKEY`) | the public key; compiled in, every update then MUST be signed. Set without the secret = the release FAILS | person (second line of the .pub) |
+| `UPDATE_SIGNING_KEY` | secret | `updater-feed`, the desktop build (`BINARIES_SIGNING_KEY`) | minisign secret key (`minisign -G -W`, base64 of the file) signing `SHA256SUMS.txt` and the AppImage's `binaries.sha256` (eDE's first-party screen consent) | person (generate once, keep in KeePass) |
+| `UPDATE_SIGNING_PUBKEY` | variable | `updater-feed`, the desktop + CLI + eDE builds (`EXP_UPDATE_PUBKEY`) | the public key; compiled in, every update then MUST be signed. Set without the secret = the release FAILS | person (second line of the .pub) |
 | `ANDROID_KEYSTORE_B64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` | secret | `build-android.yml` | Play upload keystore | person |
 | `PLAY_SERVICE_ACCOUNT_JSON` | secret | `play-upload` | Google Cloud service-account key, invited in Play Console as Release manager on the app | person. The Play app record + first upload must exist (the API cannot create apps) |
 | `RELEASE_BOT_TOKEN` | secret | `bump-versions.yml` | token for the bump PR so `gate` runs on it (GITHUB_TOKEN PRs trigger no workflows) | person (optional) |

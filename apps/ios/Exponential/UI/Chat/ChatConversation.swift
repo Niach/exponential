@@ -186,12 +186,19 @@ struct ChatAskCard: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.chatPlanOutlet) private var planOutlet
     @State private var draft = PlanCardDraft()
+    /// #NEW-146: an elicitation form's data model as it stands (Submit waits
+    /// for the required fields); nil = the surface's initial values.
+    @State private var elicitationData: CardJSON?
 
     var body: some View {
         switch row {
         case let .question(card) where card.dismissed == true:
             // #EXP-1561 (waiting-cards.json): THE dismissed line.
             AskDismissedCard(kind: .question, title: AskDock.title(card.question))
+        case let .question(card) where card.elicitation != nil:
+            // #NEW-146 (elicitation-card.json): a third-party MCP server asks.
+            elicitationCard(card, elicitation: card.elicitation!)
+                .accessibilityIdentifier(ElicitationCard.TestIds.card)
         case let .plan(card) where card.decision == "dismissed":
             AskDismissedCard(kind: .plan, title: AskDock.title(card.plan))
         case let .question(card):
@@ -336,6 +343,110 @@ struct ChatAskCard: View {
         })
     }
 
+    // MARK: - Elicitation (#NEW-146)
+
+    /// THE elicitation card (elicitation-card.json RENDER): the question
+    /// card's chrome with the asking SERVER (its plug) as the label, the
+    /// message, the device-built surface without the `Preview` caption, then
+    /// ONE end-aligned button row. Answered = closed: the surface inert at
+    /// its answered data, the pick named.
+    @ViewBuilder
+    private func elicitationCard(_ card: ChatQuestionRow, elicitation: ElicitationCard.Sidecar) -> some View {
+        let question = AgentQuestion(
+            id: 0,
+            wireId: card.id,
+            header: elicitation.server,
+            text: PlanCard.renderableMarkdown(card.question),
+            options: [],
+            resolved: card.answered,
+            answers: card.answered ? [card.answers?.first ?? card.answer ?? ""].filter { !$0.isEmpty } : []
+        )
+        QuestionCard(
+            question: question,
+            active: !card.answered,
+            canAnswer: canAnswer,
+            locked: answeringId == card.id,
+            pending: answeringId == card.id,
+            failed: false,
+            onAnswer: { _, _ in },
+            markdownContext: markdownContext,
+            caption: caption,
+            form: elicitationForm(card, elicitation: elicitation),
+            hidesOptions: true,
+            richBody: true,
+            formGap: PlanCard.Card.blockGap,
+            headerTrailing: trailing(headerTrailing, dismiss: dismissButton(card.id, waiting: !card.answered)),
+            headerIcon: AppIcons.settingsMcp
+        )
+    }
+
+    private func elicitationForm(_ card: ChatQuestionRow, elicitation: ElicitationCard.Sidecar) -> AnyView {
+        let editable = canAnswer && !card.answered
+        let busy = answeringId == card.id
+        let missing = elicitation.mode == .form
+            ? ElicitationCard.missing(required: elicitation.required, surfaceData: elicitationData ?? card.surface?.data)
+            : []
+        return AnyView(VStack(alignment: .trailing, spacing: Self.answerGap) {
+            if let surface = card.surface {
+                PlanCardSurfaceView(
+                    surface: surface, handle: draft.surface, editable: editable && !busy,
+                    data: card.answered ? card.surfaceData : nil,
+                    caption: false,
+                    onData: { if elicitationData != $0 { elicitationData = $0 } }
+                )
+                .padding(.bottom, PlanCard.Card.blockGap - Self.answerGap)
+            }
+            if editable, !busy {
+                HStack(spacing: Self.answerGap) {
+                    switch elicitation.mode {
+                    case .url:
+                        GlassPill(ElicitationCard.Copy.decline, mode: .action { sendElicitation(card, ElicitationCard.Copy.decline, data: false) })
+                            .accessibilityIdentifier(ElicitationCard.TestIds.decline)
+                        GlassPill(ElicitationCard.Copy.done, mode: .action { sendElicitation(card, ElicitationCard.Copy.done, data: false) })
+                            .accessibilityIdentifier(ElicitationCard.TestIds.done)
+                        GlassPill(
+                            ElicitationCard.Copy.openLink,
+                            mode: .action { ElicitationLinkOpener.shared.open(elicitation.url, deps: deps) },
+                            primary: true
+                        )
+                        .accessibilityIdentifier(ElicitationCard.TestIds.openLink)
+                    case .form:
+                        ElicitationGhostButton(label: ElicitationCard.Copy.cancel) {
+                            sendElicitation(card, ElicitationCard.Copy.cancel, data: false)
+                        }
+                        .accessibilityIdentifier(ElicitationCard.TestIds.cancel)
+                        GlassPill(ElicitationCard.Copy.decline, mode: .action { sendElicitation(card, ElicitationCard.Copy.decline, data: false) })
+                            .accessibilityIdentifier(ElicitationCard.TestIds.decline)
+                        GlassPill(
+                            ElicitationCard.Copy.submit,
+                            mode: .action { sendElicitation(card, ElicitationCard.Copy.submit, data: true) },
+                            primary: true,
+                            enabled: missing.isEmpty
+                        )
+                        .accessibilityIdentifier(ElicitationCard.TestIds.submit)
+                    }
+                }
+                if !missing.isEmpty {
+                    Text(ElicitationCard.Copy.missing)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.yellow)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing))
+    }
+
+    /// THE answer path: the label (+ the form's data model on Submit); the
+    /// device maps it back (`ElicitationCard.action`).
+    private func sendElicitation(_ card: ChatQuestionRow, _ label: String, data: Bool) {
+        onSubmit(ChatCardAnswer(
+            messageId: card.id,
+            answer: label,
+            answers: .question([label]),
+            surfaceData: data && card.surface != nil ? (draft.surface.snapshot() ?? elicitationData ?? card.surface?.data) : nil
+        ))
+    }
+
     private func submitQuestion(_ card: ChatQuestionRow, labels: [String]) {
         let picked = labels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard !picked.isEmpty else { return }
@@ -438,5 +549,27 @@ struct SurfaceCardRow: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(Chats.TestIds.surfaceCard)
         }
+    }
+}
+
+/// #NEW-146: web's `ghost` small Button (the elicitation form's Cancel): the
+/// pill's label and rhythm without its fill or hairline (GlassAlert's quiet
+/// answer, untinted).
+private struct ElicitationGhostButton: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                .frame(height: GlassPillTokens.heightSm)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressScaleButtonStyle(dims: true))
     }
 }

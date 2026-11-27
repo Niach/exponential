@@ -1359,7 +1359,7 @@ private fun ChatHeaderMerge(
     }
     var approveOpen by remember { mutableStateOf(false) }
     var checksOpen by remember { mutableStateOf(false) }
-    Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
+    Spacer(Modifier.width(com.exponential.app.domain.HeaderActions.GAP.dp))
     if (view.tap == "approve") {
         val merging = NeedsApprovalConfirm(
             newest = newest,

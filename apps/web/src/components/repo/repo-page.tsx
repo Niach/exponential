@@ -10,7 +10,7 @@ import {
   type RepoTab,
 } from "@exp/domain-contract/repo-page"
 import {
-  Button,
+  HeaderBack,
   EmptyState,
   GlassSectionHeader,
   GlassGroup,
@@ -39,7 +39,6 @@ import { RepoCiSection, RepoRunsTab } from "@/components/repo/repo-ci"
 import { useSession } from "@/hooks/use-session"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
-const UiBackIcon = conceptIcon(`ui-back`)
 const RepositoriesIcon = conceptIcon(`settings-repositories`)
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
@@ -104,15 +103,7 @@ export function RepoPage({
     void navigate({ to: `/t/$teamSlug/repos/$name`, params: { teamSlug, name }, search: { tab: next }, replace: true })
 
   const back = (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label={`Repositories`}
-      className="-ml-2 size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-      onClick={() => void navigate({ to: `/t/$teamSlug/settings/repositories`, params: { teamSlug } })}
-    >
-      <UiBackIcon className="size-5" />
-    </Button>
+    <HeaderBack label="Repositories" onClick={() => void navigate({ to: `/t/$teamSlug/settings/repositories`, params: { teamSlug } })} />
   )
 
   return (

@@ -26,7 +26,7 @@
 // before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, propColor, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, propColor, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, selectSectionHeading, selectSectionOrder } from "@exponential_app/eui/web"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
@@ -52,6 +52,15 @@ export interface SelectOption {
   iconColor?: string
   /** #EXP-1629: a small muted run at the row's end (web's picker hint). */
   hint?: string
+  /** #EXP-2161: the heading its run of options sits under (web's picker group). */
+  section?: string
+}
+
+/** #EXP-2161: the `sectionHeading` over option `i` of the (section-ordered)
+ *  `list`: web's picker group heading, never an option (React's). */
+const SectionHeading = (props: { list: SelectOption[]; i: number; part: PartFn }) => {
+  const heading = () => selectSectionHeading(props.list, props.i)
+  return <Show when={heading() !== undefined}><div {...props.part(`sectionHeading`)} role="presentation">{heading()}</div></Show>
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -149,7 +158,8 @@ export function SelectNative(props: NativeProps): JSX.Element {
   }
   onCleanup(() => request++)
   const inline = createMemo(() => objects<SelectOption>(props.props.options))
-  const options = () => sourced() ?? inline()
+  // #EXP-2161: the unsectioned options first, then each section's run.
+  const options = createMemo(() => selectSectionOrder(sourced() ?? inline()))
   const commit = (next: string | string[]) => {
     const r = untrack(raw)
     const out = untrack(multiple) && !Array.isArray(r) && typeof r === `string` ? (next as string[]).join(`,`) : next
@@ -493,6 +503,8 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
               const off = () => bool(o.disabled)
               let pointer = `touch`
               return (
+                <>
+                <SectionHeading list={shownOptions()} i={i()} part={part} />
                 <div
                   role="option"
                   aria-labelledby={textId}
@@ -543,13 +555,14 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                     <span id={textId}>{str(o.label)}</span>
                   )}
                   <TrailingRun o={o} />
+                  {str(o.hint) ? <span {...part(`itemHint`)}>{str(o.hint)}</span> : null}
                   <Show when={selected()}>
-                    {str(o.hint) ? <span {...part(`itemHint`)}>{str(o.hint)}</span> : null}
                     <span aria-hidden="true" {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />
                     </span>
                   </Show>
                 </div>
+                </>
               )
             }}
           </For>
@@ -788,13 +801,15 @@ function ComboboxContent(props: {
               const isSel = () => props.selected().includes(o.value)
               const isActive = () => i() === props.nav.active()
               return (
+                <>
+                <SectionHeading list={props.shown()} i={i()} part={part} />
                 <div
                   id={props.optionId(i())}
                   role="option"
                   aria-selected={isSel()}
                   aria-disabled={bool(o.disabled) || undefined}
                   data-active={isActive() ? `` : undefined}
-                  {...part.with(`item`, selectItemJoins(s.multiple(), props.shown().length, (j) => props.selected().includes(props.shown()[j]!.value), i()), isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
+                  {...part.with(`item`, selectItemJoins(s.multiple(), props.shown().length, (j) => props.selected().includes(props.shown()[j]!.value), i(), (j) => selectSectionHeading(props.shown(), j) !== undefined), isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
                   data-mono={bool(o.mono) ? `` : undefined}
                   onPointerMove={() => props.nav.setActive(i())}
                   onMouseDown={(e) => e.preventDefault()}
@@ -817,6 +832,7 @@ function ComboboxContent(props: {
                     </span>
                   ) : null}
                 </div>
+                </>
               )
             }}
           </For>

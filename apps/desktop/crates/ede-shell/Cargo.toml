@@ -35,6 +35,9 @@ sync = { path = "../sync", default-features = false }
 enet-core = { path = "../enet-core", default-features = false }
 flume.workspace = true
 ede-ui = { path = "../../../ede/crates/ede-ui", default-features = false }
+# #EDE-235: eDE's factory theme, compiled into the sealed surfaces; the
+# factory documents, to check their headers against the shell's functions.
+uicore-docs = { path = "../uicore-docs" }
 # The services data source (#EDE-13): /services/<domain> in every document.
 ede-services = { path = "../../../ede/crates/ede-services" }
 gpui.workspace = true
@@ -60,7 +63,13 @@ libc = "0.2"
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # The switcher's thumbnails: captures as PNG data URLs.
 png = "0.17"
+# #EDE-242: an X11 window's _NET_WM_PID and _NET_WM_ICON from Xwayland (pure Rust, already in the tree).
+x11rb = "0.13"
 base64 = "0.22"
+# #EDE-247: the tray's icons rasterized at the panel's device size (SVG by
+# gpui's own renderer, pixmaps and PNGs resampled once); both already in the tree.
+resvg = { version = "0.45", default-features = false }
+image = { workspace = true, features = ["png"] }
 # #EDE-65 lane L: the chat composer's uploads (api::attachment_upload).
 anyhow.workspace = true
 # Notifications and the tray over the session bus (zbus like the IDE's voice tray; blocking calls from the main loop).
@@ -81,8 +90,6 @@ tempfile = "3"
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api", "p2p"] }
 # The sealed-content fixture's hex keys.
 data-encoding = "2"
-# The factory documents, to check their headers against the functions this shell matches.
-uicore-docs = { path = "../uicore-docs" }
 # #EDE-141: the Engine's boot and shutdown in a headless gpui app (the leak's counter test).
 gpui = { workspace = true, features = ["test-support"] }
 

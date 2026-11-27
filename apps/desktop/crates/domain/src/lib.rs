@@ -170,6 +170,8 @@ pub mod diff_tree;
 // N-12: THE Dock (the cards over the composer, the pile, auto-open), fixture-locked ×4.
 pub mod dock;
 pub mod edit_card;
+// #NEW-146: THE elicitation card (a third-party MCP server asks), fixture-locked ×4.
+pub mod elicitation_card;
 pub mod entity_preview;
 pub mod enums;
 pub mod guide_viewer;
@@ -204,6 +206,8 @@ pub mod plan_card;
 pub mod plan_page;
 // #EXP-1710: the merge train's status pill, `…` rows, stuck row and pr_merge lines (merge-train.json).
 pub mod merge_train;
+// #EXP-2161: member spaces (member-space.json).
+pub mod member_space;
 // #FEED-191: every plan and question waiting on the viewer, fixture-locked ×4.
 pub mod needs_you;
 // #FEED-232: ONE count badge on every nav destination (nav-badges.json).
@@ -232,6 +236,8 @@ pub mod rows;
 pub mod sealed;
 // NEW-2: THE schedule picker (cron <-> rows, labels, summary), fixture-locked ×4.
 pub mod schedule_picker;
+// #EXP-2143 follow-up: "Confirm it's you", the step-up reducer, fixture-locked ×4.
+pub mod step_up;
 pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;

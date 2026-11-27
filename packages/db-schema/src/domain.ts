@@ -1327,6 +1327,17 @@ export const questionCardOptionPicturesSchema = z
   .array(pictureLabelSchema.nullable())
   .max(QUESTION_CARD_OPTIONS_MAX)
 
+/** #NEW-146 (fixtures/elicitation-card.json): the question card of a
+ *  THIRD-PARTY MCP server's elicitation: who asks (the configured server
+ *  name), form or url, the required field names, the url to open. */
+export const elicitationCardSidecarSchema = z.object({
+  server: z.string().min(1).max(200),
+  mode: z.enum([`form`, `url`]),
+  required: z.array(z.string().max(200)).max(100),
+  url: z.string().max(8192).nullable(),
+})
+export type ElicitationCardSidecar = z.infer<typeof elicitationCardSidecarSchema>
+
 export const questionCardSchema = z
   .object({
     kind: z.literal(`question`),
@@ -1342,6 +1353,8 @@ export const questionCardSchema = z
     answer: z.string().nullish(),
     answers: z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX).nullish(),
     surfaceData: z.record(z.string(), z.unknown()).nullish(),
+    // #NEW-146: a third-party MCP server's elicitation (elicitation-card.json).
+    elicitation: elicitationCardSidecarSchema.nullish(),
   })
   .passthrough()
   .refine(
@@ -1388,6 +1401,8 @@ export type MessageCard =
       surfaceData?: Record<string, unknown> | null
       /** #EXP-1561: a person dismissed it (fixtures/waiting-cards.json). */
       dismissed?: boolean | null
+      /** #NEW-146: a third-party MCP server's elicitation (elicitation-card.json). */
+      elicitation?: ElicitationCardSidecar | null
     }
   | {
       kind: `plan`

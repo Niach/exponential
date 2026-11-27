@@ -128,8 +128,14 @@ jobs:
       # ONLY Linux asset (EXP-68 — no `.tar.gz` twin): it is both the
       # marketing `releases/latest/download/<name>.AppImage` link and the
       # asset the in-app self-updater expects (`updater::expected_asset_name`).
+      # eDE: the AppImage carries a list of its ELF files signed with the
+      # updater key (scripts/sign-binaries.sh), so eDE lets the genuine app
+      # use the screen without asking.
       - name: Package AppImage
         if: runner.os == 'Linux'
+        env:
+          BINARIES_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          BINARIES_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
         run: apps/desktop/scripts/build-appimage.sh ${{ matrix.channel }}
       - name: Upload AppImage
         if: runner.os == 'Linux'

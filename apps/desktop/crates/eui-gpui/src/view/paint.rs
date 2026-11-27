@@ -752,6 +752,29 @@ impl SurfaceView {
                 this.context_menu(index, ev.position, cx);
             }));
         }
+        // A Box's `auxPress` (middle on press, right on release, as
+        // Cinnamon's tray does) and `scroll` (one event per wheel step, a
+        // touchpad's pixels in steps of [`WHEEL_STEP_PX`]).
+        let (aux, wheel) = self.cache.pointer_fires.get(index as usize).copied().unwrap_or((false, false));
+        if aux {
+            el = el
+                .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.fire(index, "auxPress", Some(json!({"button": "middle"})), cx);
+                }))
+                .on_mouse_up(MouseButton::Right, cx.listener(move |this, _: &gpui::MouseUpEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.fire(index, "auxPress", Some(json!({"button": "right"})), cx);
+                }));
+        }
+        if wheel {
+            el = el.on_scroll(cx.listener(move |this, ev: &gpui::ScrollEvent, _, cx| {
+                cx.stop_propagation();
+                for direction in this.wheel_steps(index, ev) {
+                    this.fire(index, "scroll", Some(json!({"direction": direction})), cx);
+                }
+            }));
+        }
         // #EXP-1629: a KeyRecorder's field, while it records: modifier
         // changes and mouse buttons 3-5 over it go to `record`.
         if self.key_recorder_field(index).is_some() {

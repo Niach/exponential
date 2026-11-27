@@ -570,4 +570,21 @@ final class PickerContractTests: XCTestCase {
         // No folders = the flat rows, untouched.
         XCTAssertEqual(BoardPicker<EmptyView>.items(boards, folders: nil) { _ in true }.map(\.value), ["exp", "feed", "err", "perf"])
     }
+
+    /// #EXP-2161 (web `Picker sections`): rows with a section sit under its
+    /// heading after the plain rows; a pick listed twice is checked twice.
+    func testRowsWithASectionSitUnderItsHeadingAfterThePlainRows() {
+        let items = DevicePicker<EmptyView>.items([
+            DevicePickerDevice(id: "t1:s", name: "unraid", section: "Acme"),
+            DevicePickerDevice(id: "mac", name: "Mac"),
+            DevicePickerDevice(id: "t2:s", name: "unraid", section: "Beta", checked: true),
+        ])
+        let runs = PickerSections.runs(items)
+        XCTAssertEqual(runs.map(\.title), [nil, "Acme", "Beta"])
+        XCTAssertEqual(runs.flatMap(\.items).map(\.label), ["Mac", "unraid", "unraid"])
+        let picked: Set<String> = ["t1:s"]
+        XCTAssertEqual(items.filter { $0.checkedState(in: picked) == .all }.map(\.value), ["t1:s", "t2:s"])
+        // No section anywhere: one unheaded run.
+        XCTAssertEqual(PickerSections.runs([PickerItem(value: "a", label: "A")]).map(\.title), [nil])
+    }
 }

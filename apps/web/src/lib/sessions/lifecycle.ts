@@ -9,6 +9,7 @@ import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
+import type { TaskFailure } from "@/lib/sessions/task-watchers"
 import { busListeners, busReport, closeAskMirrorsOf, forgetWatched, REPORT_REASONS, type ListenerCopy, type ReportEndReason } from "@/lib/sessions/bus"
 import { lockSessionRows, lockTreeRows } from "@/lib/sessions/locks"
 import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
@@ -85,6 +86,12 @@ export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise
   await relayKills(await killTargets(db, inArray(sessions.id, sessionIds)))
 }
 
+/** #EXP-2161: the kills of sessions whose device row is gone by now (read
+ *  in its transaction, `treeKillTargets`). Best-effort. */
+export async function relayKillTargets(targets: readonly KillTarget[]): Promise<void> {
+  await relayKills(targets)
+}
+
 /** #EXP-2138: tell the devices their sessions were DELETED (after commit):
  *  each ends what it runs and asks `sessions.heldGone` before it removes
  *  anything. Best-effort, a missed one is the device's 24 h rule. */
@@ -148,7 +155,9 @@ export async function endRowsInTx(
     summary?: string | null
     /** EXP-1458: the device-built sealed report card and its per-tree copies. */
     sealedReport?: { card: MessageCard; copies?: readonly ListenerCopy[] } | null
-  } | null
+  } | null,
+  /** #NEW-147: why every row ends without its own report (emcp tasks.json `failures`). */
+  failure?: TaskFailure | null
 ): Promise<string[]> {
   const endedIds: string[] = []
   for (const row of rows) {
@@ -161,7 +170,8 @@ export async function endRowsInTx(
       tx,
       row,
       named?.id === row.id ? named.summary : null,
-      named?.id === row.id ? named.sealedReport : null
+      named?.id === row.id ? named.sealedReport : null,
+      failure
     )
     // NEW-2: the builtin `session.ended` event. #EXP-1409: the row syncs
     // to the whole team, so a PRIVATE session's carries its ids only (its
@@ -242,7 +252,7 @@ export async function stopSession(args: {
     // A re-queued session keeps `started_at`: Stop never ends a session
     // that already ran.
     if (session.status === `queued` && !session.startedAt && !isPersistent(session)) {
-      await endRowsInTx(tx, [session])
+      await endRowsInTx(tx, [session], null, `killed`)
     } else if (ghost) {
       await tx
         .update(sessions)
@@ -302,6 +312,8 @@ export async function endSession(args: {
    *  sealed to each listening tree (`sessions.listeners`). */
   sealedReport?: Record<string, unknown> | null
   reportCopies?: ReadonlyArray<{ rootId: string; card: Record<string, unknown> }>
+  /** #NEW-147: a person ended it (`killed`): its MCP tasks fail. */
+  failure?: TaskFailure | null
 }): Promise<{ txid: number; endedIds: string[]; summaryDropped: boolean }> {
   const sealedReport = args.sealedReport ? checkSealedReport(args.sealedReport, args.reportCopies) : null
   const session = await loadSessionForUser(args.userId, args.sessionId)
@@ -348,7 +360,7 @@ export async function endSession(args: {
       id: session.id,
       summary: summaryDropped ? null : args.summary,
       sealedReport,
-    })
+    }, args.failure)
     return { txid, endedIds, summaryDropped }
   })
   await relayKillSessionsBestEffort(result.endedIds)
@@ -384,7 +396,7 @@ export async function deleteSession(args: { userId: string; sessionId: string })
     const txid = await generateTxId(tx)
     // #ERR-5: the whole tree, ancestors first, before its first write.
     await lockTreeRows(tx, session.id)
-    await endRowsInTx(tx, await liveSubtree(tx, session))
+    await endRowsInTx(tx, await liveSubtree(tx, session), null, `killed`)
     const tree = await tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, session.id))
     await forgetWatched(tx, tree.map((row) => row.id))
     await closeAskMirrorsOf(tx, tree.map((row) => row.id))

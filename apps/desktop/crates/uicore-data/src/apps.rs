@@ -31,6 +31,12 @@ pub struct App {
     /// `Categories=` (freedesktop main and additional categories), for the
     /// start menu's groups.
     pub categories: Vec<String>,
+    /// #EDE-242: `StartupWMClass=`, the window class its windows carry.
+    pub wm_class: Option<String>,
+    /// #EDE-242: the Steam game it starts (`SteamAppId=`, else the id in
+    /// `steam://rungameid/<id>`), for windows of class `steam_app_<id>` and
+    /// native games whose process carries `SteamAppId`.
+    pub steam_app: Option<String>,
 }
 
 impl App {
@@ -76,8 +82,32 @@ pub fn data_dirs() -> Vec<PathBuf> {
 
 /// Every entry shown in eDE, sorted by name.
 pub fn scan() -> Vec<App> {
+    scan_in(&data_dirs(), false).apps
+}
+
+/// #EDE-227: the app id of eDE's component (`exponential-app`), the one
+/// Exponential the desk shows while the component runs.
+pub const COMPONENT_APP_ID: &str = "at.exponential";
+
+/// What [`scan_in`] found.
+#[derive(Debug, Default)]
+pub struct Scan {
+    /// The entries shown, sorted by name.
+    pub apps: Vec<App>,
+    /// #EDE-227: the ids (no `.desktop`) of the person's own app entries
+    /// left out for the component ([`is_standalone_app`]), sorted.
+    pub standalone: Vec<String>,
+}
+
+/// The entries of `dirs` (each with an `applications` folder, the first
+/// file of an id wins). `component` = eDE's component runs as the
+/// session's helper (#EDE-227): the person's own app entries (the
+/// AppImage's, `exp-desktop`'s) are hidden then, so the start menu, its
+/// search and favourites show one Exponential, not two.
+pub fn scan_in(dirs: &[PathBuf], component: bool) -> Scan {
     let mut seen: HashMap<String, App> = HashMap::new();
-    for dir in data_dirs() {
+    let mut standalone = Vec::new();
+    for dir in dirs {
         let Ok(entries) = fs::read_dir(dir.join("applications")) else { continue };
         let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "desktop")).collect();
         files.sort();
@@ -87,13 +117,19 @@ pub fn scan() -> Vec<App> {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&file) else { continue };
+            let parsed = if component && is_standalone_app(&text) {
+                standalone.push(id.trim_end_matches(".desktop").to_string());
+                Parsed::Hidden
+            } else {
+                parse(&id, &text, "Exponential")
+            };
             // A hidden entry in a higher-priority directory hides the id entirely.
-            match parse(&id, &text, "Exponential") {
+            match parsed {
                 Parsed::Shown(app) => {
                     seen.insert(id, app);
                 }
                 Parsed::Hidden => {
-                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), exec_url: None, icon: None, keywords: String::new(), categories: Vec::new() });
+                    seen.insert(id, App { id: String::new(), name: String::new(), comment: String::new(), exec: String::new(), exec_url: None, icon: None, keywords: String::new(), categories: Vec::new(), wm_class: None, steam_app: None });
                 }
                 Parsed::NotAnApp => {}
             }
@@ -101,7 +137,74 @@ pub fn scan() -> Vec<App> {
     }
     let mut apps: Vec<App> = seen.into_values().filter(|a| !a.id.is_empty()).collect();
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    apps
+    standalone.sort();
+    Scan { apps, standalone }
+}
+
+/// #EDE-227: whether a desktop file is the person's own Exponential app,
+/// as its launcher integrations write it: `Exec` runs an AppImage (the
+/// app's `desktop_integration`, AppImageLauncher's copy of the AppImage's
+/// entry) or `exp-desktop` (the package template), and `StartupWMClass`
+/// is the component's app id (its windows' app id; a staging build's
+/// `at.exponential.staging` is another app and stays).
+pub fn is_standalone_app(text: &str) -> bool {
+    let (mut section, mut exec, mut class) = ("", None, None);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            section = &line[1..line.len() - 1];
+            continue;
+        }
+        if section != "Desktop Entry" || line.starts_with('#') {
+            continue;
+        }
+        match line.split_once('=').map(|(k, v)| (k.trim(), v.trim())) {
+            Some(("Exec", v)) if exec.is_none() => exec = Some(v),
+            Some(("StartupWMClass", v)) if class.is_none() => class = Some(v),
+            _ => {}
+        }
+    }
+    if !class.is_some_and(|c| c.eq_ignore_ascii_case(COMPONENT_APP_ID)) {
+        return false;
+    }
+    let Some(program) = exec.map(exec_program) else { return false };
+    let name = Path::new(&program).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    name == "exp-desktop" || name.to_lowercase().ends_with(".appimage")
+}
+
+/// The program of a raw `Exec` value: its first argument, unquoted as the
+/// Desktop Entry spec says (the key-file layer's `\\` first, then a
+/// double-quoted argument's `\"` `\`` `\$` `\\` escapes).
+fn exec_program(exec: &str) -> String {
+    let mut unescaped = String::with_capacity(exec.len());
+    let mut chars = exec.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('s') => unescaped.push(' '),
+                Some('n') => unescaped.push('\n'),
+                Some('t') => unescaped.push('\t'),
+                Some('r') => unescaped.push('\r'),
+                Some(other) => unescaped.push(other),
+                None => {}
+            }
+        } else {
+            unescaped.push(c);
+        }
+    }
+    let Some(quoted) = unescaped.strip_prefix('"') else {
+        return unescaped.split_whitespace().next().unwrap_or_default().to_string();
+    };
+    let mut program = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => break,
+            '\\' => program.extend(chars.next()),
+            c => program.push(c),
+        }
+    }
+    program
 }
 
 /// Fixed sample entries for the goldens (`EDE_SHELL_DEMO=1`): no icons, so
@@ -115,7 +218,7 @@ pub fn demo() -> Vec<App> {
         ("terminal", "Terminal", "Use the command line", "x-terminal-emulator", "System"),
     ]
     .into_iter()
-    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), exec_url: None, icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()] })
+    .map(|(id, name, comment, exec, category)| App { id: format!("{id}.desktop"), name: name.into(), comment: comment.into(), exec: exec.into(), exec_url: None, icon: None, keywords: format!("{name} {id}").to_lowercase(), categories: vec![category.into()], wm_class: None, steam_app: None })
     .collect()
 }
 
@@ -183,7 +286,47 @@ pub fn parse(id: &str, text: &str, desktop: &str) -> Parsed {
         icon: Some(get("Icon")).filter(|i| !i.is_empty()).and_then(icon_file),
         keywords,
         categories: list(get("Categories")).into_iter().map(String::from).collect(),
+        wm_class: Some(get("StartupWMClass")).filter(|c| !c.is_empty()).map(String::from),
+        steam_app: Some(get("SteamAppId")).filter(|i| !i.is_empty()).map(String::from).or_else(|| steam_game(raw)),
     })
+}
+
+/// The game id of an `Exec` that runs `steam://rungameid/<id>`.
+fn steam_game(exec: &str) -> Option<String> {
+    let id: String = exec.split("steam://rungameid/").nth(1)?.chars().take_while(char::is_ascii_digit).collect();
+    (!id.is_empty()).then_some(id)
+}
+
+/// #EDE-242: the entry of a window's app id (Wayland `app_id`, X11
+/// `WM_CLASS` class), in Cinnamon's window tracker's order: the entry whose
+/// `StartupWMClass` is the class, then the desktop id (`firefox`,
+/// `org.gnome.Calculator` or its last segment `Calculator`), then a Steam
+/// game's class `steam_app_<id>` to the entry that starts that game. Also
+/// takes a desktop id (a pin).
+pub fn for_window<'a>(apps: &'a [App], app: &str) -> Option<&'a App> {
+    let wanted = app.trim_end_matches(".desktop");
+    if wanted.is_empty() {
+        return None;
+    }
+    let by_class = |exact: bool| apps.iter().find(|a| a.wm_class.as_deref().is_some_and(|c| if exact { c == wanted } else { c.eq_ignore_ascii_case(wanted) }));
+    let id = |a: &&App| a.id.trim_end_matches(".desktop").to_string();
+    by_class(true)
+        .or_else(|| apps.iter().find(|a| id(a).eq_ignore_ascii_case(wanted)))
+        .or_else(|| by_class(false))
+        .or_else(|| apps.iter().find(|a| id(a).rsplit('.').next().is_some_and(|tail| tail.eq_ignore_ascii_case(wanted))))
+        .or_else(|| wanted.strip_prefix("steam_app_").and_then(|game| for_steam_game(apps, game)))
+}
+
+/// The entry that starts Steam game `game` (`570`).
+pub fn for_steam_game<'a>(apps: &'a [App], game: &str) -> Option<&'a App> {
+    apps.iter().find(|a| a.steam_app.as_deref() == Some(game))
+}
+
+/// `SteamAppId` in a process's environment: Steam sets it on every game it
+/// starts, native ones included (Dota 2's class is plain `dota2`).
+pub fn steam_game_of_pid(pid: u32) -> Option<String> {
+    let env = fs::read(format!("/proc/{pid}/environ")).ok()?;
+    env.split(|b| *b == 0).find_map(|kv| kv.strip_prefix(b"SteamAppId=")).map(|v| String::from_utf8_lossy(v).into_owned()).filter(|v| !v.is_empty() && v != "0")
 }
 
 fn executable_exists(name: &str) -> bool {
@@ -258,6 +401,16 @@ fn icon_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// The icon themes searched, most specific first (the tray's sized lookup).
+pub fn icon_themes() -> Vec<String> {
+    themes()
+}
+
+/// The directories icon themes live in.
+pub fn icon_theme_roots() -> Vec<PathBuf> {
+    icon_roots()
+}
+
 /// A desktop entry's `Icon` as a file: an absolute path as is, else the
 /// first match in the themes' `apps` (then any) directories, scalable SVG
 /// before the largest PNG, then `/usr/share/pixmaps`.
@@ -321,6 +474,35 @@ mod tests {
 
     const CALC: &str = "[Desktop Entry]\nType=Application\nName=Calculator\nComment=Do sums\nExec=gnome-calculator %U\nIcon=/nonexistent/calc.png\nKeywords=math;arithmetic;\nCategories=Utility;\n";
 
+    fn shown(id: &str, text: &str) -> App {
+        match parse(id, text, "X-Cinnamon") {
+            Parsed::Shown(a) => a,
+            _ => panic!("{id} not shown"),
+        }
+    }
+
+    /// #EDE-242: the window tracker's order, Steam's games included (Dota 2's
+    /// entry as Steam writes it: no StartupWMClass, the game in SteamAppId).
+    #[test]
+    fn a_window_finds_its_entry_like_cinnamon() {
+        let dota = shown("Dota 2.desktop", "[Desktop Entry]\nName=Dota 2\nExec=steam steam://rungameid/570\nIcon=steam_icon_570\nType=Application\nCategories=Game;\nSteamAppId=570\n");
+        let portal = shown("Portal.desktop", "[Desktop Entry]\nName=Portal\nExec=steam steam://rungameid/400\nIcon=steam_icon_400\nType=Application\n");
+        let code = shown("code.desktop", "[Desktop Entry]\nName=Visual Studio Code\nExec=/usr/share/code/code %F\nType=Application\nStartupWMClass=Code\n");
+        let calc = shown("org.gnome.Calculator.desktop", CALC);
+        let apps = vec![dota.clone(), portal.clone(), code.clone(), calc.clone()];
+        assert_eq!(dota.steam_app.as_deref(), Some("570"));
+        assert_eq!(portal.steam_app.as_deref(), Some("400"), "the id in steam://rungameid/");
+        assert_eq!(for_window(&apps, "Code").map(|a| a.id.as_str()), Some("code.desktop"), "StartupWMClass");
+        assert_eq!(for_window(&apps, "code").map(|a| a.id.as_str()), Some("code.desktop"), "the desktop id");
+        assert_eq!(for_window(&apps, "org.gnome.Calculator").map(|a| a.id.as_str()), Some("org.gnome.Calculator.desktop"));
+        assert_eq!(for_window(&apps, "calculator").map(|a| a.id.as_str()), Some("org.gnome.Calculator.desktop"), "the id's last segment");
+        assert_eq!(for_window(&apps, "steam_app_400").map(|a| a.id.as_str()), Some("Portal.desktop"), "a Proton game's class");
+        assert_eq!(for_window(&apps, "dota2"), None, "a native game's class names no entry: the process's SteamAppId does");
+        assert_eq!(for_steam_game(&apps, "570").map(|a| a.id.as_str()), Some("Dota 2.desktop"));
+        assert_eq!(for_window(&apps, ""), None);
+        assert_eq!(steam_game_of_pid(std::process::id()), std::env::var("SteamAppId").ok().filter(|v| !v.is_empty() && v != "0"));
+    }
+
     #[test]
     fn parses_an_application_and_strips_field_codes() {
         let Parsed::Shown(app) = parse("org.gnome.Calculator.desktop", CALC, "Exponential") else { panic!("shown") };
@@ -353,5 +535,55 @@ mod tests {
         assert_eq!(filter(&apps, "calc math").len(), 1);
         assert_eq!(filter(&apps, "calc music").len(), 0);
         assert_eq!(filter(&apps, "CALC")[0]["exec"], "gnome-calculator");
+    }
+
+    /// #EDE-227: what the app's launcher integration writes (its
+    /// `desktop_integration`), for an AppImage at a path with a space.
+    fn integration_entry(exec: &str, class: &str) -> String {
+        format!("[Desktop Entry]\nType=Application\nName=Exponential\nComment=Exponential desktop IDE\nExec={exec} %U\nIcon={class}\nTerminal=false\nCategories=Development;\nMimeType=x-scheme-handler/exponential;\nStartupWMClass={class}\n")
+    }
+
+    #[test]
+    fn the_persons_own_app_entries_are_recognised_by_exec_and_class() {
+        assert!(is_standalone_app(&integration_entry("/home/u/Apps/Exponential-0.14.150-x86_64.AppImage", "at.exponential")));
+        assert!(is_standalone_app(&integration_entry("\"/home/u/My Apps/Exponential.AppImage\"", "at.exponential")), "a quoted path with a space");
+        assert!(is_standalone_app(&integration_entry("\"/home/u/a\\\\$b/exp.appimage\"", "at.exponential")), "the spec's double escapes");
+        // The package template (apps/desktop/assets/packaging/exponential.desktop).
+        let template = include_str!("../../../assets/packaging/exponential.desktop");
+        assert!(is_standalone_app(template), "exp-desktop %U");
+        assert!(is_standalone_app(&integration_entry("/usr/bin/exp-desktop", "at.exponential")));
+        // Not the person's app: another AppImage, a staging build, eDE's own component, a name alike.
+        assert!(!is_standalone_app(&integration_entry("/home/u/Apps/Obsidian.AppImage", "obsidian")));
+        assert!(!is_standalone_app(&integration_entry("/home/u/Apps/Exponential-staging.AppImage", "at.exponential.staging")));
+        assert!(!is_standalone_app(&integration_entry("/usr/bin/exponential-app", "at.exponential")));
+        assert!(!is_standalone_app(&integration_entry("/usr/bin/exponential", "at.exponential")));
+        assert!(!is_standalone_app("[Desktop Entry]\nType=Application\nName=Exponential\nExec=/home/u/Exponential.AppImage\n"), "no class: a name guess");
+    }
+
+    #[test]
+    fn with_the_component_the_persons_app_entry_is_left_out() {
+        let home = tempfile::tempdir().unwrap();
+        let system = tempfile::tempdir().unwrap();
+        let write = |root: &Path, id: &str, text: &str| {
+            fs::create_dir_all(root.join("applications")).unwrap();
+            fs::write(root.join("applications").join(id), text).unwrap();
+        };
+        // The person's AppImage entry shadows eDE's own (hidden) one of the same id.
+        write(home.path(), "at.exponential.desktop", &integration_entry("/home/u/Exponential.AppImage", "at.exponential"));
+        write(home.path(), "appimagekit_1234-Exponential.desktop", &integration_entry("/home/u/Exponential.AppImage", "at.exponential"));
+        write(system.path(), "at.exponential.desktop", "[Desktop Entry]\nType=Application\nName=Exponential\nExec=/usr/bin/exponential-app\nNoDisplay=true\nOnlyShowIn=Exponential;\nStartupWMClass=at.exponential\n");
+        write(system.path(), "exponential.desktop", include_str!("../../../assets/packaging/exponential.desktop"));
+        write(system.path(), "org.gnome.Calculator.desktop", CALC);
+        let dirs = [home.path().to_path_buf(), system.path().to_path_buf()];
+        let ids = |scan: &Scan| scan.apps.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+
+        let without = scan_in(&dirs, false);
+        assert_eq!(ids(&without).len(), 4, "without the component every entry shows");
+        assert!(without.standalone.is_empty());
+
+        let with = scan_in(&dirs, true);
+        assert_eq!(ids(&with), ["org.gnome.Calculator.desktop"], "one Exponential: the component's, which has no entry of its own");
+        assert_eq!(with.standalone, ["appimagekit_1234-Exponential", "at.exponential", "exponential"]);
+        assert!(filter(&with.apps, "exponential").is_empty(), "nor in the search");
     }
 }

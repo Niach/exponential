@@ -4,15 +4,15 @@ import SwiftUI
 
 /// #EXP-2109 (chats.json `shell.header`): THE PAGE HEADER. A root page
 /// (`header.pages`: Chats, Teams, Settings) wears the large inline navigation
-/// title on the left and `header.buttons` as the NATIVE toolbar circles on
-/// the right (plain ToolbarItems: the system's iOS 26 Liquid Glass circles,
-/// never hand-drawn ones): SEARCH (the search screen) then the INBOX (the
-/// inbox page; #FEED-232 THE count badge, muted, of every team's unread
-/// notifications, `\.inboxUnreadCount`). A pushed page (team, folder, board,
-/// a settings page, Devices; `pushed: true`) = the phone DETAIL header: the
-/// bare back arrow, the leading glyph, the title, all leading (EXP-1554: the
-/// system centres an inline title on a pushed page, so it rides the back
-/// arrow's item).
+/// title on the left and `header.buttons` on the right, each THE round header
+/// button (#EXP-2168 header-actions.json: `HeaderCircleFace` in a
+/// `HeaderToolbarItem`, one look on every iOS): SEARCH (the search screen)
+/// then the INBOX (the inbox page; #FEED-232 THE count badge, muted, of every
+/// team's unread notifications, `\.inboxUnreadCount`). A pushed page (team,
+/// folder, board, a settings page, Devices; `pushed: true`) = the phone
+/// DETAIL header: THE round back, the leading glyph, the title, all leading
+/// (EXP-1554: the system centres an inline title on a pushed page, so it
+/// rides the back's item; a custom title = `detailHeaderTitle`).
 extension View {
     func pageHeader(_ title: String, pushed: Bool = false, glyph: PageHeaderGlyphKind? = nil) -> some View {
         modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() } more: { EmptyView() })
@@ -89,36 +89,37 @@ private struct PageHeaderModifier<Action: View, More: View>: ViewModifier {
             // Circles, not one shared capsule: a fixed spacer between them.
             titled.toolbar {
                 if !pushed {
-                    ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
+                    HeaderToolbarItem { PageHeaderSearchButton() }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                    ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
+                    HeaderToolbarItem { PageHeaderInboxButton(count: inboxUnreadCount) }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
                 if Action.self != EmptyView.self {
-                    ToolbarItem(placement: .topBarTrailing) { action }
+                    HeaderToolbarItem { action }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
                 if More.self != EmptyView.self {
-                    ToolbarItem(placement: .topBarTrailing) { more }
+                    HeaderToolbarItem { more }
                 }
             }
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if !pushed {
-                        PageHeaderSearchButton()
-                        PageHeaderInboxButton(count: inboxUnreadCount)
+                    HStack(spacing: CGFloat(HeaderActions.gap)) {
+                        if !pushed {
+                            PageHeaderSearchButton()
+                            PageHeaderInboxButton(count: inboxUnreadCount)
+                        }
+                        action
+                        more
                     }
-                    action
-                    more
                 }
             }
         }
     }
 }
 
-/// The header's search entry — the same bare 32pt glyph the system toolbar
-/// glass wraps into its circle.
+/// The header's search entry, THE round header button.
 struct PageHeaderSearchButton: View {
     var body: some View {
         NavigationLink(value: AppRoute.search) {
@@ -159,20 +160,69 @@ struct PageHeaderButton: View {
     }
 }
 
-/// One header glyph (the system draws the circle around it on iOS 26).
+/// THE round header button's face in a navigation bar (header-actions.json
+/// `circle` / `glyph`: `HeaderCircleFace`, the custom bars' twin), its count
+/// badge over the circle. Host it in a `HeaderToolbarItem`: the system's own
+/// item glass stands down, so iOS 26 and earlier draw the one circle.
 struct PageHeaderGlyph: View {
     let icon: String
     var count = 0
 
     var body: some View {
-        AppIcon(icon, size: AppIcon.Size.medium)
-            .foregroundStyle(.white)
-            .frame(width: 32, height: 32)
+        HeaderCircleFace(icon: icon)
             .overlay(alignment: .topTrailing) {
                 CountBadge(count: count, tone: .muted)
-                    .offset(x: 4, y: -2)
+                    .offset(x: 2, y: 0)
             }
-            .contentShape(Circle())
+    }
+}
+
+/// #EXP-2168: a navigation bar item holding THE round header button: the
+/// item's shared Liquid Glass stands down (the face draws its own circle),
+/// never two concentric rings.
+struct HeaderToolbarItem<Content: View>: ToolbarContent {
+    var placement: ToolbarItemPlacement = .topBarTrailing
+    @ViewBuilder let content: () -> Content
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: placement) { content() }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: placement) { content() }
+        }
+    }
+}
+
+extension View {
+    /// #EXP-2168: a pushed page's OWN title view (an issue's collapsing
+    /// title, an app's glyph and name), LEFT after THE round back (it rides
+    /// the back's item like `pageHeader(pushed: true)`); `key` names what it
+    /// shows (the item redraws when it changes). An iPad detail column's root
+    /// (no back) wears it as its own leading item.
+    func detailHeaderTitle<Title: View>(_ key: String, @ViewBuilder title: () -> Title) -> some View {
+        modifier(DetailHeaderTitle(key: key, title: title()))
+    }
+}
+
+private struct DetailHeaderTitle<Title: View>: ViewModifier {
+    let key: String
+    let title: Title
+    @Environment(\.detailColumnRoot) private var columnRoot
+
+    func body(content: Content) -> some View {
+        if columnRoot {
+            content.ownChromeToolbarItem(placement: .topBarLeading) {
+                title
+                    .frame(minWidth: 0, idealWidth: PageHeaderDetailTitle.customWidth, maxWidth: PageHeaderDetailTitle.customWidth, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        } else {
+            content.modifier(PushedTitle(
+                title: PushedTitleKey.Title(text: key, custom: .init(key: key, view: AnyView(title))),
+                enabled: true
+            ))
+        }
     }
 }
 
@@ -200,8 +250,23 @@ private struct PushedTitle: ViewModifier {
 /// The detail header's leading part after the back arrow.
 struct PageHeaderDetailTitle: View {
     let title: PushedTitleKey.Title
+    /// A custom title's width (the phone's bar between THE round back and
+    /// one trailing circle).
+    static let customWidth: CGFloat = 240
 
     var body: some View {
+        if let custom = title.custom {
+            // A bar item proposes no width to a flexible title: it takes
+            // its own, capped so a long one truncates.
+            custom.view
+                .frame(minWidth: 0, idealWidth: Self.customWidth, maxWidth: Self.customWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        } else {
+            plain
+        }
+    }
+
+    private var plain: some View {
         HStack(spacing: 10) {
             if let glyph = title.glyph {
                 Group {

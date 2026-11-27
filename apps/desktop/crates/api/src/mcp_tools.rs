@@ -46,6 +46,7 @@ const CLIENT_NAME: &str = "exponential-desktop";
 fn mcp_error(error: emcp::ClientError) -> ApiError {
     match error {
         emcp::ClientError::Http(status) => crate::error::status_error_authed(status, ""),
+        emcp::ClientError::Unauthorized => crate::error::status_error_authed(401, ""),
         emcp::ClientError::Rpc { message, .. } => ApiError::Http { status: 400, message },
         emcp::ClientError::Timeout => ApiError::Transport { message: "the MCP call timed out".to_string(), offline: true },
         emcp::ClientError::Transport(message) => ApiError::Transport { message, offline: false },

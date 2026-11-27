@@ -45,7 +45,9 @@
             "events": [
               "press",
               "toggle",
-              "hover"
+              "hover",
+              "auxPress",
+              "scroll"
             ]
           }
         }
@@ -680,7 +682,7 @@
     },
     "List": {
       "type": "object",
-      "description": "Windowed list for anything past a screen; children may be a data template.",
+      "description": "Windowed list; children may be a data template.",
       "properties": {
         "component": {
           "const": "List"
@@ -18826,6 +18828,10 @@
           "type": "string",
           "description": "Small muted text at the row's end (Select popup)."
         },
+        "section": {
+          "type": "string",
+          "description": "Popup heading it sits under."
+        },
         "mono": {
           "type": "boolean",
           "description": "Label in the mono type (Select popup)."
@@ -22645,6 +22651,12 @@
           "$ref": "#/$defs/EuiAction"
         },
         "hover": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "auxPress": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "scroll": {
           "$ref": "#/$defs/EuiAction"
         }
       },

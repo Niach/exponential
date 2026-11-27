@@ -57,6 +57,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AuthApi
+import com.exponential.app.data.api.SessionNotFreshException
+import com.exponential.app.data.api.StepUpRefusedException
+import com.exponential.app.domain.StepUp
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.PublicKeyCredential
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.exponential.app.data.api.AuthWire
 import com.exponential.app.data.api.SignInMethodsDto
 import com.exponential.app.data.api.UsersApi
@@ -367,34 +374,155 @@ class ServerDetailViewModel @Inject constructor(
     fun addPasskey(accountId: String, activity: Activity?) {
         if (addingPasskey) return
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
-        val token = account?.token
-        if (activity == null || token == null) {
+        if (activity == null || account?.token == null) {
             failure = addPasskeyFailure(IllegalStateException(""))
             return
         }
+        viewModelScope.launch { runGated(accountId, activity) { addPasskeyOnce(accountId, activity) } }
+    }
+
+    /** One Add passkey attempt; `true` = the fresh-session gate refused it. */
+    private suspend fun addPasskeyOnce(accountId: String, activity: Activity): Boolean {
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+        val token = account?.token ?: return false.also { failure = addPasskeyFailure(IllegalStateException("")) }
         val baseUrl = account.instanceUrl
         addingPasskey = true
-        viewModelScope.launch {
-            try {
-                val options = authApi.passkeyRegistrationOptions(baseUrl, token, PASSKEY_NAME).getOrThrow()
-                if (!passkeyRpMatchesInstance(baseUrl, options.requestJson)) {
-                    throw IllegalStateException("")
-                }
-                val result = CredentialManager.create(activity)
-                    .createCredential(activity, CreatePublicKeyCredentialRequest(options.requestJson))
-                val responseJson = (result as? CreatePublicKeyCredentialResponse)?.registrationResponseJson
-                    ?: throw IllegalStateException("")
-                authApi.verifyPasskeyRegistration(baseUrl, token, options.cookies, responseJson, PASSKEY_NAME).getOrThrow()
-                loadMethods(accountId)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w("Passkey", "Add passkey failed: ${e.javaClass.simpleName}")
-                failure = addPasskeyFailure(e)
-            } finally {
-                addingPasskey = false
+        try {
+            val options = authApi.passkeyRegistrationOptions(baseUrl, token, PASSKEY_NAME).getOrThrow()
+            if (!passkeyRpMatchesInstance(baseUrl, options.requestJson)) {
+                throw IllegalStateException("")
+            }
+            val result = CredentialManager.create(activity)
+                .createCredential(activity, CreatePublicKeyCredentialRequest(options.requestJson))
+            val responseJson = (result as? CreatePublicKeyCredentialResponse)?.registrationResponseJson
+                ?: throw IllegalStateException("")
+            authApi.verifyPasskeyRegistration(baseUrl, token, options.cookies, responseJson, PASSKEY_NAME).getOrThrow()
+            loadMethods(accountId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionNotFreshException) {
+            return true
+        } catch (e: Exception) {
+            Log.w("Passkey", "Add passkey failed: ${e.javaClass.simpleName}")
+            failure = addPasskeyFailure(e)
+        } finally {
+            addingPasskey = false
+        }
+        return false
+    }
+
+    // ── #EXP-2143 follow-up: "Confirm it's you" (fixtures/step-up.json) ──────
+    // A SESSION_NOT_FRESH refusal opens the step-up sheet over Settings; the
+    // proof marks THIS session fresh (no sign-out, the bearer token stays) and
+    // the refused action runs again by itself.
+
+    var stepUp by mutableStateOf(StepUp.State())
+        private set
+    var stepUpEmail by mutableStateOf("")
+        private set
+    private var stepUpAccountId: String? = null
+    private var stepUpPending: (suspend () -> Boolean)? = null
+
+    private fun stepUpDispatch(event: StepUp.Event): StepUp.State {
+        stepUp = StepUp.reduce(stepUp, event)
+        return stepUp
+    }
+
+    /** Run a gated action; a refusal opens the sheet, a proof resumes it. */
+    private suspend fun runGated(accountId: String, activity: Activity, action: suspend () -> Boolean) {
+        if (!action()) {
+            stepUpDispatch(StepUp.Event.Done)
+            return
+        }
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+        var methods = emptyList<StepUp.Method>()
+        if (!stepUp.retried && account?.token != null) {
+            authApi.stepUpMethods(account.instanceUrl, account.token).onSuccess {
+                methods = it.methods
+                stepUpEmail = it.email
             }
         }
+        val next = stepUpDispatch(StepUp.Event.Refused(StepUp.NOT_FRESH, methods))
+        if (next.action == StepUp.Action.Failed) {
+            stepUpPending = null
+            failure = FailedAction("add", "the passkey", next.error ?: StepUp.NOT_FRESH_COPY)
+            stepUpDispatch(StepUp.Event.Done)
+            return
+        }
+        stepUpAccountId = accountId
+        stepUpPending = { runGated(accountId, activity, action); false }
+        if (next.method == StepUp.Method.Email) stepUpSendCode()
+    }
+
+    fun stepUpSendCode() {
+        val account = auth.accounts.value.firstOrNull { it.id == stepUpAccountId } ?: return
+        val token = account.token ?: return
+        viewModelScope.launch {
+            authApi.stepUpSendCode(account.instanceUrl, token).onFailure { e ->
+                stepUpDispatch(StepUp.Event.Submit)
+                stepUpDispatch(StepUp.Event.Rejected((e as? StepUpRefusedException)?.code ?: "INTERNAL"))
+            }
+        }
+    }
+
+    fun stepUpChoose(method: StepUp.Method) {
+        val before = stepUp.method
+        val next = stepUpDispatch(StepUp.Event.Choose(method))
+        if (next.method == StepUp.Method.Email && before != StepUp.Method.Email) stepUpSendCode()
+    }
+
+    fun stepUpCancel() {
+        stepUpPending = null
+        stepUpDispatch(StepUp.Event.Cancel)
+        stepUpDispatch(StepUp.Event.Done)
+    }
+
+    /** Prove it: the passkey ceremony, the mailed code or the password. */
+    fun stepUpSubmit(secret: String, activity: Activity?) {
+        val current = stepUp
+        val method = current.method ?: return
+        if (current.sheet != StepUp.Sheet.Open) return
+        val account = auth.accounts.value.firstOrNull { it.id == stepUpAccountId } ?: return
+        val token = account.token ?: return
+        val baseUrl = account.instanceUrl
+        stepUpDispatch(StepUp.Event.Submit)
+        viewModelScope.launch {
+            val proof: Result<Unit> = when (method) {
+                StepUp.Method.Email -> authApi.stepUpVerifyCode(baseUrl, token, secret.trim())
+                StepUp.Method.Password -> authApi.stepUpPassword(baseUrl, token, secret)
+                StepUp.Method.Passkey -> stepUpPasskeyProof(baseUrl, token, activity)
+            }
+            proof.onSuccess {
+                stepUpDispatch(StepUp.Event.Proved)
+                val resume = stepUpPending
+                stepUpPending = null
+                resume?.invoke()
+            }.onFailure { e ->
+                stepUpDispatch(StepUp.Event.Rejected((e as? StepUpRefusedException)?.code ?: "INTERNAL"))
+            }
+        }
+    }
+
+    private suspend fun stepUpPasskeyProof(baseUrl: String, token: String, activity: Activity?): Result<Unit> {
+        if (activity == null) return Result.failure(StepUpRefusedException("PASSKEY_FAILED"))
+        val options = authApi.stepUpPasskeyOptions(baseUrl, token).getOrElse { return Result.failure(it) }
+        if (!com.exponential.app.ui.auth.passkeyRpIdMatchesInstance(baseUrl, options.requestJson)) {
+            return Result.failure(StepUpRefusedException("PASSKEY_FAILED"))
+        }
+        val responseJson = try {
+            val credential = CredentialManager.create(activity).getCredential(
+                activity,
+                GetCredentialRequest(listOf(GetPublicKeyCredentialOption(options.requestJson))),
+            ).credential
+            (credential as? PublicKeyCredential)?.authenticationResponseJson
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: GetCredentialCancellationException) {
+            return Result.failure(StepUpRefusedException(StepUp.CANCELLED))
+        } catch (e: Exception) {
+            null
+        } ?: return Result.failure(StepUpRefusedException("PASSKEY_FAILED"))
+        return authApi.stepUpPasskey(baseUrl, token, options.cookies, responseJson)
     }
 
     /** Web parity: the password row is "removed", a provider "unlinked". */

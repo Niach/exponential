@@ -120,7 +120,10 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_132_133]; nothing refetches.
     // v134 (#EXP-1990): agents.group_chat_id (a team agent's group chat),
     //      explicit [MIGRATION_133_134]; only the agents shape refetches.
-    version = 134,
+    // v135 (#EXP-2161): devices.assistant_team_ids, space_host_id,
+    //      space_team_id (member spaces), explicit [MIGRATION_134_135]; only
+    //      the devices shape refetches.
+    version = 135,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

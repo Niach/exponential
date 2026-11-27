@@ -1,5 +1,6 @@
 package com.exponential.app.ui.apps
 
+import com.exponential.app.domain.listed
 import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
@@ -613,7 +614,7 @@ fun rememberAppHost(
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
-        val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
+        val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }.map { it.listed() }
         val users: Flow<List<UserEntity>> = db.scopedQuery(emptyList()) { it.userDao().observeAll() }
         // VAPP-120: the hosting app's row, read at call time for its grants
         // (the web/desktop settings page may change them while the host lives).

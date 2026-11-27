@@ -14,7 +14,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel, wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Logical, Point, Rectangle, Size},
-    wayland::{compositor, shell::xdg::SurfaceCachedState},
+    wayland::compositor,
 };
 use std::cell::RefCell;
 
@@ -79,21 +79,13 @@ impl ResizeSurfaceGrab {
 }
 
 impl ResizeSurfaceGrab {
-    /// The client's minimum and maximum size (0 = none): xdg-shell's, or
-    /// an X11 window's `WM_NORMAL_HINTS`.
+    /// The window being resized.
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
     fn size_limits(&self) -> (Size<i32, Logical>, Size<i32, Logical>) {
-        if let Some(xdg) = self.window.toplevel() {
-            return compositor::with_states(xdg.wl_surface(), |states| {
-                let mut guard = states.cached_state.get::<SurfaceCachedState>();
-                let data = guard.current();
-                (data.min_size, data.max_size)
-            });
-        }
-        #[cfg(feature = "xwayland")]
-        if let Some(x11) = self.window.x11_surface() {
-            return (x11.min_size().unwrap_or_default(), x11.max_size().unwrap_or_default());
-        }
-        (Size::default(), Size::default())
+        crate::state::size_limits(&self.window)
     }
 }
 
@@ -107,6 +99,14 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
     ) {
         // While the grab is active, no client has pointer focus
         handle.motion(data, None, event);
+        // The button that drives the grab is up and its release never came
+        // here (a grab started after it, an input device gone): it ends
+        // now instead of dragging the window after the pointer (#EDE-222).
+        // A keyboard move/resize (Alt+F7/F8, #EDE-243) has no button: a click ends it.
+        if self.start_data.button != 0 && !handle.current_pressed().contains(&self.start_data.button) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
 
         let mut delta = event.location - self.start_data.location;
 
@@ -183,11 +183,10 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
     ) {
         handle.button(data, event);
 
-        // The button is a button code as defined in the
-        // Linux kernel's linux/input-event-codes.h header file, e.g. BTN_LEFT.
-        const BTN_LEFT: u32 = 0x110;
-
-        if !handle.current_pressed().contains(&BTN_LEFT) {
+        // The button that started it (Alt+right-drag, #EDE-243); a
+        // keyboard resize (Alt+F8, button 0) ends at the first click.
+        let button = self.start_data.button;
+        if button == 0 || !handle.current_pressed().contains(&button) {
             // No more buttons are pressed, release the grab.
             handle.unset_grab(self, data, event.serial, event.time, true);
 

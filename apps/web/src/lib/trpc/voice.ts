@@ -27,9 +27,10 @@
 // `startCall {mode: 'turn', phrase}` = a wake turn dialled to the agent's
 // device (voice-call.json EXP-1859), desktops only.
 
+import { assertAssistantHasDevice } from "@/lib/spaces/no-device"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/etalk/voice"
 import { callTarget, type CallTargetDevice } from "@exp/etalk/voice-call"
@@ -45,7 +46,7 @@ import {
 } from "@exp/etalk/meeting"
 
 import type { db as Database } from "@/db/connection"
-import { agents, devices, teamMembers, teams, userVoiceSettings } from "@/db/schema"
+import { agents, devices, teamMembers, teams, userVoiceSettings, type Agent } from "@/db/schema"
 import { adminProcedure, authedProcedure, generateTxId, router } from "@/lib/trpc"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import {
@@ -291,14 +292,14 @@ function inMemberTeams(database: Db, userId: string) {
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
  *  the agents a member can talk to, with its Runs on device. S-3: another
  *  member's Assistant is theirs alone (`loadAgentForUser`'s rule). */
-async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ teamId: string; deviceId: string | null } | null> {
+async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ teamId: string; role: Agent[`role`]; deviceId: string } | null> {
   const [agent] = await database
     .select({ teamId: agents.teamId, role: agents.role, ownerId: agents.ownerId, deviceId: agents.deviceId })
     .from(agents)
     .where(and(eq(agents.id, agentId), inMemberTeams(database, userId)))
     .limit(1)
   if (agent === undefined || (agent.role === `assistant` && agent.ownerId !== userId)) return null
-  return { teamId: agent.teamId, deviceId: agent.deviceId ?? null }
+  return { teamId: agent.teamId, role: agent.role, deviceId: agent.deviceId }
 }
 
 /** Every agent the member may call (`memberAgent`'s rule, as a set). */
@@ -370,7 +371,7 @@ export async function callDevicesOf(
   const rows = await database
     .select({ deviceId: devices.deviceId, kind: devices.kind, label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
     .from(devices)
-    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`])))
+    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`]), isNull(devices.spaceHostId)))
   const sorted = [...rows].sort((a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime())
   const of = (kind: string) =>
     sorted
@@ -608,6 +609,7 @@ export const voiceRouter = router({
       if (!agent) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
       }
+      assertAssistantHasDevice(agent)
       const settings = await voiceSettingsOf(db, userId)
       const target = callTarget({
         here: input.platform === `desktop` ? (input.deviceId ?? null) : null,
@@ -747,9 +749,11 @@ export const voiceRouter = router({
     .input(z.object({ agentId: z.string().uuid(), callId: z.string().min(1).max(256).optional() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      if (!(await memberAgent(ctx.db, userId, input.agentId))) {
+      const agent = await memberAgent(ctx.db, userId, input.agentId)
+      if (!agent) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
       }
+      assertAssistantHasDevice(agent)
       const started = await startCallSession({ userId, agentId: input.agentId, callId: input.callId ?? null })
       console.info(`[voice] call ${callLogTag(input.callId)}: call session for member=${userId} agent=${input.agentId}: ${started ? `given` : `none (the chat takes the call)`}`)
       return started
@@ -827,7 +831,7 @@ export const voiceRouter = router({
         const [own] = await ctx.db
           .select({ deviceId: devices.deviceId })
           .from(devices)
-          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
+          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId), isNull(devices.spaceHostId)))
           .limit(1)
         if (!own) throw new TRPCError({ code: `NOT_FOUND`, message: `That device isn't yours` })
         deviceId = own.deviceId

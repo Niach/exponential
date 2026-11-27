@@ -1,4 +1,4 @@
-# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155)
+# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155, #EDE-237)
 
 Source: the `gpui-pre-wgpu` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_wgpu` crate (`crates/gpui_wgpu`) of
@@ -60,3 +60,18 @@ and minus the `[[bench]]` target. Dropped from the published crate:
 unit tests in `src/cosmic_text_system.rs` read zed's own assets and do not
 build here; `apps/desktop/crates/eui-gpui/tests/text_clusters.rs` covers
 the change against the system's fonts. No other source is modified.
+
+## #EDE-237: one set of render pipelines per device
+
+In `src/wgpu_renderer.rs` and `src/wgpu_context.rs`, marked `Exponential
+patch (#EDE-237)`: every window's renderer used to compile its own render
+pipelines and bind group layouts, and again once the window learned its
+alpha mode (`update_transparency`). eDE's holder shows every page as a
+window of its own, and on a software Vulkan driver (lavapipe, a VM's
+llvmpipe) each set cost ~18 MB. `PipelineCache` (an `Arc` on the
+`WgpuContext`, so it lives and dies with the device and a recovered device
+starts afresh) hands out one `Arc` set per key, the key being everything
+`create_pipelines` reads (surface format, alpha mode, path sample count,
+dual-source blending, the WebGL instance path); the layouts are shared per
+instance path, so every window's bind groups match the shared pipelines.
+Measured in a private headless eDE: ten page windows of one holder.

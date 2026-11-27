@@ -131,7 +131,7 @@ function ConsentCard({ gate }: { gate: ConsentGate }) {
 
 type ScreenRequest = { screen: string; params: Record<string, string> }
 
-function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: GenuiAppRead; call: CallTool; origin: string; openLink: (url: string) => void; screen: ReturnType<typeof resolveScreen> | null; onScreen: ((request: ScreenRequest) => void) | null }) {
+function AppSurface({ app, call, origin, openLink, screen, onScreen, hostConfirms }: { app: GenuiAppRead; call: CallTool; origin: string; openLink: (url: string) => void; screen: ReturnType<typeof resolveScreen> | null; onScreen: ((request: ScreenRequest) => void) | null; hostConfirms?: boolean }) {
   const consent = useMemo(createConsentGate, [])
   // #NEW-24: the surface paints in the host's mode (dark when it names none).
   const colorMode = useColorMode()
@@ -145,6 +145,7 @@ function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: Ge
         call,
         origin,
         consent,
+        hostConfirms,
         openLink,
         notify: (text, tone) => (tone === `error` ? toast.error(text) : toast(text)),
         navigateScreen: hasShell
@@ -154,7 +155,7 @@ function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: Ge
             }
           : undefined,
       }),
-    [app, call, origin, consent, openLink, hasShell]
+    [app, call, origin, consent, openLink, hasShell, hostConfirms]
   )
   const pkg = app.package as unknown as AppPackage
   const templateId = screen ? screen.screen : previewTemplate(app.package as { templates?: Record<string, unknown> } | null, null)
@@ -187,14 +188,14 @@ function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: Ge
 
 /** THE run view (apps.json): the published surface edge to edge, with the
  *  screens shell (sidebar rows on a wide frame, the phone tab bar narrow). */
-export function AppRun({ app, call, origin, openLink, phone }: { app: GenuiAppRead; call: CallTool; origin: string; openLink: (url: string) => void; phone: boolean }) {
+export function AppRun({ app, call, origin, openLink, phone, hostConfirms }: { app: GenuiAppRead; call: CallTool; origin: string; openLink: (url: string) => void; phone: boolean; hostConfirms?: boolean }) {
   const pkg = app.package
   const [request, setRequest] = useState<ScreenRequest | null>(null)
   const screens = useMemo(() => (pkg ? navScreens(pkg as unknown as AppPackage) : []), [pkg])
   const resolved = pkg && screens.length ? resolveScreen(pkg as unknown as AppPackage, request?.screen ?? null, request?.params ?? null) : null
   const shell = screenShell(screens.length, phone)
   if (!pkg) return <EmptyState icon={NavAppsIcon} title={APPS_COPY.runEmpty} size="page" />
-  const content = <AppSurface key={app.id} app={app} call={call} origin={origin} openLink={openLink} screen={resolved} onScreen={shell ? setRequest : null} />
+  const content = <AppSurface key={app.id} app={app} call={call} origin={origin} openLink={openLink} screen={resolved} onScreen={shell ? setRequest : null} hostConfirms={hostConfirms} />
   const open = (id: string) => setRequest({ screen: id, params: {} })
   if (!shell || !resolved) {
     return (
@@ -396,7 +397,7 @@ export function GenuiApp() {
         {shown.kind === `error` && <ListEmpty>{shown.message}</ListEmpty>}
         {shown.kind === `card` && <div className="p-3"><SurfaceCard surface={shown.card.surface as never} title={shown.card.title ?? null} testKey="inline" onAction={(event) => { const body = showMessage(event); if (body) void bridge.current?.sendMessage(body).catch(() => undefined) }} /></div>}
         {shown.kind === `apps` && <AppsList apps={shown.apps} onOpen={(row) => void openApp(row)} />}
-        {shown.kind === `app` && <AppRun key={`${shown.app.id}:${shown.app.version ?? 0}`} app={shown.app} call={call} origin={origin} openLink={openLink} phone={width <= PHONE_MAX} />}
+        {shown.kind === `app` && <AppRun key={`${shown.app.id}:${shown.app.version ?? 0}`} app={shown.app} call={call} origin={origin} openLink={openLink} phone={width <= PHONE_MAX} hostConfirms={shown.hostConfirms} />}
         </div>
         {/* An expired view shows its one line, never a toast. */}
         {!lease.expired && <Toaster />}

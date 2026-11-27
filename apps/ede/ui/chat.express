@@ -1,5 +1,5 @@
 # Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page
-# and conversation as one genUI document. The chat button next to the start button (or Super+Space)
+# and conversation as one genUI document. The chat button next to the start button (or Super+A)
 # opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell
 # sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the
 # panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.express, uicore-model

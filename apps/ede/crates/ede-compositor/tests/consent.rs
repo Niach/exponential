@@ -135,6 +135,11 @@ struct Run {
 }
 
 fn run(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: &[(&str, String)], answer: Option<(bool, Duration)>) -> Run {
+    run_with(h, asks, exe, ops, env, answer, |_| {})
+}
+
+/// [`run`], with `started` called on the asking process's pid at once.
+fn run_with(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: &[(&str, String)], answer: Option<(bool, Duration)>, started: impl FnOnce(u32)) -> Run {
     use std::io::Read;
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("ede.sock");
@@ -148,6 +153,7 @@ fn run(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: 
     }
     let mut child = spawn(&mut command);
     let pid = child.id();
+    started(pid);
     let mut asked = None;
     let deadline = Instant::now() + Duration::from_secs(60);
     // Serve every connection it makes, answer for the person once, until it ends.
@@ -716,6 +722,46 @@ fn a_genuine_shell_started_by_hand_is_refused_once_the_compositor_starts_the_hel
     assert!(asks.try_recv().is_err(), "nobody was asked");
 }
 
+/// #EDE-227: eDE's component (`exponential-app`) holds the root token as
+/// the compositor's helper with nobody asked (the consent prompt named "an
+/// unknown program" while the device unit started the app); the same file
+/// started by hand is refused, again with nobody asked.
+#[test]
+fn the_component_is_root_as_the_compositors_helper_and_nobody_is_asked() {
+    let Ok(python) = std::fs::canonicalize("/usr/bin/python3") else {
+        eprintln!("skipped: no /usr/bin/python3");
+        return;
+    };
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let app = dir.path().join(ede_compositor::helpers::APP);
+    std::fs::copy(&python, &app).unwrap();
+    std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755)).unwrap();
+    h.with(|ede| ede.start_helpers_with(vec![]));
+    let kind = |said: &serde_json::Value| said["type"].as_str().unwrap_or_default().to_string();
+    let by_hand = |env: Vec<(String, String)>| {
+        let mut command = Command::new(&app);
+        command.args(["-I", "-c", PY_HELLO]).envs(env).stdout(Stdio::null()).stderr(Stdio::null());
+        Some(command)
+    };
+    let said = interpreted_hello(&h, &app, by_hand);
+    assert_eq!((kind(&said), said["error"]["code"].as_str()), ("error".to_string(), Some("unauthorized")), "started by hand: {said}");
+    let said = interpreted_hello(&h, &app, |_| None);
+    assert_eq!(kind(&said), "reply", "the compositor's helper: {said}");
+    assert!(asks.try_recv().is_err(), "nobody was asked");
+}
+
+#[test]
+fn the_component_is_a_helper_where_it_is_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = dir.path().join(ede_compositor::helpers::APP);
+    assert!(ede_compositor::helpers::app_spec(&app.display().to_string()).is_none(), "not installed: not started");
+    std::fs::write(&app, b"").unwrap();
+    let spec = ede_compositor::helpers::app_spec(&app.display().to_string()).unwrap();
+    assert_eq!((spec.name.as_str(), spec.argv.clone(), spec.channel, spec.wayland), (ede_compositor::helpers::APP, vec![app.display().to_string()], None, None), "its own Wayland connection, the root token by its pid");
+}
+
 /// A policy file that root does not own (here: the test's), group-writable
 /// or not, is ignored: no principal comes from it, and (P14) its `[control]
 /// consent = false` and `[session] helpers = "units"` do not weaken a real
@@ -765,4 +811,151 @@ fn the_gate_is_off_by_default() {
     assert!(said(&run(&h, &asks, &foreign, "", &[], None), "hello").starts_with("ok"));
     let _ = ErrorCode::Unauthorized;
     let _ = Request::ListWindows;
+}
+
+// First-party screen consent (`ede_compositor::signed`): the app whose
+// executable and libraries a list signed with the pinned updater key names
+// uses the screen without asking; anything else is asked as before.
+
+/// What the desktop build's list says it is (`sign-binaries.sh`).
+const LIST_COMMENT: &str = "exponential-binaries v1 channel:production ref:test";
+
+/// A throwaway minisign key: its public half (base64) and its secret.
+struct Signer {
+    key: String,
+    secret: minisign::SecretKey,
+}
+
+fn signer() -> Signer {
+    let pair = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+    Signer { key: pair.pk.to_base64(), secret: pair.sk }
+}
+
+fn sha256_hex(path: &Path) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(std::fs::read(path).unwrap()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `list` and its signature by `signer` (trusted comment `comment`) where
+/// an AppImage under `root` has them.
+fn write_list(root: &Path, signer: &Signer, list: &str, comment: &str) {
+    std::fs::create_dir_all(root.join("usr/share/exponential")).unwrap();
+    std::fs::write(root.join(ede_compositor::signed::LIST), list).unwrap();
+    let signature = minisign::sign(None, &signer.secret, list.as_bytes(), Some(comment), None).unwrap();
+    std::fs::write(root.join(ede_compositor::signed::SIGNATURE), signature.into_string()).unwrap();
+}
+
+/// An AppImage-shaped tree under `root`: `usr/bin/exp-desktop` (the asking
+/// executable, `extra` making its content its own) and the list naming it
+/// and, with `libraries`, the file the role maps besides (this test binary,
+/// run by the copied loader).
+fn signed_app(root: &Path, signer: &Signer, extra: &[u8], libraries: bool) -> PathBuf {
+    let exe = copy_as(&root.join("usr/bin"), "exp-desktop", extra);
+    let mut list = format!("{}  usr/bin/exp-desktop\n", sha256_hex(&exe));
+    if libraries && loader().is_some() {
+        list += &format!("{}  usr/lib/role\n", sha256_hex(&std::env::current_exe().unwrap()));
+    }
+    write_list(root, signer, &list, LIST_COMMENT);
+    exe
+}
+
+/// The gate pins `signer`'s key.
+fn pin(h: &Harness, signer: &Signer) {
+    let key = signer.key.clone();
+    h.with(move |ede| ede.ipc.consent.signing_key = Some(key));
+}
+
+/// The genuine app: no question, at once, and it acts as computer use
+/// (not root).
+#[test]
+fn a_signed_app_uses_the_screen_without_asking() {
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let signer = signer();
+    pin(&h, &signer);
+    let app = signed_app(&dir.path().join("tmp/.mount_Exponen0x1"), &signer, b"genuine", true);
+    let first = run(&h, &asks, &app, "cu", &[], None);
+    assert!(said(&first, "hello").starts_with("ok"), "{:?}", first.lines);
+    assert_eq!(said(&first, "lock"), "Forbidden", "computer use, not root");
+    assert_eq!(said(&first, "mint_run"), "ok");
+    assert_eq!(h.with(|ede| ede.ipc.consent.checks_started), 1);
+    // Another process of it: checked on its own, and let in too.
+    assert!(said(&run(&h, &asks, &app, "", &[], None), "hello").starts_with("ok"));
+    assert_eq!(h.with(|ede| ede.ipc.consent.checks_started), 2, "one check per process");
+}
+
+/// What fails the signed check is asked as before (and refused here): no
+/// list (an older app), a changed executable, another key, a list that is
+/// not a binaries list (the release feed's), a library the list does not
+/// hold, and any list while the build pins no key.
+#[test]
+fn an_unsigned_or_tampered_app_is_still_asked() {
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let signer = signer();
+    pin(&h, &signer);
+    let refused = |app: &Path, case: &str| {
+        let run = run(&h, &asks, app, "", &[], Some((false, Duration::ZERO)));
+        assert_eq!(said(&run, "hello"), "Unauthorized", "{case}");
+        assert_eq!(run.asked.unwrap().asking.grants, Principal::ComputerUse, "{case}");
+    };
+    // An older app: no list.
+    refused(&copy_as(&dir.path().join("old/usr/bin"), "exp-desktop", b"old"), "no list");
+    // The executable changed after signing.
+    let tampered = signed_app(&dir.path().join("tampered"), &signer, b"tampered", true);
+    std::fs::OpenOptions::new().append(true).open(&tampered).unwrap().write_all(b"+").unwrap();
+    refused(&tampered, "a changed executable");
+    // Signed with someone else's key.
+    refused(&signed_app(&dir.path().join("other-key"), &self::signer(), b"other key", true), "another key");
+    // The same key's other signature: the release feed's sums.
+    let feed = dir.path().join("feed");
+    let exe = copy_as(&feed.join("usr/bin"), "exp-desktop", b"feed");
+    let list = format!("{}  usr/bin/exp-desktop\n{}  usr/lib/role\n", sha256_hex(&exe), sha256_hex(&std::env::current_exe().unwrap()));
+    write_list(&feed, &signer, &list, "repo:Niach/exponential ref:desktop-v1.2.3 timestamp:1");
+    refused(&exe, "not a binaries list");
+    // A genuine executable beside a library that is not in its list.
+    if loader().is_some() {
+        refused(&signed_app(&dir.path().join("foreign-lib"), &signer, b"foreign lib", false), "a foreign library");
+    }
+    // A build that pins no key asks for every app.
+    h.with(|ede| ede.ipc.consent.signing_key = None);
+    refused(&signed_app(&dir.path().join("unpinned"), &signer, b"unpinned", true), "no pinned key");
+}
+
+/// The genuine, signed app started with a preloaded library, or traced,
+/// is asked.
+#[test]
+fn a_preloaded_or_traced_signed_app_is_still_asked() {
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let asks = gated(&h, dir.path().join("no-policy.toml"));
+    let signer = signer();
+    pin(&h, &signer);
+    // A system library (it would pass the mappings): the variable alone asks.
+    let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+    let libc = maps.split_whitespace().find(|w| w.starts_with('/') && w.contains("/libc.so")).expect("this test maps a libc").to_string();
+    let preloaded = signed_app(&dir.path().join("preloaded"), &signer, b"preloaded", true);
+    let run_preloaded = run(&h, &asks, &preloaded, "", &[("LD_PRELOAD", libc)], Some((false, Duration::ZERO)));
+    assert_eq!(said(&run_preloaded, "hello"), "Unauthorized");
+    // Traced from its start (PTRACE_SEIZE leaves it running).
+    let traced = signed_app(&dir.path().join("traced"), &signer, b"traced", true);
+    let seized = std::sync::atomic::AtomicBool::new(false);
+    let mut probe = spawn(role(&traced, "role_hold").env(ROLE, "hold").stdin(Stdio::piped()).stdout(Stdio::null()));
+    // Safety: ptrace on a child of ours; detached by its exit.
+    let can_trace = unsafe { libc::ptrace(libc::PTRACE_SEIZE, probe.id() as libc::pid_t, 0usize, 0usize) } == 0;
+    drop(probe.stdin.take());
+    let _ = probe.wait();
+    if !can_trace {
+        eprintln!("skipped the traced half: this runner refuses ptrace");
+        return;
+    }
+    let run_traced = run_with(&h, &asks, &traced, "", &[], Some((false, Duration::ZERO)), |pid| {
+        // Safety: ptrace on the child just started.
+        let ok = unsafe { libc::ptrace(libc::PTRACE_SEIZE, pid as libc::pid_t, 0usize, 0usize) } == 0;
+        seized.store(ok, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert!(seized.load(std::sync::atomic::Ordering::SeqCst), "the role was traced");
+    assert_eq!(said(&run_traced, "hello"), "Unauthorized");
 }

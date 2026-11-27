@@ -42,6 +42,14 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
     ) {
         // While the grab is active, no client has pointer focus
         handle.motion(data, None, event);
+        // The button that drives the grab is up and its release never came
+        // here (a grab started after it, an input device gone): it ends
+        // now instead of dragging the window after the pointer (#EDE-222).
+        // A keyboard move/resize (Alt+F7/F8, #EDE-243) has no button: a click ends it.
+        if self.start_data.button != 0 && !handle.current_pressed().contains(&self.start_data.button) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
 
         let delta = event.location - self.start_data.location;
         if window_state(&self.window).tile.is_some() {
@@ -58,6 +66,9 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
             data.untile(&self.window, Some(loc));
             return;
         }
+
+        // Muffin's tile preview: where a release here would tile it.
+        data.desk.tile_preview.show(&self.window, data.drop_tile(&self.window, event.location).map(|(_, r)| r));
 
         let new_location = (self.initial_window_location.to_f64() + delta).to_i32_round();
         let threshold = data.config.windows.snap_threshold;
@@ -89,19 +100,13 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
 
     fn button(&mut self, data: &mut Ede, handle: &mut PointerInnerHandle<'_, Ede>, event: &ButtonEvent) {
         handle.button(data, event);
-        if !handle.current_pressed().contains(&super::BTN_LEFT) {
+        // #EDE-243: a keyboard move (Alt+F7, button 0) ends at the first click.
+        let button = self.start_data.button;
+        if button == 0 || !handle.current_pressed().contains(&button) {
             let pointer = handle.current_location();
             handle.unset_grab(self, data, event.serial, event.time, true);
-            let w = &data.config.windows;
-            if w.edge_tiling && window_state(&self.window).tile.is_none() {
-                let (edge, corner) = (w.edge_tiling_px, w.corner_px);
-                if let Some(tile) = data
-                    .output_at(pointer)
-                    .and_then(|o| data.work_area(&o))
-                    .and_then(|area| layout::tile_zone(pointer, area, edge, corner))
-                {
-                    data.tile(&self.window.clone(), tile);
-                }
+            if let Some((tile, _)) = data.drop_tile(&self.window, pointer) {
+                data.tile(&self.window.clone(), tile);
             }
         }
     }
@@ -195,5 +200,7 @@ impl PointerGrab<Ede> for MoveSurfaceGrab {
         &self.start_data
     }
 
-    fn unset(&mut self, _data: &mut Ede) {}
+    fn unset(&mut self, data: &mut Ede) {
+        data.desk.tile_preview.show(&self.window, None);
+    }
 }

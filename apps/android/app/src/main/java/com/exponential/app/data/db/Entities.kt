@@ -514,6 +514,16 @@ data class DeviceEntity(
     // `{a,b}` inside a JSON string, hence the tolerant serializer.
     @ColumnInfo(name = "shared_team_ids") @SerialName("shared_team_ids") @JsonNames("sharedTeamIds")
     @Serializable(with = PgUuidArraySerializer::class) val sharedTeamIds: List<String> = emptyList(),
+    // #EXP-2161 (member-space.json, [MIGRATION_134_135]): the teams whose
+    // members may run their Assistant here (a subset of the shared ones), and
+    // on a member SPACE row its host's row id and the team it was picked
+    // through. A row with a host is never listed as a device ([listed]).
+    @ColumnInfo(name = "assistant_team_ids") @SerialName("assistant_team_ids") @JsonNames("assistantTeamIds")
+    @Serializable(with = PgUuidArraySerializer::class) val assistantTeamIds: List<String> = emptyList(),
+    @ColumnInfo(name = "space_host_id") @SerialName("space_host_id") @JsonNames("spaceHostId")
+    val spaceHostId: String? = null,
+    @ColumnInfo(name = "space_team_id") @SerialName("space_team_id") @JsonNames("spaceTeamId")
+    val spaceTeamId: String? = null,
     // EXP-622: the ROW OWNER's default machine — the one every device picker
     // prefills. Honoured only when `user_id` is the signed-in user: a
     // teammate's shared server carries THEIR preference, not ours.

@@ -56,7 +56,9 @@ pub fn open_shell_window(cx: &mut App) {
             // #EDE-64: on Exponential Desktop the window fills the ground
             // panel (the compositor honours a maximize asked before the first
             // frame); un-maximized it floats at the saved size.
-            window_bounds: Some(if on_exponential_desktop() { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
+            // #EDE-237: eDE mode's page windows float like any program's,
+            // cascaded at the saved size.
+            window_bounds: Some(if on_exponential_desktop() && !ui::ede_component::is_component() { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
             window_min_size: Some(min_size),
             kind: WindowKind::Normal,
             // Associate the window with our `.desktop` entry so Linux
@@ -94,9 +96,12 @@ pub fn open_shell_window(cx: &mut App) {
             #[cfg(target_os = "macos")]
             window_background: gpui::WindowBackgroundAppearance::Blurred,
             #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            window_background: if ui::ede_component::is_component() { gpui::WindowBackgroundAppearance::Opaque } else { gpui::WindowBackgroundAppearance::Transparent },
+            // #EDE-227: eDE's component wears eDE's frame (xdg-decoration,
+            // server side) like every other window; with it `ui` draws no
+            // title bar, shadow or rounded frame of its own.
             #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
+            window_decorations: Some(if ui::ede_component::is_component() { gpui::WindowDecorations::Server } else { gpui::WindowDecorations::Client }),
             ..Default::default()
         };
 
@@ -138,7 +143,11 @@ pub fn open_shell_window(cx: &mut App) {
         ui::macos_blur::ensure_window_blur();
 
         window.update(cx, |_, window, cx| {
-            window.set_window_title(crate::channel::APP_NAME);
+            // #EDE-237: eDE mode's windows wear their page's title (`ui`'s
+            // `ede_windows::publish`).
+            if !ui::ede_component::is_component() {
+                window.set_window_title(crate::channel::APP_NAME);
+            }
             window.activate_window();
             let _ = cx;
         })?;

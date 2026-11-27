@@ -1333,6 +1333,11 @@ pub(crate) fn app_screen_of(
 
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
     let screen = app_editor_screen(screen, cx);
+    // #EDE-237: in eDE mode a page has a window of its own: focused when
+    // one holds it, else opened (`ede_windows::route`).
+    if crate::ede_windows::route(window, &screen, cx) {
+        return;
+    }
     // EXP-771: the screen may already have its own window (EXP-65 undock) —
     // then this is a REVEAL, not a navigation: bring that window forward and
     // leave this window's tab strip alone. Every tab-opening entry funnels
@@ -1492,6 +1497,28 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed) {
 /// screen calls this at the top of every render, so a seed set while the
 /// page is already up (Run clicked twice, a second issue's Start coding) is
 /// applied on the notify it triggers.
+/// #EDE-237: the composer seed a window's next Home takes (a Home opened
+/// in a window of its own takes the seed of the window it came from).
+pub(crate) fn set_pending_chat_seed(window: &Window, cx: &mut App, seed: ChatSeed) {
+    set_window_chat_seed(window.window_handle().window_id(), seed, cx);
+}
+
+/// #EDE-237: [`set_pending_chat_seed`] by window id.
+pub(crate) fn set_window_chat_seed(window_id: WindowId, seed: ChatSeed, cx: &mut App) {
+    if let Some(nav) = nav_for_window_id(window_id, cx) {
+        nav.update(cx, |nav, cx| {
+            nav.pending_chat_seed = Some(seed);
+            cx.notify();
+        });
+    }
+}
+
+/// #EDE-237: the window's pending composer seed, taken.
+pub(crate) fn take_window_chat_seed(window_id: WindowId, cx: &mut App) -> Option<ChatSeed> {
+    let nav = nav_for_window_id(window_id, cx)?;
+    take_pending_chat_seed(&nav, cx)
+}
+
 pub(crate) fn take_pending_chat_seed(nav: &Entity<Navigation>, cx: &mut App) -> Option<ChatSeed> {
     if nav.read(cx).pending_chat_seed.is_none() {
         return None;
@@ -1871,6 +1898,12 @@ fn nav_for_window_readonly(window: &Window, cx: &App) -> Option<Entity<Navigatio
 /// window there is no ambiguity. With several windows and no active one we
 /// can't tell them apart, so we return `None` (unchanged prior behavior).
 pub fn active_or_primary_window(cx: &App) -> Option<AnyWindowHandle> {
+    // #EDE-237: eDE mode's page windows: the active one, else the newest.
+    if crate::ede_component::is_component() {
+        if let Some(window) = crate::ede_windows::any_page_window(cx) {
+            return Some(window);
+        }
+    }
     if let Some(window) = cx.active_window() {
         return Some(window);
     }

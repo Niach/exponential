@@ -34,11 +34,11 @@
 // `icon` (the `valueIcon` part: the IDE Account row's agent mark, in the
 // mark's own colour).
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath, propColor, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, propColor, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, selectSectionHeading, selectSectionOrder, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -62,6 +62,15 @@ export interface SelectOption {
   iconColor?: string
   /** #EXP-1629: a small muted run at the row's end (web's picker hint). */
   hint?: string
+  /** #EXP-2161: the heading its run of options sits under (web's picker group). */
+  section?: string
+}
+
+/** #EXP-2161: the `sectionHeading` over option `i` of the (section-ordered)
+ *  `list`: web's picker group heading, never an option. */
+const SectionHeading = ({ list, i, part }: { list: SelectOption[]; i: number; part: (name: string) => unknown }) => {
+  const heading = selectSectionHeading(list, i)
+  return heading === undefined ? null : <div {...(part(`sectionHeading`) as Record<string, string>)} role="presentation">{heading}</div>
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -149,7 +158,8 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     []
   )
   const inline = objects<SelectOption>(props.options)
-  const options = sourced ?? inline
+  // #EXP-2161: the unsectioned options first, then each section's run.
+  const options = selectSectionOrder(sourced ?? inline)
   const hasEmpty = options.some((o) => o.value === ``)
   const [plainRoot, setPlainRoot] = useState<HTMLDivElement | null>(null)
   useNativeEmptyOption(hasEmpty ? plainRoot : null, value === ``)
@@ -419,9 +429,11 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
               <SelectPrimitive.Viewport ref={viewportRef} onScroll={measure}>
                 {loading ? <NodeView node={skeleton} /> : null}
                 {!loading && options.length === 0 ? <div {...(part(`empty`) as Record<string, string>)}>{str(props.emptyText) || ctx.t(`noResults`)}</div> : null}
-                {(loading ? [] : options).map((o) => (
-                  // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
-                  <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
+                {(loading ? [] : options).map((o, i) => (
+                  <Fragment key={o.value}>
+                  <SectionHeading list={options} i={i} part={part} />
+                  {/* #EXP-1629: Radix focuses the cursor's item: that is `hover`. */}
+                  <SelectPrimitive.Item value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
                     {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                     {str(o.description) ? (
                       <span {...(part(`itemText`) as Record<string, string>)}>
@@ -442,6 +454,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                       <BuiltinIcon slot="Select.check" size={16} />
                     </SelectPrimitive.ItemIndicator>
                   </SelectPrimitive.Item>
+                  </Fragment>
                 ))}
               </SelectPrimitive.Viewport>
               {moreBelow ? <div {...(part(`fade`) as Record<string, string>)} aria-hidden="true" /> : null}
@@ -642,14 +655,15 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                 const isSel = selected.includes(o.value)
                 const isActive = i === nav.active
                 return (
+                  <Fragment key={o.value}>
+                  <SectionHeading list={shown} i={i} part={part} />
                   <div
-                    key={o.value}
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSel}
                     aria-disabled={bool(o.disabled) || undefined}
                     data-active={isActive ? `` : undefined}
-                    {...(part.with(`item`, selectItemJoins(multiple, shown.length, (j) => selected.includes(shown[j]!.value), i), isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
+                    {...(part.with(`item`, selectItemJoins(multiple, shown.length, (j) => selected.includes(shown[j]!.value), i, (j) => selectSectionHeading(shown, j) !== undefined), isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
                     data-mono={bool(o.mono) ? `` : undefined}
                     onPointerMove={() => nav.setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
@@ -672,6 +686,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                       </span>
                     ) : null}
                   </div>
+                  </Fragment>
                 )
               })}
             </div>

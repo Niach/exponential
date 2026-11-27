@@ -788,6 +788,7 @@ mod tests {
             surface_data: None,
             answered,
             dismissed,
+            elicitation: None,
         };
         let waiting = |row| matches!(rows(&[row], &HashMap::new(), |_| None, None)[0], ChatRowInput::Question { waiting: true, .. });
         assert!(waiting(q(false, None, None)));
@@ -901,6 +902,7 @@ mod tests {
             surface_data: None,
             answered: false,
             dismissed: None,
+            elicitation: None,
         };
         let session = SessionChatRow::Report { id: "r".into(), session_id: "s".into(), text: "Report".into(), summary: String::new(), xref: crate::session_tree::SessionXref { kind: "report".into(), session_id: "s".into(), name: "Child".into(), agent_id: None } };
         let out = rows(&[plan, question, session], &HashMap::new(), |_| None, None);

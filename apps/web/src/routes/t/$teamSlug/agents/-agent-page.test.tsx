@@ -152,7 +152,6 @@ vi.mock(`@/components/chat/chat-menu`, () => ({
 }))
 vi.mock(`@/components/team/mobile-detail-header`, () => ({
   MobileDetailHeader: () => <div data-testid="mobile-header" />,
-  HEADER_ACTION_CLASS: ``,
   HeaderAction: () => null,
 }))
 vi.mock(`@/components/voice-call`, () => ({

@@ -1376,6 +1376,13 @@ class AgentSessionViewModel @AssistedInject constructor(
         SlashCommands.candidates(text, SlashCommands.runAgent(row?.cli), prompts)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-2161: a send the server refused with a reason worth a toast. */
+    private val _sendFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
+    val sendFailure: StateFlow<com.exponential.app.ui.components.FailedAction?> = _sendFailure
+    fun clearSendFailure() {
+        _sendFailure.value = null
+    }
+
     private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
     /** FEED-79: a picked prompt whose body could not load, raised once. */
     val promptFailure: StateFlow<com.exponential.app.ui.components.FailedAction?> = _promptFailure
@@ -1659,6 +1666,14 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             },
             onSent = { mcpPick?.let(::agentMcpSent) },
+            // #EXP-2161: the failed bubble keeps the text; WHY (the Assistant
+            // has no device, member-space.json `copy.noDevice`) is news.
+            onFailed = { t ->
+                val reason = trpcErrorMessage(t, "")
+                if (reason == com.exponential.app.domain.MemberSpace.Copy.NO_DEVICE) {
+                    _sendFailure.value = com.exponential.app.ui.components.FailedAction("send", "the message", reason)
+                }
+            },
         )
         outbox.submit(accountId, codingSessionId, text.trim(), images, builder)
     }
@@ -1903,6 +1918,25 @@ class AgentSessionViewModel @AssistedInject constructor(
         .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * #NEW-146 (elicitation-card.json LIVE): this session's ENGINE-posted
+     * elicitation cards (left out of [sessionCards]: their live frame draws
+     * them), opened like every card row; a frame of the same `questionId`
+     * draws THE card instead of its bare options ([ElicitationFeedCards.rowFor]).
+     */
+    val elicitationCards: StateFlow<ElicitationFeedCards> = cardRows
+        .map { rows ->
+            val cards = rows.filter { it.locked == null && com.exponential.app.domain.ElicitationCard.isElicitationCard(it.card) }
+            if (cards.isEmpty()) {
+                ElicitationFeedCards.None
+            } else {
+                ElicitationFeedCards(cards, cards.mapNotNull { m -> SessionTree.askRow(m)?.let { m.id to it } }.toMap())
+            }
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ElicitationFeedCards.None)
 
     /** The plan / question rows of [sessionCards] (the dock's sources). */
     val toolAsks: StateFlow<List<SessionTree.SessionChatRow>> = sessionCards

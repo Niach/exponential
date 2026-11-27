@@ -589,6 +589,12 @@ struct PlanCardSurfaceView: View {
     var onAction: ((ChatExpress.ActionEvent) -> Void)? = nil
     /// The surface card draws its own frame (no `copy.surface` label).
     var bare = false
+    /// The `copy.surface` caption above the frame (#NEW-146: an
+    /// elicitation's form has none: it IS the question).
+    var caption = true
+    /// #NEW-146: every change of the data model (an elicitation's Submit
+    /// waits for its required fields).
+    var onData: ((CardJSON?) -> Void)? = nil
     /// chats.json `surfaceCard.enter.children`: a LIVE arrival staggers the
     /// root's first-level children in (never under reduce motion).
     var staggerChildren = false
@@ -604,9 +610,11 @@ struct PlanCardSurfaceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
-            Text(PlanCard.Copy.surface)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if caption {
+                Text(PlanCard.Copy.surface)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
             content
                 .padding(PlanCard.Card.surfacePadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -625,7 +633,7 @@ struct PlanCardSurfaceView: View {
         #if canImport(ExponentialUI)
         PlanCardLiveSurface(
             surface: surface, data: data, handle: handle, onReply: onReply, onAction: onAction,
-            staggerChildren: staggerChildren
+            staggerChildren: staggerChildren, onData: onData
         )
             .allowsHitTesting(editable || onReply != nil || onAction != nil)
         #else
@@ -650,6 +658,7 @@ private struct PlanCardLiveSurface: View {
     var onReply: ((String) -> Void)? = nil
     var onAction: ((ChatExpress.ActionEvent) -> Void)? = nil
     var staggerChildren = false
+    var onData: ((CardJSON?) -> Void)? = nil
 
     @Environment(\.motion) private var motion
     @Environment(AppDependencies.self) private var deps
@@ -678,6 +687,8 @@ private struct PlanCardLiveSurface: View {
                     // same view (an unchanged width) would never lay out and
                     // paint an empty bar (a question card).
                     .id(ObjectIdentifier(model))
+                    // Every input runs a pass: the data model as it stands.
+                    .onChange(of: model.passCount, initial: true) { onData?(handle.snapshot()) }
             } else if failed {
                 EmptyView()
             } else {

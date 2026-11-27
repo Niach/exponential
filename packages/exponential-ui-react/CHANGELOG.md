@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - **Breaking:** the A2UI 1.0 flag day (#VAPP-289): `useSurface` takes 1.0 messages only; a 0.9 message is refused (`INVALID_MESSAGE`).
+- Select option `section` (#EXP-2161): the unsectioned options first, then each section's run under its `sectionHeading` part (`role=presentation`, never an option; `selectSectionGap` under a row), both popups.
 - Text `runs` + `dropCap` (genUI round 4): styled spans (weights, tones, marks, policed links) and a floated first letter.
 - Box backgrounds (genUI round 4): a node with `backgroundImage` loads its picture like an Image (`useBackgroundImage`) and sets `--xui-bgi` (the placeholder until it decoded); the node sheet paints the layers.
 - **Breaking.** The `@` envelope keys of A2UI 1.0 (#VAPP-289, the core's rule): nested trees and messages write `@catalogId`, `@accessibility`, `@metadata`, `@checks`; `formatString` reads `${fn(name: value)}` calls; a call that names its catalog runs only what that catalog declares.

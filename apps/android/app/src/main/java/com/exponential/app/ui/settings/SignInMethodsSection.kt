@@ -46,6 +46,7 @@ import com.exponential.app.data.api.SignInProviderDto
 import com.exponential.app.data.api.canRemovePasskey
 import com.exponential.app.data.api.canUnlink
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.StepUp
 import com.exponential.app.ui.auth.findActivity
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassPill
@@ -179,6 +180,19 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
             busy = viewModel.removing,
             onConfirm = { viewModel.deletePasskey(accountId, target.id) { passkeyTarget = null } },
             onDismiss = { passkeyTarget = null },
+        )
+    }
+
+    // #EXP-2143 follow-up: "Confirm it's you" over the band; the refused
+    // Add passkey runs again by itself once it is proved.
+    if (viewModel.stepUp.sheet != StepUp.Sheet.Closed) {
+        StepUpSheet(
+            state = viewModel.stepUp,
+            email = viewModel.stepUpEmail,
+            onChoose = { viewModel.stepUpChoose(it) },
+            onSubmit = { viewModel.stepUpSubmit(it, context.findActivity()) },
+            onResend = { viewModel.stepUpSendCode() },
+            onDismiss = { viewModel.stepUpCancel() },
         )
     }
 

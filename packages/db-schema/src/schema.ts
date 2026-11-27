@@ -1631,6 +1631,22 @@ export const devices = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // #EXP-2161 (fixtures/member-space.json): the teams whose members may run
+    // their private Assistant here (the OWNER's opt-in, per team). Always a
+    // subset of `shared_team_ids` (trigger `clamp_device_assistant_teams`).
+    assistantTeamIds: uuid(`assistant_team_ids`)
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    // #EXP-2161: set = this row is a member SPACE (`device_id` =
+    // `space-<uuid>`, `user_id` = the member): the host's devices row and the
+    // team it was picked through. Never a device of the person's lists.
+    spaceHostId: uuid(`space_host_id`).references((): AnyPgColumn => devices.id, {
+      onDelete: `cascade`,
+    }),
+    spaceTeamId: uuid(`space_team_id`).references((): AnyPgColumn => teams.id, {
+      onDelete: `set null`,
+    }),
     // EXP-622: the OWNER's default machine — the one every device picker
     // prefills when several are candidates. At most one true row per user
     // (`devices.setDefault` clears the others in the same transaction).
@@ -1704,6 +1720,13 @@ export const devices = pgTable(
     index(`idx_devices_user`).on(table.userId),
     // Serves the per-team shared listing (`&&` / `@>` on the array).
     index(`idx_devices_shared_teams`).using(`gin`, table.sharedTeamIds),
+    // #EXP-2161: at most one space per member; a host's spaces.
+    uniqueIndex(`uniq_devices_space_user`)
+      .on(table.userId)
+      .where(sql`${table.spaceHostId} IS NOT NULL`),
+    index(`idx_devices_space_host`)
+      .on(table.spaceHostId)
+      .where(sql`${table.spaceHostId} IS NOT NULL`),
   ]
 )
 
@@ -1725,7 +1748,8 @@ export const installs = pgTable(
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    // `desktop` | `daemon` | `ios` | `android` | `web` (router-validated).
+    // `desktop` | `daemon` | `ios` | `android` | `web` | `space` (#EXP-2161:
+    // a member space's daemon, on its space row; router-validated).
     kind: varchar({ length: 16 }).notNull(),
     deviceId: uuid(`device_id`).references(() => devices.id, {
       onDelete: `set null`,
@@ -1765,7 +1789,9 @@ export const installs = pgTable(
 // signature itself and decides whom it pins. `kind` = `root` (an install
 // starts its account's chain, signed by itself), `approve` (a trusted
 // install of the same account), `reset` (a team-mate's install confirms a
-// member's new root) or `decline` (a team-mate turns that reset down).
+// member's new root), `decline` (a team-mate turns that reset down) or
+// `space` (#EXP-2161: the member's install lets a space's install read its
+// Assistant conversation, never `approve`).
 // `signature` = the approver's ed25519 over `approvalMessage(kind, subject)`
 // (base64url); the endpoint ids are kept beside the rows they name.
 // Server-only, served by `installs.trust`.
@@ -2301,6 +2327,10 @@ export const sessions = pgTable(
     // and reading): nobody keys it (`sessionKeys.create` / an inline `seal`
     // refused), writers send plaintext. Every other tree is sealed. SYNCED.
     clearTree: boolean(`clear_tree`).notNull().default(false),
+    // #EXP-2161 (member-space.json, TEAMS): ROOT rows only: started through a
+    // member space. Nothing it starts ever runs on its member's own machines.
+    // Server-only.
+    viaSpace: boolean(`via_space`).notNull().default(false),
     // #EXP-1730 (one-tree model): the list digest of this session's messages
     // (domain-contract `conversationDigest`), mirrored from its kind-session
     // conversation by trigger `mirror_conversation_digest` until phase B
@@ -2379,9 +2409,12 @@ export const sessionWatches = pgTable(
   `session_watches`,
   {
     id: uuidPk(),
-    sessionId: uuid(`session_id`)
-      .notNull()
-      .references(() => sessions.id, { onDelete: `cascade` }),
+    // #NEW-147 (emcp tasks.json): the WATCHER is a session (`watcher_kind`
+    // session, `session_id`) or an external host's MCP task (`mcp_task`,
+    // `task_id`): exactly one of the two is set.
+    sessionId: uuid(`session_id`).references(() => sessions.id, { onDelete: `cascade` }),
+    watcherKind: varchar(`watcher_kind`, { length: 16 }).$type<SessionWatcherKind>().notNull().default(`session`),
+    taskId: varchar(`task_id`, { length: 64 }).references((): AnyPgColumn => mcpTasks.id, { onDelete: `cascade` }),
     kind: varchar({ length: 16 }).$type<SessionWatchKind>().notNull(),
     // The watched session, PR or issue (null for `at`). No FK: a gone
     // subject fires its watches (`gone`), it never cascades them silently.
@@ -2393,17 +2426,109 @@ export const sessionWatches = pgTable(
   },
   (table) => [
     index(`idx_session_watches_session`).on(table.sessionId),
+    index(`idx_session_watches_task`).on(table.taskId),
+    check(
+      `session_watches_one_watcher`,
+      sql`(watcher_kind = 'session' AND session_id IS NOT NULL AND task_id IS NULL) OR (watcher_kind = 'mcp_task' AND task_id IS NOT NULL AND session_id IS NULL)`
+    ),
     // The firing lookups: who watches this subject; which times are due.
     index(`idx_session_watches_subject`).on(table.subjectId, table.kind),
     index(`idx_session_watches_at`).on(table.at).where(sql`kind = 'at'`),
     // An equal watch is held once (eagent `sameWatch`).
     unique(`uniq_session_watches_same`)
-      .on(table.sessionId, table.kind, table.subjectId, table.status, table.at)
+      .on(table.sessionId, table.taskId, table.kind, table.subjectId, table.status, table.at)
       .nullsNotDistinct(),
   ]
 )
 
 export type SessionWatchKind = `session` | `pr_checks` | `pr_closed` | `issue_status` | `at`
+/** #NEW-147: who waits (packages/eagent fixtures/rules.json `watcher`). */
+export type SessionWatcherKind = `session` | `mcp_task`
+export type McpTaskStatus = `working` | `input_required` | `completed` | `cancelled` | `failed`
+
+// #NEW-147 (packages/emcp fixtures/tasks.json): an external MCP host's
+// TASK, the second kind of watcher on `session_watches`. SERVER-ONLY, no
+// shape: the host polls `tasks/get` (derived live from the watched session).
+// `id` = the taskId (`tsk_` + 32 random bytes base64url), `principal` =
+// `user:<id>|client:<grant>`; `status` holds the terminal outcome (and
+// `working` while live); `result` / `error` the terminal payload.
+export const mcpTasks = pgTable(
+  `mcp_tasks`,
+  {
+    id: varchar({ length: 64 }).primaryKey(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    grant: varchar({ length: 160 }).notNull(),
+    principal: varchar({ length: 256 }).notNull(),
+    teamId: uuid(`team_id`).references(() => teams.id, { onDelete: `cascade` }),
+    // `session` (ref = the watched session) | `events` (its event watches).
+    kind: varchar({ length: 16 }).$type<`session` | `events`>().notNull(),
+    ref: uuid(),
+    status: varchar({ length: 24 }).$type<McpTaskStatus>().notNull().default(`working`),
+    statusMessage: text(`status_message`),
+    result: jsonb().$type<Record<string, unknown>>(),
+    error: jsonb().$type<{ code: number; message: string }>(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+    lastUpdatedAt: timestamp(`last_updated_at`, { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index(`idx_mcp_tasks_principal`).on(table.principal, table.status),
+    index(`idx_mcp_tasks_ref`).on(table.ref),
+    index(`idx_mcp_tasks_expires`).on(table.expiresAt),
+  ]
+)
+
+// #NEW-147: the MRTR requestStates already redeemed (single use across
+// restarts, packages/emcp fixtures/protocol.json `stateCases` `replayed`):
+// one row per spent `jti`, kept until the state's own expiry. Server-only.
+export const mcpRequestStates = pgTable(
+  `mcp_request_states`,
+  {
+    jti: varchar({ length: 64 }).primaryKey(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+  },
+  (table) => [index(`idx_mcp_request_states_expires`).on(table.expiresAt)]
+)
+
+// #NEW-149 (packages/emcp fixtures/files.json, D5): an MCP file staged
+// out of band (`upload_required`): the attachment its signed PUT creates
+// is not the caller's until the tool's retry finalizes it, which deletes
+// this row; the watchdog deletes what nobody finalized (the attachment
+// row and its object) after `staging.ttlMs`. No FK: the attachment row
+// does not exist until the bytes land.
+export const mcpFileStagings = pgTable(
+  `mcp_file_stagings`,
+  {
+    attachmentId: uuid(`attachment_id`).primaryKey(),
+    userId: text(`user_id`).notNull(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+  },
+  (table) => [index(`idx_mcp_file_stagings_expires`).on(table.expiresAt)]
+)
+
+// #NEW-147 (packages/emcp fixtures/elicitation.json URL MODE): the row an
+// URL elicitation `${APP_URL}/mcp/elicit/<id>` names: why (`purpose`), for
+// whom (`user_id` = the state principal's member) and where the page sends
+// the member after checking it is them (`target`, a same-origin path or the
+// GitHub App's install page). Server-only; swept at expiry.
+export const mcpElicitations = pgTable(
+  `mcp_elicitations`,
+  {
+    id: varchar({ length: 64 }).primaryKey(),
+    purpose: varchar({ length: 32 }).notNull(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    grant: varchar({ length: 160 }).notNull(),
+    target: text().notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+    openedAt: timestamp(`opened_at`, { withTimezone: true }),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+  },
+  (table) => [index(`idx_mcp_elicitations_expires`).on(table.expiresAt)]
+)
 
 /** #NEW-49: one entry of the synced `sessions.watching`. */
 export interface SessionWatchingJson {
@@ -4747,6 +4872,10 @@ export const mcpCalls = pgTable(
     clientId: text(`client_id`),
     appId: uuid(`app_id`),
     tool: varchar({ length: 128 }).notNull(),
+    // #NEW-147: the JSON-RPC method (`tools/call`, `skills/list`,
+    // `tasks/get`…): every request is audited; `tool` = its tool, prompt,
+    // uri or taskId, else the method.
+    method: varchar({ length: 64 }).notNull().default(`tools/call`),
     // Documented varchar (CALL_STATUSES in @exp/emcp/audit).
     status: varchar({ length: 16 }).notNull(),
     error: varchar({ length: 64 }),

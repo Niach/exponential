@@ -474,6 +474,36 @@ pub fn drop_share(trpc: &TrpcClient, id: &str, team_id: &str) -> Result<(), ApiE
     Ok(())
 }
 
+/// #EXP-2161 `devices.setAssistantTeam` (member-space.json THE OPT-IN):
+/// let `team_id`'s members run their Assistant on this SERVER device
+/// (`allowed`, the owner only, the team already shared and the doctor's
+/// `member_space` item `ok`; else PRECONDITION_FAILED with its detail) or
+/// stop it (their spaces end).
+pub fn set_assistant_team(trpc: &TrpcClient, device_id: &str, team_id: &str, allowed: bool) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        team_id: &'a str,
+        allowed: bool,
+    }
+    let _: OkResult = trpc.mutation("devices.setAssistantTeam", &Input { device_id, team_id, allowed })?;
+    Ok(())
+}
+
+/// #EXP-2161 `devices.dropAssistantTeam`: an OWNER of `team_id` switches its
+/// members' Assistants off on a device they do not own (`id` = the ROW id).
+pub fn drop_assistant_team(trpc: &TrpcClient, id: &str, team_id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        id: &'a str,
+        team_id: &'a str,
+    }
+    let _: OkResult = trpc.mutation("devices.dropAssistantTeam", &Input { id, team_id })?;
+    Ok(())
+}
+
 /// `devices.setDefault` (EXP-622) — mark one of the caller's OWN machines as
 /// their default, the row every device picker prefills. The server clears the
 /// flag on their other machines in the same transaction, so the result lands

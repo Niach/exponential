@@ -245,6 +245,56 @@ public struct DeviceCommand: Decodable, Sendable {
     public var isFailed: Bool { status == "failed" }
 }
 
+// #EXP-2161 (member-space.json): members' Assistants on a shared device.
+private struct SetAssistantTeamInput: Encodable {
+    let deviceId: String
+    let teamId: String
+    let allowed: Bool
+}
+
+private struct SpaceRequestInput: Encodable {
+    let deviceId: String
+    let teamId: String
+}
+
+private struct SpaceIdInput: Encodable { let spaceId: String }
+private struct RowIdInput: Encodable { let id: String }
+
+/// `memberSpaces.request`: the space's own device id (the Assistant's now).
+public struct MemberSpaceRequested: Decodable, Sendable {
+    public let spaceId: String
+    public let deviceId: String
+}
+
+/// `memberSpaces.forDevice`: one member with a space on a device.
+public struct MemberSpaceMember: Decodable, Equatable, Sendable, Identifiable {
+    public let spaceId: String
+    public let userId: String
+    public let name: String
+    public let teamId: String?
+    public var id: String { spaceId }
+
+    public init(spaceId: String, userId: String, name: String, teamId: String?) {
+        self.spaceId = spaceId
+        self.userId = userId
+        self.name = name
+        self.teamId = teamId
+    }
+}
+
+private struct MemberSpaceMembers: Decodable { let members: [MemberSpaceMember] }
+
+/// `memberSpaces.mine`: the caller's own space, if any.
+public struct MemberSpaceMine: Decodable, Sendable {
+    public struct Space: Decodable, Sendable {
+        public let spaceId: String
+        public let deviceId: String
+        /// `starting` | `waiting` | `ready`.
+        public let status: String
+    }
+    public let space: Space?
+}
+
 public final class DevicesApi: Sendable {
     private let trpc: TrpcClient
 
@@ -326,6 +376,43 @@ public final class DevicesApi: Sendable {
             path: "devices.setShared",
             input: SetSharedInput(deviceId: deviceId, teamId: teamId, shared: shared)
         )
+    }
+
+    /// #EXP-2161: the device's owner opts one shared team in or out of
+    /// members' Assistants (PRECONDITION_FAILED with the doctor's detail).
+    public func setAssistantTeam(accountId: String, deviceId: String, teamId: String, allowed: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "devices.setAssistantTeam",
+            input: SetAssistantTeamInput(deviceId: deviceId, teamId: teamId, allowed: allowed)
+        )
+    }
+
+    /// #EXP-2161: a team OWNER switches members' Assistants off on a
+    /// teammate's device (the row id).
+    public func dropAssistantTeam(accountId: String, id: String, teamId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "devices.dropAssistantTeam", input: DropShareInput(id: id, teamId: teamId))
+    }
+
+    /// #EXP-2161: run the caller's Assistant on a team device (the HOST's
+    /// device id), picked through `teamId`.
+    public func requestMemberSpace(accountId: String, deviceId: String, teamId: String) async throws -> MemberSpaceRequested {
+        try await trpc.mutation(accountId: accountId, path: "memberSpaces.request", input: SpaceRequestInput(deviceId: deviceId, teamId: teamId))
+    }
+
+    /// #EXP-2161: the members with a space on a device (its row id).
+    public func memberSpaces(accountId: String, rowId: String) async throws -> [MemberSpaceMember] {
+        let answer: MemberSpaceMembers = try await trpc.query(accountId: accountId, path: "memberSpaces.forDevice", input: RowIdInput(id: rowId))
+        return answer.members
+    }
+
+    /// #EXP-2161: the device owner's, or a team owner's, Remove.
+    public func removeMemberSpace(accountId: String, spaceId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "memberSpaces.remove", input: SpaceIdInput(spaceId: spaceId))
+    }
+
+    /// #EXP-2161: the caller's own space and whether it waits for approval.
+    public func myMemberSpace(accountId: String) async throws -> MemberSpaceMine {
+        try await trpc.query(accountId: accountId, path: "memberSpaces.mine")
     }
 
     /// FEED-149: a team owner removes a TEAMMATE'S machine from one team —

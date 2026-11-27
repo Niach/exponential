@@ -28,6 +28,7 @@ import s2f6 from "./exponential-motion/examples/typing-dots.json?raw"
 import s2f7 from "./exponential-motion/examples/wifi.json?raw"
 import s2f8 from "./exponential-motion/references/lottie.md?raw"
 import s2f9 from "./exponential-motion/references/spec.md?raw"
+import s3 from "./exponential-workflow/SKILL.md?raw"
 
 export interface BuiltinSkillFile {
   path: string
@@ -89,6 +90,13 @@ export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
       { path: "examples/wifi.json", content: s2f7 },
       { path: "references/lottie.md", content: s2f8 },
       { path: "references/spec.md", content: s2f9 },
+    ],
+  },
+  {
+    name: "exponential-workflow",
+    description: "Work in Exponential the way its sessions do: the noun tools and their _write twins, a coding session from issue to pull request, the session tree and wake-ups (never poll), ending and reporting, showing results and asking through one card, and the same UI on every platform. Use when acting on Exponential issues, sessions or pull requests over MCP.",
+    skillMd: s3,
+    files: [
     ],
   },
 ]

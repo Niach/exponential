@@ -2,10 +2,10 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { APPS_COPY, APPS_RUN, APPS_TEST_IDS, screenPath } from "@exp/domain-contract/apps"
 import type { AppAccessLevel } from "@exponential_app/eui/host"
-import { BoardGlyph, Button, conceptIcon, EmptyState, getActionIcon, Menu, type MenuEntry, Prompt, useIsMobile } from "@exp/ui"
+import { BoardGlyph, conceptIcon, EmptyState, getActionIcon, Menu, type MenuEntry, Prompt, useIsMobile } from "@exp/ui"
 import { AppPreview } from "@/components/apps/app-preview"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
-import { HEADER_ACTION_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { HeaderAction, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { ScreenRequest } from "@/lib/app-screens"
@@ -154,9 +154,9 @@ export function AppRunView({
               title={app.name}
               entries={entries}
               trigger={
-                <Button variant="ghost" size="icon-sm" className={HEADER_ACTION_CLASS} aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.runMenu}>
+                <HeaderAction aria-label={`Menu for ${app.name}`} data-testid={APPS_TEST_IDS.runMenu}>
                   <UiMoreIcon />
-                </Button>
+                </HeaderAction>
               }
             />
           ) : undefined

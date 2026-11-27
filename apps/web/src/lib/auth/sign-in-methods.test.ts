@@ -250,6 +250,11 @@ describe(`isIdentityPath`, () => {
       `/passkey/generate-register-options`,
       `/passkey/verify-registration`,
       `/passkey/update-passkey`,
+      `/step-up/methods`,
+      `/step-up/email/send`,
+      `/step-up/email/verify`,
+      `/step-up/password`,
+      `/step-up/passkey`,
     ]) {
       expect(isIdentityPath(path)).toBe(true)
     }

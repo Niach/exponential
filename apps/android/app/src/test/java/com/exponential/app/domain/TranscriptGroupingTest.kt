@@ -48,6 +48,7 @@ class TranscriptGroupingTest {
         assertEquals(copy.str("checkIn"), TranscriptGrouping.Copy.CHECK_IN)
         assertEquals(copy.str("checkIns"), TranscriptGrouping.Copy.CHECK_INS)
         assertEquals(copy.str("checkInTimeSeparator"), TranscriptGrouping.Copy.CHECK_IN_TIME_SEPARATOR)
+        assertEquals(copy.str("checkInTimeRange"), TranscriptGrouping.Copy.CHECK_IN_TIME_RANGE)
     }
 
     private fun input(o: JsonObject): TranscriptGrouping.Input {
@@ -210,9 +211,21 @@ class TranscriptGroupingTest {
             assertEquals(
                 case.str("name"),
                 case.str("expected"),
-                TranscriptGrouping.checkInLabel(case.getValue("count").jsonPrimitive.int, case.str("time")),
+                TranscriptGrouping.checkInLabel(case.getValue("count").jsonPrimitive.int, case.str("first"), case.str("last")),
             )
         }
+    }
+
+    @Test
+    fun `a schedule line covers its last count ticks, oldest first`() {
+        val rows = TranscriptGrouping.CHECK_IN_SPECIMEN.map { it.kind }
+        val shown = TranscriptGrouping.feedRows(rows)
+        val lines = shown.withIndex().filter { it.value is TranscriptGrouping.FeedRowShown.CheckIn }
+        val times = lines.map { (index, line) ->
+            TranscriptGrouping.checkInTicks(rows, index, (line as TranscriptGrouping.FeedRowShown.CheckIn).count)
+                .map { TranscriptGrouping.CHECK_IN_SPECIMEN[it].time }
+        }
+        assertEquals(listOf(listOf("11:15", "11:30", "11:45", "12:00", "12:15"), listOf("12:45", "13:00")), times)
     }
 
     @Test

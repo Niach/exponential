@@ -4,6 +4,9 @@ import { db } from "@/db/connection"
 import { sessions, type Session } from "@/db/schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import type { Db } from "@/lib/sessions/tx"
+import { sessionDeviceOwner } from "@/lib/sessions/host"
+import { assertSpaceDevice, deviceRestrictedUser, spaceOf } from "@/lib/spaces/context"
+import { rootInSpace } from "@/lib/spaces/grant"
 
 export { assertDeviceHost, isSessionPrincipal, sessionDeviceOwner } from "@/lib/sessions/host"
 
@@ -39,9 +42,24 @@ export async function loadSessionForUser(
     .where(eq(sessions.id, sessionId))
     .limit(1)
   if (!session || !sessionVisibleTo(session, userId)) throw notFound()
+  await assertSpaceReaches(userId, session, database)
   const member = await getTeamMember(userId, session.teamId)
   if (!member) throw notFound()
   return session
+}
+
+/** #EXP-2161: a request through a member space reaches its own trees and the
+ *  chats its Assistant started, no other session of its member. */
+async function assertSpaceReaches(userId: string, session: Pick<Session, `id` | `rootId`>, database: Db = db): Promise<void> {
+  const space = spaceOf(userId)
+  if (space && !(await rootInSpace(database, space, session.rootId ?? session.id, `reach`))) throw notFound()
+}
+
+/** #EXP-2161 (TEAMS): through a space (or a chat one started) nothing runs on
+ *  a machine of its member's own: such a session is read, never driven. */
+export async function assertSpaceMaySteer(session: Pick<Session, `deviceId` | `userId` | `teamId`>, database: Db = db): Promise<void> {
+  if (!deviceRestrictedUser()) return
+  assertSpaceDevice({ ownerId: await sessionDeviceOwner(session, database), deviceId: session.deviceId })
 }
 
 /** Posting, answering, stopping, ending: the same rule as reading (shared
@@ -54,6 +72,8 @@ export async function assertCanSteer(userId: string, session: Session): Promise<
       message: `Only the session's starter can act on a private session`,
     })
   }
+  await assertSpaceReaches(userId, session)
+  await assertSpaceMaySteer(session)
   const member = await getTeamMember(userId, session.teamId)
   if (!member) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })

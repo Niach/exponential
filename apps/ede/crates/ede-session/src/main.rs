@@ -1,8 +1,10 @@
 //! `exponential-session [--safe-mode]`: the session the login manager starts.
 //! `exponential-session --ready`: run by the compositor once it is up.
 //! `exponential-session --device`: exponential-device.service's command; it
-//! becomes the Exponential app (its launcher entry) so this machine is an
-//! online device for the whole session, unless the CLI daemon's own unit runs.
+//! becomes eDE's component (`exponential-app`, #EDE-227) where the package
+//! ships it, else the Exponential app (its launcher entry) so this machine is
+//! an online device for the whole session, unless the CLI daemon's own unit
+//! runs.
 
 use std::{
     process::{Child, Command, ExitCode, ExitStatus},
@@ -12,7 +14,7 @@ use std::{
 
 use ede_session::{
     application_dirs, compositor_args, device_start, failure_file, load_crashes, migrate_legacy_dirs, recovery_args, state_file, store_crashes, take_failure, xdg_homes, DeviceStart, Exit, Next, Policy, DAEMON_UNIT, DEVICE_ENV, DEVICE_DESKTOP_ENTRIES,
-    EXPORTED_ENV, FATAL_EXIT, SESSION_ENV,
+    EXPORTED_ENV, FATAL_EXIT, PORTAL_UNITS, SESSION_ENV,
 };
 
 /// SIGTERM/SIGHUP/SIGINT arrived: the login manager ends the session.
@@ -51,6 +53,9 @@ fn ready() -> ExitCode {
         // Without the D-Bus tool, systemd alone still gets them.
         let _ = Command::new("systemctl").args(["--user", "import-environment"]).args(&vars).status();
     }
+    // A frontend still running from another desktop's login routes by that
+    // desktop's portals.conf: only running ones restart (`try-restart`).
+    let _ = Command::new("systemctl").args(["--user", "try-restart"]).args(PORTAL_UNITS).status();
     match Command::new("systemctl").args(["--user", "start", "--no-block", "exponential-session.target"]).status() {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         other => {
@@ -65,6 +70,17 @@ fn ready() -> ExitCode {
 /// daemon's own unit (`exponential daemon install`) already starts at login:
 /// nothing to do then, and nothing when neither is installed.
 fn device() -> ExitCode {
+    // #EDE-227: the package's own component is the device. The compositor
+    // starts it itself (`[session] helpers = "compositor"`, this unit is off
+    // then); with the units starting the helpers this unit runs it.
+    if let Some(app) = std::env::current_exe().ok().and_then(|me| ede_session::component_next_to(&me)) {
+        use std::os::unix::process::CommandExt as _;
+        tracing::info!("starting eDE's component: {}", app.display());
+        ede_observability::flush();
+        let err = Command::new(&app).exec();
+        tracing::error!("{}: {err}", app.display());
+        return ExitCode::FAILURE;
+    }
     let daemon_unit = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
         .map(std::path::PathBuf::from)
@@ -263,5 +279,6 @@ fn wait_or_terminate(mut child: Child, mut tick: impl FnMut()) -> std::io::Resul
 /// again on a restart.
 fn stop_session_units() {
     let _ = Command::new("systemctl").args(["--user", "stop", "exponential-session.target", "graphical-session.target"]).status();
+    let _ = Command::new("systemctl").args(["--user", "stop"]).args(PORTAL_UNITS).status();
     let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"]).status();
 }

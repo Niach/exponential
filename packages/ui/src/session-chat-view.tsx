@@ -60,6 +60,7 @@ import {
   useSurfaceDataRef,
 } from "./plan-card"
 import { Dock, DockSheetBody, DockSheetFooter, useDockSheetMeta } from "./dock"
+import { ElicitationCard } from "./elicitation-card"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { imageMenuProps } from "@exponential_app/eui/web"
@@ -1232,6 +1233,18 @@ function ChatQuestionCard({
   onAnswer?: (input: ChatQuestionAnswer) => void
 }) {
   const form = useQuestionForm(row, busy, onAnswer)
+  // #NEW-146 (elicitation-card.json): a third-party MCP server's ask.
+  if (row.elicitation) {
+    return (
+      <ElicitationCard
+        row={row as Parameters<typeof ElicitationCard>[0][`row`]}
+        renderText={renderText}
+        busy={busy}
+        onAnswer={onAnswer}
+        onDismiss={onDismiss}
+      />
+    )
+  }
   // #EXP-1561 (waiting-cards.json): a dismissed card = ONE quiet line.
   if (row.dismissed) {
     return <AskDismissedCard title={askDockTitle(row.question)} data-card-id={row.id} />

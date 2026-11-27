@@ -61,11 +61,10 @@ struct AppRunScreen: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
-                    if hasMenu(app) { ToolbarItem(placement: .topBarTrailing) { menuButton } }
+                    if hasMenu(app) { HeaderToolbarItem { menuButton } }
                 }
-                .toolbar {
-                    ToolbarItem(placement: .principal) { title(app) }
-                }
+                // #EXP-2168: the title LEFT, after THE round back.
+                .detailHeaderTitle("\(app.name)|\(app.glyph)|\(app.color ?? "")") { title(app) }
             } else if model.missing {
                 ZStack {
                     AppBackground()
@@ -155,14 +154,9 @@ struct AppRunScreen: View {
     /// The header's trailing `…` round button (`app-run-menu`), THE Menu in
     /// its sheet presentation (the editor's `…` alike).
     private var menuButton: some View {
-        Button {
+        PageHeaderButton(icon: AppIcons.uiMore, label: "More", identifier: Apps.TestIds.runMenu) {
             menuOpen = true
-        } label: {
-            PageHeaderGlyph(icon: AppIcons.uiMore)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("More")
-        .accessibilityIdentifier(Apps.TestIds.runMenu)
     }
 
     private func runPendingMenu() {

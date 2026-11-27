@@ -24,11 +24,12 @@ import {
   type CallTab,
   type CallTarget,
 } from "@exp/etalk/voice-call"
-import { Button, cn, conceptIcon, CallTabs, IconTooltip, toast, VoiceCallPill, VoiceCallSurface } from "@exp/ui"
+import { conceptIcon, HeaderAction, CallTabs, IconTooltip, toast, VoiceCallPill, VoiceCallSurface } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deviceCollection } from "@/lib/collections"
+import { listedDevices } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import { SEAL_HOLDER_WAIT_MS } from "@exp/domain-contract/sealed-content"
 import { awaitKeyHolder, currentKeyHolder } from "@/lib/enet/current-key-holder"
@@ -49,7 +50,7 @@ const WEB_CALL_KEYS: CallKeySource = {
   // dials at once, as it always did.
   ready: async () => {
     if (currentKeyHolder()) return true
-    const sealable = [...deviceCollection.values()].some((row) => (row.caps ?? []).includes(VOICE_CALL_SEAL.cap))
+    const sealable = listedDevices([...deviceCollection.values()]).some((row) => (row.caps ?? []).includes(VOICE_CALL_SEAL.cap))
     return sealable ? (await awaitKeyHolder(SEAL_HOLDER_WAIT_MS)) !== undefined : false
   },
   target: (agentId) => trpc.sessions.sendTarget.query({ agentId }, SKIP_ERROR_TOAST),
@@ -112,7 +113,7 @@ export function useVoiceCallAvailability(agentDevice: string | null, language?: 
   )
   const now = useNow(15_000)
   return useMemo(() => {
-    const target = webCallTarget(settings, agentDevice, rows ?? [], userId, now)
+    const target = webCallTarget(settings, agentDevice, listedDevices(rows ?? []), userId, now)
     return { ...target, device: target.name ?? ``, language: language ?? settings?.language }
   }, [settings, agentDevice, rows, userId, now, language])
 }
@@ -137,7 +138,7 @@ export function useVoiceCall(agentId: string, deps: CallDeps = WEB_CALL_DEPS) {
   return { call, snapshot }
 }
 
-/** THE telephone: the header's ghost icon button, its tooltip the call or
+/** THE telephone: THE round header button (#EXP-2168), its tooltip the call or
  *  the reason it is off. */
 export function CallButton({
   availability,
@@ -156,19 +157,16 @@ export function CallButton({
   const disabled = !availability.enabled || active
   return (
     <IconTooltip label={availability.reason ?? label}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
+      <HeaderAction
         aria-label={label}
         disabled={disabled}
         data-testid={VOICE_CALL_TEST_IDS.call}
         data-reason={availability.reason ?? undefined}
-        className={cn(`disabled:opacity-40`, className)}
+        className={className}
         onClick={onCall}
       >
         <CallIcon />
-      </Button>
+      </HeaderAction>
     </IconTooltip>
   )
 }
