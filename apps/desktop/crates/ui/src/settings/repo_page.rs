@@ -97,6 +97,9 @@ pub struct RepoPage {
     shot: Option<Pinned>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
+    /// #EXP-2171: drawn as its own work tab ([`RepoScreen`]), not inside
+    /// Settings: back goes back, a removal lands on Home.
+    screen: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -160,7 +163,7 @@ impl RepoPage {
             binding
         });
         let view = mount_with("settings-repo", document(&Ink::of(cx), &json!({"phase": "loading"})), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
-        Self { nav, key, fetched: Fetched::default(), started: false, built: None, shot: None, binding, view, _subscriptions: subscriptions }
+        Self { nav, key, fetched: Fetched::default(), started: false, built: None, shot: None, binding, view, screen: false, _subscriptions: subscriptions }
     }
 
     #[cfg(test)]
@@ -304,11 +307,23 @@ impl RepoPage {
         // #EXP-2171 (repo-page.json): a slug resolves ONLY against the synced
         // rows' `slug`, never the name's last segment.
         let slug_id = Store::try_global(cx).and_then(|store| store.collections().repositories.read(cx).iter().find(|row| row.team_id == team_id && row.slug.as_deref() == Some(key.as_str())).map(|row| row.id.clone()));
+        // #EXP-2171: the synced row answers while the list is out of reach.
+        let synced: Option<RepoRow> = Store::try_global(cx)
+            .and_then(|store| store.collections().repositories.read(cx).iter().find(|row| row.id == key || slug_id.as_deref() == Some(row.id.as_str())).cloned())
+            .and_then(|row| {
+                let shared = row.shared_by_user_id.clone().map(|id| json!({"id": id}));
+                serde_json::from_value(json!({"id": row.id, "fullName": row.full_name, "provider": row.provider, "defaultBranch": row.effective_default_branch(), "private": row.private.unwrap_or(false), "inaccessibleAt": row.inaccessible_at, "sharedBy": shared})).ok()
+            });
         cx.spawn(async move |this, cx| {
             let fetched = cx
                 .background_executor()
                 .spawn(async move {
-                    let repo = fetch_repositories(&trpc, &team_id).map_err(|err| err.user_message()).and_then(|rows| {
+                    let listed = fetch_repositories(&trpc, &team_id).map_err(|err| err.user_message());
+                    let listed = match (listed, synced) {
+                        (Err(_), Some(row)) => Ok(vec![row]),
+                        (listed, _) => listed,
+                    };
+                    let repo = listed.and_then(|rows| {
                         rows.into_iter()
                             .find(|row| match key.strip_prefix(BY_NAME) {
                                 Some(name) => row.full_name.ends_with(&format!("/{name}")),
@@ -384,6 +399,7 @@ impl RepoPage {
     fn action(&mut self, name: &str, key: &str, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
         match name {
+            "back" if self.screen => crate::navigation::go_back(window, cx),
             "back" => crate::sidebar::select_settings_section(window, cx, SettingsSection::Repositories),
             "retry" => {
                 self.started = false;
@@ -428,10 +444,12 @@ impl RepoPage {
                 self.binding.update(cx, |binding, cx| binding.update_state(|state| state["removeOpen"] = json!(false), cx));
                 let (Some(repo), Some(trpc)) = (self.repo().cloned(), queries::trpc_client(cx)) else { return };
                 let handle = window.window_handle();
+                let screen = self.screen;
                 cx.spawn(async move |_, cx| {
                     let id = repo.id.clone();
                     let result = cx.background_executor().spawn(async move { api::repositories::remove(&trpc, &id) }).await;
                     let _ = handle.update(cx, |_, window, cx| match result {
+                        Ok(_) if screen => crate::navigation::navigate(window, cx, crate::navigation::Screen::Home),
                         Ok(_) => crate::sidebar::select_settings_section(window, cx, SettingsSection::Repositories),
                         Err(err) => crate::action_error::failed_action_err("remove", &repo.full_name, &err, cx),
                     });
@@ -933,9 +951,6 @@ fn secret_dialog() -> Value {
             ]}]}]})
 }
 
-/// The Settings tab's remove row (Settings › Repositories' own words).
-const REMOVE_LABEL: &str = "Remove repository";
-
 /// A `SettingsRow` over `children`.
 fn setting(id: &str, label: &str, children: Vec<Value>) -> Value {
     json!({"id": id, "component": "SettingsRow", "props": {"label": label}, "children": children})
@@ -987,7 +1002,7 @@ fn settings_tab(data: &Value) -> Value {
     // #EXP-2171: removing the repository (its sharer or a team owner) asks
     // first (prompts.json `remove-repository`).
     if data["manager"].as_bool() == Some(true) {
-        rows.push(setting("set_remove", REMOVE_LABEL, vec![json!({"id": "set_remove_button", "component": "Button", "props": {"label": data["removePrompt"]["confirm"], "variant": "destructive", "size": "sm"},
+        rows.push(setting("set_remove", &copy.remove, vec![json!({"id": "set_remove_button", "component": "Button", "props": {"label": data["removePrompt"]["confirm"], "variant": "destructive", "size": "sm"},
             "on": {"press": {"event": {"name": "remove"}}}})]));
     }
     column("settings", rows)
@@ -1073,5 +1088,46 @@ mod tests {
             let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
             assert!(issues.is_empty(), "{issues:?}");
         }
+    }
+}
+
+/// #EXP-2171 `Screen::Repository`: a repository's page as its own work tab
+/// (sidebar-menus.json `tabs.pages`), the same document as the Settings one.
+pub(crate) struct RepoScreen {
+    page: Option<(String, Entity<RepoPage>)>,
+    scroll: gpui::ScrollHandle,
+}
+
+impl RepoScreen {
+    pub(crate) fn new(_window: &mut Window, _cx: &mut gpui::Context<Self>) -> Self {
+        Self { page: None, scroll: gpui::ScrollHandle::new() }
+    }
+
+    /// Point the tab at `repository_id`; the same id is a no-op.
+    pub(crate) fn set_repository(&mut self, repository_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.page.as_ref().is_some_and(|(id, _)| *id == repository_id) {
+            return;
+        }
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let key = repository_id.clone();
+        let page = cx.new(|cx| {
+            let mut page = RepoPage::new(nav, key, window, cx);
+            page.screen = true;
+            page
+        });
+        self.page = Some((repository_id, page));
+        self.scroll.set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
+        cx.notify();
+    }
+}
+
+impl Render for RepoScreen {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RepoScreen").entered();
+        let body = match &self.page {
+            Some((_, page)) => page.clone().into_any_element(),
+            None => div().into_any_element(),
+        };
+        crate::scroll_pane::page_scaffold("repository-page-scroll", &self.scroll, div().w_full().child(body), window, cx)
     }
 }

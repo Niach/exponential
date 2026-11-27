@@ -1068,7 +1068,7 @@ fn document(ink: &Ink, chrome: &Chrome, page: bool) -> Value {
         plan,
     ];
     let github = json!({"id": "github", "component": "Box", "visible": path("/pane/isGithub"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children});
-    let height = if page { Value::Null } else { json!("100%") };
+    let height = if page { json!("auto") } else { json!("100%") };
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": height, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(page), github, ecode_form(page)]})
 }
 

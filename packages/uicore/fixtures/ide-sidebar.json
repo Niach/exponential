@@ -809,7 +809,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },
@@ -1163,7 +1163,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },
@@ -1423,7 +1423,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },
@@ -1732,7 +1732,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },
@@ -2029,7 +2029,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },
@@ -2306,7 +2306,7 @@
                   {
                     "label": "Repository",
                     "value": "repository",
-                    "icon": "settings-repositories"
+                    "icon": "action-repository"
                   }
                 ]
               },

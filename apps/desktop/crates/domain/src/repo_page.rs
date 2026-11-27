@@ -79,6 +79,9 @@ pub struct RepoSettingsCopy {
     pub restore_confirm: String,
     pub mirror: String,
     pub mirror_url: String,
+    /// #EXP-2171: the managers' last row, opening prompts.json
+    /// `remove-repository`.
+    pub remove: String,
 }
 
 /// One checks state's chip: its label and dot tone (green | amber | red).

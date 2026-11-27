@@ -441,9 +441,9 @@ pub fn sidebar_drop_session(
 // ── #EXP-2171: a repository row (`repositoryRow`) ──────────────────────
 
 /// The repository row's glyph.
-pub const SIDEBAR_REPOSITORY_GLYPH: &str = "git-branch";
+pub const SIDEBAR_REPOSITORY_GLYPH: &str = "action-repository";
 /// A GitHub repository's trailing mark.
-pub const SIDEBAR_REPOSITORY_GITHUB_ICON: &str = "github";
+pub const SIDEBAR_REPOSITORY_GITHUB_ICON: &str = "ui-github";
 
 /// The checks rollup of a repository's live PRs (repo-page.json
 /// `repoChecksRollup`).

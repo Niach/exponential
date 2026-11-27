@@ -487,7 +487,7 @@ pub fn new_items(owner: bool) -> Vec<IdeMenuEntry> {
         out.push(entry("agent", "settings-agents"));
         out.push(entry("app", "nav-apps"));
         out.push(entry("board", "nav-boards"));
-        out.push(entry("repository", "settings-repositories"));
+        out.push(entry("repository", "action-repository"));
     }
     out
 }

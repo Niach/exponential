@@ -86,6 +86,7 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
         Some(Screen::Chats) => "chats".into(),
         Some(Screen::Device { device_id }) => format!("device:{}", if device_id.is_empty() { crate::device_page::this_device_row_id(cx).unwrap_or_default() } else { device_id.clone() }),
         Some(Screen::DeviceSettings { device_id }) => format!("device-settings:{device_id}"),
+        Some(Screen::Repository { repository_id }) => format!("repo:{repository_id}"),
         Some(Screen::Drafts) => "drafts".into(),
         Some(Screen::IssueDetail { issue_id }) => format!("issue:{issue_id}"),
         Some(Screen::Chat { session_id }) => format!("chat:{session_id}"),
@@ -364,6 +365,7 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
         // order (sidebarTeamItems), ended ones too until removed.
         let placed = domain::sidebar_tree::sidebar_team_items(
             team_id,
+            &[],
             &[],
             &[],
             &[],
@@ -1197,19 +1199,13 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
     }
 }
 
-/// #EXP-2171: a repository's page (Settings › Repositories › it, in its
-/// team's settings) on `tab` (`None` = its default, Pull requests).
+/// #EXP-2171: a repository's page, its own work tab (`Screen::Repository`,
+/// web `/t/$teamSlug/repos/$slug`), on `tab` (`None` = Pull requests).
 pub(crate) fn open_repository(id: &str, tab: Option<&str>, window: &mut Window, cx: &mut App) {
-    let collections = Store::global(cx).collections().clone();
-    let team = collections
-        .repository(id, cx)
-        .map(|repo| repo.team_id)
-        .or_else(|| collections.pull_requests.read(cx).iter().find(|p| p.repository_id.as_deref() == Some(id)).and_then(|p| p.team_id.clone()));
-    navigation::open_settings(window, cx, team.or_else(|| navigation::fallback_team_id(cx)));
     if let Some(tab) = tab {
         crate::settings::repo_page::request_tab(id, tab, cx);
     }
-    crate::sidebar::select_settings_section(window, cx, SettingsSection::Repository(id.to_string()));
+    navigate(window, cx, Screen::Repository { repository_id: id.to_string() });
 }
 
 fn open_gear(kind: &str, id: String, window: &mut Window, cx: &mut App) {
@@ -1295,12 +1291,6 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
     for node in out.iter_mut().filter(|node| node.0 == "ide_team_more") {
         node.3 = TEAM_MORE_HIDDEN;
     }
-    // #EXP-2171: the IDE's repository page is a Settings page (one per
-    // window), never a work tab of its own: its Open in new tab is left out.
-    const REPOSITORY_HIDDEN: &[&str] = &["open-new-tab"];
-    for node in out.iter_mut().filter(|node| node.1 == "repository") {
-        node.3 = REPOSITORY_HIDDEN;
-    }
     out.push(("ide_active_delete_placed_menu".into(), "active-session", deletes, PLACED));
     out.push(("ide_active_keep_placed_menu".into(), "active-session", I::default(), PLACED));
     out
@@ -1337,6 +1327,8 @@ fn row_screen(kind: &str, id: &str, cx: &App) -> Option<Screen> {
         "agent" => Screen::Agent { agent_id: id.into() },
         "session" => navigation::session_screen_for(id, cx),
         "active-session" => Screen::Chat { session_id: id.into() },
+        // #EXP-2171: a repository's page is a work tab (`tabs.pages`).
+        "repository" => Screen::Repository { repository_id: id.into() },
         _ => return None,
     })
 }
@@ -2752,7 +2744,7 @@ mod tests {
     #[test]
     fn repository_rows_carry_their_trailing() {
         use domain::sidebar_tree::{RepositoryChecks, RepositoryTrailing, RepositoryTrailingKind};
-        let item = |id: &str| IdeItemInput { kind: "repository".into(), id: id.into(), name: id.into(), icon: "git-branch".into(), ..Default::default() };
+        let item = |id: &str| IdeItemInput { kind: "repository".into(), id: id.into(), name: id.into(), icon: "action-repository".into(), ..Default::default() };
         let input = IdeSidebarInput {
             teams: vec![IdeTeamInput { id: "t1".into(), name: "t1".into(), mark: String::new(), open: true, owner: false, needs_you: 0, items: vec![item("r1"), item("r2"), item("r3")], layout: Vec::new() }],
             screen: "repo:r2".into(),
@@ -2773,9 +2765,6 @@ mod tests {
         assert_eq!(row("r2")["checks"], Value::Null);
         assert_eq!(row("r2")["selected"], true);
         assert_eq!(row("r3")["trailing"], Value::Null);
-        // Its menu leaves Open in new tab out (the page is a Settings page).
-        let (_, _, _, hidden) = menu_nodes().into_iter().find(|(node, ..)| node == "ide_repository_menu").expect("the repository menu");
-        assert_eq!(hidden, ["open-new-tab"]);
     }
 
     /// #EXP-2124 Move to folder: into a folder, out to the top level, into
@@ -2807,7 +2796,7 @@ mod tests {
         assert_eq!(items[2]["label"], "Acme");
         assert_eq!(items[2]["icon"], "ide:team:t1");
         let values: Vec<&str> = items[2]["items"].as_array().unwrap().iter().map(|i| i["value"].as_str().unwrap()).collect();
-        assert_eq!(values, ["session:t1", "agent:t1", "app:t1", "board:t1"]);
+        assert_eq!(values, ["session:t1", "agent:t1", "app:t1", "board:t1", "repository:t1"]);
         assert_eq!(items[3]["items"], json!([{"label": "Chat", "value": "session:t2", "icon": "action-chat"}]));
         assert_eq!(new_tab_menu_items(None, &teams)[0]["label"], "Acme");
         assert_eq!(new_tab_menu_items(Some("Bro"), &[]).len(), 1);

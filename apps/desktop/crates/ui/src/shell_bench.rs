@@ -983,7 +983,7 @@ fn shell_sidebar_repositories() {
     let mut cx = headless();
     let root = tempfile::tempdir().unwrap();
     let data = root.path().to_path_buf();
-    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Alex Carter", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "http://127.0.0.1:9", "userId": "u1", "email": "demo@exponential.at", "name": "Alex Carter", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
     let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
     let now = chrono::Utc::now().to_rfc3339();
     cx.update(|cx| {
@@ -1074,6 +1074,11 @@ fn shell_sidebar_repositories() {
     go(&mut cx, Screen::NewItem { team_id: "t1".into(), kind: NewItemKind::Repository });
     settle(&mut cx);
     shoot(&mut cx, "desktop-new-repository.png");
+    // The repository's own work tab, on its Settings tab (Remove last).
+    cx.update(|cx| crate::settings::repo_page::request_tab("r1", "settings", cx));
+    go(&mut cx, Screen::Repository { repository_id: "r1".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-repository-settings.png");
     std::mem::forget(cx);
     std::mem::forget(root);
 }

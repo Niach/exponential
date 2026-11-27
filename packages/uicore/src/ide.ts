@@ -234,7 +234,7 @@ export const newItems = (owner: boolean): IdeMenuEntry[] => [
         { label: COPY.agent, value: `agent`, icon: `settings-agents` },
         { label: COPY.app, value: `app`, icon: `nav-apps` },
         { label: COPY.board, value: `board`, icon: `nav-boards` },
-        { label: COPY.repository, value: `repository`, icon: `settings-repositories` },
+        { label: COPY.repository, value: `repository`, icon: `action-repository` },
       ]
     : []),
 ]
