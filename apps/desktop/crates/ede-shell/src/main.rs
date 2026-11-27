@@ -4938,7 +4938,7 @@ fn main() {
         Ok(w) => w,
         Err(e) => fail_start("the desktops and accounts could not be opened", e.to_string()),
     };
-    workspaces.start_sync();
+    // #EDE-238: no sync of its own: the holder's store, watched.
     let team_deltas = workspaces.deltas();
     let account_changes = workspaces.account_changes();
     let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();

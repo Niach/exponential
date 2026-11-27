@@ -1,22 +1,37 @@
 //! The switcher's entries (#EDE-56): the Local desktops of this machine
 //! (elocal's `desktops.json`, the machine's one index shared with the IDE, #EDE-65) and, for
 //! every signed-in Exponential account (the IDE's `accounts.json` and token
-//! store, shared), its teams. The teams come from the account's `teams`
-//! shape, synced by the sync crate into the shell's OWN per-account store
-//! (never the IDE's file: two sync cursors on one file would fight); a
-//! delta on that store rebuilds the entries.
+//! store, shared), its teams.
+//!
+//! #EDE-238: ONE STORE per login. The shell syncs nothing: the login's
+//! holder (`exponential-app`) syncs the account into its store
+//! (`<app data>/accounts/<id>/sync-v2.sqlite`) and the shell reads that file
+//! READ-ONLY ([`sync::store::ShapeStore::open_read_only`]): the teams, the
+//! tray's inbox and Needs you, the team chat's rows, a connected team's app
+//! records. A watch on the file stands in for the sync's deltas
+//! ([`Workspaces::deltas`]). The shell holds no account connection; what it
+//! writes goes over tRPC when the person acts (a send, a mark read, a
+//! queued app record).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use sync::{AccountSyncConfig, ShapeDelta, SyncManager};
+use sync::store::ShapeStore;
+use sync::ShapeDelta;
 use uicore_model::SwitcherEntry;
 
 pub struct Workspaces {
     pub desktops: elocal::Desktops,
     pub auth: Arc<api::AuthStore>,
-    sync: Arc<SyncManager>,
+    /// #EDE-238: the holder's data directory (its account stores).
+    holder_dir: PathBuf,
+    /// The holder's stores, opened read-only on first use.
+    stores: Mutex<HashMap<String, Arc<ShapeStore>>>,
+    /// The shell's own queue of a connected team's app record writes
+    /// (`outbox.sqlite` per account in its data directory).
+    outboxes: Mutex<HashMap<String, Arc<ShapeStore>>>,
     data_dir: PathBuf,
     /// #EDE-65: the picked team (`switcher.json` beside `desktops.json`);
     /// a Local desktop is the desktops index's.
@@ -63,6 +78,18 @@ impl Pending {
     }
 }
 
+/// #EDE-238: the holder's store of an account (`api::account_db_path`'s
+/// file, without its clean-up of older files: they are the holder's).
+pub fn holder_store_path(holder_dir: &Path, account_id: &str) -> PathBuf {
+    holder_dir.join("accounts").join(account_id).join("sync-v2.sqlite")
+}
+
+/// The store file's and its WAL's size and time (a commit moves one).
+fn store_stamp(path: &Path) -> Vec<Option<(u64, std::time::SystemTime)>> {
+    let wal = path.with_file_name("sync-v2.sqlite-wal");
+    [path.to_path_buf(), wal].iter().map(|p| std::fs::metadata(p).ok().and_then(|m| Some((m.len(), m.modified().ok()?)))).collect()
+}
+
 /// #EDE-65: the pick `switcher.json` remembers (None = never picked).
 #[derive(Debug, Clone, PartialEq)]
 enum Saved {
@@ -70,7 +97,8 @@ enum Saved {
     Team(String),
 }
 
-/// The shapes the shell syncs per account: the teams the switcher lists;
+/// The shapes the shell reads per account (#EDE-238: off the holder's
+/// store; a change of the file counts as a change of each): the teams the switcher lists;
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop;
 /// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`),
@@ -118,16 +146,15 @@ impl Workspaces {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local").join("share"))
             .join("exponential-desktop");
-        Ok(Self::with(desktops, auth, data_dir, config_dir.join("switcher.json"), demo))
+        Ok(Self::with(desktops, auth, api::default_data_dir(), data_dir, config_dir.join("switcher.json"), demo))
     }
 
     /// [`Self::open`] over given parts (the tests: a temporary data directory).
-    fn with(desktops: elocal::Desktops, auth: Arc<api::AuthStore>, data_dir: PathBuf, current_path: PathBuf, demo: bool) -> Self {
-        let sync = Arc::new(SyncManager::new().on_unauthorized(auth.unauthorized_handler_fn()));
+    fn with(desktops: elocal::Desktops, auth: Arc<api::AuthStore>, holder_dir: PathBuf, data_dir: PathBuf, current_path: PathBuf, demo: bool) -> Self {
         // #EDE-223: a sign-in or sign-out in another process (the app, the
         // CLI) shows up while the shell runs; the demo has no accounts.
         let changes = if demo { flume::unbounded().1 } else { auth.watch(std::time::Duration::from_secs(2)) };
-        Self { desktops, auth, sync, data_dir, current_path, changes, demo }
+        Self { desktops, auth, holder_dir, stores: Mutex::default(), outboxes: Mutex::default(), data_dir, current_path, changes, demo }
     }
 
     /// #EDE-223: the accounts that signed in or out in another process.
@@ -151,9 +178,11 @@ impl Workspaces {
         crate::session_account::wipe_when_forgotten(self.auth.clone(), self.data_dir.clone(), account_id.to_string());
     }
 
-    /// #EDE-223: a signed-out account's sync stops (its store stays on disk).
+    /// #EDE-223: a signed-out account's store closes (the holder's file
+    /// is the holder's).
     pub fn stop_account(&self, account_id: &str) {
-        self.sync.stop_account(account_id);
+        self.stores.lock().unwrap_or_else(|p| p.into_inner()).remove(account_id);
+        self.outboxes.lock().unwrap_or_else(|p| p.into_inner()).remove(account_id);
     }
 
     /// #EDE-223: where the shell starts ([`StartOn`]). The demo: the index's
@@ -183,33 +212,46 @@ impl Workspaces {
         !self.demo && read_saved(&self.current_path).is_none()
     }
 
-    /// The change stream of the accounts' team stores.
+    /// #EDE-238: the change stream of the accounts' stores: the holder's
+    /// file watched once a second (its size and time, the WAL's too); a
+    /// change is a full change of every shape the shell reads.
     pub fn deltas(&self) -> flume::Receiver<ShapeDelta> {
-        self.sync.deltas()
-    }
-
-    /// Syncs every signed-in account's teams (idempotent per account).
-    pub fn start_sync(&self) {
+        let (tx, rx) = flume::unbounded();
         if self.demo {
-            return;
+            return rx;
         }
-        for account in self.session_accounts() {
-            self.start_account(&account);
+        let (auth, current_path, holder_dir) = (self.auth.clone(), self.current_path.clone(), self.holder_dir.clone());
+        let spawned = std::thread::Builder::new().name("ede-shell-store-watch".into()).spawn(move || {
+            let mut seen: HashMap<String, Vec<Option<(u64, std::time::SystemTime)>>> = HashMap::new();
+            loop {
+                let picked = saved_account(&current_path);
+                let accounts = crate::session_account::session_account(auth.signed_in_accounts(), picked.as_deref());
+                for account in accounts {
+                    let path = holder_store_path(&holder_dir, &account.id);
+                    let now = store_stamp(&path);
+                    if seen.get(&account.id) == Some(&now) {
+                        continue;
+                    }
+                    seen.insert(account.id.clone(), now);
+                    for shape in SHAPES {
+                        let delta = ShapeDelta::Applied { account_id: account.id.clone(), shape, keys: Vec::new(), full_replace: true, up_to_date: true };
+                        if tx.send(delta).is_err() {
+                            return;
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!("store watch: {e}");
         }
+        rx
     }
 
+    /// #EDE-238: a (re)signed-in account's store is opened afresh.
     pub fn start_account(&self, account: &api::accounts::Account) {
-        let config = AccountSyncConfig {
-            account_id: account.id.clone(),
-            base_url: account.instance_url.clone(),
-            db_path: api::account_db_path(&self.data_dir, &account.id),
-            token: self.auth.token_provider_fn(&account.id),
-            shapes: Some(SHAPES),
-        };
-        match self.sync.start_account(config) {
-            Ok(started) => tracing::info!(account = %account.email, started, "account sync"),
-            Err(e) => tracing::warn!(account = %account.email, "account sync: {e}"),
-        }
+        self.stores.lock().unwrap_or_else(|p| p.into_inner()).remove(&account.id);
     }
 
     /// The switcher's entries: the active Local desktops, then every
@@ -220,7 +262,7 @@ impl Workspaces {
         }
         let mut entries: Vec<SwitcherEntry> = self.desktops.active().into_iter().map(|d| SwitcherEntry::local(&d.id, &d.name)).collect();
         for account in self.session_accounts() {
-            let Some(store) = self.sync.store(&account.id) else { continue };
+            let Some(store) = self.store(&account.id) else { continue };
             let Some(spec) = sync::shapes::shape_by_name("teams") else { continue };
             let mut teams: Vec<(String, String)> = store
                 .read_all(spec)
@@ -241,14 +283,32 @@ impl Workspaces {
         self.auth.account(account_id)
     }
 
-    /// An account's synced store (once its sync started).
-    pub fn store(&self, account_id: &str) -> Option<Arc<sync::store::ShapeStore>> {
-        self.sync.store(account_id)
+    /// #EDE-238: an account's store: the holder's, read-only (none until
+    /// the holder created it).
+    pub fn store(&self, account_id: &str) -> Option<Arc<ShapeStore>> {
+        let mut stores = self.stores.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(store) = stores.get(account_id) {
+            return Some(store.clone());
+        }
+        let path = holder_store_path(&self.holder_dir, account_id);
+        let store = Arc::new(ShapeStore::open_read_only(&path).map_err(|e| tracing::debug!(path = %path.display(), "the holder's store: {e}")).ok()?);
+        stores.insert(account_id.to_string(), store.clone());
+        Some(store)
     }
 
-    pub fn manager(&self) -> Arc<SyncManager> {
-        self.sync.clone()
+    /// #EDE-238: the shell's own queue of an account's app record writes.
+    pub fn outbox(&self, account_id: &str) -> Option<Arc<ShapeStore>> {
+        let mut outboxes = self.outboxes.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(store) = outboxes.get(account_id) {
+            return Some(store.clone());
+        }
+        let path = self.data_dir.join("accounts").join(account_id).join("outbox.sqlite");
+        let store = Arc::new(ShapeStore::open(&path).map_err(|e| tracing::warn!(path = %path.display(), "outbox: {e}")).ok()?);
+        outboxes.insert(account_id.to_string(), store.clone());
+        Some(store)
     }
+
+
 
     /// A tRPC client on the account's instance with its token.
     pub fn trpc(&self, account: &api::accounts::Account) -> api::TrpcClient {
@@ -311,7 +371,7 @@ impl Workspaces {
         if self.demo {
             return Vec::new();
         }
-        self.session_accounts().into_iter().filter_map(|a| Some((a.id.clone(), a.user_id.clone(), self.sync.store(&a.id)?))).collect()
+        self.session_accounts().into_iter().filter_map(|a| Some((a.id.clone(), a.user_id.clone(), self.store(&a.id)?))).collect()
     }
 
     /// #EDE-65: `notifications.markRead` on the account's instance, one call
@@ -532,9 +592,10 @@ mod tests {
         let user = api::login::AuthUser { id: "user-1".into(), email: "danny@example.com".into(), name: None, is_admin: None, onboarding_completed_at: None };
         let account = auth.sign_in("http://localhost:3000", "tok", &user).unwrap();
         let desktops = elocal::Desktops::open(data.join("desktops")).unwrap();
-        let workspaces = Workspaces::with(desktops, auth, dir.join("shell"), dir.join("switcher.json"), false);
+        let workspaces = Workspaces::with(desktops, auth, data.clone(), dir.join("shell"), dir.join("switcher.json"), false);
         if !teams.is_empty() {
-            let db = dir.join("teams.sqlite");
+            // #EDE-238: the holder's store; the shell opens it read-only.
+            let db = holder_store_path(&data, &account.id);
             let store = Arc::new(sync::store::ShapeStore::open(&db).unwrap());
             let spec = sync::shapes::shape_by_name("teams").unwrap();
             let rows: Vec<sync::protocol::ShapeMessage> = teams
@@ -542,7 +603,6 @@ mod tests {
                 .map(|(id, name)| sync::protocol::ShapeMessage::Insert { key: sync::protocol::RowKey::Single(id.to_string()), value: serde_json::json!({"id": id, "name": name}).as_object().unwrap().clone() })
                 .collect();
             store.apply_batch(spec, &rows, None).unwrap();
-            workspaces.manager().adopt_store(&account.id, store, db);
         }
         (workspaces, account)
     }
@@ -578,7 +638,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("exponential");
         let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
-        let workspaces = Workspaces::with(elocal::Desktops::open(data.join("desktops")).unwrap(), auth, dir.path().join("shell"), dir.path().join("switcher.json"), false);
+        let workspaces = Workspaces::with(elocal::Desktops::open(data.join("desktops")).unwrap(), auth, data.clone(), dir.path().join("shell"), dir.path().join("switcher.json"), false);
         assert!(matches!(workspaces.start_on(), Some(StartOn::Local(_))), "no account: Local");
         // Another process signs in on the same data directory.
         let other = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
@@ -588,9 +648,8 @@ mod tests {
         assert_eq!(change, api::AuthEvent::SignedIn { account_id: account.id.clone() });
         assert_eq!(workspaces.signed_in(), vec![(account.id.clone(), "danny@example.com".to_string())]);
         let spec = sync::shapes::shape_by_name("teams").unwrap();
-        let store = Arc::new(sync::store::ShapeStore::open(&dir.path().join("teams.sqlite")).unwrap());
+        let store = Arc::new(sync::store::ShapeStore::open(&holder_store_path(&data, &account.id)).unwrap());
         store.apply_batch(spec, &[sync::protocol::ShapeMessage::Insert { key: sync::protocol::RowKey::Single("t1".into()), value: serde_json::json!({"id": "t1", "name": "Acme"}).as_object().unwrap().clone() }], None).unwrap();
-        workspaces.manager().adopt_store(&account.id, store, dir.path().join("teams.sqlite"));
         assert!(workspaces.entries().iter().any(|e| e.id == "t1" && e.account.as_deref() == Some(account.id.as_str())));
         // And a sign-out there.
         other.sign_out(&account.id);
