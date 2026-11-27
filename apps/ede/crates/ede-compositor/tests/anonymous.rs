@@ -82,6 +82,7 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::LaunchToken,
         Request::CreateSpace { width: 640, height: 480 },
         Request::DestroySpace { space: space() },
+        Request::ControlSpace { space: space(), control: ede_protocol::SpaceControl::Paused, view: None },
         Request::ListSpaces,
         Request::Launch { argv: vec!["true".into()], env: Default::default(), cwd: None },
         Request::SpaceOfProcess { pid: std::process::id() },
@@ -90,7 +91,7 @@ fn requests(window: &WindowId) -> Vec<Request> {
         Request::PickRegion { mode: ede_protocol::PickMode::Area },
     ];
     let ops: std::collections::HashSet<std::mem::Discriminant<Request>> = all.iter().map(every).collect();
-    assert_eq!(ops.len(), 46, "one request per op at least");
+    assert_eq!(ops.len(), 47, "one request per op at least");
     all
 }
 
@@ -101,7 +102,7 @@ fn every(request: &Request) -> std::mem::Discriminant<Request> {
         Request::ReleaseInput | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } => {}
         Request::MoveToWorkspace { .. } | Request::SetOutput { .. } | Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => {}
         Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } => {}
-        Request::ClipboardText | Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
+        Request::ClipboardText | Request::LaunchToken | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ControlSpace { .. } | Request::ListSpaces | Request::Launch { .. } => {}
         Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::SpaceBusy | Request::PickRegion { .. } => {}
     }
     std::mem::discriminant(request)

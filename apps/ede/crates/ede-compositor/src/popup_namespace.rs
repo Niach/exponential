@@ -2,7 +2,8 @@
 //! `protocols/exponential-popup-namespace-v1.xml`): a popup's namespace, as
 //! a layer surface has one. The shell names the taskbar's Agent spaces list,
 //! a hosted Popover (an `xdg_popup` of the taskbar layer, D 11) that shows
-//! each agent space's picture, [`ede_protocol::SPACE_LIST_NAMESPACE`]; every
+//! each agent space's picture, [`ede_protocol::SPACE_LIST_NAMESPACE`], and the
+//! computer-use tray (#EDE-266) [`ede_protocol::SPACE_TRAY_NAMESPACE`]; every
 //! capture of the person's output draws that popup black
 //! ([`crate::backend::capture_elements`]), as it draws the pinned view.
 //!
@@ -44,7 +45,7 @@ const VERSION: u32 = 1;
 #[derive(Debug, Clone)]
 pub struct PopupName {
     pub namespace: String,
-    /// The shell named it the Agent spaces list: black in captures.
+    /// The shell named it the Agent spaces list or the computer-use tray: black in captures.
     pub space_list: bool,
 }
 
@@ -70,10 +71,11 @@ impl Dispatch2<ExponentialPopupNamespaceV1, Ede> for NamespaceManager {
         match request {
             Request::SetNamespace { surface, namespace } => {
                 let pid = client.get_credentials(dhandle).map(|c| c.pid as u32).unwrap_or(0);
-                let space_list = namespace == ede_protocol::SPACE_LIST_NAMESPACE && crate::sealed::is_shell(state, client);
+                // #EDE-266: the computer-use tray shows the same pictures.
+                let space_list = (namespace == ede_protocol::SPACE_LIST_NAMESPACE || namespace == ede_protocol::SPACE_TRAY_NAMESPACE) && crate::sealed::is_shell(state, client);
                 let named = with_states(&surface, |s| s.data_map.insert_if_missing_threadsafe(|| PopupName { namespace: namespace.clone(), space_list }));
                 if named && space_list {
-                    tracing::info!(pid, surface = surface.id().protocol_id(), "the Agent spaces list: black in captures of the person's output");
+                    tracing::info!(pid, surface = surface.id().protocol_id(), namespace = namespace.as_str(), "the spaces' pictures: black in captures of the person's output");
                 }
             }
             Request::Destroy => {}

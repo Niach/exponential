@@ -206,6 +206,8 @@ impl WlrLayerShellHandler for Ede {
                 self.refit_tiles(&output);
             }
             self.restore_focus_after_layer(&layer);
+            // #EDE-266: a space driven through this layer lets the person's hand go.
+            self.space_view_layer_gone();
         }
     }
 }

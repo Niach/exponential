@@ -20,11 +20,10 @@
 # holder tells over the session bus). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
 # document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on
 # the person across the signed-in accounts' teams, /needsYou/count as its badge, or
-# this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), Agent spaces (#EXP-2024: only while an agent space exists on this machine,
-# /spaces/count; its hosted Popover lists /spaces/rows: each space's picture, its session's title (a
-# child's chat as the second line, `Agent space n` for a session no signed-in account holds) and
-# Close, which ends the space and never its session (ede_space_close); a press on a row pins that
-# session's view, space-view.express (ede_space); a hosted Popover never takes the keyboard), the bell
+# this install waits for approval, /installs/waiting, #EDE-226; it opens needs-you.express), the computer-use status icon (#EDE-266: only while an agent space exists on this machine, /cuTray/count;
+# Cinnamon's applet: a left click opens its popup, cu-tray.express anchored here: the space's live tile,
+# its session's steps, Stop, Pause, Watch, Take over; a right click the applet menu, /cuTray/menu, the
+# same actions: ede_cu {action}; it replaces the Agent spaces list of #EXP-2024), the bell
 # (notification-center.express: the desktop's notifications and the accounts' unread inbox merged) and
 # the clock (#EXP-2046: in tabular figures, so its width holds from minute to minute and nothing left
 # of it moves: an open popover anchored there stays open).
@@ -40,7 +39,7 @@
 # hovered or pressed; the middle button = SecondaryActivate, a right click on an item without a menu =
 # ContextMenu, the wheel = Scroll (ede_tray_input, Box auxPress / scroll).
 # #EDE-245: the right side in Cinnamon's order (Mint 22's enabled-applets): the status icons (the tray, then
-# Bluetooth, Needs you and Agent spaces as status icons), notifications (hidden while empty, Cinnamon's
+# Bluetooth, Needs you and computer use as status icons), notifications (hidden while empty, Cinnamon's
 # showEmptyTray false), printers (only while CUPS lists one), removable drives (only while one is mounted),
 # network, sound, power, the clock, then the corner bar: a thin strip at the very end that shows the
 # desktop (ede_show_desktop, Muffin's toggle_desktop). #EDE-263: it reaches the screen's last pixel (no
@@ -54,7 +53,7 @@
 # while it runs, the attention dot while it needs you), then `+N`. A left click opens its panel
 # (sessions-panel.express anchored here: per session the trace, Stop, the waiting card's answers in place,
 # Open), a right click the applet menu (All chats, Needs you: ede_sessions {menu}).
-surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close", "ede_show_desktop", "ede_sessions"]}})
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_input", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_tray_input", "ede_tray_menu", "ede_panel_menu", "ede_keyboard_layout", "ede_start_menu", "ede_chat", "ede_launch", "ede_cu", "ede_show_desktop", "ede_sessions"]}})
 $/applets/battery/icon = "ede-battery"
 $/applets/battery/show = false
 $/applets/bluetooth/show = false
@@ -62,6 +61,8 @@ $/applets/drives/show = false
 $/applets/network/icon = "ede-wifi"
 $/applets/printers/show = false
 $/applets/sound/icon = "media-volume-up"
+$/cuTray/count = 0
+$/cuTray/menu = []
 $/installs/waiting = false
 $/keyboard/items = []
 $/keyboard/label = ""
@@ -76,9 +77,6 @@ $/notifications/count = 0
 $/previews/app = null
 $/previews/windows = []
 $/shell/taskbar/buttons = []
-$/spaces/count = 0
-$/spaces/rows = []
-$/spacesList/open = false
 $/time = "00:00"
 $/tray = []
 root = Box(style={display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 48, paddingLeft: "$spacing.sm", backgroundColor: "$color.background"}, children=[left, right])
@@ -111,7 +109,7 @@ window_count = Box(style={position: "absolute", top: 0, left: 0}, children=[wind
 window_count_badge = CountBadge(count=$count, tone="muted")
 notification_count = Box(style={position: "absolute", top: 0, right: 0}, children=[notification_count_badge], visible=lt(a=0, b=$notifications))
 notification_count_badge = CountBadge(count=$notifications, tone="attention")
-right = Stack(direction="horizontal", gap="xs", align="center", children=[sessions, tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, agent_spaces, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
+right = Stack(direction="horizontal", gap="xs", align="center", children=[sessions, tray, tray_entry, applet_bluetooth, needs_you, needs_you_count, cu_tray_menu, bell, bell_count, applet_printers, applet_drives, applet_keyboard, applet_network, applet_sound, applet_battery, session, corner_bar])
 tray = Stack(direction="horizontal", gap="none", align="center", children=_template($/tray, tray_entry, key="service"))
 tray_entry = Box(style={display: "flex", alignItems: "center"}, children=[tray_item, tray_menu])
 tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 40, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service), auxPress: Event("ede_tray_input", {service: $service}), scroll: Event("ede_tray_input", {service: $service})}, visible=not(value=cond(if=$hasMenu, then=true, else=false)))
@@ -133,22 +131,15 @@ applet_drives = Button(label="Removable drives", icon="hard-drive", variant="gho
 applet_battery = Button(label="Battery", icon=$/applets/battery/icon, variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/battery/show, then=true, else=false))
 needs_you = Button(label="Needs you", icon="nav-needs-you", variant="ghost", size="icon", on={press: Event("needs_you")}, visible=or(values=[not(value=eq(a=$/needsYou/count, b=0)), cond(if=$/installs/waiting, then=true, else=false)]))
 needs_you_count = CountBadge(count=$/needsYou/count, tone="attention", visible=not(value=eq(a=$/needsYou/count, b=0)))
-agent_spaces = Popover(open=$/spacesList/open, side="top", align="end", children=[spaces_box], slots={trigger: "agent_spaces_button"}, visible=not(value=eq(a=$/spaces/count, b=0)))
-spaces_box = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", width: 380}, children=[spaces_title, spaces_scroll])
-spaces_title = Heading(text="Agent spaces", level="h4")
-spaces_scroll = ScrollArea(maxHeight=300, children=[spaces_list, space_row])
-spaces_list = List(gap="none", divided=true, children=_template($/spaces/rows, space_row, key="id"))
-space_row = Row(title=$title, subtitle=$subtitle, density="compact", pressable=true, slots={leading: "space_picture", trailing: "space_close"}, on={press: ede_space(session=$session)})
-space_picture = Image(src=$picture, alt=$title, fit="contain", width=96, height=60, fallback="nav-computer")
-space_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_space_close(space=$id)})
-agent_spaces_button = Button(label="Agent spaces", icon="nav-computer", variant="ghost", size="icon")
+cu_tray_menu = Menu(items=$/cuTray/menu, side="top", align="end", openOn="contextmenu", children=[cu_tray], on={select: Event("ede_cu")}, visible=not(value=eq(a=$/cuTray/count, b=0)))
+cu_tray = Button(label="Computer use", icon="nav-computer", variant="ghost", size="icon", on={press: Event("cu_tray")})
 bell = Button(label="Notifications", icon="nav-notifications", variant="ghost", size="icon", on={press: Event("bell")}, visible=not(value=eq(a=$/notifications/count, b=0)))
 bell_count = CountBadge(count=$/notifications/count, tone="muted", visible=not(value=eq(a=$/notifications/count, b=0)))
 session = Menu(items=[{label: "Date and time settings", value: "datetime", icon: "ui-clock"}], openOn="contextmenu", children=[clock], on={select: Event("ede_panel_menu")})
 clock = Button(label=$/time, variant="ghost", size="sm", on={press: Event("clock")}, style={fontVariantNumeric: "tabular-nums"})
 corner_bar = Box(style={display: "flex", alignItems: "center", justifyContent: "flex-start", width: 22, height: 48}, pressable=true, children=[corner_line], on={press: ede_show_desktop()})
 corner_line = Box(style={width: 1, height: 24, marginLeft: 11, backgroundColor: "$color.border"})
-sessions = Menu(items=[{label: "All chats", value: "chats", icon: "nav-chats"}, {label: "Needs you", value: "needs-you", icon: "nav-needs-you"}], side="top", align="end", openOn="contextmenu", children=[sessions_box], on={select: ede_sessions(menu=$value)}, visible=not(value=eq(a=$/sessions/count, b=0)))
+sessions = Menu(items=[{label: "All chats", value: "chats", icon: "nav-chats"}, {label: "Needs you", value: "needs-you", icon: "nav-needs-you"}], side="top", align="end", openOn="contextmenu", children=[sessions_box], on={select: Event("ede_sessions")}, visible=not(value=eq(a=$/sessions/count, b=0)))
 sessions_box = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 4, height: 40, paddingLeft: 4, paddingRight: 4, borderRadius: "$radius.md", ":hover": {backgroundColor: "$color.accent"}, ":pressed": {backgroundColor: "$color.accent"}}, pressable=true, children=[sessions_chips, sessions_more], on={press: Event("sessions")})
 sessions_chips = Stack(direction="horizontal", gap="xs", align="center", children=_template($/sessions/chips, session_chip, key="id"))
 session_chip = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 6, height: 32, paddingLeft: 8, paddingRight: 10, maxWidth: 200, borderRadius: "$radius.md", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[session_chip_icon, session_chip_title, session_chip_spinner, session_chip_needs])

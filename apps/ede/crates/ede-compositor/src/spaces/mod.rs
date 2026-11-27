@@ -10,6 +10,7 @@
 //! on the person's side.
 
 mod close;
+pub mod control;
 pub mod frames;
 pub mod full;
 pub mod guard;
@@ -140,11 +141,13 @@ pub struct Spaces {
     /// text) for `space_of_process`; `None` = the compositor's own. A test
     /// names another to see every process as outside the session.
     pub session_cgroup: Option<String>,
+    /// #EDE-266: the person's hand on a space they took over ([`control`]).
+    pub(crate) person: control::PersonDrive,
 }
 
 impl Default for Spaces {
     fn default() -> Self {
-        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), #[cfg(feature = "xwayland")] x11_scopes: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None }
+        Self { list: Vec::new(), next: 0, dir: None, homes: None, closing: Vec::new(), leftovers: Vec::new(), remove_dir: close::remove_tree, renderer: None, frames: Default::default(), launches: Vec::new(), strays: Vec::new(), units: None, units_why: None, session_failed: None, readiness_said: None, launch_serial: std::cell::Cell::new(0), stopping: Vec::new(), sliced: false, ended_sessions: Vec::new(), adoptions: Default::default(), x11: false, #[cfg(feature = "xwayland")] closing_xwms: Vec::new(), #[cfg(feature = "xwayland")] x11_scopes: Vec::new(), expiry_grace: close::EXPIRY_GRACE, grace_until: None, clock: None, in_use_for: full::IN_USE_FOR, busy_for: full::BUSY_FOR, guard: guard::GuardState::default(), session_cgroup: None, person: Default::default() }
     }
 }
 
@@ -201,6 +204,9 @@ pub struct AgentSpace {
     /// Its own Xwayland ([`x11`]), from its first launch.
     #[cfg(feature = "xwayland")]
     pub(crate) x11: Option<x11::SpaceX11>,
+    /// #EDE-266: who drives it ([`control`]), and where the person does.
+    pub control: ede_protocol::SpaceControl,
+    pub(crate) view: Option<ede_protocol::SpaceViewRect>,
 }
 
 impl AgentSpace {
@@ -384,7 +390,7 @@ impl Ede {
             tile_preview: Default::default(),
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
-        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, created: std::time::Instant::now(), busy_until: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None });
+        self.spaces.list.push(AgentSpace { id: SpaceId::new(&name).expect("space-n is a space id"), desk, owner, output, output_global, dir, listener, clients: Vec::new(), tracker, scheduled: false, pace: frames::SLOW, ticks: 0, serial: 0, last_use: None, created: std::time::Instant::now(), busy_until: None, expired_ticks: 0, sliced: false, session: session::Session::new(), software_rendering: true, browser_dirs: Vec::new(), #[cfg(feature = "xwayland")] x11: None, control: Default::default(), view: None });
         Ok(id)
     }
 }

@@ -20,7 +20,7 @@ use std::{
 
 use common::{space::start_with_spaces, Session};
 use ede_compositor::{backend::headless::Harness, spaces::frames::{FAST, SLOW}, Config};
-use ede_protocol::{Capability, CaptureTarget, SessionId, SPACE_LIST_NAMESPACE, SPACE_VIEW_NAMESPACE};
+use ede_protocol::{Capability, CaptureTarget, SessionId, SPACE_LIST_NAMESPACE, SPACE_TRAY_NAMESPACE, SPACE_VIEW_NAMESPACE};
 use smithay::backend::input::{ButtonState, KeyState};
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity};
 
@@ -155,10 +155,12 @@ fn the_agent_spaces_list_is_black_in_a_capture_of_the_persons_output() {
     let _previews = shell.named_layer_popup(&taskbar, (40, -170), (200, 150), false, MAGENTA, Some("exponential-shell:taskbar:previews"));
     let _needs_you = shell.named_layer_popup(&taskbar, (300, -170), (200, 150), false, YELLOW, Some("exponential-shell:needs-you"));
     let _tray = shell.named_layer_popup(&taskbar, (560, -170), (200, 150), false, BLUE, Some("exponential-shell:tray-menu"));
+    // #EDE-266: the computer-use tray shows the same pictures (x 40..240, y 432..552).
+    let _cu_tray = shell.named_layer_popup(&taskbar, (40, -320), (200, 120), false, GREEN, Some(SPACE_TRAY_NAMESPACE));
     h.with(|ede| ede.shell_stand_in = None);
 
     // The screen: the list (x 880..1260, y 432..732) and every other popup.
-    wait_for(&mut shell, |_| h.capture(0).at(1070, 582) == GREEN);
+    wait_for(&mut shell, |_| h.capture(0).at(1070, 582) == GREEN && h.capture(0).at(140, 492) == GREEN);
     let screen = h.capture(0);
     assert_eq!((screen.at(881, 433), screen.at(1259, 731)), (GREEN, GREEN), "the person's screen shows the list");
     assert_eq!((screen.at(140, 657), screen.at(400, 657), screen.at(660, 657), screen.at(640, 776)), (MAGENTA, YELLOW, BLUE, RED));
@@ -166,6 +168,8 @@ fn the_agent_spaces_list_is_black_in_a_capture_of_the_persons_output() {
     // A capture of the person's output: the list's place black, the rest as on screen.
     let shared = h.capture_shared(0);
     assert_eq!((shared.at(881, 433), shared.at(1070, 582), shared.at(1259, 731)), (BLACK, BLACK, BLACK), "the list's thumbnails leaked into a capture");
+    assert_eq!(screen.at(140, 492), GREEN, "the person's screen shows the computer-use tray");
+    assert_eq!((shared.at(41, 433), shared.at(140, 492), shared.at(239, 551)), (BLACK, BLACK, BLACK), "the computer-use tray's thumbnails leaked into a capture");
     assert_ne!(shared.at(1070, 740), BLACK, "only the list goes black, not what is around it");
     assert_eq!(shared.at(140, 657), MAGENTA, "the window previews stay");
     assert_eq!(shared.at(400, 657), YELLOW, "Needs you stays");
@@ -177,8 +181,10 @@ fn the_agent_spaces_list_is_black_in_a_capture_of_the_persons_output() {
     let bar = other.layer("exponential-shell:taskbar", Anchor::Top | Anchor::Left | Anchor::Right, (1280, 48), 0);
     other.draw_layer(&bar, RED);
     let _impostor = other.named_layer_popup(&bar, (100, 60), (200, 100), false, CYAN, Some(SPACE_LIST_NAMESPACE));
-    wait_for(&mut other, |_| h.capture(0).at(200, 110) == CYAN);
+    let _tray_impostor = other.named_layer_popup(&bar, (400, 60), (200, 100), false, CYAN, Some(SPACE_TRAY_NAMESPACE));
+    wait_for(&mut other, |_| h.capture(0).at(200, 110) == CYAN && h.capture(0).at(500, 110) == CYAN);
     assert_eq!(h.capture_shared(0).at(200, 110), CYAN, "only the shell's own list is black");
+    assert_eq!(h.capture_shared(0).at(500, 110), CYAN, "only the shell's own computer-use tray is black");
     assert_eq!(h.capture_shared(0).at(1070, 582), BLACK, "the shell's list still is");
 }
 

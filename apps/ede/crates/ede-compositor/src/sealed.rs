@@ -104,6 +104,9 @@ pub struct LayerOrigin {
     /// hide ([`ede_protocol::ABOVE_FULLSCREEN_NAMESPACES`] from
     /// `exponential-shell`): the switcher, Expo, Scale, the OSD.
     pub shell_overlay: bool,
+    /// #EDE-266: the layer is the shell's (`exponential-shell`): only its
+    /// namespace names the view the person drives a space through.
+    pub shell: bool,
 }
 
 #[derive(Debug)]
@@ -182,7 +185,7 @@ pub fn is_shell(ede: &Ede, client: &Client) -> bool {
 }
 
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
-    let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false } };
+    let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false, shell: false } };
     let pid = client_pid(&ede.display_handle, &client);
     // Consent and the share chooser (the shell's and the portal's) still
     // connect by the socket. #EDE-172 (P5'): the consent prompt the
@@ -193,11 +196,11 @@ pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin
     let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && shell;
     // #EDE-225: and only the shell's overlays show above a fullscreen window.
     let shell_overlay = ede_protocol::ABOVE_FULLSCREEN_NAMESPACES.contains(&namespace) && shell;
-    LayerOrigin { pid, sealed, space_view, shell_overlay }
+    LayerOrigin { pid, sealed, space_view, shell_overlay, shell }
 }
 
 pub fn layer_origin(layer: &LayerSurface) -> LayerOrigin {
-    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false })
+    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false, shell: false })
 }
 
 impl Ede {

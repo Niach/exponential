@@ -102,6 +102,11 @@ impl Ede {
             }
             request @ (Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText) => {
                 let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
+                // #EDE-266: while the person paused the space or drives it,
+                // what drives it is `conflict`; what looks still answers.
+                if matches!(request, Request::Launch { .. } | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Input { .. } | Request::ClipboardSet { .. }) {
+                    self.space_driving_refused(desk)?;
+                }
                 match request {
                     Request::Launch { argv, env, cwd } => {
                         let app = argv.first().cloned().unwrap_or_default();
@@ -123,7 +128,7 @@ impl Ede {
             }
             // `in_space` refused these above; named so that a new op has to
             // be placed here by hand.
-            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::WindowAction { .. } | Request::ListKeyboardLayouts | Request::SetKeyboardLayout { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::PickRegion { .. } => fail(ErrorCode::Forbidden, "not an op of an agent space"),
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::WindowAction { .. } | Request::ListKeyboardLayouts | Request::SetKeyboardLayout { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::PickRegion { .. } | Request::ControlSpace { .. } => fail(ErrorCode::Forbidden, "not an op of an agent space"),
         }
     }
 }

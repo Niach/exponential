@@ -46,6 +46,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_close_document", &["name"]),
     ("ede_config", &["diagnostics", "display", "theme"]),
     ("ede_connect", &["action", "instance"]),
+    ("ede_cu", &["action", "space"]),
     ("ede_focus", &["window"]),
     ("ede_history", &["action"]),
     ("ede_install", &["action", "code", "id"]),

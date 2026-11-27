@@ -223,8 +223,8 @@ const NO_SPACE_GRANT: &str = "eDE gave this run no space grant of its own (the t
 const SPACE_ENDED: &str = "The agent space had ended, so nothing was done. A new one was made: it is new and empty, whatever ran in the old one is gone. Take a screenshot and start again.";
 /// #EXP-1514 (rows 7 and 8 of the design's state table): `create_space`
 /// answered `limit`, every space in use, by the count or by memory.
-const SPACES_FULL: &str = "The person can close one in the taskbar's Agent spaces list.";
-const SPACES_OUT_OF_MEMORY: &str = "The agent spaces on this desktop are out of memory and every one is in use. The person can close one in the taskbar's Agent spaces list.";
+const SPACES_FULL: &str = "The person can stop one in the taskbar's computer-use tray.";
+const SPACES_OUT_OF_MEMORY: &str = "The agent spaces on this desktop are out of memory and every one is in use. The person can stop one in the taskbar's computer-use tray.";
 /// The cause of [`SpaceBlock::Unavailable`] for a root that cannot mint.
 const NO_MINT: &str = "the token here cannot mint a space grant";
 
@@ -1822,7 +1822,7 @@ mod tests {
                             Request::ListSpaces if is_root => {
                                 log.lock().unwrap().push(op);
                                 let mine: Vec<SpaceInfo> = spaces.lock().unwrap().1.values().cloned().collect();
-                                let others = (0..fake.others).map(|n| SpaceInfo { id: SpaceId::new(format!("space-o{n}")).unwrap(), session_id: SessionId::new(format!("other-{n}")).unwrap(), output: format!("space-o{n}"), width: 640, height: 480, wayland_display: "/nonexistent/wayland-0".into() });
+                                let others = (0..fake.others).map(|n| SpaceInfo { id: SpaceId::new(format!("space-o{n}")).unwrap(), session_id: SessionId::new(format!("other-{n}")).unwrap(), output: format!("space-o{n}"), width: 640, height: 480, wayland_display: "/nonexistent/wayland-0".into(), control: Default::default() });
                                 Ok(serde_json::to_value(mine.into_iter().chain(others).collect::<Vec<_>>()).unwrap())
                             }
                             Request::CreateSpace { width, height } => {
@@ -1830,7 +1830,7 @@ mod tests {
                                 let mut spaces = spaces.lock().unwrap();
                                 spaces.0 += 1;
                                 let name = format!("space-{}", spaces.0);
-                                let info = SpaceInfo { id: SpaceId::new(&name).unwrap(), session_id: me.clone(), output: name, width, height, wayland_display: "/nonexistent/wayland-0".into() };
+                                let info = SpaceInfo { id: SpaceId::new(&name).unwrap(), session_id: me.clone(), output: name, width, height, wayland_display: "/nonexistent/wayland-0".into(), control: Default::default() };
                                 spaces.1.insert(me.as_str().to_string(), info.clone());
                                 Ok(serde_json::to_value(info).unwrap())
                             }
@@ -2862,7 +2862,7 @@ mod tests {
             told
         };
         let full = Fake { create: Some((ErrorCode::Limit, "4 spaces at most")), others: 4, ..Fake::READY };
-        assert_eq!(refusal(full), "Every agent space on this desktop is in use (4 at most). The person can close one in the taskbar's Agent spaces list.");
+        assert_eq!(refusal(full), "Every agent space on this desktop is in use (4 at most). The person can stop one in the taskbar's computer-use tray.");
         let memory = Fake { create: Some((ErrorCode::Limit, "no memory for another space")), others: 2, ..Fake::READY };
         assert_eq!(refusal(memory), SPACES_OUT_OF_MEMORY);
         let broken = Fake { create: Some((ErrorCode::Unavailable, "no runtime directory for spaces")), ..Fake::READY };

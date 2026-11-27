@@ -9531,11 +9531,14 @@
     {
       "id": "ede-agent-spaces",
       "group": "ede",
-      "title": "Exponential Desktop · Agent spaces",
-      "blurb": "#EXP-2024: the taskbar's Agent spaces button (only while an agent space exists on this machine) opens its list as a hosted Popover above it (apps/ede/ui/taskbar.express, never the keyboard): one row per space with its picture, its session's title (a child's chat as the second line, Agent space n for a session no signed-in account holds) and Close, which ends the space and never its session; a press pins that session's view (sample spaces and pictures in the golden; #EXP-2041: captures of the person's screen show the open list black, so the golden captures unredacted).",
+      "title": "Exponential Desktop · Background computer use",
+      "blurb": "#EDE-266: the taskbar's computer-use status icon (only while an agent space exists on this machine; it replaces #EXP-2024's Agent spaces list) opens its popup above it (apps/ede/ui/cu-tray.express, Cinnamon's applet left click; a right click = the applet menu): the space's live tile under its state badge (Live, Paused, Taken over), its session's title, the running step and the last steps, Stop (ends the space, never its session), Pause, Watch (the pinned view) and Take over (the person drives the space through the view); with several spaces a row per space picks one (sample spaces, steps and picture in the golden; captures of the person's screen show the popup black, so the golden captures unredacted).",
       "order": 9,
       "ede": {
         "size": "1280x720",
+        "popup": [
+          "cu-tray"
+        ],
         "env": {
           "EDE_SHELL_DEMO_SPACES": "list",
           "EDE_SHELL_SHOT_UNREDACTED": "1"

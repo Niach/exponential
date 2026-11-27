@@ -103,6 +103,9 @@ pub enum Ask {
     Close(String),
     /// List the spaces at once (a capture found one gone).
     List,
+    /// #EDE-266: who drives a space (the computer-use tray's Pause, Resume,
+    /// Take over and Hand back), with the view's picture rect for `person`.
+    Control { space: String, control: ede_protocol::SpaceControl, view: Option<ede_protocol::SpaceViewRect> },
 }
 
 /// What the shell's thread and the loop share.
@@ -496,6 +499,20 @@ pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &S
                     schedule.list_now(now);
                 }
                 Ask::List => schedule.list_now(now),
+                Ask::Control { space, control, view } => {
+                    let Ok(id) = SpaceId::new(&space) else { continue };
+                    match client.control_space(id, control, view.clone()) {
+                        Ok(()) => tracing::info!(?control, "space control"),
+                        Err(ede_protocol::Error::Io(_)) => {
+                            lost = true;
+                            asks.push(Ask::Control { space, control, view });
+                            asks.extend(pending.by_ref());
+                            break;
+                        }
+                        Err(e) => tracing::warn!("space control: {e}"),
+                    }
+                    schedule.list_now(now);
+                }
             }
         }
         if !lost {
@@ -730,7 +747,7 @@ mod tests {
 
     impl Fake {
         fn info(&self, id: &str) -> SpaceInfo {
-            SpaceInfo { id: SpaceId::new(id).unwrap(), session_id: SessionId::new("s1").unwrap(), output: "space".into(), width: 64, height: 40, wayland_display: "/run/x".into() }
+            SpaceInfo { id: SpaceId::new(id).unwrap(), session_id: SessionId::new("s1").unwrap(), output: "space".into(), width: 64, height: 40, wayland_display: "/run/x".into(), control: Default::default() }
         }
 
         fn connect(self: &Arc<Self>) -> Result<Client, ede_protocol::Error> {

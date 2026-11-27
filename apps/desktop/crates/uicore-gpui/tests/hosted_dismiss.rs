@@ -187,15 +187,15 @@ fn a_click_after_the_previews_were_dismissed_reaches_the_button(cx: &mut TestApp
     assert_eq!(presses(&plugin), 2, "the second click reached the button: {:?}", plugin.heard.borrow());
 }
 
-/// #EXP-2024: the Agent spaces list, the FACTORY taskbar's press-opened
-/// hosted Popover. After the compositor dismissed it (a press in another
+/// #EXP-2024: the Agent spaces list, a press-opened hosted Popover (the
+/// factory taskbar's until #EDE-266; kept as `fixtures/agent-spaces-list.express`). After the compositor dismissed it (a press in another
 /// window, the desktop, the pinned view), the next press on its button
 /// opens it again: it was eaten, every second open took two presses. A
 /// press on the button while it is open closes it.
 #[gpui::test]
 fn after_a_dismissal_elsewhere_the_next_press_opens_the_agent_spaces_list(cx: &mut TestAppContext) {
     cx.update(gpui_component::init);
-    let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
+    let factory = ede_ui::express::compile_document("taskbar", include_str!("fixtures/agent-spaces-list.express")).expect("the Agent spaces specimen");
     let list = node(&factory["root"], "agent_spaces").expect("the Agent spaces list").clone();
     assert_eq!(list["component"], "Popover");
     let source = json!({

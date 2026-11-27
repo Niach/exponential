@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use ede_protocol::SpaceInfo;
 use serde_json::{json, Value};
-use uicore_model::spaces::{space_rows, space_view, Display, Extent, SpaceInput, SpaceRow, SpaceSession, SpaceView};
+use uicore_model::spaces::{cu_tray, space_rows, space_view, Display, Extent, SpaceControl, SpaceInput, SpaceRow, SpaceSession, SpaceView, Tray, TrayInput, TraySession};
 
 use crate::captures::{Plan, Shot};
 
@@ -23,6 +23,10 @@ pub const LIST: &str = "agent_spaces";
 pub const VIEW: &str = "space-view";
 /// A list thumbnail's box in logical px (the Row's leading picture).
 pub const THUMB: (u32, u32) = (96, 60);
+/// #EDE-266: the computer-use tray's popup document (taskbar `cu_tray`).
+pub const TRAY: &str = "cu-tray";
+/// The tray's live tile in logical px (cu-tray.express `tile`).
+pub const TILE: (u32, u32) = (446, 250);
 
 /// The pinned view: its session (the pin follows a session whose space is
 /// made anew) and its size.
@@ -50,6 +54,60 @@ pub struct Spaces {
     pub shown_size: Option<(u32, u32)>,
     /// `EDE_SHELL_DEMO_SPACES` (the goldens): sample spaces nothing lists or captures.
     pub demo: bool,
+    /// #EDE-266: the space the person picked in the tray's popup.
+    pub selected: Option<String>,
+    /// A control the shell asked for and the next list has not shown yet.
+    pub asked: HashMap<String, SpaceControl>,
+    /// The demo's controls (nothing lists them).
+    pub demo_controls: HashMap<String, SpaceControl>,
+    /// What the compositor was last told per space (the control and, for
+    /// the person, the view's picture rect).
+    pub sent: HashMap<String, (SpaceControl, Option<ede_protocol::SpaceViewRect>)>,
+}
+
+/// The compositor's word for who drives a space, as the fold reads it.
+pub fn control_of(control: ede_protocol::SpaceControl) -> SpaceControl {
+    match control {
+        ede_protocol::SpaceControl::Agent => SpaceControl::Agent,
+        ede_protocol::SpaceControl::Paused => SpaceControl::Paused,
+        ede_protocol::SpaceControl::Person => SpaceControl::Person,
+    }
+}
+
+/// What the tray asks the compositor (the fold's word back to the wire's).
+pub fn wire_control(control: SpaceControl) -> ede_protocol::SpaceControl {
+    match control {
+        SpaceControl::Agent => ede_protocol::SpaceControl::Agent,
+        SpaceControl::Paused => ede_protocol::SpaceControl::Paused,
+        SpaceControl::Person => ede_protocol::SpaceControl::Person,
+    }
+}
+
+/// A press in the computer-use tray (`ede_cu {action, space?}`, spaces.json
+/// `tray`: the action values).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrayPress {
+    Select(String),
+    Watch,
+    Unwatch,
+    Control(SpaceControl),
+    Stop,
+}
+
+pub fn tray_press(args: &Value) -> Option<(TrayPress, Option<String>)> {
+    let text = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(String::from);
+    let space = text("space");
+    let press = match text("action")?.as_str() {
+        "select" => TrayPress::Select(space.clone()?),
+        "watch" => TrayPress::Watch,
+        "unwatch" => TrayPress::Unwatch,
+        "pause" => TrayPress::Control(SpaceControl::Paused),
+        "resume" | "handBack" => TrayPress::Control(SpaceControl::Agent),
+        "takeOver" => TrayPress::Control(SpaceControl::Person),
+        "stop" => TrayPress::Stop,
+        _ => return None,
+    };
+    Some((press, space))
 }
 
 /// Why a space's picture cannot be seen now.
@@ -75,6 +133,53 @@ impl Spaces {
     /// The list's rows (the fold).
     pub fn rows(&self) -> Vec<SpaceRow> {
         space_rows(&self.inputs(), &self.sessions)
+    }
+
+    /// Who drives each space: the compositor's list, the shell's asks over it.
+    pub fn controls(&self) -> HashMap<String, SpaceControl> {
+        let mut controls: HashMap<String, SpaceControl> = self.list.iter().map(|s| (s.id.to_string(), control_of(s.control))).collect();
+        controls.extend(self.demo_controls.iter().map(|(k, v)| (k.clone(), *v)));
+        controls.extend(self.asked.iter().map(|(k, v)| (k.clone(), *v)));
+        controls
+    }
+
+    /// #EDE-266: the tray's fold over the holder's `sessions` feed.
+    pub fn tray(&self, sessions: &[TraySession]) -> Tray {
+        let watching = self.pinned.as_ref().map(|p| p.session.clone());
+        cu_tray(&TrayInput { rows: self.rows(), selected: self.selected.clone(), controls: self.controls(), sessions: sessions.to_vec(), watching })
+    }
+
+    /// The tray's selected space.
+    pub fn tray_space(&self) -> Option<&SpaceInfo> {
+        let rows = self.rows();
+        let id = rows.iter().find(|r| Some(&r.id) == self.selected.as_ref()).or(rows.first())?.id.clone();
+        self.list.iter().find(|s| s.id.as_str() == id)
+    }
+
+    /// Whether the tile takes the view's capture slot: the pinned view is
+    /// shut or shows the same space.
+    fn tile_is_view(&self, view_open: bool) -> bool {
+        let (Some(tile), pinned) = (self.tray_space(), self.pinned_space()) else { return false };
+        !view_open || pinned.is_some_and(|p| p.id == tile.id)
+    }
+
+    /// `/cuTray`: the fold, plus the tile's picture.
+    pub fn tray_feed(&self, sessions: &[TraySession], view_open: bool) -> Value {
+        let tray = self.tray(sessions);
+        let mut value = serde_json::to_value(&tray).unwrap_or(Value::Null);
+        let picture = self.tray_space().and_then(|s| self.pictures.get(&(s.id.to_string(), self.tile_is_view(view_open)))).cloned().unwrap_or_default();
+        value["picture"] = json!(picture);
+        value["open"] = json!(false);
+        value
+    }
+
+    /// The pixels of the tile for a space `w`×`h` at `scale`: the tile's
+    /// box, the space's aspect inside it.
+    pub fn tile_pixels(space: &SpaceInfo, scale: f64) -> (u32, u32) {
+        let (w, h) = (space.width.max(1) as f64, space.height.max(1) as f64);
+        let fit = (TILE.0 as f64 / w).min(TILE.1 as f64 / h);
+        let device = |v: f64| ((v * fit * scale).round() as u32).max(1);
+        (device(w).min(space.width.max(1) as u32), device(h).min(space.height.max(1) as u32))
     }
 
     /// The session ids whose rows the titles need: the spaces' sessions.
@@ -145,8 +250,14 @@ impl Spaces {
             return;
         }
         self.list = list;
+        let shown: HashMap<String, SpaceControl> = self.list.iter().map(|s| (s.id.to_string(), control_of(s.control))).collect();
+        self.asked.retain(|space, control| shown.get(space).is_some_and(|c| c != control));
         let ids: Vec<String> = self.list.iter().map(|s| s.id.to_string()).collect();
         self.pictures.retain(|(space, _), _| ids.contains(space));
+        self.sent.retain(|space, _| ids.contains(space));
+        if self.selected.as_ref().is_some_and(|s| !ids.contains(s)) {
+            self.selected = None;
+        }
         if self.pinned_space().is_none() {
             self.pinned = None;
         } else if let Some(p) = self.pinned.as_mut() {
@@ -191,13 +302,24 @@ impl Spaces {
     /// What the capture loop photographs of the spaces: the open list's
     /// thumbnails and the open view's space, at the display's scale;
     /// nothing while paused.
-    pub fn targets(&self, view_open: bool, list_open: bool, pause: Pause, display: Display) -> (Option<Shot>, Vec<Shot>) {
+    /// #EDE-266: the open tray's tile takes the view's slot while the view
+    /// is shut (at the tile's pixels), else a thumbnail at the tile's size.
+    pub fn targets(&self, view_open: bool, list_open: bool, tray_open: bool, pause: Pause, display: Display) -> (Option<Shot>, Vec<Shot>) {
         if pause.locked || pause.fullscreen || self.demo {
             return (None, Vec::new());
         }
-        let view = (view_open && !pause.view_covered).then(|| self.view(display)).flatten().map(|(space, view)| Shot { space: space.id.to_string(), pixels: (view.pixels.width, view.pixels.height) });
+        let mut view = (view_open && !pause.view_covered).then(|| self.view(display)).flatten().map(|(space, view)| Shot { space: space.id.to_string(), pixels: (view.pixels.width, view.pixels.height) });
         let device = |v: u32| (v as f64 * display.scale).round() as u32;
-        let thumbs = if list_open { self.rows().into_iter().map(|r| Shot { space: r.id, pixels: (device(THUMB.0), device(THUMB.1)) }).collect() } else { Vec::new() };
+        let mut thumbs: Vec<Shot> = if list_open { self.rows().into_iter().map(|r| Shot { space: r.id, pixels: (device(THUMB.0), device(THUMB.1)) }).collect() } else { Vec::new() };
+        if let (true, Some(tile)) = (tray_open, self.tray_space()) {
+            let shot = Shot { space: tile.id.to_string(), pixels: Self::tile_pixels(tile, display.scale) };
+            if !view_open {
+                view = Some(shot);
+            } else if !self.tile_is_view(view_open) {
+                thumbs.retain(|t| t.space != shot.space);
+                thumbs.push(shot);
+            }
+        }
         (view, thumbs)
     }
 }
@@ -211,7 +333,7 @@ pub fn demo_mode() -> Option<String> {
 
 impl Spaces {
     pub fn demo(mode: &str) -> Self {
-        let space = |id: &str, session: &str| SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new() };
+        let space = |id: &str, session: &str| SpaceInfo { id: ede_protocol::SpaceId::new(id).unwrap(), session_id: ede_protocol::SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: String::new(), control: Default::default() };
         let session = |id: &str, title: &str, parent: Option<&str>, root: &str| SpaceSession { id: id.into(), title: Some(title.into()), parent_id: parent.map(String::from), root_id: Some(root.into()) };
         let mut s = Spaces {
             list: vec![space("space-1", "demo-chat"), space("space-2", "demo-child"), space("space-4", "exponential-ctl-4242")],
@@ -226,12 +348,26 @@ impl Spaces {
         for (i, id) in ["space-1", "space-2", "space-4"].into_iter().enumerate() {
             s.pictures.insert((id.to_string(), false), demo_picture(THUMB.0, THUMB.1, i).unwrap_or_default());
         }
+        // #EDE-266: the computer-use tray's live tile of the first space.
+        let tile = Self::tile_pixels(&s.list[0], 1.0);
+        s.pictures.insert(("space-1".to_string(), true), demo_picture(tile.0, tile.1, 0).unwrap_or_default());
         if mode == "view" {
             s.pin(Some("demo-chat"), None);
             s.pictures.insert(("space-1".to_string(), true), demo_picture(640, 400, 0).unwrap_or_default());
         }
         s
     }
+}
+
+/// #EDE-266: the demo's steps of its first space's session (the holder's
+/// `sessions` feed shape), for the computer-use tray's golden.
+pub fn demo_tray_sessions() -> Vec<TraySession> {
+    let line = |title: &str, status: &str| uicore_model::spaces::TraceLine { title: title.into(), icon: "trace-tool".into(), status: status.into() };
+    vec![TraySession {
+        id: "demo-chat".into(),
+        stop: vec!["demo-chat".into()],
+        trace: vec![line("Opened Firefox in the agent space", "done"), line("Signed in with the saved passkey", "done"), line("Typing the new password twice", "running")],
+    }]
 }
 
 /// A drawn sample of a space's screen: its background, a window with a
@@ -264,8 +400,8 @@ fn demo_picture(w: u32, h: u32, tone: usize) -> Option<String> {
 
 /// THE capture loop's plan: the windows (the switcher, the previews, Expo)
 /// unless the screen is locked, and the spaces' targets.
-pub fn plan(windows: Vec<String>, spaces: &Spaces, view_open: bool, list_open: bool, pause: Pause, display: Display) -> Plan {
-    let (view, thumbs) = spaces.targets(view_open, list_open, pause, display);
+pub fn plan(windows: Vec<String>, spaces: &Spaces, view_open: bool, list_open: bool, tray_open: bool, pause: Pause, display: Display) -> Plan {
+    let (view, thumbs) = spaces.targets(view_open, list_open, tray_open, pause, display);
     Plan { windows: if pause.locked { Vec::new() } else { windows }, view, thumbs }
 }
 
@@ -286,7 +422,7 @@ mod tests {
     use ede_protocol::{SessionId, SpaceId, WindowId, WindowInfo};
 
     fn space(id: &str, session: &str) -> SpaceInfo {
-        SpaceInfo { id: SpaceId::new(id).unwrap(), session_id: SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: format!("/run/user/1000/{id}") }
+        SpaceInfo { id: SpaceId::new(id).unwrap(), session_id: SessionId::new(session).unwrap(), output: id.into(), width: 1280, height: 800, wayland_display: format!("/run/user/1000/{id}"), control: Default::default() }
     }
 
     const DISPLAY: Display = Display { width: 1920, height: 1080, scale: 1.0 };
@@ -304,7 +440,7 @@ mod tests {
     }
 
     fn targets(s: &Spaces, list_open: bool, pause: Pause) -> (Option<String>, Vec<String>) {
-        let (view, thumbs) = s.targets(true, list_open, pause, DISPLAY);
+        let (view, thumbs) = s.targets(true, list_open, false, pause, DISPLAY);
         (view.map(|v| v.space), thumbs.into_iter().map(|t| t.space).collect())
     }
 
@@ -336,7 +472,7 @@ mod tests {
         closed.pin(None, None);
         assert_eq!(targets(&closed, false, Pause::default()), (None, vec![]));
         // The view's layer not open (the document missing, the layer gone).
-        assert_eq!(s.targets(false, false, Pause::default(), DISPLAY), (None, vec![]));
+        assert_eq!(s.targets(false, false, false, Pause::default(), DISPLAY), (None, vec![]));
         // Locked; under a fullscreen window.
         assert_eq!(targets(&s, true, Pause { locked: true, ..Pause::default() }), (None, vec![]));
         assert_eq!(targets(&s, true, Pause { fullscreen: true, ..Pause::default() }), (None, vec![]));
@@ -360,15 +496,15 @@ mod tests {
     #[test]
     fn closing_the_switcher_previews_and_expo_keeps_a_pinned_views_target() {
         let s = open_everything();
-        let open = plan(vec!["w1".into(), "w2".into()], &s, true, false, Pause::default(), DISPLAY);
+        let open = plan(vec!["w1".into(), "w2".into()], &s, true, false, false, Pause::default(), DISPLAY);
         assert_eq!(open.windows.len(), 2);
-        let closed = plan(Vec::new(), &s, true, false, Pause::default(), DISPLAY);
+        let closed = plan(Vec::new(), &s, true, false, false, Pause::default(), DISPLAY);
         assert!(closed.windows.is_empty());
         assert_eq!(closed.view, open.view, "the pinned view goes on");
         assert!(closed.view.is_some());
-        let locked = plan(vec!["w1".into()], &s, true, true, Pause { locked: true, ..Pause::default() }, DISPLAY);
+        let locked = plan(vec!["w1".into()], &s, true, true, false, Pause { locked: true, ..Pause::default() }, DISPLAY);
         assert_eq!(locked, Plan::default(), "no capture between lock and unlock");
-        let fullscreen = plan(vec!["w1".into()], &s, true, true, Pause { fullscreen: true, ..Pause::default() }, DISPLAY);
+        let fullscreen = plan(vec!["w1".into()], &s, true, true, false, Pause { fullscreen: true, ..Pause::default() }, DISPLAY);
         assert_eq!((fullscreen.windows.len(), fullscreen.view, fullscreen.thumbs.len()), (1, None, 0), "under a fullscreen window: the spaces stop, Alt+Tab's windows not");
     }
 
@@ -409,7 +545,7 @@ mod tests {
         let wide = Display { width: 2560, height: 1440, scale: 2.0 };
         let feed = big.view_feed(wide);
         assert_eq!((feed["size"].clone(), feed["pictureSize"].clone(), feed["large"].clone()), (json!({"width": 1282, "height": 842}), json!({"width": 1280, "height": 800}), json!(true)));
-        let (view, thumbs) = big.targets(true, true, Pause::default(), wide);
+        let (view, thumbs) = big.targets(true, true, false, Pause::default(), wide);
         assert_eq!(view.map(|v| v.pixels), Some((1280, 800)), "at scale 2, never above the space");
         assert_eq!(thumbs[0].pixels, (192, 120), "the thumbnails at the display's scale");
     }
@@ -449,5 +585,45 @@ mod tests {
         assert!(!fullscreen_over(&[window(true, true, 0, 0)], 0, first), "minimised");
         assert!(!fullscreen_over(&[window(true, false, 1, 0)], 0, first), "another workspace");
         assert!(!fullscreen_over(&[window(true, false, 0, 1920)], 0, first), "the second display");
+    }
+
+    /// #EDE-266: the open tray's tile takes the view's slot while the view
+    /// is shut, shares it when the view shows the same space, and is a
+    /// thumbnail at the tile's size beside a view of another space.
+    #[test]
+    fn the_trays_tile_is_captured_at_the_views_rate() {
+        let mut s = spaces();
+        let (view, thumbs) = s.targets(false, false, true, Pause::default(), DISPLAY);
+        assert_eq!(view.map(|v| (v.space, v.pixels)), Some(("space-1".to_string(), (400, 250))), "1280×800 inside 446×250");
+        assert!(thumbs.is_empty());
+        s.pin(Some("s1"), None);
+        let (view, thumbs) = s.targets(true, false, true, Pause::default(), DISPLAY);
+        assert_eq!(view.map(|v| v.space), Some("space-1".to_string()), "the view's own capture");
+        assert!(thumbs.is_empty());
+        s.selected = Some("space-2".into());
+        let (view, thumbs) = s.targets(true, false, true, Pause::default(), DISPLAY);
+        assert_eq!(view.map(|v| v.space), Some("space-1".to_string()));
+        assert_eq!(thumbs.into_iter().map(|t| (t.space, t.pixels)).collect::<Vec<_>>(), vec![("space-2".to_string(), (400, 250))]);
+        assert_eq!(s.targets(false, false, true, Pause { locked: true, ..Pause::default() }, DISPLAY), (None, vec![]), "never while locked");
+    }
+
+    /// #EDE-266: an ask the list does not show yet wins; the list showing it
+    /// ends the ask; a space that went drops its pick.
+    #[test]
+    fn the_trays_asks_hold_until_the_list_shows_them() {
+        let mut s = spaces();
+        s.asked.insert("space-1".into(), SpaceControl::Paused);
+        assert_eq!(s.controls()["space-1"], SpaceControl::Paused);
+        s.listed(vec![space("space-1", "s1"), space("space-2", "s2")]);
+        assert_eq!(s.controls()["space-1"], SpaceControl::Paused, "the compositor has not shown it yet");
+        let mut paused = space("space-1", "s1");
+        paused.control = ede_protocol::SpaceControl::Paused;
+        s.selected = Some("space-2".into());
+        s.listed(vec![paused]);
+        assert!(s.asked.is_empty(), "shown");
+        assert_eq!(s.controls()["space-1"], SpaceControl::Paused);
+        assert_eq!(s.selected, None, "space-2 went");
+        let tray = s.tray(&[]);
+        assert_eq!(tray.selected.map(|t| t.control), Some(SpaceControl::Paused));
     }
 }
