@@ -6,7 +6,12 @@ import { isNewTabChord, WorkTabsSync } from "@/components/team/work-tabs-sync"
 
 const location = vi.hoisted(() => ({ pathname: `/inbox`, search: {} as Record<string, unknown> }))
 const store = vi.hoisted(() => ({ state: { tabs: [] } as { tabs: unknown[] } }))
-const liveRows = vi.hoisted(() => ({ apps: [] as unknown[], devices: [] as unknown[] }))
+const liveRows = vi.hoisted(() => ({
+  apps: [] as unknown[],
+  devices: [] as unknown[],
+  repositories: [] as unknown[],
+  repositoriesReady: false,
+}))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => vi.fn(),
@@ -34,6 +39,11 @@ vi.mock(`@/lib/collections`, () => ({
   appCollection: { isReady: () => false, get: () => undefined, rows: () => liveRows.apps },
   deviceCollection: { isReady: () => false, toArray: [], rows: () => liveRows.devices },
   issueCollection: { isReady: () => false, get: () => undefined, rows: () => [] },
+  repositoryCollection: {
+    isReady: () => liveRows.repositoriesReady,
+    get: (id: string) => (liveRows.repositories as { id: string }[]).find((row) => row.id === id),
+    rows: () => liveRows.repositories,
+  },
   sessionCollection: { isReady: () => false, get: () => undefined },
   teamCollection: { get: () => undefined },
 }))
@@ -119,6 +129,8 @@ describe(`WorkTabsSync pages (#EXP-2124)`, () => {
     store.state = EMPTY_WORK_TABS
     liveRows.apps = []
     liveRows.devices = []
+    liveRows.repositories = []
+    liveRows.repositoriesReady = false
   })
 
   it(`opens Home's tab on Home`, () => {
@@ -142,6 +154,18 @@ describe(`WorkTabsSync pages (#EXP-2124)`, () => {
     visit(`/t/acme/apps/gone`).unmount()
     visit(`/devices/nope`).unmount()
     expect(keys()).toEqual([])
+  })
+
+  it(`#EXP-2171: opens a repository's page, never for another team's`, () => {
+    liveRows.repositories = [{ id: `r1`, slug: `web`, teamId: `t1`, fullName: `acme/web` }]
+    visit(`/t/acme/repos/web`).unmount()
+    visit(`/t/other/repos/web`).unmount()
+    expect(store.state.tabs).toEqual([
+      { kind: `repository`, repositoryId: `r1`, from: null, teamId: `t1`, teamSlug: `acme` },
+    ])
+    liveRows.repositories = []
+    visit(`/t/acme/repos/gone`).unmount()
+    expect(keys()).toEqual([`repository:r1`])
   })
 
   it(`lands a page opened from Home in Home's tab`, () => {

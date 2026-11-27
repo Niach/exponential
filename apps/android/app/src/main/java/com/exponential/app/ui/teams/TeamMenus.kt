@@ -14,6 +14,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.HeaderActions
+import com.exponential.app.domain.RepoPage
 import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.SidebarFolders
@@ -46,6 +47,11 @@ class TeamMenuActions(
     val onTeamSettings: (teamId: String, section: String?) -> Unit,
     val onCopyLink: (TeamTreeRow) -> Unit,
     val onArchive: (BoardEntity) -> Unit,
+    /** #EXP-2171: a repository's page, on [tab] (null = its default). */
+    val onOpenRepository: (teamId: String, repositoryId: String, tab: String?) -> Unit = { _, _, _ -> },
+    /** New chat in this repository: Home's composer with it picked. */
+    val onNewRepoChat: (teamId: String, repositoryId: String) -> Unit = { _, _ -> },
+    val onCopyCloneUrl: (TeamTreeRow) -> Unit = {},
 )
 
 /** One verb's row. */
@@ -99,6 +105,10 @@ internal fun teamRowMenu(
             "new-conversation" -> entry { SessionScreen.MenuEntry.NewConversation.send?.let { actions.onSendToAgent(id, it) } }
             "edit" -> entry { actions.onEditApp(id, false) }
             "copy-link" -> entry { actions.onCopyLink(row) }
+            "new-repo-chat" -> entry { actions.onNewRepoChat(teamId, id) }
+            "pull-requests" -> entry { actions.onOpenRepository(teamId, id, RepoPage.TAB_PULLS) }
+            "runs" -> entry { actions.onOpenRepository(teamId, id, RepoPage.TAB_RUNS) }
+            "copy-clone-url" -> entry { actions.onCopyCloneUrl(row) }
             "move" -> entry(moveItems(row, state, viewModel))
             "remove-from-sidebar" -> entry { viewModel.removeFromSidebar(teamId, id) }
             "settings" -> entry {
@@ -106,6 +116,7 @@ internal fun teamRowMenu(
                     is TeamTarget.Board -> actions.onTeamSettings(teamId, SettingsNav.BOARDS)
                     is TeamTarget.App -> actions.onEditApp(id, true)
                     is TeamTarget.Agent -> actions.onAgentSettings(id)
+                    is TeamTarget.Repository -> actions.onOpenRepository(teamId, id, RepoPage.TAB_SETTINGS)
                     else -> actions.onTeamSettings(teamId, null)
                 }
             }
@@ -201,6 +212,19 @@ internal fun rememberCopyLink(viewModel: TeamsViewModel): (TeamTreeRow) -> Unit 
         viewModel.link(row)?.let { url ->
             clipboard.setText(AnnotatedString(url))
             toaster.success(SidebarMenus.COPY.getValue("linkCopied"))
+        }
+    }
+}
+
+/** #EXP-2171 Copy clone URL: on the clipboard, `Clone URL copied`. */
+@Composable
+internal fun rememberCopyCloneUrl(viewModel: TeamsViewModel): (TeamTreeRow) -> Unit {
+    val clipboard = LocalClipboardManager.current
+    val toaster = LocalToaster.current
+    return { row ->
+        viewModel.cloneUrl(row)?.let { url ->
+            clipboard.setText(AnnotatedString(url))
+            toaster.success(SidebarMenus.COPY.getValue("cloneUrlCopied"))
         }
     }
 }

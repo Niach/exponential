@@ -570,7 +570,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["title"] as? String, C.title)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
             "chats": C.Tabs.chats, "teams": C.Tabs.teams, "assistant": C.Tabs.assistant, "new": C.Tabs.new,
-            "settings": C.Tabs.settings,
+            "more": C.Tabs.more,
         ])
         XCTAssertEqual(copy["headers"] as? [String: String], [
             "chats": C.Headers.chats, "teams": C.Headers.teams, "settings": C.Headers.settings, "devices": C.Headers.devices,
@@ -652,7 +652,8 @@ final class ChatsTests: XCTestCase {
             "chatArchived": T.chatArchived, "selectionBar": T.selectionBar, "appRow": T.appRow,
             "chatMarkTeam": T.chatMarkTeam, "chatMarkUnencrypted": T.chatMarkUnencrypted,
             "tabChats": T.tabChats, "tabTeams": T.tabTeams, "tabAssistant": T.tabAssistant, "tabNew": T.tabNew,
-            "tabSettings": T.tabSettings, "newMenu": T.newMenu, "newMenuRow": T.newMenuRow,
+            "tabMore": T.tabMore, "newMenu": T.newMenu, "newMenuRow": T.newMenuRow,
+            "moreMenu": T.moreMenu, "moreMenuRow": T.moreMenuRow,
         ])
         let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
@@ -699,7 +700,20 @@ final class ChatsTests: XCTestCase {
         }
         XCTAssertNil(Sh.phonePage("issue").tab)
         XCTAssertFalse(Sh.phonePage("issue").bar)
-        XCTAssertEqual(Sh.tabs.map(\.testId), ["tab-chats", "tab-teams", "tab-assistant", "tab-new", "tab-settings"])
+        XCTAssertEqual(Sh.tabs.map(\.testId), ["tab-chats", "tab-teams", "tab-assistant", "tab-new", "tab-more"])
+        // #EXP-2171 `moreMenu`: items, icons, badges, copy.
+        let more = try XCTUnwrap(shell["moreMenu"] as? [String: Any])
+        XCTAssertEqual(more["items"] as? [String], Sh.MoreMenu.all.map(\.rawValue))
+        XCTAssertEqual(more["icons"] as? [String: String], Dictionary(
+            uniqueKeysWithValues: Sh.MoreMenu.all.map { ($0.rawValue, $0.icon) }
+        ))
+        XCTAssertEqual(more["copy"] as? [String: String], Dictionary(
+            uniqueKeysWithValues: Sh.MoreMenu.all.map { ($0.rawValue, $0.label) }
+        ))
+        let badges = try XCTUnwrap(more["badges"] as? [String: Any])
+        for item in Sh.MoreMenu.all { XCTAssertEqual(badges[item.rawValue] as? String, item.badge, item.rawValue) }
+        XCTAssertEqual(Set(more.keys), ["items", "icons", "badges", "copy"])
+        XCTAssertEqual(Sh.MoreMenu.items(available: [.settings, .devices]), [.devices, .settings])
         let header = try XCTUnwrap(shell["header"] as? [String: Any])
         XCTAssertEqual(header["pages"] as? [String], Sh.Header.pages.map(\.rawValue))
         XCTAssertEqual(header["buttons"] as? [String], Sh.Header.buttons)
@@ -715,7 +729,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(Set(shell.keys), [
             "tabs", "tabIcons", "dock", "newMenu", "pages", "bar", "header", "boardChips", "chatHeader", "leadDisc",
             "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph",
-            "dimOpacity", "chatLead", "markGlyph", "markGap",
+            "dimOpacity", "chatLead", "markGlyph", "markGap", "moreMenu",
         ])
         XCTAssertEqual(shell["chatLead"] as? String, Chats.Shell.chatLead)
         XCTAssertEqual(shell["leadDisc"] as? Double, Chats.Shell.leadDisc)

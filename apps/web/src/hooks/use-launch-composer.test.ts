@@ -312,13 +312,30 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.blocked).toBe(true)
   })
 
-  it(`blocks a batch spanning repositories`, () => {
+  it(`#EXP-2171: a batch whose boards default to different repositories asks for one`, () => {
     mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-2`)]
     const { result } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i3`))
+    act(() => result.current.setRepoId(``))
     expect(result.current.spansRepos).toBe(true)
     expect(result.current.blocked).toBe(true)
+    act(() => result.current.setRepoId(`repo-2`))
+    expect(result.current.blocked).toBe(false)
+  })
+
+  it(`#EXP-2171: the picked repository rides an issues send only when asked for`, () => {
+    const base = {
+      teamId: `t`,
+      deviceId: `d`,
+      options: { agent: `claude` } as never,
+      text: `go`,
+      attachmentIds: [],
+      subject: { kind: `issues` as const, ids: [`i1`] },
+      repoId: `repo-1`,
+    }
+    expect(buildSendInput(base)).not.toHaveProperty(`repositoryId`)
+    expect(buildSendInput({ ...base, issuesRepoId: `repo-2` })).toMatchObject({ issueIds: [`i1`], repositoryId: `repo-2` })
   })
 
   it(`blocks without a device`, () => {

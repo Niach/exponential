@@ -84,6 +84,8 @@ describe(`routePathFromLocation`, () => {
       `/t/acme/app-editor/notes`,
       `/t/acme/new/board`,
       `/t/acme/boards/app/settings/x`,
+      `/t/acme/repos`,
+      `/t/acme/repos/web/pulls/12`,
       `/t/acme/settings/agents/a1`,
       `/t/acme/chats/t1`,
       `/t/acme/sessions/%E0%A4%A`,
@@ -122,6 +124,18 @@ describe(`routePathFromLocation`, () => {
         from: null,
       })
     }
+  })
+
+  it(`#EXP-2171: names a repository's page`, () => {
+    for (const path of [`/t/acme/repos/web`, `/t/acme/repos/web/`]) {
+      expect(routePathFromLocation(path, `x`), path).toEqual({
+        kind: `repository`,
+        teamSlug: `acme`,
+        repoSlug: `web`,
+        from: null,
+      })
+    }
+    expect(routePathFromLocation(`/t/acme/repos/%E0%A4%A`, null)).toBeNull()
   })
 
   it(`names the entity's team off the route (#EXP-2027)`, () => {
@@ -225,14 +239,30 @@ describe(`#EXP-2124: page tabs`, () => {
   const app: WorkTab = { kind: `app`, appId: `a1`, from: null, ...T }
   const device: WorkTab = { kind: `device`, deviceId: `d1`, from: null }
   const needsYou: WorkTab = { kind: `page`, page: `needs-you`, from: null }
+  const repo: WorkTab = { kind: `repository`, repositoryId: `r1`, from: null, ...T }
 
   it(`keys every page kind`, () => {
-    expect([board, app, device, needsYou].map(tabKey)).toEqual([
+    expect([board, app, device, needsYou, repo].map(tabKey)).toEqual([
       `board:b1`,
       `app:a1`,
       `device:d1`,
       `page:needs-you`,
+      `repository:r1`,
     ])
+  })
+
+  it(`#EXP-2171: opens a repository once, re-teams it, lands it from Home`, () => {
+    let s = upsertFromRoute(EMPTY_WORK_TABS, board)
+    s = upsertFromRoute(s, repo)
+    expect(keys(s)).toEqual([`board:b1`, `repository:r1`])
+    expect(upsertFromRoute(s, repo)).toBe(s)
+    expect(upsertFromRoute(s, { ...repo, teamSlug: `acme2` } as RouteTab).tabs[1]).toEqual({
+      ...repo,
+      teamSlug: `acme2`,
+    })
+    const home = state([issue(`i1`), NEW_RUN_TAB])
+    expect(keys(upsertFromRoute(home, repo, { landing: true }))).toEqual([`issue:i1`, `repository:r1`])
+    expect(keys(openTabInBackground(home, repo))).toEqual([`issue:i1`, `new`, `repository:r1`])
   })
 
   it(`opens a page once and focuses it after`, () => {
@@ -289,14 +319,21 @@ describe(`#EXP-2124: page tabs`, () => {
       params: { teamSlug: `renamed`, appSlug: `notes` },
       search: {},
     })
-    // An unknown board or app waits.
+    const repos = (id: string) => (id === `r1` ? `web` : null)
+    expect(tabHref(repo, () => null, () => null, boards, apps, repos)).toEqual({
+      to: `/t/$teamSlug/repos/$name`,
+      params: { teamSlug: `acme`, name: `web` },
+      search: {},
+    })
+    // An unknown board, app or repository waits.
+    expect(tabHref(repo, () => null, () => null, boards, apps)).toBeNull()
     expect(tabHref(board, () => null)).toBeNull()
     expect(tabHref({ ...app, appId: `a9` } as WorkTab, () => null, () => null, boards, apps)).toBeNull()
   })
 
   it(`prunes pages by the resolver, Home and the list pages never`, () => {
-    const s = state([NEW_RUN_TAB, needsYou, board, app, device])
-    const gone = new Set([`board:b1`, `app:a1`, `device:d1`])
+    const s = state([NEW_RUN_TAB, needsYou, board, app, device, repo])
+    const gone = new Set([`board:b1`, `app:a1`, `device:d1`, `repository:r1`])
     const resolves = (tab: WorkTab) =>
       tab.kind === `new` || tab.kind === `page` ? true : !gone.has(tabKey(tab))
     expect(keys(pruneTabs(s, resolves))).toEqual([`new`, `page:needs-you`])
@@ -423,6 +460,7 @@ describe(`parseWorkTabsState`, () => {
       { kind: `device`, deviceId: `d1`, from: null },
       { kind: `board`, boardId: `b1`, from: null, ...T },
       { kind: `app`, appId: `a1`, from: null, ...T },
+      { kind: `repository`, repositoryId: `r1`, from: null, ...T },
     ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
   })
@@ -434,6 +472,8 @@ describe(`parseWorkTabsState`, () => {
           tabs: [
             { kind: `board`, boardId: `b1`, from: null },
             { kind: `app`, appId: `a1`, from: null },
+            { kind: `repository`, repositoryId: `r1`, from: null },
+            { kind: `repository`, from: null, teamId: `t1` },
             { kind: `page`, page: `inbox`, from: null },
             { kind: `device`, from: null },
             { kind: `page`, page: `drafts`, from: `x` },

@@ -9,6 +9,7 @@ import {
   PhoneNewMenu,
   conceptIcon,
   useIsMobile,
+  Menu,
   type PhoneNewItem,
 } from "@exp/ui"
 import type { Board } from "@/db/schema"
@@ -28,7 +29,23 @@ const ChatsIcon = conceptIcon(CHATS_SHELL.tabIcons.chats as `nav-chats`)
 const TeamsIcon = conceptIcon(CHATS_SHELL.tabIcons.teams as `ui-team`)
 const NewIcon = conceptIcon(CHATS_SHELL.tabIcons.new as `ui-add`)
 const NewOpenIcon = conceptIcon(CHATS_SHELL.newMenu.openIcon as `ui-close`)
-const SettingsIcon = conceptIcon(CHATS_SHELL.tabIcons.settings as `nav-settings`)
+const MoreIcon = conceptIcon(CHATS_SHELL.tabIcons.more as `ui-more`)
+
+/** #EXP-2171 (chats.json `shell.moreMenu`): the More menu's rows in order,
+ *  each with its page; a row whose page this build lacks is left out (CI
+ *  arrives with #EXP-2172). */
+export const MORE_MENU_ROUTES: Partial<Record<(typeof CHATS_SHELL.moreMenu.items)[number], string>> = {
+  devices: `/devices`,
+  settings: `/settings`,
+}
+export function moreMenuRows(): { id: string; label: string; icon: string; href: string }[] {
+  const copy = CHATS_SHELL.moreMenu.copy as Record<string, string>
+  const icons = CHATS_SHELL.moreMenu.icons as Record<string, string>
+  return CHATS_SHELL.moreMenu.items.flatMap((id) => {
+    const href = MORE_MENU_ROUTES[id as keyof typeof MORE_MENU_ROUTES]
+    return href ? [{ id, label: copy[id]!, icon: icons[id]!, href }] : []
+  })
+}
 
 // Bottom padding for every scroll container that sits under the docked
 // tab bar, so list ends scroll clear of it. Detail routes hide
@@ -130,7 +147,7 @@ const NO_TEAMS: readonly string[] = []
 
 // #EXP-2109 (chats.json `shell.dock`, ×3 with iOS and Android): THE phone
 // bottom bar, docked: Chats · Teams · the Assistant · New (a popup: Issue,
-// Chat) · Settings. No active team: the Chats badge counts every team.
+// Chat) · More (#EXP-2171: THE Menu upwards: Devices, CI, Settings). No active team: the Chats badge counts every team.
 // `md:hidden`: wide keeps the sidebar.
 export function MobileTabBar() {
   const navigate = useNavigate()
@@ -241,15 +258,30 @@ export function MobileTabBar() {
           data-testid={CHATS_TEST_IDS.tabNew}
           onClick={() => setOpen((value) => !value)}
         />
-        <PhoneDockTab
-          asChild
-          label={CHATS_COPY.tabs.settings}
-          icon={<SettingsIcon />}
-          selected={!open && tab === `settings`}
-          data-testid={CHATS_TEST_IDS.tabSettings}
-        >
-          <Link to="/settings" />
-        </PhoneDockTab>
+        <Menu
+          presentation="menu"
+          side="top"
+          align="end"
+          aria-label={CHATS_COPY.tabs.more}
+          data-testid={CHATS_TEST_IDS.moreMenu}
+          entries={moreMenuRows().map((row) => ({
+            kind: `item` as const,
+            id: row.id,
+            label: row.label,
+            icon: conceptIcon(row.icon as `nav-devices`),
+            "data-testid": CHATS_TEST_IDS.moreMenuRow,
+            onSelect: () => void navigate({ to: row.href }),
+          }))}
+          trigger={
+            <PhoneDockTab
+              label={CHATS_COPY.tabs.more}
+              icon={<MoreIcon />}
+              selected={!open && tab === `more`}
+              aria-haspopup="menu"
+              data-testid={CHATS_TEST_IDS.tabMore}
+            />
+          }
+        />
       </PhoneDock>
     </div>
   )

@@ -726,6 +726,38 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(renamed?.sortOrder, 3)
     }
 
+    // #EXP-2171: a repositories row off the wire — `private` as Postgres
+    // text, `sort_order` as text, `sync` as a jsonb object.
+    func testRepositoryInsertDecodesAndPersists() async throws {
+        let json = """
+            {"id":"r1","team_id":"ws1","provider":"ecode","full_name":"acme/engine","slug":"engine",
+             "description":null,"sync":{"mode":"mirror","url":"https://github.com/acme/engine.git"},
+             "default_branch":"main","default_branch_override":null,"private":"t","inaccessible_at":null,
+             "shared_by_user_id":"u1","sort_order":"2",
+             "created_at":"2026-11-27T09:00:00Z","updated_at":"2026-11-27T09:00:00Z"}
+            """
+        let repo = try JSONDecoder().decode(RepositoryEntity.self, from: Data(json.utf8))
+        XCTAssertTrue(repo.isPrivate)
+        XCTAssertEqual(repo.sortOrder, 2)
+        XCTAssertEqual(repo.name, "engine")
+        XCTAssertEqual(repo.cloneUrl, "exp://acme/engine")
+        XCTAssertTrue(repo.sync?.contains("\"mirror\"") == true)
+        try await applyBatch(
+            messages: [.insert(key: #""public"."repositories"/"r1""#, value: repo)],
+            name: "repositories", table: "repositories", pool: pool
+        )
+        let stored = try await pool.read { try RepositoryEntity.fetchOne($0, key: "r1") }
+        XCTAssertEqual(stored, repo)
+        let partial = ShapeMessage<RepositoryEntity>.partialUpdate(
+            key: #""public"."repositories"/"r1""#,
+            columns: columns(["id": "r1", "slug": "acme-engine"])
+        )
+        try await applyBatch(messages: [partial], name: "repositories", table: "repositories", pool: pool)
+        let renamed = try await pool.read { try RepositoryEntity.fetchOne($0, key: "r1") }
+        XCTAssertEqual(renamed?.slug, "acme-engine")
+        XCTAssertEqual(renamed?.isPrivate, true)
+    }
+
     // EXP-878: an issue_drafts row off the wire — `label_ids` is a Postgres
     // uuid[] text literal (`{a,b}`), the nullable picks arrive as JSON null,
     // and the stored [String] reads back through GRDB's JSON encoding.

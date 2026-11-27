@@ -170,7 +170,7 @@ fun BoardRepoField(
             // board — an unresolved Registry id reads "Loading repository…"
             // while a list is in flight, "Repository unavailable" after.
             SelectRow(
-                label = "Repository",
+                label = "Default repository",
                 value = BoardRepoLabel.trigger(
                     selectedName = selectedName,
                     repositoryId = (selection as? BoardRepositoryChoice.Registry)?.repositoryId,
@@ -217,7 +217,7 @@ fun BoardRepoField(
     }
 
     if (repoSheet) {
-        GlassSheet(title = "Repository", onDismiss = { repoSheet = false }) {
+        GlassSheet(title = "Default repository", onDismiss = { repoSheet = false }) {
             // Lazy so a many-repos team scrolls instead of clipping the
             // connect row below the sheet fold (the GithubRepoPickerSheet
             // lesson).

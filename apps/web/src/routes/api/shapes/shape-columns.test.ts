@@ -19,6 +19,7 @@ import {
   pullRequestChecks,
   ciRuns,
   ciJobs,
+  repositories,
   pullRequestIssues,
   pullRequests,
   sessionIssues,
@@ -39,6 +40,7 @@ import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
 import { PULL_REQUEST_CHECK_COLUMNS } from "./pull-request-checks"
 import { CI_RUN_COLUMNS } from "./ci-runs"
 import { CI_JOB_COLUMNS } from "./ci-jobs"
+import { REPOSITORY_COLUMNS } from "./repositories"
 import { AGENT_COLUMNS } from "./agents"
 import { EVENT_COLUMNS } from "./events"
 import { PROMPT_COLUMNS } from "./prompts"
@@ -72,6 +74,8 @@ const lists = {
   // #EXP-1617
   ci_runs: [CI_RUN_COLUMNS, ciRuns],
   ci_jobs: [CI_JOB_COLUMNS, ciJobs],
+  // #EXP-2171
+  repositories: [REPOSITORY_COLUMNS, repositories],
   // EXP-1323
   session_reads: [SESSION_READ_COLUMNS, sessionReads],
   // NEW-2
@@ -98,6 +102,16 @@ describe(`shape column allowlists`, () => {
       Object.values(getTableColumns(table)).map((column) => column.name)
     )
     expect([...columns].filter((column) => !real.has(column))).toEqual([])
+  })
+})
+
+describe(`repositories allowlist`, () => {
+  it(`keeps the server's columns behind it (#EXP-2171)`, () => {
+    for (const column of [`provider_config`, `remote_url`, `ci_config`, `pr_sequence`, `archived_at`]) {
+      expect(REPOSITORY_COLUMNS).not.toContain(column)
+    }
+    expect(REPOSITORY_COLUMNS).toContain(`slug`)
+    expect(REPOSITORY_COLUMNS).toContain(`sync`)
   })
 })
 

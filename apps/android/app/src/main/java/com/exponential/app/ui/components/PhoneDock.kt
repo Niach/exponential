@@ -85,7 +85,7 @@ private fun tabTestTag(tab: String): String = when (tab) {
     "teams" -> Chats.TestIds.TAB_TEAMS
     "assistant" -> Chats.TestIds.TAB_ASSISTANT
     "new" -> Chats.TestIds.TAB_NEW
-    else -> Chats.TestIds.TAB_SETTINGS
+    else -> Chats.TestIds.TAB_MORE
 }
 
 /** A tab's name to assistive tech, its count included. */
@@ -104,6 +104,8 @@ fun PhoneDock(
     selected: String?,
     /** The New popup is up: its cell lights and wears `openIcon`. */
     newOpen: Boolean,
+    /** #EXP-2171: the More menu is up: its cell lights. */
+    moreOpen: Boolean = false,
     /** THE count badges (nav-badges.json), by tab: Chats, Teams, the Assistant's disc. */
     badges: Map<String, NavBadges.Badge>,
     onSelect: (tab: String) -> Unit,
@@ -136,7 +138,11 @@ fun PhoneDock(
                     DockCell(
                         tab = tab,
                         icon = if (tab == "new" && newOpen) ExpIcons.byConcept(Chats.Shell.NewMenu.OPEN_ICON) ?: ExpIcons.uiClose else tabIcon(tab),
-                        selected = if (tab == "new") newOpen else !newOpen && selected == tab,
+                        selected = when (tab) {
+                            "new" -> newOpen
+                            "more" -> moreOpen || (!newOpen && selected == tab)
+                            else -> !newOpen && !moreOpen && selected == tab
+                        },
                         badge = badges[tab] ?: NavBadges.NONE,
                         onClick = { onSelect(tab) },
                     )
@@ -144,7 +150,7 @@ fun PhoneDock(
             }
         }
         AssistantDisc(
-            selected = !newOpen && selected == "assistant",
+            selected = !newOpen && !moreOpen && selected == "assistant",
             badge = badges["assistant"] ?: NavBadges.NONE,
             onClick = { onSelect("assistant") },
             modifier = Modifier.align(Alignment.TopCenter),
@@ -267,6 +273,70 @@ fun PhoneNewMenu(
     insetBottom: Dp? = null,
 ) {
     val menu = Chats.Shell.NewMenu
+    PhoneDockMenu(
+        tab = "new",
+        items = menu.ITEMS.map { item ->
+            PhoneDockMenuItem(item, Chats.Copy.NEW_MENU.getValue(item), menu.ICONS.getValue(item), enabled = item != "issue" || issueEnabled)
+        },
+        testTag = Chats.TestIds.NEW_MENU,
+        rowTestTag = Chats.TestIds.NEW_MENU_ROW,
+        onPick = onPick,
+        onDismiss = onDismiss,
+        modifier = modifier,
+        insetBottom = insetBottom,
+    )
+}
+
+/**
+ * #EXP-2171 (chats.json `shell.moreMenu`): the More tab's menu, opened UPWARDS
+ * over its cell like New's: [Chats.Shell.MoreMenu.ITEMS] in order, each its
+ * glyph and label and its destination's count badge ([badges], by item).
+ */
+@Composable
+fun PhoneMoreMenu(
+    onPick: (item: String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    badges: Map<String, NavBadges.Badge> = emptyMap(),
+    insetBottom: Dp? = null,
+) {
+    val menu = Chats.Shell.MoreMenu
+    PhoneDockMenu(
+        tab = "more",
+        items = menu.ITEMS.map { item ->
+            PhoneDockMenuItem(item, menu.COPY.getValue(item), menu.ICONS.getValue(item), badge = badges[item] ?: NavBadges.NONE)
+        },
+        testTag = Chats.TestIds.MORE_MENU,
+        rowTestTag = Chats.TestIds.MORE_MENU_ROW,
+        onPick = onPick,
+        onDismiss = onDismiss,
+        modifier = modifier,
+        insetBottom = insetBottom,
+    )
+}
+
+/** One row of a dock menu: [icon] = a concept name. */
+data class PhoneDockMenuItem(
+    val id: String,
+    val label: String,
+    val icon: String,
+    val enabled: Boolean = true,
+    val badge: NavBadges.Badge = NavBadges.NONE,
+)
+
+/** A dock cell's glass menu, `newMenu`'s geometry, centred over [tab]'s cell. */
+@Composable
+private fun PhoneDockMenu(
+    tab: String,
+    items: List<PhoneDockMenuItem>,
+    testTag: String,
+    rowTestTag: String,
+    onPick: (item: String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    insetBottom: Dp? = null,
+) {
+    val menu = Chats.Shell.NewMenu
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -279,7 +349,7 @@ fun PhoneNewMenu(
             },
     ) {
         val cell = maxWidth / Chats.Shell.TABS.size
-        val centre = cell * Chats.Shell.TABS.indexOf("new") + cell / 2
+        val centre = cell * Chats.Shell.TABS.indexOf(tab) + cell / 2
         val left = (centre - menu.WIDTH.dp / 2).coerceIn(8.dp, (maxWidth - menu.WIDTH.dp - 8.dp).coerceAtLeast(8.dp))
         val shape = RoundedCornerShape(menu.RADIUS.dp)
         Column(
@@ -293,32 +363,33 @@ fun PhoneNewMenu(
                 .background(GlassMenuDefaults.ContainerColor)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
                 .padding(6.dp)
-                .testTag(Chats.TestIds.NEW_MENU),
+                .testTag(testTag),
         ) {
-            menu.ITEMS.forEach { item ->
-                val enabled = item != "issue" || issueEnabled
+            items.forEach { item ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(menu.ROW_HEIGHT.dp)
-                        .alpha(if (enabled) 1f else TextEmphasis.Tertiary)
-                        .testTag("${Chats.TestIds.NEW_MENU_ROW}-$item")
-                        .clickable(enabled = enabled) { onPick(item) }
+                        .alpha(if (item.enabled) 1f else TextEmphasis.Tertiary)
+                        .testTag("$rowTestTag-${item.id}")
+                        .clickable(enabled = item.enabled) { onPick(item.id) }
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Icon(
-                        ExpIcons.byConcept(menu.ICONS.getValue(item)) ?: ExpIcons.uiAdd,
+                        ExpIcons.byConcept(item.icon) ?: ExpIcons.uiAdd,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                         tint = GlassMenuDefaults.TextColor,
                     )
                     Text(
-                        Chats.Copy.NEW_MENU.getValue(item),
+                        item.label,
                         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, letterSpacing = 0.sp),
                         color = GlassMenuDefaults.TextColor,
+                        modifier = Modifier.weight(1f),
                     )
+                    CountBadge(item.badge)
                 }
             }
         }

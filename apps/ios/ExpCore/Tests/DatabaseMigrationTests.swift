@@ -149,7 +149,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_repositories"]
         )
     }
 
@@ -220,7 +221,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_repositories"]
         )
     }
 
@@ -763,7 +765,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_repositories"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -882,7 +885,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_repositories"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1830,7 +1834,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "issue_events", "issue_statuses",
                       "issue_drafts", "sessions", "session_issues", "messages",
                       "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
-                      "sidebar_layout", "electric_offsets"] {
+                      "sidebar_layout", "repositories", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1991,6 +1995,13 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "sidebar_layout"),
             ["id", "user_id", "team_id", "section", "kind", "target_id", "parent_id", "name",
              "sort_order", "created_at", "updated_at"]
+        )
+        // #EXP-2171: the repositories allowlist, column for column.
+        XCTAssertEqual(
+            try columnNames(pool, "repositories"),
+            ["id", "team_id", "provider", "full_name", "slug", "description", "sync", "default_branch",
+             "default_branch_override", "private", "inaccessible_at", "shared_by_user_id", "sort_order",
+             "created_at", "updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),

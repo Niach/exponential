@@ -59,7 +59,6 @@ import {
   installationDrifted,
   isForeignKeyViolation,
   issueBranchName,
-  repoInUseMessage,
   resolveGatedRepoToken,
 } from "@/lib/trpc/repositories"
 import {
@@ -99,13 +98,6 @@ describe(`isForeignKeyViolation`, () => {
     expect(isForeignKeyViolation(new Error(`boom`))).toBe(false)
     expect(isForeignKeyViolation(null)).toBe(false)
     expect(isForeignKeyViolation(undefined)).toBe(false)
-  })
-})
-
-describe(`repoInUseMessage`, () => {
-  it(`pluralizes the board count`, () => {
-    expect(repoInUseMessage(1)).toContain(`1 board.`)
-    expect(repoInUseMessage(3)).toContain(`3 boards.`)
   })
 })
 

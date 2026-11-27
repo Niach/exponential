@@ -45,6 +45,20 @@ object RepoPage {
             const val CREATE = "Create"
         }
 
+        /** #EXP-2171 `copy.new`: the New › Repository page. */
+        object New {
+            const val TITLE = "New repository"
+            const val HOSTED = "Host on Exponential"
+            const val HOSTED_HINT = "Git hosted by Exponential. Nothing else to set up."
+            const val GITHUB = "Link from GitHub"
+            const val GITHUB_HINT = "The code stays on GitHub."
+            const val DESCRIPTION = "Description"
+            const val RUN_CI = "Run CI"
+            const val CREATE = "Create repository"
+            const val LINK = "Link repository"
+            const val CONNECT_GITHUB = "Connect GitHub"
+        }
+
         object Pulls {
             const val EMPTY = "No open pull requests"
         }
@@ -69,6 +83,8 @@ object RepoPage {
             const val RESTORE_CONFIRM = "Restore"
             const val MIRROR = "Mirror"
             const val MIRROR_URL = "Mirror URL"
+            /** #EXP-2171: the managers' last row, behind remove-repository. */
+            const val REMOVE = "Remove repository"
         }
 
         data class Check(val label: String, val tone: String)

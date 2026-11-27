@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -98,6 +99,8 @@ import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.treeGuides
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.repo.ChecksPill
+import com.exponential.app.domain.RepoPage
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.onboarding.TeamSetupSheet
 import com.exponential.app.ui.theme.TextEmphasis
@@ -141,6 +144,12 @@ fun TeamsScreen(
     onOpenTeamSettings: (teamId: String, section: String?) -> Unit,
     /** Getting started's "Start a run". */
     onOpenComposer: () -> Unit,
+    /** #EXP-2171: a repository's page ([tab] null = its default). */
+    onOpenRepository: (teamId: String, repositoryId: String, tab: String?) -> Unit = { _, _, _ -> },
+    /** New chat in this repository: the composer with team + repository picked. */
+    onNewRepoChat: (teamId: String, repositoryId: String) -> Unit = { _, _ -> },
+    /** New › Repository: its creation page. */
+    onNewRepository: (teamId: String) -> Unit = {},
     chats: ChatsViewModel,
     viewModel: TeamsViewModel = hiltViewModel(),
 ) {
@@ -172,6 +181,7 @@ fun TeamsScreen(
             is TeamTarget.Agent -> onOpenAgent(row.row.id, conversations[row.row.id])
             is TeamTarget.App -> onRunApp(row.row.id)
             is TeamTarget.Session -> onOpenChat(row.row.id)
+            is TeamTarget.Repository -> onOpenRepository(row.team.id, row.row.id, null)
             null -> viewModel.toggle(row)
         }
     }
@@ -183,6 +193,7 @@ fun TeamsScreen(
                 SidebarTree.Kind.Agent.wire -> onNewAgent(teamId)
                 SidebarTree.Kind.App.wire -> viewModel.createApp(teamId) { onEditApp(it, false) }
                 SidebarTree.Kind.Board.wire -> createBoard = teamId
+                SidebarTree.Kind.Repository.wire -> onNewRepository(teamId)
             }
         },
         onNewIssue = onNewIssue,
@@ -192,6 +203,9 @@ fun TeamsScreen(
         onTeamSettings = onOpenTeamSettings,
         onCopyLink = rememberCopyLink(viewModel),
         onArchive = { archiving = it },
+        onOpenRepository = onOpenRepository,
+        onNewRepoChat = onNewRepoChat,
+        onCopyCloneUrl = rememberCopyCloneUrl(viewModel),
     )
 
     // A link to a team: it unfolds and the list scrolls to it.
@@ -331,7 +345,7 @@ internal fun leafBadges(
 
 /** The active account's tree: one glass group, no hairlines, tree guides. */
 @Composable
-private fun TeamsTree(
+internal fun TeamsTree(
     state: TeamsState,
     needsYou: Map<String, Int>,
     badgeOf: (leafId: String) -> NavBadges.Badge,
@@ -388,6 +402,7 @@ private fun TeamsTree(
                                 CountBadge(state.groupBadge(row.row, needsYou, badgeOf), testTag = "team-folder-badge")
                                 FoldChevron(row, showCount = true)
                             }
+                            row.target is TeamTarget.Repository -> RepositoryTrailing(row.target)
                             else -> CountBadge(badgeOf(row.row.id), testTag = "team-item-badge")
                         }
                     },
@@ -395,6 +410,23 @@ private fun TeamsTree(
                 )
             }
         }
+    }
+}
+
+/** #EXP-2171 (sidebar-tree.json `repositoryRow`): a repository row's trailing
+ *  side on a phone: its checks dot alone, else a GitHub repository's mark,
+ *  else nothing. */
+@Composable
+private fun RepositoryTrailing(target: TeamTarget.Repository) {
+    val trailing = SidebarTree.repositoryTrailing(target.repository.provider, target.checks) ?: return
+    when (trailing.kind) {
+        "checks" -> trailing.state?.let { ChecksPill(it, dotOnly = true) }
+        else -> Icon(
+            ExpIcons.byConcept(SidebarTree.REPOSITORY_GITHUB_ICON) ?: ExpIcons.uiGithub,
+            contentDescription = RepoPage.Copy.Provider.GITHUB,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.size(14.dp).testTag("team-repository-github"),
+        )
     }
 }
 
@@ -493,6 +525,12 @@ private fun RowLead(row: TeamTreeRow, mark: SessionTree.SessionState?) {
         is TeamTarget.Board -> BoardIcon(target.board, size = RowGlyph)
         is TeamTarget.Agent -> AgentGlyph(icon = target.agent.icon, color = target.agent.color, size = RowGlyph)
         is TeamTarget.App -> AppGlyph(target.app.icon, target.app.color, size = RowGlyph)
+        is TeamTarget.Repository -> Icon(
+            ExpIcons.byConcept(SidebarTree.REPOSITORY_GLYPH) ?: ExpIcons.settingsRepositories,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.size(RowGlyph),
+        )
         is TeamTarget.Session -> AgentRunMark(
             agent = target.session.cli,
             state = mark ?: SessionTree.SessionState.Idle,

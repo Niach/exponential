@@ -42,6 +42,8 @@ pub enum NewItemKind {
     Board,
     Agent,
     App,
+    /// #EXP-2171: New › Repository (repo-page.json NEW › REPOSITORY).
+    Repository,
 }
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -77,6 +79,10 @@ pub enum Screen {
     /// #EXP-2027: a device's SETTINGS page (the old Device settings dialog's
     /// body), opened from its row's hover gear and the page's Settings.
     DeviceSettings { device_id: String },
+    /// #EXP-2171 (sidebar-menus.json `tabs.pages`): one REPOSITORY's page
+    /// (repo-page.json; web `/t/$teamSlug/repos/$slug`) as a work tab,
+    /// opened from its sidebar row.
+    Repository { repository_id: String },
     /// #EXP-2027: a team menu's New › Board | Agent | App: the creation
     /// PAGE of `kind` in `team_id` (never a dialog; New › Session is Home
     /// with the team as its Teams pick).
@@ -215,6 +221,7 @@ impl Screen {
                 | Screen::Chats
                 | Screen::Drafts
                 | Screen::Device { .. }
+                | Screen::Repository { .. }
                 | Screen::BoardIssues { .. }
                 | Screen::AppRun { .. }
                 | Screen::App { .. }
@@ -413,6 +420,11 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::SourceControl => "Source Control".into(),
         Screen::Device { device_id } => crate::device_page::device_title(device_id, cx),
         Screen::DeviceSettings { .. } => domain::sidebar_tree::sidebar_tree_copy().device_settings.clone().into(),
+        Screen::Repository { repository_id } => Store::global(cx)
+            .collections()
+            .repository(repository_id, cx)
+            .map(|repo| gpui::SharedString::from(domain::sidebar_tree::repository_name(&repo.full_name).to_string()))
+            .unwrap_or_else(|| domain::sidebar_tree::sidebar_tree_copy().repository.clone().into()),
         Screen::NewItem { kind, .. } => crate::new_item_page::new_item_title(*kind).into(),
         Screen::Drafts => "Drafts".into(),
         Screen::NeedsYou => domain::needs_you::NEEDS_YOU.copy.entry.clone().into(),
@@ -496,6 +508,9 @@ pub(crate) struct ChatSeed {
     pub(crate) text: Option<String>,
     /// #EXP-2027: a team menu's New › Session: the composer's Teams pick.
     pub(crate) team_id: Option<String>,
+    /// #EXP-2171: a repository row's New chat in this repository: the
+    /// composer's repository pick (coding-readiness.json `chatRepo`).
+    pub(crate) repository_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -965,10 +980,13 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("device-settings:") {
                 return Some(Screen::DeviceSettings { device_id: id.to_string() });
             }
+            if let Some(id) = spec.strip_prefix("repository:") {
+                return Some(Screen::Repository { repository_id: id.to_string() });
+            }
             if let Some(id) = spec.strip_prefix("device:") {
                 return Some(Screen::Device { device_id: id.to_string() });
             }
-            for (prefix, kind) in [("new-board:", NewItemKind::Board), ("new-agent:", NewItemKind::Agent), ("new-app:", NewItemKind::App)] {
+            for (prefix, kind) in [("new-board:", NewItemKind::Board), ("new-agent:", NewItemKind::Agent), ("new-app:", NewItemKind::App), ("new-repository:", NewItemKind::Repository)] {
                 if let Some(team_id) = spec.strip_prefix(prefix) {
                     return Some(Screen::NewItem { team_id: team_id.to_string(), kind });
                 }
@@ -1441,6 +1459,12 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
 /// composer with that team as its Teams pick.
 pub fn open_home_in_team(window: &mut Window, cx: &mut App, team_id: String) {
     navigate_to_chat(window, cx, ChatSeed { team_id: Some(team_id), ..Default::default() });
+}
+
+/// #EXP-2171: New chat in this repository: Home's composer in the
+/// repository's team with it picked.
+pub(crate) fn open_home_with_repository(window: &mut Window, cx: &mut App, team_id: String, repository_id: String) {
+    navigate_to_chat(window, cx, ChatSeed { team_id: Some(team_id), repository_id: Some(repository_id), ..Default::default() });
 }
 
 pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {
@@ -2239,6 +2263,7 @@ pub(crate) fn team_of_screen(screen: &Screen, nav: &Entity<Navigation>, cx: &App
         Screen::Chat { session_id } | Screen::Session { session_id } => crate::session_data::session(session_id, cx).and_then(|session| session.team_id),
         Screen::Settings => nav.read(cx).settings_team.clone(),
         Screen::NewItem { team_id, .. } => Some(team_id.clone()),
+        Screen::Repository { repository_id } => collections.repository(repository_id, cx).map(|repo| repo.team_id),
         _ => None,
     }
 }

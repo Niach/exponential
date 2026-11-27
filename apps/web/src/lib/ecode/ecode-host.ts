@@ -7,7 +7,7 @@
 import { and, eq, sql } from "drizzle-orm"
 import type { TrainCheck } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
-import { commitChecks, pullRequests, repositories } from "@/db/schema"
+import { commitChecks, pullRequests, repositories, type RepositorySync } from "@/db/schema"
 import type { ForgeCredentials, ForgeRepo } from "@/lib/ecode/forge"
 import type { EcodeEvent, EcodeHost, EcodePr } from "@/lib/ecode/forge-ecode"
 import { HEADS, compareAndSwapRefs, listRefs } from "@/lib/ecode/git-store"
@@ -20,6 +20,7 @@ interface RepoFacts {
   fullName: string
   defaultBranch: string
   providerConfig: Record<string, unknown>
+  sync: RepositorySync
 }
 
 async function facts(repo: ForgeRepo): Promise<RepoFacts> {
@@ -30,6 +31,7 @@ async function facts(repo: ForgeRepo): Promise<RepoFacts> {
       fullName: repositories.fullName,
       defaultBranch: sql<string>`coalesce(${repositories.defaultBranchOverride}, ${repositories.defaultBranch})`,
       providerConfig: repositories.providerConfig,
+      sync: repositories.sync,
     })
     .from(repositories)
     .where(eq(repositories.id, repo.id))
@@ -54,10 +56,10 @@ async function rowId(repo: ForgeRepo, number: number): Promise<string | null> {
   return row?.id ?? null
 }
 
-/** The mirror settings in `provider_config` (`mirrorUrl`, off when unset). */
-export function mirrorOf(config: Record<string, unknown>): { url: string } | null {
-  const url = typeof config.mirrorUrl === `string` ? config.mirrorUrl.trim() : ``
-  return url && config.mirrorEnabled !== false ? { url } : null
+/** The mirror (#EXP-2171: `repositories.sync`, mode `mirror` with a URL). */
+export function mirrorOf(sync: RepositorySync | null | undefined): { url: string } | null {
+  const url = sync?.url?.trim() ?? ``
+  return url && sync?.mode === `mirror` ? { url } : null
 }
 
 /** The mirror push (every branch and tag, forced, pruned), when the repo
@@ -65,7 +67,7 @@ export function mirrorOf(config: Record<string, unknown>): { url: string } | nul
 function queueMirror(repo: ForgeRepo): void {
   void (async () => {
     const repoFacts = await facts(repo)
-    const mirror = mirrorOf(repoFacts.providerConfig)
+    const mirror = mirrorOf(repoFacts.sync)
     if (!mirror) return
     const { mirrorJob } = await import(`@/lib/ecode/mirror`)
     await queueMaintenance(repoFacts, await mirrorJob(mirror.url))

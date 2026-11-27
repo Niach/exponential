@@ -39,6 +39,7 @@ import {
   selectNotificationSchema,
   selectSidebarLayoutSchema,
   selectBoardSchema,
+  selectSyncedRepositorySchema,
   selectUserSchema,
   selectTeamInviteSchema,
   selectTeamMemberSchema,
@@ -464,6 +465,18 @@ export const ciRunCollection = createCollection(
     id: `ci_runs`,
     shapeOptions: shapeOptions(`/api/shapes/ci-runs`),
     schema: selectCiRunSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #EXP-2171: the team's repositories (the 34th shape: the sidebar's item
+// kind, the repo page by slug); the server's columns stay behind its
+// allowlist.
+export const repositoryCollection = createCollection(
+  electricCollectionOptions({
+    id: `repositories`,
+    shapeOptions: shapeOptions(`/api/shapes/repositories`),
+    schema: selectSyncedRepositorySchema,
     getKey: (item) => item.id,
   })
 )

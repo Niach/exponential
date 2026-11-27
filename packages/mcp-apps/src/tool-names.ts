@@ -49,7 +49,7 @@ export const NOUN_READ_OPS: Readonly<Record<string, readonly string[]>> = {
   attachments: [`list`, `get`],
   teams: [`list`, `get`],
   people: [`list`, `invites_list`],
-  repositories: [`list`],
+  repositories: [`list`, `runs`, `run_log`],
   devices: [`list`],
   agents: [`list`, `get`],
   prompts: [`list`, `get`],

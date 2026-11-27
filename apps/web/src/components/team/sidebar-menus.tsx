@@ -134,8 +134,18 @@ export function SidebarPointerMenu({
   )
 }
 
-/** Chat › New: Home's composer with the team as its Teams pick. */
-export const newSessionHref = (teamId: string) => `/home?team=${encodeURIComponent(teamId)}`
+/** Chat › New: Home's composer with the team as its Teams pick (#EXP-2171:
+ *  and a repository row's repository picked). */
+export const newSessionHref = (teamId: string, repositoryId?: string) =>
+  `/home?team=${encodeURIComponent(teamId)}${repositoryId ? `&repo=${encodeURIComponent(repositoryId)}` : ``}`
+
+/** #EXP-2171 Copy clone URL: the remote on the clipboard, then the toast. */
+export function copyCloneUrl(url: string) {
+  void navigator.clipboard
+    .writeText(url)
+    .then(() => toast.success(SIDEBAR_MENU_COPY.cloneUrlCopied))
+    .catch(() => undefined)
+}
 
 /** THE New list of a team (`sidebarNewKinds`): the team menu's New › and the
  *  new-tab menu's team submenu alike. */

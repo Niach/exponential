@@ -100,7 +100,10 @@ final class PromptsTests: XCTestCase {
             "Remove \"Acme build server\" from this team?"
         )
         XCTAssertNil(Prompts.StopRun.copy().body)
-        XCTAssertNil(Prompts.RemoveRepository.copy(fullName: "a/b").body)
+        XCTAssertEqual(
+            Prompts.RemoveRepository.copy(fullName: "a/b").body,
+            "Its pull requests and runs go with it. Boards that use it as their default repository keep none."
+        )
     }
 
     // A value is inserted verbatim in ONE pass: a user-typed name holding

@@ -468,7 +468,7 @@ private struct ChangeRepositorySheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: "Repository") {
+        GlassSheetChrome(title: "Default repository") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(board.name)
                     .font(.caption)
