@@ -194,14 +194,20 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         after?: string
         deleted?: boolean
         repository?: { full_name?: string; default_branch?: string; pushed_at?: number | string }
-        head_commit?: { timestamp?: string } | null
+        head_commit?: { timestamp?: string; message?: string } | null
         installation?: { id?: number }
       }
       const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
       const fullName = payload.repository?.full_name
       // #EXP-1617: our own CI plans `push` / `tag` / `merge_train` runs.
       if (fullName && payload.ref) {
-        onForgePush({ fullName, ref: payload.ref, sha: payload.after ?? null, deleted: payload.deleted === true })
+        onForgePush({
+          fullName,
+          ref: payload.ref,
+          sha: payload.after ?? null,
+          deleted: payload.deleted === true,
+          title: payload.head_commit?.message ?? null,
+        })
       }
       if (branch && fullName && !payload.deleted && branch !== payload.repository?.default_branch) {
         // #EXP-1540: the same full name may be registered by several teams;

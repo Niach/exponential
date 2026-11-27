@@ -26,6 +26,7 @@ export const CI_RUN_COLUMNS = [
   `external_url`,
   `external_attempt`,
   `external_access`,
+  `title`,
   `created_at`,
   `updated_at`,
 ]
