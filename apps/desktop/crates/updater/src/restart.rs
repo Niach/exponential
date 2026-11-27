@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn a_refused_build_restarts_at_once_whatever_runs() {
-        let seen = Observed { required: true, working: true, unresumable: true, typed_ago: Some(SEC), engaged: true };
+        let seen = Observed { required: true, working: true, unresumable: true, typed_ago: Some(SEC), engaged: true, ci_left: Some(MIN) };
         assert_eq!(run(|_| seen).0, Duration::ZERO);
     }
 
