@@ -68,6 +68,9 @@ export function CiPageView({
         if (pr) onOpenPullRequest(pr)
         return
       }
+      case CI_PAGE_EVENTS.runners:
+        onTab(`runners`)
+        return
       case CI_PAGE_EVENTS.openRunner: {
         const device = context(`device`)
         if (device) onOpenRunner(device)

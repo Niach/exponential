@@ -17,6 +17,7 @@ export function replayCiRun(c: Json): unknown {
     now: c.now as string,
     phone: c.phone === true,
     busy: (c.busy as CiRunBusy) ?? null,
+    jobOpen: c.jobOpen === true,
   })
 }
 

@@ -1,32 +1,27 @@
 import type { NestedNode } from "@exponential_app/eui"
-import type { CheckTone } from "@exp/domain-contract/pr-checks"
 import {
   CI_PAGE_COPY,
   CI_PAGE_TEST_IDS,
-  ciPageTiles,
+  CI_STATUS_TONES,
   ciRepoOptions,
-  ciRunList,
+  ciRunGroups,
+  ciRunnerChip,
   ciRunnerRows,
   ciTabCounts,
   ciTrainGroups,
   type CiPageInput,
   type CiRunFilter,
+  type CiRunListRow,
   type CiTab,
   type CiTrainGroup,
 } from "@exp/domain-contract/ci-page"
 
-// #EXP-2172 (fixtures/ci-page.json, pinned by fixtures/ci-page-view.json):
-// THE CI page as ONE genUI tree, painted by `<ExponentialSurface>` here and
-// by the desktop, iOS and Android renderers from the same builder (each
-// mirrors this file node for node). Every rule comes from
-// `@exp/domain-contract/ci-page`; this file only lays the page out. The
-// platform adds its own page chrome (title, back) around the tree.
-
-const ICON_TONE: Record<CheckTone, `neutral` | `success` | `danger`> = {
-  muted: `neutral`,
-  green: `success`,
-  red: `danger`,
-}
+// #EXP-2172 (fixtures/ci-page.json, pinned by fixtures/ci-page-view.json;
+// the approved redesign of session 64abb994): THE CI page as ONE genUI tree,
+// painted by `<ExponentialSurface>` here and by the desktop, iOS and Android
+// renderers from the same builder (each mirrors this file node for node).
+// Every rule comes from `@exp/domain-contract/ci-page`; this file only lays
+// the page out. The platform adds its own page chrome (title, back).
 
 /** Events the page's tree fires. Context keys: `run`, `pr`, `device`; the
  *  pickers and tabs carry the control's own `value`. */
@@ -38,6 +33,7 @@ export const CI_PAGE_EVENTS = {
   openRun: `ci-open-run`,
   openPr: `ci-open-pr`,
   openRunner: `ci-open-runner`,
+  runners: `ci-open-runners`,
 } as const
 
 export interface CiPageState {
@@ -46,17 +42,19 @@ export interface CiPageState {
   phone: boolean
 }
 
+const TRAIN_TONE = { "ci-running": CI_STATUS_TONES.running.tone, "ci-queued": `neutral`, "ci-skipped": `neutral`, "ci-failed": `danger`, "ci-passed": `success` } as const
+
 function trainSection(group: CiTrainGroup, id: string): NestedNode {
   return {
     id,
     component: `Section`,
-    props: { title: CI_PAGE_COPY.trainSection, caption: `${group.title} · ${group.caption}`, icon: `pr-batch` },
+    props: { title: group.title, caption: group.caption, icon: `pr-batch` },
     children: group.rows.map((row) => ({
       id: `${CI_PAGE_TEST_IDS.trainRow}.${row.id}`,
       component: `Row`,
       props: { identifier: row.identifier, title: row.title, ...(row.subtitle ? { subtitle: row.subtitle } : {}), pressable: true },
       slots: {
-        leading: { id: `${CI_PAGE_TEST_IDS.trainRow}.${row.id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: `neutral`, size: `sm` } },
+        leading: { id: `${CI_PAGE_TEST_IDS.trainRow}.${row.id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: TRAIN_TONE[row.glyph], size: `sm` } },
         trailing: { id: `${CI_PAGE_TEST_IDS.trainRow}.${row.id}.badge`, component: `Badge`, props: { text: row.badge, variant: `secondary` } },
       },
       on: { press: { event: { name: CI_PAGE_EVENTS.openPr, context: { pr: row.pullRequestId } } } },
@@ -98,6 +96,15 @@ function filters(input: CiPageInput, state: CiPageState): NestedNode {
     },
     on: { change: { event: { name: CI_PAGE_EVENTS.source } } },
   }
+  const chip = ciRunnerChip(input)
+  const runners: NestedNode | null = chip
+    ? {
+        id: CI_PAGE_TEST_IDS.runnerChip,
+        component: `Chip`,
+        props: { label: chip.label, dot: chip.online ? `$color.success` : `$color.mutedForeground`, pressable: true },
+        on: { press: { event: { name: CI_PAGE_EVENTS.runners } } },
+      }
+    : null
   if (state.phone) {
     return {
       id: CI_PAGE_TEST_IDS.filters,
@@ -106,78 +113,77 @@ function filters(input: CiPageInput, state: CiPageState): NestedNode {
       children: [status, { id: `${CI_PAGE_TEST_IDS.filters}.picks`, component: `Toolbar`, children: [repository, source] }],
     }
   }
-  return { id: CI_PAGE_TEST_IDS.filters, component: `Toolbar`, children: [status, repository, source] }
+  return {
+    id: CI_PAGE_TEST_IDS.filters,
+    component: `Toolbar`,
+    children: [status, repository, source],
+    ...(runners ? { slots: { trailing: runners } } : {}),
+  }
+}
+
+/** One run's row. Wide: title, subtitle, trailing duration · age, the
+ *  source mark (tooltip) and the author; phones: meta = duration | queued. */
+function runRow(row: CiRunListRow, phone: boolean): NestedNode {
+  const id = `${CI_PAGE_TEST_IDS.runRow}.${row.id}`
+  const leading: NestedNode = { id: `${id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: row.tone, size: `sm` } }
+  const press = { press: { event: { name: CI_PAGE_EVENTS.openRun, context: { run: row.id } } } }
+  if (phone) {
+    return { id, component: `Row`, props: { title: row.title, subtitle: row.phoneSubtitle, meta: row.phoneMeta, pressable: true }, slots: { leading }, on: press }
+  }
+  const age = { "@call": `formatRelativeTime`, args: { value: row.at } }
+  const meta = row.duration
+    ? { "@call": `fill`, args: { template: `{duration} · {age}`, params: { duration: row.duration, age } } }
+    : { "@call": `fill`, args: { template: `{queued} · {age}`, params: { queued: CI_PAGE_COPY.waitingForRunner, age } } }
+  const trailing: NestedNode[] = [
+    { id: `${id}.meta`, component: `Text`, props: { text: meta, variant: `muted` } },
+    {
+      id: `${id}.source`,
+      component: `Tooltip`,
+      props: { content: row.sourceLabel },
+      children: [{ id: `${id}.source.icon`, component: `Icon`, props: { name: row.sourceIcon, size: `sm`, tone: `neutral`, label: row.sourceLabel } }],
+    },
+  ]
+  if (row.author) {
+    trailing.push({
+      id: `${id}.author`,
+      component: `Avatar`,
+      props: { name: row.author.name, ...(row.author.image ? { src: row.author.image } : {}), seed: row.author.id, size: `sm` },
+    })
+  }
+  return {
+    id,
+    component: `Row`,
+    props: { title: row.title, subtitle: row.subtitle, pressable: true },
+    slots: {
+      leading,
+      trailing: { id: `${id}.trailing`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: trailing },
+    },
+    on: press,
+  }
 }
 
 function runsPanel(input: CiPageInput, state: CiPageState): NestedNode {
   const copy = CI_PAGE_COPY
-  const rows = ciRunList(input, state.filter)
+  const groups = ciRunGroups(input, state.filter)
   const children: NestedNode[] = [filters(input, state)]
-  ciTrainGroups(input, false).forEach((group) => children.push(trainSection(group, `${CI_PAGE_TEST_IDS.train}.${group.repositoryId}`)))
   const filtered = state.filter.status !== `all` || state.filter.repositoryId !== null || state.filter.source !== null
-  if (rows.length === 0) {
+  if (groups.length === 0) {
     children.push({
       id: CI_PAGE_TEST_IDS.runs,
       component: `EmptyState`,
       props: { icon: `nav-ci`, title: filtered ? copy.empty.filtered : copy.empty.runs, size: `list` },
     })
-  } else if (state.phone) {
-    children.push({
-      id: CI_PAGE_TEST_IDS.runs,
-      component: `Section`,
-      props: { title: copy.runsSection },
-      children: rows.map((row) => ({
-        id: `${CI_PAGE_TEST_IDS.runRow}.${row.id}`,
-        component: `Row`,
-        props: { title: row.title, subtitle: row.subtitle, ...(row.duration ? { meta: row.duration } : {}), pressable: true },
-        slots: { leading: { id: `${CI_PAGE_TEST_IDS.runRow}.${row.id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: ICON_TONE[row.tone], size: `sm` } } },
-        on: { press: { event: { name: CI_PAGE_EVENTS.openRun, context: { run: row.id } } } },
-      })),
-    })
   } else {
-    const c = copy.columns
     children.push({
       id: CI_PAGE_TEST_IDS.runs,
-      component: `Table`,
-      props: {
-        columns: [
-          { key: `status`, label: c.status, type: `slot`, slot: `status`, width: 120 },
-          { key: `run`, label: c.run },
-          { key: `repository`, label: c.repository },
-          { key: `source`, label: c.source, type: `badge` },
-          { key: `ref`, label: c.ref, truncate: true },
-          { key: `trigger`, label: c.trigger },
-          { key: `duration`, label: c.duration, align: `end`, width: 96 },
-          { key: `started`, label: c.started, type: `relativeTime`, width: 140 },
-        ],
-        rows: rows.map((row) => ({
-          id: row.id,
-          status: row.statusLabel,
-          glyph: row.glyph,
-          tone: ICON_TONE[row.tone],
-          run: row.title,
-          repository: row.repository,
-          source: row.sourceLabel,
-          ref: row.ref,
-          trigger: row.trigger,
-          duration: row.duration ?? ``,
-          started: row.startedAt ?? ``,
-        })),
-        rowKey: `id`,
-      },
-      slots: {
-        status: {
-          id: `${CI_PAGE_TEST_IDS.runs}.status`,
-          component: `Stack`,
-          props: { direction: `horizontal`, gap: `xs`, align: `center` },
-          children: [
-            { id: `${CI_PAGE_TEST_IDS.runs}.status.glyph`, component: `Icon`, props: { name: { "@path": `glyph` }, tone: { "@path": `tone` }, size: `sm` } },
-            { id: `${CI_PAGE_TEST_IDS.runs}.status.label`, component: `Text`, props: { text: { "@path": `status` } } },
-          ],
-        },
-      },
-      // The pressed row's id (a rowPress action reads relative paths in the row).
-      on: { rowPress: { event: { name: CI_PAGE_EVENTS.openRun, context: { run: { "@path": `id` } } } } },
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `md`, align: `stretch` },
+      children: groups.map((group) => ({
+        id: `${CI_PAGE_TEST_IDS.runs}.${group.id}`,
+        component: `Section`,
+        props: { title: group.title, ...(group.count !== null ? { count: group.count } : {}) },
+        children: group.rows.map((row) => runRow(row, state.phone)),
+      })),
     })
   }
   return { id: `${CI_PAGE_TEST_IDS.page}.runs`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children }
@@ -225,11 +231,10 @@ function runnersPanel(input: CiPageInput): NestedNode {
   }
 }
 
-/** The CI page (ci-page.json LAYOUT): the tiles, then the tabs; only the
- *  current tab's panel is built (the others are empty stacks). */
+/** The CI page (ci-page.json LAYOUT): the tab strip, then the current tab's
+ *  panel (the others are empty stacks). */
 export function ciPageTree(input: CiPageInput, state: CiPageState): NestedNode {
   const copy = CI_PAGE_COPY
-  const tiles = ciPageTiles(input)
   const counts = ciTabCounts(input)
   const empty = (tab: CiTab): NestedNode => ({ id: `${CI_PAGE_TEST_IDS.page}.${tab}`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children: [] })
   return {
@@ -237,16 +242,6 @@ export function ciPageTree(input: CiPageInput, state: CiPageState): NestedNode {
     component: `Stack`,
     props: { direction: `vertical`, gap: `lg`, align: `stretch` },
     children: [
-      {
-        id: CI_PAGE_TEST_IDS.tiles,
-        component: `Grid`,
-        props: { columns: state.phone ? 2 : 4, gap: state.phone ? `sm` : `md` },
-        children: tiles.map((tile, i) => ({
-          id: `${CI_PAGE_TEST_IDS.tiles}.${i}`,
-          component: `StatTile`,
-          props: { label: tile.label, value: tile.value, tone: tile.tone, ...(tile.delta ? { delta: tile.delta } : {}) },
-        })),
-      },
       {
         id: CI_PAGE_TEST_IDS.tabs,
         component: `Tabs`,
@@ -257,6 +252,7 @@ export function ciPageTree(input: CiPageInput, state: CiPageState): NestedNode {
             { label: copy.tabs.runners, value: `runners`, ...(counts.runners > 0 ? { count: counts.runners } : {}) },
           ],
           value: state.tab,
+          variant: `strip`,
           ...(state.phone ? { fill: true } : {}),
         },
         on: { change: { event: { name: CI_PAGE_EVENTS.tab } } },

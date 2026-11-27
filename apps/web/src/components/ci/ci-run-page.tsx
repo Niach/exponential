@@ -17,6 +17,7 @@ export function CiRunView({
   log,
   now,
   busy = null,
+  jobOpen = false,
   onSelectJob,
   onRerun,
   onRerunAll,
@@ -32,6 +33,9 @@ export function CiRunView({
   log: string | null
   now: Date | string
   busy?: CiRunBusy
+  /** Phones: drilled into the selected job (`?open=1`). */
+  jobOpen?: boolean
+  /** A job row's press (phones drill into it). */
   onSelectJob: (jobId: string) => void
   onRerun: () => void
   onRerunAll: () => void
@@ -44,12 +48,18 @@ export function CiRunView({
 }) {
   const phone = useIsMobile()
   const selected = ciDefaultJob(model.jobs, requestedJob)
-  const tree = useMemo(() => ciRunTree(model, { selected, log, now, phone, busy }), [model, selected, log, now, phone, busy])
+  const tree = useMemo(
+    () => ciRunTree(model, { selected, log, now, phone, busy, jobOpen: phone && jobOpen }),
+    [model, selected, log, now, phone, busy, jobOpen]
+  )
   const onAction = (event: SurfaceActionEvent) => {
     if (event.name === CI_RUN_EVENTS.select) {
       const job = event.context.job
-      // A phone's Collapsible: closing the open one keeps the selection.
-      if (typeof job === `string` && job !== selected && event.payload?.open !== false) onSelectJob(job)
+      if (typeof job === `string` && (phone || job !== selected)) onSelectJob(job)
+    } else if (event.name === CI_RUN_EVENTS.menu) {
+      const value = event.payload?.value
+      if (value === `rerunAll`) onRerunAll()
+      else if (value === `openExternal`) onOpenExternal()
     } else if (event.name === CI_RUN_EVENTS.rerun) onRerun()
     else if (event.name === CI_RUN_EVENTS.rerunAll) onRerunAll()
     else if (event.name === CI_RUN_EVENTS.cancel) onCancel()
@@ -73,7 +83,8 @@ export function ciRunSpecimenModel(): CiRunModel {
   return {
     run: { ...s.run },
     repository: s.repository,
-    pullRequestNumber: s.pullRequestNumber,
+    pullRequest: s.pullRequest,
+    author: s.author,
     jobs: s.jobs.map((job) => ({ ...job, steps: job.steps.map((step) => ({ ...step })) })),
   }
 }

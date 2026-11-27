@@ -1,18 +1,11 @@
 {
-  "$comment": "#EXP-2172 (epic #EXP-2169, plan revision 2 section 4): THE CI PAGE x4 (view `ci`: web /ci, the desktop's CI screen, iOS and Android's CI destination; the More menu's CI entry on phones), one ROOT row after Devices (sidebar-tree.json: Assistant, Home, Needs you, Chats, Drafts, Devices, CI, Teams), across every member team (there is no active team). DATA, all synced, never fetched: `ci_runs` + `ci_jobs` (shapes ci-runs / ci-jobs: our runs AND GitHub Actions runs, `provider` exponential | github, the server ingests GitHub's workflow_run / workflow_job webhooks), `pull_requests` (merge state, position, train id, root session), the sessions shape (a root's starter), the repositories shape (full names), the devices shape (rows whose `runner.enabled` is true = the runners; `lastSeenAt`). RULES (`ciRunList`, `ciRepoOptions`, `ciPageTiles`, `ciBadge`, `ciTrainGroups`, `ciRunnerRows`, `ciTabCounts`, replayed by every mirror over the cases below, comparing the WHOLE result): a run's status is ci-run.json `runStatus` over its jobs; its order is NEWEST FIRST by startedAt (else createdAt), ties by id; source = `github` for provider github, else `exponential` (copy.sources); `mine` = the viewer started it (createdByUserId: a push, a re-run, a GitHub actor linked to the viewer's GitHub account) or its pull request's root session was started by the viewer. FILTERS: status All | Running (running + queued) | Failed | Mine; a repository pick (`ciRepoOptions`: All repositories, then every repository with a run, by name); a source pick (Every source, Exponential, GitHub Actions). At most `limits.runs` rows. A row: identifier `#n`, title `#n name`, the status glyph/tone of repo-ci.json, repository full name (copy.unknownRepository while its row has not synced), source label, ref (repo-ci copy.runs.noRef when none), trigger = copy.pullRequest with the PR's number for a pull request run whose PR is known, else copy.triggers[trigger] (unknown = the raw value), duration = pr-checks formatDuration of (completedAt or now) - startedAt (null before it started), startedAt, subtitle (phones) = `repository · ref · source`. TILES (`ciPageTiles`): Running, Queued, Failed today = failed runs completed in the last 24 hours (tone danger and delta = the newest failure's repository NAME, the part after the last `/`, when any), Runners = copy.tiles.runnersValue over runners online (lastSeenAt younger than `limits.runnerOnlineMs`) of all. THE BADGE (nav-badges.json destination `ci`, `ciBadge`): over the viewer's runs only, the NEWEST run per (repository, pipeline name, ref): any failed = that count, tone `attention` (a green re-run is newer and clears it); else the running or queued ones, tone `muted`; else 0 (no badge). The phones' More tab sums it with its other items (Phase 1). MERGE TRAIN (`ciTrainGroups(input, queue)`): per repository (by name; caption = the PRs' base branch) the TESTING batches (PRs in merge state testing grouped by mergeTrainId, by lowest number): one row each, identifier = the first member's `#n`, title = the PR's title alone or copy.train.batch with {count}, subtitle = the members `#n title` joined by ` · ` (alone: none), glyph ci-running, badge = merge-train.json copy.pill.testing. The Runs tab shows the testing batches only (queue false) above the runs; the Merge train tab (queue true) adds the queued PRs by mergePosition (badge = merge-train.json copy.pill.queuedAt with its `ordinal` position, copy.pill.queued without one; glyph ci-queued) and then the ones waiting (checks | held | conflict | failing, by number, badge = merge-train.json copy.pill checksRunning | onHold | conflict | failing, glyph ci-queued for checks, ci-skipped for held, else ci-failed). A row opens its pull request (a batch: its first member). RUNNERS (`ciRunnerRows`): online first, then by name; title = the device label, subtitle = its labels (runner-settings.json `runnerOsLabel` first, then its own lower-cased; copy.runners.noLabels when none), busy = copy.runners.busy over our in-progress jobs on it and its slots (online only), queue = copy.runners.queue over OUR queued, undispatched jobs whose runsOn it covers (null when none), offlineSince = its lastSeenAt while offline (drawn as the catalog's `fill` of copy.runners.offlineSince with {time} = its `formatRelativeTime`). No lanes. TAB COUNTS (`ciTabCounts`): Merge train = its rows (queue true), Runners = the runners. LAYOUT is pinned node for node by ci-page-view.json (the reference apps/web/src/lib/ci-page-view.ts). testIds name the parts for the e2e and the shots.",
+  "$comment": "#EXP-2172 (epic #EXP-2169; the approved CI redesign of session 64abb994, Danny 2026-11-27): THE CI PAGE x4 (view `ci`: web /ci, the desktop's CI screen, iOS and Android's CI destination; the phones' More menu entry), ONE ROOT row after Devices (sidebar-tree.json), across every member team. DATA, all synced: `ci_runs` + `ci_jobs` (our runs AND GitHub Actions runs, `provider` exponential | github; `title` = what the run is about: the head commit's first line, the PR's title, GitHub's display_title), `pull_requests`, the sessions shape (a root's starter), the users shape (a run's author = `createdByUserId`), repository full names, the devices shape (rows whose `runner.enabled` is true = the runners). `utcOffsetMinutes` = the viewer's clock offset (the day sections). STATUS TONES (`statusTones`, THE one table, also the run page's): passed ci-passed success, failed ci-failed danger, running ci-running INFO (blue, the only moving mark), queued ci-queued neutral, cancelled / skipped ci-skipped neutral (muted text, never struck through). A run's status = ci-run.json `runStatus` over its jobs; source = `github` for provider github, else `exponential`; `mine` = the viewer started it or its PR's root session is the viewer's. RUNS (`ciRunList`, `ciRunGroups`): newest first by startedAt (else createdAt), ties by id, at most `limits.runs`, filtered by status All | Running (running + queued) | Failed | Mine, a repository (`ciRepoOptions`) and a source. A ROW (`ciRunRow`): title = the run's `title`, else a pending merge train run's batch (copy.batchTitle over the repo's testing PRs' numbers), else its PR's title, else the pipeline's name; workflow = `name #n`; repo = the full name's last segment (copy.unknownRepository while unknown); subtitle (wide) = workflow · repo · ref · sha7 · trigger (copy.pullRequest with the PR's number for a pull request run whose PR is known, else copy.triggers[trigger], unknown = raw); phoneSubtitle = repo · ref · workflow; duration = pr-checks formatDuration of (completedAt or now) - startedAt, null before it started; phoneMeta = the duration, else copy.queued; wide trailing = `duration · age` (else `copy.waitingForRunner · age`; the age = the catalog's formatRelativeTime of `at`), the source mark, the author's avatar; `at` = startedAt else createdAt (the age, drawn relative); sourceIcon github | brand-exponential (its tooltip = sourceLabel); author = the users row of createdByUserId (an avatar), null when none. SECTIONS (`ciRunGroups`): In progress (copy.inProgress with the count: running + queued) first, then one per LOCAL day of `at` (`ciDayTitle`: copy.today, copy.yesterday, else `d Mon` from copy.months, + ` yyyy` when not this year). A running merge train run sits in In progress; the train's detail is the Merge train tab. RUNNER CHIP (`ciRunnerChip`): copy.runnerChip over runners online (lastSeenAt younger than `limits.runnerOnlineMs`) of all, a green dot while one is online; none without runners; a press opens the Runners tab. THE BADGE (nav-badges.json destination `ci`, `ciBadge`): the viewer's runs, the NEWEST per (repository, pipeline name, ref): failed ones = that count, `attention` (a green re-run clears it); else the running or queued ones, `muted`; else none. MERGE TRAIN TAB (`ciTrainGroups(input, true)`): per repository (by name; caption = the PRs' base) its testing batches (one row each: the first member's `#n`, the PR's title alone or copy.train.batch with {count}, the members `#n title` joined by ` · `, glyph ci-running, badge merge-train.json copy.pill.testing), the queued PRs by mergePosition (copy.pill.queuedAt with its `ordinal`, glyph ci-queued), then the waiting ones by number (copy.pill checksRunning | onHold | conflict | failing; glyph ci-queued for checks, ci-skipped for held, else ci-failed); a row opens its PR. RUNNERS TAB (`ciRunnerRows`): online first, then by name; subtitle = runner-settings.json `runnerOsLabel` then its own labels lower-cased (copy.runners.noLabels when none); busy = copy.runners.busy (online only); queue = copy.runners.queue over OUR queued, undispatched jobs whose runsOn it covers (null when none); offlineSince = its lastSeenAt while offline (the catalog's `fill` of copy.runners.offlineSince with `formatRelativeTime`). No lanes. TAB COUNTS (`ciTabCounts`): Merge train = its rows, Runners = the runners. LAYOUT node for node: ci-page-view.json (reference apps/web/src/lib/ci-page-view.ts). Replayed by packages/domain-contract (bun test), desktop domain::ci_page, iOS ExpCore CiPage, Android domain/CiPage.kt over every case, comparing the WHOLE result.",
   "copy": {
     "title": "CI",
     "tabs": {
       "runs": "Runs",
       "train": "Merge train",
       "runners": "Runners"
-    },
-    "tiles": {
-      "running": "Running",
-      "queued": "Queued",
-      "failedToday": "Failed today",
-      "runners": "Runners",
-      "runnersValue": "{online} of {total} online"
     },
     "filters": {
       "all": "All",
@@ -38,7 +31,6 @@
       "duration": "Duration",
       "started": "Started"
     },
-    "runsSection": "Runs",
     "trainSection": "Merge train",
     "pullRequest": "Pull request #{number}",
     "triggers": {
@@ -64,7 +56,28 @@
       "filtered": "No runs match",
       "train": "Nothing in the merge train",
       "runners": "No runners"
-    }
+    },
+    "inProgress": "In progress",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "months": [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ],
+    "queued": "queued",
+    "batchTitle": "Testing {numbers} together",
+    "runnerChip": "{online} of {total} runners",
+    "waitingForRunner": "waiting for a runner"
   },
   "limits": {
     "runs": 100,
@@ -83,11 +96,25 @@
     "train": "ci-train",
     "trainRow": "ci-train-row",
     "runners": "ci-runners",
-    "runnerRow": "ci-runner-row"
+    "runnerRow": "ci-runner-row",
+    "runnerChip": "ci-runner-chip"
   },
   "scenario": {
     "viewerId": "u-me",
     "now": "2026-11-27T10:30:00.000Z",
+    "utcOffsetMinutes": 60,
+    "users": [
+      {
+        "id": "u-me",
+        "name": "Mara Lind",
+        "image": null
+      },
+      {
+        "id": "u-other",
+        "name": "Jonas Berg",
+        "image": null
+      }
+    ],
     "repos": [
       {
         "id": "repo-engine",
@@ -193,7 +220,7 @@
     ],
     "runs": [
       {
-        "sha": "r483aaaaaaaaaaaaaaaa",
+        "sha": "82aa98f382aa98f382aa98f382aa98f382aa98f3",
         "ref": "exp/APP-32",
         "trigger": "pull_request",
         "pullRequestId": "pr-214",
@@ -202,6 +229,7 @@
         "startedAt": "2026-11-27T10:26:48.000Z",
         "completedAt": null,
         "createdAt": "2026-11-27T10:26:48.000Z",
+        "title": "Repack once per push, not per ref",
         "id": "r483",
         "repositoryId": "repo-engine",
         "number": 483,
@@ -209,7 +237,7 @@
         "state": "pending"
       },
       {
-        "sha": "r91aaaaaaaaaaaaaaaa",
+        "sha": "3db841eb3db841eb3db841eb3db841eb3db841eb",
         "ref": "main",
         "trigger": "merge_train",
         "pullRequestId": null,
@@ -218,6 +246,7 @@
         "startedAt": "2026-11-27T10:28:20.000Z",
         "completedAt": null,
         "createdAt": "2026-11-27T10:28:20.000Z",
+        "title": null,
         "id": "r91",
         "repositoryId": "repo-engine",
         "number": 91,
@@ -225,7 +254,7 @@
         "state": "pending"
       },
       {
-        "sha": "g1207aaaaaaaaaaaaaaaa",
+        "sha": "f78ec187f78ec187f78ec187f78ec187f78ec187",
         "ref": "release/2.4",
         "trigger": "tag",
         "pullRequestId": null,
@@ -234,6 +263,7 @@
         "startedAt": null,
         "completedAt": null,
         "createdAt": "2026-11-27T10:29:00.000Z",
+        "title": "Bump the widget to 2.4.1",
         "id": "g1207",
         "repositoryId": "repo-mobile",
         "number": 1207,
@@ -241,7 +271,7 @@
         "state": "pending"
       },
       {
-        "sha": "r482aaaaaaaaaaaaaaaa",
+        "sha": "e4731f42e4731f42e4731f42e4731f42e4731f42",
         "ref": "exp/APP-33",
         "trigger": "pull_request",
         "pullRequestId": "pr-213",
@@ -250,6 +280,7 @@
         "startedAt": "2026-11-27T09:59:20.000Z",
         "completedAt": "2026-11-27T10:12:00.000Z",
         "createdAt": "2026-11-27T09:59:20.000Z",
+        "title": "Mirror prunes deleted branches",
         "id": "r482",
         "repositoryId": "repo-engine",
         "number": 482,
@@ -257,7 +288,7 @@
         "state": "failure"
       },
       {
-        "sha": "g1206aaaaaaaaaaaaaaaa",
+        "sha": "595747d6595747d6595747d6595747d6595747d6",
         "ref": "main",
         "trigger": "push",
         "pullRequestId": null,
@@ -266,6 +297,7 @@
         "startedAt": "2026-11-27T09:22:54.000Z",
         "completedAt": "2026-11-27T09:30:00.000Z",
         "createdAt": "2026-11-27T09:22:54.000Z",
+        "title": "Offline queue survives a cold start",
         "id": "g1206",
         "repositoryId": "repo-mobile",
         "number": 1206,
@@ -273,7 +305,7 @@
         "state": "success"
       },
       {
-        "sha": "g57aaaaaaaaaaaaaaaa",
+        "sha": "3a5a18693a5a18693a5a18693a5a18693a5a1869",
         "ref": "main",
         "trigger": "push",
         "pullRequestId": null,
@@ -282,6 +314,7 @@
         "startedAt": "2026-11-26T08:27:57.000Z",
         "completedAt": "2026-11-26T08:30:00.000Z",
         "createdAt": "2026-11-26T08:27:57.000Z",
+        "title": "Pricing page copy",
         "id": "g57",
         "repositoryId": "repo-site",
         "number": 57,
@@ -289,7 +322,7 @@
         "state": "failure"
       },
       {
-        "sha": "g58aaaaaaaaaaaaaaaa",
+        "sha": "d891921ad891921ad891921ad891921ad891921a",
         "ref": "main",
         "trigger": "push",
         "pullRequestId": null,
@@ -298,6 +331,7 @@
         "startedAt": "2026-11-27T08:27:57.000Z",
         "completedAt": "2026-11-27T08:30:00.000Z",
         "createdAt": "2026-11-27T08:27:57.000Z",
+        "title": "Pricing page copy, take two",
         "id": "g58",
         "repositoryId": "repo-site",
         "number": 58,
@@ -305,7 +339,7 @@
         "state": "success"
       },
       {
-        "sha": "r481aaaaaaaaaaaaaaaa",
+        "sha": "463ba591463ba591463ba591463ba591463ba591",
         "ref": "exp/APP-32",
         "trigger": "pull_request",
         "pullRequestId": "pr-214",
@@ -314,6 +348,7 @@
         "startedAt": "2026-11-27T07:30:00.000Z",
         "completedAt": "2026-11-27T07:30:24.000Z",
         "createdAt": "2026-11-27T07:30:00.000Z",
+        "title": "Repack once per push, not per ref",
         "id": "r481",
         "repositoryId": "repo-engine",
         "number": 481,
@@ -321,7 +356,7 @@
         "state": "failure"
       },
       {
-        "sha": "r480aaaaaaaaaaaaaaaa",
+        "sha": "a8042be0a8042be0a8042be0a8042be0a8042be0",
         "ref": null,
         "trigger": "schedule",
         "pullRequestId": null,
@@ -330,6 +365,7 @@
         "startedAt": "2026-11-27T01:30:00.000Z",
         "completedAt": "2026-11-27T01:44:12.000Z",
         "createdAt": "2026-11-27T01:30:00.000Z",
+        "title": null,
         "id": "r480",
         "repositoryId": "repo-gone",
         "number": 480,
@@ -474,564 +510,6 @@
       }
     ]
   },
-  "runListCases": [
-    {
-      "name": "all",
-      "filter": {
-        "status": "all",
-        "repositoryId": null,
-        "source": null
-      },
-      "expected": [
-        {
-          "id": "g1207",
-          "identifier": "#1207",
-          "title": "#1207 build-ios",
-          "status": "queued",
-          "statusLabel": "Queued",
-          "glyph": "ci-queued",
-          "tone": "muted",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "release/2.4",
-          "trigger": "Tag",
-          "duration": null,
-          "startedAt": null,
-          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
-        },
-        {
-          "id": "r91",
-          "identifier": "#91",
-          "title": "#91 Merge train",
-          "status": "running",
-          "statusLabel": "Running",
-          "glyph": "ci-running",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "main",
-          "trigger": "Merge train",
-          "duration": "1m 40s",
-          "startedAt": "2026-11-27T10:28:20.000Z",
-          "subtitle": "acme/engine · main · Exponential"
-        },
-        {
-          "id": "r483",
-          "identifier": "#483",
-          "title": "#483 gate",
-          "status": "running",
-          "statusLabel": "Running",
-          "glyph": "ci-running",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-32",
-          "trigger": "Pull request #214",
-          "duration": "3m 12s",
-          "startedAt": "2026-11-27T10:26:48.000Z",
-          "subtitle": "acme/engine · exp/APP-32 · Exponential"
-        },
-        {
-          "id": "r482",
-          "identifier": "#482",
-          "title": "#482 gate",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-33",
-          "trigger": "Pull request #213",
-          "duration": "12m 40s",
-          "startedAt": "2026-11-27T09:59:20.000Z",
-          "subtitle": "acme/engine · exp/APP-33 · Exponential"
-        },
-        {
-          "id": "g1206",
-          "identifier": "#1206",
-          "title": "#1206 test",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "7m 6s",
-          "startedAt": "2026-11-27T09:22:54.000Z",
-          "subtitle": "acme/mobile · main · GitHub Actions"
-        },
-        {
-          "id": "g58",
-          "identifier": "#58",
-          "title": "#58 deploy",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-27T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        },
-        {
-          "id": "r481",
-          "identifier": "#481",
-          "title": "#481 gate",
-          "status": "cancelled",
-          "statusLabel": "Cancelled",
-          "glyph": "ci-skipped",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-32",
-          "trigger": "Pull request #214",
-          "duration": "24s",
-          "startedAt": "2026-11-27T07:30:00.000Z",
-          "subtitle": "acme/engine · exp/APP-32 · Exponential"
-        },
-        {
-          "id": "r480",
-          "identifier": "#480",
-          "title": "#480 nightly",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-gone",
-          "repository": "Repository",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "—",
-          "trigger": "Schedule",
-          "duration": "14m 12s",
-          "startedAt": "2026-11-27T01:30:00.000Z",
-          "subtitle": "Repository · — · Exponential"
-        },
-        {
-          "id": "g57",
-          "identifier": "#57",
-          "title": "#57 deploy",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-26T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        }
-      ]
-    },
-    {
-      "name": "running = running and queued",
-      "filter": {
-        "status": "running",
-        "repositoryId": null,
-        "source": null
-      },
-      "expected": [
-        {
-          "id": "g1207",
-          "identifier": "#1207",
-          "title": "#1207 build-ios",
-          "status": "queued",
-          "statusLabel": "Queued",
-          "glyph": "ci-queued",
-          "tone": "muted",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "release/2.4",
-          "trigger": "Tag",
-          "duration": null,
-          "startedAt": null,
-          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
-        },
-        {
-          "id": "r91",
-          "identifier": "#91",
-          "title": "#91 Merge train",
-          "status": "running",
-          "statusLabel": "Running",
-          "glyph": "ci-running",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "main",
-          "trigger": "Merge train",
-          "duration": "1m 40s",
-          "startedAt": "2026-11-27T10:28:20.000Z",
-          "subtitle": "acme/engine · main · Exponential"
-        },
-        {
-          "id": "r483",
-          "identifier": "#483",
-          "title": "#483 gate",
-          "status": "running",
-          "statusLabel": "Running",
-          "glyph": "ci-running",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-32",
-          "trigger": "Pull request #214",
-          "duration": "3m 12s",
-          "startedAt": "2026-11-27T10:26:48.000Z",
-          "subtitle": "acme/engine · exp/APP-32 · Exponential"
-        }
-      ]
-    },
-    {
-      "name": "failed",
-      "filter": {
-        "status": "failed",
-        "repositoryId": null,
-        "source": null
-      },
-      "expected": [
-        {
-          "id": "r482",
-          "identifier": "#482",
-          "title": "#482 gate",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-33",
-          "trigger": "Pull request #213",
-          "duration": "12m 40s",
-          "startedAt": "2026-11-27T09:59:20.000Z",
-          "subtitle": "acme/engine · exp/APP-33 · Exponential"
-        },
-        {
-          "id": "g57",
-          "identifier": "#57",
-          "title": "#57 deploy",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-26T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        }
-      ]
-    },
-    {
-      "name": "mine: started by me or my PR's chat",
-      "filter": {
-        "status": "mine",
-        "repositoryId": null,
-        "source": null
-      },
-      "expected": [
-        {
-          "id": "g1207",
-          "identifier": "#1207",
-          "title": "#1207 build-ios",
-          "status": "queued",
-          "statusLabel": "Queued",
-          "glyph": "ci-queued",
-          "tone": "muted",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "release/2.4",
-          "trigger": "Tag",
-          "duration": null,
-          "startedAt": null,
-          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
-        },
-        {
-          "id": "r483",
-          "identifier": "#483",
-          "title": "#483 gate",
-          "status": "running",
-          "statusLabel": "Running",
-          "glyph": "ci-running",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-32",
-          "trigger": "Pull request #214",
-          "duration": "3m 12s",
-          "startedAt": "2026-11-27T10:26:48.000Z",
-          "subtitle": "acme/engine · exp/APP-32 · Exponential"
-        },
-        {
-          "id": "r482",
-          "identifier": "#482",
-          "title": "#482 gate",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-33",
-          "trigger": "Pull request #213",
-          "duration": "12m 40s",
-          "startedAt": "2026-11-27T09:59:20.000Z",
-          "subtitle": "acme/engine · exp/APP-33 · Exponential"
-        },
-        {
-          "id": "g58",
-          "identifier": "#58",
-          "title": "#58 deploy",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-27T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        },
-        {
-          "id": "r481",
-          "identifier": "#481",
-          "title": "#481 gate",
-          "status": "cancelled",
-          "statusLabel": "Cancelled",
-          "glyph": "ci-skipped",
-          "tone": "muted",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-32",
-          "trigger": "Pull request #214",
-          "duration": "24s",
-          "startedAt": "2026-11-27T07:30:00.000Z",
-          "subtitle": "acme/engine · exp/APP-32 · Exponential"
-        },
-        {
-          "id": "g57",
-          "identifier": "#57",
-          "title": "#57 deploy",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-26T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        }
-      ]
-    },
-    {
-      "name": "one repository",
-      "filter": {
-        "status": "all",
-        "repositoryId": "repo-mobile",
-        "source": null
-      },
-      "expected": [
-        {
-          "id": "g1207",
-          "identifier": "#1207",
-          "title": "#1207 build-ios",
-          "status": "queued",
-          "statusLabel": "Queued",
-          "glyph": "ci-queued",
-          "tone": "muted",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "release/2.4",
-          "trigger": "Tag",
-          "duration": null,
-          "startedAt": null,
-          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
-        },
-        {
-          "id": "g1206",
-          "identifier": "#1206",
-          "title": "#1206 test",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "7m 6s",
-          "startedAt": "2026-11-27T09:22:54.000Z",
-          "subtitle": "acme/mobile · main · GitHub Actions"
-        }
-      ]
-    },
-    {
-      "name": "GitHub Actions only",
-      "filter": {
-        "status": "all",
-        "repositoryId": null,
-        "source": "github"
-      },
-      "expected": [
-        {
-          "id": "g1207",
-          "identifier": "#1207",
-          "title": "#1207 build-ios",
-          "status": "queued",
-          "statusLabel": "Queued",
-          "glyph": "ci-queued",
-          "tone": "muted",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "release/2.4",
-          "trigger": "Tag",
-          "duration": null,
-          "startedAt": null,
-          "subtitle": "acme/mobile · release/2.4 · GitHub Actions"
-        },
-        {
-          "id": "g1206",
-          "identifier": "#1206",
-          "title": "#1206 test",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-mobile",
-          "repository": "acme/mobile",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "7m 6s",
-          "startedAt": "2026-11-27T09:22:54.000Z",
-          "subtitle": "acme/mobile · main · GitHub Actions"
-        },
-        {
-          "id": "g58",
-          "identifier": "#58",
-          "title": "#58 deploy",
-          "status": "passed",
-          "statusLabel": "Passed",
-          "glyph": "ci-passed",
-          "tone": "green",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-27T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        },
-        {
-          "id": "g57",
-          "identifier": "#57",
-          "title": "#57 deploy",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-site",
-          "repository": "acme/site",
-          "source": "github",
-          "sourceLabel": "GitHub Actions",
-          "ref": "main",
-          "trigger": "Push",
-          "duration": "2m 3s",
-          "startedAt": "2026-11-26T08:27:57.000Z",
-          "subtitle": "acme/site · main · GitHub Actions"
-        }
-      ]
-    },
-    {
-      "name": "ours, failed",
-      "filter": {
-        "status": "failed",
-        "repositoryId": null,
-        "source": "exponential"
-      },
-      "expected": [
-        {
-          "id": "r482",
-          "identifier": "#482",
-          "title": "#482 gate",
-          "status": "failed",
-          "statusLabel": "Failed",
-          "glyph": "ci-failed",
-          "tone": "red",
-          "repositoryId": "repo-engine",
-          "repository": "acme/engine",
-          "source": "exponential",
-          "sourceLabel": "Exponential",
-          "ref": "exp/APP-33",
-          "trigger": "Pull request #213",
-          "duration": "12m 40s",
-          "startedAt": "2026-11-27T09:59:20.000Z",
-          "subtitle": "acme/engine · exp/APP-33 · Exponential"
-        }
-      ]
-    }
-  ],
   "repoOptions": [
     {
       "label": "All repositories",
@@ -1052,32 +530,6 @@
     {
       "label": "acme/site",
       "value": "repo-site"
-    }
-  ],
-  "tiles": [
-    {
-      "label": "Running",
-      "value": "2",
-      "tone": "neutral",
-      "delta": null
-    },
-    {
-      "label": "Queued",
-      "value": "1",
-      "tone": "neutral",
-      "delta": null
-    },
-    {
-      "label": "Failed today",
-      "value": "1",
-      "tone": "danger",
-      "delta": "engine"
-    },
-    {
-      "label": "Runners",
-      "value": "2 of 3 online",
-      "tone": "neutral",
-      "delta": null
     }
   ],
   "tabCounts": {
@@ -1199,7 +651,7 @@
       "input": {
         "runs": [
           {
-            "sha": "r483aaaaaaaaaaaaaaaa",
+            "sha": "82aa98f382aa98f382aa98f382aa98f382aa98f3",
             "ref": "exp/APP-32",
             "trigger": "pull_request",
             "pullRequestId": "pr-214",
@@ -1208,6 +660,7 @@
             "startedAt": "2026-11-27T10:26:48.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T10:26:48.000Z",
+            "title": "Repack once per push, not per ref",
             "id": "r483",
             "repositoryId": "repo-engine",
             "number": 483,
@@ -1215,7 +668,7 @@
             "state": "pending"
           },
           {
-            "sha": "r91aaaaaaaaaaaaaaaa",
+            "sha": "3db841eb3db841eb3db841eb3db841eb3db841eb",
             "ref": "main",
             "trigger": "merge_train",
             "pullRequestId": null,
@@ -1224,6 +677,7 @@
             "startedAt": "2026-11-27T10:28:20.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T10:28:20.000Z",
+            "title": null,
             "id": "r91",
             "repositoryId": "repo-engine",
             "number": 91,
@@ -1231,7 +685,7 @@
             "state": "pending"
           },
           {
-            "sha": "g1207aaaaaaaaaaaaaaaa",
+            "sha": "f78ec187f78ec187f78ec187f78ec187f78ec187",
             "ref": "release/2.4",
             "trigger": "tag",
             "pullRequestId": null,
@@ -1240,6 +694,7 @@
             "startedAt": null,
             "completedAt": null,
             "createdAt": "2026-11-27T10:29:00.000Z",
+            "title": "Bump the widget to 2.4.1",
             "id": "g1207",
             "repositoryId": "repo-mobile",
             "number": 1207,
@@ -1247,7 +702,7 @@
             "state": "pending"
           },
           {
-            "sha": "r482aaaaaaaaaaaaaaaa",
+            "sha": "e4731f42e4731f42e4731f42e4731f42e4731f42",
             "ref": "exp/APP-33",
             "trigger": "pull_request",
             "pullRequestId": "pr-213",
@@ -1256,6 +711,7 @@
             "startedAt": "2026-11-27T09:59:20.000Z",
             "completedAt": "2026-11-27T10:12:00.000Z",
             "createdAt": "2026-11-27T09:59:20.000Z",
+            "title": "Mirror prunes deleted branches",
             "id": "r482",
             "repositoryId": "repo-engine",
             "number": 482,
@@ -1263,7 +719,7 @@
             "state": "failure"
           },
           {
-            "sha": "g1206aaaaaaaaaaaaaaaa",
+            "sha": "595747d6595747d6595747d6595747d6595747d6",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1272,6 +728,7 @@
             "startedAt": "2026-11-27T09:22:54.000Z",
             "completedAt": "2026-11-27T09:30:00.000Z",
             "createdAt": "2026-11-27T09:22:54.000Z",
+            "title": "Offline queue survives a cold start",
             "id": "g1206",
             "repositoryId": "repo-mobile",
             "number": 1206,
@@ -1279,7 +736,7 @@
             "state": "success"
           },
           {
-            "sha": "g57aaaaaaaaaaaaaaaa",
+            "sha": "3a5a18693a5a18693a5a18693a5a18693a5a1869",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1288,6 +745,7 @@
             "startedAt": "2026-11-26T08:27:57.000Z",
             "completedAt": "2026-11-26T08:30:00.000Z",
             "createdAt": "2026-11-26T08:27:57.000Z",
+            "title": "Pricing page copy",
             "id": "g57",
             "repositoryId": "repo-site",
             "number": 57,
@@ -1295,7 +753,7 @@
             "state": "failure"
           },
           {
-            "sha": "g58aaaaaaaaaaaaaaaa",
+            "sha": "d891921ad891921ad891921ad891921ad891921a",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1304,6 +762,7 @@
             "startedAt": "2026-11-27T08:27:57.000Z",
             "completedAt": "2026-11-27T08:30:00.000Z",
             "createdAt": "2026-11-27T08:27:57.000Z",
+            "title": "Pricing page copy, take two",
             "id": "g58",
             "repositoryId": "repo-site",
             "number": 58,
@@ -1311,7 +770,7 @@
             "state": "success"
           },
           {
-            "sha": "r481aaaaaaaaaaaaaaaa",
+            "sha": "463ba591463ba591463ba591463ba591463ba591",
             "ref": "exp/APP-32",
             "trigger": "pull_request",
             "pullRequestId": "pr-214",
@@ -1320,6 +779,7 @@
             "startedAt": "2026-11-27T07:30:00.000Z",
             "completedAt": "2026-11-27T07:30:24.000Z",
             "createdAt": "2026-11-27T07:30:00.000Z",
+            "title": "Repack once per push, not per ref",
             "id": "r481",
             "repositoryId": "repo-engine",
             "number": 481,
@@ -1327,7 +787,7 @@
             "state": "failure"
           },
           {
-            "sha": "r480aaaaaaaaaaaaaaaa",
+            "sha": "a8042be0a8042be0a8042be0a8042be0a8042be0",
             "ref": null,
             "trigger": "schedule",
             "pullRequestId": null,
@@ -1336,6 +796,7 @@
             "startedAt": "2026-11-27T01:30:00.000Z",
             "completedAt": "2026-11-27T01:44:12.000Z",
             "createdAt": "2026-11-27T01:30:00.000Z",
+            "title": null,
             "id": "r480",
             "repositoryId": "repo-gone",
             "number": 480,
@@ -1552,7 +1013,7 @@
       "input": {
         "runs": [
           {
-            "sha": "x1aaaaaaaaaaaaaaaa",
+            "sha": "9e3779b19e3779b19e3779b19e3779b19e3779b1",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1561,6 +1022,7 @@
             "startedAt": "2026-11-27T10:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T10:00:00.000Z",
+            "title": null,
             "id": "x1",
             "repositoryId": "repo-engine",
             "number": 1,
@@ -1670,7 +1132,7 @@
       "input": {
         "runs": [
           {
-            "sha": "r1aaaaaaaaaaaaaaaa",
+            "sha": "9e3779b19e3779b19e3779b19e3779b19e3779b1",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1679,6 +1141,7 @@
             "startedAt": "2026-11-27T09:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:00:00.000Z",
+            "title": null,
             "id": "r1",
             "repositoryId": "repo-engine",
             "number": 1,
@@ -1686,7 +1149,7 @@
             "state": "failure"
           },
           {
-            "sha": "r2aaaaaaaaaaaaaaaa",
+            "sha": "3c6ef3623c6ef3623c6ef3623c6ef3623c6ef362",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1695,6 +1158,7 @@
             "startedAt": "2026-11-27T10:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T10:00:00.000Z",
+            "title": null,
             "id": "r2",
             "repositoryId": "repo-engine",
             "number": 2,
@@ -1804,7 +1268,7 @@
       "input": {
         "runs": [
           {
-            "sha": "r1aaaaaaaaaaaaaaaa",
+            "sha": "9e3779b19e3779b19e3779b19e3779b19e3779b1",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1813,6 +1277,7 @@
             "startedAt": "2026-11-27T09:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:00:00.000Z",
+            "title": null,
             "id": "r1",
             "repositoryId": "repo-engine",
             "number": 1,
@@ -1820,7 +1285,7 @@
             "state": "failure"
           },
           {
-            "sha": "r2aaaaaaaaaaaaaaaa",
+            "sha": "3c6ef3623c6ef3623c6ef3623c6ef3623c6ef362",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -1829,6 +1294,7 @@
             "startedAt": "2026-11-27T10:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T10:00:00.000Z",
+            "title": null,
             "id": "r2",
             "repositoryId": "repo-engine",
             "number": 2,
@@ -1947,7 +1413,7 @@
       "input": {
         "runs": [
           {
-            "sha": "r1aaaaaaaaaaaaaaaa",
+            "sha": "9e3779b19e3779b19e3779b19e3779b19e3779b1",
             "ref": "a",
             "trigger": "push",
             "pullRequestId": null,
@@ -1956,6 +1422,7 @@
             "startedAt": "2026-11-27T09:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:00:00.000Z",
+            "title": null,
             "id": "r1",
             "repositoryId": "repo-engine",
             "number": 1,
@@ -1963,7 +1430,7 @@
             "state": "failure"
           },
           {
-            "sha": "r2aaaaaaaaaaaaaaaa",
+            "sha": "3c6ef3623c6ef3623c6ef3623c6ef3623c6ef362",
             "ref": "b",
             "trigger": "push",
             "pullRequestId": null,
@@ -1972,6 +1439,7 @@
             "startedAt": "2026-11-27T09:10:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:10:00.000Z",
+            "title": null,
             "id": "r2",
             "repositoryId": "repo-engine",
             "number": 2,
@@ -1979,7 +1447,7 @@
             "state": "failure"
           },
           {
-            "sha": "r3aaaaaaaaaaaaaaaa",
+            "sha": "daa66d13daa66d13daa66d13daa66d13daa66d13",
             "ref": "c",
             "trigger": "push",
             "pullRequestId": null,
@@ -1988,6 +1456,7 @@
             "startedAt": "2026-11-27T09:20:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:20:00.000Z",
+            "title": null,
             "id": "r3",
             "repositoryId": "repo-engine",
             "number": 3,
@@ -2106,7 +1575,7 @@
       "input": {
         "runs": [
           {
-            "sha": "r1aaaaaaaaaaaaaaaa",
+            "sha": "9e3779b19e3779b19e3779b19e3779b19e3779b1",
             "ref": "main",
             "trigger": "push",
             "pullRequestId": null,
@@ -2115,6 +1584,7 @@
             "startedAt": "2026-11-27T09:00:00.000Z",
             "completedAt": null,
             "createdAt": "2026-11-27T09:00:00.000Z",
+            "title": null,
             "id": "r1",
             "repositoryId": "repo-engine",
             "number": 1,
@@ -2228,5 +1698,936 @@
         "tone": "muted"
       }
     }
-  ]
+  ],
+  "statusTones": {
+    "passed": {
+      "glyph": "ci-passed",
+      "tone": "success"
+    },
+    "failed": {
+      "glyph": "ci-failed",
+      "tone": "danger"
+    },
+    "running": {
+      "glyph": "ci-running",
+      "tone": "info"
+    },
+    "queued": {
+      "glyph": "ci-queued",
+      "tone": "neutral"
+    },
+    "cancelled": {
+      "glyph": "ci-skipped",
+      "tone": "neutral"
+    }
+  },
+  "runGroupsCases": [
+    {
+      "name": "all",
+      "filter": {
+        "status": "all",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "title": "In progress",
+          "count": 3,
+          "rows": [
+            {
+              "id": "g1207",
+              "status": "queued",
+              "statusLabel": "Queued",
+              "glyph": "ci-queued",
+              "tone": "neutral",
+              "title": "Bump the widget to 2.4.1",
+              "workflow": "build-ios #1207",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "release/2.4",
+              "sha": "f78ec18",
+              "trigger": "Tag",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": null,
+              "at": "2026-11-27T10:29:00.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+              "phoneSubtitle": "mobile · release/2.4 · build-ios #1207",
+              "phoneMeta": "queued"
+            },
+            {
+              "id": "r91",
+              "status": "running",
+              "statusLabel": "Running",
+              "glyph": "ci-running",
+              "tone": "info",
+              "title": "Testing #211, #212, #213 together",
+              "workflow": "Merge train #91",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "main",
+              "sha": "3db841e",
+              "trigger": "Merge train",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "1m 40s",
+              "at": "2026-11-27T10:28:20.000Z",
+              "author": null,
+              "subtitle": "Merge train #91 · engine · main · 3db841e · Merge train",
+              "phoneSubtitle": "engine · main · Merge train #91",
+              "phoneMeta": "1m 40s"
+            },
+            {
+              "id": "r483",
+              "status": "running",
+              "statusLabel": "Running",
+              "glyph": "ci-running",
+              "tone": "info",
+              "title": "Repack once per push, not per ref",
+              "workflow": "gate #483",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-32",
+              "sha": "82aa98f",
+              "trigger": "Pull request #214",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "3m 12s",
+              "at": "2026-11-27T10:26:48.000Z",
+              "author": null,
+              "subtitle": "gate #483 · engine · exp/APP-32 · 82aa98f · Pull request #214",
+              "phoneSubtitle": "engine · exp/APP-32 · gate #483",
+              "phoneMeta": "3m 12s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "r482",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Mirror prunes deleted branches",
+              "workflow": "gate #482",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-33",
+              "sha": "e4731f4",
+              "trigger": "Pull request #213",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "12m 40s",
+              "at": "2026-11-27T09:59:20.000Z",
+              "author": null,
+              "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
+              "phoneSubtitle": "engine · exp/APP-33 · gate #482",
+              "phoneMeta": "12m 40s"
+            },
+            {
+              "id": "g1206",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Offline queue survives a cold start",
+              "workflow": "test #1206",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "main",
+              "sha": "595747d",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "7m 6s",
+              "at": "2026-11-27T09:22:54.000Z",
+              "author": null,
+              "subtitle": "test #1206 · mobile · main · 595747d · Push",
+              "phoneSubtitle": "mobile · main · test #1206",
+              "phoneMeta": "7m 6s"
+            },
+            {
+              "id": "g58",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Pricing page copy, take two",
+              "workflow": "deploy #58",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "d891921",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-27T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #58 · site · main · d891921 · Push",
+              "phoneSubtitle": "site · main · deploy #58",
+              "phoneMeta": "2m 3s"
+            },
+            {
+              "id": "r481",
+              "status": "cancelled",
+              "statusLabel": "Cancelled",
+              "glyph": "ci-skipped",
+              "tone": "neutral",
+              "title": "Repack once per push, not per ref",
+              "workflow": "gate #481",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-32",
+              "sha": "463ba59",
+              "trigger": "Pull request #214",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "24s",
+              "at": "2026-11-27T07:30:00.000Z",
+              "author": null,
+              "subtitle": "gate #481 · engine · exp/APP-32 · 463ba59 · Pull request #214",
+              "phoneSubtitle": "engine · exp/APP-32 · gate #481",
+              "phoneMeta": "24s"
+            },
+            {
+              "id": "r480",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "nightly",
+              "workflow": "nightly #480",
+              "repositoryId": "repo-gone",
+              "repository": "Repository",
+              "repo": "Repository",
+              "ref": "—",
+              "sha": "a8042be",
+              "trigger": "Schedule",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "14m 12s",
+              "at": "2026-11-27T01:30:00.000Z",
+              "author": null,
+              "subtitle": "nightly #480 · Repository · — · a8042be · Schedule",
+              "phoneSubtitle": "Repository · — · nightly #480",
+              "phoneMeta": "14m 12s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-26",
+          "title": "Yesterday",
+          "count": null,
+          "rows": [
+            {
+              "id": "g57",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Pricing page copy",
+              "workflow": "deploy #57",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "3a5a186",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-26T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+              "phoneSubtitle": "site · main · deploy #57",
+              "phoneMeta": "2m 3s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "running = running and queued",
+      "filter": {
+        "status": "running",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "title": "In progress",
+          "count": 3,
+          "rows": [
+            {
+              "id": "g1207",
+              "status": "queued",
+              "statusLabel": "Queued",
+              "glyph": "ci-queued",
+              "tone": "neutral",
+              "title": "Bump the widget to 2.4.1",
+              "workflow": "build-ios #1207",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "release/2.4",
+              "sha": "f78ec18",
+              "trigger": "Tag",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": null,
+              "at": "2026-11-27T10:29:00.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+              "phoneSubtitle": "mobile · release/2.4 · build-ios #1207",
+              "phoneMeta": "queued"
+            },
+            {
+              "id": "r91",
+              "status": "running",
+              "statusLabel": "Running",
+              "glyph": "ci-running",
+              "tone": "info",
+              "title": "Testing #211, #212, #213 together",
+              "workflow": "Merge train #91",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "main",
+              "sha": "3db841e",
+              "trigger": "Merge train",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "1m 40s",
+              "at": "2026-11-27T10:28:20.000Z",
+              "author": null,
+              "subtitle": "Merge train #91 · engine · main · 3db841e · Merge train",
+              "phoneSubtitle": "engine · main · Merge train #91",
+              "phoneMeta": "1m 40s"
+            },
+            {
+              "id": "r483",
+              "status": "running",
+              "statusLabel": "Running",
+              "glyph": "ci-running",
+              "tone": "info",
+              "title": "Repack once per push, not per ref",
+              "workflow": "gate #483",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-32",
+              "sha": "82aa98f",
+              "trigger": "Pull request #214",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "3m 12s",
+              "at": "2026-11-27T10:26:48.000Z",
+              "author": null,
+              "subtitle": "gate #483 · engine · exp/APP-32 · 82aa98f · Pull request #214",
+              "phoneSubtitle": "engine · exp/APP-32 · gate #483",
+              "phoneMeta": "3m 12s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "failed",
+      "filter": {
+        "status": "failed",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "r482",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Mirror prunes deleted branches",
+              "workflow": "gate #482",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-33",
+              "sha": "e4731f4",
+              "trigger": "Pull request #213",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "12m 40s",
+              "at": "2026-11-27T09:59:20.000Z",
+              "author": null,
+              "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
+              "phoneSubtitle": "engine · exp/APP-33 · gate #482",
+              "phoneMeta": "12m 40s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-26",
+          "title": "Yesterday",
+          "count": null,
+          "rows": [
+            {
+              "id": "g57",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Pricing page copy",
+              "workflow": "deploy #57",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "3a5a186",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-26T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+              "phoneSubtitle": "site · main · deploy #57",
+              "phoneMeta": "2m 3s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mine: started by me or my PR's chat",
+      "filter": {
+        "status": "mine",
+        "repositoryId": null,
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "title": "In progress",
+          "count": 2,
+          "rows": [
+            {
+              "id": "g1207",
+              "status": "queued",
+              "statusLabel": "Queued",
+              "glyph": "ci-queued",
+              "tone": "neutral",
+              "title": "Bump the widget to 2.4.1",
+              "workflow": "build-ios #1207",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "release/2.4",
+              "sha": "f78ec18",
+              "trigger": "Tag",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": null,
+              "at": "2026-11-27T10:29:00.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+              "phoneSubtitle": "mobile · release/2.4 · build-ios #1207",
+              "phoneMeta": "queued"
+            },
+            {
+              "id": "r483",
+              "status": "running",
+              "statusLabel": "Running",
+              "glyph": "ci-running",
+              "tone": "info",
+              "title": "Repack once per push, not per ref",
+              "workflow": "gate #483",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-32",
+              "sha": "82aa98f",
+              "trigger": "Pull request #214",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "3m 12s",
+              "at": "2026-11-27T10:26:48.000Z",
+              "author": null,
+              "subtitle": "gate #483 · engine · exp/APP-32 · 82aa98f · Pull request #214",
+              "phoneSubtitle": "engine · exp/APP-32 · gate #483",
+              "phoneMeta": "3m 12s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "r482",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Mirror prunes deleted branches",
+              "workflow": "gate #482",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-33",
+              "sha": "e4731f4",
+              "trigger": "Pull request #213",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "12m 40s",
+              "at": "2026-11-27T09:59:20.000Z",
+              "author": null,
+              "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
+              "phoneSubtitle": "engine · exp/APP-33 · gate #482",
+              "phoneMeta": "12m 40s"
+            },
+            {
+              "id": "g58",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Pricing page copy, take two",
+              "workflow": "deploy #58",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "d891921",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-27T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #58 · site · main · d891921 · Push",
+              "phoneSubtitle": "site · main · deploy #58",
+              "phoneMeta": "2m 3s"
+            },
+            {
+              "id": "r481",
+              "status": "cancelled",
+              "statusLabel": "Cancelled",
+              "glyph": "ci-skipped",
+              "tone": "neutral",
+              "title": "Repack once per push, not per ref",
+              "workflow": "gate #481",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-32",
+              "sha": "463ba59",
+              "trigger": "Pull request #214",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "24s",
+              "at": "2026-11-27T07:30:00.000Z",
+              "author": null,
+              "subtitle": "gate #481 · engine · exp/APP-32 · 463ba59 · Pull request #214",
+              "phoneSubtitle": "engine · exp/APP-32 · gate #481",
+              "phoneMeta": "24s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-26",
+          "title": "Yesterday",
+          "count": null,
+          "rows": [
+            {
+              "id": "g57",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Pricing page copy",
+              "workflow": "deploy #57",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "3a5a186",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-26T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+              "phoneSubtitle": "site · main · deploy #57",
+              "phoneMeta": "2m 3s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one repository",
+      "filter": {
+        "status": "all",
+        "repositoryId": "repo-mobile",
+        "source": null
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "title": "In progress",
+          "count": 1,
+          "rows": [
+            {
+              "id": "g1207",
+              "status": "queued",
+              "statusLabel": "Queued",
+              "glyph": "ci-queued",
+              "tone": "neutral",
+              "title": "Bump the widget to 2.4.1",
+              "workflow": "build-ios #1207",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "release/2.4",
+              "sha": "f78ec18",
+              "trigger": "Tag",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": null,
+              "at": "2026-11-27T10:29:00.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+              "phoneSubtitle": "mobile · release/2.4 · build-ios #1207",
+              "phoneMeta": "queued"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "g1206",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Offline queue survives a cold start",
+              "workflow": "test #1206",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "main",
+              "sha": "595747d",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "7m 6s",
+              "at": "2026-11-27T09:22:54.000Z",
+              "author": null,
+              "subtitle": "test #1206 · mobile · main · 595747d · Push",
+              "phoneSubtitle": "mobile · main · test #1206",
+              "phoneMeta": "7m 6s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GitHub Actions only",
+      "filter": {
+        "status": "all",
+        "repositoryId": null,
+        "source": "github"
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "title": "In progress",
+          "count": 1,
+          "rows": [
+            {
+              "id": "g1207",
+              "status": "queued",
+              "statusLabel": "Queued",
+              "glyph": "ci-queued",
+              "tone": "neutral",
+              "title": "Bump the widget to 2.4.1",
+              "workflow": "build-ios #1207",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "release/2.4",
+              "sha": "f78ec18",
+              "trigger": "Tag",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": null,
+              "at": "2026-11-27T10:29:00.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "build-ios #1207 · mobile · release/2.4 · f78ec18 · Tag",
+              "phoneSubtitle": "mobile · release/2.4 · build-ios #1207",
+              "phoneMeta": "queued"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "g1206",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Offline queue survives a cold start",
+              "workflow": "test #1206",
+              "repositoryId": "repo-mobile",
+              "repository": "acme/mobile",
+              "repo": "mobile",
+              "ref": "main",
+              "sha": "595747d",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "7m 6s",
+              "at": "2026-11-27T09:22:54.000Z",
+              "author": null,
+              "subtitle": "test #1206 · mobile · main · 595747d · Push",
+              "phoneSubtitle": "mobile · main · test #1206",
+              "phoneMeta": "7m 6s"
+            },
+            {
+              "id": "g58",
+              "status": "passed",
+              "statusLabel": "Passed",
+              "glyph": "ci-passed",
+              "tone": "success",
+              "title": "Pricing page copy, take two",
+              "workflow": "deploy #58",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "d891921",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-27T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #58 · site · main · d891921 · Push",
+              "phoneSubtitle": "site · main · deploy #58",
+              "phoneMeta": "2m 3s"
+            }
+          ]
+        },
+        {
+          "id": "2026-11-26",
+          "title": "Yesterday",
+          "count": null,
+          "rows": [
+            {
+              "id": "g57",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Pricing page copy",
+              "workflow": "deploy #57",
+              "repositoryId": "repo-site",
+              "repository": "acme/site",
+              "repo": "site",
+              "ref": "main",
+              "sha": "3a5a186",
+              "trigger": "Push",
+              "source": "github",
+              "sourceLabel": "GitHub Actions",
+              "sourceIcon": "github",
+              "duration": "2m 3s",
+              "at": "2026-11-26T08:27:57.000Z",
+              "author": {
+                "id": "u-me",
+                "name": "Mara Lind",
+                "image": null
+              },
+              "subtitle": "deploy #57 · site · main · 3a5a186 · Push",
+              "phoneSubtitle": "site · main · deploy #57",
+              "phoneMeta": "2m 3s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ours, failed",
+      "filter": {
+        "status": "failed",
+        "repositoryId": null,
+        "source": "exponential"
+      },
+      "expected": [
+        {
+          "id": "2026-11-27",
+          "title": "Today",
+          "count": null,
+          "rows": [
+            {
+              "id": "r482",
+              "status": "failed",
+              "statusLabel": "Failed",
+              "glyph": "ci-failed",
+              "tone": "danger",
+              "title": "Mirror prunes deleted branches",
+              "workflow": "gate #482",
+              "repositoryId": "repo-engine",
+              "repository": "acme/engine",
+              "repo": "engine",
+              "ref": "exp/APP-33",
+              "sha": "e4731f4",
+              "trigger": "Pull request #213",
+              "source": "exponential",
+              "sourceLabel": "Exponential",
+              "sourceIcon": "brand-exponential",
+              "duration": "12m 40s",
+              "at": "2026-11-27T09:59:20.000Z",
+              "author": null,
+              "subtitle": "gate #482 · engine · exp/APP-33 · e4731f4 · Pull request #213",
+              "phoneSubtitle": "engine · exp/APP-33 · gate #482",
+              "phoneMeta": "12m 40s"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "dayTitleCases": [
+    {
+      "day": "2026-11-27",
+      "now": "2026-11-27T10:30:00.000Z",
+      "utcOffsetMinutes": 60,
+      "expected": "Today"
+    },
+    {
+      "day": "2026-11-26",
+      "now": "2026-11-27T10:30:00.000Z",
+      "utcOffsetMinutes": 60,
+      "expected": "Yesterday"
+    },
+    {
+      "day": "2026-11-20",
+      "now": "2026-11-27T10:30:00.000Z",
+      "utcOffsetMinutes": 60,
+      "expected": "20 Nov"
+    },
+    {
+      "day": "2025-12-31",
+      "now": "2026-11-27T10:30:00.000Z",
+      "utcOffsetMinutes": 60,
+      "expected": "31 Dec 2025"
+    },
+    {
+      "day": "2026-11-28",
+      "now": "2026-11-27T23:30:00.000Z",
+      "utcOffsetMinutes": 60,
+      "expected": "Today"
+    }
+  ],
+  "runnerChip": {
+    "label": "2 of 3 runners",
+    "online": true
+  }
 }

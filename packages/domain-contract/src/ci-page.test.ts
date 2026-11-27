@@ -2,9 +2,10 @@ import { describe, expect, it } from "bun:test"
 import fixture from "../fixtures/ci-page.json" with { type: "json" }
 import {
   ciBadge,
-  ciPageTiles,
+  ciDayTitle,
   ciRepoOptions,
-  ciRunList,
+  ciRunGroups,
+  ciRunnerChip,
   ciRunnerRows,
   ciTabCounts,
   ciTrainGroups,
@@ -16,11 +17,14 @@ import {
 const scenario = fixture.scenario as CiPageInput
 
 describe(`ci-page fixture`, () => {
-  it.each(fixture.runListCases)(`runList: $name`, (c) => {
-    expect(ciRunList(scenario, c.filter as CiRunFilter)).toEqual(c.expected as never)
+  it.each(fixture.runGroupsCases)(`runGroups: $name`, (c) => {
+    expect(ciRunGroups(scenario, c.filter as CiRunFilter)).toEqual(c.expected as never)
   })
+  it.each(fixture.dayTitleCases)(`dayTitle: $day`, (c) => {
+    expect(ciDayTitle(c.day, c.now, c.utcOffsetMinutes)).toBe(c.expected)
+  })
+  it(`runnerChip`, () => expect(ciRunnerChip(scenario)).toEqual(fixture.runnerChip))
   it(`repoOptions`, () => expect(ciRepoOptions(scenario)).toEqual(fixture.repoOptions))
-  it(`tiles`, () => expect(ciPageTiles(scenario)).toEqual(fixture.tiles as never))
   it(`tabCounts`, () => expect(ciTabCounts(scenario)).toEqual(fixture.tabCounts))
   it.each(fixture.trainCases)(`train: $name`, (c) => {
     expect(ciTrainGroups(scenario, c.queue)).toEqual(c.expected as never)

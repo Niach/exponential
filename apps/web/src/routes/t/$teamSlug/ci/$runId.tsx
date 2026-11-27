@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { ciDefaultJob, ciFixPrompt } from "@exp/domain-contract/ci-run"
-import { conceptIcon, EmptyState, SkeletonRows } from "@exp/ui"
+import { conceptIcon, EmptyState, SkeletonRows, useIsMobile } from "@exp/ui"
 import { LINK_NO_ACCESS } from "@/lib/app-link"
 import { CiRunView, useRunClock } from "@/components/ci/ci-run-page"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -18,8 +18,11 @@ import type { CiRunBusy } from "@/lib/ci-run-view"
 
 export const Route = createFileRoute(`/t/$teamSlug/ci/$runId`)({
   head: () => ({ meta: [{ title: pageTitle(`CI run`) }] }),
-  validateSearch: (search: Record<string, unknown>): { job?: string } =>
-    typeof search.job === `string` ? { job: search.job } : {},
+  validateSearch: (search: Record<string, unknown>): { job?: string; open?: 1 } => ({
+    ...(typeof search.job === `string` ? { job: search.job } : {}),
+    // #EXP-2172: a phone drilled into the job (Back returns to the run).
+    ...(search.open === 1 || search.open === `1` ? { open: 1 as const } : {}),
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({ to: `/auth/login`, search: { redirect: location.href } })
@@ -30,7 +33,8 @@ export const Route = createFileRoute(`/t/$teamSlug/ci/$runId`)({
 
 function CiRunRoute() {
   const { teamSlug, runId } = Route.useParams()
-  const { job } = Route.useSearch()
+  const { job, open } = Route.useSearch()
+  const phone = useIsMobile()
   const navigate = useNavigate()
   const { model, ready } = useCiRun(runId)
   const selected = model ? ciDefaultJob(model.jobs, job) : null
@@ -38,8 +42,12 @@ function CiRunRoute() {
   const now = useRunClock(model)
   const [busy, setBusy] = useState<CiRunBusy>(null)
 
+  // Wide: a press selects (replace); a phone drills in (a new entry, so
+  // Back returns to the run).
   const selectJob = (jobId: string) =>
-    void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId }, search: { job: jobId }, replace: true })
+    phone
+      ? void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId }, search: { job: jobId, open: 1 } })
+      : void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId }, search: { job: jobId }, replace: true })
 
   // Ours: a new run opens; GitHub: the same run, a new attempt.
   const rerun = async (failedOnly: boolean) => {
@@ -98,6 +106,7 @@ function CiRunRoute() {
             log={log.loaded && log.jobId === selected ? log.text : null}
             now={now}
             busy={busy}
+            jobOpen={open === 1}
             onSelectJob={selectJob}
             onRerun={() => void rerun(true)}
             onRerunAll={() => void rerun(false)}

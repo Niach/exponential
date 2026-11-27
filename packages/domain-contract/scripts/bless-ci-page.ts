@@ -5,9 +5,10 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   ciBadge,
-  ciPageTiles,
+  ciDayTitle,
   ciRepoOptions,
-  ciRunList,
+  ciRunGroups,
+  ciRunnerChip,
   ciRunnerRows,
   ciTabCounts,
   ciTrainGroups,
@@ -22,7 +23,7 @@ const fixture = JSON.parse(readFileSync(path, `utf8`))
 const NOW = `2026-11-27T10:30:00.000Z`
 const ME = `u-me`
 const run = (r: Partial<CiPageRun> & Pick<CiPageRun, `id` | `repositoryId` | `number` | `name` | `state`>): CiPageRun => ({
-  sha: `${r.id}aaaaaaaaaaaaaaaa`.slice(0, 40),
+  sha: ((r.number * 2654435761) >>> 0).toString(16).padStart(8, `0`).repeat(5),
   ref: `main`,
   trigger: `push`,
   pullRequestId: null,
@@ -31,6 +32,7 @@ const run = (r: Partial<CiPageRun> & Pick<CiPageRun, `id` | `repositoryId` | `nu
   startedAt: null,
   completedAt: null,
   createdAt: r.startedAt ?? NOW,
+  title: null,
   ...r,
 })
 const job = (runId: string, status: string, conclusion: string | null, extra: Partial<CiPageJob> = {}): CiPageJob => ({
@@ -47,6 +49,11 @@ const job = (runId: string, status: string, conclusion: string | null, extra: Pa
 export const SCENARIO: CiPageInput = {
   viewerId: ME,
   now: NOW,
+  utcOffsetMinutes: 60,
+  users: [
+    { id: ME, name: `Mara Lind`, image: null },
+    { id: `u-other`, name: `Jonas Berg`, image: null },
+  ],
   repos: [
     { id: `repo-engine`, fullName: `acme/engine` },
     { id: `repo-mobile`, fullName: `acme/mobile` },
@@ -66,14 +73,14 @@ export const SCENARIO: CiPageInput = {
     { id: `pr-41`, number: 41, title: `Old`, repositoryId: `repo-mobile`, rootSessionId: null, base: `main`, mergeState: `merged`, mergePosition: null, mergeTrainId: null },
   ],
   runs: [
-    run({ id: `r483`, repositoryId: `repo-engine`, number: 483, name: `gate`, state: `pending`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T10:26:48.000Z` }),
+    run({ id: `r483`, title: `Repack once per push, not per ref`, repositoryId: `repo-engine`, number: 483, name: `gate`, state: `pending`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T10:26:48.000Z` }),
     run({ id: `r91`, repositoryId: `repo-engine`, number: 91, name: `Merge train`, state: `pending`, ref: `main`, trigger: `merge_train`, startedAt: `2026-11-27T10:28:20.000Z` }),
-    run({ id: `g1207`, repositoryId: `repo-mobile`, number: 1207, name: `build-ios`, state: `pending`, ref: `release/2.4`, trigger: `tag`, provider: `github`, createdByUserId: ME, createdAt: `2026-11-27T10:29:00.000Z` }),
-    run({ id: `r482`, repositoryId: `repo-engine`, number: 482, name: `gate`, state: `failure`, ref: `exp/APP-33`, trigger: `pull_request`, pullRequestId: `pr-213`, startedAt: `2026-11-27T09:59:20.000Z`, completedAt: `2026-11-27T10:12:00.000Z` }),
-    run({ id: `g1206`, repositoryId: `repo-mobile`, number: 1206, name: `test`, state: `success`, provider: `github`, startedAt: `2026-11-27T09:22:54.000Z`, completedAt: `2026-11-27T09:30:00.000Z` }),
-    run({ id: `g57`, repositoryId: `repo-site`, number: 57, name: `deploy`, state: `failure`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-26T08:27:57.000Z`, completedAt: `2026-11-26T08:30:00.000Z` }),
-    run({ id: `g58`, repositoryId: `repo-site`, number: 58, name: `deploy`, state: `success`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-27T08:27:57.000Z`, completedAt: `2026-11-27T08:30:00.000Z` }),
-    run({ id: `r481`, repositoryId: `repo-engine`, number: 481, name: `gate`, state: `failure`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T07:30:00.000Z`, completedAt: `2026-11-27T07:30:24.000Z` }),
+    run({ id: `g1207`, title: `Bump the widget to 2.4.1`, repositoryId: `repo-mobile`, number: 1207, name: `build-ios`, state: `pending`, ref: `release/2.4`, trigger: `tag`, provider: `github`, createdByUserId: ME, createdAt: `2026-11-27T10:29:00.000Z` }),
+    run({ id: `r482`, title: `Mirror prunes deleted branches`, repositoryId: `repo-engine`, number: 482, name: `gate`, state: `failure`, ref: `exp/APP-33`, trigger: `pull_request`, pullRequestId: `pr-213`, startedAt: `2026-11-27T09:59:20.000Z`, completedAt: `2026-11-27T10:12:00.000Z` }),
+    run({ id: `g1206`, title: `Offline queue survives a cold start`, repositoryId: `repo-mobile`, number: 1206, name: `test`, state: `success`, provider: `github`, startedAt: `2026-11-27T09:22:54.000Z`, completedAt: `2026-11-27T09:30:00.000Z` }),
+    run({ id: `g57`, title: `Pricing page copy`, repositoryId: `repo-site`, number: 57, name: `deploy`, state: `failure`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-26T08:27:57.000Z`, completedAt: `2026-11-26T08:30:00.000Z` }),
+    run({ id: `g58`, title: `Pricing page copy, take two`, repositoryId: `repo-site`, number: 58, name: `deploy`, state: `success`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-27T08:27:57.000Z`, completedAt: `2026-11-27T08:30:00.000Z` }),
+    run({ id: `r481`, title: `Repack once per push, not per ref`, repositoryId: `repo-engine`, number: 481, name: `gate`, state: `failure`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T07:30:00.000Z`, completedAt: `2026-11-27T07:30:24.000Z` }),
     run({ id: `r480`, repositoryId: `repo-gone`, number: 480, name: `nightly`, state: `success`, ref: null, trigger: `schedule`, startedAt: `2026-11-27T01:30:00.000Z`, completedAt: `2026-11-27T01:44:12.000Z` }),
   ],
   jobs: [
@@ -108,9 +115,16 @@ const filters = [
 ] as const
 
 fixture.scenario = SCENARIO
-fixture.runListCases = filters.map((c) => ({ name: c.name, filter: c.filter, expected: ciRunList(SCENARIO, c.filter) }))
+fixture.runGroupsCases = filters.map((c) => ({ name: c.name, filter: c.filter, expected: ciRunGroups(SCENARIO, c.filter) }))
+fixture.dayTitleCases = [
+  { day: `2026-11-27`, now: NOW, utcOffsetMinutes: 60 },
+  { day: `2026-11-26`, now: NOW, utcOffsetMinutes: 60 },
+  { day: `2026-11-20`, now: NOW, utcOffsetMinutes: 60 },
+  { day: `2025-12-31`, now: NOW, utcOffsetMinutes: 60 },
+  { day: `2026-11-28`, now: `2026-11-27T23:30:00.000Z`, utcOffsetMinutes: 60 },
+].map((c) => ({ ...c, expected: ciDayTitle(c.day, c.now, c.utcOffsetMinutes) }))
 fixture.repoOptions = ciRepoOptions(SCENARIO)
-fixture.tiles = ciPageTiles(SCENARIO)
+fixture.runnerChip = ciRunnerChip(SCENARIO)
 fixture.tabCounts = ciTabCounts(SCENARIO)
 fixture.trainCases = [
   { name: `the Runs tab: testing batches only`, queue: false, expected: ciTrainGroups(SCENARIO, false) },

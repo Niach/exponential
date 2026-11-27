@@ -1,6 +1,6 @@
 import fixture from "../fixtures/ci-page.json" with { type: "json" }
 import { ciRunStatus, runnerOsLabel, type CiRunStatus } from "./ci-run"
-import { formatCheckDuration, type CheckGlyph, type CheckTone } from "./pr-checks"
+import { formatCheckDuration, type CheckGlyph } from "./pr-checks"
 import { MERGE_TRAIN_COPY, ordinal } from "./merge-train"
 import { REPO_CI_COPY } from "./repo-ci"
 
@@ -33,6 +33,8 @@ export interface CiPageRun {
   startedAt: string | null
   completedAt: string | null
   createdAt: string
+  /** #EXP-2172 redesign: what the run is about (`ci_runs.title`). */
+  title: string | null
 }
 
 export interface CiPageJob {
@@ -83,8 +85,18 @@ export interface CiPageInput {
   pullRequests: CiPagePr[]
   sessions: CiPageSession[]
   runners: CiPageRunner[]
+  /** The people a run names (its author), from the users shape. */
+  users: CiPageUser[]
   viewerId: string
   now: string
+  /** The viewer's clock offset from UTC in minutes (Today / Yesterday). */
+  utcOffsetMinutes: number
+}
+
+export interface CiPageUser {
+  id: string
+  name: string
+  image: string | null
 }
 
 const msOf = (value: string | null | undefined): number | null => {
@@ -93,13 +105,10 @@ const msOf = (value: string | null | undefined): number | null => {
   return Number.isNaN(ms) ? null : ms
 }
 
-const GLYPH: Record<CiRunStatus, { glyph: CheckGlyph; tone: CheckTone }> = {
-  queued: { glyph: `ci-queued`, tone: `muted` },
-  running: { glyph: `ci-running`, tone: `muted` },
-  passed: { glyph: `ci-passed`, tone: `green` },
-  failed: { glyph: `ci-failed`, tone: `red` },
-  cancelled: { glyph: `ci-skipped`, tone: `muted` },
-}
+/** The one status table (ci-page.json `statusTones`): running is the only
+ *  blue, moving mark; queued and cancelled stay neutral. */
+export type CiStatusTone = `neutral` | `info` | `success` | `danger`
+export const CI_STATUS_TONES = fixture.statusTones as Record<CiRunStatus, { glyph: CheckGlyph; tone: CiStatusTone }>
 
 /** A run's source; anything but `github` is ours. */
 export function ciSource(provider: string): CiSource {
@@ -138,26 +147,6 @@ export function ciIsMine(
   return sessions.some((s) => s.id === pr.rootSessionId && s.userId === viewerId)
 }
 
-export interface CiRunListRow {
-  id: string
-  identifier: string
-  title: string
-  status: CiRunStatus
-  statusLabel: string
-  glyph: CheckGlyph
-  tone: CheckTone
-  repositoryId: string
-  repository: string
-  source: CiSource
-  sourceLabel: string
-  ref: string
-  trigger: string
-  duration: string | null
-  startedAt: string | null
-  /** Phones: `repository · ref · source`. */
-  subtitle: string
-}
-
 export interface CiRunFilter {
   status: CiFilter
   repositoryId: string | null
@@ -176,9 +165,113 @@ export function repoName(repos: readonly CiPageRepo[], id: string): string {
   return repos.find((repo) => repo.id === id)?.fullName ?? CI_PAGE_COPY.unknownRepository
 }
 
+export interface CiRunListRow {
+  id: string
+  status: CiRunStatus
+  statusLabel: string
+  glyph: CheckGlyph
+  tone: CiStatusTone
+  /** The commit / PR line (`title`), else the merge train batch, else the
+   *  pipeline's name. */
+  title: string
+  /** `name #n`. */
+  workflow: string
+  repositoryId: string
+  repository: string
+  /** The repository's own name (after the owner). */
+  repo: string
+  ref: string
+  sha: string
+  trigger: string
+  source: CiSource
+  sourceLabel: string
+  sourceIcon: `github` | `brand-exponential`
+  /** null before it started. */
+  duration: string | null
+  /** When it started, else when it was queued (the age, relative). */
+  at: string
+  author: CiPageUser | null
+  /** Wide: `workflow · repo · ref · sha · trigger`. */
+  subtitle: string
+  /** Phones: `repo · ref · workflow`. */
+  phoneSubtitle: string
+  /** Phones' meta: the duration, else copy.queued. */
+  phoneMeta: string
+}
+
+export interface CiRunGroup {
+  /** `in-progress`, else the local day `yyyy-mm-dd`. */
+  id: string
+  title: string
+  /** In progress only. */
+  count: number | null
+  rows: CiRunListRow[]
+}
+
+function triggerText(run: CiPageRun, pullRequests: readonly CiPagePr[]): string {
+  if (run.trigger === `pull_request` && run.pullRequestId) {
+    const pr = pullRequests.find((p) => p.id === run.pullRequestId)
+    if (pr) return CI_PAGE_COPY.pullRequest.replace(`{number}`, String(pr.number))
+  }
+  return (CI_PAGE_COPY.triggers as Record<string, string>)[run.trigger] ?? run.trigger
+}
+
+export function repoName(repos: readonly CiPageRepo[], id: string): string {
+  return repos.find((repo) => repo.id === id)?.fullName ?? CI_PAGE_COPY.unknownRepository
+}
+
+/** A running merge train run is its batch: `Testing #a, #b together`. */
+function batchTitle(run: CiPageRun, pullRequests: readonly CiPagePr[]): string | null {
+  if (run.trigger !== `merge_train` || run.state !== `pending`) return null
+  const members = pullRequests
+    .filter((pr) => pr.repositoryId === run.repositoryId && pr.mergeState === `testing`)
+    .map((pr) => pr.number)
+    .sort((a, b) => a - b)
+  if (members.length === 0) return null
+  return CI_PAGE_COPY.batchTitle.replace(`{numbers}`, members.map((n) => `#${n}`).join(`, `))
+}
+
+/** One row of the list (both form factors' strings). */
+export function ciRunRow(run: CiPageRun, input: CiPageInput): CiRunListRow {
+  const at = msOf(input.now) ?? 0
+  const status = statusOf(run, input.jobs)
+  const source = ciSource(run.provider)
+  const started = msOf(run.startedAt)
+  const repository = repoName(input.repos, run.repositoryId)
+  const repo = repository.split(`/`).pop() ?? repository
+  const ref = run.ref ?? REPO_CI_COPY.runs.noRef
+  const sha = run.sha.slice(0, 7)
+  const workflow = `${run.name} #${run.number}`
+  const trigger = triggerText(run, input.pullRequests)
+  const pr = run.pullRequestId ? input.pullRequests.find((p) => p.id === run.pullRequestId) : undefined
+  const duration = started === null ? null : formatCheckDuration((msOf(run.completedAt) ?? at) - started)
+  return {
+    id: run.id,
+    status,
+    statusLabel: REPO_CI_COPY.status[status],
+    ...CI_STATUS_TONES[status],
+    title: run.title ?? batchTitle(run, input.pullRequests) ?? pr?.title ?? run.name,
+    workflow,
+    repositoryId: run.repositoryId,
+    repository,
+    repo,
+    ref,
+    sha,
+    trigger,
+    source,
+    sourceLabel: CI_PAGE_COPY.sources[source],
+    sourceIcon: source === `github` ? `github` : `brand-exponential`,
+    duration,
+    at: run.startedAt ?? run.createdAt,
+    author: run.createdByUserId ? (input.users.find((user) => user.id === run.createdByUserId) ?? null) : null,
+    subtitle: [workflow, repo, ref, sha, trigger].join(` · `),
+    phoneSubtitle: [repo, ref, workflow].join(` · `),
+    phoneMeta: duration ?? CI_PAGE_COPY.queued,
+  }
+}
+
 /** The Runs tab: every run of the filter, newest first, at most `limits.runs`. */
 export function ciRunList(input: CiPageInput, filter: CiRunFilter): CiRunListRow[] {
-  const at = msOf(input.now) ?? 0
   const rows: CiRunListRow[] = []
   for (const run of newestFirst(input.runs)) {
     const status = statusOf(run, input.jobs)
@@ -188,30 +281,46 @@ export function ciRunList(input: CiPageInput, filter: CiRunFilter): CiRunListRow
     if (filter.status === `running` && status !== `running` && status !== `queued`) continue
     if (filter.status === `failed` && status !== `failed`) continue
     if (filter.status === `mine` && !ciIsMine(run, input.viewerId, input.pullRequests, input.sessions)) continue
-    const started = msOf(run.startedAt)
-    const repository = repoName(input.repos, run.repositoryId)
-    const ref = run.ref ?? REPO_CI_COPY.runs.noRef
-    const sourceLabel = CI_PAGE_COPY.sources[source]
-    rows.push({
-      id: run.id,
-      identifier: `#${run.number}`,
-      title: `#${run.number} ${run.name}`,
-      status,
-      statusLabel: REPO_CI_COPY.status[status],
-      ...GLYPH[status],
-      repositoryId: run.repositoryId,
-      repository,
-      source,
-      sourceLabel,
-      ref,
-      trigger: triggerText(run, input.pullRequests),
-      duration: started === null ? null : formatCheckDuration((msOf(run.completedAt) ?? at) - started),
-      startedAt: run.startedAt,
-      subtitle: `${repository} · ${ref} · ${sourceLabel}`,
-    })
+    rows.push(ciRunRow(run, input))
     if (rows.length >= CI_PAGE_LIMITS.runs) break
   }
   return rows
+}
+
+const MONTHS = fixture.copy.months
+
+/** The local day of an instant, `yyyy-mm-dd`, at the viewer's offset. */
+function localDay(ms: number, offsetMinutes: number): string {
+  return new Date(ms + offsetMinutes * 60_000).toISOString().slice(0, 10)
+}
+
+/** A day's section title: Today, Yesterday, else `27 Nov` (+ the year
+ *  when it is not this year's). */
+export function ciDayTitle(day: string, now: string, offsetMinutes: number): string {
+  const nowMs = msOf(now) ?? 0
+  const today = localDay(nowMs, offsetMinutes)
+  if (day === today) return CI_PAGE_COPY.today
+  if (day === localDay(nowMs - 86_400_000, offsetMinutes)) return CI_PAGE_COPY.yesterday
+  const [y, m, d] = day.split(`-`)
+  const label = `${Number(d)} ${MONTHS[Number(m) - 1]}`
+  return y === today.slice(0, 4) ? label : `${label} ${y}`
+}
+
+/** The Runs tab's sections: In progress (running + queued, with a count),
+ *  then one per local day, newest first. */
+export function ciRunGroups(input: CiPageInput, filter: CiRunFilter): CiRunGroup[] {
+  const rows = ciRunList(input, filter)
+  const live = rows.filter((row) => row.status === `running` || row.status === `queued`)
+  const groups: CiRunGroup[] = []
+  if (live.length > 0) groups.push({ id: `in-progress`, title: CI_PAGE_COPY.inProgress, count: live.length, rows: live })
+  for (const row of rows) {
+    if (row.status === `running` || row.status === `queued`) continue
+    const day = localDay(msOf(row.at) ?? 0, input.utcOffsetMinutes)
+    const last = groups[groups.length - 1]
+    if (last && last.id === day) last.rows.push(row)
+    else groups.push({ id: day, title: ciDayTitle(day, input.now, input.utcOffsetMinutes), count: null, rows: [row] })
+  }
+  return groups
 }
 
 /** The repository pick: `All repositories`, then every repository that has
@@ -223,13 +332,6 @@ export function ciRepoOptions(input: Pick<CiPageInput, `runs` | `repos`>): Array
   return [{ label: CI_PAGE_COPY.repositories.all, value: `all` }, ...named]
 }
 
-export interface CiPageTile {
-  label: string
-  value: string
-  tone: `neutral` | `danger`
-  delta: string | null
-}
-
 /** A runner is online while its last beat is younger than this. */
 export const RUNNER_ONLINE_MS: number = fixture.limits.runnerOnlineMs
 
@@ -238,44 +340,16 @@ function online(runner: CiPageRunner, now: number): boolean {
   return seen !== null && now - seen < RUNNER_ONLINE_MS
 }
 
-/** Running, Queued, Failed today (the last 24 hours; delta = the newest
- *  failure's repository name, red), Runners (online of total). */
-export function ciPageTiles(input: CiPageInput): CiPageTile[] {
+/** The toolbar's runner chip (it opens the Runners tab): `{online} of
+ *  {total} runners`, a green dot while one is online. Null without runners. */
+export function ciRunnerChip(input: Pick<CiPageInput, `runners` | `now`>): { label: string; online: boolean } | null {
+  if (input.runners.length === 0) return null
   const at = msOf(input.now) ?? 0
-  let running = 0
-  let queued = 0
-  const failed: CiPageRun[] = []
-  for (const run of input.runs) {
-    const status = statusOf(run, input.jobs)
-    if (status === `running`) running++
-    else if (status === `queued`) queued++
-    else if (status === `failed`) {
-      const done = msOf(run.completedAt)
-      if (done !== null && at - done < 24 * 3600_000) failed.push(run)
-    }
+  const count = input.runners.filter((runner) => online(runner, at)).length
+  return {
+    label: CI_PAGE_COPY.runnerChip.replace(`{online}`, String(count)).replace(`{total}`, String(input.runners.length)),
+    online: count > 0,
   }
-  failed.sort((a, b) => (msOf(b.completedAt) ?? 0) - (msOf(a.completedAt) ?? 0))
-  const newest = failed[0]
-  const repo = newest ? repoName(input.repos, newest.repositoryId) : null
-  const copy = CI_PAGE_COPY.tiles
-  return [
-    { label: copy.running, value: String(running), tone: `neutral`, delta: null },
-    { label: copy.queued, value: String(queued), tone: `neutral`, delta: null },
-    {
-      label: copy.failedToday,
-      value: String(failed.length),
-      tone: failed.length > 0 ? `danger` : `neutral`,
-      delta: repo ? (repo.split(`/`).pop() ?? repo) : null,
-    },
-    {
-      label: copy.runners,
-      value: copy.runnersValue
-        .replace(`{online}`, String(input.runners.filter((runner) => online(runner, at)).length))
-        .replace(`{total}`, String(input.runners.length)),
-      tone: `neutral`,
-      delta: null,
-    },
-  ]
 }
 
 /** nav-badges.json destination `ci`: the viewer's runs, the newest per

@@ -9,10 +9,14 @@ import {
   RUNNER_SETTINGS_COPY,
   RUNNER_SETTINGS_TEST_IDS,
   RUNNER_TIMEOUT_OPTIONS,
+  ciDefaultJob,
+  ciFailureSummary,
   ciJobRows,
+  ciJobsCaption,
+  ciJobSummary,
   ciLogView,
   ciRunActions,
-  ciRunTiles,
+  ciRunChips,
   ciSteps,
   normalizeRunnerLabel,
   runnerNotice,
@@ -22,9 +26,10 @@ import {
   type RunnerClient,
 } from "@exp/domain-contract/ci-run"
 
-// #EXP-1617 / #EXP-1804 (fixtures/ci-run.json, fixtures/runner-settings.json):
-// the CI run page and a device's CI runner section as genUI trees (the core
-// catalog's StatTile, Section, Row, Collapsible, Trace, CodeBlock, Alert,
+// #EXP-1617 / #EXP-1804 (fixtures/ci-run.json, fixtures/runner-settings.json),
+// redesigned by #EXP-2172 (session 64abb994): the CI run page and a device's
+// CI runner section as genUI trees (the core catalog's Breadcrumb, Heading,
+// Chip, Toolbar, Button, Menu, Alert, Section, Row, Card, Trace, CodeBlock;
 // SettingsRow, Switch, ChipInput, NumberField, Select), painted by
 // `<ExponentialSurface>` so the web draws exactly what the catalogue draws
 // ×4. Every rule comes from `@exp/domain-contract/ci-run`; this file only
@@ -48,7 +53,9 @@ export interface CiRunModel {
     sha: string
     startedAt: string | null
     completedAt: string | null
-    /** #EXP-2172: the run's source and its GitHub handle. */
+    createdAt: string
+    /** #EXP-2172: what the run is about (else the pipeline's name). */
+    title: string | null
     ref: string | null
     provider: string
     externalUrl: string | null
@@ -56,8 +63,10 @@ export interface CiRunModel {
   }
   /** The repository's full name (null while its row has not synced). */
   repository: string | null
-  /** The run's pull request number, when known. */
-  pullRequestNumber: number | null
+  /** The run's pull request, when known. */
+  pullRequest: { number: number; base: string } | null
+  /** The author's name (the users row of createdByUserId), when known. */
+  author: string | null
   jobs: Array<{
     id: string
     check: string
@@ -81,76 +90,94 @@ export const CI_RUN_EVENTS = {
   fix: `ci-fix`,
   openExternal: `ci-open-external`,
   breadcrumb: `ci-breadcrumb`,
+  menu: `ci-run-menu`,
 } as const
 
 /** A busy action (its button spins, the others wait). */
 export type CiRunBusy = `rerun` | `rerunAll` | `cancel` | null
 
-/** A job row's leading glyph, tinted by its tone. */
-function glyphNode(id: string, row: Pick<CiJobRow, `glyph` | `tone`>): NestedNode {
-  return { id, component: `Icon`, props: { name: row.glyph, tone: ICON_TONE[row.tone], size: `sm` } }
+/** The run's title (ci-page.json's row rule, without the train batch). */
+export function ciRunTitle(model: CiRunModel): string {
+  return model.run.title ?? model.run.name
 }
 
-/** One job's detail: its steps as a Trace, then its log. */
-function jobDetail(
-  model: CiRunModel,
-  jobId: string,
-  log: string | null,
-  now: Date | string,
-  phone: boolean
-): NestedNode {
+/** The platform header on phones: `name #n` over the repository. */
+export function ciRunHeader(model: CiRunModel): { title: string; subtitle: string | null } {
+  return { title: `${model.run.name} #${model.run.number}`, subtitle: model.repository }
+}
+
+/** One job's Card: its summary line, the steps with the open step holding
+ *  the log (or the log alone when the job reported no steps). */
+function jobCard(model: CiRunModel, jobId: string, log: string | null, now: Date | string, phone: boolean): NestedNode {
   const job = model.jobs.find((j) => j.id === jobId)!
   const steps = ciSteps(job.steps, now)
   const view = ciLogView(log ?? ``)
   const running = job.status !== `completed`
-  const children: NestedNode[] = []
-  if (steps.length > 0) {
-    children.push({
-      id: `${CI_RUN_TEST_IDS.steps}.${job.id}`,
-      component: `Trace`,
-      children: steps.map((step, i) => ({
-        id: `${CI_RUN_TEST_IDS.steps}.${job.id}.${i}`,
-        component: `TraceItem`,
-        props: { title: step.title, status: step.status, ...(step.description ? { description: step.description } : {}) },
-      })),
-    })
+  const logNode: NestedNode =
+    view.code === `` && job.status !== `in_progress`
+      ? { id: `${CI_RUN_TEST_IDS.log}.${job.id}`, component: `Text`, props: { text: CI_RUN_COPY.emptyLog, variant: `muted` } }
+      : {
+          id: `${CI_RUN_TEST_IDS.log}.${job.id}`,
+          component: `CodeBlock`,
+          props: {
+            code: view.code,
+            title: CI_RUN_COPY.log,
+            language: `ansi`,
+            lineNumbers: true,
+            wrap: false,
+            copyable: true,
+            maxLines: phone ? CI_RUN_LOG_MAX_LINES.phone : CI_RUN_LOG_MAX_LINES.wide,
+            highlight: view.highlight,
+            follow: running,
+          },
+        }
+  const open = steps.findIndex((step) => step.status === `error`)
+  const openAt = open >= 0 ? open : steps.findIndex((step) => step.status === `running`) >= 0 ? steps.findIndex((step) => step.status === `running`) : steps.length - 1
+  const children: NestedNode[] =
+    steps.length === 0
+      ? [logNode]
+      : [
+          {
+            id: `${CI_RUN_TEST_IDS.steps}.${job.id}`,
+            component: `Trace`,
+            props: { size: `sm` },
+            children: steps.map((step, i) => ({
+              id: `${CI_RUN_TEST_IDS.steps}.${job.id}.${i}`,
+              component: `TraceItem`,
+              props: {
+                title: step.title,
+                status: step.status,
+                ...(step.description ? { description: step.description } : {}),
+                collapsible: true,
+                open: i === openAt,
+              },
+              ...(i === openAt ? { children: [logNode] } : {}),
+            })),
+          },
+        ]
+  return {
+    id: `${CI_RUN_TEST_IDS.jobCard}.${job.id}`,
+    component: `Card`,
+    props: { title: job.check, description: ciJobSummary(job, now) },
+    children,
   }
-  if (view.code === `` && job.status !== `in_progress`) {
-    children.push({ id: `${CI_RUN_TEST_IDS.log}.${job.id}`, component: `Text`, props: { text: CI_RUN_COPY.emptyLog, variant: `muted` } })
-  } else {
-    children.push({
-      id: `${CI_RUN_TEST_IDS.log}.${job.id}`,
-      component: `CodeBlock`,
-      props: {
-        code: view.code,
-        title: CI_RUN_COPY.log,
-        language: `ansi`,
-        lineNumbers: true,
-        wrap: false,
-        copyable: true,
-        maxLines: phone ? CI_RUN_LOG_MAX_LINES.phone : CI_RUN_LOG_MAX_LINES.wide,
-        highlight: view.highlight,
-        follow: running,
-      },
-    })
-  }
-  return { id: `ci-run-detail.${job.id}`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children }
 }
 
-/** The run page (ci-run.json LAYOUT). `log` = the SELECTED job's log text
- *  as read so far (null = not read yet). */
+/** The run page (ci-run.json LAYOUT). `log` = the SELECTED job's log as read
+ *  so far (null = not read yet). Phones: `jobOpen` = drilled into the
+ *  selected job (the tree is its Card alone). */
 export function ciRunTree(
   model: CiRunModel,
-  options: { selected: string | null; log: string | null; now: Date | string; phone: boolean; busy?: CiRunBusy }
+  options: { selected: string | null; log: string | null; now: Date | string; phone: boolean; busy?: CiRunBusy; jobOpen?: boolean }
 ): NestedNode {
-  const { selected, log, now, phone } = options
+  const { log, now, phone } = options
   const { run } = model
-  const tiles = ciRunTiles(run, model.jobs, now)
-  const actions = ciRunActions(run)
+  const selected = options.selected ?? ciDefaultJob(model.jobs, null)
+  if (phone && options.jobOpen && selected) {
+    return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children: [jobCard(model, selected, log, now, phone)] }
+  }
   const title = CI_RUN_COPY.title.replace(`{number}`, String(run.number))
-  const source = run.provider === `github` ? `github` : `exponential`
   const head: NestedNode[] = []
-  // #EXP-2172: wide, the way back to the CI page and the repository.
   if (!phone) {
     head.push({
       id: CI_RUN_TEST_IDS.breadcrumb,
@@ -165,111 +192,111 @@ export function ciRunTree(
       on: { select: { event: { name: CI_RUN_EVENTS.breadcrumb } } },
     })
   }
-  head.push(
-    {
-      id: `ci-run-heading-row`,
-      component: `Stack`,
-      props: { direction: `horizontal`, gap: `sm`, align: `center` },
-      children: [
-        { id: `ci-run-heading`, component: `Heading`, props: { text: title, level: `h2` } },
-        { id: CI_RUN_TEST_IDS.source, component: `Badge`, props: { text: CI_RUN_COPY.sources[source], variant: `secondary` } },
-        ...(model.pullRequestNumber !== null
-          ? [{ id: `ci-run-pull-request`, component: `Badge`, props: { text: CI_RUN_COPY.pullRequest.replace(`{number}`, String(model.pullRequestNumber)), variant: `outline` } } satisfies NestedNode]
-          : []),
-      ],
-    },
-    { id: `ci-run-name`, component: `Text`, props: { text: run.ref ? `${run.name} · ${run.ref}` : run.name, variant: `muted` } }
-  )
-  const children: NestedNode[] = [
-    { id: `ci-run-title`, component: `Stack`, props: { direction: `vertical`, gap: `xs`, align: `stretch` }, children: head },
-    {
-      id: CI_RUN_TEST_IDS.tiles,
-      component: `Grid`,
-      props: { columns: phone ? 2 : 4, gap: `md` },
-      children: tiles.map((tile, i) => ({
-        id: `${CI_RUN_TEST_IDS.tiles}.${i}`,
-        component: `StatTile`,
-        props: { label: tile.label, value: tile.value, tone: tile.tone, ...(tile.delta ? { delta: tile.delta } : {}) },
-      })),
-    },
-  ]
+  head.push({ id: `ci-run-heading`, component: `Heading`, props: { text: ciRunTitle(model), level: phone ? `h3` : `h2` } })
+  if (!phone) {
+    const age = { "@call": `formatRelativeTime`, args: { value: run.startedAt ?? run.createdAt } }
+    head.push({
+      id: `ci-run-name`,
+      component: `Text`,
+      props: {
+        text: { "@call": `fill`, args: { template: `{workflow} · {repository}{age}`, params: { workflow: `${run.name} #${run.number}`, repository: model.repository ?? ``, age: { "@call": `fill`, args: { template: ` · {t}`, params: { t: age } } } } } },
+        variant: `muted`,
+      },
+    })
+  }
+  const chips: NestedNode = {
+    id: CI_RUN_TEST_IDS.chips,
+    component: `Stack`,
+    props: { direction: `horizontal`, gap: `xs`, align: `center`, wrap: true },
+    children: ciRunChips({ run, jobs: model.jobs, pullRequest: model.pullRequest, author: model.author, now }).map((chip) => ({
+      id: `${CI_RUN_TEST_IDS.chips}.${chip.id}`,
+      component: `Chip`,
+      props: { label: chip.label, ...(chip.icon ? { icon: chip.icon } : {}), ...(chip.dot ? { dot: chip.dot } : {}) },
+    })),
+  }
+  const actions = ciRunActions(run)
   const button = (id: string, label: string, event: string, busy: CiRunBusy, extra: Record<string, unknown> = {}): NestedNode => ({
     id,
     component: `Button`,
-    props: { label, ...extra, ...(busy ? { loading: options.busy === busy } : {}), disabled: Boolean(options.busy) },
+    props: { label, size: `sm`, ...extra, ...(busy ? { loading: options.busy === busy } : {}), disabled: Boolean(options.busy) },
     on: { press: { event: { name: event } } },
   })
   const buttons: NestedNode[] = []
-  if (actions.rerunFailed) buttons.push(button(CI_RUN_TEST_IDS.rerun, CI_RUN_COPY.rerunFailed, CI_RUN_EVENTS.rerun, `rerun`))
-  if (actions.rerunAll) {
-    buttons.push(
-      button(CI_RUN_TEST_IDS.rerunAll, CI_RUN_COPY.rerunAll, CI_RUN_EVENTS.rerunAll, `rerunAll`, actions.rerunFailed ? { variant: `outline` } : {})
-    )
-  }
-  // ci-run.json: variant destructive-outline (the catalog's `destructive`;
-  // it has no outline twin).
-  if (actions.cancel) buttons.push(button(CI_RUN_TEST_IDS.cancel, CI_RUN_COPY.cancel, CI_RUN_EVENTS.cancel, `cancel`, { variant: `destructive` }))
+  if (actions.primary === `cancel`) buttons.push(button(CI_RUN_TEST_IDS.cancel, CI_RUN_COPY.cancel, CI_RUN_EVENTS.cancel, `cancel`, { icon: `circle-stop` }))
+  if (actions.primary === `rerunFailed`) buttons.push(button(CI_RUN_TEST_IDS.rerun, CI_RUN_COPY.rerunFailed, CI_RUN_EVENTS.rerun, `rerun`, { icon: `refresh-cw` }))
+  if (actions.primary === `rerunAll`) buttons.push(button(CI_RUN_TEST_IDS.rerunAll, CI_RUN_COPY.rerunAll, CI_RUN_EVENTS.rerunAll, `rerunAll`, { icon: `refresh-cw` }))
   if (actions.fix) buttons.push(button(CI_RUN_TEST_IDS.fix, CI_RUN_COPY.fix, CI_RUN_EVENTS.fix, null, { variant: `outline`, icon: `bot` }))
-  if (actions.openExternal) {
-    buttons.push(button(CI_RUN_TEST_IDS.openExternal, CI_RUN_COPY.openExternal, CI_RUN_EVENTS.openExternal, null, { variant: `outline`, icon: `github` }))
+  if (actions.menu.length > 0) {
+    buttons.push({
+      id: CI_RUN_TEST_IDS.more,
+      component: `Menu`,
+      props: {
+        label: CI_RUN_COPY.more,
+        align: `end`,
+        items: actions.menu.map((item) => ({ label: item === `rerunAll` ? CI_RUN_COPY.rerunAll : CI_RUN_COPY.openExternal, value: item })),
+      },
+      on: { select: { event: { name: CI_RUN_EVENTS.menu } } },
+      children: [
+        { id: `${CI_RUN_TEST_IDS.more}.button`, component: `Button`, props: { icon: `ellipsis`, variant: `ghost`, size: `icon`, label: CI_RUN_COPY.more, disabled: Boolean(options.busy) } },
+      ],
+    })
   }
-  if (buttons.length > 0) children.push({ id: `ci-run-actions`, component: `Toolbar`, children: buttons })
+  const actionsNode: NestedNode = { id: `ci-run-actions`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: buttons }
+  const children: NestedNode[] = [
+    { id: `ci-run-title`, component: `Stack`, props: { direction: `vertical`, gap: `xs`, align: `stretch` }, children: head },
+    phone
+      ? { id: `ci-run-bar`, component: `Stack`, props: { direction: `vertical`, gap: `sm`, align: `stretch` }, children: [chips, ...(buttons.length > 0 ? [actionsNode] : [])] }
+      : { id: `ci-run-bar`, component: `Toolbar`, children: [chips], ...(buttons.length > 0 ? { slots: { trailing: actionsNode } } : {}) },
+  ]
   if (run.error) {
     children.push({ id: `ci-run-error`, component: `Alert`, props: { type: `error`, title: CI_RUN_COPY.pipelineError, message: run.error } })
-  } else if (model.jobs.length > 0) {
-    const rows = ciJobRows(model.jobs, now)
-    if (phone) {
-      children.push({
-        id: `ci-run-jobs`,
-        component: `Stack`,
-        props: { direction: `vertical`, gap: `sm`, align: `stretch` },
-        children: rows.map((row) => ({
-          id: `${CI_RUN_TEST_IDS.jobRow}.${row.id}`,
-          component: `Collapsible`,
-          props: { title: row.title, open: row.id === selected },
-          on: { change: { event: { name: CI_RUN_EVENTS.select, context: { job: row.id } } } },
-          children: [jobDetail(model, row.id, row.id === selected ? log : null, now, phone)],
-        })),
-      })
-    } else {
-      children.push({
-        id: `ci-run-jobs`,
-        component: `Box`,
-        style: { display: `grid`, gridTemplateColumns: `300px minmax(0, 1fr)`, gap: `$spacing.lg`, alignItems: `start` },
-        children: [
-          {
-            id: `ci-run-jobs-list`,
-            component: `Box`,
-            style: { flexDirection: `column` },
-            children: [
-              {
-                id: `ci-run-jobs-section`,
-                component: `Section`,
-                props: { title: CI_RUN_COPY.jobs },
-                children: rows.map((row) => ({
-                  id: `${CI_RUN_TEST_IDS.jobRow}.${row.id}`,
-                  component: `Row`,
-                  props: {
-                    title: row.title,
-                    ...(row.subtitle ? { subtitle: row.subtitle } : {}),
-                    ...(row.duration ? { meta: row.duration } : {}),
-                    selected: row.id === selected,
-                    pressable: true,
-                  },
-                  slots: { leading: glyphNode(`${CI_RUN_TEST_IDS.jobRow}.${row.id}.glyph`, row) },
-                  on: { press: { event: { name: CI_RUN_EVENTS.select, context: { job: row.id } } } },
-                })),
-              },
-            ],
-          },
-          ...(selected
-            ? [{ id: `ci-run-detail`, component: `Box`, style: { minWidth: 0, flexDirection: `column` }, children: [jobDetail(model, selected, log, now, phone)] } satisfies NestedNode]
-            : []),
-        ],
-      })
-    }
+    return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children }
+  }
+  const failedJob = model.jobs.find((job) => job.id === selected && ciJobRows([job], now)[0]?.status === `failed`) ?? null
+  const failure = ciFailureSummary(failedJob, failedJob ? log : null)
+  if (failure) children.push({ id: CI_RUN_TEST_IDS.failure, component: `Alert`, props: { type: `error`, title: failure.title, message: failure.message } })
+  if (model.jobs.length === 0) return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children }
+  const rows = ciJobRows(model.jobs, now)
+  const section: NestedNode = {
+    id: `ci-run-jobs-section`,
+    component: `Section`,
+    props: { title: CI_RUN_COPY.jobs, caption: ciJobsCaption(model.jobs) },
+    children: rows.map((row: CiJobRow) => ({
+      id: `${CI_RUN_TEST_IDS.jobRow}.${row.id}`,
+      component: `Row`,
+      props: {
+        title: row.title,
+        ...(row.subtitle && !phone ? { subtitle: row.subtitle } : {}),
+        ...(row.duration ? { meta: row.duration } : row.subtitle && phone ? { meta: row.subtitle } : {}),
+        selected: row.id === selected,
+        pressable: true,
+        ...(phone ? { chevron: `right` } : {}),
+      },
+      slots: { leading: { id: `${CI_RUN_TEST_IDS.jobRow}.${row.id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: row.statusTone, size: `sm` } } },
+      on: { press: { event: { name: CI_RUN_EVENTS.select, context: { job: row.id } } } },
+    })),
+  }
+  if (phone) {
+    children.push(section)
+  } else {
+    children.push({
+      id: `ci-run-jobs`,
+      component: `Box`,
+      style: { display: `grid`, gridTemplateColumns: `300px minmax(0, 1fr)`, gap: `$spacing.lg`, alignItems: `start` },
+      children: [
+        { id: `ci-run-jobs-list`, component: `Box`, style: { flexDirection: `column` }, children: [section] },
+        ...(selected
+          ? [{ id: `ci-run-detail`, component: `Box`, style: { minWidth: 0, flexDirection: `column` }, children: [jobCard(model, selected, log, now, phone)] } satisfies NestedNode]
+          : []),
+      ],
+    })
   }
   return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children }
+}
+
+/** A job row's leading glyph for the runner section (its own tones). */
+function glyphNode(id: string, row: Pick<CiJobRow, `glyph` | `tone`>): NestedNode {
+  return { id, component: `Icon`, props: { name: row.glyph, tone: ICON_TONE[row.tone], size: `sm` } }
 }
 
 // ── the CI runner section (runner-settings.json) ─────────────────────────

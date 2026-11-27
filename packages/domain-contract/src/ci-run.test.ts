@@ -8,7 +8,10 @@ import {
   ciLogView,
   ciRunActions,
   ciRunStatus,
-  ciRunTiles,
+  ciFailureSummary,
+  ciJobsCaption,
+  ciJobSummary,
+  ciRunChips,
   ciSteps,
   normalizeRunnerLabel,
   runnerNotice,
@@ -22,9 +25,10 @@ describe(`ci-run fixture`, () => {
   it.each(fixture.runStatus)(`runStatus: $name`, (c) => {
     expect(ciRunStatus(c.state, c.jobs)).toEqual(c.expected)
   })
-  it.each(fixture.tiles)(`tiles: $name`, (c) => {
-    expect(ciRunTiles(c.run, c.jobs, c.now)).toEqual(c.expected)
-  })
+  it.each(fixture.jobsCaption)(`jobsCaption: $name`, (c) => expect(ciJobsCaption(c.jobs)).toBe(c.expected))
+  it.each(fixture.jobSummary)(`jobSummary: $name`, (c) => expect(ciJobSummary(c.job as never, c.now)).toBe(c.expected))
+  it.each(fixture.chips)(`chips: $name`, (c) => expect(ciRunChips(c as never)).toEqual(c.expected as never))
+  it.each(fixture.failureSummary)(`failureSummary: $name`, (c) => expect(ciFailureSummary(c.job, c.log)).toEqual(c.expected as never))
   it.each(fixture.jobRows)(`jobRows: $name`, (c) => {
     expect(ciJobRows(c.jobs, c.now)).toEqual(c.expected)
   })

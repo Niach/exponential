@@ -44,7 +44,10 @@ function CiRoute() {
   const rows = useCiPageRows(user.id)
   const running = rows.runs.some((run) => run.state === `pending`)
   const now = useNow(running ? 1_000 : 60_000)
-  const input = useMemo<CiPageInput>(() => ({ ...rows, repos, now: now.toISOString() }), [rows, repos, now])
+  const input = useMemo<CiPageInput>(
+    () => ({ ...rows, repos, now: now.toISOString(), utcOffsetMinutes: -now.getTimezoneOffset() }),
+    [rows, repos, now]
+  )
   const tab = search.tab ?? `runs`
   const filter: CiRunFilter = { status: search.status ?? `all`, repositoryId: search.repo ?? null, source: search.source ?? null }
 

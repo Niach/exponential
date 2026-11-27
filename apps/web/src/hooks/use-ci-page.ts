@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { ciBadge, type CiPageInput, type CiPageRepo } from "@exp/domain-contract/ci-page"
-import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection, sessionCollection } from "@/lib/collections"
+import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection, sessionCollection, userCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 
 // #EXP-2172 (ci-page.json DATA): THE CI page's input, every member team at
@@ -38,12 +38,13 @@ export function useCiRepos(teamIds: readonly string[]): CiPageRepo[] {
 }
 
 /** The page's input, without the clock and the repositories. */
-export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repos`> & { ready: boolean } {
+export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repos` | `utcOffsetMinutes`> & { ready: boolean } {
   const { data: runs, isReady } = useLiveQuery((query) => query.from({ r: ciRunCollection }), [])
   const { data: jobs } = useLiveQuery((query) => query.from({ j: ciJobCollection }), [])
   const { data: prs } = useLiveQuery((query) => query.from({ p: pullRequestCollection }), [])
   const { data: sessions } = useLiveQuery((query) => query.from({ s: sessionCollection }), [])
   const { data: devices } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
+  const { data: users } = useLiveQuery((query) => query.from({ u: userCollection }), [])
   return useMemo(
     () => ({
       ready: Boolean(isReady),
@@ -63,6 +64,7 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
         startedAt: toIso(run.startedAt),
         completedAt: toIso(run.completedAt),
         createdAt: toIso(run.createdAt) ?? ``,
+        title: run.title ?? null,
       })),
       jobs: (jobs ?? []).map((job) => ({
         runId: job.runId,
@@ -83,6 +85,7 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
         mergePosition: pr.mergePosition ?? null,
         mergeTrainId: pr.mergeTrainId ?? null,
       })),
+      users: (users ?? []).map((user) => ({ id: user.id, name: user.name, image: user.image ?? null })),
       sessions: (sessions ?? []).filter((s) => s.rootId === s.id).map((s) => ({ id: s.id, userId: s.userId })),
       runners: (devices ?? [])
         .filter((device) => device.runner?.enabled === true && !device.spaceHostId)
@@ -95,7 +98,7 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
           lastSeenAt: toIso(device.lastSeenAt),
         })),
     }),
-    [isReady, viewerId, runs, jobs, prs, sessions, devices]
+    [isReady, viewerId, runs, jobs, prs, sessions, devices, users]
   )
 }
 
