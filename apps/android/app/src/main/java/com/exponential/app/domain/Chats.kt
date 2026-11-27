@@ -28,7 +28,7 @@ object Chats {
             "teams" to "Teams",
             "assistant" to "Assistant",
             "new" to "New",
-            "settings" to "Settings",
+            "more" to "More",
         )
 
         /** `copy.headers` by page (a team's / folder's / board's title is its name). */
@@ -145,13 +145,13 @@ object Chats {
      *  popup, which tab a page lights, the page header, the sizes; [Bar] = the
      *  floating capsule of a running app's own screens. */
     object Shell {
-        val TABS: List<String> = listOf("chats", "teams", "assistant", "new", "settings")
+        val TABS: List<String> = listOf("chats", "teams", "assistant", "new", "more")
         val TAB_ICONS: Map<String, String> = linkedMapOf(
             "chats" to "nav-chats",
             "teams" to "ui-team",
             "assistant" to "brand-exponential",
             "new" to "ui-add",
-            "settings" to "nav-settings",
+            "more" to "ui-more",
         )
 
         /** `shell.dock`: the docked bar (dp; [LABEL] sp). */
@@ -178,6 +178,18 @@ object Chats {
             const val GAP = 26
         }
 
+        /** #EXP-2171 `shell.moreMenu`: the More tab's menu, opened UPWARDS:
+         *  Devices · CI · Settings. [ITEMS] = the rows this build has a page
+         *  for (CI joins with its destination, Phase 2: add it here). */
+        object MoreMenu {
+            val ALL: List<String> = listOf("devices", "ci", "settings")
+            val ITEMS: List<String> = listOf("devices", "settings")
+            val ICONS: Map<String, String> = linkedMapOf("devices" to "nav-devices", "ci" to "nav-ci", "settings" to "nav-settings")
+            /** The nav-badges destination each row's badge comes from (null = none). */
+            val BADGES: Map<String, String?> = linkedMapOf("devices" to null, "ci" to "ci", "settings" to null)
+            val COPY: Map<String, String> = linkedMapOf("devices" to "Devices", "ci" to "CI", "settings" to "Settings")
+        }
+
         /** `shell.pages`: the tab a page lights and whether the bar shows. */
         data class Page(val tab: String?, val bar: Boolean)
 
@@ -189,10 +201,10 @@ object Chats {
             "board" to Page("teams", true),
             "team-settings" to Page("teams", true),
             "assistant" to Page("assistant", true),
-            "settings" to Page("settings", true),
-            "settings-page" to Page("settings", true),
-            "devices" to Page("settings", true),
-            "device" to Page("settings", true),
+            "settings" to Page("more", true),
+            "settings-page" to Page("more", true),
+            "devices" to Page("more", true),
+            "device" to Page("more", true),
         )
 
         /** A page not listed is a detail: no bar (TS `phonePage`). */
@@ -300,9 +312,11 @@ object Chats {
         const val TAB_TEAMS = "tab-teams"
         const val TAB_ASSISTANT = "tab-assistant"
         const val TAB_NEW = "tab-new"
-        const val TAB_SETTINGS = "tab-settings"
+        const val TAB_MORE = "tab-more"
         const val NEW_MENU = "new-menu"
         const val NEW_MENU_ROW = "new-menu-row"
+        const val MORE_MENU = "more-menu"
+        const val MORE_MENU_ROW = "more-menu-row"
         const val BOARD_CHIP = "board-chip"
         const val SURFACE_CARD = "surface-card"
         const val DIVIDER = "transcript-divider"

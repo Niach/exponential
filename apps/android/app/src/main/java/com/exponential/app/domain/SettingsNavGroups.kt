@@ -18,6 +18,7 @@ object SettingsNavGroups {
     const val NEW_BOARD = "@new-board"
     const val APPS = "@apps"
     const val NEW_APP = "@new-app"
+    const val NEW_REPOSITORY = "@new-repository"
 
     data class Page(val label: String, val icon: String, val visible: String, val platforms: List<String>? = null)
 
@@ -54,17 +55,17 @@ object SettingsNavGroups {
         "devices" to listOf("ios", "android", "web-mobile"),
     )
 
-    val NEW_ENTRIES: Map<String, String> = mapOf(NEW_BOARD to "owner", NEW_AGENT to "owner", NEW_APP to "owner")
+    val NEW_ENTRIES: Map<String, String> = mapOf(NEW_BOARD to "owner", NEW_AGENT to "owner", NEW_APP to "owner", NEW_REPOSITORY to "owner")
 
-    /** #EXP-2109 `nav.phone`: the Settings tab's pages, and a team's settings
-     *  page in order. */
-    val PHONE_SETTINGS: List<String> = listOf("account", ASSISTANT, "notifications", "security", "devices", "about")
+    /** #EXP-2109 `nav.phone`: the Settings page's pages (#EXP-2171: Devices
+     *  moved to the More tab), and a team's settings page in order. */
+    val PHONE_SETTINGS: List<String> = listOf("account", ASSISTANT, "notifications", "security", "about")
     val PHONE_TEAM: List<String> = listOf("general", "members", "labels", "repositories", "prompts", "boards", "agents", "mcp", "skills")
 
-    /** The Settings tab's rows in their groups (account… · devices · about). */
+    /** The Settings page's rows in their groups (account… · about). */
     fun phoneSettingsGroups(): List<List<String>> = PHONE_SETTINGS
         .filter { id -> page(id)?.platforms?.let { PLATFORM in it } ?: true }
-        .groupBy { if (it == "devices" || it == "about") it else "account" }
+        .groupBy { if (it == "about") it else "account" }
         .values.toList()
 
     /** The team settings page's rows a viewer sees, in order. */

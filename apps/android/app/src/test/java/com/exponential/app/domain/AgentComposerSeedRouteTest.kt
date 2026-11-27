@@ -42,13 +42,21 @@ class AgentComposerSeedRouteTest {
     fun `the pattern declares every arg as a query placeholder`() {
         assertEquals(
             "agent?issues={issues}&action={action}&device={device}&pr={pr}&text={text}" +
-                "&icon={icon}&chat={chat}&team={team}",
+                "&icon={icon}&chat={chat}&team={team}&repo={repo}",
             AGENT_ROUTE_PATTERN,
         )
         assertEquals(
-            listOf("issues", "action", "device", "pr", "text", "icon", "chat", "team"),
+            listOf("issues", "action", "device", "pr", "text", "icon", "chat", "team", "repo"),
             AGENT_ROUTE_ARGS,
         )
+    }
+
+    @Test
+    fun `a repository pick rides and drops a bad id (#EXP-2171)`() {
+        val route = agentRoute(AgentComposerSeed(teamId = issueA, repositoryId = issueA))
+        assertEquals("agent?team=$issueA&repo=$issueA", route)
+        assertEquals(issueA, AgentComposerSeed.fromArgs(argsOf(route)).repositoryId)
+        assertNull(AgentComposerSeed.fromArgs { "acme" }.repositoryId)
     }
 
     @Test
