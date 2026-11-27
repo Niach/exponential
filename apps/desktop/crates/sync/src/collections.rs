@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (37 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (38 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -46,7 +46,7 @@ use crate::store::{ShapeStore, StoreError};
 use domain::rows::{
     AgentDefRow, Attachment, Board, Comment, ComposerDraftRow, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
-    Notification, PullRequestCheckRow, SidebarLayoutRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
+    Notification, PullRequestCheckRow, RepositoryRow, SidebarLayoutRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, SkillRow, CiRunRow, CiJobRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 37
+/// A typed row hydratable from the store's snake_case JSON objects. The 38
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -221,6 +221,7 @@ id_shape_row!(SkillRow, "skills");
 id_shape_row!(CiRunRow, "ci_runs");
 id_shape_row!(CiJobRow, "ci_jobs");
 id_shape_row!(SidebarLayoutRow, "sidebar_layout");
+id_shape_row!(RepositoryRow, "repositories");
 
 /// EXP-1459: the three shapes that carry sealed content.
 macro_rules! sealed_shape_row {
@@ -628,7 +629,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 37 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 38 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -704,6 +705,9 @@ pub struct Collections {
     /// per-user and static like `issue_drafts`; [`Collections::sidebar_entries`]
     /// reads one team's section.
     pub sidebar_layout: Entity<Collection<SidebarLayoutRow>>,
+    /// #EXP-2171 the teams' repositories (the 38th shape): the sidebar's
+    /// repository items, the composer's repository chip, the repo pages.
+    pub repositories: Entity<Collection<RepositoryRow>>,
     /// #PERF-9: the heavy shapes ([`HYDRATE_OFF_MAIN`]) whose startup
     /// hydrate is still being read off the main thread; a delta of one waits
     /// for its install ([`Self::hydrated`]). Disconnects = installed.
@@ -714,7 +718,7 @@ pub struct Collections {
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 37-way fan-out in one
+/// entity — the single dispatch point that keeps the 38-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -792,6 +796,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.sidebar_layout;
         $body;
+        let $entity = &$collections.repositories;
+        $body;
     }};
 }
 
@@ -835,6 +841,7 @@ impl Collections {
             ci_runs: cx.new(|_| Collection::new()),
             ci_jobs: cx.new(|_| Collection::new()),
             sidebar_layout: cx.new(|_| Collection::new()),
+            repositories: cx.new(|_| Collection::new()),
             hydrating: Arc::default(),
             generation: Arc::default(),
         }
@@ -944,6 +951,7 @@ impl Collections {
             "ci_runs" => prepare_for(|c| &c.ci_runs, keys, full_replace, up_to_date, sqlite),
             "ci_jobs" => prepare_for(|c| &c.ci_jobs, keys, full_replace, up_to_date, sqlite),
             "sidebar_layout" => prepare_for(|c| &c.sidebar_layout, keys, full_replace, up_to_date, sqlite),
+            "repositories" => prepare_for(|c| &c.repositories, keys, full_replace, up_to_date, sqlite),
             other => {
                 log::warn!("[sync] delta for unknown shape {other}");
                 None
@@ -978,7 +986,7 @@ impl Collections {
         }
     }
 
-    /// Full hydrate of all 37 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 38 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). The light shapes run
     /// synchronously on the foreground, so the first frame paints the
     /// last-known board: every batch committed to SQLite has a matching
@@ -1067,7 +1075,7 @@ impl Collections {
         out
     }
 
-    /// Run `on_change` on `V` whenever ANY of the 37 collections notifies
+    /// Run `on_change` on `V` whenever ANY of the 38 collections notifies
     /// (EXP-1326: the IDE's cached dock area re-renders on every synced
     /// change this way, so a screen reading a collection without observing
     /// it never goes stale behind the cache).
@@ -1155,6 +1163,26 @@ impl Collections {
                 .then_with(|| a.id.cmp(&b.id))
         });
         out
+    }
+
+    /// #EXP-2171: a team's synced repositories in the sidebar's order
+    /// (sidebar-tree.json `teamItems`: sortOrder, then the full name
+    /// case-insensitively, then id).
+    pub fn repositories_in_team(&self, team_id: &str, cx: &App) -> Vec<RepositoryRow> {
+        let mut out: Vec<RepositoryRow> = self.repositories.read(cx).iter().filter(|r| r.team_id == team_id).cloned().collect();
+        out.sort_by(|a, b| {
+            a.sort_order
+                .unwrap_or(0.0)
+                .total_cmp(&b.sort_order.unwrap_or(0.0))
+                .then_with(|| a.full_name.to_lowercase().cmp(&b.full_name.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        out
+    }
+
+    /// #EXP-2171: a repository by id (any team the viewer is in).
+    pub fn repository(&self, id: &str, cx: &App) -> Option<RepositoryRow> {
+        self.repositories.read(cx).iter().find(|r| r.id == id).cloned()
     }
 
     /// A board's issues, sort-order-then-identifier sorted (the board's base
@@ -1465,7 +1493,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 37 collection entities,
+    /// Build the store: the shared-state entity, the 38 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -1533,7 +1561,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 37 reactive collections.
+    /// The 38 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -2039,7 +2067,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 37 ShapeRow impls cover the registry exactly (a 38th shape
+        // The 38 ShapeRow impls cover the registry exactly (a 39th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -2079,6 +2107,7 @@ mod tests {
             CiRunRow::spec().name,
             CiJobRow::spec().name,
             SidebarLayoutRow::spec().name,
+            RepositoryRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

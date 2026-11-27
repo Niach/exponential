@@ -807,12 +807,12 @@ fn identity(ink: &Ink) -> Value {
 /// a linked repo the list hasn't resolved yet = the value's placeholder bar.
 fn repository(ink: &Ink, chrome: &Chrome) -> Value {
     let select = json!({"id": "repo", "component": "Select", "visible": path("/pane/repo/ready"),
-        "props": {"label": "Repository", "name": "repo", "triggerVariant": "row", "value": path("/pane/repo/value"), "options": path("/pane/repo/options")},
+        "props": {"label": "Default repository", "name": "repo", "triggerVariant": "row", "value": path("/pane/repo/value"), "options": path("/pane/repo/options")},
         "on": {"change": {"event": {"name": "repo"}}}});
     // `feedback::skeleton_value`: the 120 px pulsing bar, then the chevron.
     let glyph = ink.r(1.);
     let pending = ink.shell("repo_loading", false, path("/pane/repo/loading"), vec![
-        json!({"id": "repo_loading_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text("repo_loading_label", json!("Repository"), SM, &ink.foreground)]}),
+        json!({"id": "repo_loading_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text("repo_loading_label", json!("Default repository"), SM, &ink.foreground)]}),
         json!({"id": "repo_loading_control", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "flexGrow": 1, "minWidth": 200},
             "children": [
                 {"id": "repo_loading_bar", "component": "Skeleton", "props": {"width": "120", "height": "8"}, "style": {"width": 120, "height": 8, "borderRadius": 4, "backgroundColor": chrome.skeleton}},

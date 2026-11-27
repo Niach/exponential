@@ -88,12 +88,15 @@ fn team_items() {
     let f = fixture();
     for case in cases(&f, "teamItems") {
         let boards: Vec<SidebarBoardInput> = field(case, "boards");
+        // #EXP-2171: absent = none.
+        let repositories: Vec<SidebarRepositoryInput> =
+            if case.get("repositories").is_some() { field(case, "repositories") } else { Vec::new() };
         let agents: Vec<SidebarAgentInput> = field(case, "agents");
         let apps: Vec<SidebarAppInput> = field(case, "apps");
         let sessions: Vec<SidebarSessionInput> = field(case, "sessions");
         let entries: Vec<SidebarEntry> = field(case, "entries");
         let team_id: String = field(case, "teamId");
-        let got = sidebar_team_items(&team_id, &boards, &agents, &apps, &sessions, &entries);
+        let got = sidebar_team_items(&team_id, &boards, &repositories, &agents, &apps, &sessions, &entries);
         assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
     }
 }
@@ -121,5 +124,28 @@ fn drop() {
         let team_id: String = field(case, "teamId");
         let got = sidebar_drop_session(&team_id, &items, &entries, &session, &mv, case["newFolderId"].as_str().unwrap());
         assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn repository_row() {
+    let f = fixture();
+    let row = &f["repositoryRow"];
+    assert_eq!(json!(SIDEBAR_REPOSITORY_GLYPH), row["glyph"]);
+    assert_eq!(json!(SIDEBAR_REPOSITORY_GITHUB_ICON), row["github"]);
+    for case in cases(row, "cases") {
+        let provider: String = field(case, "provider");
+        let checks: Option<RepositoryChecks> = field(case, "checks");
+        let got = sidebar_repository_trailing(&provider, checks);
+        assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+    }
+    for case in cases(row, "cloneUrl") {
+        let provider: String = field(case, "provider");
+        let full_name: String = field(case, "fullName");
+        assert_eq!(json!(repository_clone_url(&provider, &full_name)), case["expected"], "{}", case["name"]);
+    }
+    for case in cases(row, "nameCases") {
+        let full_name: String = field(case, "fullName");
+        assert_eq!(json!(repository_name(&full_name)), case["expected"], "{}", full_name);
     }
 }
