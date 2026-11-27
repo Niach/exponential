@@ -8,7 +8,7 @@ import { usePageTitle, pageTitle } from "@/lib/page-title"
 import { DeviceStatusLine } from "@/components/device-setup"
 import { DeviceSettingsBody } from "@/components/device-settings-dialog"
 import { Empty } from "@/components/empty"
-import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { PageHeading, pageFrameClass } from "@/components/page-frame"
 import { DeviceAccountsSection } from "@/components/devices/device-accounts-section"
 import { DeviceRunningSection } from "@/components/devices/device-running-section"
 import { TeamOwnerSpaces } from "@/components/devices/member-spaces"
@@ -22,7 +22,7 @@ import { useDevicePage } from "@/components/devices/use-device-page"
 
 const SettingsIcon = conceptIcon(`nav-settings`)
 
-const PAGE_FRAME = `mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`
+const PAGE_FRAME = pageFrameClass()
 
 /** The device's label (the id when it never named itself). */
 const deviceName = (device: SteerDevice) => device.deviceLabel || device.deviceId
@@ -42,23 +42,27 @@ function DeviceHeading({
   const latest = (device.kind === `server` ? latestVersions?.cli : latestVersions?.desktop) ?? null
   const outdated = deviceIsMine(device) && deviceUpdateAvailable(device.version, latest)
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      {leading}
-      <DeviceIcon aria-hidden className="size-6 shrink-0 text-muted-foreground" />
-      <h1 className="min-w-0 truncate text-2xl font-bold">{deviceName(device)}</h1>
-      {device.version && (
-        <span
-          className={`shrink-0 text-xs ${outdated ? `text-yellow-400` : `text-muted-foreground`}`}
-          title={outdated && latest ? `Update available: ${latest}` : undefined}
-        >
-          v{device.version}
-        </span>
-      )}
-      <div className="shrink-0">
-        <DeviceStatusLine online={deviceIsOnline(device)} lastSeenAt={device.lastSeenAt} />
-      </div>
-      {trailing && <div className="ml-auto flex shrink-0 items-center gap-2">{trailing}</div>}
-    </div>
+    <PageHeading
+      icon={DeviceIcon}
+      title={deviceName(device)}
+      leading={leading}
+      meta={
+        <>
+          {device.version && (
+            <span
+              className={`shrink-0 text-xs ${outdated ? `text-yellow-400` : `text-muted-foreground`}`}
+              title={outdated && latest ? `Update available: ${latest}` : undefined}
+            >
+              v{device.version}
+            </span>
+          )}
+          <div className="shrink-0">
+            <DeviceStatusLine online={deviceIsOnline(device)} lastSeenAt={device.lastSeenAt} />
+          </div>
+        </>
+      }
+      trailing={trailing}
+    />
   )
 }
 

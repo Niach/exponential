@@ -4,7 +4,7 @@ import { ciDefaultJob, ciFixPrompt } from "@exp/domain-contract/ci-run"
 import { conceptIcon, EmptyState, MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
 import { LINK_NO_ACCESS } from "@/lib/app-link"
 import { CiRunView, useRunClock } from "@/components/ci/ci-run-page"
-import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { pageFrameClass } from "@/components/page-frame"
 import { useCiLog, useCiRun } from "@/hooks/use-ci-run"
 import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
@@ -78,14 +78,6 @@ function CiRunRoute() {
     void navigate({ to: `/home`, search: { team: row.teamId, repo: row.repositoryId, text } })
   }
 
-  const breadcrumb = (value: string) => {
-    if (value === `ci`) void navigate({ to: `/ci` })
-    else if (value === `repository` && model?.repository) {
-      const name = model.repository.split(`/`).pop() ?? model.repository
-      void navigate({ to: `/t/$teamSlug/repos/$name`, params: { teamSlug, name } })
-    }
-  }
-
   const cancel = async () => {
     setBusy(`cancel`)
     try {
@@ -115,7 +107,7 @@ function CiRunRoute() {
           />
         </div>
       )}
-      <div className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-6xl md:py-6 ${PAGE_END_CLEARANCE}`}>
+      <div className={pageFrameClass(true)}>
         {model ? (
           <CiRunView
             model={model}
@@ -130,7 +122,6 @@ function CiRunRoute() {
             onCancel={() => void cancel()}
             onFix={fix}
             onOpenExternal={() => model.run.externalUrl && window.open(model.run.externalUrl, `_blank`, `noopener`)}
-            onBreadcrumb={breadcrumb}
           />
         ) : ready ? (
           <EmptyState icon={conceptIcon(`nav-search`)} title={LINK_NO_ACCESS} size="page" />

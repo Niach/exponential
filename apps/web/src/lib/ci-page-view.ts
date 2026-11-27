@@ -62,41 +62,37 @@ function trainSection(group: CiTrainGroup, id: string): NestedNode {
   }
 }
 
+/** The filter bar (ci-page-view.json, #EXP-2169 "one look"): ONE Toolbar of
+ *  three `Select{button}` pickers (status, repository, source), the app's
+ *  ordinary picker buttons; wide adds the runner Chip at its end. */
 function filters(input: CiPageInput, state: CiPageState): NestedNode {
   const copy = CI_PAGE_COPY
-  const status: NestedNode = {
-    id: CI_PAGE_TEST_IDS.statusFilter,
-    component: `Segmented`,
-    props: {
-      items: ([`all`, `running`, `failed`, `mine`] as const).map((value) => ({ label: copy.filters[value], value })),
-      value: state.filter.status,
-      size: `sm`,
-      ...(state.phone ? { fill: true } : {}),
-    },
-    on: { change: { event: { name: CI_PAGE_EVENTS.status } } },
-  }
-  const repository: NestedNode = {
-    id: CI_PAGE_TEST_IDS.repoFilter,
+  const picker = (id: string, label: string, value: string, options: Array<{ label: string; value: string }>, event: string): NestedNode => ({
+    id,
     component: `Select`,
-    props: { name: CI_PAGE_TEST_IDS.repoFilter, triggerVariant: `pill`, value: state.filter.repositoryId ?? `all`, options: ciRepoOptions(input) },
-    on: { change: { event: { name: CI_PAGE_EVENTS.repository } } },
-  }
-  const source: NestedNode = {
-    id: CI_PAGE_TEST_IDS.sourceFilter,
-    component: `Select`,
-    props: {
-      name: CI_PAGE_TEST_IDS.sourceFilter,
-      triggerVariant: `pill`,
-      value: state.filter.source ?? `all`,
-      options: [
-        { label: copy.sources.all, value: `all` },
-        { label: copy.sources.exponential, value: `exponential` },
-        { label: copy.sources.github, value: `github` },
-      ],
-    },
-    on: { change: { event: { name: CI_PAGE_EVENTS.source } } },
-  }
-  const chip = ciRunnerChip(input)
+    props: { name: id, label, triggerVariant: `button`, value, options },
+    on: { change: { event: { name: event } } },
+  })
+  const status = picker(
+    CI_PAGE_TEST_IDS.statusFilter,
+    copy.filterLabels.status,
+    state.filter.status,
+    ([`all`, `running`, `failed`, `mine`] as const).map((value) => ({ label: copy.filters[value], value })),
+    CI_PAGE_EVENTS.status
+  )
+  const repository = picker(CI_PAGE_TEST_IDS.repoFilter, copy.filterLabels.repository, state.filter.repositoryId ?? `all`, ciRepoOptions(input), CI_PAGE_EVENTS.repository)
+  const source = picker(
+    CI_PAGE_TEST_IDS.sourceFilter,
+    copy.filterLabels.source,
+    state.filter.source ?? `all`,
+    [
+      { label: copy.sources.all, value: `all` },
+      { label: copy.sources.exponential, value: `exponential` },
+      { label: copy.sources.github, value: `github` },
+    ],
+    CI_PAGE_EVENTS.source
+  )
+  const chip = state.phone ? null : ciRunnerChip(input)
   const runners: NestedNode | null = chip
     ? {
         id: CI_PAGE_TEST_IDS.runnerChip,
@@ -105,14 +101,6 @@ function filters(input: CiPageInput, state: CiPageState): NestedNode {
         on: { press: { event: { name: CI_PAGE_EVENTS.runners } } },
       }
     : null
-  if (state.phone) {
-    return {
-      id: CI_PAGE_TEST_IDS.filters,
-      component: `Stack`,
-      props: { direction: `vertical`, gap: `sm`, align: `stretch` },
-      children: [status, { id: `${CI_PAGE_TEST_IDS.filters}.picks`, component: `Toolbar`, children: [repository, source] }],
-    }
-  }
   return {
     id: CI_PAGE_TEST_IDS.filters,
     component: `Toolbar`,
@@ -162,31 +150,45 @@ function runRow(row: CiRunListRow, phone: boolean): NestedNode {
   }
 }
 
-function runsPanel(input: CiPageInput, state: CiPageState): NestedNode {
+/** The runs as day Sections (or the EmptyState): the Runs tab's body, and
+ *  the repo page's Runs tab (`ciRepoRunsTree`). */
+function runSections(input: CiPageInput, filter: CiRunFilter, phone: boolean, filtered: boolean): NestedNode {
   const copy = CI_PAGE_COPY
-  const groups = ciRunGroups(input, state.filter)
-  const children: NestedNode[] = [filters(input, state)]
-  const filtered = state.filter.status !== `all` || state.filter.repositoryId !== null || state.filter.source !== null
+  const groups = ciRunGroups(input, filter)
   if (groups.length === 0) {
-    children.push({
+    return {
       id: CI_PAGE_TEST_IDS.runs,
       component: `EmptyState`,
       props: { icon: `nav-ci`, title: filtered ? copy.empty.filtered : copy.empty.runs, size: `list` },
-    })
-  } else {
-    children.push({
-      id: CI_PAGE_TEST_IDS.runs,
-      component: `Stack`,
-      props: { direction: `vertical`, gap: `md`, align: `stretch` },
-      children: groups.map((group) => ({
-        id: `${CI_PAGE_TEST_IDS.runs}.${group.id}`,
-        component: `Section`,
-        props: { title: group.title, ...(group.count !== null ? { count: group.count } : {}) },
-        children: group.rows.map((row) => runRow(row, state.phone)),
-      })),
-    })
+    }
   }
-  return { id: `${CI_PAGE_TEST_IDS.page}.runs`, component: `Stack`, props: { direction: `vertical`, gap: `md`, align: `stretch` }, children }
+  return {
+    id: CI_PAGE_TEST_IDS.runs,
+    component: `Stack`,
+    props: { direction: `vertical`, gap: `md`, align: `stretch` },
+    children: groups.map((group) => ({
+      id: `${CI_PAGE_TEST_IDS.runs}.${group.id}`,
+      component: `Section`,
+      props: { title: group.title, ...(group.count !== null ? { count: group.count } : {}) },
+      children: group.rows.map((row) => runRow(row, phone)),
+    })),
+  }
+}
+
+function runsPanel(input: CiPageInput, state: CiPageState): NestedNode {
+  return {
+    id: `${CI_PAGE_TEST_IDS.page}.runs`,
+    component: `Stack`,
+    props: { direction: `vertical`, gap: `md`, align: `stretch` },
+    children: [filters(input, state), runSections(input, state.filter, state.phone, state.filter.status !== `all` || state.filter.repositoryId !== null || state.filter.source !== null)],
+  }
+}
+
+/** THE REPO PAGE'S RUNS TAB (#EXP-2169 "one look"): the CI page's runs of
+ *  ONE repository, the same day Sections and rows, no filter bar (the repo
+ *  page has its own tabs). Events: the page's `ci-open-run {run}`. */
+export function ciRepoRunsTree(input: CiPageInput, repositoryId: string, phone: boolean): NestedNode {
+  return runSections(input, { status: `all`, repositoryId, source: null }, phone, false)
 }
 
 function trainPanel(input: CiPageInput): NestedNode {
@@ -252,8 +254,7 @@ export function ciPageTree(input: CiPageInput, state: CiPageState): NestedNode {
             { label: copy.tabs.runners, value: `runners`, ...(counts.runners > 0 ? { count: counts.runners } : {}) },
           ],
           value: state.tab,
-          variant: `strip`,
-          ...(state.phone ? { fill: true } : {}),
+          variant: `pill`,
         },
         on: { change: { event: { name: CI_PAGE_EVENTS.tab } } },
         children: [

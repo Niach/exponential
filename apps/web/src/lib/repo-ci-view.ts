@@ -1,5 +1,4 @@
 import type { NestedNode } from "@exponential_app/eui"
-import type { CheckTone } from "@exp/domain-contract/pr-checks"
 import { REPO_PAGE_COPY } from "@exp/domain-contract/repo-page"
 import {
   REPO_CI_COPY,
@@ -7,7 +6,6 @@ import {
   repoCiSwitches,
   secretName,
   type RepoRunInput,
-  type RepoRunRow,
 } from "@exp/domain-contract/repo-ci"
 
 // #EXP-1617 E4 part 4 (fixtures/repo-ci.json): the repo page's Runs tab and
@@ -20,12 +18,6 @@ import {
 
 const C = REPO_CI_COPY.ci
 const IDS = REPO_CI_TEST_IDS
-
-const ICON_TONE: Record<CheckTone, `neutral` | `success` | `danger`> = {
-  muted: `neutral`,
-  green: `success`,
-  red: `danger`,
-}
 
 /** repo-page.json `copy.checks[state].tone` → the theme's colour token. */
 const DOT: Record<string, string> = {
@@ -85,75 +77,6 @@ export function repoRunInput(run: {
     state: run.state,
     startedAt: toIso(run.startedAt),
     completedAt: toIso(run.completedAt),
-  }
-}
-
-function statusGlyph(id: string, row: Pick<RepoRunRow, `glyph` | `tone`>): NestedNode {
-  return { id, component: `Icon`, props: { name: row.glyph, tone: ICON_TONE[row.tone], size: `sm` } }
-}
-
-/** The Runs tab (rows non-empty; none = the host's EmptyState). WIDE a
- *  Table, PHONES one pressable Row per run. */
-export function repoRunsTree(rows: readonly RepoRunRow[], phone: boolean): NestedNode {
-  const cols = REPO_CI_COPY.runs.columns
-  if (phone) {
-    return {
-      id: IDS.runs,
-      component: `Section`,
-      children: rows.map((row) => ({
-        id: `${IDS.runRow}.${row.id}`,
-        component: `Row`,
-        props: {
-          identifier: row.identifier,
-          title: row.title,
-          subtitle: row.subtitle,
-          ...(row.duration ? { meta: row.duration } : {}),
-          pressable: true,
-        },
-        slots: { leading: statusGlyph(`${IDS.runRow}.${row.id}.glyph`, row) },
-        on: { press: { event: { name: REPO_CI_EVENTS.openRun, context: { run: row.id } } } },
-      })),
-    }
-  }
-  return {
-    id: IDS.runs,
-    component: `Table`,
-    props: {
-      columns: [
-        { key: `status`, label: cols.status, type: `slot`, slot: `status`, width: 128 },
-        { key: `run`, label: cols.run, truncate: true },
-        { key: `commit`, label: cols.commit, width: 96 },
-        { key: `ref`, label: cols.ref, truncate: true },
-        { key: `trigger`, label: cols.trigger, width: 128 },
-        { key: `duration`, label: cols.duration, width: 104, align: `end` },
-        { key: `started`, label: cols.started, type: `relativeTime`, width: 128 },
-      ],
-      rows: rows.map((row) => ({
-        id: row.id,
-        glyph: row.glyph,
-        iconTone: ICON_TONE[row.tone],
-        status: row.statusLabel,
-        run: `${row.identifier} ${row.title}`,
-        commit: row.commit,
-        ref: row.ref,
-        trigger: row.trigger,
-        duration: row.duration ?? ``,
-        started: row.startedAt,
-      })),
-      rowKey: `id`,
-    },
-    slots: {
-      status: {
-        id: `${IDS.runRow}-status`,
-        component: `Stack`,
-        props: { direction: `horizontal`, gap: `xs`, align: `center` },
-        children: [
-          { id: `${IDS.runRow}-status.glyph`, component: `Icon`, props: { name: { "@path": `glyph` }, tone: { "@path": `iconTone` }, size: `sm` } },
-          { id: `${IDS.runRow}-status.label`, component: `Text`, props: { text: { "@path": `status` }, lines: 1 } },
-        ],
-      },
-    },
-    on: { rowPress: { event: { name: REPO_CI_EVENTS.openRun, context: { run: { "@path": `id` } } } } },
   }
 }
 
