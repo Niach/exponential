@@ -93,7 +93,8 @@ private func selfHandling(_ n: NodeInfo) -> Bool {
     if n.isTextField { return true }
     switch (n.component, n.part) {
     // Round 8: a Canvas sends its own `press {x, y}` (CanvasLeaf).
-    case ("Slider", "track"), ("Segmented", _), ("Box", "indicator"), ("Canvas", _): return true
+    // #EXP-2204: LogLines and JobGraph press their own rows and nodes.
+    case ("Slider", "track"), ("Segmented", _), ("Box", "indicator"), ("Canvas", _), ("LogLines", _), ("JobGraph", _): return true
     default: return false
     }
 }

@@ -489,7 +489,9 @@ impl SurfaceView {
         }
         // #EXP-1629: a Select option's cursor is its fill, never a ring.
         let option = n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item");
-        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() && !option {
+        // #EXP-2204: a JobGraph's focus is its keyboard node's `focus` look.
+        let own_focus = n.component == "JobGraph";
+        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() && !option && !own_focus {
             let ring = theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "ring").unwrap_or(ink.opacity(0.5));
             el = el.child(rounded(div().absolute().top(px(-2.0)).left(px(-2.0)).w(px(w + 4.0)).h(px(h + 4.0)).border_2().border_color(ring), radii.map(|r| r + 2.0)));
         }
@@ -687,10 +689,19 @@ impl SurfaceView {
         let mut out = Vec::with_capacity(n.children.len());
         let mut members = Vec::new();
         let pins = n.children.iter().any(|c| self.sticky.contains_key(c));
+        let window_band = self.code_block_window(index, n);
         for &c in &n.children {
             let Some(child) = self.cache.node(c) else { continue };
             if child.hidden || child.layer != layer {
                 continue;
+            }
+            // #EXP-2204 §6: a self-scrolling CodeBlock past `windowThreshold`
+            // lines builds only the lines in view ± `windowOverscan`.
+            if let Some((top, bottom)) = window_band {
+                let f = self.frames.get(c as usize).copied().unwrap_or_default();
+                if f.y + f.h < top || f.y > bottom {
+                    continue;
+                }
             }
             let Some(el) = self.paint_node(c, place, window, cx) else { continue };
             if pins {
@@ -708,6 +719,36 @@ impl SurfaceView {
             out.push(super::pinned::PinnedStack::new(members).into_any_element());
         }
         out
+    }
+
+    /// #EXP-2204 §6: the band of frame y a CodeBlock `body` builds lines in
+    /// (`None` = every line): its viewport ± `windowOverscan` lines, only
+    /// when it scrolls itself vertically, holds more than
+    /// `windowThreshold` lines and does not wrap (uniform line heights).
+    fn code_block_window(&self, index: u32, n: &PlacedNode) -> Option<(f32, f32)> {
+        if n.owner_component.as_deref() != Some("CodeBlock") || n.part.as_deref() != Some("body") || n.children.len() <= eui_core::list::WINDOW_THRESHOLD {
+            return None;
+        }
+        let s = self.scrolls.get(&index).filter(|s| s.scroll_y)?;
+        let wraps = n.owner.as_deref().and_then(|o| self.cache.index_of(o)).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("wrap").and_then(Value::as_bool) == Some(true));
+        if wraps {
+            return None;
+        }
+        let f = self.frames.get(index as usize).copied().unwrap_or_default();
+        let line = n.children.first().and_then(|c| self.frames.get(*c as usize)).map(|c| c.h).filter(|h| *h > 0.0).unwrap_or(22.75);
+        let over = eui_core::list::DEFAULT_OVERSCAN as f32 * line;
+        // Child frames are in the surface's space, unscrolled.
+        let top = f.y + s.offset_y - over;
+        Some((top, top + f.h + 2.0 * over))
+    }
+
+    /// The CodeBlock lines built in the last frame's window (tests).
+    pub fn code_block_built_lines(&self, id: &str) -> Option<usize> {
+        let body = self.cache.nodes.iter().find(|m| !m.removed && m.owner.as_deref() == Some(id) && m.part.as_deref() == Some("body"))?;
+        match self.code_block_window(body.index, body) {
+            None => Some(body.children.len()),
+            Some((top, bottom)) => Some(body.children.iter().filter(|c| self.frames.get(**c as usize).is_some_and(|f| !(f.y + f.h < top || f.y > bottom))).count()),
+        }
     }
 
     /// A scroll container: wheel / trackpad scroll the core's offset (a
@@ -1188,6 +1229,10 @@ impl SurfaceView {
             ("Motion", _) => self.motion_element(n, cx),
             // Round 8: the shapes' raster + native text (view/canvas_leaf.rs).
             ("Canvas", _) => self.canvas_element(n, cx),
+            // #EXP-2204: the log (toolbar + windowed rows) and the job
+            // graph (view/ci_leaf.rs).
+            ("LogLines", None) => self.log_lines_element(&lcx, window, cx),
+            ("JobGraph", None) => self.job_graph_element(&lcx, cx),
             // #EDE-65: the nested surface in place (view/embed.rs).
             ("Embed", _) => self.embed_element(n, window, cx)?,
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),

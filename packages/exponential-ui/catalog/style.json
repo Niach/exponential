@@ -208,5 +208,36 @@
       "percentMinWidth": 56,
       "dividerHeight": 16
     }
+  },
+  "ciStatus": {
+    "$comment": "#EXP-2204 (docs/ci-components-contract.md \u00a71): THE status table of LogLines and JobGraph, one on every platform: per `ciStatus` the glyph (an icons.json concept, 16 px = $control.iconSm) and whether it spins. The running glyph is THE only moving mark: one linear turn per spinMs, static under reduced motion. The colours are the theme's (`when: {status}` recipes on LogLines sectionIcon/sectionTitle, JobGraph icon/name); an unknown or missing status = queued; no strikethrough anywhere. src/ci-log.ts CI_STATUS_TABLE carries the same (gated equal), fixtures/ci-log.json `statusTable` locks it.",
+    "spinMs": 1000,
+    "passed": { "icon": "ci-passed", "spin": false },
+    "failed": { "icon": "ci-failed", "spin": false },
+    "running": { "icon": "ci-running", "spin": true },
+    "queued": { "icon": "ci-queued", "spin": false },
+    "cancelled": { "icon": "ci-skipped", "spin": false },
+    "skipped": { "icon": "ci-skipped", "spin": false }
+  },
+  "logView": {
+    "$comment": "#EXP-2204 (docs/ci-components-contract.md \u00a74): the LogLines geometry: `searchWidth` = the toolbar's search field (shrinking), `indent` = a line inside a section (one step in), `maxLines` = the body's height in log lines when the LogView sets none and no node height or flex decides. The line height and type are CodeBlock's (the theme's LogLines/line recipe); the rows window like List (layout.json windowThreshold/windowOverscan). The rules (anchors, the model, rows, search, reveal) are src/ci-log.ts, locked by fixtures/ci-log.json.",
+    "searchWidth": 240,
+    "indent": 16,
+    "maxLines": 24
+  },
+  "jobGraph": {
+    "$comment": "#EXP-2204 (docs/ci-components-contract.md \u00a75): the JobGraph geometry src/job-graph.ts jobGraphLayout lays out (fixtures/job-graph.json locks every number): a node nodeWidth \u00d7 nodeHeight, columns columnGap apart, rows rowGap apart, the stage titles stageHeight tall stageGap above the nodes (only with stages); an edge (only while a node is hovered or focused, its upstream set) strokes edgeWidth; `rowHeight` = a compact list row (= $control.row of the neutral theme).",
+    "nodeWidth": 200,
+    "nodeHeight": 40,
+    "columnGap": 48,
+    "rowGap": 12,
+    "stageHeight": 24,
+    "stageGap": 8,
+    "edgeWidth": 1.5,
+    "rowHeight": 40
+  },
+  "codeBlock": {
+    "$comment": "#EXP-2204 (docs/ci-components-contract.md \u00a76): `blameWidth` = the `gutter: blame` column before the line numbers (the author truncated, the age end-aligned on each block's first line; src/ci-log.ts blameBlocks).",
+    "blameWidth": 200
   }
 }

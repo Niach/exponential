@@ -51067,6 +51067,1874 @@
       ]
     },
     {
+      "name": "LogView/bound:lines",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": {
+            "@path": "/lines"
+          },
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": {
+                "@path": "/lines"
+              },
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "lines": [
+              "##[group]Install",
+              "$ bun install",
+              "Resolved 1204 packages",
+              "##[endgroup]",
+              "##[group]Test",
+              "\u001b[31m(fail)\u001b[0m store > get",
+              "##[error]1 test failed",
+              "##[endgroup]"
+            ]
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "lines": []
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:sections",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": {
+            "@path": "/sections"
+          },
+          "maxLines": 8
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": {
+                "@path": "/sections"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "sections": [
+              {
+                "status": "passed",
+                "duration": "12s"
+              },
+              {
+                "status": "failed",
+                "duration": "41s"
+              }
+            ]
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "sections": []
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:open",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "open": {
+            "@path": "/open"
+          }
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "open": {
+                "@path": "/open"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "open": []
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "open": [],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "open": []
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "open": [],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:query",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "query": {
+            "@path": "/query"
+          }
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "query": {
+                "@path": "/query"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "query": "Bound"
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "query": "Bound",
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "query": ""
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "query": "",
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:selection",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "selection": {
+            "@path": "/selection"
+          }
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "selection": {
+                "@path": "/selection"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "selection": "Bound"
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "selection": "Bound",
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "selection": ""
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "selection": "",
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:follow",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "follow": {
+            "@path": "/follow"
+          }
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "follow": {
+                "@path": "/follow"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "follow": true
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "follow": true,
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "follow": false
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "follow": false,
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "LogView/bound:timestamps",
+      "input": {
+        "id": "log_view",
+        "component": "LogView",
+        "props": {
+          "lines": [
+            "##[group]Install",
+            "$ bun install",
+            "Resolved 1204 packages",
+            "##[endgroup]",
+            "##[group]Test",
+            "\u001b[31m(fail)\u001b[0m store > get",
+            "##[error]1 test failed",
+            "##[endgroup]"
+          ],
+          "sections": [
+            {
+              "status": "passed",
+              "duration": "12s"
+            },
+            {
+              "status": "failed",
+              "duration": "41s"
+            }
+          ],
+          "maxLines": 8,
+          "timestamps": {
+            "@path": "/timestamps"
+          }
+        }
+      },
+      "expanded": {
+        "id": "log_view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "log_view.log",
+            "component": "LogLines",
+            "props": {
+              "lines": [
+                "##[group]Install",
+                "$ bun install",
+                "Resolved 1204 packages",
+                "##[endgroup]",
+                "##[group]Test",
+                "\u001b[31m(fail)\u001b[0m store > get",
+                "##[error]1 test failed",
+                "##[endgroup]"
+              ],
+              "sections": [
+                {
+                  "status": "passed",
+                  "duration": "12s"
+                },
+                {
+                  "status": "failed",
+                  "duration": "41s"
+                }
+              ],
+              "timestamps": {
+                "@path": "/timestamps"
+              },
+              "maxLines": 8
+            },
+            "children": [],
+            "recipe": {
+              "macro": "LogView",
+              "part": "log",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "LogView",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "region",
+          "label": "$string.logView"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "timestamps": true
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "timestamps": true,
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "timestamps": false
+          },
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "timestamps": false,
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "log_view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "log_view.log",
+                "component": "LogLines",
+                "props": {
+                  "lines": [
+                    "##[group]Install",
+                    "$ bun install",
+                    "Resolved 1204 packages",
+                    "##[endgroup]",
+                    "##[group]Test",
+                    "\u001b[31m(fail)\u001b[0m store > get",
+                    "##[error]1 test failed",
+                    "##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "12s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    }
+                  ],
+                  "maxLines": 8
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "LogView",
+                  "part": "log",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "region",
+              "label": "Log"
+            },
+            "recipe": {
+              "macro": "LogView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "FormActions/bound:submit",
       "input": {
         "id": "form_actions",

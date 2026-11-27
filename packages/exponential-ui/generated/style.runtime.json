@@ -897,5 +897,50 @@
       "percentMinWidth": 56,
       "dividerHeight": 16
     }
+  },
+  "ciStatus": {
+    "spinMs": 1000,
+    "passed": {
+      "icon": "ci-passed",
+      "spin": false
+    },
+    "failed": {
+      "icon": "ci-failed",
+      "spin": false
+    },
+    "running": {
+      "icon": "ci-running",
+      "spin": true
+    },
+    "queued": {
+      "icon": "ci-queued",
+      "spin": false
+    },
+    "cancelled": {
+      "icon": "ci-skipped",
+      "spin": false
+    },
+    "skipped": {
+      "icon": "ci-skipped",
+      "spin": false
+    }
+  },
+  "logView": {
+    "searchWidth": 240,
+    "indent": 16,
+    "maxLines": 24
+  },
+  "jobGraph": {
+    "nodeWidth": 200,
+    "nodeHeight": 40,
+    "columnGap": 48,
+    "rowGap": 12,
+    "stageHeight": 24,
+    "stageGap": 8,
+    "edgeWidth": 1.5,
+    "rowHeight": 40
+  },
+  "codeBlock": {
+    "blameWidth": 200
   }
 }

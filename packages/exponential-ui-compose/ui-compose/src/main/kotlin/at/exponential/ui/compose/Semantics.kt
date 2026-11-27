@@ -311,6 +311,13 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             }
         }
         c == "QrScanner" -> this
+        // #EXP-2204 (a11y.json): a LogLines is a region named `$string.logView`,
+        // a JobGraph a group named `$string.jobGraph`; their rows, gutter
+        // numbers and nodes carry their own semantics (CiLeaves.kt).
+        c == "LogLines" || c == "JobGraph" -> semantics {
+            contentDescription = label ?: ""
+            isTraversalGroup = true
+        }
         // EXP-1586 (a11y.json `ZoomableImage`): the painter names the picture
         // (an image, alt = name, focusable) and the pill's buttons itself.
         c == "ZoomableImage" -> this

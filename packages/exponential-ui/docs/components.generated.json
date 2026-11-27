@@ -1300,7 +1300,9 @@
       "description": "Mono source code.",
       "children": "none",
       "slots": [],
-      "events": [],
+      "events": [
+        "select"
+      ],
       "basic": [],
       "props": [
         {
@@ -1397,13 +1399,48 @@
           "responsive": false,
           "default": "default",
           "description": "sm = compact."
+        },
+        {
+          "name": "anchors",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Linkable line numbers."
+        },
+        {
+          "name": "selection",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Anchor `L6-L9`."
+        },
+        {
+          "name": "gutter",
+          "type": "numbers | blame",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "numbers",
+          "description": "blame = author column."
+        },
+        {
+          "name": "blame",
+          "type": "[blameEntry]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "By start line."
         }
       ],
       "accessibility": {
         "role": "region",
-        "notes": "region (code), copy = button",
+        "notes": "region (code), copy = button; #EXP-2204: with `anchors` every line number is a link named `lineAnchor` (`Line {line}`); a selected line reads as selected",
         "keys": [
-          "Tab reaches the copy button; Enter, Space: copy and announce `copied`"
+          "Tab reaches the copy button; Enter, Space: copy and announce `copied`",
+          "Tab reaches each anchored line number (`anchors`); Enter: select its line, Shift+Enter: extend the range to it"
         ]
       },
       "example": {
@@ -5127,6 +5164,202 @@
         ]
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe StatTile/<part>."
+    },
+    {
+      "name": "LogView",
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "specimenId": "exponential-ui-log-view",
+      "description": "CI log: steps fold; search, line links.",
+      "children": "none",
+      "slots": [
+        "annotations"
+      ],
+      "events": [
+        "select",
+        "toggle",
+        "search",
+        "follow",
+        "timestamps"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "lines",
+          "type": "[string]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Raw log lines (timestamps, ANSI and `##[group]` markers kept)."
+        },
+        {
+          "name": "sections",
+          "type": "[object]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "{status, duration} per step."
+        },
+        {
+          "name": "open",
+          "type": "[number]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Open step indexes (default: failed, running)."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Search text."
+        },
+        {
+          "name": "selection",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Anchor `L6-L9`."
+        },
+        {
+          "name": "follow",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": true,
+          "description": "Sticks to the end."
+        },
+        {
+          "name": "timestamps",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Line times."
+        },
+        {
+          "name": "maxLines",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 24,
+          "description": "Height in lines."
+        }
+      ],
+      "accessibility": {
+        "role": "region",
+        "notes": "region named `logView`; the `annotations` slot first, then the LogLines log",
+        "keys": [
+          "the LogLines keys"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "LogView",
+        "lines": [
+          "##[group]Install",
+          "$ bun install",
+          "Resolved 1204 packages",
+          "##[endgroup]",
+          "##[group]Test",
+          "\u001b[31m(fail)\u001b[0m store > get",
+          "##[error]1 test failed",
+          "##[endgroup]"
+        ],
+        "sections": [
+          {
+            "status": "passed",
+            "duration": "12s"
+          },
+          {
+            "status": "failed",
+            "duration": "41s"
+          }
+        ],
+        "maxLines": 8
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe LogView/<part>."
+    },
+    {
+      "name": "JobGraph",
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "specimenId": "exponential-ui-job-graph",
+      "description": "CI jobs by stage; hover shows needs.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "jobs",
+          "type": "[jobGraphJob]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "Run's jobs."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Selected job id."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group named `jobGraph`; every node (and compact list row) a button named its name then its status string (+ `3/5` for a matrix), selected = the `value` node; the connectors are decorative",
+        "keys": [
+          "Tab moves through the nodes in column order; focusing a node shows its needs",
+          "Enter, Space on a node: select it"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "JobGraph",
+        "jobs": [
+          {
+            "id": "build",
+            "name": "build",
+            "stage": "build",
+            "status": "passed",
+            "duration": "1m 2s"
+          },
+          {
+            "id": "test",
+            "name": "test",
+            "stage": "test",
+            "status": "failed",
+            "duration": "41s",
+            "needs": [
+              "build"
+            ]
+          },
+          {
+            "id": "deploy",
+            "name": "deploy",
+            "stage": "deploy",
+            "status": "skipped",
+            "needs": [
+              "test"
+            ]
+          }
+        ],
+        "value": "test"
+      },
+      "macro": null
     },
     {
       "name": "Button",

@@ -125,7 +125,9 @@ internal fun selfHandling(n: NodeInfo): Boolean {
         n.component == "Segmented" ||
         (n.component == "Box" && n.part == "indicator") ||
         (n.ownerComponent == "Resizable" && n.part == "handle") ||
-        n.component == "Canvas"
+        n.component == "Canvas" ||
+        // #EXP-2204: LogLines and JobGraph press their own rows and nodes (CiLeaves.kt).
+        n.component == "LogLines" || n.component == "JobGraph"
 }
 
 /** One frame of a keyframe animation (round 2 §2): the channels the core computed. */
@@ -295,7 +297,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         }
         // Self-handling controls (picker triggers, a slider track, carousel
         // dots) still take keyboard focus for their keys.
-        node.pressable && !node.isTextField && selfHandling(node) && node.ownerComponent != "Resizable" && node.component != "Canvas" && !invisible -> Modifier
+        node.pressable && !node.isTextField && selfHandling(node) && node.ownerComponent != "Resizable" && node.component != "Canvas" && node.component != "LogLines" && node.component != "JobGraph" && !invisible -> Modifier
             .focusRequester(focusRequester)
             .onFocusChanged { model.focus(node.id, it.isFocused, inputMode.inputMode == InputMode.Keyboard) }
             .focusable(enabled = !disabled)

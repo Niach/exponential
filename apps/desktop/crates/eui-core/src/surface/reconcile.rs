@@ -72,6 +72,8 @@ impl Surface {
         let tab_bar = token("tabBar", 56.0);
         // EXP-1548: `$control.checkbox`, a Table's selection column.
         let checkbox = token("checkbox", 16.0);
+        // #EXP-2204: `$control.input`, the LogLines toolbar.
+        let control_input = token("input", 36.0);
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
             let template = |id: &str| -> Option<&UiNode> { templates.get(id).and_then(Option::as_ref) };
@@ -100,6 +102,7 @@ impl Surface {
                 menu_row,
                 tab_bar,
                 checkbox,
+                control_input,
                 gap_px: &gap,
                 expand_controls: expand,
                 strings: &self.strings,

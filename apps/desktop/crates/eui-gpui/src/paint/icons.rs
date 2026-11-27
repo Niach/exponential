@@ -45,6 +45,10 @@ pub enum Glyph {
     Star,
     /// EXP-1586: the ZoomableImage pill's fit button (`ui-fullscreen`).
     Fullscreen,
+    /// #EXP-2204: `ci-queued` (Lucide `circle-dashed`, drawn).
+    CircleDashed,
+    /// #EXP-2204: `ci-skipped` (Lucide `circle-slash`, drawn).
+    CircleSlash,
     Placeholder,
 }
 
@@ -76,7 +80,7 @@ impl Glyph {
             Glyph::Back => IconName::ArrowLeft,
             Glyph::Star => IconName::Star,
             Glyph::Fullscreen => IconName::Maximize,
-            Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Submit | Glyph::Placeholder => return None,
+            Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Submit | Glyph::CircleDashed | Glyph::CircleSlash | Glyph::Placeholder => return None,
         })
     }
 
@@ -112,6 +116,14 @@ impl Glyph {
             "ui-image" | "image" => Glyph::Image,
             "ui-fullscreen" => Glyph::Fullscreen,
             "ui-icon-placeholder" => Glyph::Placeholder,
+            // #EXP-2204: the CI status glyphs without a host registry
+            // (icons.json: circle-check, circle-x, loader-circle,
+            // circle-dashed, circle-slash).
+            "ci-passed" => Glyph::Success,
+            "ci-failed" => Glyph::Error,
+            "ci-running" => Glyph::Spinner,
+            "ci-queued" => Glyph::CircleDashed,
+            "ci-skipped" => Glyph::CircleSlash,
             _ => return None,
         })
     }
@@ -134,6 +146,8 @@ pub fn glyph(g: Glyph, size: f32, color: Hsla) -> AnyElement {
         None if g == Glyph::Clock => clock(size, color),
         None if g == Glyph::Play => play(size, color),
         None if g == Glyph::Submit => submit(size, color),
+        None if g == Glyph::CircleDashed => circle_marks(size, color, false),
+        None if g == Glyph::CircleSlash => circle_marks(size, color, true),
         None => placeholder(size, color),
     }
 }
@@ -195,6 +209,37 @@ fn submit(size: f32, color: Hsla) -> AnyElement {
             b.line_to(at(12.0, 8.0));
             if let Ok(path) = b.build() {
                 window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
+    .into_any_element()
+}
+
+/// #EXP-2204: Lucide `circle-dashed` (eight arcs of the r10 circle) or
+/// `circle-slash` (the circle + `M9 15 15 9`) in a 24 px box, stroke 2.
+fn circle_marks(size: f32, color: Hsla, slash: bool) -> AnyElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let u = f32::from(bounds.size.width.min(bounds.size.height)) / 24.0;
+            let (x0, y0) = (bounds.origin.x, bounds.origin.y);
+            let at = |x: f32, y: f32| gpui::point(x0 + px(x * u), y0 + px(y * u));
+            let tau = 2.0 * std::f32::consts::PI;
+            if slash {
+                super::natives::stroke_arc(window, at(12.0, 12.0), 10.0 * u, 0.0, tau, 2.0 * u, color);
+                let mut b = gpui::PathBuilder::stroke(px(2.0 * u));
+                b.move_to(at(9.0, 15.0));
+                b.line_to(at(15.0, 9.0));
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, color);
+                }
+            } else {
+                for i in 0..8 {
+                    let from = (i as f32 + 0.2) * tau / 8.0;
+                    super::natives::stroke_arc(window, at(12.0, 12.0), 10.0 * u, from, tau / 8.0 * 0.6, 2.0 * u, color);
+                }
             }
         },
     )

@@ -163,6 +163,11 @@ impl NodeCache {
         if n.component == "Canvas" {
             n.pressable = false;
         }
+        // #EXP-2204: a LogLines / JobGraph leaf takes its pointer inside
+        // (rows, numbers, nodes: view/ci_leaf.rs), never as one press.
+        if matches!(n.component.as_str(), "LogLines" | "JobGraph") && n.part.is_none() {
+            n.pressable = false;
+        }
         let i = n.index as usize;
         self.grow_to(i + 1);
         if !n.removed {
@@ -268,6 +273,9 @@ pub fn is_focusable(n: &PlacedNode) -> bool {
         // Arrow keys move its tooltip between categories (a11y.json); a
         // sparkline has no tooltip and is no tab stop (as on the web).
         ("Chart", None) => !is_sparkline(n),
+        // #EXP-2204: ONE tab stop; Tab and the arrows move between its
+        // nodes inside (`SurfaceView::job_graph_key`).
+        ("JobGraph", None) => true,
         ("Button" | "Link" | "Toggle", _) => true,
         _ => n.pressable,
     }
@@ -537,6 +545,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Motion", None) => return None,
         // Round 8: an img named by its label, decorative without one;
         // `pointer` adds no role and no focus stop.
+        // #EXP-2204: a region named `Log`; a group named `Jobs` (a11y.json).
+        ("LogLines", None) => Role::Region,
+        ("JobGraph", None) => Role::Group,
         ("Canvas", None) if str_of(n, "label").is_some() => Role::Image,
         ("Canvas", None) => return None,
         ("QrCode", None) if str_of(n, "label").is_some() => Role::Image,

@@ -1,6 +1,8 @@
 import Foundation
+import SwiftUI
 import XCTest
 import ExponentialUICore
+import ExponentialUIPrimitives
 @testable import ExponentialUI
 
 /// The shared fixtures of `packages/exponential-ui/fixtures` (in-repo path
@@ -27,10 +29,22 @@ func makeModel(_ id: String = "t", theme: String? = "exponential", mode: Mode = 
     var options = SurfaceOptions()
     options.theme = theme.flatMap { ThemeHandle.builtin($0) }
     options.mode = mode
-    let m = try SurfaceModel(id: id, options: options, host: NoHost())
+    let m = try SurfaceModel(id: id, options: options, host: IconHost())
     m.fixedMeasure = fixed
     m.setViewport(width: width, height: 800)
     return m
+}
+
+/// #EXP-2204: the test host draws EVERY concept icon (`ci-*` included) from
+/// the kitchen sink's full Lucide registry (`LucideIcons.generated.swift`,
+/// Example/scripts/generate-lucide.ts), not the painter's ~60 built-in
+/// glyphs, so snapshots and pictures show what the app draws.
+@MainActor
+final class IconHost: HostPlugin {
+    func icon(_ name: String, size: CGFloat) -> AnyView? {
+        guard let paths = LucideIcons.paths(name) else { return nil }
+        return AnyView(LucideGlyph(paths: paths, size: size))
+    }
 }
 
 /// A host that records what it receives.

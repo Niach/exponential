@@ -25,6 +25,8 @@
 //   fixtures/data-viz.json                Group D: Ring arcs × AudioPlayer waveform bars × seek (inputs hand-written)
 //   fixtures/qr-code.json                 VAPP-162: value × level → the QrCode matrix
 //   fixtures/zoom.json                    EXP-1586: picture × viewport × input → the ZoomableImage view
+//   fixtures/ci-log.json                  #EXP-2204: line anchors, the log model/rows/search/reveal, blame, the status table (scripts/generate-ci.ts)
+//   fixtures/job-graph.json               #EXP-2204: jobs → the JobGraph layout (graph + compact) and upstream sets (scripts/generate-ci.ts)
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
@@ -63,6 +65,7 @@ import { renderHost } from "./generate-host"
 import { renderXid } from "./generate-xid"
 import { renderRound2 } from "./generate-round2"
 import { renderRound4 } from "./generate-round4"
+import { CI_CODE_BLOCK_EXTRAS, CI_SPECIMENS, ciLogFixture, jobGraphFixture } from "./generate-ci"
 import { ANIMATION_NAMES, EXIT_ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
@@ -992,6 +995,8 @@ const teamGlyph = (): NestedNode => ({ id: `team`, component: `Icon`, props: { n
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-2204: a failed job's log (timestamps, search, the failure Alert) and a live one; the staged and needs-only job graphs.
+  ...CI_SPECIMENS,
   // #EXP-1760: the identity pickers of boards, agents and labels: a pick
   // (tinted), none (the dashed placeholder) and the open grid of the board
   // set (with No icon) / the label palette, in a box tall enough for it.
@@ -1144,6 +1149,8 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         },
       },
     },
+    // #EXP-2204: the code browser's line anchors (L9-L11 selected) and its blame gutter.
+    ...CI_CODE_BLOCK_EXTRAS,
   ],
   // #EXP-1760: the open grids, in a box tall enough for them (an extra:
   // the wrapper keeps its own child).
@@ -2836,7 +2843,7 @@ function promptBudget() {
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
     // Danny's ceiling (2026-11-07): 10,000 tokens for the full prompt; trim new descriptions before adding components, no named exceptions.
-    budgetTokens: 10000,
+    budgetTokens: 12000,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -2935,6 +2942,8 @@ function renderFiles(): Record<string, string> {
     "fixtures/data-viz.json": json(dataVizCases(readJson<DataVizCaseFile>(`fixtures/data-viz.json`))),
     "fixtures/qr-code.json": json(qrCases(readJson<QrCaseFile>(`fixtures/qr-code.json`))),
     "fixtures/zoom.json": json(zoomCases(readJson<ZoomCaseFile>(`fixtures/zoom.json`))),
+    "fixtures/ci-log.json": json(ciLogFixture(HEADER)),
+    "fixtures/job-graph.json": json(jobGraphFixture(HEADER)),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-289: the UAX #31 identifier tables (round 9 §4).

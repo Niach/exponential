@@ -9,6 +9,7 @@ import { FormNative } from "../form"
 import type { NativeProps } from "../node-view"
 import { ButtonNative, LinkNative, ToggleNative } from "./actions"
 import { ChartNative } from "./chart"
+import { JobGraphNative, LogLinesNative } from "./ci"
 import { ChipInputNative, FileUploadNative } from "./chips"
 import { ChoiceTilesNative } from "./choice-tiles"
 import { CodeBlockNative } from "./code"
@@ -65,6 +66,8 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Embed: EmbedNative,
   Table: TableNative,
   Chart: ChartNative,
+  LogLines: LogLinesNative,
+  JobGraph: JobGraphNative,
   Button: ButtonNative,
   Link: LinkNative,
   Toggle: ToggleNative,
