@@ -3001,6 +3001,14 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
         }
         "expo.toggle" => overlay_toggle(shell, "expo", cx),
         "scale.toggle" => overlay_toggle(shell, "scale", cx),
+        // #EDE-263: Escape (the compositor keeps it while one is open) closes Expo and Scale, as on Cinnamon.
+        "overlay.close" => {
+            for name in ["expo", "scale"] {
+                if shell.borrow().surfaces.is_open(name) {
+                    overlay_close(shell, name, cx);
+                }
+            }
+        }
         "volume.up" | "volume.down" => osd_show(shell, system::volume_step(name == "volume.up"), cx),
         "volume.mute" => osd_show(shell, system::volume_toggle_mute(), cx),
         "mic.mute" => osd_show(shell, system::mic_toggle_mute(), cx),

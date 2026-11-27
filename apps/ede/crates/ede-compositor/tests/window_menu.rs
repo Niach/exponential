@@ -17,6 +17,7 @@ const RED: u32 = 0xffff_0000;
 const KEY_LEFTALT: u32 = 56;
 const KEY_SPACE: u32 = 57;
 const BTN_MIDDLE: u32 = 0x112;
+const BTN_RIGHT: u32 = 0x111;
 
 fn harness(config: Config) -> Harness {
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
@@ -93,6 +94,55 @@ fn alt_space_and_alt_middle_click_ask_for_the_window_menu() {
     assert_eq!((menu.x, menu.y), (x + 40, y + 30), "at the pointer");
     app.roundtrip();
     assert_eq!(app.state.buttons.len(), buttons_before, "the app saw neither the press nor the release");
+}
+
+/// #EDE-263: a client-side title bar's right click (GTK's headerbar sends
+/// xdg_toplevel.show_window_menu while the button is down) opens the same
+/// menu at the point it names, as Muffin does; a request whose click is
+/// over (a stale serial) opens nothing.
+#[test]
+fn show_window_menu_opens_the_window_menu_at_the_point() {
+    let h = harness(Config::default());
+    let mut shell = shell(&h);
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    app.pointer();
+    let t = app.toplevel("headerbar");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+    let (x, y) = h.with(|ede| {
+        let w = ede.desk.space.elements().last().unwrap().clone();
+        let g = ede.desk.space.element_geometry(&w).unwrap();
+        (g.loc.x, g.loc.y)
+    });
+    let at = ((x + 50) as f64, (y + 10) as f64);
+    h.with(move |ede| {
+        ede.person_pointer_motion_to(at.into(), 0);
+    });
+    app.roundtrip();
+    let seat = app.state.seat.clone().unwrap();
+
+    h.with(|ede| ede.person_pointer_button(BTN_RIGHT, ButtonState::Pressed, 1));
+    wait_for(&mut app, |c| c.state.press_serial.is_some());
+    let serial = app.state.press_serial.unwrap();
+    t.toplevel.show_window_menu(&seat, serial, 50, 10);
+    app.roundtrip();
+    let menu = next_menu(&mut shell);
+    assert_eq!((menu.x, menu.y), (x + 50, y + 10), "at the point the client named");
+    assert_eq!(menu.window, h.with(|ede| ede_compositor::ipc::window_id(ede.desk.space.elements().last().unwrap())));
+    h.with(|ede| ede.person_pointer_button(BTN_RIGHT, ButtonState::Released, 2));
+    app.roundtrip();
+
+    // The click is over: the same serial asks for nothing. The next menu
+    // the shell hears is Alt+Space's, at the corner.
+    t.toplevel.show_window_menu(&seat, serial, 50, 10);
+    app.roundtrip();
+    key(&h, KEY_LEFTALT, true);
+    key(&h, KEY_SPACE, true);
+    key(&h, KEY_SPACE, false);
+    key(&h, KEY_LEFTALT, false);
+    let menu = next_menu(&mut shell);
+    assert_eq!((menu.x, menu.y), (x, y), "the stale request opened no menu");
 }
 
 /// Always on Top keeps a window in front of one focused after it; Always
