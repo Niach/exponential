@@ -23,6 +23,7 @@ export function specJob(row: CiJob): SpecJob {
     completedAt: row.completedAt?.getTime() ?? null,
     flagged: row.queuedFlaggedAt !== null,
     reason: row.reason,
+    requeued: row.requeuedAt !== null,
   }
 }
 
@@ -57,6 +58,23 @@ export function jobDiff(row: CiJob, next: SpecJob): Partial<CiJob> {
   const completedAt = next.completedAt === null ? null : new Date(next.completedAt)
   if ((completedAt?.getTime() ?? null) !== (row.completedAt?.getTime() ?? null)) set.completedAt = completedAt
   if (next.flagged && row.queuedFlaggedAt === null) set.queuedFlaggedAt = new Date()
+  if (next.queuedAt !== row.queuedAt.getTime()) set.queuedAt = new Date(next.queuedAt)
+  // #EXP-2193: handed back once. The cut attempt's token, dispatch, beats,
+  // steps and log are reset: the next claim starts the job afresh.
+  if (next.requeued && row.requeuedAt === null) {
+    Object.assign(set, {
+      requeuedAt: new Date(next.queuedAt),
+      jobTokenHash: null,
+      secretsFetchedAt: null,
+      dispatchedDeviceId: null,
+      dispatchedAt: null,
+      lastBeatAt: null,
+      logKey: null,
+      logBytes: 0,
+      logChunks: [],
+      steps: row.steps.map((step) => ({ ...step, status: `queued` as const, conclusion: null, startedAt: null, completedAt: null })),
+    })
+  }
   return set
 }
 
