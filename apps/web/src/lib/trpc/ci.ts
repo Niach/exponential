@@ -29,7 +29,8 @@ import {
   rerunRun,
   startRun,
 } from "@/lib/ci/runs"
-import { appendLog, CI_LOG_CHUNK_MAX, readLog } from "@/lib/ci/logs"
+import { appendLog, CI_LOG_CHUNK_MAX, CI_LOG_READ_MAX, readLog } from "@/lib/ci/logs"
+import { cancelGithubRun, GITHUB_CI, githubJobLog, rerunGithubRun } from "@/lib/ci/github-runs"
 import { actionsRunnerTargets, actionsRunnerToken } from "@/lib/ci/actions-runners"
 import { emitEventInTx } from "@/lib/events"
 import {
@@ -120,6 +121,8 @@ export const ciRouter = router({
       const [job] = await db.select().from(ciJobs).where(eq(ciJobs.id, input.jobId)).limit(1)
       if (!job) throw new TRPCError({ code: `NOT_FOUND`, message: `Job not found` })
       await assertTeamMember(ctx.session.user.id, job.teamId)
+      // #EXP-2172: a GitHub Actions job's log comes from GitHub.
+      if (job.provider === GITHUB_CI) return githubJobLog(job, await loadRunForMember(job.runId), input.offset, CI_LOG_READ_MAX)
       return readLog(job, input.offset)
     }),
 
@@ -128,6 +131,8 @@ export const ciRouter = router({
     .mutation(async ({ ctx, input }) => {
       const run = await loadRunForMember(input.runId)
       await assertTeamMember(ctx.session.user.id, run.teamId)
+      // #EXP-2172: GitHub re-runs in place (same run, a new attempt).
+      if (run.provider === GITHUB_CI) return { runId: await rerunGithubRun(run, input.failedOnly) }
       const runId = await rerunRun({ runId: run.id, failedOnly: input.failedOnly, userId: ctx.session.user.id })
       return { runId }
     }),
@@ -135,7 +140,8 @@ export const ciRouter = router({
   cancel: authedProcedure.input(z.object({ runId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const run = await loadRunForMember(input.runId)
     await assertTeamMember(ctx.session.user.id, run.teamId)
-    await cancelRun(run.id)
+    if (run.provider === GITHUB_CI) await cancelGithubRun(run)
+    else await cancelRun(run.id)
     return { ok: true }
   }),
 

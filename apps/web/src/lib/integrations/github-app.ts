@@ -603,6 +603,34 @@ export async function getInstallation(
   }
 }
 
+// #EXP-2172: the installation's Actions permission (`read` | `write`, null =
+// none or unknown), cached 10 min: the GitHub run rows say whether Re-run and
+// Cancel can work there (they need `write`), so a run page never offers them
+// to an installation that has not accepted the grant. A failed read is null
+// and not cached.
+const actionsAccessCache = new Map<number, { at: number; value: `read` | `write` | null }>()
+export async function installationActionsAccess(installationId: number): Promise<`read` | `write` | null> {
+  const hit = actionsAccessCache.get(installationId)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value
+  if (!githubAppConfigured()) return null
+  try {
+    const res = await ghApp(`/app/installations/${installationId}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { permissions?: { actions?: string } }
+    const actions = data.permissions?.actions
+    const value = actions === `write` || actions === `read` ? actions : null
+    actionsAccessCache.set(installationId, { at: Date.now(), value })
+    return value
+  } catch {
+    return null
+  }
+}
+
+/** #EXP-2172: an `installation` `new_permissions_accepted` delivery. */
+export function forgetInstallationActionsAccess(installationId: number): void {
+  actionsAccessCache.delete(installationId)
+}
+
 export interface InstallationRepo {
   fullName: string // "owner/name"
   private: boolean

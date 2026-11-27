@@ -6,7 +6,7 @@ import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { ciJobs, ciRuns, teams } from "@/db/schema"
 import type { CheckInput } from "@/lib/integrations/pr-checks"
-import { ciRunUrl } from "@/lib/ci/runs"
+import { ciRunUrl, OWN_CI } from "@/lib/ci/runs"
 
 export async function ownPullRequestChecks(pullRequestId: string, sha: string): Promise<CheckInput[]> {
   const rows = await db
@@ -14,7 +14,7 @@ export async function ownPullRequestChecks(pullRequestId: string, sha: string): 
     .from(ciJobs)
     .innerJoin(ciRuns, eq(ciRuns.id, ciJobs.runId))
     .innerJoin(teams, eq(teams.id, ciRuns.teamId))
-    .where(and(eq(ciRuns.pullRequestId, pullRequestId), eq(ciRuns.sha, sha)))
+    .where(and(eq(ciRuns.pullRequestId, pullRequestId), eq(ciRuns.sha, sha), eq(ciRuns.provider, OWN_CI)))
     .orderBy(desc(ciRuns.number))
   const seen = new Map<string, CheckInput>()
   for (const { job, runId, slug } of rows) {
