@@ -32,6 +32,7 @@ import { chatWordOf } from "@/components/chat/chats-list"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
+import { useCiBadge } from "@/hooks/use-ci-page"
 import type { Board, Team } from "@/db/schema"
 import type { ChatsListRow } from "@/lib/session-tree"
 import { useTeamMemberships } from "@/hooks/use-team-data"
@@ -172,6 +173,7 @@ export function TeamSidebar({
   }, [chatsList.groups])
   const sessionReads = useSessionReads()
   const chatsCount = chatsBadge(chatsList.groups, sessionReads)
+  const ciCount = useCiBadge(me ?? ``)
   const runningTeams = useMemo(
     () =>
       new Map<string, SidebarRunningTeam>(
@@ -304,6 +306,7 @@ export function TeamSidebar({
                           needsYou={needsYou.total}
                           drafts={draftCount}
                           chatsBadge={chatsCount}
+                          ciBadge={ciCount}
                           devices={devices}
                           teams={teamsById}
                           onAddDevice={() => setAddDeviceOpen(true)}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { CI_RUN_LIVE_TAIL_MS } from "@exp/domain-contract/ci-run"
-import { ciJobCollection, ciRunCollection, deviceCollection } from "@/lib/collections"
+import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection } from "@/lib/collections"
+import { useTeamRepos } from "@/hooks/use-team-repos"
 import { appendLogChunk, EMPTY_LOG, type CiLogState, type CiRunModel } from "@/lib/ci-run-view"
 import { trpc } from "@/lib/trpc-client"
 
@@ -24,6 +25,13 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
     [runId]
   )
   const { data: devices } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
+  const run0 = runs?.[0]
+  const repos = useTeamRepos(run0?.teamId)
+  const prId = run0?.pullRequestId ?? null
+  const { data: prs } = useLiveQuery(
+    (query) => (prId ? query.from({ p: pullRequestCollection }).where(({ p }) => eq(p.id, prId)) : undefined),
+    [prId]
+  )
   const model = useMemo<CiRunModel | null>(() => {
     const run = runs?.[0]
     if (!run) return null
@@ -38,7 +46,13 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
         sha: run.sha,
         startedAt: toIso(run.startedAt),
         completedAt: toIso(run.completedAt),
+        ref: run.ref ?? null,
+        provider: run.provider ?? `exponential`,
+        externalUrl: run.externalUrl ?? null,
+        externalAccess: run.externalAccess ?? null,
       },
+      repository: repos?.find((repo) => repo.id === run.repositoryId)?.fullName ?? null,
+      pullRequestNumber: prs?.[0]?.number ?? null,
       jobs: (jobs ?? []).map((job) => ({
         id: job.id,
         check: job.check,
@@ -52,7 +66,7 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
         steps: job.steps ?? [],
       })),
     }
-  }, [runs, jobs, devices])
+  }, [runs, jobs, devices, repos, prs])
   return { model, ready: Boolean(isReady) }
 }
 
