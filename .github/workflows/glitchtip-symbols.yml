@@ -26,7 +26,10 @@ on:
 jobs:
   desktop-linux:
     if: inputs.product == 'desktop-linux'
-    runs-on: ubuntu-24.04
+    # The release's runner (desktop-build.yml): ubuntu-22.04 since the
+    # AppImage's glibc floor moved to 2.35. A release built on 24.04 (up to
+    # desktop-v0.14.186) no longer matches here.
+    runs-on: ubuntu-22.04
     environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +46,12 @@ jobs:
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
             librsvg2-bin file wget
+      # 22.04's PipeWire headers (0.3.48) are too old for pipewire-rs 0.9:
+      # 1.0.5 headers, the system's 0.3.48 library to link (see the script).
+      - name: PipeWire headers
+        run: |
+          eval "$(apps/desktop/scripts/pipewire-headers.sh "$RUNNER_TEMP/pipewire-headers")"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/cargo-fetch
         with:
