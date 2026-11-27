@@ -18,6 +18,8 @@ pub enum SettingsKind {
     Module,
     Later,
     Launch,
+    /// #EDE-275: the holder's own settings page, opened as its window.
+    Page,
 }
 
 /// One module of the catalogue.
@@ -31,6 +33,9 @@ pub struct SettingsModule {
     pub kind: SettingsKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    /// #EDE-275: the holder page a `page` module opens (a window key or a `~/` link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opens: Option<String>,
     /// #EDE-274: the module's stack switcher (its pages, in order).
@@ -123,6 +128,7 @@ pub enum SettingsEvent {
 pub struct SettingsNavigation {
     pub state: SettingsState,
     pub launch: Option<String>,
+    pub page: Option<String>,
     pub title: String,
 }
 
@@ -149,7 +155,7 @@ pub fn settings_grid(query: &str, installed: &[String]) -> Vec<SettingsCategory>
                     icon: m.icon.clone(),
                     kind: m.kind,
                     later: m.kind == SettingsKind::Later,
-                    installed: m.kind != SettingsKind::Launch || installed.contains(&m.id),
+                    installed: !matches!(m.kind, SettingsKind::Launch | SettingsKind::Page) || installed.contains(&m.id),
                 })
                 .collect(),
         })
@@ -171,13 +177,20 @@ fn resolve(id: &str) -> Option<&'static SettingsModule> {
 
 fn result(state: SettingsState, launch: Option<String>) -> SettingsNavigation {
     let title = module(&state.module).map(|m| m.name.clone()).unwrap_or_else(|| settings_title().to_string());
-    SettingsNavigation { state, launch, title }
+    SettingsNavigation { state, launch, page: None, title }
+}
+
+fn page_result(state: SettingsState, page: Option<String>) -> SettingsNavigation {
+    SettingsNavigation { page, ..result(state, None) }
 }
 
 fn open(state: SettingsState, id: &str, installed: &[String]) -> SettingsNavigation {
     let Some(m) = resolve(id) else { return result(state, None) };
     if m.kind == SettingsKind::Launch && installed.contains(&m.id) {
         return result(state, m.command.clone());
+    }
+    if m.kind == SettingsKind::Page && installed.contains(&m.id) {
+        return page_result(state, m.page.clone());
     }
     result(SettingsState { module: m.id.clone(), query: state.query, tab: first_tab(m) }, None)
 }
@@ -229,6 +242,9 @@ pub fn settings_navigate(state: &SettingsState, event: &SettingsEvent, installed
             let Some(m) = (!t.is_empty()).then(|| resolve(t)).flatten() else { return result(grid, None) };
             if m.kind == SettingsKind::Launch && installed.contains(&m.id) {
                 return result(grid, m.command.clone());
+            }
+            if m.kind == SettingsKind::Page && installed.contains(&m.id) {
+                return page_result(grid, m.page.clone());
             }
             result(SettingsState { module: m.id.clone(), query: String::new(), tab: first_tab(m) }, None)
         }

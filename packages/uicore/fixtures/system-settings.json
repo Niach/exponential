@@ -1,5 +1,5 @@
 {
-  "$comment": "EDE-273 (#EDE-241 P6.1, 2026-11-27): SYSTEM SETTINGS, Mint's cinnamon-settings on eDE. ONE window of the shell (apps/ede/ui/settings.express, a `window` surface: a normal toplevel with eDE's frame and its own taskbar entry, app id at.exponential.settings, a single instance: asked again it comes to the front; closed from its frame, the next open starts on the grid). `title` = the window's title on the grid. `categories` = the grid's sections in order (Cinnamon's Appearance, Preferences, Hardware, then Exponential, then Administration). `modules` = THE catalogue, in each category's order (Cinnamon's: by name; Exponential's own order): {id (the module's route segment: `~/settings/<id>`), name (the tile's label AND the window's title while it is open, Cinnamon's wording), category, icon (a concept of packages/icons), keywords (cinnamon-settings' own `keywords` string where Mint has the module, a few eDE additions; none that only collides, e.g. no `screenshot` on Backgrounds), kind: module (a page in the window) | later (listed honestly, its page says it is not built yet) | launch (Mint's own tool: `command` runs, the window stays where it was), opens? (an alias: Account Details and Online Accounts open Exponential's Account), tabs? (#EDE-274: the module's stack switcher in the header, cinnamon-settings' pages of one module, [{value, label}] in order)}. `aliases` = the page ids links used before #EDE-273 (the applets, the panel menu, a person's documents) and the module they mean. SELECTORS: settingsGrid(query, installed) -> [{id, title, modules [{id, name, icon, kind, later (kind is later), installed (a launch module: its id is in `installed`, the launch modules whose command the host finds; every other kind true)}]}]: q = query trimmed and lowercased; empty = every module; else a module is listed when its name (lowercased) or its keywords (lowercased) CONTAIN q (Cinnamon's filter_visible_function), and a category with no listed module is left out. settingsNavigate(state, event, installed) -> {state, launch, title}: state = {module (`` = the grid), query (as typed), tab (the open module's page of its stack, `` without one)}; launch = a command to run or null; title = the open module's name, else `title`. EVENTS: open {id} (a tile's press): an unknown id changes nothing; an alias resolves to its target; a launch module whose tool is installed launches (state unchanged), else (not installed) its page opens; any other module opens (module = its id, tab = its first page or ``, the query kept for back). back (the header's back button, Alt+Left): in a module the grid again (tab ``), query kept, and the keyboard back in the search; on the grid nothing. query {text}: on the grid the search text (it filters live); in a module ignored (the search is the grid's). submit (Enter in the search; Mint's cinnamon-settings binds none, eDE opens the best match): on the grid with a non-empty trimmed query, `open` of the BEST listed module: rank 0 = its name (lowercased) starts with q, 1 = its name contains q, 2 = only its keywords do; ties keep settingsGrid's order (the tiles stay in Cinnamon's order, only Enter ranks); no match, an empty query or a module open: nothing. link {target} (`~/settings/<module>` from the start menu's search, a link, an applet; `~/settings` alone or a bare id too; an old page id through `aliases`): the query cleared; an unknown target = the grid; a launch module with its tool launches and the window shows the grid; else that module on its first page. tab {value} (#EDE-274, the stack switcher): a page the open module lists becomes `tab`; another value, or on the grid, nothing. Any other event changes nothing. The WINDOW: the header carries the back button and the module's name while a module is open (and its stack switcher, a Segmented, centred) and the search on the grid (focused whenever the grid shows); Enter in the search = submit; tiles are 104 px wide with a 48 px icon disc and the name under it (a later module's name muted); a module's page is a centred column (640 px) of framed groups (a title, then a bordered box of rows divided by hairlines). A setting the machine cannot apply yet is a read-only value row, never a dead control.",
+  "$comment": "EDE-273 (#EDE-241 P6.1, 2026-11-27): SYSTEM SETTINGS, Mint's cinnamon-settings on eDE. ONE window of the shell (apps/ede/ui/settings.express, a `window` surface: a normal toplevel with eDE's frame and its own taskbar entry, app id at.exponential.settings, a single instance: asked again it comes to the front; closed from its frame, the next open starts on the grid). `title` = the window's title on the grid. `categories` = the grid's sections in order (Cinnamon's Appearance, Preferences, Hardware, then Exponential, then Administration). `modules` = THE catalogue, in each category's order (Cinnamon's: by name; Exponential's own order): {id (the module's route segment: `~/settings/<id>`), name (the tile's label AND the window's title while it is open, Cinnamon's wording), category, icon (a concept of packages/icons), keywords (cinnamon-settings' own `keywords` string where Mint has the module, a few eDE additions; none that only collides, e.g. no `screenshot` on Backgrounds), kind: module (a page in the window) | later (listed honestly, its page says it is not built yet) | launch (Mint's own tool: `command` runs, the window stays where it was) | page (#EDE-275: the Exponential category: the holder's own settings page opens as its own window over the session bus, `page` = a window key (`device:`, the bus's `page {key}`) or an in-app link (`~/settings/account`, the bus's `open {link}`), with the press's activation token; one implementation of those pages, as Cinnamon's tiles that are tools of their own), opens? (an alias: Account Details and Online Accounts open Exponential's Account), tabs? (#EDE-274: the module's stack switcher in the header, cinnamon-settings' pages of one module, [{value, label}] in order)}. `aliases` = the page ids links used before #EDE-273 (the applets, the panel menu, a person's documents) and the module they mean. SELECTORS: settingsGrid(query, installed) -> [{id, title, modules [{id, name, icon, kind, later (kind is later), installed (a launch or page module: its id is in `installed` = the launch modules whose command the host finds and the page modules while the holder can open them (signed in); every other kind true)}]}]: q = query trimmed and lowercased; empty = every module; else a module is listed when its name (lowercased) or its keywords (lowercased) CONTAIN q (Cinnamon's filter_visible_function), and a category with no listed module is left out. settingsNavigate(state, event, installed) -> {state, launch, title}: navigate's result also carries `page` (a holder page to open, else null). state = {module (`` = the grid), query (as typed), tab (the open module's page of its stack, `` without one)}; launch = a command to run or null; title = the open module's name, else `title`. EVENTS: open {id} (a tile's press): an unknown id changes nothing; an alias resolves to its target; a launch module whose tool is installed launches (state unchanged), else (not installed) its page opens; a page module the holder can open hands `page` over (state unchanged), else (signed out) its page in the window says Connect Exponential; any other module opens (module = its id, tab = its first page or ``, the query kept for back). back (the header's back button, Alt+Left): in a module the grid again (tab ``), query kept, and the keyboard back in the search; on the grid nothing. query {text}: on the grid the search text (it filters live); in a module ignored (the search is the grid's). submit (Enter in the search; Mint's cinnamon-settings binds none, eDE opens the best match): on the grid with a non-empty trimmed query, `open` of the BEST listed module: rank 0 = its name (lowercased) starts with q, 1 = its name contains q, 2 = only its keywords do; ties keep settingsGrid's order (the tiles stay in Cinnamon's order, only Enter ranks); no match, an empty query or a module open: nothing. link {target} (`~/settings/<module>` from the start menu's search, a link, an applet; `~/settings` alone or a bare id too; an old page id through `aliases`): the query cleared; an unknown target = the grid; a launch module with its tool launches and a page module the holder can open hands `page` over, the window showing the grid; else that module on its first page. tab {value} (#EDE-274, the stack switcher): a page the open module lists becomes `tab`; another value, or on the grid, nothing. Any other event changes nothing. The WINDOW: the header carries the back button and the module's name while a module is open (and its stack switcher, a Segmented, centred) and the search on the grid (focused whenever the grid shows); Enter in the search = submit; tiles are 104 px wide with a 48 px icon disc and the name under it (a later module's name muted); a module's page is a centred column (640 px) of framed groups (a title, then a bordered box of rows divided by hairlines). A setting the machine cannot apply yet is a read-only value row, never a dead control.",
   "title": "System Settings",
   "categories": [
     {
@@ -359,7 +359,8 @@
       "category": "exponential",
       "icon": "brand-exponential",
       "keywords": "account, sign in, sign out, exponential, login, email, online accounts",
-      "kind": "module"
+      "kind": "page",
+      "page": "~/settings/account"
     },
     {
       "id": "this-device",
@@ -367,7 +368,8 @@
       "category": "exponential",
       "icon": "laptop",
       "keywords": "device, this device, tools, coding, cli, worktrees, sessions, repositories",
-      "kind": "module"
+      "kind": "page",
+      "page": "device:"
     },
     {
       "id": "agents",
@@ -375,7 +377,8 @@
       "category": "exponential",
       "icon": "bot",
       "keywords": "agents, assistant, claude, codex",
-      "kind": "module"
+      "kind": "page",
+      "page": "~/settings/agents"
     },
     {
       "id": "computer-use",
@@ -383,7 +386,8 @@
       "category": "exponential",
       "icon": "nav-computer",
       "keywords": "computer use, agent space, screen, consent, take over",
-      "kind": "module"
+      "kind": "page",
+      "page": "device-settings:"
     },
     {
       "id": "voice",
@@ -391,6 +395,15 @@
       "category": "exponential",
       "icon": "audio-lines",
       "keywords": "voice, call, microphone, wake word, speech, talk",
+      "kind": "page",
+      "page": "~/settings/voice"
+    },
+    {
+      "id": "share-desktop",
+      "name": "Share Desktop",
+      "category": "exponential",
+      "icon": "share-2",
+      "keywords": "share, team, local desktop, upload",
       "kind": "module"
     },
     {
@@ -456,7 +469,7 @@
     "security": "account",
     "whats-new": "system-info",
     "local-agents": "agents",
-    "local-general": "this-device",
+    "local-general": "share-desktop",
     "appearance": "themes",
     "hotcorners": "hot-corners"
   },
@@ -466,6 +479,11 @@
       "query": "",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -787,7 +805,7 @@
               "id": "account",
               "name": "Account",
               "icon": "brand-exponential",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -795,7 +813,7 @@
               "id": "this-device",
               "name": "This Device",
               "icon": "laptop",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -803,7 +821,7 @@
               "id": "agents",
               "name": "Agents",
               "icon": "bot",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -811,7 +829,7 @@
               "id": "computer-use",
               "name": "Computer Use",
               "icon": "nav-computer",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -819,6 +837,14 @@
               "id": "voice",
               "name": "Voice",
               "icon": "audio-lines",
+              "kind": "page",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "share-desktop",
+              "name": "Share Desktop",
+              "icon": "share-2",
               "kind": "module",
               "later": false,
               "installed": true
@@ -878,6 +904,11 @@
       "query": "sou",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -928,6 +959,11 @@
       "query": "wallpaper",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -956,6 +992,11 @@
       "query": "hot",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1006,6 +1047,11 @@
       "query": "wifi",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1048,6 +1094,11 @@
       "query": "  BLUETOOTH ",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1076,6 +1127,11 @@
       "query": "zzzz",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1089,6 +1145,11 @@
       "query": "claude",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1104,7 +1165,7 @@
               "id": "agents",
               "name": "Agents",
               "icon": "bot",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             }
@@ -1117,6 +1178,11 @@
       "query": "   ",
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1438,7 +1504,7 @@
               "id": "account",
               "name": "Account",
               "icon": "brand-exponential",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -1446,7 +1512,7 @@
               "id": "this-device",
               "name": "This Device",
               "icon": "laptop",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -1454,7 +1520,7 @@
               "id": "agents",
               "name": "Agents",
               "icon": "bot",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -1462,7 +1528,7 @@
               "id": "computer-use",
               "name": "Computer Use",
               "icon": "nav-computer",
-              "kind": "module",
+              "kind": "page",
               "later": false,
               "installed": true
             },
@@ -1470,6 +1536,14 @@
               "id": "voice",
               "name": "Voice",
               "icon": "audio-lines",
+              "kind": "page",
+              "later": false,
+              "installed": true
+            },
+            {
+              "id": "share-desktop",
+              "name": "Share Desktop",
+              "icon": "share-2",
               "kind": "module",
               "later": false,
               "installed": true
@@ -1568,6 +1642,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1581,6 +1660,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -1597,6 +1677,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1610,6 +1695,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -1626,6 +1712,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1634,12 +1725,13 @@
       ],
       "expected": {
         "state": {
-          "module": "account",
+          "module": "",
           "query": "",
           "tab": ""
         },
         "launch": null,
-        "title": "Account"
+        "page": "~/settings/account",
+        "title": "System Settings"
       }
     },
     {
@@ -1655,6 +1747,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1663,12 +1760,13 @@
       ],
       "expected": {
         "state": {
-          "module": "account",
+          "module": "",
           "query": "",
           "tab": ""
         },
         "launch": null,
-        "title": "Account"
+        "page": "~/settings/account",
+        "title": "System Settings"
       }
     },
     {
@@ -1684,6 +1782,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1697,6 +1800,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -1713,6 +1817,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1726,6 +1835,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Effects"
       }
     },
@@ -1742,6 +1852,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1755,6 +1870,7 @@
           "tab": ""
         },
         "launch": "system-config-printer",
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -1777,6 +1893,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Firewall"
       }
     },
@@ -1792,6 +1909,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1805,6 +1927,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -1820,6 +1943,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1833,6 +1961,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -1849,6 +1978,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1862,6 +1996,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -1878,6 +2013,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1891,6 +2031,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -1906,6 +2047,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1919,6 +2065,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -1934,6 +2081,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1947,6 +2099,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Hot Corners"
       }
     },
@@ -1962,6 +2115,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -1975,6 +2133,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Window Tiling"
       }
     },
@@ -1990,6 +2149,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2003,6 +2167,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Backgrounds"
       }
     },
@@ -2018,6 +2183,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2031,6 +2201,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Screensaver"
       }
     },
@@ -2046,6 +2217,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2059,6 +2235,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2074,6 +2251,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2087,6 +2269,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2102,6 +2285,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2115,6 +2303,7 @@
           "tab": ""
         },
         "launch": "system-config-printer",
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2130,6 +2319,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2143,6 +2337,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -2159,6 +2354,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2172,6 +2372,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Display"
       }
     },
@@ -2188,6 +2389,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2201,6 +2407,7 @@
           "tab": "typing"
         },
         "launch": null,
+        "page": null,
         "title": "Keyboard"
       }
     },
@@ -2217,6 +2424,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2230,6 +2442,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Date & Time"
       }
     },
@@ -2246,6 +2459,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2259,6 +2477,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "Preferred Applications"
       }
     },
@@ -2275,6 +2494,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2283,12 +2507,13 @@
       ],
       "expected": {
         "state": {
-          "module": "account",
+          "module": "",
           "query": "",
           "tab": ""
         },
         "launch": null,
-        "title": "Account"
+        "page": "~/settings/account",
+        "title": "System Settings"
       }
     },
     {
@@ -2304,6 +2529,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2317,6 +2547,7 @@
           "tab": ""
         },
         "launch": "mintsources",
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2333,6 +2564,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2346,6 +2582,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2362,6 +2599,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2375,6 +2617,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2391,6 +2634,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2404,6 +2652,7 @@
           "tab": "titlebar"
         },
         "launch": null,
+        "page": null,
         "title": "Windows"
       }
     },
@@ -2420,6 +2669,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2433,6 +2687,7 @@
           "tab": "applications"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -2449,6 +2704,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2462,6 +2722,7 @@
           "tab": "output"
         },
         "launch": null,
+        "page": null,
         "title": "Sound"
       }
     },
@@ -2478,6 +2739,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2491,6 +2757,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2506,6 +2773,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2519,6 +2791,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     },
@@ -2535,6 +2808,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2548,7 +2826,205 @@
           "tab": "typing"
         },
         "launch": null,
+        "page": null,
         "title": "Keyboard"
+      }
+    },
+    {
+      "name": "an Exponential page with the holder signed in opens the holder's own window (a settings link)",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "account"
+      },
+      "installed": [
+        "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "page": "~/settings/account",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "This Device opens the holder's device page by its window key",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "this-device"
+      },
+      "installed": [
+        "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "page": "device:",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "Account Details is Exponential's Account page too",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "account-details"
+      },
+      "installed": [
+        "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "page": "~/settings/account",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "signed out, an Exponential page opens in the window (Connect Exponential)",
+      "state": {
+        "module": "",
+        "query": "",
+        "tab": ""
+      },
+      "event": {
+        "kind": "open",
+        "id": "voice"
+      },
+      "installed": [],
+      "expected": {
+        "state": {
+          "module": "voice",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "page": null,
+        "title": "Voice"
+      }
+    },
+    {
+      "name": "a link to an Exponential page opens the holder's window, the settings window on the grid",
+      "state": {
+        "module": "sound",
+        "query": "",
+        "tab": "output"
+      },
+      "event": {
+        "kind": "link",
+        "target": "~/settings/agents"
+      },
+      "installed": [
+        "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "",
+          "tab": ""
+        },
+        "launch": null,
+        "page": "~/settings/agents",
+        "title": "System Settings"
+      }
+    },
+    {
+      "name": "Enter on an Exponential page opens the holder's window",
+      "state": {
+        "module": "",
+        "query": "voice",
+        "tab": ""
+      },
+      "event": {
+        "kind": "submit"
+      },
+      "installed": [
+        "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
+        "driver-manager",
+        "firewall",
+        "login-window",
+        "software-sources",
+        "users-and-groups"
+      ],
+      "expected": {
+        "state": {
+          "module": "",
+          "query": "voice",
+          "tab": ""
+        },
+        "launch": null,
+        "page": "~/settings/voice",
+        "title": "System Settings"
       }
     },
     {
@@ -2563,6 +3039,11 @@
       },
       "installed": [
         "printers",
+        "account",
+        "this-device",
+        "agents",
+        "computer-use",
+        "voice",
         "driver-manager",
         "firewall",
         "login-window",
@@ -2576,6 +3057,7 @@
           "tab": ""
         },
         "launch": null,
+        "page": null,
         "title": "System Settings"
       }
     }

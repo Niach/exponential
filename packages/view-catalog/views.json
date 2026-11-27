@@ -9483,7 +9483,7 @@
       "id": "ede-settings-share",
       "group": "ede",
       "title": "Exponential Desktop · Share as a team",
-      "blurb": "System Settings › This Device of a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57, #EDE-273): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
+      "blurb": "System Settings › Share Desktop, a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57, #EDE-273): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
       "order": 21,
       "ede": {
         "size": "1280x720",
@@ -9491,7 +9491,7 @@
           "settings"
         ],
         "env": {
-          "EDE_SHELL_SETTINGS_PAGE": "this-device",
+          "EDE_SHELL_SETTINGS_PAGE": "share-desktop",
           "EDE_SHELL_SHARE": "picking"
         },
         "settleMs": 2500

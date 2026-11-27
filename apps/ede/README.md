@@ -315,10 +315,14 @@ person's polkit agent asks instead of the daemon refusing; a refusal (a
 cancelled prompt, the wrong password) is the failed action's toast
 (#EDE-182). A setting the machine cannot apply yet (the pointer options,
 the workspace count and wrap-around, the 24-hour clock) is a read-only
-value row, never a dead control; the Exponential category (Account, This
-Device with the Local desktop's Share as a team…, Agents, Computer Use,
-Voice) shows what this desktop has and leads to the Exponential app for the
-rest. #EDE-274: a module with pages (Sound, Windows, Keyboard) has
+value row, never a dead control; #EDE-275: the Exponential category's Account, This Device, Agents,
+Computer Use and Voice are the holder's own settings pages: a tile opens
+the holder's window over the session bus (`open {link: ~/settings/…}` or
+`page {key: device:}`, with the press's activation token), one
+implementation of those pages, as Cinnamon's tiles that are tools of
+their own; signed out, the module's page in the window asks to Connect
+Exponential. Share Desktop (the Local desktop's Share as a team…) stays
+the shell's own module. #EDE-274: a module with pages (Sound, Windows, Keyboard) has
 cinnamon-settings' stack switcher in the header (`tab`); on the grid the
 keyboard is in the search (the window opening, Back, Alt+Left). Themes
 and Font Selection pick the bridge's GTK, icon and cursor themes and fonts

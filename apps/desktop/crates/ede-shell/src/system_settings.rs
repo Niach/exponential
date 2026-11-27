@@ -43,6 +43,17 @@ impl Nav {
         next
     }
 
+    /// #EDE-275: the holder can open its pages (an account is signed in):
+    /// the Exponential category's modules open the holder's windows, else
+    /// their page in the window says Connect Exponential.
+    pub fn set_holder(&mut self, signed_in: bool) {
+        let pages: Vec<String> = settings_modules().iter().filter(|m| m.kind == SettingsKind::Page).map(|m| m.id.clone()).collect();
+        self.installed.retain(|id| !pages.contains(id));
+        if signed_in {
+            self.installed.extend(pages);
+        }
+    }
+
     /// The window starts again on the grid (it was closed).
     pub fn reset(&mut self) {
         self.state = SettingsState::default();
@@ -57,6 +68,7 @@ impl Nav {
             SettingsKind::Module => "module",
             SettingsKind::Later => "later",
             SettingsKind::Launch => "missing",
+            SettingsKind::Page => "signedOut",
         });
         let mut grid = serde_json::Map::new();
         for c in ["appearance", "preferences", "hardware", "exponential", "administration"] {
@@ -98,6 +110,16 @@ pub fn event_of(args: &Value) -> Option<SettingsEvent> {
     })
 }
 
+/// #EDE-275: a holder page as the bus asks for it: an in-app link
+/// (`~/settings/…`) is `open {link}`, a window key (`device:`) `page {key}`.
+pub fn holder_request(page: &str, token: Option<String>) -> api::bus::Request {
+    if page.starts_with("~/") {
+        api::bus::Request::Open { link: Some(page.to_string()), activation_token: token }
+    } else {
+        api::bus::Request::Page { key: page.to_string(), activation_token: token }
+    }
+}
+
 /// Alt+Left in the window: back, as cinnamon-settings' back button.
 pub fn is_back_key(key: &str, alt: bool, others: bool) -> bool {
     key == "left" && alt && !others
@@ -123,6 +145,14 @@ mod tests {
         nav.step(&SettingsEvent::Open { id: "firewall".into() });
         assert_eq!(nav.feed()["kind"], "missing", "a launch module without its tool");
         assert_eq!(nav.feed()["command"], "gufw");
+        nav.set_holder(false);
+        nav.step(&SettingsEvent::Open { id: "agents".into() });
+        assert_eq!(nav.feed()["kind"], "signedOut", "signed out: Connect Exponential in the window");
+        nav.set_holder(true);
+        let opened = nav.step(&SettingsEvent::Link { target: "~/settings/account".into() });
+        assert_eq!((opened.page.as_deref(), nav.feed()["inModule"].as_bool()), (Some("~/settings/account"), Some(false)), "signed in: the holder's window, the grid here");
+        nav.set_holder(false);
+        assert!(!nav.installed.iter().any(|id| id == "account"));
     }
 
     #[test]
@@ -132,6 +162,8 @@ mod tests {
         assert_eq!(event_of(&json!({"action": "open"})), None);
         assert_eq!(event_of(&json!({"action": "tab", "tab": "input"})), Some(SettingsEvent::Tab { value: "input".into() }));
         assert_eq!(event_of(&json!({"action": "nope"})), None);
+        assert_eq!(holder_request("~/settings/voice", None), api::bus::Request::Open { link: Some("~/settings/voice".into()), activation_token: None });
+        assert_eq!(holder_request("device:", Some("t".into())), api::bus::Request::Page { key: "device:".into(), activation_token: Some("t".into()) });
         assert!(is_back_key("left", true, false));
         assert!(!is_back_key("left", false, false));
         assert!(!is_back_key("left", true, true));

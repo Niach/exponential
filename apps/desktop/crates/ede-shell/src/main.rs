@@ -1040,7 +1040,7 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     }
                     Some("share") => {
-                        settings_open_page(&shell, "this-device", cx);
+                        settings_open_page(&shell, "share-desktop", cx);
                         share_start(&shell, cx);
                     }
                     Some(other) => tracing::warn!(action = other, "unknown switcher action"),
@@ -1372,8 +1372,18 @@ fn settings_step(shell: &SharedShell, event: uicore_model::settings::SettingsEve
     if let Some(command) = next.launch.as_deref() {
         person_launch(shell, command);
     }
+    // #EDE-275: an Exponential module is the holder's own page, its window
+    // coming forward with this press's token.
+    if let Some(page) = next.page.clone() {
+        let request = system_settings::holder_request(&page, start_menu_token(shell));
+        std::thread::spawn(move || {
+            if let Err(e) = api::bus::call(&api::bus::socket_path(&api::default_data_dir()), &request) {
+                tracing::warn!(%page, "holder settings page: {e}");
+            }
+        });
+    }
     settings_feed(shell);
-    if show && next.launch.is_none() {
+    if show && next.launch.is_none() && next.page.is_none() {
         settings_show(shell, cx);
     }
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &next.title, cx);
@@ -4708,6 +4718,10 @@ fn main() {
                 }
                 if let Some(feeds) = holder_feeds_rx.try_iter().last() {
                     holder_feeds::keep(&mut s.borrow_mut().holder_feeds, feeds);
+                    // #EDE-275: the Exponential modules follow the holder's account.
+                    let signed_in = !s.borrow().holder_feeds.feeds["account"].is_null();
+                    s.borrow_mut().settings_nav.set_holder(signed_in);
+                    settings_feed(&s);
                     cx.update(|cx| model_changed(&s, cx));
                     dirty = true;
                 }
