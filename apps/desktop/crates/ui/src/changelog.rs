@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ci-page",
+    date: "2026-11-27",
+    title: "CI: our runs and GitHub Actions in one place",
+    summary: "A CI row under Devices (on phones: More › CI) lists every run across your teams, ours and GitHub Actions alike, by commit and by day, with the merge train and the runners beside them.",
+    body: r##"- **One list**: runs from Exponential's CI and from GitHub Actions side by side, titled by their commit and grouped into In progress, Today and earlier days; filter by Running, Failed or Mine, by repository and by source.
+- **The CI row's badge**: it counts your runs that failed until they run green again; while yours run, it shows them muted.
+- **Merge train and Runners tabs**: what waits to land, and each runner with its labels, busy slots and queue.
+- **Run page**: the commit, branch, pull request and runner at a glance, one button to re-run what failed (or cancel while it runs), the first error line of a failed job, and Fix with an agent, which opens a chat on that repository with the failing job named."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_379: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-device-file-transfers",
     date: "2026-11-27",
     title: "Copy files between your own machines",

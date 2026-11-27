@@ -128,6 +128,8 @@
                 <data android:pathPattern="/t/.*/apps/.*/.*" />
                 <!-- #EXP-1804: our own CI's run page (a check's Details link). -->
                 <data android:pathPattern="/t/.*/ci/.*" />
+                <!-- #EXP-2172: THE CI page (one page across every team). -->
+                <data android:path="/ci" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

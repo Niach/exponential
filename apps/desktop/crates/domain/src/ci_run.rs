@@ -90,7 +90,7 @@ impl CiRunStatus {
     pub fn tone(self) -> CiTone {
         match self {
             Self::Queued | Self::Cancelled => CiTone::Neutral,
-            Self::Running => CiTone::Primary,
+            Self::Running => CiTone::Info,
             Self::Passed => CiTone::Success,
             Self::Failed => CiTone::Danger,
         }
@@ -101,7 +101,8 @@ impl CiRunStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CiTone {
     Neutral,
-    Primary,
+    /// #EXP-2172: running, the one blue mark (ci-page.json `statusTones`).
+    Info,
     Success,
     Danger,
 }
@@ -110,7 +111,7 @@ impl CiTone {
     pub fn id(self) -> &'static str {
         match self {
             Self::Neutral => "neutral",
-            Self::Primary => "primary",
+            Self::Info => "info",
             Self::Success => "success",
             Self::Danger => "danger",
         }
@@ -125,29 +126,25 @@ fn job_failing(job: &CiJobRow) -> bool {
 /// with a job in progress, passed = success, cancelled = a failure whose
 /// failing jobs are ALL cancelled, failed = any other failure.
 pub fn ci_run_status(state: &str, jobs: &[CiJobRow]) -> CiRunStatus {
+    let jobs: Vec<(&str, Option<&str>)> = jobs.iter().map(|job| (job.status.as_str(), job.conclusion.as_deref())).collect();
+    ci_run_status_of(state, &jobs)
+}
+
+/// [`ci_run_status`] over `(status, conclusion)` pairs.
+pub fn ci_run_status_of(state: &str, jobs: &[(&str, Option<&str>)]) -> CiRunStatus {
     match state {
-        "pending" if jobs.iter().any(|job| job.status == "in_progress") => CiRunStatus::Running,
+        "pending" if jobs.iter().any(|(status, _)| *status == "in_progress") => CiRunStatus::Running,
         "pending" => CiRunStatus::Queued,
         "success" => CiRunStatus::Passed,
         _ => {
-            let failing: Vec<&CiJobRow> = jobs.iter().filter(|job| job_failing(job)).collect();
-            if !failing.is_empty() && failing.iter().all(|job| job.conclusion.as_deref() == Some("cancelled")) {
+            let failing: Vec<&(&str, Option<&str>)> = jobs.iter().filter(|(status, conclusion)| is_failing(status, *conclusion)).collect();
+            if !failing.is_empty() && failing.iter().all(|(_, conclusion)| *conclusion == Some("cancelled")) {
                 CiRunStatus::Cancelled
             } else {
                 CiRunStatus::Failed
             }
         }
     }
-}
-
-/// One `StatTile`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CiTile {
-    pub label: String,
-    pub value: String,
-    pub tone: CiTone,
-    /// The Status tile of a failed run: `{count} failed` (red); else None.
-    pub delta: Option<String>,
 }
 
 fn ms_of(value: Option<&str>) -> Option<i64> {
@@ -160,43 +157,6 @@ fn by_position(jobs: &[CiJobRow]) -> Vec<&CiJobRow> {
     ordered
 }
 
-/// `tiles`: Status, Duration, Runner (the distinct runner LABELS of the jobs
-/// that ran, in planner order; `runner_label` names a job's runner), Commit.
-pub fn ci_run_tiles(
-    run: &CiRunRow,
-    jobs: &[CiJobRow],
-    runner_label: &dyn Fn(&CiJobRow) -> Option<String>,
-    now_ms: i64,
-) -> Vec<CiTile> {
-    let status = ci_run_status(&run.state, jobs);
-    let duration = ms_of(run.started_at.as_deref()).map(|started| {
-        let end = ms_of(run.completed_at.as_deref()).unwrap_or(now_ms);
-        format_check_duration(end - started)
-    });
-    let mut runners: Vec<String> = Vec::new();
-    for job in by_position(jobs) {
-        if let Some(label) = runner_label(job).filter(|label| !label.is_empty()) {
-            if !runners.contains(&label) {
-                runners.push(label);
-            }
-        }
-    }
-    let none = copy("none").to_string();
-    let failing = jobs.iter().filter(|job| job_failing(job)).count();
-    let delta = (status.id() == "failed" && failing > 0).then(|| copy("failedJobs").replace("{count}", &failing.to_string()));
-    vec![
-        CiTile { label: copy("tiles.status").into(), value: copy(&format!("status.{}", status.id())).into(), tone: status.tone(), delta },
-        CiTile { label: copy("tiles.duration").into(), value: duration.unwrap_or_else(|| none.clone()), tone: CiTone::Neutral, delta: None },
-        CiTile {
-            label: copy("tiles.runner").into(),
-            value: if runners.is_empty() { none } else { runners.join(", ") },
-            tone: CiTone::Neutral,
-            delta: None,
-        },
-        CiTile { label: copy("tiles.commit").into(), value: run.sha.chars().take(7).collect(), tone: CiTone::Neutral, delta: None },
-    ]
-}
-
 /// One job's `Row` (`jobRows`, and a runner's `recentJobs`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CiJobListRow {
@@ -206,6 +166,24 @@ pub struct CiJobListRow {
     pub glyph: CheckGlyph,
     pub tone: CheckTone,
     pub duration: Option<String>,
+    /// #EXP-2172: the run page's status and its tone (`statusTones`).
+    pub status: CiRunStatus,
+    pub status_tone: CiTone,
+}
+
+/// `ciJobStatus`: a job's status in the run page's terms.
+pub fn ci_job_status(status: &str, conclusion: Option<&str>) -> CiRunStatus {
+    if status == "queued" {
+        CiRunStatus::Queued
+    } else if status != "completed" {
+        CiRunStatus::Running
+    } else if is_failing(status, conclusion) && conclusion != Some("cancelled") {
+        CiRunStatus::Failed
+    } else if conclusion == Some("success") {
+        CiRunStatus::Passed
+    } else {
+        CiRunStatus::Cancelled
+    }
 }
 
 fn reason_text(reason: Option<&str>) -> Option<String> {
@@ -226,9 +204,114 @@ pub fn ci_job_rows(jobs: &[CiJobRow], now_ms: i64) -> Vec<CiJobListRow> {
                 glyph,
                 tone,
                 duration: check_duration_of(&job.status, job.started_at.as_deref(), job.completed_at.as_deref(), now_ms),
+                status: ci_job_status(&job.status, job.conclusion.as_deref()),
+                status_tone: ci_job_status(&job.status, job.conclusion.as_deref()).tone(),
             }
         })
         .collect()
+}
+
+/// `jobsCaption`: `1 failed · 3 passed · 1 skipped` (the non-zero counts,
+/// failed, running, queued, passed, cancelled).
+pub fn ci_jobs_caption(jobs: &[(&str, Option<&str>)]) -> String {
+    let order = [CiRunStatus::Failed, CiRunStatus::Running, CiRunStatus::Queued, CiRunStatus::Passed, CiRunStatus::Cancelled];
+    order
+        .iter()
+        .filter_map(|status| {
+            let count = jobs.iter().filter(|(s, c)| ci_job_status(s, *c) == *status).count();
+            (count > 0).then(|| copy(&format!("jobsCaption.{}", status.id())).replace("{count}", &count.to_string()))
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// `jobSummary`: the job Card's line, `Failed after 8m 25s on mint`.
+pub fn ci_job_summary(job: &CiJobRow, runner_label: Option<&str>, now_ms: i64) -> String {
+    let status = ci_job_status(&job.status, job.conclusion.as_deref());
+    let duration = check_duration_of(&job.status, job.started_at.as_deref(), job.completed_at.as_deref(), now_ms);
+    match status {
+        CiRunStatus::Queued => copy("jobSummary.queued").to_string(),
+        CiRunStatus::Cancelled => reason_text(job.reason.as_deref()).unwrap_or_else(|| copy("jobSummary.skipped").to_string()),
+        _ => {
+            let head = copy(&format!("jobSummary.{}", status.id())).replace("{duration}", duration.as_deref().unwrap_or(copy("none")));
+            match runner_label.filter(|label| !label.is_empty()) {
+                Some(runner) => format!("{head}{}", copy("jobSummary.on").replace("{runner}", runner)),
+                None => head,
+            }
+        }
+    }
+}
+
+/// One chip of the run page's strip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CiRunChip {
+    pub id: &'static str,
+    pub label: String,
+    pub icon: Option<&'static str>,
+    pub dot: Option<&'static str>,
+}
+
+fn dot_of(tone: CiTone) -> &'static str {
+    match tone {
+        CiTone::Success => "$color.success",
+        CiTone::Danger => "$color.destructive",
+        CiTone::Info => "$color.info",
+        CiTone::Neutral => "$color.mutedForeground",
+    }
+}
+
+/// `chips`: status (dot) · ref → base · sha · #PR · author · duration ·
+/// runners (distinct labels in planner order); a chip without data is out.
+pub fn ci_run_chips(
+    run: &CiRunRow,
+    jobs: &[CiJobRow],
+    runner_label: &dyn Fn(&CiJobRow) -> Option<String>,
+    pull_request: Option<(i64, &str)>,
+    author: Option<&str>,
+    now_ms: i64,
+) -> Vec<CiRunChip> {
+    let status = ci_run_status(&run.state, jobs);
+    let mut chips = vec![CiRunChip { id: "status", label: copy(&format!("status.{}", status.id())).into(), icon: None, dot: Some(dot_of(status.tone())) }];
+    if let Some(r#ref) = run.r#ref.as_deref() {
+        let label = match pull_request {
+            Some((_, base)) => format!("{} → {}", r#ref, base),
+            None => r#ref.to_string(),
+        };
+        chips.push(CiRunChip { id: "ref", label, icon: Some("git-branch"), dot: None });
+    }
+    chips.push(CiRunChip { id: "sha", label: run.sha.chars().take(7).collect(), icon: Some("hash"), dot: None });
+    if let Some((number, _)) = pull_request {
+        chips.push(CiRunChip { id: "pr", label: format!("#{number}"), icon: Some("git-pull-request"), dot: None });
+    }
+    if let Some(author) = author {
+        chips.push(CiRunChip { id: "author", label: author.to_string(), icon: Some("user"), dot: None });
+    }
+    if let Some(started) = ms_of(run.started_at.as_deref()) {
+        let end = ms_of(run.completed_at.as_deref()).unwrap_or(now_ms);
+        chips.push(CiRunChip { id: "duration", label: format_check_duration(end - started), icon: Some("clock"), dot: None });
+    }
+    let mut runners: Vec<String> = Vec::new();
+    for job in jobs {
+        if let Some(label) = runner_label(job).filter(|label| !label.is_empty()) {
+            if !runners.contains(&label) {
+                runners.push(label);
+            }
+        }
+    }
+    if !runners.is_empty() {
+        chips.push(CiRunChip { id: "runner", label: runners.join(", "), icon: Some("server"), dot: None });
+    }
+    chips
+}
+
+/// `failureSummary`: `Failed in {job}` and the first error line of its log
+/// as read; None until such a line is read.
+pub fn ci_failure_summary(check: Option<&str>, log: Option<&str>) -> Option<(String, String)> {
+    let (check, log) = (check?, log?);
+    let view = ci_log_view(log);
+    let first = *view.highlight.first()?;
+    let line = view.code.split('\n').nth(first - 1).unwrap_or_default();
+    Some((copy("failure.title").replace("{job}", check), line.strip_prefix("Error: ").unwrap_or(line).to_string()))
 }
 
 /// `defaultJob`: the requested job when it is one of the run's, else the
@@ -375,17 +458,90 @@ pub fn ci_log_view(text: &str) -> CiLogView {
     CiLogView { code: out.join("\n"), highlight }
 }
 
-/// Which buttons the run shows.
+/// THE one default action of the run page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CiRunActions {
-    pub rerun_failed: bool,
-    pub cancel: bool,
+pub enum CiPrimary {
+    RerunFailed,
+    RerunAll,
+    Cancel,
 }
 
-/// `actions`: Re-run failed on a failed run (a pipeline error re-plans too),
-/// Cancel on a pending one.
-pub fn ci_run_actions(state: &str) -> CiRunActions {
-    CiRunActions { rerun_failed: state == "failure", cancel: state == "pending" }
+impl CiPrimary {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::RerunFailed => "rerunFailed",
+            Self::RerunAll => "rerunAll",
+            Self::Cancel => "cancel",
+        }
+    }
+}
+
+/// What the run offers (#EXP-2172 redesign).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CiRunActions {
+    /// Cancel while pending, Re-run failed after a failure, else Re-run all;
+    /// None when the run is not ours to change (GitHub without write).
+    pub primary: Option<CiPrimary>,
+    pub fix: bool,
+    /// The ⋯ menu: `rerunAll` (when not the primary), `openExternal`.
+    pub menu: Vec<&'static str>,
+}
+
+/// `actions`.
+pub fn ci_run_actions(run: &CiRunRow) -> CiRunActions {
+    let github = run.provider.as_deref() == Some("github");
+    let writable = !github || run.external_access.as_deref() == Some("write");
+    let primary = writable.then(|| match run.state.as_str() {
+        "pending" => CiPrimary::Cancel,
+        "failure" => CiPrimary::RerunFailed,
+        _ => CiPrimary::RerunAll,
+    });
+    let mut menu = Vec::new();
+    if writable && primary != Some(CiPrimary::RerunAll) {
+        menu.push("rerunAll");
+    }
+    if github && run.external_url.as_deref().is_some_and(|url| !url.is_empty()) {
+        menu.push("openExternal");
+    }
+    CiRunActions { primary, fix: run.state == "failure", menu }
+}
+
+/// `fixLogLines`: how much of the log's end Fix with an agent quotes.
+pub fn fix_log_lines() -> usize {
+    CI_RUN["fixLogLines"].as_u64().unwrap_or(40) as usize
+}
+
+/// `fixPrompt`: the first message of Fix with an agent (the composer's
+/// text): the run, the failing job, how to read its log, its log's end.
+pub fn ci_fix_prompt(run: &CiRunRow, repository: &str, job: Option<&str>, log: Option<&str>) -> String {
+    let none = copy("none");
+    let r#ref = run.r#ref.as_deref().unwrap_or(none);
+    let sha: String = run.sha.chars().take(7).collect();
+    let fill = |text: &str| {
+        text.replace("{number}", &run.number.unwrap_or_default().to_string())
+            .replace("{name}", &run.name)
+            .replace("{repository}", repository)
+            .replace("{ref}", r#ref)
+            .replace("{sha}", &sha)
+            .replace("{runId}", &run.id)
+            .replace("{job}", job.unwrap_or_default())
+    };
+    let mut lines = vec![fill(copy("fixPrompt.head"))];
+    if job.is_some() {
+        lines.push(fill(copy("fixPrompt.job")));
+    }
+    lines.push(fill(copy("fixPrompt.read")));
+    let code = log.map(|log| ci_log_view(log).code).unwrap_or_default();
+    if !code.is_empty() {
+        let all: Vec<&str> = code.split('\n').collect();
+        let tail = &all[all.len().saturating_sub(fix_log_lines())..];
+        lines.push(String::new());
+        lines.push(copy("fixPrompt.tail").to_string());
+        lines.push("```text".into());
+        lines.extend(tail.iter().map(|line| line.to_string()));
+        lines.push("```".into());
+    }
+    lines.join("\n")
 }
 
 /// The run page's link (`details_url`): `/t/<team>/ci/<runId>[?job=<jobId>]`.
@@ -587,6 +743,8 @@ pub fn runner_recent_jobs(device_id: &str, jobs: &[RunnerJob], now_ms: i64) -> V
                 glyph,
                 tone,
                 duration: check_duration_of(&job.status, job.started_at.as_deref(), job.completed_at.as_deref(), now_ms),
+                status: ci_job_status(&job.status, job.conclusion.as_deref()),
+                status_tone: ci_job_status(&job.status, job.conclusion.as_deref()).tone(),
             }
         })
         .collect()
@@ -625,6 +783,9 @@ pub fn fixture_jobs(jobs: &Value) -> Vec<CiJobRow> {
                         queued_at: None,
                         started_at: text("startedAt"),
                         completed_at: text("completedAt"),
+                        provider: text("provider"),
+                        external_id: None,
+                        external_url: None,
                         created_at: None,
                         updated_at: None,
                     }
@@ -640,20 +801,26 @@ pub fn fixture_run(run: &Value) -> CiRunRow {
     CiRunRow {
         id: text("id").unwrap_or_default(),
         team_id: None,
-        repository_id: None,
+        repository_id: text("repositoryId"),
         number: run["number"].as_i64(),
         name: text("name").unwrap_or_default(),
         sha: text("sha").unwrap_or_default(),
-        r#ref: None,
-        trigger: None,
-        pull_request_id: None,
+        r#ref: text("ref"),
+        trigger: text("trigger"),
+        pull_request_id: text("pullRequestId"),
         state: text("state").unwrap_or_default(),
         error: text("error"),
         rerun_of: None,
-        created_by_user_id: None,
+        created_by_user_id: text("createdByUserId"),
         started_at: text("startedAt"),
         completed_at: text("completedAt"),
-        created_at: None,
+        provider: text("provider"),
+        title: text("title"),
+        external_id: None,
+        external_url: text("externalUrl"),
+        external_attempt: None,
+        external_access: text("externalAccess"),
+        created_at: text("createdAt"),
         updated_at: None,
     }
 }
@@ -722,19 +889,17 @@ mod tests {
     }
 
     #[test]
-    fn tiles_match_the_fixture() {
-        for case in fixture()["tiles"].as_array().unwrap() {
-            let tiles = ci_run_tiles(&fixture_run(&case["run"]), &fixture_jobs(&case["jobs"]), &|job| job.runner_device_id.clone(), now(case));
-            let got: Vec<Value> =
-                tiles.iter().map(|tile| json!({"label": tile.label, "value": tile.value, "tone": tile.tone.id(), "delta": tile.delta})).collect();
-            assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
-        }
-    }
-
-    #[test]
     fn job_rows_match_the_fixture() {
         for case in fixture()["jobRows"].as_array().unwrap() {
-            let got: Vec<Value> = ci_job_rows(&fixture_jobs(&case["jobs"]), now(case)).iter().map(row_json).collect();
+            let got: Vec<Value> = ci_job_rows(&fixture_jobs(&case["jobs"]), now(case))
+                .iter()
+                .map(|row| {
+                    let mut value = row_json(row);
+                    value["status"] = json!(row.status.id());
+                    value["statusTone"] = json!(row.status_tone.id());
+                    value
+                })
+                .collect();
             assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
         }
     }
@@ -769,8 +934,61 @@ mod tests {
     #[test]
     fn actions_match_the_fixture() {
         for case in fixture()["actions"].as_array().unwrap() {
-            let actions = ci_run_actions(case["state"].as_str().unwrap());
-            assert_eq!(json!({"rerunFailed": actions.rerun_failed, "cancel": actions.cancel}), case["expected"], "{}", case["name"]);
+            let actions = ci_run_actions(&fixture_run(case));
+            let got = json!({"primary": actions.primary.map(CiPrimary::id), "fix": actions.fix, "menu": actions.menu});
+            assert_eq!(got, case["expected"], "{}", case["name"]);
+        }
+    }
+
+    fn pairs(jobs: &[CiJobRow]) -> Vec<(&str, Option<&str>)> {
+        jobs.iter().map(|job| (job.status.as_str(), job.conclusion.as_deref())).collect()
+    }
+
+    #[test]
+    fn jobs_caption_matches_the_fixture() {
+        for case in fixture()["jobsCaption"].as_array().unwrap() {
+            let jobs = fixture_jobs(&case["jobs"]);
+            assert_eq!(ci_jobs_caption(&pairs(&jobs)), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn job_summary_matches_the_fixture() {
+        for case in fixture()["jobSummary"].as_array().unwrap() {
+            let job = &fixture_jobs(&json!([case["job"]]))[0];
+            let got = ci_job_summary(job, job.runner_device_id.as_deref(), now(case));
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn chips_match_the_fixture() {
+        for case in fixture()["chips"].as_array().unwrap() {
+            let pr = case["pullRequest"].as_object().map(|pr| (pr["number"].as_i64().unwrap(), pr["base"].as_str().unwrap()));
+            let chips = ci_run_chips(&fixture_run(&case["run"]), &fixture_jobs(&case["jobs"]), &|job| job.runner_device_id.clone(), pr, case["author"].as_str(), now(case));
+            let got: Vec<Value> = chips.iter().map(|chip| json!({"id": chip.id, "label": chip.label, "icon": chip.icon, "dot": chip.dot})).collect();
+            assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn failure_summary_matches_the_fixture() {
+        for case in fixture()["failureSummary"].as_array().unwrap() {
+            let got = ci_failure_summary(case["job"]["check"].as_str(), case["log"].as_str());
+            let got = got.map(|(title, message)| json!({"title": title, "message": message})).unwrap_or(Value::Null);
+            assert_eq!(got, case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn fix_prompt_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["fixPrompt"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let got = ci_fix_prompt(&fixture_run(&input["run"]), input["repository"].as_str().unwrap(), input["job"].as_str(), input["log"].as_str());
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 
@@ -785,7 +1003,6 @@ mod tests {
     #[test]
     fn the_copy_reads_off_the_fixture() {
         assert_eq!(run_title(12), "Run #12");
-        assert_eq!(copy("tiles.commit"), "Commit");
         assert_eq!(test_id("log"), "ci-run-log");
         assert_eq!(live_tail_ms(), 2000);
         assert_eq!(log_max_lines(), 32);

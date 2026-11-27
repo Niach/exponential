@@ -26,7 +26,7 @@ export const SIDEBAR_TREE_MAX_DEPTH = fixture.maxDepth
 export const SIDEBAR_TEAMS_MENU = fixture.teamsMenu as readonly SidebarTeamsMenuItem[]
 
 export type SidebarTeamsMenuItem = `new-team` | `join-team`
-export type SidebarRootRow = `assistant` | `home` | `needs-you` | `chats` | `drafts` | `devices`
+export type SidebarRootRow = `assistant` | `home` | `needs-you` | `chats` | `drafts` | `devices` | `ci`
 export type SidebarItemKind = `board` | `repository` | `agent` | `app` | `session`
 export type { SidebarNewKind }
 
@@ -37,6 +37,8 @@ export function sidebarRootRows(input: { needsYou: number; drafts: number; assis
   rows.push(`chats`)
   if (input.drafts > 0) rows.push(`drafts`)
   rows.push(`devices`)
+  // #EXP-2172: THE CI page, one root row across every team.
+  rows.push(`ci`)
   return rows
 }
 

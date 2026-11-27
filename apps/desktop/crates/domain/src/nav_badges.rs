@@ -311,7 +311,7 @@ mod tests {
         let ids = |badge: bool| -> Vec<&str> {
             f["destinations"].as_array().unwrap().iter().filter(|d| d["badge"].as_bool() == Some(badge)).map(|d| d["id"].as_str().unwrap()).collect()
         };
-        assert_eq!(ids(true), ["assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab", "chats", "chat-row", "inbox", "drafts", "app-icon", "more"]);
+        assert_eq!(ids(true), ["assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab", "chats", "chat-row", "inbox", "drafts", "ci", "app-icon", "more"]);
         assert_eq!(ids(false), ["home", "devices", "device", "board", "repository", "app", "new", "settings", "search", "work-tab", "active-row"]);
     }
 }

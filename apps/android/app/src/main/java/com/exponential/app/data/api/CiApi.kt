@@ -102,11 +102,15 @@ class CiApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** `ci.rerun{runId, failedOnly: true}`: the new run's id (the page opens it). */
-    suspend fun rerunFailed(accountId: String, runId: String): String =
+    suspend fun rerunFailed(accountId: String, runId: String): String = rerun(accountId, runId, failedOnly = true)
+
+    /** `ci.rerun{runId, failedOnly}` (#EXP-2172: GitHub runs too): the run to
+     *  open (ours: a new run; GitHub: the same run, a new attempt). */
+    suspend fun rerun(accountId: String, runId: String, failedOnly: Boolean): String =
         trpc.mutation(
             accountId,
             path = "ci.rerun",
-            input = CiRerunInput(runId, failedOnly = true),
+            input = CiRerunInput(runId, failedOnly = failedOnly),
             inputSerializer = CiRerunInput.serializer(),
             outputSerializer = CiRerunResult.serializer(),
         ).runId

@@ -94,6 +94,8 @@ import com.exponential.app.ui.styleguide.CallPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
+import com.exponential.app.ui.styleguide.CiPageSpecimenScreen
+import com.exponential.app.ui.styleguide.CiPageSpecimenTestId
 import com.exponential.app.ui.styleguide.CiRunSpecimenScreen
 import com.exponential.app.ui.styleguide.CiRunSpecimenTestId
 import com.exponential.app.ui.styleguide.RunnerSettingsSpecimenScreen
@@ -171,7 +173,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues ·
  *   sg_machine-settings · sg_chats ·
- *   sg_session-row · sg_pr-row · sg_pr-checks · sg_ci-run · sg_runner-settings ·
+ *   sg_session-row · sg_pr-row · sg_pr-checks · sg_ci-run · sg_ci · sg_runner-settings ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
  *   sg_invite-accept · sg_onboarding-invite ·
@@ -278,6 +280,8 @@ class StyleguideScreenshotsTest {
             "sg_pr-checks",
             // #EXP-1804: THE CI run page + a device's CI runner section.
             "sg_ci-run", "sg_runner-settings",
+            // #EXP-2172: THE CI page (Runs tab over ci-page.json `scenario`).
+            "sg_ci",
             // #EXP-1617: the repo page's Runs tab + its CI settings section.
             "sg_repo-runs", "sg_repo-ci",
             // Session 58cb32df: the Chats pieces + the minutes schedule.
@@ -2004,6 +2008,10 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_ci-run")
         show(RunnerSettingsSpecimenTestId) { RunnerSettingsSpecimenScreen() }
         flow.screenshot("sg_runner-settings")
+        // --- sg_ci (#EXP-2172, ci-page.json): THE CI page's Runs tab over the
+        // fixture's `scenario`, the genUI tree web builds (CiPageView).
+        show(CiPageSpecimenTestId) { CiPageSpecimenScreen() }
+        flow.screenshot("sg_ci")
 
         // --- sg_repo-runs · sg_repo-ci (#EXP-1617, repo-ci.json): the repo
         // page's Runs tab over runRows[0] (phone Rows) and the Settings tab's

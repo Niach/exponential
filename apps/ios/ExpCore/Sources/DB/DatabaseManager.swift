@@ -3509,6 +3509,62 @@ public final class DatabaseManager: @unchecked Sendable {
             try createRepositoriesTable(db)
         }
 
+        // v117 (#EXP-2172, ci-page.json): GitHub Actions runs share the CI
+        // tables: `ci_runs.provider`, `external_id`, `external_url`,
+        // `external_attempt`, `external_access` and `ci_jobs.provider`,
+        // `external_id`, `external_url`; each table's cursor resets only when
+        // its columns were added, so synced rows re-arrive carrying them.
+        migrator.registerMigration("v117_ci_external") { db in
+            let tables: [(table: String, shape: String, columns: [(String, Database.ColumnType)])] = [
+                ("ci_runs", "ci-runs", [
+                    ("provider", .text), ("external_id", .text), ("external_url", .text),
+                    ("external_attempt", .integer), ("external_access", .text),
+                ]),
+                ("ci_jobs", "ci-jobs", [("provider", .text), ("external_id", .text), ("external_url", .text)]),
+            ]
+            for entry in tables {
+                guard try db.tableExists(entry.table) else { continue }
+                let existing = Set(try db.columns(in: entry.table).map(\.name))
+                let added = entry.columns.filter { !existing.contains($0.0) }
+                guard !added.isEmpty else { continue }
+                try db.alter(table: entry.table) { t in
+                    for (column, type) in added {
+                        if column == "provider" {
+                            t.add(column: column, type).notNull().defaults(to: "exponential")
+                        } else {
+                            t.add(column: column, type)
+                        }
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = ?
+                        """, arguments: [entry.shape])
+                }
+            }
+        }
+
+        // v118 (#EXP-2172 redesign, ci-page.json): `ci_runs.title`, what the
+        // run is about (the head commit's first line, the PR's title,
+        // GitHub's display_title); the ci-runs cursor resets so synced rows
+        // re-arrive carrying it.
+        migrator.registerMigration("v118_ci_run_title") { db in
+            guard try db.tableExists("ci_runs") else { return }
+            guard try db.columns(in: "ci_runs").contains(where: { $0.name == "title" }) == false else { return }
+            try db.alter(table: "ci_runs") { t in
+                t.add(column: "title", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'ci-runs'
+                    """)
+            }
+        }
+
         return migrator
     }
 

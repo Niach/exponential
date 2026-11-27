@@ -16,6 +16,9 @@ import {
 
 const specimen = (): CiRunModel => ({
   run: { ...CI_RUN_SPECIMEN.run },
+  repository: CI_RUN_SPECIMEN.repository,
+  pullRequest: CI_RUN_SPECIMEN.pullRequest,
+  author: CI_RUN_SPECIMEN.author,
   jobs: CI_RUN_SPECIMEN.jobs.map((job) => ({ ...job, steps: [...job.steps] })),
 })
 
@@ -35,51 +38,40 @@ function all(node: NestedNode, component: string): NestedNode[] {
 
 const opts = { selected: `j2`, log: CI_RUN_SPECIMEN.log, now: CI_RUN_SPECIMEN.now, phone: false }
 
-describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
-  it(`wide: title, four tiles, re-run, the jobs Section beside the selected job`, () => {
+describe(`ciRunTree (ci-run.json LAYOUT, #EXP-2172 redesign)`, () => {
+  it(`wide: breadcrumb, the commit title, the chip strip, Re-run failed + Fix + ⋯, the failure, the job list beside the job Card`, () => {
     const tree = ciRunTree(specimen(), opts)
     expect(tree.id).toBe(ciFixture.testIds.page)
-    expect(find(tree, `ci-run-heading`)?.props?.text).toBe(`Run #12`)
-    expect(find(tree, `ci-run-name`)?.props?.text).toBe(`ci`)
-    const grid = find(tree, ciFixture.testIds.tiles)!
-    expect(grid.props?.columns).toBe(4)
-    expect(grid.children?.map((t) => t.props?.value)).toEqual([`Failed`, `12m 40s`, `mint`, `8f3c2a9`])
-    // The failure reads from the red Status tile; the log keeps its colours.
-    expect(grid.children?.[0]?.props).toMatchObject({ tone: `danger`, delta: `1 failed` })
-    expect(find(tree, ciFixture.testIds.rerun)?.props?.label).toBe(ciFixture.copy.rerunFailed)
-    expect(find(tree, ciFixture.testIds.cancel)).toBeUndefined()
-    const rows = all(tree, `Row`)
+    expect(find(tree, ciFixture.testIds.breadcrumb)).toBeDefined()
+    expect(find(tree, `ci-run-heading`)?.props?.text).toBe(`Mirror prunes deleted branches`)
+    expect(all(tree, `StatTile`)).toHaveLength(0)
+    const chips = all(find(tree, ciFixture.testIds.chips)!, `Chip`).map((c) => c.props?.label)
+    expect(chips).toEqual([`Failed`, `exp/APP-33 → main`, `8f3c2a9`, `#213`, `Mara Lind`, `12m 40s`, `mint`])
+    expect(find(tree, ciFixture.testIds.rerun)?.props?.variant).toBeUndefined()
+    expect(find(tree, ciFixture.testIds.fix)?.props?.variant).toBe(`outline`)
+    expect(find(tree, ciFixture.testIds.more)?.props?.items).toEqual([{ label: ciFixture.copy.rerunAll, value: `rerunAll` }])
+    expect(find(tree, ciFixture.testIds.failure)?.props).toMatchObject({ type: `error`, title: `Failed in test (linux)` })
+    const rows = all(find(tree, `ci-run-jobs-section`)!, `Row`)
     expect(rows.map((r) => r.props?.title)).toEqual([`build`, `test (linux)`, `deploy`])
     expect(rows.map((r) => r.props?.selected)).toEqual([false, true, false])
-    expect(rows[2]!.props?.subtitle).toBe(ciFixture.copy.reasons.needs)
     expect(rows[1]!.slots?.leading?.props).toMatchObject({ name: `ci-failed`, tone: `danger` })
-    const code = all(tree, `CodeBlock`)
+    const card = find(tree, `${ciFixture.testIds.jobCard}.j2`)!
+    expect(card.props).toMatchObject({ title: `test (linux)` })
+    const steps = all(card, `TraceItem`)
+    expect(steps.map((t) => [t.props?.status, t.props?.open])).toEqual([[`done`, false], [`done`, false], [`error`, true], [`skipped`, false]])
+    const code = all(steps[2]!, `CodeBlock`)
     expect(code).toHaveLength(1)
-    expect(code[0]!.props?.variant).toBeUndefined()
-    expect(code[0]!.props).toMatchObject({
-      language: `ansi`,
-      lineNumbers: true,
-      wrap: false,
-      copyable: true,
-      maxLines: ciFixture.logMaxLines.wide,
-      follow: false,
-      code: ciLogView(CI_RUN_SPECIMEN.log).code,
-      highlight: ciLogView(CI_RUN_SPECIMEN.log).highlight,
-    })
-    expect(all(tree, `TraceItem`).map((t) => t.props?.status)).toEqual([`done`, `done`, `error`, `skipped`])
+    expect(code[0]!.props).toMatchObject({ language: `ansi`, lineNumbers: true, wrap: false, copyable: true, maxLines: ciFixture.logMaxLines.wide, follow: false, highlight: ciLogView(CI_RUN_SPECIMEN.log).highlight })
   })
 
-  it(`phones: two tile columns, one Collapsible per job, only the selected open`, () => {
+  it(`phones: no breadcrumb, chevron rows; drilling shows the job Card alone`, () => {
     const tree = ciRunTree(specimen(), { ...opts, phone: true })
-    expect(find(tree, ciFixture.testIds.tiles)?.props?.columns).toBe(2)
-    const folds = all(tree, `Collapsible`)
-    expect(folds.map((f) => [f.props?.title, f.props?.open])).toEqual([
-      [`build`, false],
-      [`test (linux)`, true],
-      [`deploy`, false],
-    ])
-    expect(all(tree, `Row`)).toHaveLength(0)
-    expect(find(tree, `${ciFixture.testIds.log}.j2`)?.props?.maxLines).toBe(ciFixture.logMaxLines.phone)
+    expect(find(tree, ciFixture.testIds.breadcrumb)).toBeUndefined()
+    expect(all(tree, `Row`).every((r) => r.props?.chevron === `right`)).toBe(true)
+    expect(all(tree, `Card`)).toHaveLength(0)
+    const drilled = ciRunTree(specimen(), { ...opts, phone: true, jobOpen: true })
+    expect(drilled.children?.map((c) => c.component)).toEqual([`Card`])
+    expect(find(drilled, `${ciFixture.testIds.log}.j2`)?.props?.maxLines).toBe(ciFixture.logMaxLines.phone)
   })
 
   it(`a pipeline error replaces the jobs with an Alert`, () => {
@@ -90,14 +82,15 @@ describe(`ciRunTree (ci-run.json LAYOUT)`, () => {
     expect(all(tree, `Row`)).toHaveLength(0)
   })
 
-  it(`a running job follows its log; a pending run offers Cancel`, () => {
+  it(`a running run: Cancel is the one button, the job's log follows, no failure summary`, () => {
     const model = specimen()
     model.run.state = `pending`
     model.run.completedAt = null
     model.jobs[1] = { ...model.jobs[1]!, status: `in_progress`, conclusion: null, completedAt: null }
     const tree = ciRunTree(model, { ...opts, log: `` })
-    expect(find(tree, ciFixture.testIds.cancel)?.props?.variant).toBe(`destructive`)
+    expect(find(tree, ciFixture.testIds.cancel)).toBeDefined()
     expect(find(tree, ciFixture.testIds.rerun)).toBeUndefined()
+    expect(find(tree, ciFixture.testIds.failure)).toBeUndefined()
     expect(find(tree, `${ciFixture.testIds.log}.j2`)?.props).toMatchObject({ follow: true, code: `` })
   })
 

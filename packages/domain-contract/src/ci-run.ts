@@ -1,5 +1,6 @@
 import fixture from "../fixtures/ci-run.json" with { type: "json" }
 import runnerFixture from "../fixtures/runner-settings.json" with { type: "json" }
+import pageFixture from "../fixtures/ci-page.json" with { type: "json" }
 import { checkDuration, checkGlyph, formatCheckDuration, isFailingCheck, type CheckGlyph, type CheckTone } from "./pr-checks"
 
 // #EXP-1617 / #EXP-1804 (fixtures/ci-run.json, fixtures/runner-settings.json):
@@ -13,7 +14,9 @@ export const CI_RUN_LIVE_TAIL_MS: number = fixture.liveTailMs
 export const CI_RUN_LOG_MAX_LINES = fixture.logMaxLines
 
 export type CiRunStatus = `queued` | `running` | `passed` | `failed` | `cancelled`
-export type CiTone = `neutral` | `primary` | `success` | `danger`
+/** #EXP-2172: THE status tones (ci-page.json `statusTones`): running is
+ *  the only blue (`info`) mark. */
+export type CiTone = `neutral` | `info` | `success` | `danger`
 export type CiTraceStatus = `pending` | `running` | `done` | `skipped` | `error`
 
 export interface CiJobLike {
@@ -21,13 +24,8 @@ export interface CiJobLike {
   conclusion: string | null
 }
 
-const STATUS_TONE: Record<CiRunStatus, CiTone> = {
-  queued: `neutral`,
-  running: `primary`,
-  passed: `success`,
-  failed: `danger`,
-  cancelled: `neutral`,
-}
+export const CI_STATUS_TONES = pageFixture.statusTones as Record<CiRunStatus, { glyph: CheckGlyph; tone: CiTone }>
+const STATUS_TONE = (status: CiRunStatus): CiTone => CI_STATUS_TONES[status].tone
 
 /** The run's status for its first tile. */
 export function ciRunStatus(state: string, jobs: readonly CiJobLike[]): { status: CiRunStatus; tone: CiTone } {
@@ -38,42 +36,13 @@ export function ciRunStatus(state: string, jobs: readonly CiJobLike[]): { status
     const failing = jobs.filter(isFailingCheck)
     status = failing.length > 0 && failing.every((job) => job.conclusion === `cancelled`) ? `cancelled` : `failed`
   }
-  return { status, tone: STATUS_TONE[status] }
-}
-
-export interface CiTile {
-  label: string
-  value: string
-  tone: CiTone
-  /** The Status tile of a failed run: `{count} failed` (red); else null. */
-  delta: string | null
+  return { status, tone: STATUS_TONE(status) }
 }
 
 const msOf = (value: string | null | undefined): number | null => {
   if (!value) return null
   const ms = Date.parse(value)
   return Number.isNaN(ms) ? null : ms
-}
-
-/** Status, Duration, Runner, Commit. */
-export function ciRunTiles(
-  run: { state: string; sha: string; startedAt: string | null; completedAt: string | null },
-  jobs: ReadonlyArray<CiJobLike & { runnerLabel: string | null }>,
-  now: Date | string
-): CiTile[] {
-  const copy = CI_RUN_COPY
-  const { status, tone } = ciRunStatus(run.state, jobs)
-  const started = msOf(run.startedAt)
-  const end = msOf(run.completedAt) ?? (typeof now === `string` ? Date.parse(now) : now.getTime())
-  const runners = [...new Set(jobs.flatMap((job) => (job.runnerLabel ? [job.runnerLabel] : [])))]
-  const failing = jobs.filter(isFailingCheck).length
-  const delta = status === `failed` && failing > 0 ? copy.failedJobs.replace(`{count}`, String(failing)) : null
-  return [
-    { label: copy.tiles.status, value: copy.status[status], tone, delta },
-    { label: copy.tiles.duration, value: started === null ? copy.none : formatCheckDuration(end - started), tone: `neutral`, delta: null },
-    { label: copy.tiles.runner, value: runners.length > 0 ? runners.join(`, `) : copy.none, tone: `neutral`, delta: null },
-    { label: copy.tiles.commit, value: run.sha.slice(0, 7), tone: `neutral`, delta: null },
-  ]
 }
 
 export interface CiJobRowInput extends CiJobLike {
@@ -92,6 +61,18 @@ export interface CiJobRow {
   glyph: CheckGlyph
   tone: CheckTone
   duration: string | null
+  /** #EXP-2172: the run page's status (and its tone, `statusTones`). */
+  status: CiRunStatus
+  statusTone: CiTone
+}
+
+/** A job's status in the run page's terms. */
+export function ciJobStatus(job: CiJobLike): CiRunStatus {
+  if (job.status === `queued`) return `queued`
+  if (job.status !== `completed`) return `running`
+  if (isFailingCheck(job) && job.conclusion !== `cancelled`) return `failed`
+  if (job.conclusion === `success`) return `passed`
+  return `cancelled`
 }
 
 const reasonText = (reason: string | null): string | null =>
@@ -107,7 +88,32 @@ export function ciJobRows(jobs: readonly CiJobRowInput[], now: Date | string): C
     subtitle: job.status === `completed` ? reasonText(job.reason) : null,
     ...checkGlyph(job),
     duration: checkDuration({ name: job.check, status: job.status, conclusion: job.conclusion, startedAt: job.startedAt, completedAt: job.completedAt }, now),
+    status: ciJobStatus(job),
+    statusTone: CI_STATUS_TONES[ciJobStatus(job)].tone,
   }))
+}
+
+/** The Jobs section's caption: `1 failed · 3 passed · 1 skipped` (the
+ *  counts that are not zero, in this order). */
+export function ciJobsCaption(jobs: readonly CiJobLike[]): string {
+  const counts: Record<CiRunStatus, number> = { failed: 0, running: 0, queued: 0, passed: 0, cancelled: 0 }
+  for (const job of jobs) counts[ciJobStatus(job)]++
+  const parts = CI_RUN_COPY.jobsCaption as Record<CiRunStatus, string>
+  return ([`failed`, `running`, `queued`, `passed`, `cancelled`] as const)
+    .filter((status) => counts[status] > 0)
+    .map((status) => parts[status].replace(`{count}`, String(counts[status])))
+    .join(` · `)
+}
+
+/** The selected job's card line: `Failed after 8m 25s on mint`. */
+export function ciJobSummary(job: CiJobRowInput & { runnerLabel: string | null }, now: Date | string): string {
+  const copy = CI_RUN_COPY.jobSummary
+  const status = ciJobStatus(job)
+  const duration = checkDuration({ name: job.check, status: job.status, conclusion: job.conclusion, startedAt: job.startedAt, completedAt: job.completedAt }, now)
+  if (status === `queued`) return copy.queued
+  if (status === `cancelled`) return reasonText(job.reason) ?? copy.skipped
+  const head = (copy as Record<string, string>)[status]!.replace(`{duration}`, duration ?? CI_RUN_COPY.none)
+  return job.runnerLabel ? `${head}${copy.on.replace(`{runner}`, job.runnerLabel)}` : head
 }
 
 /** The selected job: the requested one, else the first failing, running, any. */
@@ -174,9 +180,120 @@ export function ciLogView(text: string): { code: string; highlight: number[] } {
   return { code: out.join(`\n`), highlight }
 }
 
-/** Which buttons the run shows. */
-export function ciRunActions(run: { state: string; error: string | null }): { rerunFailed: boolean; cancel: boolean } {
-  return { rerunFailed: run.state === `failure`, cancel: run.state === `pending` }
+export const CI_RUN_FIX_LOG_LINES: number = fixture.fixLogLines
+
+export type CiRunAction = `rerunFailed` | `rerunAll` | `cancel` | `openExternal`
+
+export interface CiRunActions {
+  /** THE one default button: Cancel while it runs or waits, Re-run failed
+   *  after a failure, Re-run all after a pass; null when the run is not
+   *  ours to change (a GitHub run without Actions: write). */
+  primary: `rerunFailed` | `rerunAll` | `cancel` | null
+  /** Fix with an agent (outline), after a failure. */
+  fix: boolean
+  /** The ⋯ menu, in order: Re-run all jobs (when it is not the primary),
+   *  Open on GitHub. Empty = no menu. */
+  menu: Array<`rerunAll` | `openExternal`>
+}
+
+/** Which actions the run offers (#EXP-2172, the approved redesign; a
+ *  GitHub run re-runs and cancels only once its installation accepted
+ *  Actions: write). */
+export function ciRunActions(run: {
+  state: string
+  error: string | null
+  provider?: string | null
+  externalAccess?: string | null
+  externalUrl?: string | null
+}): CiRunActions {
+  const github = run.provider === `github`
+  const writable = !github || run.externalAccess === `write`
+  const primary = !writable ? null : run.state === `pending` ? `cancel` : run.state === `failure` ? `rerunFailed` : `rerunAll`
+  const menu: CiRunActions[`menu`] = []
+  if (writable && primary !== `rerunAll`) menu.push(`rerunAll`)
+  if (github && run.externalUrl) menu.push(`openExternal`)
+  return { primary, fix: run.state === `failure`, menu }
+}
+
+export interface CiRunChip {
+  id: `status` | `ref` | `sha` | `pr` | `author` | `duration` | `runner`
+  label: string
+  icon: string | null
+  /** The status chip's dot (a colour token), else null. */
+  dot: string | null
+}
+
+const DOT: Record<CiTone, string> = {
+  success: `$color.success`,
+  danger: `$color.destructive`,
+  info: `$color.info`,
+  neutral: `$color.mutedForeground`,
+}
+
+/** The chip strip under the title: status (with its dot) · ref → base ·
+ *  sha · #PR · author · duration · runners; a chip without data is left out. */
+export function ciRunChips(input: {
+  run: { state: string; sha: string; ref: string | null; startedAt: string | null; completedAt: string | null }
+  jobs: ReadonlyArray<CiJobLike & { runnerLabel: string | null }>
+  pullRequest: { number: number; base: string } | null
+  author: string | null
+  now: Date | string
+}): CiRunChip[] {
+  const { status, tone } = ciRunStatus(input.run.state, input.jobs)
+  const started = msOf(input.run.startedAt)
+  const end = msOf(input.run.completedAt) ?? (typeof input.now === `string` ? Date.parse(input.now) : input.now.getTime())
+  const runners = [...new Set(input.jobs.flatMap((job) => (job.runnerLabel ? [job.runnerLabel] : [])))]
+  const chips: CiRunChip[] = [{ id: `status`, label: CI_RUN_COPY.status[status], icon: null, dot: DOT[tone] }]
+  if (input.run.ref) {
+    chips.push({ id: `ref`, label: input.pullRequest ? `${input.run.ref} → ${input.pullRequest.base}` : input.run.ref, icon: `git-branch`, dot: null })
+  }
+  chips.push({ id: `sha`, label: input.run.sha.slice(0, 7), icon: `hash`, dot: null })
+  if (input.pullRequest) chips.push({ id: `pr`, label: `#${input.pullRequest.number}`, icon: `git-pull-request`, dot: null })
+  if (input.author) chips.push({ id: `author`, label: input.author, icon: `user`, dot: null })
+  if (started !== null) chips.push({ id: `duration`, label: formatCheckDuration(end - started), icon: `clock`, dot: null })
+  if (runners.length > 0) chips.push({ id: `runner`, label: runners.join(`, `), icon: `server`, dot: null })
+  return chips
+}
+
+/** The failure summary above the jobs, from the failed job's log as read:
+ *  `Failed in {job}` and its first error line. Null until such a line is
+ *  read (logs are read on demand; no test counting). */
+export function ciFailureSummary(job: { check: string } | null, log: string | null): { title: string; message: string } | null {
+  if (!job || !log) return null
+  const view = ciLogView(log)
+  const first = view.highlight[0]
+  if (first === undefined) return null
+  const line = view.code.split(`\n`)[first - 1] ?? ``
+  return { title: CI_RUN_COPY.failure.title.replace(`{job}`, job.check), message: line.replace(/^Error: /, ``) }
+}
+
+/** The first message of Fix with an agent (the composer's text). */
+export function ciFixPrompt(input: {
+  run: { id: string; number: number; name: string; sha: string; ref: string | null }
+  repository: string
+  job: string | null
+  log: string | null
+}): string {
+  const copy = CI_RUN_COPY.fixPrompt
+  const ref = input.run.ref ?? CI_RUN_COPY.none
+  const fill = (text: string) =>
+    text
+      .replaceAll(`{number}`, String(input.run.number))
+      .replaceAll(`{name}`, input.run.name)
+      .replaceAll(`{repository}`, input.repository)
+      .replaceAll(`{ref}`, ref)
+      .replaceAll(`{sha}`, input.run.sha.slice(0, 7))
+      .replaceAll(`{runId}`, input.run.id)
+      .replaceAll(`{job}`, input.job ?? ``)
+  const lines = [fill(copy.head)]
+  if (input.job) lines.push(fill(copy.job))
+  lines.push(fill(copy.read))
+  const code = input.log ? ciLogView(input.log).code : ``
+  if (code !== ``) {
+    const tail = code.split(`\n`).slice(-CI_RUN_FIX_LOG_LINES)
+    lines.push(``, copy.tail, `\`\`\`text`, ...tail, `\`\`\``)
+  }
+  return lines.join(`\n`)
 }
 
 /** The specimen every platform's shot renders. */
@@ -242,7 +359,10 @@ export interface RunnerJobInput extends CiJobLike {
 }
 
 /** The runner's newest jobs. */
-export function runnerRecentJobs(deviceId: string, jobs: readonly RunnerJobInput[], now: Date | string): CiJobRow[] {
+/** A runner section's recent row (the run page's row without its status). */
+export type RunnerRecentRow = Omit<CiJobRow, `status` | `statusTone`>
+
+export function runnerRecentJobs(deviceId: string, jobs: readonly RunnerJobInput[], now: Date | string): RunnerRecentRow[] {
   return jobs
     .filter((job) => job.runnerDeviceId === deviceId)
     .sort((a, b) => (msOf(b.startedAt) ?? -Infinity) - (msOf(a.startedAt) ?? -Infinity))

@@ -29,6 +29,8 @@ describe(`listedDevices`, () => {
     `src/components/team/work-tabs-strip.tsx`,
     `src/components/team/work-tabs-sync.tsx`,
     `src/hooks/use-ci-run.ts`,
+    // #EXP-2172: a runner row opens its device (a lookup by row id).
+    `src/routes/_app/ci.tsx`,
     `src/hooks/use-device-glyphs.ts`,
     `src/hooks/use-needs-you.ts`,
     `src/hooks/use-session-agent-usage.ts`,

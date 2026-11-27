@@ -111,7 +111,7 @@ export type WorkTab =
     } & TabTeam)
 
 /** #EXP-2124: the team-less list pages a tab holds. */
-export const WORK_TAB_PAGES = [`needs-you`, `chats`, `drafts`] as const
+export const WORK_TAB_PAGES = [`needs-you`, `chats`, `drafts`, `ci`] as const
 export type WorkTabPage = (typeof WORK_TAB_PAGES)[number]
 
 function isWorkTabPage(value: unknown): value is WorkTabPage {

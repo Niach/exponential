@@ -159,7 +159,9 @@ export async function ingestWorkflowRun(args: {
     numbers: (run.pull_requests ?? []).flatMap((pr) => (typeof pr.number === `number` ? [pr.number] : [])),
     headBranch: run.event === `pull_request` || run.event === `pull_request_target` ? (run.head_branch ?? null) : null,
   })
-  const startedAt = parseDate(run.run_started_at) ?? parseDate(run.created_at)
+  // A queued run has not started (no duration yet); the list orders it by
+  // its row's time.
+  const startedAt = status === `queued` ? null : (parseDate(run.run_started_at) ?? parseDate(run.created_at))
   const completedAt = status === `completed` ? (parseDate(run.updated_at) ?? new Date()) : null
   const written: string[] = []
   for (const repo of repos) {

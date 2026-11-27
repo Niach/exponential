@@ -131,6 +131,16 @@
       "settings": [],
       "danger": []
     },
+    "ci": {
+      "open": [
+        "open",
+        "open-new-tab"
+      ],
+      "kind": [],
+      "arrange": [],
+      "settings": [],
+      "danger": []
+    },
     "devices": {
       "open": [],
       "kind": [
@@ -362,6 +372,15 @@
     {
       "name": "Drafts",
       "kind": "drafts",
+      "input": {},
+      "expected": [
+        "open",
+        "open-new-tab"
+      ]
+    },
+    {
+      "name": "CI",
+      "kind": "ci",
       "input": {},
       "expected": [
         "open",
@@ -722,6 +741,7 @@
       "needs-you",
       "chats",
       "drafts",
+      "ci",
       "device",
       "board",
       "app",

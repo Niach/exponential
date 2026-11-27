@@ -32,6 +32,11 @@ public enum NavBadges {
         return count > max ? "\(max)+" : String(count)
     }
 
+    /// #EXP-2172: the CI destination = ci-page.json `ciBadge` (the viewer's
+    /// newest run per repository, pipeline and ref: failed = attention, else
+    /// running / queued = muted).
+    public static func ciBadge(_ input: CiPage.Input) -> Value { CiPage.ciBadge(input) }
+
     /// The Chats destination (`chatsCases`): distinct depth-0 chats that need
     /// the viewer or hold an unread reply; an archived root counts only while
     /// it needs the viewer. Attention when one of them needs the viewer.
