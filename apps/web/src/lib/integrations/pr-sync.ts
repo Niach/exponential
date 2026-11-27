@@ -83,26 +83,23 @@ export async function findIssueIdByBranch(
   return identifier ? findIssueIdByIdentifier(repoFullName, identifier) : null
 }
 
-/** One identifier on the repo's boards, unique across teams (REV-22). */
+/** One identifier across the boards of the teams that registered the repo,
+ *  unique across those teams (REV-22). #EXP-2171: a board's repository is
+ *  only its DEFAULT, so an issue of any board of the team matches. */
 export async function findIssueIdByIdentifier(
   repoFullName: string,
   identifier: string
 ): Promise<string | null> {
   const repoRows = await db
-    .select({ id: repositories.id })
+    .select({ teamId: repositories.teamId })
     .from(repositories)
     .where(eq(repositories.fullName, repoFullName))
-  if (repoRows.length === 0) return null
-  const boardRows = await db
-    .select({ boardId: boards.id, teamId: boards.teamId })
-    .from(boards)
-    .where(inArray(boards.repositoryId, repoRows.map((r) => r.id)))
-  const boardIds = [...new Set(boardRows.map((p) => p.boardId))]
-  if (boardIds.length === 0) return null
+  const teamIds = [...new Set(repoRows.map((row) => row.teamId))]
+  if (teamIds.length === 0) return null
   const issueRows = await db
     .select({ id: issues.id })
     .from(issues)
-    .where(and(inArray(issues.boardId, boardIds), eq(issues.identifier, identifier), isNull(issues.deletedAt)))
+    .where(and(inArray(issues.teamId, teamIds), eq(issues.identifier, identifier), isNull(issues.deletedAt)))
     .limit(2)
   if (issueRows.length === 1) return issueRows[0]!.id
   if (issueRows.length > 1) {
@@ -111,7 +108,6 @@ export async function findIssueIdByIdentifier(
     )
     return null
   }
-  const teamIds = [...new Set(boardRows.map((p) => p.teamId))]
   const movedRows = await db
     .selectDistinct({ issueId: issueEvents.issueId })
     .from(issueEvents)
@@ -1303,7 +1299,7 @@ export async function deleteMergedHeadBranch(opts: {
     const defaults = await loadRepoDefaultBranches(db, { teamId: merged.teamId, repoFullName: repo })
     const { forge, at } = await forgeOfPr(merged.repositoryId, repo, opts.token)
     const forgeDefault = await forge.defaultBranch(at).catch(() => null)
-    if (!at.token) return `kept`
+    if (at.token == null) return `kept`
     const [children, sameHead] = await Promise.all([
       forge.listOpenByBase(at, merged.head),
       loadLivePullRequestByHead(merged.repositoryId, merged.head),
@@ -1502,7 +1498,7 @@ export async function retargetChildrenOfMergedPr(
   if (isRepoDefaultBranch(defaults, merged.head)) return
   if (repoRow && merged.head === repoRow.defaultBranch) return
   const { forge, at } = await forgeOfPr(merged.repositoryId, repo)
-  if (!at.token) return
+  if (at.token == null) return
   const target =
     boardPin?.defaultBranch ??
     repoRow?.defaultBranchOverride ??
@@ -1537,7 +1533,9 @@ async function forgeOfPr(
   const [row] = await db.select({ provider: repositories.provider }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
   const bare: ForgeRepo = { id: repositoryId, fullName, ...(row?.provider ? { provider: row.provider } : {}) }
   const forge = await forgeFor(bare)
-  const resolved = token ?? (await forge.credentials(bare))?.token ?? null
+  // #EXP-2199: eCode's own forge needs no credential: an empty token, never
+  // the null that means "no access" (callers skip the repo on null).
+  const resolved = token ?? (await forge.credentials(bare))?.token ?? (row?.provider === `ecode` ? `` : null)
   return { forge, at: { ...bare, token: resolved } }
 }
 

@@ -730,8 +730,9 @@ export function ComposerPlusMenu({
         onChange: launch.setModel,
       },
       // EXP-993: a choice only when there IS one; a picked issue anchors
-      // the repository itself.
-      ...(subject?.kind !== `issues`
+      // the repository itself, unless the picked issues default to
+      // different ones (#EXP-2171: then the pick decides).
+      ...(subject?.kind !== `issues` || model.spansRepos
         ? {
             repository: {
               value: model.repoId || null,
@@ -744,7 +745,7 @@ export function ComposerPlusMenu({
           }
         : {}),
     }
-  }, [temporary, candidateDevices, launch, subject?.kind, model.repoId, model.repoOptions, model.setRepoId])
+  }, [temporary, candidateDevices, launch, subject?.kind, model.spansRepos, model.repoId, model.repoOptions, model.setRepoId])
 
   const issues: ComposerIssueBinding = {
     kind: `implement`,

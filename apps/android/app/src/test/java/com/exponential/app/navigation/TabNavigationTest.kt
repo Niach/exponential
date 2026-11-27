@@ -42,7 +42,8 @@ class TabNavigationTest {
 
     @Test
     fun `the tab routes are the bar's, New is a popup`() {
-        assertEquals(Chats.Shell.TABS.toSet() - "new", MainTabs.routes)
+        // #EXP-2171: More is a menu too; its pages ride the Settings root.
+        assertEquals(Chats.Shell.TABS.toSet() - "new" - "more" + MainTabs.SETTINGS, MainTabs.routes)
     }
 
     @Test
@@ -61,8 +62,8 @@ class TabNavigationTest {
         assertEquals(Chats.Shell.Page("chats", true), lit("chats"))
         assertEquals(Chats.Shell.Page("teams", true), lit(Routes.BOARD_PATTERN))
         assertEquals(Chats.Shell.Page("teams", true), lit(Routes.TEAM_SETTINGS_PATTERN))
-        assertEquals(Chats.Shell.Page("settings", true), lit(Routes.DEVICES_PATTERN))
-        assertEquals(Chats.Shell.Page("settings", true), lit(Routes.ASSISTANT_SETTINGS))
+        assertEquals(Chats.Shell.Page("more", true), lit(Routes.DEVICES_PATTERN))
+        assertEquals(Chats.Shell.Page("more", true), lit(Routes.ASSISTANT_SETTINGS))
         assertEquals(Chats.Shell.Page("assistant", true), lit("assistant"))
         assertEquals(Chats.Shell.Page(null, false), lit(ISSUE_ROUTE))
         assertEquals(Chats.Shell.Page(null, false), lit(Routes.CHAT_PATTERN))

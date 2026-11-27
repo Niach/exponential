@@ -409,7 +409,10 @@ pub const MAKE_MEMBER: Spec = Spec {
 
 pub const REMOVE_REPOSITORY: Spec = Spec {
     id: "remove-repository",
-    copy: &[("title", "Remove {fullName} from this team?")],
+    copy: &[
+        ("title", "Remove {fullName} from this team?"),
+        ("body", "Its pull requests and runs go with it. Boards that use it as their default repository keep none."),
+    ],
     params: &["fullName"],
     actions: confirm!(destructive "remove", "Remove"),
     focus: "cancel",
@@ -684,7 +687,7 @@ pub fn make_member(name: &str) -> Prompt {
 }
 
 pub fn remove_repository(full_name: &str) -> Prompt {
-    REMOVE_REPOSITORY.render("title", None, &[("fullName", full_name)])
+    REMOVE_REPOSITORY.render("title", Some("body"), &[("fullName", full_name)])
 }
 
 pub fn unlink_sign_in_method(provider: &str) -> Prompt {

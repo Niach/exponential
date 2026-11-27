@@ -91,6 +91,8 @@ import {
   messages,
   notifications,
   boards,
+  ciJobs,
+  ciRuns,
   repositories,
   sessions,
   users,
@@ -4107,6 +4109,129 @@ export function registerExponentialTools(
     }
   )
 
+  // #EXP-2172: the CI list (our runs + GitHub Actions runs, one table) for
+  // an agent: the newest runs of a repository or a team, a job's log (the
+  // first failing job when only a run is named) and Re-run (GitHub re-runs
+  // need the App's Actions: write on that installation).
+  server.registerTool(
+    `exponential_repositories_runs`,
+    {
+      annotations: READ_ONLY,
+      description: `CI runs, newest first (ours and GitHub Actions; source = provider), with their jobs.`,
+      inputSchema: strictInput({
+        repositoryId: uuidString.optional(),
+        teamId: uuidString.optional(),
+        state: z.enum([`pending`, `success`, `failure`]).optional(),
+        ...pageInput,
+      }),
+    },
+    async ({ repositoryId, teamId, state, limit, offset }) => {
+      try {
+        if (!repositoryId && !teamId) throw new Error(`Name a repositoryId or a teamId`)
+        let team = teamId ?? null
+        if (repositoryId) {
+          const [repo] = await db.select({ teamId: repositories.teamId }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
+          if (!repo) throw new Error(`Repository not found`)
+          team = repo.teamId
+        }
+        assertTeamVisible(access, team!)
+        const take = Math.min(limit ?? 20, 50)
+        const runs = await db
+          .select({
+            id: ciRuns.id,
+            repositoryId: ciRuns.repositoryId,
+            fullName: repositories.fullName,
+            number: ciRuns.number,
+            name: ciRuns.name,
+            source: ciRuns.provider,
+            ref: ciRuns.ref,
+            sha: ciRuns.sha,
+            trigger: ciRuns.trigger,
+            state: ciRuns.state,
+            error: ciRuns.error,
+            url: ciRuns.externalUrl,
+            startedAt: ciRuns.startedAt,
+            completedAt: ciRuns.completedAt,
+          })
+          .from(ciRuns)
+          .innerJoin(repositories, eq(repositories.id, ciRuns.repositoryId))
+          .where(
+            and(
+              eq(ciRuns.teamId, team!),
+              repositoryId ? eq(ciRuns.repositoryId, repositoryId) : undefined,
+              state ? eq(ciRuns.state, state) : undefined
+            )
+          )
+          .orderBy(desc(ciRuns.createdAt))
+          .limit(take)
+          .offset(offset ?? 0)
+        const jobs =
+          runs.length === 0
+            ? []
+            : await db
+                .select({ id: ciJobs.id, runId: ciJobs.runId, check: ciJobs.check, status: ciJobs.status, conclusion: ciJobs.conclusion })
+                .from(ciJobs)
+                .where(inArray(ciJobs.runId, runs.map((run) => run.id)))
+                .orderBy(asc(ciJobs.position))
+        return ok(runs.map((run) => ({ ...run, jobs: jobs.filter((job) => job.runId === run.id).map(({ runId: _r, ...job }) => job) })))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_run_log`,
+    {
+      annotations: READ_ONLY,
+      description: `A CI job's log (jobId, or runId = its first failing job); page with offset = nextOffset until complete.`,
+      inputSchema: strictInput({ runId: uuidString.optional(), jobId: uuidString.optional(), offset: z.number().int().min(0).optional() }),
+    },
+    async ({ runId, jobId, offset }) => {
+      try {
+        let id = jobId ?? null
+        if (!id && runId) {
+          const [run] = await db.select({ teamId: ciRuns.teamId }).from(ciRuns).where(eq(ciRuns.id, runId)).limit(1)
+          if (!run) throw new Error(`Run not found`)
+          assertTeamVisible(access, run.teamId)
+          const rows = await db
+            .select({ id: ciJobs.id, status: ciJobs.status, conclusion: ciJobs.conclusion })
+            .from(ciJobs)
+            .where(eq(ciJobs.runId, runId))
+            .orderBy(asc(ciJobs.position))
+          const failing = rows.find((row) => row.status === `completed` && row.conclusion !== null && ![`success`, `skipped`, `neutral`].includes(row.conclusion))
+          id = (failing ?? rows.find((row) => row.status === `in_progress`) ?? rows[0])?.id ?? null
+        }
+        if (!id) throw new Error(`Name a jobId or a runId with jobs`)
+        const [job] = await db.select({ teamId: ciJobs.teamId, check: ciJobs.check }).from(ciJobs).where(eq(ciJobs.id, id)).limit(1)
+        if (!job) throw new Error(`Job not found`)
+        assertTeamVisible(access, job.teamId)
+        const page = await caller(user, request).ci.log({ jobId: id, offset: offset ?? 0 })
+        return ok({ jobId: id, check: job.check, ...page })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_repositories_rerun`,
+    {
+      description: `Re-run a CI run (failedOnly default true); ours = a new run, GitHub = a new attempt of the same run.`,
+      inputSchema: strictInput({ runId: uuidString, failedOnly: z.boolean().optional() }),
+    },
+    async ({ runId, failedOnly }) => {
+      try {
+        const [run] = await db.select({ teamId: ciRuns.teamId }).from(ciRuns).where(eq(ciRuns.id, runId)).limit(1)
+        if (!run) throw new Error(`Run not found`)
+        assertTeamFullyGranted(access, run.teamId)
+        return ok(await caller(user, request).ci.rerun({ runId, failedOnly: failedOnly ?? true }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // #EXP-2170 (Phase 0's restore drill): a hosted repository back to one of
   // its bundle backups, the same owner-only `repositories.restore` as the
   // repository's Settings tab (a device job replaces every pack and ref).
@@ -4114,10 +4239,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_repositories_restore`,
     {
-      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner. backupId omitted = the newest. Owners. → {commandId, backup, backups}.`,
-      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional() }),
+      description: `Restore a hosted (Exponential) repository from a bundle backup: every pack and ref is replaced by the backup's, on a team runner, after a fresh backup of the current state. backupId omitted = the newest. Refused when it would change refs (named) unless force. Owners. → {commandId, backup, backups, changes}.`,
+      inputSchema: strictInput({ repositoryId: uuidString, backupId: uuidString.optional(), force: z.boolean().optional() }),
     },
-    async ({ repositoryId, backupId }) => {
+    async ({ repositoryId, backupId, force }) => {
       try {
         const [repo] = await db
           .select({ teamId: repositories.teamId })
@@ -4131,8 +4256,8 @@ export function registerExponentialTools(
         const newest = [...backups].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
         const backup = backupId ? backups.find((b) => b.id === backupId) : newest
         if (!backup) throw new Error(backupId ? `Backup not found` : `This repository has no backup yet`)
-        const { commandId } = await trpc.repositories.restore({ repositoryId, backupId: backup.id })
-        return ok({ commandId, backup, backups: backups.length })
+        const { commandId, changes } = await trpc.repositories.restore({ repositoryId, backupId: backup.id, force: force ?? false })
+        return ok({ commandId, backup, backups: backups.length, changes })
       } catch (e) {
         return err(e)
       }
@@ -5099,7 +5224,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
+      description: `Set a board's (UUID) DEFAULT repository (same team), or repositoryId: null to clear it. Owner/admin only. New chats on its issues without a pick or a live PR use it. The branch pin resets unless defaultBranch is passed.`,
       inputSchema: strictInput({
         id: uuidString,
         repositoryId: uuidString.nullable(),

@@ -64,6 +64,7 @@ pub(crate) fn window_key(screen: &Screen, chat_root: impl Fn(&str) -> Option<Str
         Screen::Agent { agent_id } => format!("agent:{agent_id}"),
         Screen::Device { device_id } => format!("device:{device_id}"),
         Screen::DeviceSettings { device_id } => format!("device-settings:{device_id}"),
+        Screen::Repository { repository_id } => format!("repository:{repository_id}"),
         // An app's run view and its editor are one page (one tab before).
         Screen::AppRun { app } | Screen::App { app } => format!("app:{app}"),
         Screen::IssueDraft { draft_id, .. } => format!("draft:{draft_id}"),
@@ -85,6 +86,7 @@ fn new_item_word(kind: NewItemKind) -> &'static str {
         NewItemKind::Board => "board",
         NewItemKind::Agent => "agent",
         NewItemKind::App => "app",
+        NewItemKind::Repository => "repository",
     }
 }
 
@@ -103,6 +105,7 @@ pub(crate) fn screen_of_key(key: &str) -> Option<Screen> {
         // `device:` = this device.
         "device" => Some(Screen::Device { device_id: id }),
         "device-settings" => Some(Screen::DeviceSettings { device_id: id }),
+        "repository" => with_id(Screen::Repository { repository_id: id.clone() }),
         // The run view: reopening the editor would start its live session.
         "app" => with_id(Screen::AppRun { app: id.clone() }),
         "draft" => with_id(Screen::IssueDraft { draft_id: id.clone(), board_id: String::new(), status_id: None }),
@@ -129,6 +132,7 @@ pub(crate) fn kind_and_icon(screen: &Screen) -> (&'static str, &'static str) {
         Screen::Agent { .. } => ("agent", "settings-agents"),
         Screen::Device { .. } => ("device", "nav-devices"),
         Screen::DeviceSettings { .. } => ("device-settings", "nav-settings"),
+        Screen::Repository { .. } => ("repository", "action-repository"),
         Screen::AppRun { .. } | Screen::App { .. } => ("app", "nav-apps"),
         Screen::IssueDraft { .. } => ("draft", "nav-create-issue"),
         Screen::NewItem { .. } => ("new", "ui-add"),
@@ -419,6 +423,24 @@ pub(crate) fn open_from_bus(link: Option<String>, cx: &mut App) {
         }
         (None, None) => open_page(None, None, None, Vec::new(), cx),
     }
+}
+
+/// #EDE-258: the bus's `page {key}` (the start menu's rows): the window
+/// holding the page `key` comes forward, else a window opens for it.
+/// `false` = the key names no page.
+pub(crate) fn open_key(key: &str, cx: &mut App) -> bool {
+    let Some(screen) = screen_of_key(key) else { return false };
+    let holding = cx.try_global::<PageWindows>().and_then(|windows| {
+        let (id, _) = windows.meta.iter().find(|(_, meta)| meta.key == key)?;
+        windows.order.iter().find(|handle| handle.window_id() == *id).copied()
+    });
+    match holding {
+        Some(window) => {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        }
+        None => open_page(Some(screen), None, None, Vec::new(), cx),
+    }
+    true
 }
 
 /// `Shell`'s render in eDE mode: the window's title is its page's, and

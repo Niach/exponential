@@ -54,6 +54,9 @@ pub struct Client {
     /// The name and the current mode each bound wl_output announced.
     pub output_names: Vec<String>,
     pub output_modes: Vec<(i32, i32)>,
+    /// #EDE-250: each wl_output's `geometry` position and `scale`, as sent.
+    pub output_positions: Vec<(i32, i32)>,
+    pub output_scales: Vec<i32>,
     pub toplevels: Vec<ToplevelState>,
     pub layers: Vec<LayerState>,
     pub lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
@@ -264,12 +267,17 @@ impl Session {
     }
 
     pub fn layer(&mut self, namespace: &str, anchor: zwlr_layer_surface_v1::Anchor, size: (u32, u32), exclusive: i32) -> Layer {
+        self.layer_on(namespace, None, anchor, size, exclusive)
+    }
+
+    /// [`Self::layer`] on the output `output` (`None` = the compositor picks).
+    pub fn layer_on(&mut self, namespace: &str, output: Option<&wl_output::WlOutput>, anchor: zwlr_layer_surface_v1::Anchor, size: (u32, u32), exclusive: i32) -> Layer {
         let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
         let index = self.state.layers.len();
         self.state.layers.push(LayerState::default());
         let layer = self.state.layer_shell.as_ref().expect("layer shell advertised").get_layer_surface(
             &surface,
-            None,
+            output,
             zwlr_layer_shell_v1::Layer::Top,
             namespace.into(),
             &self.qh,
@@ -630,6 +638,8 @@ impl Dispatch<wl_output::WlOutput, ()> for Client {
     fn event(state: &mut Self, _: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
             wl_output::Event::Name { name } => state.output_names.push(name),
+            wl_output::Event::Geometry { x, y, .. } => state.output_positions.push((x, y)),
+            wl_output::Event::Scale { factor } => state.output_scales.push(factor),
             wl_output::Event::Mode { flags: WEnum::Value(flags), width, height, .. } if flags.contains(wl_output::Mode::Current) => state.output_modes.push((width, height)),
             _ => {}
         }

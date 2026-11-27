@@ -35,7 +35,7 @@ export const PR_ROW_WAIT_MS = 3_000
 
 const ZERO_SHA = /^0+$/
 
-export function onForgePush(args: { fullName: string; ref: string; sha: string | null; deleted: boolean }): void {
+export function onForgePush(args: { fullName: string; ref: string; sha: string | null; deleted: boolean; title?: string | null }): void {
   if (args.deleted || !args.sha || ZERO_SHA.test(args.sha)) return
   const branch = args.ref.startsWith(`refs/heads/`) ? args.ref.slice(`refs/heads/`.length) : null
   const tag = args.ref.startsWith(`refs/tags/`) ? args.ref.slice(`refs/tags/`.length) : null
@@ -48,6 +48,7 @@ export function onForgePush(args: { fullName: string; ref: string; sha: string |
           sha: args.sha!,
           trigger: tag ? `tag` : isTrainBranch(branch) ? `merge_train` : `push`,
           ref: tag ?? branch,
+          title: args.title ?? null,
         })
       }
     })()

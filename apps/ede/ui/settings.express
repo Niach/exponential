@@ -15,7 +15,7 @@
 # /services/<domain> (#EDE-13), /outputs, /config, /user, /shell, /date, /notifications, and /pages
 # (#EDE-47: the layouts, Date & Time, Startup apps, Default apps, Workspaces, Windows, Mouse &
 # Touchpad). Controls are two-way bound and call a host function with the new value: ede_service
-# {domain, action, args}, ede_output {name, mode?, scale?}, ede_config {theme}, ede_settings {page,
+# {domain, action, args}, ede_output {name, mode?, scale?} or {action: keep|revert} (#EDE-250), ede_config {theme, display}, ede_settings {page,
 # key, value} (compositor.toml's [keyboard] and [windows], the XDG autostart overrides, xdg-mime
 # default, timedatectl). A setting the machine cannot apply yet is a read-only value row (Mouse &
 # Touchpad, the workspace count, the 24-hour clock), never a dead control; the Exponential rows
@@ -63,6 +63,7 @@ $/services = {}
 $/settings/codingOpen = false
 $/settings/deviceOpen = true
 $/settings/page = "display"
+$/display/confirm = {open: false, name: "", seconds: 0, caption: ""}
 $/settings/personalOpen = true
 $/settings/switcherOpen = false
 $/settings/team/id = ""
@@ -91,12 +92,18 @@ page_frame = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, m
 page_panel = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0, borderRadius: "$radius.lg", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.muted"}, children=[page_scroll])
 page_scroll = ScrollArea(style={flexGrow: 1, minHeight: 0}, children=[page_column])
 page_column = Box(style={display: "flex", flexDirection: "column", paddingTop: "$spacing.sm", paddingRight: "$spacing.md", paddingBottom: "$spacing.md", paddingLeft: "$spacing.xs"}, children=[page_display, page_sound, page_network, page_bluetooth, page_power, page_themes, page_keyboard, page_mouse, page_datetime, page_users, page_notifications, page_workspaces, page_windows, page_startup, page_defaults, page_tools, page_coding_clis, page_worktrees, page_sessions, page_devices, page_security, page_local_agents, page_local_apps, page_account, page_whats_new, page_about, page_local_general, page_team_general, page_team_members, page_team_issues, page_team_labels, page_team_statuses, page_team_repositories, page_team_prompts, page_team_widget, page_team_storage, page_team_archived_boards, page_team_agents, page_team_mcp, page_team_skills, page_team_apps])
-page_display = Stack(direction="vertical", gap="md", children=[page_display_title, outputs, output, no_outputs], visible=eq(a=$/settings/page, b="display"))
+page_display = Stack(direction="vertical", gap="md", children=[page_display_title, display_confirm, outputs, output, display_fractional, no_outputs], visible=eq(a=$/settings/page, b="display"))
 page_display_title = Heading(text="Display", level="h3")
 outputs = Stack(direction="vertical", gap="md", children=_template($/outputs, output, key="name"))
 output = Section(title=$name, caption=$summary, children=[mode, scale])
 mode = Select(label="Resolution", name="mode", options=$modeOptions, value=$current, on={change: ede_output(mode=$current, name=$name)})
-scale = ChoiceTiles(name="scale", options=[{label: "100%", value: "1"}, {label: "125%", value: "1.25"}, {label: "150%", value: "1.5"}, {label: "200%", value: "2"}], value=$scaleText, columns=4, on={change: ede_output(name=$name, scale=$scaleText)})
+scale = Select(label="Scale", name="scale", options=$scaleOptions, value=$scaleText, on={change: ede_output(name=$name, scale=$scaleText)})
+display_confirm = Card(title="Keep these display settings?", children=[display_confirm_caption, display_confirm_actions], visible=cond(if=$/display/confirm/open, then=true, else=false))
+display_confirm_caption = Text(text=$/display/confirm/caption, variant="muted")
+display_confirm_actions = Toolbar(children=[display_revert, display_keep])
+display_revert = Button(label="Revert", variant="outline", on={press: ede_output(action="revert")})
+display_keep = Button(label="Keep changes", on={press: ede_output(action="keep")})
+display_fractional = Switch(label="Fractional scaling", name="fractional", checked=$/config/display/fractional_scaling, on={change: ede_config(display={fractional_scaling: $/config/display/fractional_scaling})})
 no_outputs = Text(text="No display", variant="muted", visible=eq(a=len(value=$/outputs), b=0))
 page_sound = Stack(direction="vertical", gap="md", children=[page_sound_title, sound_off, volume, mute, mic, sinks_section, sources_section, streams_section], visible=eq(a=$/settings/page, b="sound"))
 page_sound_title = Heading(text="Sound", level="h3")

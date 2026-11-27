@@ -1510,6 +1510,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -2739,6 +2740,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -3481,6 +3483,7 @@
                 "nav-boards",
                 "nav-changelog",
                 "nav-chats",
+                "nav-ci",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -4819,6 +4822,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -5996,6 +6000,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -6876,6 +6881,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -7270,6 +7276,11 @@
           "description": "Child's press, or right-click/long-press.",
           "default": "press"
         },
+        "open": {
+          "$ref": "common_types.json#/$defs/DynamicBoolean",
+          "description": "Whether it shows; bind it.",
+          "default": false
+        },
         "children": {
           "$ref": "#/$defs/ChildList"
         },
@@ -7296,7 +7307,8 @@
             "children": "one",
             "events": [
               "select",
-              "action"
+              "action",
+              "change"
             ]
           }
         }
@@ -7673,6 +7685,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -8404,6 +8417,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -9074,6 +9088,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -10730,6 +10745,7 @@
                 "nav-boards",
                 "nav-changelog",
                 "nav-chats",
+                "nav-ci",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -11506,6 +11522,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -12969,6 +12986,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -14075,6 +14093,7 @@
               "nav-boards",
               "nav-changelog",
               "nav-chats",
+              "nav-ci",
               "nav-computer",
               "nav-create-issue",
               "nav-devices",
@@ -15270,6 +15289,7 @@
                 "nav-boards",
                 "nav-changelog",
                 "nav-chats",
+                "nav-ci",
                 "nav-computer",
                 "nav-create-issue",
                 "nav-devices",
@@ -25084,6 +25104,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -25775,6 +25796,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -26418,6 +26440,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -27100,6 +27123,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -28020,6 +28044,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -28725,6 +28750,7 @@
             "nav-boards",
             "nav-changelog",
             "nav-chats",
+            "nav-ci",
             "nav-computer",
             "nav-create-issue",
             "nav-devices",
@@ -29664,6 +29690,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "action": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "change": {
           "$ref": "#/$defs/EuiAction"
         }
       },

@@ -42,6 +42,7 @@ pub mod peer;
 pub mod popup_namespace;
 pub mod protected;
 pub mod recovery;
+pub mod scaling;
 pub mod screen_pick;
 pub mod screencopy;
 pub mod sealed;
@@ -51,6 +52,7 @@ pub mod shortcuts;
 pub mod spaces;
 pub mod state;
 pub mod text;
+pub mod window_menu;
 pub mod workspaces;
 pub mod xauth;
 

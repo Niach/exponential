@@ -17,6 +17,7 @@ const tabs = vi.hoisted(() => ({
 const issues = vi.hoisted(() => ({ value: [] as unknown[] }))
 const apps = vi.hoisted(() => ({ value: [] as unknown[] }))
 const devices = vi.hoisted(() => ({ value: [] as unknown[] }))
+const repositories = vi.hoisted(() => ({ value: [] as unknown[] }))
 const assistant = vi.hoisted(() => ({ value: null as unknown }))
 const memberships = vi.hoisted(() => ({
   myTeams: [] as unknown[],
@@ -50,6 +51,7 @@ vi.mock(`@/lib/collections`, () => ({
   issueCollection: { rows: () => issues.value },
   appCollection: { rows: () => apps.value },
   deviceCollection: { rows: () => devices.value },
+  repositoryCollection: { rows: () => repositories.value },
   sessionCollection: { get: () => ({ cli: `claude` }), rows: () => [] },
 }))
 vi.mock(`@/hooks/use-sidebar-assistant`, () => ({ useSidebarAssistant: () => assistant.value }))
@@ -363,9 +365,9 @@ describe(`WorkTabsStrip new-tab menu (#EXP-2124)`, () => {
     expect(submenuRows(`t1`)).toEqual([`Chat`])
   })
 
-  it(`holds THE New list: Chat, Agent, App, Board for an owner`, () => {
+  it(`holds THE New list: Chat, Agent, App, Board, Repository for an owner`, () => {
     openPlus()
-    expect(submenuRows(`t2`)).toEqual([`Chat`, `Agent`, `App`, `Board`])
+    expect(submenuRows(`t2`)).toEqual([`Chat`, `Agent`, `App`, `Board`, `Repository`])
   })
 
   it(`has no Assistant row while the viewer has none`, () => {
@@ -384,6 +386,7 @@ describe(`WorkTabsStrip page chips (#EXP-2124)`, () => {
     issues.value = []
     apps.value = [{ id: `a1`, slug: `notes`, name: `Notes`, icon: null, color: `#22c55e`, teamId: `t1`, deletedAt: null }]
     devices.value = [{ id: `row-1`, deviceId: `d1`, label: `Studio Mac`, kind: `desktop` }]
+    repositories.value = [{ id: `r1`, slug: `web-repo`, fullName: `acme/web`, teamId: `t1` }]
     pathname.value = `/home`
   })
 
@@ -429,6 +432,23 @@ describe(`WorkTabsStrip page chips (#EXP-2124)`, () => {
     })
   })
 
+  it(`#EXP-2171: draws a repository chip: the muted glyph + its name, and opens its page`, () => {
+    tabs.value = [{ kind: `repository`, repositoryId: `r1`, from: null, ...T }]
+    pathname.value = `/t/acme/repos/web-repo`
+    renderWithBoard()
+    const chip = screen.getByTestId(`work-tab-repository:r1`)
+    expect(chip.textContent).toContain(`web`)
+    expect(chip.textContent).not.toContain(`acme/web`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    expect(chip.querySelector(`svg`)?.getAttribute(`class`)).toContain(`text-muted-foreground`)
+    fireEvent.click(within(chip).getByText(`web`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/repos/$name`,
+      params: { teamSlug: `acme`, name: `web-repo` },
+      search: {},
+    })
+  })
+
   it(`draws a device chip with its name, active on its page`, () => {
     tabs.value = [{ kind: `device`, deviceId: `d1`, from: null }]
     pathname.value = `/devices/d1`
@@ -467,9 +487,10 @@ describe(`WorkTabsStrip page chips (#EXP-2124)`, () => {
       { kind: `board`, boardId: `b9`, from: null, ...T },
       { kind: `app`, appId: `a9`, from: null, ...T },
       { kind: `device`, deviceId: `d9`, from: null },
+      { kind: `repository`, repositoryId: `r9`, from: null, ...T },
     ]
     renderWithBoard()
-    for (const key of [`board:b9`, `app:a9`, `device:d9`]) {
+    for (const key of [`board:b9`, `app:a9`, `device:d9`, `repository:r9`]) {
       expect(
         screen.getByTestId(`work-tab-${key}`).querySelector(`[data-testid=work-tab-title-placeholder]`),
         key

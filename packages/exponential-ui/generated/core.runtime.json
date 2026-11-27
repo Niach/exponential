@@ -3023,11 +3023,17 @@
           "type": "enum",
           "enum": "menuOpenOn",
           "default": "press"
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         }
       },
       "events": [
         "select",
-        "action"
+        "action",
+        "change"
       ]
     },
     "Toast": {

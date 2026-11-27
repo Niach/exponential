@@ -120,6 +120,7 @@
     "nav-threads": "list-tree",
     "nav-devices": "monitor",
     "nav-apps": "layout-grid",
+    "nav-ci": "workflow",
     "app-editor-chat": "message-square",
     "ui-dock-side": "panel-left-open",
     "ui-float": "panel-left-close",

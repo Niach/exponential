@@ -253,12 +253,14 @@ class RepoPageViewModel @Inject constructor(
             when (switch) {
                 RepoCi.Switch.GithubStatuses -> it.copy(githubStatuses = on)
                 RepoCi.Switch.ActionsRunners -> it.copy(actionsRunners = on)
+                RepoCi.Switch.PullRequestSecrets -> it.copy(pullRequestSecrets = on)
             }
         }
         ciAct("save", "the CI settings") {
             when (switch) {
                 RepoCi.Switch.GithubStatuses -> ciApi.setRepoConfig(it, repositoryId, githubStatuses = on)
                 RepoCi.Switch.ActionsRunners -> ciApi.setRepoConfig(it, repositoryId, actionsRunners = on)
+                RepoCi.Switch.PullRequestSecrets -> ciApi.setRepoConfig(it, repositoryId, pullRequestSecrets = on)
             }
         }
     }
@@ -303,4 +305,23 @@ class RepoPageViewModel @Inject constructor(
 
     fun restore(backupId: String) =
         act("restore", "the backup") { api.restore(it, repositoryId, backupId) }
+
+    /** #EXP-2171: Remove (owners and the sharer, behind prompts.json
+     *  `remove-repository`); boards defaulting to it keep none. */
+    fun remove(onRemoved: () -> Unit) {
+        val accountId = auth.activeAccountId.value ?: return
+        if (_state.value.busy) return
+        _state.value = _state.value.copy(busy = true)
+        viewModelScope.launch {
+            try {
+                api.remove(accountId, repositoryId)
+                onRemoved()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                fail("remove", "the repository", t) { remove(onRemoved) }
+            } finally {
+                _state.value = _state.value.copy(busy = false)
+            }
+        }
+    }
 }

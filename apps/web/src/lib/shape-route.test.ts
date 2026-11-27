@@ -30,6 +30,7 @@ import { Route as pullRequestIssuesRoute } from "@/routes/api/shapes/pull-reques
 import { Route as pullRequestChecksRoute } from "@/routes/api/shapes/pull-request-checks"
 import { Route as skillsRoute } from "@/routes/api/shapes/skills"
 import { Route as ciRunsRoute } from "@/routes/api/shapes/ci-runs"
+import { Route as repositoriesRoute } from "@/routes/api/shapes/repositories"
 import { Route as ciJobsRoute } from "@/routes/api/shapes/ci-jobs"
 
 const {
@@ -1043,6 +1044,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`pull-request-issues`, pullRequestIssuesRoute],
     [`pull-request-checks`, pullRequestChecksRoute],
     [`pull-requests`, pullRequestsRoute],
+    [`repositories`, repositoriesRoute],
     [`messages`, messagesRoute],
     [`session-issues`, sessionIssuesRoute],
     [`sessions`, sessionsRoute],

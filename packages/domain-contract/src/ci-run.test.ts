@@ -11,6 +11,7 @@ import {
   ciSteps,
   normalizeRunnerLabel,
   runnerNotice,
+  runnerUnsupported,
   runnerOsLabel,
   runnerRecentJobs,
   type RunnerClient,
@@ -51,7 +52,10 @@ describe(`runner-settings fixture`, () => {
     expect(normalizeRunnerLabel(c.input)).toBe(c.expected)
   })
   it.each(runner.notice)(`notice: $name`, (c) => {
-    expect(runnerNotice(c.client as RunnerClient, c.caps)).toBe(c.expected as never)
+    expect(runnerNotice(c.client as RunnerClient, c.caps, c.kind, c.platform)).toBe(c.expected as never)
+  })
+  it.each(runner.unsupported)(`unsupported: $name`, (c) => {
+    expect(runnerUnsupported(c.kind, c.platform)).toBe(c.expected)
   })
   it.each(runner.osLabel)(`osLabel: $platform`, (c) => {
     expect(runnerOsLabel(c.platform)).toBe(c.expected)

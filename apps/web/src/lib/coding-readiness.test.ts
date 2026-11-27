@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/coding-readiness.json"
 import {
+  chatRepository,
   codingReadiness,
   readinessAgo,
   READINESS_COPY,
@@ -40,6 +41,10 @@ describe(`coding-readiness (EXP-1121)`, () => {
 
   it.each(fixture.cases)(`$name`, ({ input, expected }) => {
     expect(codingReadiness(input as CodingReadinessInput)).toEqual(expected)
+  })
+
+  it.each(fixture.chatRepo.cases)(`chat repo: $name`, ({ input, expected }) => {
+    expect(chatRepository(input)).toBe(expected)
   })
 
   it.each(fixture.picker)(`picker: $name`, ({ board, repos, query, expected }) => {

@@ -137,6 +137,7 @@ private object CiEvents {
     const val REQUIRED = "repo-ci-required"
     const val GITHUB_STATUSES = "repo-ci-github-statuses"
     const val ACTIONS_RUNNERS = "repo-ci-actions-runners"
+    const val PULL_REQUEST_SECRETS = "repo-ci-pull-request-secrets"
     const val DELETE_SECRET = "repo-ci-delete-secret"
     const val ADD_SECRET = "repo-ci-add-secret"
 }
@@ -178,6 +179,7 @@ internal fun repoCiSectionTree(
     githubStatuses: Boolean,
     actionsRunners: Boolean,
     manager: Boolean,
+    pullRequestSecrets: Boolean = false,
 ): JsonObject {
     val ids = RepoCi.TestIds
     val disabled = !manager
@@ -277,6 +279,7 @@ internal fun repoCiSectionTree(
         val (id, event, checked) = when (switch) {
             RepoCi.Switch.GithubStatuses -> Triple(ids.GITHUB_STATUSES, CiEvents.GITHUB_STATUSES, githubStatuses)
             RepoCi.Switch.ActionsRunners -> Triple(ids.ACTIONS_RUNNERS, CiEvents.ACTIONS_RUNNERS, actionsRunners)
+            RepoCi.Switch.PullRequestSecrets -> Triple(ids.PULL_REQUEST_SECRETS, CiEvents.PULL_REQUEST_SECRETS, pullRequestSecrets)
         }
         children += node(
             "$id-row",
@@ -333,8 +336,9 @@ internal fun RepoCiSection(
     val suggestions = remember(runs, jobs, required) { RepoCi.requiredSuggestions(runs, jobs, required) }
     val githubStatuses = ci?.config?.githubStatuses == true
     val actionsRunners = ci?.config?.actionsRunners == true
-    val tree = remember(provider, pipelines, suggestions, ci?.secrets, githubStatuses, actionsRunners, canManage) {
-        repoCiSectionTree(provider, pipelines, suggestions, ci?.secrets, githubStatuses, actionsRunners, canManage)
+    val pullRequestSecrets = ci?.config?.pullRequestSecrets == true
+    val tree = remember(provider, pipelines, suggestions, ci?.secrets, githubStatuses, actionsRunners, pullRequestSecrets, canManage) {
+        repoCiSectionTree(provider, pipelines, suggestions, ci?.secrets, githubStatuses, actionsRunners, canManage, pullRequestSecrets)
     }
     val handle = remember { CiSurfaceHandle() }
     fun values(list: List<String>) = JsonArray(list.map(::JsonPrimitive))
@@ -358,6 +362,9 @@ internal fun RepoCiSection(
             }
             CiEvents.GITHUB_STATUSES -> checked()?.let { if (canManage && it != githubStatuses) onSetSwitch(RepoCi.Switch.GithubStatuses, it) }
             CiEvents.ACTIONS_RUNNERS -> checked()?.let { if (canManage && it != actionsRunners) onSetSwitch(RepoCi.Switch.ActionsRunners, it) }
+            CiEvents.PULL_REQUEST_SECRETS -> checked()?.let {
+                if (canManage && it != pullRequestSecrets) onSetSwitch(RepoCi.Switch.PullRequestSecrets, it)
+            }
             CiEvents.DELETE_SECRET -> if (canManage) deleting = (context?.get("name") as? JsonPrimitive)?.contentOrNull
             CiEvents.ADD_SECRET -> if (canManage) adding = true
         }

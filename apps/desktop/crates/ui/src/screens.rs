@@ -179,7 +179,7 @@ pub(crate) fn build_screen_content(
         Screen::Terminal { .. } => cx.new(|_| NeverUndocked).into(),
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
-        Screen::Device { .. } | Screen::DeviceSettings { .. } | Screen::NewItem { .. } => cx.new(|_| NeverUndocked).into(),
+        Screen::Device { .. } | Screen::DeviceSettings { .. } | Screen::NewItem { .. } | Screen::Repository { .. } => cx.new(|_| NeverUndocked).into(),
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
@@ -727,6 +727,8 @@ fn page_chip_content(screen: &Screen, cx: &App) -> ChipContent {
                 None => ChipLead::Glyph(registry::UI_DEVICE),
             }
         }
+        // #EXP-2171: a repository's tab wears the repository glyph.
+        Screen::Repository { .. } => ChipLead::Glyph(registry::ACTION_REPOSITORY),
         Screen::BoardIssues { board_id } => {
             let store = Store::global(cx);
             let boards = store.collections().boards.read(cx);
@@ -844,6 +846,8 @@ pub struct ScreensPanel {
     /// view each, re-pointed on entry).
     device_page: PageView<crate::device_page::DevicePageView>,
     device_settings_page: PageView<crate::device_page::DeviceSettingsPage>,
+    /// #EXP-2171: a repository's page tab.
+    repo_screen: PageView<crate::settings::repo_page::RepoScreen>,
     new_item: PageView<crate::new_item_page::NewItemPage>,
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
@@ -1140,6 +1144,7 @@ impl ScreensPanel {
         let file_viewer = PageView::new(|window, cx| crate::file_viewer::FileViewerView::new(window, cx), window, cx);
         let device_page = PageView::new(|window, cx| crate::device_page::DevicePageView::new(window, cx), window, cx);
         let device_settings_page = PageView::new(|window, cx| crate::device_page::DeviceSettingsPage::new(window, cx), window, cx);
+        let repo_screen = PageView::new(|window, cx| crate::settings::repo_page::RepoScreen::new(window, cx), window, cx);
         let new_item = PageView::new(|window, cx| crate::new_item_page::NewItemPage::new(window, cx), window, cx);
         let drafts = PageView::new(|window, cx| crate::drafts_view::DraftsView::new(window, cx), window, cx);
         let needs_you = PageView::new(|window, cx| crate::needs_you::NeedsYouView::new(window, cx), window, cx);
@@ -1230,6 +1235,7 @@ impl ScreensPanel {
             file_viewer,
             device_page,
             device_settings_page,
+            repo_screen,
             new_item,
             drafts,
             needs_you,
@@ -1578,6 +1584,7 @@ impl ScreensPanel {
             // render and `sync_app_editor` point it): nothing per tab.
             Screen::BoardIssues { .. }
             | Screen::Device { .. }
+            | Screen::Repository { .. }
             | Screen::Drafts
             | Screen::NeedsYou
             | Screen::Home
@@ -2935,6 +2942,12 @@ impl Render for ScreensPanel {
                 let id = device_id.clone();
                 let page = self.device_settings_page.get(window, cx);
                 page.update(cx, |page, cx| page.set_device(id, window, cx));
+                page.into_any_element()
+            }
+            Some(Screen::Repository { repository_id }) => {
+                let id = repository_id.clone();
+                let page = self.repo_screen.get(window, cx);
+                page.update(cx, |page, cx| page.set_repository(id, window, cx));
                 page.into_any_element()
             }
             Some(Screen::NewItem { team_id, kind }) => {

@@ -101,6 +101,7 @@ import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompt
 import { Route as ApiShapesPullRequestChecksRouteImport } from './routes/api/shapes/pull-request-checks'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
 import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
+import { Route as ApiShapesRepositoriesRouteImport } from './routes/api/shapes/repositories'
 import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
 import { Route as ApiShapesSessionReadsRouteImport } from './routes/api/shapes/session-reads'
 import { Route as ApiShapesSessionsRouteImport } from './routes/api/shapes/sessions'
@@ -155,6 +156,7 @@ import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugNewAgentRouteImport } from './routes/t/$teamSlug/new/agent'
 import { Route as TTeamSlugNewAppRouteImport } from './routes/t/$teamSlug/new/app'
 import { Route as TTeamSlugNewBoardRouteImport } from './routes/t/$teamSlug/new/board'
+import { Route as TTeamSlugNewRepositoryRouteImport } from './routes/t/$teamSlug/new/repository'
 import { Route as TTeamSlugReposNameRouteImport } from './routes/t/$teamSlug/repos/$name'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
@@ -669,6 +671,11 @@ const ApiShapesPullRequestsRoute = ApiShapesPullRequestsRouteImport.update({
   path: '/api/shapes/pull-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesRepositoriesRoute = ApiShapesRepositoriesRouteImport.update({
+  id: '/api/shapes/repositories',
+  path: '/api/shapes/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesSessionIssuesRoute = ApiShapesSessionIssuesRouteImport.update({
   id: '/api/shapes/session-issues',
   path: '/api/shapes/session-issues',
@@ -948,6 +955,11 @@ const TTeamSlugNewAppRoute = TTeamSlugNewAppRouteImport.update({
 const TTeamSlugNewBoardRoute = TTeamSlugNewBoardRouteImport.update({
   id: '/new/board',
   path: '/new/board',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugNewRepositoryRoute = TTeamSlugNewRepositoryRouteImport.update({
+  id: '/new/repository',
+  path: '/new/repository',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugReposNameRoute = TTeamSlugReposNameRouteImport.update({
@@ -1264,6 +1276,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1316,6 +1329,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1445,6 +1459,7 @@ export interface FileRoutesByTo {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1497,6 +1512,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1633,6 +1649,7 @@ export interface FileRoutesById {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1685,6 +1702,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1820,6 +1838,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -1872,6 +1891,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2001,6 +2021,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -2053,6 +2074,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2188,6 +2210,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -2240,6 +2263,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2353,6 +2377,7 @@ export interface RootRouteChildren {
   ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
   ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
+  ApiShapesRepositoriesRoute: typeof ApiShapesRepositoriesRoute
   ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
   ApiShapesSessionReadsRoute: typeof ApiShapesSessionReadsRoute
   ApiShapesSessionsRoute: typeof ApiShapesSessionsRoute
@@ -3035,6 +3060,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesPullRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/repositories': {
+      id: '/api/shapes/repositories'
+      path: '/api/shapes/repositories'
+      fullPath: '/api/shapes/repositories'
+      preLoaderRoute: typeof ApiShapesRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/session-issues': {
       id: '/api/shapes/session-issues'
       path: '/api/shapes/session-issues'
@@ -3411,6 +3443,13 @@ declare module '@tanstack/react-router' {
       path: '/new/board'
       fullPath: '/t/$teamSlug/new/board'
       preLoaderRoute: typeof TTeamSlugNewBoardRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/new/repository': {
+      id: '/t/$teamSlug/new/repository'
+      path: '/new/repository'
+      fullPath: '/t/$teamSlug/new/repository'
+      preLoaderRoute: typeof TTeamSlugNewRepositoryRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/repos/$name': {
@@ -3887,6 +3926,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugNewAgentRoute: typeof TTeamSlugNewAgentRoute
   TTeamSlugNewAppRoute: typeof TTeamSlugNewAppRoute
   TTeamSlugNewBoardRoute: typeof TTeamSlugNewBoardRoute
+  TTeamSlugNewRepositoryRoute: typeof TTeamSlugNewRepositoryRoute
   TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
@@ -3915,6 +3955,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugNewAgentRoute: TTeamSlugNewAgentRoute,
   TTeamSlugNewAppRoute: TTeamSlugNewAppRoute,
   TTeamSlugNewBoardRoute: TTeamSlugNewBoardRoute,
+  TTeamSlugNewRepositoryRoute: TTeamSlugNewRepositoryRoute,
   TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
@@ -4004,6 +4045,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
   ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
+  ApiShapesRepositoriesRoute: ApiShapesRepositoriesRoute,
   ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
   ApiShapesSessionReadsRoute: ApiShapesSessionReadsRoute,
   ApiShapesSessionsRoute: ApiShapesSessionsRoute,

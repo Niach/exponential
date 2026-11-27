@@ -86,6 +86,7 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
         Some(Screen::Chats) => "chats".into(),
         Some(Screen::Device { device_id }) => format!("device:{}", if device_id.is_empty() { crate::device_page::this_device_row_id(cx).unwrap_or_default() } else { device_id.clone() }),
         Some(Screen::DeviceSettings { device_id }) => format!("device-settings:{device_id}"),
+        Some(Screen::Repository { repository_id }) => format!("repo:{repository_id}"),
         Some(Screen::Drafts) => "drafts".into(),
         Some(Screen::IssueDetail { issue_id }) => format!("issue:{issue_id}"),
         Some(Screen::Chat { session_id }) => format!("chat:{session_id}"),
@@ -126,7 +127,7 @@ fn ecode_repo_name(url: &str) -> Option<&str> {
 
 /// #EXP-1616: the team's Exponential repositories by name, each with its
 /// live PR tree (`repo_pr_tree`, the repo page's).
-fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>) -> Vec<IdeRepoInput> {
+fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::rows::PullRequestRow>, names: &HashMap<String, String>) -> Vec<IdeRepoInput> {
     use domain::repo_page::{repo_pr_tree, RepoPr};
     let mut repos: std::collections::BTreeMap<(String, String), Vec<RepoPr>> = std::collections::BTreeMap::new();
     let mut sessions: HashMap<String, String> = HashMap::new();
@@ -138,6 +139,7 @@ fn ecode_repos<'a>(team_id: &str, pulls: impl IntoIterator<Item = &'a domain::ro
         if let Some(root) = pull.root_session_id.as_deref() {
             sessions.insert(pull.id.clone(), root.to_string());
         }
+        let name = names.get(repo).map(String::as_str).unwrap_or(name);
         repos.entry((name.to_string(), repo.to_string())).or_default().push(RepoPr::from_row(pull));
     }
     repos
@@ -255,19 +257,34 @@ pub(crate) struct RowExtras {
     editing_device: Option<String>,
     /// The Getting started row shows (its checklist is not done).
     getting_started: bool,
+    /// #EXP-2171 (sidebar-tree.json `repositoryRow`): each repository row's
+    /// trailing side by id.
+    repositories: HashMap<String, Option<domain::sidebar_tree::RepositoryTrailing>>,
 }
 
 /// Every team's rows as the fixture's input, with the glyphs they name.
 fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>, RowExtras) {
-    let mut extras = RowExtras { getting_started: crate::getting_started::getting_started_visible(nav, cx), ..Default::default() };
+    let getting_started = crate::getting_started::getting_started_visible(nav, cx);
+    let screen = resolved_screen(nav, cx);
+    let board = active_board_id(nav, cx);
+    gather_at(screen, board, getting_started, marks, cx)
+}
+
+/// #EDE-258: the sidebar's input with no window's navigation (no open
+/// screen): what eDE's start menu navigates (`ede_feeds`).
+pub(crate) fn sidebar_input(cx: &mut App) -> IdeSidebarInput {
+    gather_at(None, None, false, &mut TeamMarks::new(), cx).0
+}
+
+/// [`gather`] for an open `screen` (and the window's active `board`).
+fn gather_at(screen: Option<Screen>, board: Option<String>, getting_started: bool, marks: &mut TeamMarks, cx: &mut App) -> (IdeSidebarInput, HashMap<String, Glyph>, RowExtras) {
+    let mut extras = RowExtras { getting_started, ..Default::default() };
     let mut glyphs = HashMap::new();
     glyphs.insert("ide:dot:green".to_string(), Glyph::Online);
-    let screen = resolved_screen(nav, cx);
     let open_draft = match &screen {
         Some(Screen::IssueDraft { draft_id, .. }) => Some(draft_id.clone()),
         _ => None,
     };
-    let board = active_board_id(nav, cx);
     let mut input = IdeSidebarInput { screen: screen_key(screen.as_ref(), board.as_deref(), cx), devices_open: crate::ui_prefs::sidebar_folder_open(domain::sidebar_tree::SIDEBAR_DEVICES_OPEN_KEY), ..Default::default() };
     let Some(store) = Store::try_global(cx) else { return (input, glyphs, extras) };
     let collections = store.collections().clone();
@@ -314,6 +331,13 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
     for s in collections.sessions.read(cx).iter() {
         trees.entry(s.root_id_or_self().to_string()).or_default().push(s.id.clone());
     }
+    let all_pulls: Vec<domain::rows::PullRequestRow> = collections.pull_requests.read(cx).iter().cloned().collect();
+    let mut pulls_by_repo: HashMap<&str, Vec<&domain::rows::PullRequestRow>> = HashMap::new();
+    for pull in &all_pulls {
+        if let Some(repo) = pull.repository_id.as_deref() {
+            pulls_by_repo.entry(repo).or_default().push(pull);
+        }
+    }
     for team_id in &shown {
         let Some(team) = all_teams.iter().find(|t| &t.id == team_id) else { continue };
         let mark = team_mark_icon(team_id);
@@ -325,6 +349,15 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
             let icon = format!("ide:board:{}", board.id);
             items.push(IdeItemInput { kind: "board".into(), id: board.id.clone(), name: board.name.clone(), icon: icon.clone(), ..Default::default() });
             glyphs.insert(icon, Glyph::Board(board));
+        }
+        // #EXP-2171: the team's repositories, after its boards; the trailing
+        // side = the checks rollup of its live PRs, else GitHub's mark.
+        for repo in collections.repositories_in_team(team_id, cx) {
+            let prs: Vec<domain::repo_page::RepoPr> = pulls_by_repo.get(repo.id.as_str()).into_iter().flatten().map(|pull| domain::repo_page::RepoPr::from_row(pull)).collect();
+            let checks = domain::repo_page::repo_checks_rollup(&prs).and_then(|state| serde_json::from_value(json!(state)).ok());
+            extras.repositories.insert(repo.id.clone(), domain::sidebar_tree::sidebar_repository_trailing(repo.provider(), checks));
+            let name = domain::sidebar_tree::repository_name(&repo.full_name).to_string();
+            items.push(IdeItemInput { kind: "repository".into(), id: repo.id.clone(), name, icon: domain::sidebar_tree::SIDEBAR_REPOSITORY_GLYPH.into(), ..Default::default() });
         }
         // #FEED-232: an agent row counts its conversation's unread replies.
         let unread: HashMap<String, usize> = crate::session_data::agent_unread_counts(team_id, cx);
@@ -344,6 +377,7 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
         // order (sidebarTeamItems), ended ones too until removed.
         let placed = domain::sidebar_tree::sidebar_team_items(
             team_id,
+            &[],
             &[],
             &[],
             &[],
@@ -377,8 +411,9 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
     }
     {
         let _span = tracing::trace_span!("rail.prs").entered();
-        let pulls: Vec<domain::rows::PullRequestRow> = collections.pull_requests.read(cx).iter().cloned().collect();
-        input.repos = all_teams.iter().flat_map(|team| ecode_repos(&team.id, pulls.iter())).collect();
+        // #EXP-2171: a synced repository names its row (the url carries its slug).
+        let names: HashMap<String, String> = collections.repositories.read(cx).iter().map(|repo| (repo.id.clone(), domain::sidebar_tree::repository_name(&repo.full_name).to_string())).collect();
+        input.repos = all_teams.iter().flat_map(|team| ecode_repos(&team.id, all_pulls.iter(), &names)).collect();
     }
     let _span = tracing::trace_span!("rail.live_roots").entered();
     for team in &all_teams {
@@ -458,6 +493,14 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
             }
             let inside = (row["depth"] == 2).then(|| folder.clone()).flatten();
             row["menu"] = json!(item_menu_variant(row["item"].as_str().unwrap_or_default(), owner));
+            if row["item"] == "repository" {
+                let trailing = row["id"].as_str().and_then(|id| extras.repositories.get(id).copied()).flatten();
+                let state = trailing.and_then(|t| t.state).map(|state| serde_json::to_value(state).unwrap_or_default());
+                let label = state.as_ref().and_then(Value::as_str).and_then(|state| domain::repo_page::REPO_PAGE.copy.checks.of(state)).map(|chip| chip.label.clone());
+                row["checks"] = state.unwrap_or(Value::Null);
+                row["checksLabel"] = json!(label.unwrap_or_default());
+                row["trailing"] = json!(trailing.map(|t| serde_json::to_value(t.kind).unwrap_or_default()));
+            }
             row["moveItems"] = Value::Array(move_items(&folders, inside.as_deref()));
         }
     }
@@ -497,6 +540,7 @@ fn item_menu_variant(item: &str, owner: bool) -> &'static str {
         ("agent", true) => "agent-owner",
         ("agent", false) => "agent",
         ("app", _) => "app",
+        ("repository", _) => "repository",
         _ => "session",
     }
 }
@@ -890,6 +934,7 @@ impl SidebarRegion {
             "board" => &["ide_board_owner_row.", "ide_board_row."],
             "agent" => &["ide_agent_owner_row.", "ide_agent_row."],
             "app" => &["ide_app_row."],
+            "repository" => &["ide_repository_row.", "ide_repository_child_row."],
             _ => &["ide_team_row."],
         };
         let rows: Vec<String> = rows.iter().map(|r| r.to_string()).collect();
@@ -1160,14 +1205,19 @@ fn open_row(kind: &str, id: String, window: &mut Window, cx: &mut App) {
         "active" => navigation::navigate_from_live_rail(window, cx, Screen::Chat { session_id: id }),
         // #EXP-1616: a Pull requests row opens its repository's page (in its
         // team's settings).
-        "repo" => {
-            let team = Store::global(cx).collections().pull_requests.read(cx).iter().find(|p| p.repository_id.as_deref() == Some(id.as_str())).and_then(|p| p.team_id.clone());
-            navigation::open_settings(window, cx, team.or_else(|| navigation::fallback_team_id(cx)));
-            crate::sidebar::select_settings_section(window, cx, SettingsSection::Repository(id));
-        }
+        "repo" | "repository" => open_repository(&id, None, window, cx),
         "settings" => navigation::open_settings(window, cx, None),
         _ => {}
     }
+}
+
+/// #EXP-2171: a repository's page, its own work tab (`Screen::Repository`,
+/// web `/t/$teamSlug/repos/$slug`), on `tab` (`None` = Pull requests).
+pub(crate) fn open_repository(id: &str, tab: Option<&str>, window: &mut Window, cx: &mut App) {
+    if let Some(tab) = tab {
+        crate::settings::repo_page::request_tab(id, tab, cx);
+    }
+    navigate(window, cx, Screen::Repository { repository_id: id.to_string() });
 }
 
 fn open_gear(kind: &str, id: String, window: &mut Window, cx: &mut App) {
@@ -1187,6 +1237,7 @@ fn open_gear(kind: &str, id: String, window: &mut Window, cx: &mut App) {
         }
         "app" => crate::app_screen::open_app_tab(window, cx, id, domain::apps::EditorTab::Settings, false),
         "device" => navigate(window, cx, Screen::DeviceSettings { device_id: id }),
+        "repository" => open_repository(&id, Some("settings"), window, cx),
         _ => {}
     }
 }
@@ -1196,7 +1247,7 @@ fn open_gear(kind: &str, id: String, window: &mut Window, cx: &mut App) {
 /// appends a folder and names it in place, Settings the team's settings.
 fn team_menu(team_id: String, value: &str, region: gpui::WeakEntity<SidebarRegion>, window: &mut Window, cx: &mut App) {
     match value {
-        "board" | "agent" | "app" | "session" => new_in_team(team_id, value, window, cx),
+        "board" | "agent" | "app" | "session" | "repository" => new_in_team(team_id, value, window, cx),
         "settings" => navigation::open_settings(window, cx, Some(team_id)),
         "new-folder" => {
             let entries = layout_entries(&team_id, cx);
@@ -1239,7 +1290,7 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
         ("ide_getting_started".into(), "getting-started", I::default()),
     ];
     for sfx in ["", "_child"] {
-        for (node, kind, input) in [("board_owner", "board", owner), ("board", "board", I::default()), ("app", "app", I::default()), ("agent_owner", "agent", owner), ("agent", "agent", I::default()), ("session", "session", I::default())] {
+        for (node, kind, input) in [("board_owner", "board", owner), ("board", "board", I::default()), ("app", "app", I::default()), ("agent_owner", "agent", owner), ("agent", "agent", I::default()), ("session", "session", I::default()), ("repository", "repository", I::default())] {
             nodes.push((format!("ide_{node}{sfx}_menu"), kind, input));
         }
     }
@@ -1288,6 +1339,8 @@ fn row_screen(kind: &str, id: &str, cx: &App) -> Option<Screen> {
         "agent" => Screen::Agent { agent_id: id.into() },
         "session" => navigation::session_screen_for(id, cx),
         "active-session" => Screen::Chat { session_id: id.into() },
+        // #EXP-2171: a repository's page is a work tab (`tabs.pages`).
+        "repository" => Screen::Repository { repository_id: id.into() },
         _ => return None,
     })
 }
@@ -1322,6 +1375,7 @@ fn row_menu(kind: &str, id: String, team: String, value: &str, region: gpui::Wea
     match value {
         "open" => match (kind, row_screen(kind, &id, cx)) {
             ("getting-started", _) => crate::getting_started::open_dialog(window, cx),
+            ("repository", _) => open_repository(&id, None, window, cx),
             ("board", _) => open_row("board", id, window, cx),
             ("active-session", _) => open_row("active", id, window, cx),
             (_, Some(screen)) => navigate(window, cx, screen),
@@ -1333,6 +1387,22 @@ fn row_menu(kind: &str, id: String, team: String, value: &str, region: gpui::Wea
             }
         }
         "new-chat" => navigate(window, cx, Screen::Home),
+        // #EXP-2171: Home's composer with this repository picked
+        // (coding-readiness.json `chatRepo`).
+        "new-repo-chat" => {
+            if let Some(repo) = Store::global(cx).collections().repository(&id, cx) {
+                navigation::open_home_with_repository(window, cx, repo.team_id, repo.id);
+            }
+        }
+        "pull-requests" => open_repository(&id, Some("pulls"), window, cx),
+        "runs" => open_repository(&id, Some("runs"), window, cx),
+        "copy-clone-url" => {
+            if let Some(repo) = Store::global(cx).collections().repository(&id, cx) {
+                let url = domain::sidebar_tree::repository_clone_url(repo.provider(), &repo.full_name);
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
+                crate::toast::success(domain::sidebar_menus::sidebar_menu_copy("cloneUrlCopied"), window, cx);
+            }
+        }
         "compact" | "new-conversation" => {
             let sends = &SESSION_SCREEN.menu_sends;
             let text = if value == "compact" { sends.compact.clone() } else { sends.new_conversation.clone() };
@@ -1522,6 +1592,7 @@ fn new_in_team(team_id: String, kind: &str, window: &mut Window, cx: &mut App) {
         "board" => navigate(window, cx, Screen::NewItem { team_id, kind: navigation::NewItemKind::Board }),
         "agent" => navigate(window, cx, Screen::NewItem { team_id, kind: navigation::NewItemKind::Agent }),
         "app" => navigate(window, cx, Screen::NewItem { team_id, kind: navigation::NewItemKind::App }),
+        "repository" => navigate(window, cx, Screen::NewItem { team_id, kind: navigation::NewItemKind::Repository }),
         "session" => navigation::open_home_in_team(window, cx, team_id),
         _ => {}
     }
@@ -2557,7 +2628,7 @@ mod tests {
             pull("gh", "t1", "https://github.com/acme/engine/pull/3", 3, "x", "main"),
             pull("other", "t2", &url(4), 4, "y", "main"),
         ];
-        let repos = ecode_repos("t1", &pulls);
+        let repos = ecode_repos("t1", &pulls, &HashMap::new());
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].name, "engine");
         let rows: Vec<(&str, usize, &str)> = repos[0].prs.iter().map(|p| (p.identifier.as_str(), p.depth, p.subtitle.as_str())).collect();
@@ -2652,7 +2723,7 @@ mod tests {
             assistant: Some(uicore_model::ide::IdeAssistantInput { id: "as1".into(), name: "Bro".into(), unread: 0, needs_you: false }),
             ..Default::default()
         };
-        let extras = RowExtras { deletable: ["s1".to_string()].into_iter().collect(), editing_device: Some("d1".into()), getting_started: true };
+        let extras = RowExtras { deletable: ["s1".to_string()].into_iter().collect(), editing_device: Some("d1".into()), getting_started: true, ..Default::default() };
         let value = shaped(&input, &HashMap::new(), None, &extras);
         assert_eq!(value["nav"][0]["id"], "assistant");
         assert_eq!(value["nav"][0]["icon"], ASSISTANT_MARK);
@@ -2677,6 +2748,35 @@ mod tests {
         let rows = value["teams"][0]["rows"].as_array().unwrap();
         assert_eq!(rows.iter().find(|r| r["id"] == "b1").unwrap()["menu"], "board");
         assert_eq!(rows.iter().find(|r| r["id"] == "a1").unwrap()["menu"], "agent");
+    }
+
+    /// #EXP-2171 (sidebar-tree.json `repositoryRow`): a repository row opens
+    /// its menu and carries its trailing side: the checks chip's state and
+    /// label, else the GitHub mark, else nothing.
+    #[test]
+    fn repository_rows_carry_their_trailing() {
+        use domain::sidebar_tree::{RepositoryChecks, RepositoryTrailing, RepositoryTrailingKind};
+        let item = |id: &str| IdeItemInput { kind: "repository".into(), id: id.into(), name: id.into(), icon: "action-repository".into(), ..Default::default() };
+        let input = IdeSidebarInput {
+            teams: vec![IdeTeamInput { id: "t1".into(), name: "t1".into(), mark: String::new(), open: true, owner: false, needs_you: 0, items: vec![item("r1"), item("r2"), item("r3")], layout: Vec::new() }],
+            screen: "repo:r2".into(),
+            ..Default::default()
+        };
+        let mut extras = RowExtras::default();
+        extras.repositories.insert("r1".into(), Some(RepositoryTrailing { kind: RepositoryTrailingKind::Checks, state: Some(RepositoryChecks::Failure) }));
+        extras.repositories.insert("r2".into(), Some(RepositoryTrailing { kind: RepositoryTrailingKind::Github, state: None }));
+        extras.repositories.insert("r3".into(), None);
+        let value = shaped(&input, &HashMap::new(), None, &extras);
+        let rows = value["teams"][0]["rows"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap().clone();
+        assert_eq!(row("r1")["menu"], "repository");
+        assert_eq!(row("r1")["checks"], "failure");
+        assert_eq!(row("r1")["checksLabel"], json!(domain::repo_page::REPO_PAGE.copy.checks.failure.label));
+        assert_eq!(row("r1")["trailing"], "checks");
+        assert_eq!(row("r2")["trailing"], "github");
+        assert_eq!(row("r2")["checks"], Value::Null);
+        assert_eq!(row("r2")["selected"], true);
+        assert_eq!(row("r3")["trailing"], Value::Null);
     }
 
     /// #EXP-2124 Move to folder: into a folder, out to the top level, into
@@ -2708,7 +2808,7 @@ mod tests {
         assert_eq!(items[2]["label"], "Acme");
         assert_eq!(items[2]["icon"], "ide:team:t1");
         let values: Vec<&str> = items[2]["items"].as_array().unwrap().iter().map(|i| i["value"].as_str().unwrap()).collect();
-        assert_eq!(values, ["session:t1", "agent:t1", "app:t1", "board:t1"]);
+        assert_eq!(values, ["session:t1", "agent:t1", "app:t1", "board:t1", "repository:t1"]);
         assert_eq!(items[3]["items"], json!([{"label": "Chat", "value": "session:t2", "icon": "action-chat"}]));
         assert_eq!(new_tab_menu_items(None, &teams)[0]["label"], "Acme");
         assert_eq!(new_tab_menu_items(Some("Bro"), &[]).len(), 1);

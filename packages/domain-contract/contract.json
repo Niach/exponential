@@ -1286,6 +1286,39 @@
         "result": "none"
       },
       {
+        "name": "repositories_runs",
+        "title": "List CI runs",
+        "blurb": "Lists CI runs, ours and GitHub Actions, newest first.",
+        "progressive": "Listing CI runs",
+        "done": "Listed CI runs",
+        "progressiveMany": "Listing CI runs {n} times",
+        "doneMany": "Listed CI runs {n} times",
+        "subjectKey": "repositoryId",
+        "result": "none"
+      },
+      {
+        "name": "repositories_run_log",
+        "title": "Read a CI log",
+        "blurb": "Reads a CI job's log.",
+        "progressive": "Reading a CI log",
+        "done": "Read a CI log",
+        "progressiveMany": "Reading CI logs {n} times",
+        "doneMany": "Read CI logs {n} times",
+        "subjectKey": "runId",
+        "result": "none"
+      },
+      {
+        "name": "repositories_rerun",
+        "title": "Re-run CI",
+        "blurb": "Re-runs a CI run.",
+        "progressive": "Re-running CI",
+        "done": "Re-ran CI",
+        "progressiveMany": "Re-running CI {n} times",
+        "doneMany": "Re-ran CI {n} times",
+        "subjectKey": "runId",
+        "result": "none"
+      },
+      {
         "name": "devices_list",
         "title": "List devices",
         "blurb": "Lists the machines that can run coding sessions for you.",
@@ -2242,6 +2275,9 @@
       { "name": "repositories_create", "refs": "repository@" },
       { "name": "repositories_credentials", "refs": "" },
       { "name": "repositories_configure_ci", "refs": "" },
+      { "name": "repositories_runs", "refs": "" },
+      { "name": "repositories_run_log", "refs": "" },
+      { "name": "repositories_rerun", "refs": "" },
       { "name": "repositories_restore", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },

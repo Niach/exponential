@@ -68,11 +68,16 @@ pub(crate) struct PersonX11 {
     /// The compositor's tag in the cookie files' names (its socket's).
     tag: Option<String>,
     /// One cookie for the compositor's life, every server's.
-    cookie: Option<[u8; 16]>,
+    pub(crate) cookie: Option<[u8; 16]>,
     /// The deaths in a row.
     deaths: u32,
     /// When the server that runs now became ready.
     ready_at: Option<Instant>,
+    /// Its Wayland client: its client scale is the X11 scale (#EDE-250).
+    pub(crate) client: Option<smithay::reexports::wayland_server::Client>,
+    /// The scale X11 apps were last told (XSETTINGS, resources); `None` =
+    /// not yet, on this server.
+    pub(crate) told_scale: Option<f64>,
 }
 
 impl Drop for PersonX11 {
@@ -144,6 +149,13 @@ impl Ede {
                 tracing::error!("{}: {e}", xauthority.display());
             }
         }
+        self.person_x11.client = Some(client.clone());
+        self.person_x11.told_scale = None;
+        // #EDE-250: X11 coordinates are pixels of the most scaled output
+        // from its first connection on.
+        if let Some(data) = client.get_data::<smithay::xwayland::XWaylandClientData>() {
+            data.compositor_state.set_client_scale(self.person_x11_scale());
+        }
         let inserted = self.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, display_number } => {
                 match X11Wm::start_wm(state.loop_handle.clone(), &state.display_handle, x11_socket, client.clone()) {
@@ -154,6 +166,7 @@ impl Ede {
                         state.person_x11.ready_at = Some(Instant::now());
                         // What the person copied while it was not there.
                         state.xwm_selection_now(DeskId::PERSON);
+                        state.update_x11_scale();
                     }
                     Err(e) => tracing::error!("X11 window manager failed: {e}"),
                 }
@@ -227,6 +240,8 @@ impl Ede {
         }
         self.xwm = None;
         let x11 = &mut self.person_x11;
+        x11.client = None;
+        x11.told_scale = None;
         if x11.ready_at.take().is_some_and(|at| at.elapsed() >= RAN_WELL) {
             x11.deaths = 0;
         }

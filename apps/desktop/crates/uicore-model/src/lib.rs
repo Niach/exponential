@@ -152,7 +152,7 @@ impl Default for ShellState {
             mru: Vec::new(),
             workspaces: Workspaces { active: 0, count: 1 },
             taskbar: Taskbar { pinned: Vec::new(), hover: None, previews: None, menu: None },
-            start_menu: StartMenu { open: false, query: String::new(), category: "all".into() },
+            start_menu: StartMenu { open: false, query: String::new(), category: String::new() },
             chat: Chat { open: false },
             alt_tab: AltTab::closed(),
         }
@@ -243,7 +243,7 @@ pub enum ShellEvent {
 }
 
 fn closed_start_menu() -> StartMenu {
-    StartMenu { open: false, query: String::new(), category: "all".into() }
+    StartMenu { open: false, query: String::new(), category: String::new() }
 }
 
 fn focus(s: &mut ShellState, id: &str) {
@@ -742,6 +742,349 @@ pub fn start_menu_issues(state: &ShellState, issues: &[StartMenuIssue]) -> Vec<S
             context: if i.board.is_empty() { i.source_name.clone() } else { format!("{} · {}", i.source_name, i.board) },
         })
         .collect()
+}
+
+/// #EDE-258: one root of the IDE sidebar tree as the holder publishes it
+/// (the feeds' `tree`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuNode {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub icon: String,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub count: u32,
+    #[serde(default)]
+    pub tone: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub items: Vec<StartMenuItem>,
+}
+
+/// #EDE-258: one row inside a tree node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuItem {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    pub icon: String,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub depth: u8,
+    #[serde(default)]
+    pub count: u32,
+    #[serde(default)]
+    pub tone: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+/// #EDE-258: `domain::sidebar_tree::sidebar_local_rows` with each row's
+/// name; `kind` = local | desktop | board.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuLocalRow {
+    pub kind: String,
+    pub id: String,
+    pub desktop_id: Option<String>,
+    pub depth: u8,
+    pub title: String,
+}
+
+/// #EDE-258: one settings module the search can open.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuSetting {
+    pub id: String,
+    pub title: String,
+    pub icon: String,
+    #[serde(default)]
+    pub keywords: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuNavCategory {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub icon: String,
+    pub image: Option<String>,
+    pub count: u32,
+    pub tone: Option<String>,
+    pub separator: bool,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuRow {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub icon: String,
+    pub image: Option<String>,
+    pub depth: u8,
+    pub count: u32,
+    pub tone: Option<String>,
+    pub identifier: Option<String>,
+    pub heading: Option<String>,
+    /// `{page}`, `{app}`, `{settings}`, `{issue, source, sourceId}`,
+    /// `{local, board}`, or null (a folder).
+    pub target: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartMenuNav {
+    pub category: String,
+    pub categories: Vec<StartMenuNavCategory>,
+    pub assistant: bool,
+    pub rows: Vec<StartMenuRow>,
+}
+
+/// The app groups' icons in the category column (concepts).
+pub fn start_menu_group_icon(group: &str) -> &'static str {
+    match group {
+        "all" => "layout-grid",
+        "favourites" => "star",
+        "exponential" => "brand-exponential",
+        "accessories" => "wrench",
+        "administration" => "settings",
+        "education" => "graduation-cap",
+        "games" => "gamepad-2",
+        "graphics" => "palette",
+        "internet" => "globe",
+        "office" => "briefcase",
+        "programming" => "code",
+        "science" => "flask-conical",
+        "sound-video" => "music",
+        _ => "nav-apps",
+    }
+}
+
+pub const START_MENU_PLACES_LIMIT: usize = 8;
+pub const START_MENU_SETTINGS_LIMIT: usize = 4;
+pub const START_MENU_APPS_LIMIT: usize = 8;
+
+impl StartMenuRow {
+    fn new(id: impl Into<String>, kind: impl Into<String>, title: impl Into<String>, icon: impl Into<String>) -> Self {
+        StartMenuRow {
+            id: id.into(),
+            kind: kind.into(),
+            title: title.into(),
+            subtitle: None,
+            icon: icon.into(),
+            image: None,
+            depth: 0,
+            count: 0,
+            tone: None,
+            identifier: None,
+            heading: None,
+            target: Value::Null,
+        }
+    }
+}
+
+/// 0 = the title starts with the query, 1 = every word starts a word of the
+/// title, 2 = every word is in the title (or `extra`); `None` = out.
+fn title_rank(title: &str, query: &str, extra: &str) -> Option<u8> {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    let lower = title.to_lowercase();
+    if lower.starts_with(query) {
+        return Some(0);
+    }
+    let title_words: Vec<&str> = lower.split_whitespace().collect();
+    if words.iter().all(|w| title_words.iter().any(|t| t.starts_with(w))) {
+        return Some(1);
+    }
+    let haystack = format!("{lower} {}", extra.to_lowercase());
+    words.iter().all(|w| haystack.contains(w)).then_some(2)
+}
+
+/// Stable: the best rank first, ties keep the given order.
+fn ranked<T>(list: Vec<T>, rank: impl Fn(&T) -> Option<u8>) -> Vec<T> {
+    let mut out: Vec<(u8, T)> = list.into_iter().filter_map(|x| rank(&x).map(|r| (r, x))).collect();
+    out.sort_by_key(|(r, _)| *r);
+    out.into_iter().map(|(_, x)| x).collect()
+}
+
+fn item_row(item: &StartMenuItem) -> StartMenuRow {
+    StartMenuRow {
+        subtitle: item.subtitle.clone(),
+        image: item.image.clone(),
+        depth: item.depth,
+        count: item.count,
+        tone: item.tone.clone(),
+        target: item.key.as_ref().map_or(Value::Null, |key| serde_json::json!({ "page": key })),
+        ..StartMenuRow::new(&item.id, &item.kind, &item.title, &item.icon)
+    }
+}
+
+fn app_row(app: &StartMenuEntry) -> StartMenuRow {
+    StartMenuRow {
+        subtitle: Some(app.comment.clone()),
+        target: serde_json::json!({ "app": app.id }),
+        ..StartMenuRow::new(format!("app:{}", app.id), "app", &app.name, "nav-apps")
+    }
+}
+
+fn local_row(r: &StartMenuLocalRow, depth: u8) -> StartMenuRow {
+    let desktop = r.desktop_id.clone().unwrap_or_default();
+    let (id, icon, board) = if r.kind == "desktop" {
+        (format!("local:{}", r.id), "computer", Value::Null)
+    } else {
+        (format!("local:{desktop}:{}", r.id), "square-kanban", Value::String(r.id.clone()))
+    };
+    StartMenuRow {
+        depth,
+        target: serde_json::json!({ "local": r.desktop_id, "board": board }),
+        ..StartMenuRow::new(id, &r.kind, &r.title, icon)
+    }
+}
+
+fn headed(mut rows: Vec<StartMenuRow>, heading: &str) -> Vec<StartMenuRow> {
+    if let Some(first) = rows.first_mut() {
+        first.heading = Some(heading.to_string());
+    }
+    rows
+}
+
+/// #EDE-258: the start menu as navigation: the sidebar tree's roots, Local,
+/// the app groups; a query = Places, Settings, Apps, Issues.
+pub fn start_menu_nav(
+    state: &ShellState,
+    tree: &[StartMenuNode],
+    local: &[StartMenuLocalRow],
+    apps: &[StartMenuApp],
+    favourites: &[String],
+    settings: &[StartMenuSetting],
+    issues: &[StartMenuIssue],
+) -> StartMenuNav {
+    let category_of = |id: &str, kind: &str, title: &str, icon: &str| StartMenuNavCategory {
+        id: id.into(),
+        kind: kind.into(),
+        title: title.into(),
+        icon: icon.into(),
+        image: None,
+        count: 0,
+        tone: None,
+        separator: false,
+        selected: false,
+    };
+    let mut categories: Vec<StartMenuNavCategory> = tree
+        .iter()
+        .map(|node| StartMenuNavCategory {
+            image: node.image.clone(),
+            count: node.count,
+            tone: node.tone.clone(),
+            ..category_of(&node.id, &node.kind, &node.title, &node.icon)
+        })
+        .collect();
+    let local_title = "Local";
+    if !local.is_empty() {
+        categories.push(category_of("local", "local", local_title, "computer"));
+    }
+    let first_app = categories.len();
+    for group in start_menu_categories(apps, favourites) {
+        categories.push(category_of(&group.id, "apps", &group.label, start_menu_group_icon(&group.id)));
+    }
+    if let Some(first) = categories.iter_mut().find(|c| c.kind == "team" || c.kind == "local") {
+        first.separator = true;
+    }
+    if let Some(first) = categories.get_mut(first_app) {
+        first.separator = true;
+    }
+
+    let wanted = &state.start_menu.category;
+    let category = if categories.iter().any(|c| &c.id == wanted) {
+        wanted.clone()
+    } else if let Some(team) = categories.iter().find(|c| c.kind == "team") {
+        team.id.clone()
+    } else if !local.is_empty() {
+        "local".into()
+    } else {
+        tree.first().map_or_else(|| "all".into(), |node| node.id.clone())
+    };
+    for c in &mut categories {
+        c.selected = c.id == category;
+    }
+    let kind = categories.iter().find(|c| c.id == category).map(|c| c.kind.clone());
+
+    let query = state.start_menu.query.trim().to_lowercase();
+    if query.is_empty() {
+        let rows = match kind.as_deref() {
+            Some("local") => local.iter().filter(|r| r.kind != "local").map(|r| local_row(r, r.depth.saturating_sub(1))).collect(),
+            Some("apps") => {
+                let mut scoped = state.clone();
+                scoped.start_menu.category = category.clone();
+                start_menu_apps(&scoped, apps, favourites).iter().map(app_row).collect()
+            }
+            Some("assistant") | None => Vec::new(),
+            Some(_) => tree.iter().find(|n| n.id == category).map(|n| n.items.iter().map(item_row).collect()).unwrap_or_default(),
+        };
+        return StartMenuNav { category, categories, assistant: kind.as_deref() == Some("assistant"), rows };
+    }
+
+    let mut places: Vec<StartMenuRow> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut add = |mut row: StartMenuRow| {
+        if seen.insert(row.id.clone()) {
+            row.depth = 0;
+            places.push(row);
+        }
+    };
+    for node in tree {
+        if let Some(key) = &node.key {
+            add(StartMenuRow {
+                image: node.image.clone(),
+                count: node.count,
+                tone: node.tone.clone(),
+                target: serde_json::json!({ "page": key }),
+                ..StartMenuRow::new(&node.id, &node.kind, &node.title, &node.icon)
+            });
+        }
+        for item in node.items.iter().filter(|item| item.key.is_some()) {
+            add(StartMenuRow { subtitle: Some(node.title.clone()), ..item_row(item) });
+        }
+    }
+    for r in local.iter().filter(|r| r.kind != "local") {
+        add(StartMenuRow { subtitle: Some(local_title.into()), ..local_row(r, 0) });
+    }
+
+    let place_rows: Vec<StartMenuRow> = ranked(places, |r| title_rank(&r.title, &query, "")).into_iter().take(START_MENU_PLACES_LIMIT).collect();
+    let setting_rows: Vec<StartMenuRow> = ranked(settings.iter().collect(), |s| title_rank(&s.title, &query, &s.keywords))
+        .into_iter()
+        .take(START_MENU_SETTINGS_LIMIT)
+        .map(|s| StartMenuRow {
+            target: serde_json::json!({ "settings": s.id }),
+            ..StartMenuRow::new(format!("settings:{}", s.id), "settings", &s.title, &s.icon)
+        })
+        .collect();
+    let app_rows: Vec<StartMenuRow> = start_menu_apps(state, apps, favourites).iter().take(START_MENU_APPS_LIMIT).map(app_row).collect();
+    let issue_rows: Vec<StartMenuRow> = start_menu_issues(state, issues)
+        .into_iter()
+        .map(|i| StartMenuRow {
+            subtitle: Some(i.context.clone()),
+            identifier: Some(i.identifier.clone()),
+            target: serde_json::json!({ "issue": i.identifier, "source": i.source, "sourceId": i.source_id }),
+            ..StartMenuRow::new(format!("issue:{}", i.id), "issue", &i.title, &i.icon)
+        })
+        .collect();
+    let mut rows = headed(place_rows, "Places");
+    rows.extend(headed(setting_rows, "Settings"));
+    rows.extend(headed(app_rows, "Apps"));
+    rows.extend(headed(issue_rows, "Issues"));
+    StartMenuNav { category, categories, assistant: false, rows }
 }
 
 /// The fixture's case `state`: each top-level key given is complete, the

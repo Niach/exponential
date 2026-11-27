@@ -57,6 +57,58 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_378: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-repositories-in-navigation",
+    date: "2026-11-27",
+    title: "Repositories in the sidebar",
+    summary: "Your team's repositories now sit in the sidebar and on the Teams tab beside boards, agents and apps, with their checks at a glance.",
+    body: r##"- **A row per repository**: each one shows whether its checks pass, opens its page, and moves into folders like any other row. Its menu starts a chat in it, opens its pull requests or runs, and copies its clone URL.
+- **New › Repository**: owners create one hosted on Exponential, or link one from GitHub, on one page.
+- **A board names a default repository**: a chat on an issue uses the repository of the issue's open pull request, then the board's default, then the team's only repository. Pull requests may link issues from any board of the team, and removing a repository just clears that default.
+- **More on phones**: the last tab opens Devices and Settings."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_377: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ci-runner-in-the-app",
+    date: "2026-11-27",
+    title: "The desktop app runs your CI on Linux",
+    summary: "Turn on Run CI jobs for a Linux computer and its Exponential app runs your team's pipelines itself, kept away from the app's data, capped and out of your way.",
+    body: r##"- **CI inside the app**: on Linux the Exponential app runs CI jobs itself, no separate daemon to install.
+- **Kept apart**: a job cannot see the app's data, your agents' sign-ins or your SSH keys, and each step runs with the memory cap and the lowest CPU priority.
+- **Out of your way**: no new job starts while a game or a full-screen app runs.
+- **Updates wait for jobs**: a ready update waits for the running jobs, at most until their timeout; Restart to update asks before it stops them, and a stopped job runs again."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_376: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ede-start-menu-navigation",
+    date: "2026-11-27",
+    title: "The start menu is how you get around",
+    summary: "On Exponential Desktop the start menu holds your teams, boards, chats, devices and the Assistant, with search across all of them; the left rail is gone.",
+    body: r##"- **Your sidebar in the menu**: the Assistant, Home, Needs you, Chats, Devices, each team with its boards, folders, agents, apps and sessions, and your Local desktops sit as categories beside the apps.
+- **Search everything**: type to find a board, a chat, a device, a Settings page, an app or an issue; Enter opens it in its own window.
+- **The keyboard you know**: hover or arrow through the categories, Right and Left move between the columns, Escape closes.
+- **Ask the Assistant**: its latest answer and a composer sit right in the menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_375: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-ci-secrets-trusted-runs",
+    date: "2026-11-27",
+    title: "CI secrets stay out of pull requests",
+    summary: "Your CI secrets now reach only runs on the default branch, tags and the merge train, unless a repository lets pull requests have them.",
+    body: r##"- **Secrets for trusted runs**: a pull request run gets no secrets, and its log says which ones were held back and why. Turn on **Secrets for pull requests** in a repository's CI settings to give them those too. Every secret change shows in the team's events.
+- **A cut-off job runs again**: a job whose runner crashed or quit goes back to the queue once instead of failing.
+- **Runner limits**: a device's CI runner settings now have **Memory per job** and **Pause for games and full-screen apps**.
+- **Linux and servers only for now**: the desktop app on macOS and Windows can't run CI jobs yet. Run them on Linux or on a server."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_374: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ede-page-windows",
     date: "2026-11-27",

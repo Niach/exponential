@@ -52,6 +52,7 @@ class CodingReadinessTest {
             )
         },
         nowMs = obj.getValue("nowMs").jsonPrimitive.long,
+        teamRepositoryCount = obj["teamRepositoryCount"]?.jsonPrimitive?.int ?: 0,
     )
 
     private fun expected(obj: JsonObject) = CodingReadiness.Readiness(
@@ -94,6 +95,26 @@ class CodingReadinessTest {
         val copy = fixture.getValue("copy").jsonObject
             .mapValues { (_, value) -> value.jsonPrimitive.content }
         assertEquals(copy, derived)
+    }
+
+    /** #EXP-2171: `chatRepo` (the composer's repository chip seed). */
+    @Test
+    fun chatRepo() {
+        val cases = fixture.getValue("chatRepo").jsonObject.getValue("cases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun ids(element: JsonElement?) = element!!.jsonArray.map { it.jsonPrimitive.content }
+        for (element in cases) {
+            val c = element.jsonObject
+            val input = c.getValue("input").jsonObject
+            val issue = input["issue"]?.takeUnless { it is JsonNull }?.jsonObject?.let {
+                CodingReadiness.ChatRepoIssue(ids(it["livePrRepositoryIds"]), it["boardRepositoryId"].stringOrNull())
+            }
+            assertEquals(
+                c.getValue("name").jsonPrimitive.content,
+                c["expected"].stringOrNull(),
+                CodingReadiness.chatRepository(input["pick"].stringOrNull(), issue, ids(input["teamRepositoryIds"])),
+            )
+        }
     }
 
     @Test

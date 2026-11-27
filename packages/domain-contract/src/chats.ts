@@ -49,7 +49,7 @@ export const CHATS_TEST_IDS = fixture.testIds
 export const CHATS_SHELL = fixture.shell
 
 /** #EXP-2109: the phone's docked bar. */
-export type PhoneTabId = `chats` | `teams` | `assistant` | `new` | `settings`
+export type PhoneTabId = `chats` | `teams` | `assistant` | `new` | `more`
 export const PHONE_TABS = fixture.shell.tabs as PhoneTabId[]
 export type PhoneRootPage = keyof typeof fixture.shell.pages
 

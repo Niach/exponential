@@ -643,9 +643,8 @@ class TeamSettingsViewModel @Inject constructor(
         }
     }
 
-    // Remove a repo from the registry (sharer-or-owner, EXP-557). Blocked
-    // server-side (CONFLICT) while any board still points at it — the toast
-    // carries that message verbatim (masterplan §6).
+    // Remove a repo from the registry (sharer-or-owner, EXP-557). #EXP-2171:
+    // never refused; the boards defaulting to it keep none.
     fun removeRepo(repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { repositoriesApi.remove(accountId, repositoryId) }

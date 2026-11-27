@@ -274,7 +274,7 @@ fun AgentScreen(
     }
     val checkedCount = issueSubject?.ids?.size ?: 0
 
-    // A team with exactly one repository pre-picks it for a chat.
+    // #EXP-2171 `chatRepo`: the seed's repository, else the team's only one.
     LaunchedEffect(teamRepos) { viewModel.defaultChatRepo(teamRepos.map { it.id }) }
 
     // ── Resume (EXP-481) ────────────────────────────────────────────────────
@@ -296,7 +296,9 @@ fun AgentScreen(
         // A chat needs SOMETHING to say — text or an image (EXP-739: the
         // repo is optional).
         null -> hasText || images.isNotEmpty()
-        is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
+        // #EXP-2171: issues defaulting to different repositories ASK for
+        // one (the + menu's Repository ›), never block.
+        is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && (!multiRepo || chatRepoId.isNotEmpty())
         is ComposerSubject.Prompt -> selectedAction != null
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
@@ -330,7 +332,7 @@ fun AgentScreen(
         device == null && candidateDevices == null -> null
         device == null -> LaunchDeviceRules.noDeviceNote(launch.agent, onlineDevices.orEmpty())
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
-        multiRepo -> "Pick issues from a single repository per session."
+        multiRepo && chatRepoId.isEmpty() -> MULTI_REPO_NOTE
         overCap -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
         !AgentComposerPrompt.withinLimit(
             draft,
@@ -808,7 +810,7 @@ fun AgentScreen(
                     device = temporary,
                     account = temporary,
                     model = temporary,
-                    repositories = teamRepos.size > 1,
+                    repositories = teamRepos.size > 1 || (multiRepo && teamRepos.isNotEmpty()),
                     ultracode = claude,
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.
@@ -1101,3 +1103,7 @@ private fun SlashPromptRows(prompts: List<SlashPrompt>, modifier: Modifier = Mod
         }
     }
 }
+
+/** #EXP-2171: issues whose boards default to different repositories (web
+ *  `launch-notes.tsx`): the + menu picks the one the session works in. */
+internal const val MULTI_REPO_NOTE = "These issues default to different repositories. Pick one in +."

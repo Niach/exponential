@@ -392,7 +392,7 @@ export function TeamRepositoriesSection({
                       ? () =>
                           void navigate({
                             to: `/t/$teamSlug/repos/$name`,
-                            params: { teamSlug, name: repo.fullName.split(`/`).pop()! },
+                            params: { teamSlug, name: repo.slug },
                           })
                       : undefined
                   }
@@ -497,6 +497,7 @@ export function TeamRepositoriesSection({
         }}
         busy={busy}
         title={removeCopy.title}
+        body={removeCopy.body}
         actions={promptActions(removeCopy, {
           remove: {
             onSelect: () => {

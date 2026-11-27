@@ -4,7 +4,8 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { chatRepository } from "@/lib/coding-readiness"
 import {
   SESSION_TREE_MAX_DEPTH,
   SESSION_TREE_MAX_SESSIONS,
@@ -26,6 +27,8 @@ import {
   mcpServers,
   messages,
   prompts,
+  pullRequestIssues,
+  pullRequests,
   repositories,
   sessionIssues,
   sessions,
@@ -2093,20 +2096,41 @@ async function startChild(
   })
 }
 
-/** A new root's repository: the explicit pick, else the first issue's board
- *  repository. */
-async function defaultRepository(tx: Tx, input: SessionsSendInput): Promise<string | null> {
+/** #EXP-2171 (coding-readiness.json `chatRepo`): a new root that names no
+ *  repository and starts on issues takes `chatRepository` over its FIRST
+ *  issue: that issue's newest live PR's repository, else its board's
+ *  default, else the team's only repository. A start without issues keeps
+ *  the caller's pick (the composers seed their chip with the same rule). */
+async function defaultRepository(tx: Tx, teamId: string, input: SessionsSendInput): Promise<string | null> {
   const firstIssue = input.issueIds?.[0]
-  if (firstIssue) {
-    const [board] = await tx
+  if (!firstIssue) return null
+  const [board, livePrs, teamRepos] = await Promise.all([
+    tx
       .select({ repositoryId: boards.repositoryId })
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(eq(issues.id, firstIssue))
-      .limit(1)
-    if (board?.repositoryId) return board.repositoryId
-  }
-  return null
+      .limit(1),
+    tx
+      .select({ repositoryId: pullRequests.repositoryId })
+      .from(pullRequestIssues)
+      .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
+      .where(and(eq(pullRequestIssues.issueId, firstIssue), inArray(pullRequests.state, [`open`, `draft`])))
+      .orderBy(desc(pullRequests.createdAt))
+      .limit(1),
+    tx
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(and(eq(repositories.teamId, teamId), isNull(repositories.archivedAt))),
+  ])
+  return chatRepository({
+    pick: null,
+    issue: {
+      livePrRepositoryIds: livePrs.map((row) => row.repositoryId),
+      boardRepositoryId: board[0]?.repositoryId ?? null,
+    },
+    teamRepositoryIds: teamRepos.map((row) => row.id),
+  })
 }
 
 async function startRoot(
@@ -2182,7 +2206,7 @@ async function startRoot(
         : input.text
     const title = input.name ?? prompt?.name
 
-    const repositoryId = input.repositoryId ?? (await defaultRepository(tx, input))
+    const repositoryId = input.repositoryId ?? (await defaultRepository(tx, teamId, input))
 
     const id = crypto.randomUUID()
     const root = await insertSession(tx, {

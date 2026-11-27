@@ -1648,6 +1648,46 @@ fn a_press_on_a_grabbing_layer_popup_over_a_title_bar_is_the_popups() {
     assert_eq!(click_a_panel_popup_over_a_close_button(true), (false, true), "(window closed, popup got the press)");
 }
 
+/// #EDE-250: at 200 % X11 apps draw at the full resolution and know it.
+/// Xwayland's root is the output in physical pixels, its windows show at
+/// half their X size (sharp, not stretched), and X11 apps are told the
+/// scale (`Xft.dpi` and `_XWAYLAND_GLOBAL_OUTPUT_SCALE`); a change of the
+/// scale reaches them live.
+#[cfg(feature = "xwayland")]
+#[test]
+fn x11_apps_draw_at_the_outputs_scale() {
+    use x11rb::{connection::Connection, protocol::xproto::{AtomEnum, ConnectionExt as _}};
+    let h = harness(&[(1280, 800)]);
+    h.ipc().set_output("HEADLESS-1", None, Some(2.0), None).unwrap();
+    let Some(conn) = xwayland(&h) else { return };
+    let root = conn.setup().roots[0].root;
+    let resources = |conn: &x11rb::rust_connection::RustConnection| {
+        let reply = conn.get_property(false, root, AtomEnum::RESOURCE_MANAGER, AtomEnum::STRING, 0, 1 << 16).unwrap().reply().unwrap();
+        String::from_utf8_lossy(&reply.value).to_string()
+    };
+    let wait = |what: &str, mut ok: Box<dyn FnMut() -> bool + '_>| {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !ok() {
+            assert!(Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    wait("Xft.dpi 192", Box::new(|| resources(&conn).contains("Xft.dpi:\t192")));
+    let atom = conn.intern_atom(false, b"_XWAYLAND_GLOBAL_OUTPUT_SCALE").unwrap().reply().unwrap().atom;
+    let global = conn.get_property(false, root, atom, AtomEnum::CARDINAL, 0, 1).unwrap().reply().unwrap();
+    assert_eq!(global.value32().and_then(|mut v| v.next()), Some(2));
+    wait("the root in physical pixels", Box::new(|| conn.get_geometry(root).unwrap().reply().unwrap().width == 1280));
+
+    let win = map_x11(&h, &conn, None);
+    let logical = h.with(move |ede| ede.desk.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == win)).and_then(|w| ede.desk.space.element_geometry(w)).unwrap().size);
+    assert_eq!((logical.w, logical.h), (160, 120), "a 320×240 X window is 160×120 on a 200 % output");
+
+    h.ipc().set_output("HEADLESS-1", None, Some(1.5), None).unwrap();
+    wait("Xft.dpi 144 after the change", Box::new(|| resources(&conn).contains("Xft.dpi:\t144")));
+    // Same size on screen, more X pixels per logical one: 160×120 at 1.5.
+    wait("the window keeps its size on screen", Box::new(|| conn.get_geometry(win).unwrap().reply().unwrap().width == 240));
+}
+
 /// Alt+drag from `from` to `to` with the button still held (the release
 /// is the caller's, [`release`]).
 fn alt_drag_hold(h: &Harness, from: (f64, f64), to: (f64, f64)) {

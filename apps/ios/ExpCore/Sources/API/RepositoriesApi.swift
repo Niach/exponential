@@ -1,8 +1,9 @@
 import Foundation
 
-// Mirrors apps/web/src/lib/trpc/repositories.ts. Repositories are server-only
-// (NOT an Electric shape) — read on demand by the settings registry and the
-// repo pickers.
+// Mirrors apps/web/src/lib/trpc/repositories.ts. #EXP-2171: the rows also
+// sync (the repositories shape, `RepositoryEntity`: the Teams tab); the
+// settings registry and the repo pickers still read `repositories.list` for
+// what stays server-side (boards, the sharer).
 
 /// A board backed by a repo (v4 `repositories.list().boards[]`). Powers the
 /// settings "used by" chips and mobile repo pickers.
@@ -157,6 +158,8 @@ private struct CreateRepoInput: Encodable {
     let name: String
     let defaultBranch: String
     let mirrorUrl: String?
+    /// #EXP-2171 (New › Repository): omitted when nil.
+    let description: String?
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -164,9 +167,10 @@ private struct CreateRepoInput: Encodable {
         try c.encode(name, forKey: .name)
         try c.encode(defaultBranch, forKey: .defaultBranch)
         try c.encode(mirrorUrl, forKey: .mirrorUrl)
+        try c.encodeIfPresent(description, forKey: .description)
     }
 
-    enum CodingKeys: String, CodingKey { case teamId, name, defaultBranch, mirrorUrl }
+    enum CodingKeys: String, CodingKey { case teamId, name, defaultBranch, mirrorUrl, description }
 }
 
 /// `repositories.setMirror`: `mirrorUrl: nil` is sent as an explicit null.
@@ -295,12 +299,15 @@ public final class RepositoriesApi: Sendable {
         teamId: String,
         name: String,
         defaultBranch: String,
-        mirrorUrl: String?
+        mirrorUrl: String?,
+        description: String? = nil
     ) async throws -> String? {
         let result: AddRepoResult = try await trpc.mutation(
             accountId: accountId,
             path: "repositories.create",
-            input: CreateRepoInput(teamId: teamId, name: name, defaultBranch: defaultBranch, mirrorUrl: mirrorUrl)
+            input: CreateRepoInput(
+                teamId: teamId, name: name, defaultBranch: defaultBranch, mirrorUrl: mirrorUrl, description: description
+            )
         )
         return result.repository?.id
     }

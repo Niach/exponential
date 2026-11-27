@@ -380,6 +380,7 @@ impl Ede {
             minimized: Vec::new(),
             workspaces: Default::default(),
             title_click: None,
+            swallowed_button: None,
             tile_preview: Default::default(),
         };
         tracing::info!("{name}: {width}x{height} for {}", owner.as_str());
