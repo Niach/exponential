@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -92,6 +93,7 @@ class RepoPageViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val api: RepositoriesApi,
     private val ciApi: CiApi,
+    ciPageSource: com.exponential.app.data.ci.CiPageSource,
 ) : ViewModel() {
 
     val repositoryId: String = savedStateHandle.get<String>("repositoryId").orEmpty()
@@ -126,6 +128,15 @@ class RepoPageViewModel @Inject constructor(
             else db.ciJobDao().observeByRepository(repositoryId).map { rows -> rows.map { it.toRepoCiJob() } }
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-2169 ("one look", ci-page-view.json `repositoryId` cases): THE CI
+     *  page's data for the Runs tab ([CiPageView.ciRepoRunsTree] scopes it to
+     *  this repository; its name = the repo's full name). Null until read. */
+    val ciPageInput: StateFlow<com.exponential.app.domain.CiPage.Input?> by lazy {
+        combine(ciPageSource.input, _state.map { it.repo?.fullName }.distinctUntilChanged()) { input, name ->
+            input.copy(repos = listOf(com.exponential.app.domain.CiPage.Repo(repositoryId, name ?: "")))
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }
 
     /** Owners own the default branch, the backups' Restore and the mirror. */
     val isOwner: StateFlow<Boolean> = combine(dbFlow, screenTeam, auth.userId) { db, team, user -> Triple(db, team, user) }

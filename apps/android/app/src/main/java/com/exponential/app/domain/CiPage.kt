@@ -14,7 +14,9 @@ object CiPage {
         const val TAB_RUNS = "Runs"
         const val TAB_TRAIN = "Merge train"
         const val TAB_RUNNERS = "Runners"
-        val FILTERS: Map<String, String> = linkedMapOf("all" to "All", "running" to "Running", "failed" to "Failed", "mine" to "Mine")
+        val FILTERS: Map<String, String> = linkedMapOf("all" to "All runs", "running" to "Running", "failed" to "Failed", "mine" to "Mine")
+        /** copy.filterLabels: the three pickers' labels (#EXP-2169). */
+        val FILTER_LABELS: Map<String, String> = linkedMapOf("status" to "Status", "repository" to "Repository", "source" to "Source")
         const val REPOSITORIES_ALL = "All repositories"
         const val SOURCES_ALL = "Every source"
         val SOURCES: Map<String, String> = linkedMapOf("exponential" to "Exponential", "github" to "GitHub Actions")

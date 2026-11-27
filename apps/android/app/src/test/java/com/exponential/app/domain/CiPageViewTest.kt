@@ -39,10 +39,17 @@ class CiPageViewTest {
     fun `the CI page tree is web's`() {
         val cases = golden.getValue("cases").jsonArray.map { it.jsonObject }
         assertTrue(cases.isNotEmpty())
+        assertTrue(cases.any { it.containsKey("repositoryId") })
         for (case in cases) {
             val world = when (case.str("world")) {
                 "empty" -> scenario.copy(runs = emptyList(), jobs = emptyList(), pullRequests = emptyList(), runners = emptyList())
                 else -> scenario
+            }
+            // A `repositoryId` case is the repo page's Runs tab (#EXP-2169).
+            if (case.containsKey("repositoryId") && case["repositoryId"] !is JsonNull) {
+                val phone = case.getValue("phone").jsonPrimitive.boolean
+                assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(CiPageView.ciRepoRunsTree(world, case.str("repositoryId")!!, phone)))
+                continue
             }
             val f = case.getValue("filter").jsonObject
             val state = CiPageView.State(

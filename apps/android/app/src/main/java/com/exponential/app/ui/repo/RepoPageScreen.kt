@@ -5,7 +5,11 @@ import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +49,6 @@ import com.exponential.app.data.api.RepoSettings
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.MergeTrain
-import com.exponential.app.domain.RepoCi
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.RepoPage
 import com.exponential.app.ui.components.DestructiveButton
@@ -72,7 +75,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
-import com.exponential.app.ui.work.MergeStatusPill
+import com.exponential.app.ui.ci.utcOffsetMinutes
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -107,6 +110,20 @@ internal fun ChecksPill(state: String, dotOnly: Boolean = false) {
     )
 }
 
+/** A checks rollup on a phone row: the `Chip{dot}`'s dot alone, its label
+ *  read out (repo-page.json PULL REQUESTS). */
+@Composable
+internal fun ChecksDot(state: String) {
+    val label = RepoPage.Copy.CHECKS[state]?.label ?: state
+    Box(
+        Modifier
+            .size(8.dp)
+            .background(checksDotColor(state), CircleShape)
+            .testTag("repo-checks")
+            .semantics { contentDescription = label },
+    )
+}
+
 /**
  * #EXP-1616 THE REPO PAGE (repo-page.json, view `repo`): the AppBar (back,
  * the repo's name, its provider pill) over the pill tabs Pull requests ·
@@ -126,6 +143,7 @@ fun RepoPageScreen(
     val isManager by viewModel.isManager.collectAsStateWithLifecycle()
     val ciRuns by viewModel.ciRuns.collectAsStateWithLifecycle()
     val ciJobs by viewModel.ciJobs.collectAsStateWithLifecycle()
+    val ciPageInput by viewModel.ciPageInput.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     var tab by rememberSaveable { mutableStateOf(viewModel.initialTab) }
     val repo = state.repo
@@ -156,7 +174,7 @@ fun RepoPageScreen(
                 testTag = { id -> "repo-tab-$id" },
             )
             when {
-                !state.loaded -> Column(Modifier.fillMaxWidth().glassGroup()) { SkeletonRows(rowHeight = 52.dp) }
+                !state.loaded -> SkeletonRows(rowHeight = 52.dp)
                 repo == null -> EmptyState(
                     title = "Repository not found",
                     icon = ExpIcons.settingsRepositories,
@@ -164,10 +182,17 @@ fun RepoPageScreen(
                 )
                 tab == RepoPage.TAB_PULLS -> PullsTab(prs)
                 tab == RepoPage.TAB_RUNS -> {
+                    val input = ciPageInput
                     // A pending run's duration ticks.
-                    val now = rememberTickingNow(ciRuns.any { it.state == "pending" && it.startedAt != null })
-                    val rows = remember(ciRuns, ciJobs, now) { RepoCi.runRows(ciRuns, ciJobs, now) }
-                    RepoRunsTab(rows, onOpenRun)
+                    val now = rememberTickingNow(input?.runs?.any { it.repositoryId == repo.id && it.state == "pending" } == true)
+                    if (input == null) {
+                        SkeletonRows(rowHeight = 52.dp)
+                    } else {
+                        val clocked = remember(input, now) {
+                            input.copy(now = Instant.ofEpochMilli(now).toString(), utcOffsetMinutes = utcOffsetMinutes(now))
+                        }
+                        RepoRunsTab(clocked, repo.id, onOpenRun)
+                    }
                 }
                 tab == RepoPage.TAB_BRANCHES -> BranchesTab(repo, state.branches, prs)
                 else -> SettingsTab(
@@ -200,8 +225,9 @@ fun RepoPageScreen(
     }
 }
 
-/** PULL REQUESTS: `repoPrTree` rows, nested with tree guides; each row's
- *  meta = the checks chip, then the merge-train status pill. */
+/** PULL REQUESTS: `repoPrTree` rows, nested with tree guides, as plain
+ *  Section rows (#EXP-2169: no card); each row's meta = the checks dot (its
+ *  label the description), then the merge-train Badge. */
 @Composable
 private fun PullsTab(prs: List<PullRequestEntity>) {
     val byId = remember(prs) { prs.associateBy { it.id } }
@@ -212,7 +238,7 @@ private fun PullsTab(prs: List<PullRequestEntity>) {
     }
     val trainIds = remember(prs) { prs.map { it.mergeTrainId } }
     PrList(
-        modifier = Modifier.glassGroup().testTag("repo-pulls"),
+        modifier = Modifier.testTag("repo-pulls"),
         rows = rows.map { row ->
             val pr = byId.getValue(row.id)
             PrListRow(
@@ -222,23 +248,21 @@ private fun PullsTab(prs: List<PullRequestEntity>) {
                 depth = row.depth,
                 subtitle = row.subtitle,
                 trailing = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         // Phones: the dot alone; its label is the description.
-                        row.checks?.let { ChecksPill(it, dotOnly = true) }
-                        MergeStatusPill(
-                            view = MergeTrain.statusPill(
-                                MergeTrain.StatusPillInput(
-                                    state = MergeTrain.prMergeState(pr.state, pr.mergeState),
-                                    wait = pr.mergeWait,
-                                    position = pr.mergePosition,
-                                    batchSize = MergeTrain.batchSize(pr.mergeTrainId, trainIds),
-                                    holdReason = pr.mergeHold,
-                                    stack = false,
-                                    checks = 0,
-                                ),
+                        row.checks?.let { ChecksDot(it) }
+                        val pill = MergeTrain.statusPill(
+                            MergeTrain.StatusPillInput(
+                                state = MergeTrain.prMergeState(pr.state, pr.mergeState),
+                                wait = pr.mergeWait,
+                                position = pr.mergePosition,
+                                batchSize = MergeTrain.batchSize(pr.mergeTrainId, trainIds),
+                                holdReason = pr.mergeHold,
+                                stack = false,
+                                checks = 0,
                             ),
-                            onClick = null,
                         )
+                        GlassPill(pill.label, size = PillSize.Sm, modifier = Modifier.testTag(MergeTrain.TestIds.STATUS_PILL))
                     }
                 },
             )
@@ -251,7 +275,7 @@ private fun PullsTab(prs: List<PullRequestEntity>) {
 @Composable
 private fun BranchesTab(repo: TeamRepo, branches: List<Pair<String, String>>?, prs: List<PullRequestEntity>) {
     if (branches == null) {
-        Column(Modifier.fillMaxWidth().glassGroup()) { SkeletonRows(rowHeight = 52.dp) }
+        SkeletonRows(rowHeight = 52.dp)
         return
     }
     val rows = remember(branches, prs, repo.defaultBranch) {
@@ -262,7 +286,8 @@ private fun BranchesTab(repo: TeamRepo, branches: List<Pair<String, String>>?, p
         return
     }
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    Column(Modifier.fillMaxWidth().glassGroup().testTag("repo-branches")) {
+    // #EXP-2169: plain Section rows, no card.
+    Column(Modifier.fillMaxWidth().testTag("repo-branches")) {
         rows.forEachIndexed { index, row ->
             if (index > 0) GroupDivider()
             Row(

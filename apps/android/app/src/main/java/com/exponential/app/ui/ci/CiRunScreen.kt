@@ -2,7 +2,6 @@ package com.exponential.app.ui.ci
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +22,7 @@ import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.CiRunView
 import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.rememberTickingNow
 import kotlinx.serialization.json.JsonPrimitive
@@ -102,13 +102,25 @@ fun CiRunPage(
     onOpenExternal: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize().statusBarsPadding()) {
-        // ci-run-view.json: phones put `name #n` over the repository in the header.
-        val header = run?.let { CiRunView.ciRunHeader(it, repository) }
-        PageHeader(title = header?.first.orEmpty(), subtitle = header?.second, onBack = onBack, buttons = false)
+    // #EXP-2169 ("one look"): the pushed page's frame (the repo page's, the
+    // settings pages'): the pinned header over the scrolling body.
+    // ci-run-view.json: phones put `name #n` over the repository in the header.
+    val header = run?.let { CiRunView.ciRunHeader(it, repository) }
+    PinnedScaffold(
+        modifier = modifier,
+        topBar = {
+            PageHeader(
+                title = header?.first.orEmpty(),
+                subtitle = header?.second,
+                onBack = onBack,
+                buttons = false,
+                modifier = Modifier.statusBarsPadding(),
+            )
+        },
+    ) { padding ->
         if (run == null) {
-            SkeletonRows(rows = 4)
-            return@Column
+            Column(Modifier.padding(padding)) { SkeletonRows(rows = 4) }
+            return@PinnedScaffold
         }
         val tree = remember(run, jobs, selectedJobId, log, nowMs, busy, repository, pullRequest, author, jobOpen) {
             CiRunView.ciRunTree(
@@ -118,8 +130,8 @@ fun CiRunPage(
         }
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+                .padding(padding)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
                 .testTag(CiRun.TestIds.PAGE),
