@@ -12,8 +12,9 @@
 // never needs to (recipes carry only visuals, sizes and spacing).
 
 import { QR_SCANNER } from "./round5"
+import { CODE_BLOCK_GEOMETRY, LOG_VIEW } from "./ci"
 import { LAYOUT_CONSTANTS } from "../layout"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
+import { ANIMATION_NAMES, CI_STATUS_SPIN_MS, ANIMATION_PROPERTIES_CSS, EXIT_ANIMATION_NAMES, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
  *  `shimmer` utility): the glyphs clip a gradient of the text colour that
@@ -26,9 +27,55 @@ const SHIMMER_CSS = `@keyframes xui-shimmer{from{background-position:100% 0}to{b
 [data-xui-mode="dark"] [data-xui-shimmer]{--_highlight:oklch(from currentColor min(1, max(${S.highlightLightnessMin}, calc(l + ${S.highlightLightnessBoost}))) c h / min(1, calc(alpha + ${S.highlightAlphaBoost})))}
 [dir="rtl"] [data-xui-shimmer]{animation-direction:reverse}`
 
+/** #EXP-2204 (docs/ci-components-contract.md §4–§6): LogLines (the toolbar
+ *  over the windowed log: rows never wrap, the body scrolls both ways, a
+ *  step row stays the body's width while the lines scroll sideways),
+ *  JobGraph (absolute nodes over the hover connectors, the list below md)
+ *  and THE running glyph's spin (one linear turn per `ciStatus.spinMs`). */
+const CI_CSS = `[data-xui-c="LogLines"].xui-el{flex-direction:column;min-width:0;min-height:0;flex:1 1 auto}
+.xui-LogLines-toolbar{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:var(--xui-spacing-sm);min-width:0;flex-shrink:0;height:auto !important;min-height:var(--xui-control-input)}
+.xui-LogLines-search{flex:0 1 auto;width:${LOG_VIEW.searchWidth}px;min-width:0;margin:0;outline:none;appearance:none;-webkit-appearance:none}
+.xui-LogLines-search::-webkit-search-cancel-button{display:none}
+.xui-LogLines-count{flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+.xui-LogLines-prev,.xui-LogLines-next,.xui-LogLines-follow,.xui-LogLines-timestamps{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;white-space:nowrap;cursor:pointer;user-select:none}
+.xui-LogLines-prev:disabled,.xui-LogLines-next:disabled{cursor:default;pointer-events:none}
+.xui-LogLines-prev>svg,.xui-LogLines-next>svg{width:16px;height:16px}
+.xui-log-find{display:flex;flex-direction:row;align-items:center;gap:var(--xui-spacing-sm);flex:1 1 auto;min-width:0}
+.xui-log-toggles{display:flex;flex-direction:row;align-items:center;gap:var(--xui-spacing-sm);flex-shrink:0;margin-inline-start:auto}
+.xui-LogLines-body{display:block;box-sizing:content-box;height:calc(var(--xui-log-lines) * 1lh);flex:1 1 auto;min-height:0;min-width:0;overflow:auto;outline:none;white-space:pre;tab-size:2}
+.xui-log-rows{display:block;width:max-content;min-width:100%}
+.xui-log-gap{display:block}
+.xui-LogLines-section{display:flex;flex-direction:row;align-items:center;position:sticky;inset-inline-start:0;width:var(--xui-log-width,100%);cursor:pointer;user-select:none;white-space:nowrap;outline:none}
+.xui-LogLines-section:focus-visible{box-shadow:inset 0 0 0 2px var(--xui-color-ring)}
+.xui-LogLines-chevron,.xui-LogLines-sectionIcon{display:inline-flex;flex-shrink:0}
+.xui-LogLines-chevron>svg,.xui-LogLines-sectionIcon>svg,.xui-JobGraph-icon>svg,.xui-JobGraph-chevron>svg{width:100%;height:100%}
+[dir="rtl"] .xui-LogLines-chevron[data-r-open="false"]{scale:-1 1}
+.xui-LogLines-sectionTitle{flex:0 1 auto;min-width:0;overflow:clip;text-overflow:ellipsis}
+.xui-LogLines-sectionMeta{margin-inline-start:auto;flex-shrink:0;font-variant-numeric:tabular-nums}
+.xui-LogLines-line{display:flex;flex-direction:row;height:1lh}
+.xui-log-indent{flex-shrink:0;width:${LOG_VIEW.indent}px}
+.xui-LogLines-gutter{box-sizing:content-box;display:inline-flex;justify-content:flex-end;flex-shrink:0;user-select:none;text-decoration:none;cursor:pointer;outline:none;font-variant-numeric:tabular-nums}
+.xui-LogLines-gutter:focus-visible{box-shadow:inset 0 0 0 2px var(--xui-color-ring);border-radius:2px}
+.xui-LogLines-time{box-sizing:content-box;min-width:8ch;flex-shrink:0;user-select:none;font-variant-numeric:tabular-nums}
+.xui-LogLines-code{flex:0 0 auto;min-width:calc(var(--xui-log-cols,0) * 1ch)}
+[data-xui-c="JobGraph"].xui-el{flex-direction:column;min-width:0;overflow-x:auto;overflow-y:clip}
+.xui-jobgraph-canvas{position:relative;flex-shrink:0}
+.xui-JobGraph-stage{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:clip;text-overflow:ellipsis}
+.xui-jobgraph-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.xui-JobGraph-edge{fill:none;stroke:currentColor}
+.xui-JobGraph-node{position:absolute;display:flex;flex-direction:row;align-items:center;cursor:pointer;outline:none;text-align:start}
+.xui-JobGraph-row{display:flex;flex-direction:row;align-items:center;width:100%;flex-shrink:0;cursor:pointer;outline:none;text-align:start}
+.xui-JobGraph-node:focus-visible,.xui-JobGraph-row:focus-visible{box-shadow:0 0 0 2px var(--xui-color-ring)}
+.xui-JobGraph-row:focus-visible{box-shadow:inset 0 0 0 2px var(--xui-color-ring)}
+.xui-JobGraph-icon,.xui-JobGraph-chevron{display:inline-flex;flex-shrink:0}
+.xui-JobGraph-name{flex:1 1 auto;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap}
+.xui-JobGraph-meta{flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+[data-xui-ci-spin]>svg{animation:xui-ci-spin ${CI_STATUS_SPIN_MS}ms linear infinite}
+@keyframes xui-ci-spin{to{rotate:360deg}}`
+
 /** EXP-1259: under reduce motion nothing scales (a pressed button stays
  *  put) and a placeholder holds still at its reduced opacity. */
-const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important;background-image:none !important;-webkit-text-fill-color:currentColor !important}.xui-surface [data-xui-c="Button"].xui-el:active,.xui-surface [data-xui-c="Button"][data-hold][data-xs~="pressed"].xui-el{scale:none !important}.xui-surface .xui-QrScanner-scanLine{animation:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
+const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important;background-image:none !important;-webkit-text-fill-color:currentColor !important}.xui-surface [data-xui-c="Button"].xui-el:active,.xui-surface [data-xui-c="Button"][data-hold][data-xs~="pressed"].xui-el{scale:none !important}.xui-surface .xui-QrScanner-scanLine{animation:none !important}.xui-surface [data-xui-ci-spin]>svg{animation:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
 
 /** Round 2 §2: the `animation` key's keyframe sets (style.json
  *  `animations`; the individual `translate`/`rotate`/`scale` properties
@@ -508,8 +555,18 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-codeblock-pre>code{font:inherit;display:block}
 .xui-CodeBlock-line{display:flex;flex-direction:row}
 .xui-codeblock-text{flex:0 1 auto;min-width:0}
-.xui-CodeBlock-gutter{display:flex;flex-direction:row;justify-content:flex-end;flex-shrink:0;user-select:none}
+.xui-CodeBlock-gutter{box-sizing:content-box;display:flex;flex-direction:row;justify-content:flex-end;flex-shrink:0;user-select:none}
 .xui-CodeBlock-lineNumber{display:block}
+.xui-codeblock-scroll{min-height:0}
+.xui-CodeBlock-line{position:relative}
+a.xui-CodeBlock-lineNumber{color:inherit;text-decoration:none;cursor:pointer;outline:none;border-radius:2px}
+a.xui-CodeBlock-lineNumber:focus-visible{outline:2px solid var(--xui-color-ring);outline-offset:0}
+.xui-codeblock-gap{display:block}
+.xui-CodeBlock-blame{display:flex;flex-direction:row;align-items:center;flex-shrink:0;width:${CODE_BLOCK_GEOMETRY.blameWidth}px;min-width:0;user-select:none;white-space:nowrap}
+.xui-CodeBlock-blame[data-border]::before{content:"";position:absolute;top:0;inset-inline:0;border-top:1px solid;border-top-color:inherit;pointer-events:none}
+.xui-CodeBlock-blameAuthor{flex:0 1 auto;min-width:0;overflow:clip;text-overflow:ellipsis}
+.xui-CodeBlock-blameAge{margin-inline-start:auto;flex-shrink:0}
+${CI_CSS}
 [data-xui-c="Table"].xui-el{flex-direction:column;min-width:0;overflow:auto}
 .xui-Table-header{display:flex;flex-direction:column}
 .xui-Table-header[data-sticky="true"]{position:sticky;top:0;z-index:1}

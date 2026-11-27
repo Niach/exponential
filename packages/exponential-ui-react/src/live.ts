@@ -33,6 +33,10 @@ export interface NodeDeps {
  *  `data-xui-mode` in CSS. */
 const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`, `VoiceWave`, `Embed`])
 
+/** #EXP-2204: the natives that read `ctx.breakpoint` while painting
+ *  (JobGraph's list below `md`). */
+const BREAKPOINT_READERS = new Set([`JobGraph`])
+
 /** The client functions that read nothing but their arguments. */
 const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `formatString`))
 
@@ -105,7 +109,7 @@ export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue):
     Object.values(node.slots ?? {}).some((slot) => collect(slot.visible, scope, paths, ctx.functions))
   if (node.template) paths.push(absolutePath(node.template.path, scope))
   const unique = [...new Set(paths)]
-  return { paths: unique, tokens: unique.map(pointerTokens), all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }
+  return { paths: unique, tokens: unique.map(pointerTokens), all, breakpoint: hosted || BREAKPOINT_READERS.has(node.component) || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }
 }
 
 const INDEX = /^[0-9]+$/

@@ -23,6 +23,7 @@ import {
   CircleArrowUp,
   CircleCheck,
   CircleDashed,
+  CircleSlash,
   CircleStop,
   CircleX,
   Clock,
@@ -118,6 +119,12 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   "ui-menu": Menu,
   "ui-search": Search,
   "ui-icon-placeholder": CircleDashed,
+  // #EXP-2204: THE CI status table (style.json `ciStatus`).
+  "ci-passed": CircleCheck,
+  "ci-failed": CircleX,
+  "ci-running": LoaderCircle,
+  "ci-queued": CircleDashed,
+  "ci-skipped": CircleSlash,
   // VAPP-162: the round-5 pieces (MessageBubble, CallSurface, QrScanner, the hold button).
   "ui-read": CheckCheck,
   "ui-scan": ScanLine,

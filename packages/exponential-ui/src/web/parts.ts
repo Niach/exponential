@@ -29,6 +29,8 @@ export const PLACED: Readonly<Record<string, readonly string[]>> = {
   Tooltip: [`anchor`],
   FileUpload: [`label`, `dropzone`, `icon`, `title`, `hint`, `browse`, `description`],
   CodeBlock: [`header`, `title`, `copy`, `body`],
+  // #EXP-2204: the LogLines toolbar and body (rows are per item: `.line.<n>`).
+  LogLines: [`toolbar`, `search`, `count`, `prev`, `next`, `follow`, `timestamps`, `body`],
   AudioPlayer: [`track`, `controls`],
   Video: [`controls`],
   Image: [`fallback`],

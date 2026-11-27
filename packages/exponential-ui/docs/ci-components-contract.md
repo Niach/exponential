@@ -345,3 +345,26 @@ gains `anchors · selection L9-L11` and `gutter · blame` (src/train.ts,
 three blocks). The kitchen sink does NOT hold LogView or JobGraph yet
 (the web baseline and Compose goldens need re-recording first); the
 coverage tests exempt them. No `views.json` entries yet.
+
+**Web renderers** (React + Solid, one DOM; the painting helpers are
+`@exponential_app/eui/web` `ci.ts`: `ciSegments` splits a line's ansi
+tokens at its search marks, `ciWindow` = the core's `virtualWindow` over
+fixed rows, `ciRevealOffset` = the top third, `ciCompact` = below `md`).
+- LogLines rows are fixed: a step row = the `section` recipe's `height`
+  (40 on every theme), a line = the `line` recipe's `lineHeight`; the body is `maxLines` × that tall plus its
+  padding. A match across tokens wraps them in ONE `match` box; a
+  prefixed line's tokens take the line's `kind`.
+- The toolbar is two groups (find: search, count, prev, next; toggles:
+  Follow, Timestamps, end-aligned) and wraps the toggles onto a second row
+  when the box is too narrow (a phone).
+- A step row stays the body's width (sticky at the inline start) while
+  long lines scroll sideways; every line row is as wide as the widest line
+  (`ciColumns`), so the horizontal scroll never changes with the window.
+- Typing a query reveals its first match; stepping reveals only a match
+  out of view; a selection (from outside or the first one) always lands in
+  the top third. A press on a line number turns Follow off too (it would
+  scroll the pressed line away otherwise).
+- JobGraph list rows flow (the `row` recipe's height, 40), the graph nodes are
+  absolute from `jobGraphLayout`; a selected node is `aria-current`.
+- CodeBlock's gutter (and LogLines') is content-box: `minWidth` = the
+  widest number + 1 ch of TEXT, so numbers right-align past 9.

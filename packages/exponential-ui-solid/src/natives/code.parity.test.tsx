@@ -28,4 +28,19 @@ describe(`DOM parity: CodeBlock`, { timeout: 60_000 }, () => {
     await expectDomParity({ tree })
     await expectDomParity({ tree, theme: `exponential`, mode: `dark`, direction: `rtl`, locale: `de-AT` })
   })
+  // #EXP-2204: anchors + a bound selection, the blame gutter, a windowed block.
+  it(`CodeBlock: anchors + selection, gutter blame, a windowed self-scrolling block`, async () => {
+    const long = Array.from({ length: 80 }, (_, i) => `const v${i} = ${i}`).join(`\n`)
+    const tree = {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `a`, component: `CodeBlock`, props: { code: `one\ntwo\nthree\nfour`, language: `ts`, anchors: true, selection: { "@path": `/sel` } } },
+        { id: `b`, component: `CodeBlock`, props: { code: `one\ntwo\nthree\nfour\nfive`, language: `ts`, lineNumbers: true, gutter: `blame`, blame: [{ start: 1, author: `Ada Lovelace`, age: `3 weeks ago` }, { start: 4, author: `Grace Hopper`, age: `2 days ago` }] } },
+        { id: `c`, component: `CodeBlock`, props: { code: long, language: `ts`, maxLines: 8, anchors: true, selection: `L40-L42` } },
+      ],
+    } as unknown as NestedNode
+    await expectDomParity({ tree, data: { sel: `L2-L3` } })
+    await expectDomParity({ tree, data: { sel: `L2` }, theme: `exponential`, mode: `dark`, direction: `rtl` })
+  })
 })
