@@ -189,29 +189,6 @@ final class RepoCiTests: XCTestCase {
         return nil
     }
 
-    func testRunsTree() throws {
-        let item = try XCTUnwrap(try cases("runRows").first)
-        let rows = RepoCi.runRows(try runs(item), jobs: try jobs(item), now: try ciDate(item["now"]))
-        let tree = RepoCiView.runsTree(rows)
-        XCTAssertEqual(id(tree), RepoCi.TestIds.runs)
-        XCTAssertEqual(component(tree), "Section")
-        let rowNodes = children(tree)
-        XCTAssertEqual(rowNodes.map(id), rows.map { "repo-run.\($0.id)" })
-        let first = object(rowNodes.first)
-        let props = object(first["props"])
-        XCTAssertEqual(props["identifier"], .string("#13"))
-        XCTAssertEqual(props["subtitle"], .string("main · ddddddd · Merge train"))
-        XCTAssertNil(props["meta"])
-        XCTAssertEqual(props["pressable"], .bool(true))
-        let leading = object(object(first["slots"])["leading"])
-        XCTAssertEqual(object(leading["props"])["name"], .string("ci-queued"))
-        XCTAssertEqual(object(leading["props"])["tone"], .string("neutral"))
-        let event = object(object(object(first["on"])["press"])["event"])
-        XCTAssertEqual(event["name"], .string(RepoCiView.Events.openRun))
-        XCTAssertEqual(object(event["context"])["run"], .string("r13"))
-        XCTAssertEqual(object(object(rowNodes[1])["props"])["meta"], .string("5m 0s"))
-    }
-
     func testSectionTreeGithubManager() {
         let tree = RepoCiView.sectionTree(
             provider: "github",

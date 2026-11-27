@@ -11,7 +11,8 @@ public enum CiPage {
     public enum Copy {
         public static let title = "CI"
         public static let tabs: [String: String] = ["runs": "Runs", "train": "Merge train", "runners": "Runners"]
-        public static let filters: [String: String] = ["all": "All", "running": "Running", "failed": "Failed", "mine": "Mine"]
+        public static let filters: [String: String] = ["all": "All runs", "running": "Running", "failed": "Failed", "mine": "Mine"]
+        public static let filterLabels: [String: String] = ["status": "Status", "repository": "Repository", "source": "Source"]
         public static let allRepositories = "All repositories"
         public static let sources: [String: String] = ["all": "Every source", "exponential": "Exponential", "github": "GitHub Actions"]
         public static let columns: [String: String] = [
