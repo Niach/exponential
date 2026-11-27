@@ -87,7 +87,7 @@ type PrRow = typeof pullRequests.$inferSelect
 type RunRow = typeof mergeTrains.$inferSelect
 type RepoRow = Pick<
   typeof repositories.$inferSelect,
-  `id` | `teamId` | `fullName` | `defaultBranch` | `defaultBranchOverride`
+  `id` | `teamId` | `fullName` | `defaultBranch` | `defaultBranchOverride` | `provider`
 > & { installationId: number | null; ciConfig?: RepositoryCiConfig | null }
 
 const backoff = new Map<string, number>()
@@ -102,8 +102,10 @@ function toMergePr(pr: PrRow): MergePr {
   }
 }
 
+// #EXP-2170: the provider picks the forge (forgeFor): without it a hosted
+// repo got GitHub's, whose reads 404, so its train never started a run.
 function forgeRepo(repo: RepoRow): ForgeRepo {
-  return { id: repo.id, fullName: repo.fullName, installationId: repo.installationId }
+  return { id: repo.id, fullName: repo.fullName, installationId: repo.installationId, ...(repo.provider ? { provider: repo.provider } : {}) }
 }
 
 // ── one PR edge ──────────────────────────────────────────────────────────
@@ -1034,6 +1036,7 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
       teamId: repositories.teamId,
       fullName: repositories.fullName,
       installationId: repoInstallationId(),
+      provider: repositories.provider,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       ciConfig: repositories.ciConfig,
@@ -1392,6 +1395,7 @@ export async function landDirectForTests(repositoryId: string, runId: string): P
       teamId: repositories.teamId,
       fullName: repositories.fullName,
       installationId: repoInstallationId(),
+      provider: repositories.provider,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
       ciConfig: repositories.ciConfig,

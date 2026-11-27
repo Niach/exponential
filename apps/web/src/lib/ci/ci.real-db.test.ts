@@ -116,6 +116,30 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
     expect((await plan(`c`.repeat(40))).started).toBe(true)
   })
 
+  // #EXP-2170: every daemon advertises `ecode-jobs`; only a device whose
+  // owner turned its runner on gets a repository's jobs (code + a job token).
+  it(`repository jobs go only to a runner its owner turned on`, async () => {
+    const { pickJobDevice } = await import(`@/lib/ecode/jobs`)
+    const f = await fixture()
+    await db.update(devices).set({ caps: [runs.CI_RUNNER_CAP, `ecode-jobs`], lastSeenAt: new Date(Date.now() - 30_000) }).where(eq(devices.id, f.deviceRowId))
+    // Another member's daemon, seen just now, set up for something else.
+    const otherId = `u-${crypto.randomUUID()}`
+    await db.insert(users).values({ id: otherId, name: `other`, email: `other-${f.slug}@example.com` })
+    madeUsers.push(otherId)
+    await db.insert(teamMembers).values({ teamId: f.teamId, userId: otherId, role: `member` })
+    const [other] = await db
+      .insert(devices)
+      .values({ userId: otherId, deviceId: `dev-other-${f.slug}`, label: `lab`, kind: `server`, platform: `linux`, caps: [runs.CI_RUNNER_CAP, `ecode-jobs`], lastSeenAt: new Date() })
+      .returning({ id: devices.id })
+    expect((await pickJobDevice(f.teamId))?.rowId).toBe(f.deviceRowId)
+    // Its runner off too: no device at all, never the lab box.
+    await db.update(devices).set({ runner: { enabled: false, labels: [], slots: 1, timeoutMin: 60 } }).where(eq(devices.id, f.deviceRowId))
+    expect(await pickJobDevice(f.teamId)).toBeNull()
+    // The lab box's owner turns its runner on: now it may run them.
+    await db.update(devices).set({ runner: { enabled: true, labels: [], slots: 1, timeoutMin: 60 } }).where(eq(devices.id, other!.id))
+    expect((await pickJobDevice(f.teamId))?.rowId).toBe(other!.id)
+  })
+
   it(`a push to a PR cancels the older head's unfinished run`, async () => {
     const f = await fixture()
     const [pr] = await db
