@@ -81,6 +81,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/new/repository",
+      "reason": "#EXP-2171's New › Repository page landed without a view (its pictures ride #3652); a `new-repository` view with shots per platform is a follow-up."
+    },
+    {
       "route": "/ci",
       "reason": "#EXP-2172: live runs on every client; the `ci` view shoots ci-page.json's scenario (`?dev=ci`) so ×5 show the same state."
     },
