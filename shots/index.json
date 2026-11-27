@@ -2366,6 +2366,15 @@
         "sha256": "a7880c49e9479c9bcfe9e1e5dc7cdc0c413fdb08a87b3e8a3af45edd5a85648b"
       }
     },
+    "ede-taskbar-menu": {
+      "ede": {
+        "file": "shots/ede-taskbar-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 11546,
+        "sha256": "c629fff69ef9270b8841798b282260770af801c6fb4c9d46da19982171ce8352"
+      }
+    },
     "ede-window-menu": {
       "ede": {
         "file": "shots/ede-window-menu/ede.webp",

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-ede-taskbar-drag`,
+    date: `2026-11-27`,
+    title: `Taskbar buttons you can drag, and windows that ask for you`,
+    summary: `On Exponential Desktop you drag taskbar buttons into your own order, a window that needs you flashes its button, and the button's menu puts a window on every workspace.`,
+    body: `- **Drag to reorder**: drag a taskbar button onto another to move it there. Pinned apps keep their new order after a restart; pinned and running apps stay in their own groups, as on Cinnamon.
+- **Windows that need you**: when a window asks for attention (a chat message, a finished download, an app that may not take the focus by itself), its button flashes and stays highlighted until you look at it. A click brings that window forward.
+- **Visible on all workspaces**: right click a button for Visible on all workspaces, or Only on this workspace for a window that is already there.`,
+  },
+  {
     id: `2026-11-27-ede-cu-stop-parks`,
     date: `2026-11-27`,
     title: `Stop in the computer-use tray stays stopped`,

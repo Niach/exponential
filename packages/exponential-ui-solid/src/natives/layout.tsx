@@ -221,7 +221,7 @@ export function ListNative(props: NativeProps): JSX.Element {
   const itemRole = () => (listRole() === `tree` ? `treeitem` : `listitem`)
   // EXP-1832 (fixtures/list-reorder.json, React's): a vertical
   // `reorderable` List's items carry the web controller's DOM contract.
-  const reorderable = () => bool(props.props.reorderable) && !horizontal()
+  const reorderable = () => bool(props.props.reorderable)
   // genUI round 4 (fixtures/board-drop.json, React's): a Board column trades
   // rows with its sibling columns; the TARGET column's List fires `move`.
   const board = () => (reorderable() && typeof props.props.board === `string` && props.props.board ? (props.props.board as string) : undefined)
@@ -250,7 +250,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     const start = listReorderStart(root, e.target)
     if (!start) return
     const maxDepth = Math.max(1, Math.floor(num(untrack(() => props.props.maxDepth), 1)))
-    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth, board: untrack(board) ? root : undefined }, { move: (context) => void props.emit(`move`, context) })
+    startListDrag(e, start.key, { rows: () => listReorderRows(root), maxDepth, board: untrack(board) ? root : undefined, axis: untrack(horizontal) ? `horizontal` : `vertical`, rtl: untrack(rtl) }, { move: (context) => void props.emit(`move`, context) })
   }
   const divider = (r: number) => {
     const before = dividerBefore(r)

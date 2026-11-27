@@ -6,6 +6,10 @@
 // renderer shows: the dragged row dims, a lifted copy follows the pointer, a
 // 2px primary line marks before/after (from the row's indent, a small ring at
 // its start) and a primary ring + faint fill marks into. Esc cancels.
+// #EDE-255: a horizontal List (`axis: horizontal`) drags along x: the rows'
+// left/width are the rule's top/height (mirrored under rtl), the line
+// stands across a row's leading/trailing edge with its ring on top, and the
+// lifted copy follows the pointer along x, 12px below the row.
 
 import { TAB_DRAG_THRESHOLD, TAB_LONG_PRESS_MS } from "../layout"
 import { boardDropSlot, listDropSlot, listMoveContext, type BoardColumn, type BoardDrop, type ListDrop, type ListMoveContext, type ListReorderRow } from "../list-reorder"
@@ -49,7 +53,24 @@ export interface ListDragSource {
   board?: Element
   /** The paint colour (a CSS colour; default the genUI primary). */
   color?: string
+  /** #EDE-255: the List's axis (default vertical) and, for a horizontal
+   *  one, whether it runs right to left. */
+  axis?: `vertical` | `horizontal`
+  rtl?: boolean
 }
+
+/** The List's axis: a box's (start, extent) and a pointer's place along it. */
+interface Axis {
+  span: (rect: DOMRect) => { top: number; height: number }
+  at: (x: number, y: number) => number
+}
+
+const axisOf = (source: ListDragSource): Axis =>
+  source.axis !== `horizontal`
+    ? { span: (r) => ({ top: r.top, height: r.height }), at: (_x, y) => y }
+    : source.rtl
+      ? { span: (r) => ({ top: -r.right, height: r.width }), at: (x) => -x }
+      : { span: (r) => ({ top: r.left, height: r.width }), at: (x) => x }
 
 export interface ListDragHandlers {
   /** The drop: the `move` context {id, before | after | into}. Not called
@@ -59,12 +80,13 @@ export interface ListDragHandlers {
   state?: (state: { key: string; drop: ListDrop | null } | null) => void
 }
 
-const rowOf = (el: HTMLElement): ListReorderRow => {
+const rowOf = (el: HTMLElement, axis?: Axis): ListReorderRow => {
   const rect = el.getBoundingClientRect()
+  const { top, height } = axis ? axis.span(rect) : { top: rect.top, height: rect.height }
   return {
     key: el.getAttribute(REORDER_KEY_ATTR) ?? ``,
-    top: rect.top,
-    height: rect.height,
+    top,
+    height,
     depth: Number(el.getAttribute(REORDER_DEPTH_ATTR) ?? 0) || 0,
     group: el.getAttribute(REORDER_GROUP_ATTR) === `true`,
   }
@@ -94,8 +116,12 @@ export function listReorderStart(root: Element, target: EventTarget | null): { k
 }
 
 /** The indicator's box in viewport px for a drop over `row`. */
-export function listDropBox(row: DOMRect, indent: number, drop: ListDrop): { left: number; top: number; width: number; height: number } {
+export function listDropBox(row: DOMRect, indent: number, drop: ListDrop, axis: `vertical` | `horizontal` = `vertical`, rtl = false): { left: number; top: number; width: number; height: number } {
   if (drop.position === `into`) return { left: row.left, top: row.top, width: row.width, height: row.height }
+  if (axis === `horizontal`) {
+    const x = (drop.position === `before`) !== rtl ? row.left : row.right
+    return { left: x - LIST_DROP_LINE / 2, top: row.top, width: LIST_DROP_LINE, height: row.height }
+  }
   const y = drop.position === `before` ? row.top : row.bottom
   return { left: row.left + indent, top: y - LIST_DROP_LINE / 2, width: Math.max(row.width - indent, 0), height: LIST_DROP_LINE }
 }
@@ -111,6 +137,8 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
   const startY = e.clientY
   const touch = e.pointerType === `touch`
   const color = source.color ?? `var(--xui-color-primary)`
+  const horizontal = source.axis === `horizontal`
+  const axis = axisOf(source)
   let armed = !touch
   let timer: ReturnType<typeof setTimeout> | undefined
   let drag: { els: HTMLElement[]; rows: ListReorderRow[]; dragged: HTMLElement; ghost: HTMLElement; indicator: HTMLElement; offsetX: number; offsetY: number; drop: ListDrop | null } | null = null
@@ -127,8 +155,8 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     ghost.removeAttribute(REORDER_KEY_ATTR)
     Object.assign(ghost.style, {
       position: `fixed`,
-      left: `${rect.left + 12}px`,
-      top: `${rect.top}px`,
+      left: `${horizontal ? rect.left : rect.left + 12}px`,
+      top: `${horizontal ? rect.top + 12 : rect.top}px`,
       width: `${rect.width}px`,
       height: `${rect.height}px`,
       margin: `0`,
@@ -153,7 +181,7 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     // A press-and-drag would select the rows' text.
     window.getSelection()?.removeAllRanges()
     dragged.style.opacity = String(LIST_DRAG_DIM)
-    drag = { els, rows: els.map(rowOf), dragged, ghost, indicator, offsetX: startX - rect.left, offsetY: startY - rect.top, drop: null }
+    drag = { els, rows: els.map((el) => rowOf(el, axis)), dragged, ghost, indicator, offsetX: startX - rect.left, offsetY: startY - rect.top, drop: null }
     const name = source.board?.getAttribute(REORDER_BOARD_ATTR)
     if (name) {
       const lists = Array.from((source.board!.closest(`.xui-surface`) ?? document).querySelectorAll(`[${REORDER_BOARD_ATTR}]`)).filter((l) => l.getAttribute(REORDER_BOARD_ATTR) === name)
@@ -163,7 +191,7 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
         els: rowsOf,
         columns: lists.map((l, i) => {
           const r = l.getBoundingClientRect()
-          return { key: String(i), left: r.left, width: r.width, rows: rowsOf[i].map(rowOf) }
+          return { key: String(i), left: r.left, width: r.width, rows: rowsOf[i].map((el) => rowOf(el)) }
         }),
         drop: null,
       }
@@ -192,7 +220,7 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     const el = target ? rows.find((row) => row.getAttribute(REORDER_KEY_ATTR) === target.key) : null
     if (drop && !el) return
     const indent = el ? Number(el.getAttribute(REORDER_INDENT_ATTR) ?? 0) || 0 : 0
-    const box = el && drop ? listDropBox(el.getBoundingClientRect(), indent, drop) : listDropBox(empty!.getBoundingClientRect(), 0, { key: ``, position: `into` })
+    const box = el && drop ? listDropBox(el.getBoundingClientRect(), indent, drop, board ? `vertical` : (source.axis ?? `vertical`), source.rtl) : listDropBox(empty!.getBoundingClientRect(), 0, { key: ``, position: `into` })
     drop ??= { key: ``, position: `into` }
     Object.assign(ind.style, { display: `block`, left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` })
     ind.replaceChildren()
@@ -203,8 +231,8 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
       const ring = document.createElement(`div`)
       Object.assign(ring.style, {
         position: `absolute`,
-        left: `${-LIST_DROP_RING / 2}px`,
-        top: `${LIST_DROP_LINE / 2 - LIST_DROP_RING / 2}px`,
+        left: `${horizontal && !board ? LIST_DROP_LINE / 2 - LIST_DROP_RING / 2 : -LIST_DROP_RING / 2}px`,
+        top: `${horizontal && !board ? -LIST_DROP_RING / 2 : LIST_DROP_LINE / 2 - LIST_DROP_RING / 2}px`,
         width: `${LIST_DROP_RING}px`,
         height: `${LIST_DROP_RING}px`,
         borderRadius: `9999px`,
@@ -230,6 +258,11 @@ export function startListDrag(e: PointerEvent, key: string, source: ListDragSour
     }
     ev.preventDefault()
     const d = drag as NonNullable<typeof drag>
+    if (horizontal && !board) {
+      d.ghost.style.left = `${ev.clientX - d.offsetX}px`
+      paint(listDropSlot(d.rows, key, axis.at(ev.clientX, ev.clientY), source.maxDepth))
+      return
+    }
     d.ghost.style.top = `${ev.clientY - d.offsetY}px`
     if (board) {
       // A Board card follows the pointer on both axes.

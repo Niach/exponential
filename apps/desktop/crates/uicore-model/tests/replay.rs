@@ -64,6 +64,7 @@ fn every_selector_case_replays() {
                     let context: TaskbarMenuContext = serde_json::from_value(case["args"].get("context").cloned().unwrap_or(json!({}))).unwrap();
                     json!(taskbar_menu(&state, case["args"]["app"].as_str().unwrap(), &context))
                 }
+                "urgentLit" => json!(urgent_lit(case["args"]["ms"].as_u64().unwrap())),
                 "workspaceBadges" => json!(workspace_badges(&state)),
                 "altTabOrder" => json!(alt_tab_order(&state)),
                 "startMenuApps" => {

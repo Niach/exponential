@@ -9768,6 +9768,28 @@
       }
     },
     {
+      "id": "ede-taskbar-menu",
+      "group": "ede",
+      "title": "Exponential Desktop · taskbar group menu",
+      "blurb": "#EDE-254/#EDE-255: Cinnamon's grouped-window-list group menu (apps/ede/ui/taskbar.express, shell.json's taskbarMenu), open over the Firefox group of the sample windows on two workspaces: Visible on all workspaces and Move to another workspace, Applet preferences, the pin row, Minimize, Maximize, Close others and Close all; beside it the Files group asks for attention (an urgent window: the demands-attention highlight, lit for good after its flash).",
+      "order": 28,
+      "ede": {
+        "size": "1280x720",
+        "env": {
+          "EDE_SHELL_DEMO_TASKBAR_MENU": "firefox",
+          "EDE_SHELL_DEMO_URGENT": "nemo"
+        },
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
       "id": "record-form-field-states",
       "group": "coding",
       "title": "Record form field states",
