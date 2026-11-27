@@ -188,6 +188,19 @@ impl ShapeStore {
         })
     }
 
+    /// #EDE-238: a store another process syncs, opened READ-ONLY (both
+    /// connections): eDE's shell reads the login's holder's store (one
+    /// store, one sync per login) and never writes it; a write errors.
+    /// `None`-free: the file must exist (the holder created it).
+    pub fn open_read_only(path: &Path) -> Result<ShapeStore> {
+        let open = || -> Result<Connection> {
+            let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+            conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+            Ok(conn)
+        };
+        Ok(ShapeStore { writer: Mutex::new(open()?), reader: Mutex::new(open()?) })
+    }
+
     // -- cursor state --------------------------------------------------------
 
     /// Read the persisted cursor state for a shape (read-only connection).
@@ -861,5 +874,24 @@ mod tests {
         }
         let t: T = serde_json::from_value(json!({"b": "t", "n": "3", "f": 1.5})).unwrap();
         assert_eq!((t.b, t.n, t.f), (true, 3, Some(1.5)));
+    }
+
+    /// #EDE-238: a reader of another process's store sees its rows and
+    /// never writes.
+    #[test]
+    fn a_read_only_store_reads_the_writers_rows_and_refuses_writes() {
+        let dir = std::env::temp_dir().join(format!("exp-ro-{}-{}", std::process::id(), line!()));
+        let path = dir.join("sync-v2.sqlite");
+        let writer = ShapeStore::open(&path).unwrap();
+        let spec = crate::shapes::shape_by_name("teams").unwrap();
+        let insert = |id: &str| ShapeMessage::Insert { key: crate::protocol::RowKey::Single(id.to_string()), value: json!({"id": id, "name": "Acme"}).as_object().unwrap().clone() };
+        writer.apply_batch(spec, &[insert("t1")], None).unwrap();
+        let reader = ShapeStore::open_read_only(&path).unwrap();
+        assert_eq!(reader.read_all(spec).unwrap().len(), 1);
+        writer.apply_batch(spec, &[insert("t2")], None).unwrap();
+        assert_eq!(reader.read_all(spec).unwrap().len(), 2, "the writer's later commit is seen");
+        assert!(reader.apply_batch(spec, &[insert("t3")], None).is_err(), "the reader never writes");
+        assert!(ShapeStore::open_read_only(&dir.join("missing.sqlite")).is_err(), "no file, no store");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

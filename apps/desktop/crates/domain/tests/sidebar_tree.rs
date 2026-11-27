@@ -123,3 +123,13 @@ fn drop() {
         assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
     }
 }
+
+#[test]
+fn ede_local() {
+    let f = fixture();
+    for case in cases(&f, "edeLocal") {
+        let desktops: Vec<SidebarLocalDesktopInput> = field(case, "desktops");
+        let got = sidebar_local_rows(&desktops);
+        assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+    }
+}

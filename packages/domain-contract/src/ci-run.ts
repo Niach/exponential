@@ -306,6 +306,7 @@ export const RUNNER_SETTINGS_TEST_IDS = runnerFixture.testIds
 export const RUNNER_DEFAULTS = runnerFixture.defaults
 export const RUNNER_LIMITS = runnerFixture.limits
 export const RUNNER_TIMEOUT_OPTIONS = runnerFixture.timeoutOptions
+export const RUNNER_MEMORY_OPTIONS = runnerFixture.memoryOptions
 export const RUNNER_SETTINGS_SPECIMEN = runnerFixture.specimen
 
 const LABEL = /^[a-z0-9][a-z0-9._-]{0,31}$/
@@ -319,8 +320,21 @@ export function normalizeRunnerLabel(input: string): string | null {
 export type RunnerClient = `web` | `web-mobile` | `desktop` | `ios` | `android`
 const PHONES = new Set<RunnerClient>([`ios`, `android`, `web-mobile`])
 
-/** The section's notice: phones never run jobs; an old app cannot. */
-export function runnerNotice(client: RunnerClient, caps: readonly string[]): `phone` | `update` | null {
+/** #EXP-2193: the desktop app on macOS or Windows gets no runner yet (a job
+ *  could read the app's data there); a server daemon on any OS keeps it. */
+export function runnerUnsupported(kind: string | null | undefined, platform: string | null | undefined): boolean {
+  return kind === `desktop` && (platform === `macos` || platform === `darwin` || platform === `windows`)
+}
+
+/** The section's notice: an unsupported desktop, phones never run jobs, an
+ *  old app cannot. */
+export function runnerNotice(
+  client: RunnerClient,
+  caps: readonly string[],
+  kind: string | null | undefined,
+  platform: string | null | undefined
+): `unsupported` | `phone` | `update` | null {
+  if (runnerUnsupported(kind, platform)) return `unsupported`
   if (PHONES.has(client)) return `phone`
   if (!caps.includes(`ci-runner`)) return `update`
   return null

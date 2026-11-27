@@ -266,6 +266,8 @@ class CiRunTest {
                 labels = defaults.getValue("labels").jsonArray.map { it.jsonPrimitive.content },
                 slots = defaults.getValue("slots").jsonPrimitive.int,
                 timeoutMin = defaults.getValue("timeoutMin").jsonPrimitive.int,
+                memoryMaxMb = defaults.getValue("memoryMaxMb").jsonPrimitive.int,
+                pauseWhenBusy = defaults.getValue("pauseWhenBusy").jsonPrimitive.boolean,
             ),
             RunnerSettings.DEFAULTS,
         )
@@ -299,8 +301,29 @@ class CiRunTest {
     fun `every notice case matches the fixture`() {
         for (case in runner.cases("notice")) {
             val caps = case.getValue("caps").jsonArray.map { it.jsonPrimitive.content }
-            assertEquals(case.str("name"), case.str("expected"), RunnerSettings.notice(case.str("client")!!, caps)?.wire)
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                RunnerSettings.notice(case.str("client")!!, caps, case.str("kind"), case.str("platform"))?.wire,
+            )
         }
+    }
+
+    @Test
+    fun `every unsupported case matches the fixture`() {
+        for (case in runner.cases("unsupported")) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonPrimitive.boolean,
+                RunnerSettings.unsupported(case.str("kind"), case.str("platform")),
+            )
+        }
+    }
+
+    @Test
+    fun `memory options match the fixture`() {
+        val options = runner.getValue("memoryOptions").jsonArray.map { it.jsonObject.str("value")!! to it.jsonObject.str("label")!! }
+        assertEquals(options, RunnerSettings.MEMORY_OPTIONS)
     }
 
     @Test

@@ -424,10 +424,17 @@ object RunnerSettings {
         const val LABELS_INVALID = "Use lowercase letters, digits, dots, dashes or underscores."
         const val SLOTS = "Parallel jobs"
         const val TIMEOUT = "Job timeout"
+        const val MEMORY = "Memory per job"
+        const val PAUSE = "Pause for games and full-screen apps"
         const val RECENT = "Recent jobs"
         const val NO_JOBS = "No jobs yet."
         const val RUN_SUBTITLE = "Run #{number} · {repo}"
         val NOTICE: Map<Notice, NoticeCopy> = mapOf(
+            Notice.Unsupported to NoticeCopy(
+                "info",
+                "Not on this computer yet",
+                "A job could read this app's data on macOS and Windows. Run CI on Linux or a server.",
+            ),
             Notice.Phone to NoticeCopy(
                 "info",
                 "Set up here, runs on the device",
@@ -447,12 +454,22 @@ object RunnerSettings {
         const val SLOTS = "runner-slots"
         const val TIMEOUT = "runner-timeout"
         const val RECENT = "runner-recent"
+        const val MEMORY = "runner-memory"
+        const val PAUSE = "runner-pause"
     }
 
     /** `devices.runner`; [DEFAULTS] fills a null one. */
-    data class Settings(val enabled: Boolean, val labels: List<String>, val slots: Int, val timeoutMin: Int)
+    data class Settings(
+        val enabled: Boolean,
+        val labels: List<String>,
+        val slots: Int,
+        val timeoutMin: Int,
+        /** #EXP-2193: the job's memory cap (MB) and pause-while-a-game-runs. */
+        val memoryMaxMb: Int = 8192,
+        val pauseWhenBusy: Boolean = true,
+    )
 
-    val DEFAULTS = Settings(enabled = false, labels = emptyList(), slots = 1, timeoutMin = 60)
+    val DEFAULTS = Settings(enabled = false, labels = emptyList(), slots = 1, timeoutMin = 60, memoryMaxMb = 8192, pauseWhenBusy = true)
     const val MAX_LABELS = 16
     const val MIN_SLOTS = 1
     const val MAX_SLOTS = 16
@@ -468,7 +485,17 @@ object RunnerSettings {
         "360" to "6 h",
     )
 
-    enum class Notice(val wire: String) { Phone("phone"), Update("update") }
+    /** runner-settings.json `memoryOptions` (value, label). */
+    val MEMORY_OPTIONS: List<Pair<String, String>> = listOf(
+        "2048" to "2 GB",
+        "4096" to "4 GB",
+        "8192" to "8 GB",
+        "16384" to "16 GB",
+        "32768" to "32 GB",
+        "65536" to "64 GB",
+    )
+
+    enum class Notice(val wire: String) { Unsupported("unsupported"), Phone("phone"), Update("update") }
 
     private val LABEL = Regex("^[a-z0-9][a-z0-9._-]{0,31}$")
 
@@ -480,8 +507,15 @@ object RunnerSettings {
 
     private val PHONES = setOf("ios", "android", "web-mobile")
 
-    /** The section's notice: phones never run jobs; an old app cannot. */
-    fun notice(client: String, caps: List<String>): Notice? = when {
+    /** #EXP-2193: the desktop app on macOS or Windows gets no runner yet (a
+     *  job could read the app's data there); a server daemon keeps it. */
+    fun unsupported(kind: String?, platform: String?): Boolean =
+        kind == "desktop" && platform in setOf("macos", "darwin", "windows")
+
+    /** The section's notice: an unsupported desktop, phones never run jobs,
+     *  an old app cannot. */
+    fun notice(client: String, caps: List<String>, kind: String?, platform: String?): Notice? = when {
+        unsupported(kind, platform) -> Notice.Unsupported
         client in PHONES -> Notice.Phone
         "ci-runner" !in caps -> Notice.Update
         else -> null
@@ -540,6 +574,8 @@ object RunnerSettings {
             labels = labels,
             slots = (o["slots"] as? JsonPrimitive)?.intOrNull ?: DEFAULTS.slots,
             timeoutMin = (o["timeoutMin"] as? JsonPrimitive)?.intOrNull ?: DEFAULTS.timeoutMin,
+            memoryMaxMb = (o["memoryMaxMb"] as? JsonPrimitive)?.intOrNull ?: DEFAULTS.memoryMaxMb,
+            pauseWhenBusy = (o["pauseWhenBusy"] as? JsonPrimitive)?.booleanOrNull ?: DEFAULTS.pauseWhenBusy,
         )
     }
 
@@ -548,6 +584,7 @@ object RunnerSettings {
     const val SPECIMEN_DEVICE_ID = "d1"
     const val SPECIMEN_LABEL = "mint"
     const val SPECIMEN_PLATFORM = "linux"
+    const val SPECIMEN_KIND = "desktop"
     val SPECIMEN_CAPS = listOf("ci-runner")
     val SPECIMEN_SETTINGS = Settings(enabled = true, labels = listOf("gpu"), slots = 2, timeoutMin = 60)
     const val SPECIMEN_NOW = "2026-11-13T10:30:00.000Z"

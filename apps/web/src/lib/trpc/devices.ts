@@ -566,7 +566,7 @@ export async function queueDeviceCommand(
     userId: string
     deviceId: string
     kind: string
-    payload: Record<string, string>
+    payload: Record<string, string | number | boolean>
     onDuplicate: `conflict` | `reuse`
   }
 ): Promise<{ id: string }> {

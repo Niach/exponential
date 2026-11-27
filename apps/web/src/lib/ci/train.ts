@@ -17,6 +17,7 @@
 // `ecode:` + its JSON, server-only, display-only otherwise) where
 // `readPipeline` finds it, also after a restart.
 
+import { redactUrlQueries } from "@/lib/ecode/redact-urls"
 import { and, eq } from "drizzle-orm"
 import { PIPELINE_FILE } from "@exp/ecode"
 import type { TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
@@ -88,6 +89,7 @@ export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPip
     })
     if (!job.ok) throw new Error(job.message)
     outcome = job.result.outcome
+    if (outcome.error) outcome = { ...outcome, error: redactUrlQueries(outcome.error) }
     if (outcome.error || !outcome.head || !outcome.units.some((unit) => unit.outcome === `composed`)) return outcome
     const branch = `${TRAIN_REF_PREFIX}${inputs.train_id}`
     if (!(await host.moveBranches(repo, [{ branch, expected: null, sha: outcome.head }]))) {
@@ -100,7 +102,7 @@ export async function compose(host: EcodeHost, repo: ForgeRepo, inputs: TrainPip
     if (!run.started && run.reason !== `exists`) outcome.checks = `none`
     return outcome
   } catch (err) {
-    return { ...outcome, error: err instanceof Error ? err.message : String(err) }
+    return { ...outcome, error: redactUrlQueries(err instanceof Error ? err.message : String(err)) }
   }
 }
 
@@ -111,7 +113,7 @@ async function record(trainId: string, outcome: TrainPipelineOutcome): Promise<v
   while (Date.now() < deadline) {
     const moved = await db
       .update(mergeTrains)
-      .set({ runRef: `${PREFIX}${JSON.stringify(outcome)}` })
+      .set({ runRef: redactUrlQueries(`${PREFIX}${JSON.stringify(outcome)}`) })
       .where(and(eq(mergeTrains.id, trainId), eq(mergeTrains.runRef, PENDING)))
       .returning({ id: mergeTrains.id })
     if (moved.length > 0) return

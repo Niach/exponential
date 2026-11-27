@@ -773,6 +773,24 @@ impl Ede {
                 self.toggle_desktop();
                 json(serde_json::Value::Null)
             }
+            Request::WindowAction { window, action } => {
+                let w = self.any_window_by_id(&window)?;
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                self.window_action(&w, action);
+                json(serde_json::Value::Null)
+            }
+            Request::ListKeyboardLayouts => json(serde_json::to_value(self.keyboard_layouts()).unwrap()),
+            Request::SetKeyboardLayout { index } => {
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                match self.set_keyboard_layout(index) {
+                    Some(now) => json(serde_json::to_value(now).unwrap()),
+                    None => return Err(fail(ErrorCode::NotFound, "no such keyboard layout")),
+                }
+            }
             Request::RestoreWindow { window } => {
                 let w = self.any_window_by_id(&window)?;
                 if self.is_locked() {
@@ -1599,6 +1617,7 @@ impl Ede {
         }
         keyboard.change_repeat_info(kb.repeat_rate, kb.repeat_delay);
         self.apply_output_settings();
+        self.update_x11_scale();
         self.emit(events::CONFIG_RELOADED, serde_json::Value::Null);
         Ok(())
     }

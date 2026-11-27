@@ -63,6 +63,8 @@ public enum CiRunView {
         public static let labels = "runner-labels"
         public static let slots = "runner-slots"
         public static let timeout = "runner-timeout"
+        public static let memory = "runner-memory"
+        public static let pause = "runner-pause"
     }
 
     /// The pointer the ChipInput's `values` is bound to (the host writes the
@@ -339,6 +341,7 @@ public enum CiRunView {
     public static func runnerSectionTree(
         client: String,
         caps: [String],
+        kind: String?,
         platform: String?,
         settings: RunnerSettings.Settings,
         owner: Bool,
@@ -348,9 +351,10 @@ public enum CiRunView {
         let copy = RunnerSettings.Copy.self
         let ids = RunnerSettings.TestIds.self
         let disabled = CardJSON.bool(!owner)
+        let switchDisabled = CardJSON.bool(!owner || (RunnerSettings.unsupported(kind: kind, platform: platform) && !settings.enabled))
         let os = RunnerSettings.osLabel(platform)
         var children: [CardJSON] = []
-        if let key = RunnerSettings.notice(client: client, caps: caps), let n = RunnerSettings.notices[key] {
+        if let key = RunnerSettings.notice(client: client, caps: caps, kind: kind, platform: platform), let n = RunnerSettings.notices[key] {
             children.append(node("runner-notice", "Alert", props: [
                 "type": .string(n.type), "title": .string(n.title), "message": .string(n.message),
             ]))
@@ -360,7 +364,7 @@ public enum CiRunView {
             props: ["label": .string(copy.enabledLabel), "description": .string(copy.enabledDescription)],
             children: [
                 node(ids.toggle, "Switch", props: [
-                    "label": .string(""), "name": .string(ids.toggle), "checked": .bool(settings.enabled), "disabled": disabled,
+                    "label": .string(""), "name": .string(ids.toggle), "checked": .bool(settings.enabled), "disabled": switchDisabled,
                 ], extra: on("change", RunnerEvents.enabled)),
             ]
         ))
@@ -395,6 +399,22 @@ public enum CiRunView {
                 "value": .string(String(settings.timeoutMin)),
                 "disabled": disabled,
             ], extra: on("change", RunnerEvents.timeout)))
+            children.append(node(ids.memory, "Select", props: [
+                "label": .string(copy.memory),
+                "name": .string(ids.memory),
+                "options": .array(RunnerSettings.memoryOptions.map { .object(["value": .string($0.value), "label": .string($0.label)]) }),
+                "value": .string(String(settings.memoryMaxMb)),
+                "disabled": disabled,
+            ], extra: on("change", RunnerEvents.memory)))
+            children.append(node(
+                "runner-pause-row", "SettingsRow",
+                props: ["label": .string(copy.pause)],
+                children: [
+                    node(ids.pause, "Switch", props: [
+                        "label": .string(""), "name": .string(ids.pause), "checked": .bool(settings.pauseWhenBusy), "disabled": disabled,
+                    ], extra: on("change", RunnerEvents.pause)),
+                ]
+            ))
         }
         children.append(node("runner-recent-heading", "Heading", props: ["text": .string(copy.recent), "level": .string("h4")]))
         if recent.isEmpty {
@@ -452,6 +472,20 @@ public enum CiRunView {
                 var next = current
                 next.timeoutMin = minutes
                 return (next, false)
+            }
+        case RunnerEvents.memory:
+            if case let .string(value)? = p["value"] {
+                let known = RunnerSettings.memoryOptions.contains { $0.value == value }
+                guard known, let mb = Int(value), mb != current.memoryMaxMb else { return (nil, false) }
+                var next = current
+                next.memoryMaxMb = mb
+                return (next, false)
+            }
+        case RunnerEvents.pause:
+            if case let .bool(checked)? = p["checked"] {
+                var next = current
+                next.pauseWhenBusy = checked
+                return (checked == current.pauseWhenBusy ? nil : next, false)
             }
         default:
             break

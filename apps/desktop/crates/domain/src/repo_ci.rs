@@ -182,12 +182,13 @@ pub fn secret_name(input: &str) -> bool {
         && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// `switches`: the GitHub-only switches of the CI section, in order.
+/// `switches`: the CI section's switches, in order: the GitHub-only ones,
+/// then #EXP-2180's secrets for pull request runs (every provider).
 pub fn switches(provider: &str) -> Vec<&'static str> {
     if provider == "github" {
-        vec!["githubStatuses", "actionsRunners"]
+        vec!["githubStatuses", "actionsRunners", "pullRequestSecrets"]
     } else {
-        Vec::new()
+        vec!["pullRequestSecrets"]
     }
 }
 

@@ -100,6 +100,8 @@ libc = { workspace = true }
 # EXP-22 self-update engine (download/verify/swap); ui owns the state machine
 # and banner on top of it.
 updater = { path = "../updater" }
+# #EXP-2174: the CI runner inside the app (Linux first).
+ci-runner = { path = "../ci-runner" }
 comrak = { version = "0.53.0", default-features = false }
 # EXP-369: the device's IANA zone for the account timezone claim (the daily
 # digest's send hour is read in it) — already in the tree transitively.

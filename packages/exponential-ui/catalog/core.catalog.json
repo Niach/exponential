@@ -3793,11 +3793,18 @@
           "enum": "menuOpenOn",
           "default": "press",
           "description": "Child's press, or right-click/long-press."
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Whether it shows; bind it."
         }
       },
       "events": [
         "select",
-        "action"
+        "action",
+        "change"
       ],
       "example": {
         "label": "More",

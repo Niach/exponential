@@ -32,7 +32,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{App, AppContext as _, Entity, Global};
+use gpui::{App, AppContext as _, Entity, Global, Window};
 use serde::Deserialize;
 
 /// GitHub's release list: the FALLBACK only (EXP-1761: the unauthenticated API
@@ -205,11 +205,21 @@ pub struct Pausing {
     pub working: usize,
     /// New turns wait for the restart.
     pub draining: bool,
+    /// #EXP-2174: CI jobs run here; the restart waits for them (at most
+    /// until each one's timeout).
+    pub ci_jobs: usize,
 }
 
 /// #EXP-2144: the ready banner's line.
 pub(crate) fn ready_line(version: &str, pausing: Pausing) -> String {
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+    if pausing.ci_jobs > 0 {
+        return format!(
+            "Exponential {version} is ready. It restarts when {} finish{}.",
+            count(pausing.ci_jobs, "CI job"),
+            if pausing.ci_jobs == 1 { "es" } else { "" },
+        );
+    }
     if pausing.draining {
         return match pausing.working {
             0 => format!("Exponential {version} is ready. New turns wait; it restarts in a moment."),
@@ -465,6 +475,8 @@ fn observe(blocked: bool, now: Instant, cx: &App) -> (updater::restart::Observed
         engaged: etalk_gpui::voice_call::active(cx)
             || etalk_gpui::meeting::state(cx).running
             || crate::local_desktops::turn_running(cx),
+        // #EXP-2174: the runner's jobs hold it, each at most to its timeout.
+        ci_left: ci_runner::hold_left(now),
     };
     (seen, live.len(), working)
 }
@@ -495,6 +507,8 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
                     };
                     (ready, state.blocked)
                 };
+                // #EXP-2174: a ready update takes no new CI job.
+                ci_runner::set_draining(ready.is_some());
                 let (seen, live, working) = observe(blocked, now, cx);
                 let gate = watch.tick(now, ready.is_some(), &seen);
                 // Held through the restart itself: nothing starts beside it.
@@ -506,7 +520,7 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
                     );
                     crate::session_pickup::hold_turns(draining, cx);
                 }
-                model.update(cx, |state, cx| state.set_pausing(Pausing { live, working, draining }, cx));
+                model.update(cx, |state, cx| state.set_pausing(Pausing { live, working, draining, ci_jobs: ci_runner::running() }, cx));
                 ready.filter(|_| gate == updater::restart::RestartGate::Now).inspect(|_| {
                     log::info!(
                         "[ui] update: restarting on the new version ({live} live session(s) pause, {working} cut mid-turn)"
@@ -525,6 +539,40 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
         }
     })
     .detach();
+}
+
+/// #EXP-2174: a person's "Restart to update". With CI jobs running here it
+/// asks first: the restart cuts them and each one runs again from the start
+/// (the server queues a cut job once more). Without, it restarts at once.
+pub(crate) fn restart_or_ask(restart_path: Option<PathBuf>, window: &mut Window, cx: &mut App) {
+    let jobs = ci_runner::running();
+    if jobs == 0 {
+        relaunch(restart_path, cx);
+        return;
+    }
+    let spec = crate::native_dialog::AlertSpec::new("Restart to update", restart_ask_body(jobs), "Restart now")
+        .question(restart_ask_title(jobs))
+        .on_ok(move |_, cx| {
+            relaunch(restart_path.clone(), cx);
+            true
+        });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+/// The ask's question.
+pub(crate) fn restart_ask_title(jobs: usize) -> String {
+    match jobs {
+        1 => "Stop the running CI job and restart?".to_string(),
+        n => format!("Stop {n} running CI jobs and restart?"),
+    }
+}
+
+/// The ask's one fact: what happens to the jobs.
+pub(crate) fn restart_ask_body(jobs: usize) -> String {
+    match jobs {
+        1 => "It runs again from the start on the next free runner.".to_string(),
+        _ => "They run again from the start on the next free runners.".to_string(),
+    }
 }
 
 /// Quit and come back on `restart_path` (`None` = this exe). FEED-189: on
@@ -1077,8 +1125,12 @@ mod tests {
     /// #EXP-2144: the banner says what the restart pauses.
     #[test]
     fn the_ready_banner_counts_the_sessions_it_pauses() {
-        let line = |live, working, draining| ready_line("0.14.184", Pausing { live, working, draining });
+        let line = |live, working, draining| ready_line("0.14.184", Pausing { live, working, draining, ci_jobs: 0 });
         assert_eq!(line(0, 0, false), "Exponential 0.14.184 is ready. Restart to finish updating.");
+        // #EXP-2174: a running CI job holds the restart, and says so first.
+        let ci = |ci_jobs| ready_line("0.14.184", Pausing { live: 2, working: 1, draining: true, ci_jobs });
+        assert_eq!(ci(1), "Exponential 0.14.184 is ready. It restarts when 1 CI job finishes.");
+        assert_eq!(ci(2), "Exponential 0.14.184 is ready. It restarts when 2 CI jobs finish.");
         assert_eq!(line(1, 1, false), "Exponential 0.14.184 is ready. Restarting pauses 1 session, then it goes on.");
         assert_eq!(line(3, 1, false), "Exponential 0.14.184 is ready. Restarting pauses 3 sessions, then they go on.");
         assert_eq!(

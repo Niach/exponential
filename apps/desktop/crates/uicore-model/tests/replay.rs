@@ -73,6 +73,15 @@ fn every_selector_case_replays() {
                     let issues: Vec<StartMenuIssue> = serde_json::from_value(case["args"].get("issues").unwrap_or(&f["issues"]).clone()).unwrap();
                     json!(start_menu_issues(&state, &issues))
                 }
+                "startMenuNav" => {
+                    let (apps, favourites) = apps_of(&f, case);
+                    let arg = |key: &str| case["args"].get(key).unwrap_or(&f[key]).clone();
+                    let tree: Vec<StartMenuNode> = serde_json::from_value(arg("tree")).unwrap();
+                    let local: Vec<StartMenuLocalRow> = serde_json::from_value(arg("local")).unwrap();
+                    let settings: Vec<StartMenuSetting> = serde_json::from_value(arg("settings")).unwrap();
+                    let issues: Vec<StartMenuIssue> = serde_json::from_value(arg("issues")).unwrap();
+                    json!(start_menu_nav(&state, &tree, &local, &apps, &favourites, &settings, &issues))
+                }
                 other => panic!("unknown selector {other}"),
             };
             assert_eq!(got, case["expected"], "{selector}: {name}");

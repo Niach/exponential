@@ -112,6 +112,7 @@ fun RunnerSettingsSpecimenScreen() {
         ) {
             RunnerSettingsView(
                 caps = RunnerSettings.SPECIMEN_CAPS,
+                kind = RunnerSettings.SPECIMEN_KIND,
                 platform = RunnerSettings.SPECIMEN_PLATFORM,
                 settings = settings,
                 owner = true,
@@ -179,6 +180,7 @@ fun RepoCiSpecimenScreen() {
                         config = when (switch) {
                             RepoCi.Switch.GithubStatuses -> ci.config.copy(githubStatuses = on)
                             RepoCi.Switch.ActionsRunners -> ci.config.copy(actionsRunners = on)
+                            RepoCi.Switch.PullRequestSecrets -> ci.config.copy(pullRequestSecrets = on)
                         },
                     )
                 },
