@@ -6,6 +6,7 @@ import {
   DockCardSpecimen,
   DeviceReadinessSpecimen,
   PlanCardSpecimen,
+  ElicitationCardSpecimen,
   PlanPageSpecimen,
   ChatListSpecimen,
   ChatSelectionSpecimen,
@@ -59,6 +60,7 @@ export const DEV_VIEWS = [
   `dock-card`,
   `device-readiness`,
   `plan-card`,
+  `elicitation-card`,
   `plan-page`,
   `chat-list`,
   `chat-menus`,
@@ -106,6 +108,8 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <DeviceReadinessSpecimen />
       ) : dev === `plan-card` ? (
         <PlanCardSpecimen />
+      ) : dev === `elicitation-card` ? (
+        <ElicitationCardSpecimen />
       ) : dev === `plan-page` ? (
         <PlanPageSpecimen size={isMobile ? `phone` : `wide`} />
       ) : dev === `chat-list` ? (

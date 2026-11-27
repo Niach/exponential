@@ -96,6 +96,8 @@ struct ChatScreen: View {
     @State private var answeringId: String?
     // The chat PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
+    /// #EXP-2183 COLLAPSE: the header chips folded to their glyph.
+    @State private var headerFolded: [HeaderActions.Action] = []
     /// EXP-1307: the chat PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
     /// #EXP-1710: the chat PR awaiting THE `merge-now-pr` alert.
@@ -455,7 +457,7 @@ struct ChatScreen: View {
     /// `…` (#FEED-239: THE session screen menu, no gear; EXP-1307/1316: the
     /// chat PR's entries in THE Menu's sheet).
     private func chatHeader(rows: ChatRows, view: SessionChatView) -> some View {
-        ChatHeader {
+        ChatHeader(folded: $headerFolded) {
             let asks = headerAsks
             let waiting = ChatHeaderTitle.waiting(rows: rows, asks: asks)
             let openWaiting: (() -> Void)? = waiting.map { item in { openWaitingItem(item) } }
@@ -487,9 +489,15 @@ struct ChatScreen: View {
             // #EXP-1785: THE waiting button leads the trailing slot (not an
             // app editor's).
             if editor == nil, waitingChips.layout == .button {
-                ChatWaitingButton(count: waitingChips.count) {
+                let count = waitingChips.count
+                ChatWaitingButton(count: count, compact: headerFolded.contains(.status)) {
                     UIApplication.endEditing()
                     waitingOpen = true
+                }
+                .headerFoldable(.status) {
+                    ChatWaitingButton(count: count) {}
+                } compact: {
+                    ChatWaitingButton(count: count, compact: true) {}
                 }
             }
             headerMergePill
@@ -902,10 +910,27 @@ struct ChatScreen: View {
                 onChecks: { openChecks() },
                 state: $mergeState,
                 identifier: MergeTrain.TestIds.statusPill,
-                style: .toolbar
+                style: .toolbar,
+                compact: headerFolded.contains(.primary)
             )
             .id(pullRequest.id)
+            .headerFoldable(.primary) {
+                mergePillSpecimen(rows: rows, pullRequest: pullRequest, compact: false)
+            } compact: {
+                mergePillSpecimen(rows: rows, pullRequest: pullRequest, compact: true)
+            }
         }
+    }
+
+    /// The pill's paint alone (no tap, no id): what `headerFoldable` measures.
+    private func mergePillSpecimen(rows: ChatRows, pullRequest: PullRequestEntity, compact: Bool) -> some View {
+        MergeStatusPill(
+            view: WorkMergePill.statusPill(
+                pullRequest, stack: rows.guideStackConfirm != nil, checks: rows.guideChecks.count,
+                batchSize: rows.guideBatchSize, canApprove: canEdit
+            ),
+            merging: mergeState.merging, action: nil, identifier: "", compact: compact
+        )
     }
 
     private func openChecks() {

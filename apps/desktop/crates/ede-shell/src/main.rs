@@ -27,7 +27,7 @@
 //! and apps, chat, Alt-Tab; #EDE-65: `/shell/chats`, the rail's chats), `/apps` + `/query` (the launcher), `/switcher`
 //! (Alt+Tab with thumbnails), `/previews` (a taskbar group's windows with
 //! thumbnails), `/osd`, `/notifications` (#EDE-65: with the accounts'
-//! unread inbox merged in), `/needsYou`, `/tray`, `/traymenu`,
+//! unread inbox merged in), `/needsYou`, `/tray` (#EDE-252: each item's dbusmenu as Menu `items`),
 //! `/services/<domain>`, `/outputs`, `/config`, `/user`. The host functions a
 //! document may call are the `ede_*` names its `surface.functions` lists
 //! (#EDE-8's Tier C rule, checked again here): `ede_launch {command}`,
@@ -37,7 +37,8 @@
 //! `ede_notify_open {id}`, `ede_notify_close {id, toast?}`, `ede_notify_action
 //! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
-//! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
+//! `ede_tray {service, refresh?}`, `ede_tray_menu {service, id}`, `ede_panel_menu {value}`
+//! (#EDE-252: the start button's and the clock's context menus), `ede_open_document
 //! {name, page?}` (#EDE-214: Settings on `page`; open popups close),
 //! `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
@@ -87,6 +88,7 @@ mod captures;
 mod chats;
 mod cli_setup;
 mod engine;
+mod holder_windows;
 mod issues;
 mod assets;
 mod connect;
@@ -102,10 +104,13 @@ mod settings_pages;
 mod share;
 mod sealed;
 mod spaces;
+mod screenshot;
 mod start_menu;
 mod system;
 mod team_chat;
 mod thumbs;
+mod tray_icon;
+mod window_icons;
 
 use std::{
     cell::RefCell,
@@ -307,6 +312,15 @@ type HostedReport = (String, Vec<Layer>);
 
 /// The last of each surface's hosted-popup reports, in arrival order of
 /// those last ones.
+/// #EDE-252: the hover previews (`previews…` Popovers) open while a Menu
+/// of the same surface is: the ones to close.
+fn previews_under_a_menu(layers: &[eui_core::surface::Layer]) -> Vec<String> {
+    if !layers.iter().any(|l| l.hosted && l.kind == "Menu") {
+        return Vec::new();
+    }
+    layers.iter().filter(|l| l.hosted && l.kind == "Popover" && l.owner.starts_with("previews")).map(|l| l.owner.clone()).collect()
+}
+
 fn latest_reports(reports: impl IntoIterator<Item = HostedReport>) -> Vec<HostedReport> {
     let mut out: Vec<HostedReport> = Vec::new();
     for (document, layers) in reports {
@@ -331,11 +345,15 @@ struct Shell {
     /// The installed applications, scanned at start (the launcher, the start menu).
     apps: Vec<apps::App>,
     menu_apps: Vec<StartMenuApp>,
+    /// #EDE-242: what Xwayland says about classes no entry names.
+    x11_hints: window_icons::X11Hints,
     /// The compositor's last window list (ede-protocol), to shape `/windows`.
     windows: Vec<ede_protocol::WindowInfo>,
     /// Live thumbnails by window id, refreshed by the capture loop while
     /// the switcher or the previews are open.
     thumbnails: HashMap<String, String>,
+    /// #EDE-237: what the Exponential app's windows are (the holder's pages).
+    holder_windows: holder_windows::HolderWindows,
     /// #EXP-2024: THE capture loop's plan and asks (`captures.rs`): the
     /// windows and agent spaces it photographs, derived from what is open.
     captures: Arc<captures::Shared>,
@@ -660,6 +678,19 @@ impl HostPlugin for Host {
             });
             return;
         }
+        // #EDE-247: a tray item's middle or right button or wheel step
+        // (`auxPress {button}`, `scroll {direction}`): an event, its payload
+        // reaches the context (never a function's args).
+        if event.name == "ede_tray_input" && allowed(&self.shell.borrow(), &event.surface_id, "ede_tray_input") {
+            let input = dbus::TrayInput::from_event(event.context["button"].as_str(), event.context["direction"].as_str());
+            if let (Some(service), Some(input)) = (event.context["service"].as_str(), input) {
+                if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                    // On the tray thread (#EDE-135).
+                    d.tray_input(service, input);
+                }
+            }
+            return;
+        }
         // #EDE-75: the hover previews' change is an event: its {open} reaches
         // a context, never a function's args, and a close ends the thumbnails.
         if event.name == "ede_previews" && allowed(&self.shell.borrow(), &event.surface_id, "ede_previews") {
@@ -746,6 +777,10 @@ impl HostPlugin for Host {
                     other => tracing::warn!(action = ?other, "unknown history action"),
                 }
             }
+            // #EDE-245: the corner bar, Muffin's toggle_desktop.
+            "ede_show_desktop" => {
+                with_ede(&self.shell, |ede| ede.toggle_desktop());
+            }
             "ede_close" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.close_window(id));
@@ -815,28 +850,25 @@ impl HostPlugin for Host {
                     tracing::warn!(%args, "a notification action without its notification id or key");
                 }
             }
-            "ede_notify_clear" => {
-                cx.defer(move |cx| {
-                    let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
-                    for id in ids {
-                        notification_close(&shell, id, 2, cx);
-                    }
-                    // #EDE-65: and every inbox entry it lists is marked read.
-                    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
-                    for key in keys {
-                        inbox_mark_read(&shell, &key, cx);
-                    }
-                    close(&shell, "notification-center", cx);
-                });
-            }
+            "ede_notify_clear" => cx.defer(move |cx| notifications_clear(&shell, cx)),
             "ede_needs_you_open" => {
                 if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| needs_you_open(&shell, &key, cx));
                 }
             }
             "ede_tray" => {
-                if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
+                // #EDE-252: `refresh` = the pointer is on an item with a menu:
+                // its rows are read again (dbusmenu's AboutToShow) before a
+                // press opens them; a press on an item without one activates it.
+                if args.get("refresh").and_then(Value::as_bool) == Some(true) {
+                    tray_refresh(&shell);
+                } else if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |_| tray_press(&shell, &service));
+                }
+            }
+            "ede_panel_menu" => {
+                if let Some(value) = args.get("value").and_then(Value::as_str).map(String::from) {
+                    cx.defer(move |cx| panel_menu(&shell, &value, cx));
                 }
             }
             "ede_open_document" | "ede_close_document" => {
@@ -937,13 +969,13 @@ impl HostPlugin for Host {
                 });
             }
             "ede_tray_menu" => {
-                let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
-                if let (Some(service), Some(id)) = (service, id) {
+                // #EDE-252: a Menu row's value is its dbusmenu id, as a string.
+                let id = args.get("id").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+                if let (Some(service), Some(id)) = (args.get("service").and_then(Value::as_str), id) {
                     if let Some(d) = self.shell.borrow().dbus.as_ref() {
                         // On the tray thread (#EDE-135).
-                        d.tray_menu_event(&service, id as i32);
+                        d.tray_menu_event(service, id as i32);
                     }
-                    cx.defer(move |cx| close(&shell, "tray-menu", cx));
                 }
             }
             // The shell model (#EDE-50).
@@ -1117,6 +1149,11 @@ impl HostPlugin for Host {
                 let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(value)) = (app, value) {
                     cx.defer(move |cx| match value.as_str() {
+                        // #EDE-252: the menu's "Pinned to the taskbar" checkbox toggles.
+                        "pin" if shell.borrow().model.taskbar.pinned.contains(&app) => {
+                            dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
+                            pins_persist(&shell);
+                        }
                         "pin" => {
                             dispatch(&shell, ShellEvent::TaskbarPin { app }, cx);
                             pins_persist(&shell);
@@ -1313,8 +1350,8 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
-        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
-        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()], wm_class: None, steam_app: None },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()], wm_class: None, steam_app: None },
     ]
 }
 
@@ -1616,7 +1653,7 @@ fn account_sign_out(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().signing_out = Some(account.id.clone());
     accounts_feed(shell);
     refresh(shell, cx);
-    let asked = accounts::ide_send(&api::holder::Command::SignOut { account: account.id.clone() }.to_datagram());
+    let asked = accounts::holder_command(api::holder::Command::SignOut { account: account.id.clone() });
     let (auth, done) = (shell.borrow().workspaces.auth.clone(), shell.borrow().signed_out_tx.clone());
     let spawned = std::thread::Builder::new().name("ede-shell-sign-out".into()).spawn(move || {
         if session_account::sign_out(&auth, &api::default_data_dir(), &account, asked) {
@@ -1639,7 +1676,7 @@ fn install_press(shell: &SharedShell, action: &str, install: String, code: Strin
         "remove" => api::holder::Command::Remove { account, install, code },
         other => return tracing::warn!(action = other, "unknown install action"),
     };
-    if !accounts::ide_send(&command.to_datagram()) {
+    if !accounts::holder_command(command) {
         failed_action(shell, action, "the install", "The Exponential app is not running", cx);
     }
 }
@@ -1771,6 +1808,21 @@ fn ide_command(app: &apps::App, link: Option<&str>) -> String {
     }
 }
 
+/// #EDE-227: eDE's component runs as the session's helper: the package
+/// ships `exponential-app` beside this shell (the compositor, else
+/// exponential-device.service, starts it).
+fn component_runs() -> bool {
+    std::env::current_exe().ok().and_then(|me| me.parent().map(|dir| dir.join("exponential-app"))).is_some_and(|app| app.is_file())
+}
+
+/// #EDE-227: a saved pin of the person's own app entry (`standalone`) is
+/// the component's: its windows group under the component's app id, so
+/// the pin and they are one taskbar button.
+fn pinned_as(app: &str, standalone: &[String]) -> String {
+    let id = app.trim_end_matches(".desktop");
+    if standalone.iter().any(|s| s == id) { apps::COMPONENT_APP_ID.to_string() } else { app.to_string() }
+}
+
 /// The Exponential app's ids: one IDE per person, a hand-off target.
 const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
 
@@ -1779,6 +1831,11 @@ const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"]
 /// clicks launches anything once.
 fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
+    // #EDE-227: the login's holder brings a window up itself, with this
+    // press's launch token.
+    if EXPONENTIAL_APPS.contains(&wanted) && !demo() && open_in_holder(shell, None) {
+        return;
+    }
     if EXPONENTIAL_APPS.contains(&wanted) && bring_forward(shell, &[wanted]) {
         return;
     }
@@ -1814,18 +1871,43 @@ fn bring_forward(shell: &SharedShell, apps: &[&str]) -> bool {
     false
 }
 
-/// The installed entry for an app id (a window's app_id, a pin), if any.
+/// The installed entry for an app id (a window's app_id, a pin), if any:
+/// Cinnamon's window tracker's order ([`apps::for_window`]), then (#EDE-242)
+/// the Steam game an X11 window's process runs.
 fn app_entry<'a>(shell: &'a Shell, app: &str) -> Option<&'a apps::App> {
-    let wanted = app.trim_end_matches(".desktop");
-    shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").eq_ignore_ascii_case(wanted)).or_else(|| shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").rsplit('.').next().is_some_and(|tail| tail.eq_ignore_ascii_case(wanted))))
+    apps::for_window(&shell.apps, app).or_else(|| shell.x11_hints.cached(app).and_then(|h| h.steam_game.as_deref()).and_then(|game| apps::for_steam_game(&shell.apps, game)))
 }
 
+/// The entry's icon, else (#EDE-242) the window's own `_NET_WM_ICON`.
 fn app_icon(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).and_then(|a| a.icon.as_ref()).map(|p| format!("file://{}", p.display())).unwrap_or_default()
+    app_entry(shell, app)
+        .and_then(|a| a.icon.clone())
+        // #EDE-227: eDE's component has no start menu entry; its icon is the theme's.
+        .or_else(|| EXPONENTIAL_APPS.contains(&app).then(|| apps::icon_file(app)).flatten())
+        .or_else(|| shell.x11_hints.cached(app).and_then(|h| h.icon.clone()))
+        .map(|p| format!("file://{}", p.display()))
+        .unwrap_or_default()
 }
 
+/// The entry's name, else (#EDE-242, Cinnamon's window-backed app) a
+/// window's title, else the id.
 fn app_name(shell: &Shell, app: &str) -> String {
-    app_entry(shell, app).map(|a| a.name.clone()).unwrap_or_else(|| app.to_string())
+    app_entry(shell, app)
+        .map(|a| a.name.clone())
+        // #EDE-227: eDE's component (no start menu entry).
+        .or_else(|| EXPONENTIAL_APPS.contains(&app).then(|| "Exponential".to_string()))
+        .or_else(|| shell.windows.iter().filter(|w| w.app_id.as_deref() == Some(app)).find_map(|w| w.title.clone().filter(|t| !t.is_empty())))
+        .unwrap_or_else(|| app.to_string())
+}
+
+/// #EDE-242: the X11 hints of every class no entry names, read once.
+fn learn_x11_apps(shell: &mut Shell, list: &[ede_protocol::WindowInfo]) {
+    for w in list.iter().filter(|w| w.x11 && !w.protected) {
+        let Some(class) = w.app_id.as_deref() else { continue };
+        if shell.x11_hints.cached(class).is_none() && apps::for_window(&shell.apps, class).is_none() {
+            shell.x11_hints.lookup(class);
+        }
+    }
 }
 
 /// Mint's category glyphs for the start menu's column.
@@ -1939,6 +2021,10 @@ fn applets_json(services: &Value) -> Value {
         "sound": {"icon": sound_icon},
         "bluetooth": {"show": bluetooth["available"].as_bool() == Some(true) && bluetooth["powered"].as_bool() == Some(true)},
         "battery": {"show": battery["present"].as_bool() == Some(true), "icon": if charging { "ede-battery-charging" } else { "ede-battery" }},
+        // #EDE-245: Cinnamon's printers applet "When printers exist", its
+        // removable-drives applet while one is mounted.
+        "printers": {"show": services["printers"]["printers"].as_array().is_some_and(|p| !p.is_empty())},
+        "drives": {"show": services["disks"]["removable"].as_array().is_some_and(|d| !d.is_empty())},
     })
 }
 
@@ -2222,8 +2308,24 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
         Change::Rejected { name, issues, .. } => tracing::warn!(document = %name, ?issues, "refused; the last good version stays"),
-        Change::ThemeApplied { .. } | Change::ThemeRejected { .. } => {}
+        // #EDE-235: every surface redraws in the new theme; a refused one
+        // leaves the last good theme on screen.
+        Change::ThemeApplied { id, .. } => {
+            history_refresh(shell);
+            let theme = shell_theme(shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
+            shell.borrow_mut().surfaces.set_theme(theme, cx);
+            tracing::info!(theme = %id, "theme applied");
+        }
+        Change::ThemeRejected { issues, .. } => tracing::warn!(?issues, "theme refused; the last good one stays"),
     }
+}
+
+/// The theme the shell's surfaces paint in: `base` (the ui directory's)
+/// with the IDE's ground rule (no Sidebar fill), and the rail's glyphs in
+/// its colours.
+fn shell_theme(base: &eui_core::theme::ResolvedTheme) -> std::sync::Arc<eui_core::theme::ResolvedTheme> {
+    uicore_gpui::glyphs::set_palette(uicore_gpui::glyphs::Palette::of(base));
+    uicore_gpui::inline::theme(base)
 }
 
 /// The frame line a change owes the supervisor without drawing (#EDE-110):
@@ -2283,6 +2385,7 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
             s.launches.mapped(app);
         }
         let next = s.focus_next.opened(list.iter().map(|w| (w.id.as_str(), w.app_id.as_deref())), Instant::now());
+        learn_x11_apps(&mut s, &list);
         s.windows = list;
         next
     };
@@ -2385,20 +2488,43 @@ fn previews_after(current: &Option<String>, app: Option<String>, open: bool) -> 
 
 fn previews_refresh(shell: &SharedShell) {
     let mut s = shell.borrow_mut();
-    let value = match s.model.taskbar.previews.clone() {
-        None => json!({"app": null, "windows": []}),
-        Some(app) => {
-            let windows: Vec<Value> = s
-                .model
-                .windows
-                .iter()
-                .filter(|w| w.app == app && w.workspace == s.model.workspaces.active)
-                .map(|w| json!({"id": w.id, "title": w.title, "focused": w.focused, "minimized": w.minimized, "thumbnail": s.thumbnails.get(&w.id).cloned().unwrap_or_default()}))
-                .collect();
-            json!({"app": app, "windows": windows})
-        }
+    let value = {
+        let s = &*s;
+        previews_feed(&s.model, &s.holder_windows, |app| app_icon(s, app), |id| s.thumbnails.get(id).cloned().unwrap_or_default())
     };
     s.feed.set("/previews", value);
+}
+
+/// The hovered app's thumbnails (Cinnamon's grouped window list): each
+/// window's title and icon over its picture. #EDE-237: an Exponential page
+/// window wears its page's concept icon (`concept`, from the holder), any
+/// other window its app's icon.
+fn previews_feed(model: &ShellState, holder: &holder_windows::HolderWindows, icon: impl Fn(&str) -> String, thumbnail: impl Fn(&str) -> String) -> Value {
+    let Some(app) = model.taskbar.previews.clone() else {
+        return json!({"app": null, "windows": []});
+    };
+    let app_icon = icon(&app);
+    let windows: Vec<Value> = model
+        .windows
+        .iter()
+        .filter(|w| w.app == app && w.workspace == model.workspaces.active)
+        .map(|w| {
+            let page = holder.page(&w.app, &w.title);
+            json!({
+                "id": w.id,
+                "title": w.title,
+                "focused": w.focused,
+                "minimized": w.minimized,
+                "thumbnail": thumbnail(&w.id),
+                "icon": app_icon,
+                // A hidden Icon still names a concept.
+                "page": page.is_some(),
+                "concept": page.map_or_else(|| "nav-apps".to_string(), |page| page.icon.clone()),
+                "team": page.and_then(|page| page.team.clone()),
+            })
+        })
+        .collect();
+    json!({"app": app, "windows": windows})
 }
 
 /// The chat surface (the Assistant's composer) opens or closes with the model.
@@ -2538,6 +2664,10 @@ fn hand_off(shell: &SharedShell, url: &str) {
         tracing::info!(url, "hand-off (demo: not sent)");
         return;
     }
+    if open_in_holder(shell, Some(url)) {
+        tracing::info!(url, "handed to the Exponential app over the session bus");
+        return;
+    }
     if accounts::ide_send(url) {
         tracing::info!(url, "handed to the Exponential app");
         bring_forward(shell, &EXPONENTIAL_APPS);
@@ -2549,6 +2679,20 @@ fn hand_off(shell: &SharedShell, url: &str) {
         Some(command) => person_launch(shell, &command),
         None => tracing::warn!(url, "no Exponential app to hand off to"),
     }
+}
+
+/// #EDE-227: `link` (none: a window) opens in the login's holder over the
+/// session bus, with a launch token of the person's press, so the window it
+/// lands in comes to the front (xdg-activation); false = no holder serves
+/// the bus.
+fn open_in_holder(shell: &SharedShell, link: Option<&str>) -> bool {
+    use api::bus::{Reply, Request};
+    if !api::bus::socket_path(&api::default_data_dir()).exists() {
+        return false;
+    }
+    let activation_token = with_ede(shell, |ede| ede.launch_token());
+    let reply = accounts::holder_call(&Request::Open { link: link.map(String::from), activation_token });
+    matches!(reply, Some(Reply::Done))
 }
 
 /// The Exponential app's desktop entry.
@@ -3640,6 +3784,14 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
         "switcher.cancel" => switcher_close(shell, cx),
         "menu.toggle" => start_menu_toggle(shell, cx),
         "agent.toggle" => chat_toggle(shell, cx),
+        // #EDE-243: Cinnamon's notifications applet keys and the grouped window list's Super+1…9.
+        "notifications.open" => toggle_popup(shell, "notification-center", cx),
+        "notifications.clear" => notifications_clear(shell, cx),
+        n if n.starts_with("taskbar.activate.") || n.starts_with("taskbar.launch.") => {
+            if let Some(i) = n.rsplit('.').next().and_then(|d| d.parse::<usize>().ok()).filter(|i| (1..=9).contains(i)) {
+                taskbar_hotkey(shell, i - 1, n.starts_with("taskbar.launch."), cx);
+            }
+        }
         "expo.toggle" => overlay_toggle(shell, "expo", cx),
         "scale.toggle" => overlay_toggle(shell, "scale", cx),
         "volume.up" | "volume.down" => osd_show(shell, system::volume_step(name == "volume.up"), cx),
@@ -3651,7 +3803,10 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
             Some(t) => person_launch(shell, t),
             None => tracing::warn!("no terminal emulator installed"),
         },
-        "screenshot" => screenshot(shell),
+        name if screenshot::from_hotkey(name).is_some() => {
+            let (what, clip) = screenshot::from_hotkey(name).unwrap_or((screenshot::What::Screen, false));
+            screenshot_key(shell, what, clip, cx);
+        }
         "popups.dismiss" => {
             let (names, menu_stays) = {
                 let s = shell.borrow();
@@ -3680,6 +3835,50 @@ fn hotkey(shell: &SharedShell, name: &str, at: i64, cx: &mut App) {
         }
         other => tracing::info!(name = other, "hotkey without a handler"),
     }
+}
+
+/// Clear all: every notification closed and every inbox entry the bell
+/// lists marked read (Shift+Super+C, #EDE-243, and the bell's button).
+fn notifications_clear(shell: &SharedShell, cx: &mut App) {
+    let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
+    for id in ids {
+        notification_close(shell, id, 2, cx);
+    }
+    // #EDE-65: and every inbox entry it lists is marked read.
+    let keys: Vec<String> = shell.borrow().notifications.inbox.iter().map(|i| i.key.clone()).collect();
+    for key in keys {
+        inbox_mark_read(shell, &key, cx);
+    }
+    close(shell, "notification-center", cx);
+}
+
+/// #EDE-243, Cinnamon's grouped window list's Super+1…9: the nth button
+/// (pinned apps first): no window launches it, else its last focused window
+/// comes forward, and a press while it is focused cycles the group; with
+/// Shift a new instance.
+fn taskbar_hotkey(shell: &SharedShell, index: usize, launch: bool, cx: &mut App) {
+    let (app, next) = {
+        let s = shell.borrow();
+        let Some(button) = uicore_model::taskbar_buttons(&s.model).into_iter().nth(index) else { return };
+        let next = if launch || button.windows.is_empty() {
+            None
+        } else if button.focused {
+            match uicore_model::taskbar_scroll(&s.model, &button.app, uicore_model::ScrollDirection::Down) {
+                Some(TaskbarPress::Focus { id }) => Some(id),
+                _ => None,
+            }
+        } else {
+            s.model.mru.iter().find(|id| button.windows.contains(id)).cloned().or_else(|| button.windows.first().cloned())
+        };
+        (button.app, next)
+    };
+    match next.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+        Some(id) => {
+            with_ede(shell, |ede| ede.focus(id));
+        }
+        None => launch_app(shell, &app),
+    }
+    let _ = cx;
 }
 
 /// Expo / Scale (#EDE-49): an on-demand overlay document with every
@@ -3991,18 +4190,57 @@ fn osd_show(shell: &SharedShell, level: Option<system::Level>, cx: &mut App) {
     refresh(shell, cx);
 }
 
-/// Print: the first output to `~/Pictures/Screenshots`.
-fn screenshot(shell: &SharedShell) {
-    let path = system::screenshot_path();
-    let saved = with_ede(shell, |ede| {
-        let outputs = ede.outputs()?;
-        let Some(first) = outputs.iter().find(|o| o.is_persons()) else { return Ok(false) };
-        let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
-        Ok(thumbs::write_png(&path, &capture).is_ok())
-    });
-    if saved == Some(true) {
-        tracing::info!(path = %path.display(), "screenshot saved");
-    }
+/// A screenshot key (Cinnamon's six): off the main loop, since the
+/// area waits for the person's pick and a 7K picture takes a moment to
+/// encode. A Cinnamon custom keybinding on the key runs instead (a launch
+/// of the person's, so Flameshot's overlay takes the keyboard).
+fn screenshot_key(shell: &SharedShell, what: screenshot::What, clip: bool, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let action = cx.background_executor().spawn(async move { screenshot::cinnamon_action(what, clip) }).await;
+        match action {
+            screenshot::Action::Nothing => return,
+            screenshot::Action::Command(command) => {
+                cx.update(|_| person_launch(&shell, &command));
+                return;
+            }
+            screenshot::Action::Take => {}
+        }
+        let taken = cx
+            .background_executor()
+            .spawn(async move {
+                let mut ede = control::connect().map_err(|e| e.to_string())?;
+                screenshot::run(&mut ede, what, clip)
+            })
+            .await;
+        match taken {
+            Ok(Some(path)) => {
+                // gnome-screenshot's shutter, and a short toast as the
+                // flash: the file (its picture as the icon) or the clipboard.
+                screenshot::shutter();
+                let toast = match &path {
+                    Some(path) => {
+                        tracing::info!(path = %path.display(), "screenshot saved");
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        let mut toast = own_toast("Screenshot saved".into(), name, now_ms());
+                        toast.icon = format!("file://{}", path.display());
+                        toast
+                    }
+                    None => {
+                        tracing::info!("screenshot copied");
+                        own_toast("Screenshot copied".into(), String::new(), now_ms())
+                    }
+                };
+                cx.update(|cx| notification_push(&shell, toast, cx));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("screenshot: {e}");
+                cx.update(|cx| failed_action(&shell, "take", "the screenshot", &e, cx));
+            }
+        }
+    })
+    .detach();
 }
 
 /// Something on the session bus (#EDE-12).
@@ -4022,7 +4260,6 @@ fn dbus_event(shell: &SharedShell, event: dbus::Event, cx: &mut App) {
             }
             refresh(shell, cx);
         }
-        dbus::Event::TrayMenu { service, entries } => tray_menu_show(shell, &service, &entries, cx),
     }
 }
 
@@ -4237,6 +4474,11 @@ fn outputs_refresh(shell: &SharedShell) {
     s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
     s.person_outputs = person_outputs(&outputs);
     s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
+    // #EDE-247: the tray's icons are drawn at the taskbar's output scale
+    // (the taskbar stands on the person's first output).
+    if let (Some(d), Some(o)) = (s.dbus.as_ref(), outputs.iter().find(|o| o.is_persons())) {
+        d.tray_scale(o.scale);
+    }
 }
 
 /// Reads the tray items again, on the tray thread: [`dbus::Event::TrayItems`]
@@ -4247,37 +4489,36 @@ fn tray_refresh(shell: &SharedShell) {
     }
 }
 
-/// A tray item pressed: its menu ([`dbus::Event::TrayMenu`]), else `Activate`.
+/// A tray item pressed: `Activate` (#EDE-252, Cinnamon's xapp status
+/// applet: an `ItemIsMenu` item's press opens its menu, the taskbar's Menu;
+/// a right click opens any item's).
 fn tray_press(shell: &SharedShell, service: &str) {
-    let has_menu = shell.borrow().tray.iter().find(|i| i.service == service).is_some_and(|i| i.has_menu);
     if let Some(d) = shell.borrow().dbus.as_ref() {
-        if has_menu {
-            d.tray_menu(service);
-        } else {
-            d.tray_activate(service);
-        }
+        d.tray_activate(service);
     }
 }
 
-/// A pressed item's menu as a popup.
-fn tray_menu_show(shell: &SharedShell, service: &str, entries: &[dbus::MenuEntry], cx: &mut App) {
-    let title = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| i.title.clone()).unwrap_or_default();
-    let items: Vec<Value> = entries
-        .iter()
-        .map(|e| {
-            let mut v = e.to_json();
-            if e.depth > 0 {
-                v["label"] = json!(format!("    {}", e.label));
-            }
-            v
-        })
-        .collect();
-    shell.borrow_mut().feed.set("/traymenu", json!({"service": service, "title": title, "items": items}));
-    if shell.borrow().surfaces.is_open("tray-menu") {
-        close(shell, "tray-menu", cx);
+/// #EDE-252: a row of the start button's or the clock's context menu.
+fn panel_menu(shell: &SharedShell, value: &str, cx: &mut App) {
+    match value {
+        "settings" => {
+            open_on_demand(shell, "settings", cx);
+            refresh(shell, cx);
+        }
+        "datetime" => settings_open_page(shell, "datetime", cx),
+        "history" => {
+            history_refresh(shell);
+            open_on_demand(shell, "history", cx);
+            refresh(shell, cx);
+        }
+        "lock" => {
+            with_ede(shell, |ede| ede.lock());
+        }
+        "logout" => {
+            with_ede(shell, |ede| ede.logout());
+        }
+        other => tracing::warn!(value = other, "unknown panel menu entry"),
     }
-    toggle_popup(shell, "tray-menu", cx);
-    refresh(shell, cx);
 }
 
 /// The taskbar's pins, kept in the shell's own file.
@@ -4438,7 +4679,13 @@ fn main() {
             });
         })
         .expect("the events thread");
-    let mut installed = if demo { apps::demo() } else { apps::scan() };
+    // #EDE-227: while eDE's component runs as the session's helper, the
+    // person's own app entries (the AppImage's, exp-desktop's) stay out of
+    // the start menu, its search, the favourites and the pins: one Exponential.
+    let scanned = if demo { apps::Scan { apps: apps::demo(), standalone: Vec::new() } } else { apps::scan_in(&apps::data_dirs(), component_runs()) };
+    let standalone = scanned.standalone;
+    tracing::info!(?standalone, "the person's own app entries left out for the component");
+    let mut installed = scanned.apps;
     installed.extend(builtin_apps(demo));
     // #VAPP-273: the apps on the Engine: the factory ones, then the person's (the goldens only with EDE_APPS_DIR).
     let engine_apps = if demo && std::env::var_os("EDE_APPS_DIR").is_none() { Vec::new() } else { engine::scan_installed(&engine::factory_apps_dir(), &engine::apps_dir()) };
@@ -4533,6 +4780,11 @@ fn main() {
     let connect = connect::Connect::new(workspaces.auth.clone(), connect_tx);
     let (share_tx, share_rx) = mpsc::channel::<share::Event>();
     let share = share::Share::new(share_tx);
+    // #EDE-237: the holder's page windows (their icons and titles).
+    let (holder_windows_tx, holder_windows_rx) = mpsc::channel::<holder_windows::HolderWindows>();
+    if !demo {
+        holder_windows::follow(holder_windows_tx);
+    }
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         // #EDE-172 (P4): gpui's Wayland connection did its first roundtrip.
@@ -4540,7 +4792,9 @@ fn main() {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         // #EDE-65: the IDE's colours: the sidebar on the ground, no Sidebar fill.
-        let theme = uicore_gpui::inline::theme(&eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
+        // #EDE-235: the theme the ui directory holds (its last good
+        // theme.json; the factory ships the Rerusted one), followed live.
+        let theme = shell_theme(ui.lock().unwrap_or_else(|p| p.into_inner()).theme());
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
@@ -4552,7 +4806,6 @@ fn main() {
         feed.set("/previews", json!({"app": null, "windows": []}));
         feed.set("/thumbnails", json!({}));
         feed.set("/osd", json!({"icon": "media-volume-up", "level": 0, "label": ""}));
-        feed.set("/traymenu", json!({"service": "", "title": "", "items": []}));
         feed.set("/config", settings::config_json());
         feed.set("/pages", settings_pages::pages_json());
         if let Some(state) = settings_pages::demo_state() {
@@ -4602,16 +4855,20 @@ fn main() {
         }
         if demo {
             feed.set("/osd", json!({"icon": "media-volume-down", "level": 45, "label": "45%"}));
-            feed.set("/tray", json!([{"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}, {"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""}]));
-            feed.set(
-                "/traymenu",
-                json!({"service": "demo/network", "title": "Network", "items": [
-                    {"id": 1, "label": "Connect to Wi-Fi", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0},
-                    {"id": 2, "label": "Airplane mode", "enabled": true, "separator": false, "checked": false, "checkable": true, "depth": 0},
-                    {"id": 3, "label": "", "enabled": true, "separator": true, "checked": false, "checkable": false, "depth": 0},
-                    {"id": 4, "label": "Settings…", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0}
-                ]}),
-            );
+            // #EDE-252: the demo's tray items, the first with a menu.
+            let network = dbus::TrayItem {
+                service: "demo/network".into(),
+                title: "Network".into(),
+                status: "Active".into(),
+                icon: String::new(),
+                menu: [(1, "Connect to Wi-Fi", None, false), (2, "Airplane mode", Some(false), false), (3, "", None, true), (4, "Settings…", None, false)]
+                    .into_iter()
+                    .map(|(id, label, checked, separator)| dbus::MenuEntry { id, label: label.into(), enabled: true, separator, checked, depth: 0, submenu: false })
+                    .collect(),
+                item_is_menu: true,
+            };
+            let sound = dbus::TrayItem { service: "demo/sound".into(), title: "Sound".into(), status: "Active".into(), icon: String::new(), menu: Vec::new(), item_is_menu: false };
+            feed.set("/tray", json!([network.to_json(), sound.to_json()]));
             feed.set("/services", settings::demo_services());
             feed.set("/outputs", Value::Array(settings::demo_outputs()));
         } else {
@@ -4623,7 +4880,7 @@ fn main() {
         let mut model = ShellState::default();
         let saved = if demo { json!({"pinned": ["firefox", "nemo", "org.gnome.Calculator"]}) } else { settings::shell_json() };
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-            model = reduce(&model, &ShellEvent::TaskbarPin { app: app.into() });
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(app, &standalone) });
         }
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
@@ -4692,8 +4949,10 @@ fn main() {
             ede: control::connect().ok(),
             apps: installed,
             menu_apps,
+            x11_hints: Default::default(),
             windows: Vec::new(),
             thumbnails: HashMap::new(),
+            holder_windows: Default::default(),
             captures: captures_shared,
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
@@ -4877,6 +5136,11 @@ fn main() {
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
                 }
+                if let Some(windows) = holder_windows_rx.try_iter().last() {
+                    s.borrow_mut().holder_windows = windows;
+                    previews_refresh(&s);
+                    dirty = true;
+                }
                 while let Ok((domain, snapshot)) = services_rx.try_recv() {
                     let mut sh = s.borrow_mut();
                     let mut services = sh.feed.get("/services").cloned().unwrap_or_else(|| json!({}));
@@ -4903,6 +5167,13 @@ fn main() {
                 // window opens at the second size instead of the first.
                 for (document, layers) in latest_reports(hosted_rx.try_iter()) {
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
+                    // #EDE-252: a menu opening closes the hover previews (Cinnamon's
+                    // right click hides the thumbnails); with the shell free (#EDE-75).
+                    let covered = previews_under_a_menu(&layers);
+                    if !covered.is_empty() {
+                        let hosted: Vec<_> = s.borrow().surfaces.hosted_layers().into_iter().filter(|(r, owner)| r.name == document && covered.contains(owner)).collect();
+                        cx.update(|cx| uicore_gpui::dismiss_hosted(hosted, cx));
+                    }
                 }
                 // #EDE-56: a team store changed, a callback URL arrived, Connect reported.
                 let mut teams_changed = false;
@@ -5226,7 +5497,7 @@ mod toast_presses {
     fn toasts(n: &Notifications) -> Surface {
         let source = uicore_docs::doc("notifications").expect("the toast document").json();
         let doc = ede_ui::validate_document("notifications", &source).expect("it validates as shipped");
-        let mut s = doc.surface(eui_core::themes::builtin_theme("exponential").expect("the theme"));
+        let mut s = doc.surface(uicore_docs::factory_theme());
         s.set_data("/notifications", Some(n.to_json())).expect("the feed binds");
         s.set_viewport(380.0, 0.0, None);
         s.layout(&mut eui_core::measure::FixedMeasure::default());
@@ -5636,7 +5907,9 @@ mod layer_sizes {
         };
         assert_eq!(popup_height("applet-sound", 534), room);
         assert_eq!(popup_height("start-menu", 534), room);
-        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-battery", 534), 360, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-network", 534), room, "#EDE-235: the network applet's 520 is held too");
+        assert_eq!(popup_height("applet-network", 800), 520);
         assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
         for d in uicore_docs::DOCS.iter() {
             let doc = factory(d.name);
@@ -5829,7 +6102,41 @@ mod chat_as_drawn {
 
 #[cfg(test)]
 mod previews {
-    use super::{popups_to_dismiss, previews_after};
+    use super::{popups_to_dismiss, previews_after, previews_feed, previews_under_a_menu};
+
+    /// #EDE-237: the Exponential button's thumbnails wear each page's icon
+    /// and title (the holder's window metadata); another app's its app icon.
+    #[test]
+    fn exponential_thumbnails_wear_their_pages_icon_and_title() {
+        use uicore_model::{ShellState, ShellWindow};
+        let window = |id: &str, app: &str, title: &str| ShellWindow { id: id.into(), app: app.into(), title: title.into(), focused: false, workspace: 0, minimized: false };
+        let mut model = ShellState::default();
+        model.windows = vec![window("w1", "at.exponential", "Desktop"), window("w2", "at.exponential", "EXP-1 Crash"), window("w3", "nemo", "Files"), window("w4", "at.exponential", "Unknown")];
+        model.taskbar.previews = Some("at.exponential".into());
+        let meta = |title: &str, icon: &str| api::bus::WindowMeta { key: title.into(), kind: "k".into(), icon: icon.into(), title: title.into(), team: Some("Exponential".into()), team_id: None };
+        let holder = super::holder_windows::HolderWindows { app_id: "at.exponential".into(), windows: vec![meta("Desktop", "nav-boards"), meta("EXP-1 Crash", "ui-issue")] };
+        let feed = previews_feed(&model, &holder, |app| format!("icon:{app}"), |id| format!("thumb:{id}"));
+        let windows = feed["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 3, "only the hovered app's windows");
+        assert_eq!(windows[0]["concept"], "nav-boards");
+        assert_eq!(windows[0]["title"], "Desktop");
+        assert_eq!(windows[0]["team"], "Exponential");
+        assert_eq!(windows[1]["concept"], "ui-issue");
+        assert_eq!(windows[1]["thumbnail"], "thumb:w2");
+        // No page told for it: the app's icon alone.
+        assert_eq!((windows[0]["page"].as_bool(), windows[2]["page"].as_bool()), (Some(true), Some(false)));
+        assert_eq!(windows[2]["icon"], "icon:at.exponential");
+        assert_eq!(previews_feed(&ShellState::default(), &holder, |_| String::new(), |_| String::new())["windows"], serde_json::json!([]));
+    }
+
+    /// #EDE-252: a menu of the taskbar opening closes the hover previews.
+    #[test]
+    fn a_menu_closes_the_hover_previews() {
+        let layer = |kind: &str, owner: &str| -> eui_core::surface::Layer { serde_json::from_value(serde_json::json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };
+        let previews = layer("Popover", "previews.nemo");
+        assert!(previews_under_a_menu(&[previews.clone()]).is_empty(), "previews alone stay");
+        assert_eq!(previews_under_a_menu(&[previews, layer("Menu", "group.nemo"), layer("Popover", "agent_spaces")]), vec!["previews.nemo".to_string()]);
+    }
 
     /// #EDE-89: a press on Start while a preview is open: the compositor's
     /// `popups.dismiss` for that press reaches the shell after the press
@@ -5838,10 +6145,10 @@ mod previews {
     #[test]
     fn a_press_that_opens_the_start_menu_does_not_dismiss_it() {
         let pressed_at = 1_000;
-        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("tray-menu".to_string(), Some(pressed_at - 4_000))];
-        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["tray-menu".to_string()]);
+        let open = vec![("start-menu".to_string(), Some(pressed_at + 12)), ("needs-you".to_string(), Some(pressed_at - 4_000))];
+        assert_eq!(popups_to_dismiss(&open, pressed_at), vec!["needs-you".to_string()]);
         // Escape in the open menu (or a press outside it) still closes it.
-        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "tray-menu".to_string()]);
+        assert_eq!(popups_to_dismiss(&open, pressed_at + 500), vec!["start-menu".to_string(), "needs-you".to_string()]);
         // A popup the shell has no stamp for goes, as before.
         assert_eq!(popups_to_dismiss(&[("menu".to_string(), None)], pressed_at), vec!["menu".to_string()]);
     }
@@ -5903,11 +6210,35 @@ mod ide_launch {
             icon: None,
             keywords: String::new(),
             categories: vec![],
+            wm_class: None,
+            steam_app: None,
         };
         assert_eq!(ide_command(&app, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop 'exponential://issue/ACME-12'");
         assert_eq!(ide_command(&app, None), "/opt/Exponential/exponential-desktop");
         let no_urls = apps::App { exec_url: None, ..app };
         assert_eq!(ide_command(&no_urls, Some("exponential://issue/ACME-12")), "/opt/Exponential/exponential-desktop");
+    }
+
+    /// #EDE-227: with the component, saved pins of the person's own app
+    /// entries become the component's, and a standalone app's window (app
+    /// id `at.exponential`) groups with them: one Exponential button.
+    #[test]
+    fn the_persons_app_pins_and_windows_are_the_components_one_button() {
+        let standalone = vec!["appimagekit_1234-Exponential".to_string(), "at.exponential".to_string(), "exponential".to_string()];
+        let mut model = ShellState::default();
+        for pin in ["firefox", "exponential", "appimagekit_1234-Exponential.desktop", "at.exponential", "nemo"] {
+            model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(pin, &standalone) });
+        }
+        assert_eq!(model.taskbar.pinned, ["firefox", "at.exponential", "nemo"]);
+        model = reduce(&model, &ShellEvent::WindowOpened { id: "w1".into(), app: "at.exponential".into(), title: "Exponential".into(), workspace: 0 });
+        let buttons = uicore_model::taskbar_buttons(&model);
+        assert_eq!(buttons.iter().map(|b| (b.app.as_str(), b.windows.clone())).collect::<Vec<_>>(), [("firefox", vec![]), ("at.exponential", vec!["w1".to_string()]), ("nemo", vec![])]);
+        assert_eq!(pinned_as("firefox.desktop", &standalone), "firefox.desktop", "another app's pin stays");
+        // Not in the favourites either: the start menu lists no entry of it.
+        let apps = [uicore_model::StartMenuApp { id: "firefox".into(), name: "Firefox".into(), comment: String::new(), categories: vec![], keywords: String::new() }];
+        let mut menu = model.clone();
+        menu.start_menu.category = "favourites".into();
+        assert_eq!(uicore_model::start_menu_apps(&menu, &apps, &model.taskbar.pinned).into_iter().map(|a| a.id).collect::<Vec<_>>(), ["firefox"]);
     }
 }
 

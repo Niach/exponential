@@ -13,8 +13,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +31,6 @@ import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.OwnDevices
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.onboarding.OnboardingDevicesStep
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -142,14 +140,12 @@ fun InviteAcceptScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    TopBarBackButton(onClick = onBack)
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                ),
+            // #EXP-2168: THE header (round back), no title, no circles.
+            com.exponential.app.ui.components.PageHeader(
+                title = "",
+                onBack = onBack,
+                buttons = false,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
         containerColor = androidx.compose.ui.graphics.Color.Transparent,

@@ -102,7 +102,8 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
         // The button that drives the grab is up and its release never came
         // here (a grab started after it, an input device gone): it ends
         // now instead of dragging the window after the pointer (#EDE-222).
-        if !handle.current_pressed().contains(&self.start_data.button) {
+        // A keyboard move/resize (Alt+F7/F8, #EDE-243) has no button: a click ends it.
+        if self.start_data.button != 0 && !handle.current_pressed().contains(&self.start_data.button) {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
@@ -182,11 +183,10 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
     ) {
         handle.button(data, event);
 
-        // The button is a button code as defined in the
-        // Linux kernel's linux/input-event-codes.h header file, e.g. BTN_LEFT.
-        const BTN_LEFT: u32 = 0x110;
-
-        if !handle.current_pressed().contains(&BTN_LEFT) {
+        // The button that started it (Alt+right-drag, #EDE-243); a
+        // keyboard resize (Alt+F8, button 0) ends at the first click.
+        let button = self.start_data.button;
+        if button == 0 || !handle.current_pressed().contains(&button) {
             // No more buttons are pressed, release the grab.
             handle.unset_grab(self, data, event.serial, event.time, true);
 

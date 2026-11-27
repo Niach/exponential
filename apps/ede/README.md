@@ -6,7 +6,7 @@ libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
-| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
+| `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: eDE's component `exponential-app` (#EDE-227) when the units start the helpers, else the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
 | `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`; `session` runs those from stdin, one per line, on one connection (#EDE-172 P7: in a real session the person is asked once per ctl process; a VM or CI machine names `/usr/bin/exponential-ctl` in `/etc/exponential-desktop/control.toml`). |
@@ -96,9 +96,10 @@ shell documents' commits with Undo and Reset to factory, on demand),
 opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
 workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
 thumbnails, #EDE-49), `osd.express`, `notifications.express` (the toasts, top-right, on
-demand), `notification-center.express` (the bell's popup) and `tray-menu.express`
-(a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it. A layer document's root is opaque (`$color.background`
+demand) and `notification-center.express` (the bell's popup). The panel's menus
+(an app's, Start's, the clock's, a tray item's dbusmenu) are genUI `Menu`s in
+`taskbar.express`, opening above the panel (#EDE-252). A click outside an open
+popup, or Escape in it, closes it. A layer document's root is opaque (`$color.background`
 for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
 the OSD and the switcher): `$color.card` is a white
 glaze at 6% in the dark theme, right inside a window, see-through for a
@@ -166,9 +167,38 @@ the factory ones. `exponential-shell --windowed` opens normal windows instead
 ### The login's account (#EDE-226)
 
 One Exponential account per eDE login. The shell signs in and out; the
-HOLDER, the app `exponential-device.service` starts, keeps the account's
-install, its keys, the device and the coding sessions (its data directory,
-`~/.local/share/exponential`, unchanged).
+HOLDER keeps the account's install, its keys, the device and the coding
+sessions (its data directory, `~/.local/share/exponential`, unchanged).
+
+### The app as a component (#EDE-227)
+
+The holder is `exponential-app`, in the package: the desktop app's `ui`
+crate behind a thin `main` (`apps/desktop/crates/app`, `Mode::Component`),
+built from the desktop workspace as `exponential-shell` is. No AppImage is
+needed any more.
+
+- **Started by the compositor** as one of its helpers (`[session] helpers =
+  "compositor"`), in a scope of its own, and again when it ends; it is the
+  compositor's child, so the root token from it is root's with no consent
+  prompt. With `helpers = "units"`, `exponential-device.service` runs it
+  (`exponential-session --device`). It starts without a window.
+- **eDE mode** (`ui::ede_component`): no login or onboarding (signed out, a
+  window offers the shell's Connect), no title bar or frame of its own (its
+  windows ask for server-side decorations: eDE's frame), no rail (the shell
+  links into it), no updater (it updates with the package; it follows
+  `CLIENT_MIN_VERSION_DESKTOP`, `.github/workflows/README.md`).
+- **The session bus** (`api::bus`): `exp-desktop.bus` beside the link socket
+  in the data directory, request and reply, JSON lines, both ends checked by
+  peer credentials (same user). The shell's links come as `open` with a
+  launch token it minted for the press, which the component hands to
+  xdg-activation, so the window the link lands in comes to the front; Sign
+  out, Approve and Remove come as `holder`. The link socket stays for
+  releases that only know it.
+- **Migration:** nothing moves (same data directory: same install, same
+  device row). A standalone app started while the component runs hands its
+  link over the bus and exits; one that runs when the component starts is
+  asked to hand the login over (`handover`) and quits, an older one is
+  waited for.
 
 - **Sign in:** `connect.express`, shown at the first login with no account
   (`connect-shown` beside `compositor.toml` says it was) and from Settings,
@@ -585,13 +615,16 @@ The compositor opens one window on the running X11 (or Wayland) session and
 serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
 `--headless 1920x1080` runs without a window (pixman, no GPU).
 
-Bindings: Alt+drag moves a window, dropping it on a side edge tiles it to a
-half (corners = quarter, top = maximize), Super+Left/Right tile, Super+Up
-maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quits
-(logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev). Workspaces
-(#EDE-18, shared by every output as on Cinnamon, four listed, up to nine):
-Super+1…9 switch, Super+Shift+1…9 take the focused window along,
-Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
+Bindings (#EDE-243: Cinnamon's defaults): Alt+drag moves a window, Alt+right-drag
+resizes it, dropping it on a side edge tiles it to a half (corners = quarter,
+top = maximize), Super+arrows walk Muffin's tiles (halves, quarters by
+combination, Up twice maximizes, the opposite way restores), Super+Shift+arrows
+move it to the next output, Alt+F10 maximizes, Alt+F5 unmaximizes, Alt+F7 / F8
+move / resize it with the pointer, Super+D shows the desktop, Super+Space
+switches the keyboard layout, Alt+F4 closes, Super+L and Ctrl+Alt+L lock,
+Super+Shift+E quits (logs out of the session), Ctrl+Alt+F1…F12 switch VTs
+(udev). Workspaces (#EDE-18, shared by every output as on Cinnamon, four
+listed, up to nine): Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
 workspace is parked off screen; the taskbar still lists it and focusing it
 switches back. A parked or minimized window comes back fitted to its output
 as it is now (a tiled or fullscreen one fills it; one whose output went
@@ -728,6 +761,7 @@ first; each op needs the Core capability it names:
 | `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`; #EDE-91: a window, an output and their events may name a `space`, absent = the person's desk, which is all the shell, ePilot and screen memory read; nothing sets it yet) | any grant |
 | `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
+| `pick_region {mode: "area" \| "point"}` (the person picks with a crosshair: a dragged band, a click = the window under it (frame included, `window` = its id) or on bare desktop the output; `point` = one pixel. The reply waits for them: `{x, y, width, height, window?}` in global logical coordinates, `null` = Escape or the right button. The person's desk only (never an agent's grant, computer use or a space), refused while locked, one pick at a time (`conflict`); the band is drawn on their monitors, never into a capture) | `capture` |
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |

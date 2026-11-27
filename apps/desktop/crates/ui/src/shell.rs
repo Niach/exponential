@@ -209,14 +209,18 @@ pub struct Shell {
     /// center as `Screen::Terminal`.
     session_bar: Entity<crate::session_bar::SessionBar>,
     /// #EXP-1726: the tab bar: work tabs and terminals, one strip (top in the IDE, bottom in eDE).
-    tab_bar: Entity<crate::shell_regions::TabBarRegion>,
+    /// #EDE-237: none in eDE mode (every page is a window).
+    #[allow(dead_code)]
+    tab_bar: Option<Entity<crate::shell_regions::TabBarRegion>>,
     /// #EXP-1725: the left column's fixed header, the shared document's.
     header: Entity<crate::shell_regions::HeaderRegion>,
     /// #EXP-1837: THE Assistant FAB bottom-right of the content card.
     assistant_fab: Entity<crate::assistant_fab::AssistantFab>,
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
-    rail: Entity<RailView>,
+    /// #EDE-237: none in eDE mode (the desktop is the navigation).
+    #[allow(dead_code)]
+    rail: Option<Entity<RailView>>,
     /// #LOGS-4: the cached regions around the rail, the tab band and the
     /// dock, and the layer that paints their animated glyphs: a working
     /// mark's frame repaints the mark, not the region around it.
@@ -356,6 +360,7 @@ impl Shell {
             let shared = shared.clone();
             move |_, cx| {
                 navigation::remove_window(window_id, cx);
+                crate::ede_windows::unregister(window_id, cx);
                 crate::repo_resolver::remove_window(window_id, cx);
                 crate::sidebar::remove_window(window_id, cx);
                 crate::screens::remove_window(window_id, cx);
@@ -396,6 +401,8 @@ impl Shell {
             Self::reset_default_layout(&dock_area, window, cx);
         }
         Self::install_fixed_chrome(&dock_area, window, cx);
+        // #EDE-237: eDE mode: a page window, landing on what it was opened for.
+        crate::ede_windows::register(window, cx);
 
         // ---- Persistence wiring (§3.3) -------------------------------------
         cx.subscribe_in(&dock_area, window, |this, dock_area, event: &DockEvent, window, cx| {
@@ -408,6 +415,8 @@ impl Shell {
         cx.on_app_quit({
             let dock_area = dock_area.clone();
             move |this: &mut Self, cx| {
+                // #EDE-237: quitting keeps eDE mode's windows for the next start.
+                crate::ede_windows::quitting(cx);
                 let state = dock_area.read(cx).dump(cx);
                 // EXP-210: flush a resize the debounce hasn't landed yet.
                 let pending_size = this.pending_window_size.take();
@@ -505,8 +514,11 @@ impl Shell {
 
         // The rail lives OUTSIDE the dock area. Built after the fixed chrome
         // so the dock already exists.
-        let rail = cx.new(|cx| RailView::new(window, cx));
-        let tab_bar = crate::shell_regions::TabBarRegion::new(window, cx);
+        // #EDE-237: eDE mode builds neither: a window there holds one page
+        // and shows no rail and no tab strip.
+        let component = crate::ede_component::is_component();
+        let rail = (!component).then(|| cx.new(|cx| RailView::new(window, cx)));
+        let tab_bar = (!component).then(|| crate::shell_regions::TabBarRegion::new(window, cx));
         let header = {
             let nav = navigation::nav_for_window(window, cx);
             crate::shell_regions::HeaderRegion::new(nav, window, cx)
@@ -531,8 +543,8 @@ impl Shell {
         // no spurious entry animation.
         let left_anim = SwapAnim::new(window_left_occupant(window, cx));
         let region = |views: Vec<gpui::AnyView>, cx: &mut gpui::Context<Self>| cx.new(|_| eui_gpui::controls::GlyphRegion::new(views));
-        let rail_region = region(vec![rail.clone().into()], cx);
-        let band_region = region(vec![tab_bar.clone().into(), session_bar.clone().into()], cx);
+        let rail_region = region(rail.iter().map(|rail| rail.clone().into()).collect(), cx);
+        let band_region = region(tab_bar.iter().map(|tab_bar| tab_bar.clone().into()).chain([session_bar.clone().into()]).collect(), cx);
         let dock_region = region(vec![dock_area.clone().into()], cx);
         let glyph_layer = cx.new(|_| eui_gpui::controls::GlyphLayer);
 
@@ -745,7 +757,7 @@ impl Shell {
         window: &Window,
         cx: &gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        if self.left_anim.swapping {
+        if self.left_anim.swapping || self.rail_hidden() {
             return None;
         }
         let occupant = self.left_anim.to;
@@ -770,6 +782,11 @@ impl Shell {
                 .bottom(px(bottom))
                 .into_any_element(),
         )
+    }
+
+    /// #EDE-227: eDE's component shows no rail.
+    fn rail_hidden(&self) -> bool {
+        crate::ede_component::is_component() && matches!(self.left_anim.to, LeftOccupant::Rail)
     }
 
     /// One occupant of the left column, in a sized wrapper (load-bearing for
@@ -925,6 +942,8 @@ impl Render for Shell {
         if viewport.width < px(1.) || viewport.height < px(1.) {
             return div().into_any_element();
         }
+        // #EDE-237: eDE mode: the window's title and what it is, to the shell.
+        crate::ede_windows::publish(window, cx);
         // EXP-1128: release the atlas tiles of strip-decoded pictures whose
         // per-issue cache dropped since the last frame (needs a window).
         crate::tall_image::release_dropped_strips(window);
@@ -934,6 +953,8 @@ impl Render for Shell {
         // whole window becomes the blocking "Update required" surface.
         let client_chrome = crate::app_title_bar::client_chrome(window);
         let tabs_top = tab_placement().placement == uicore_model::ide::IdeEdge::Top;
+        // #EDE-237: eDE mode has no tab strip: every page is a window.
+        let tab_band = !crate::ede_component::is_component();
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
             // EXP-1557: the in-window dialogs, above the content.
@@ -1033,7 +1054,9 @@ impl Render for Shell {
                 // EXP-456: the leftmost column — the rail, or the settings
                 // nav while `Screen::Settings` is up (animated swap). The
                 // EXP-303 material rules live on `render_left_column`.
-                .child(self.render_left_column(window, cx))
+                // #EDE-227: eDE's component has no rail of its own (the
+                // shell links into it); Settings keeps its nav.
+                .when(!self.rail_hidden(), |row| row.child(self.render_left_column(window, cx)))
                 .child({
                     // EXP-723's cutout: the app's working surface floats on
                     // the window ground as a rounded card inset by
@@ -1095,7 +1118,7 @@ impl Render for Shell {
                                 h_flex().flex_shrink_0().child(band),
                             )
                         })
-                        .when(tabs_top && !client_chrome, |col| {
+                        .when(tabs_top && !client_chrome && tab_band, |col| {
                             // The Linux server-decoration fallback: no titlebar
                             // of ours, the tab band alone above the card.
                             col.child(
@@ -1113,7 +1136,7 @@ impl Render for Shell {
                                 .flex_1()
                                 .min_h_0()
                                 .min_w_0()
-                                .mt(px(if client_chrome || tabs_top {
+                                .mt(px(if client_chrome || (tabs_top && tab_band) {
                                     PANEL_MARGIN_TOP
                                 } else {
                                     PANEL_MARGIN
@@ -1121,7 +1144,7 @@ impl Render for Shell {
                                 .mx(px(PANEL_MARGIN))
                                 // A bottom tab bar (eDE) takes the rest of the
                                 // margin.
-                                .mb(px(if tabs_top {
+                                .mb(px(if tabs_top || !tab_band {
                                     PANEL_MARGIN
                                 } else {
                                     PANEL_MARGIN_BOTTOM_BAR
@@ -1170,7 +1193,7 @@ impl Render for Shell {
                                 // of the card, over the dock area.
                                 .child(self.assistant_fab.clone()),
                         )
-                        .when(!tabs_top, |col| {
+                        .when(!tabs_top && tab_band, |col| {
                             // #EXP-1726: inside eDE the tab bar is the content
                             // column's last child, OUTSIDE the card on the bare
                             // ground, with the card's horizontal margins. It
@@ -1200,7 +1223,12 @@ impl Render for Shell {
                     body.child(crate::app_title_bar::chrome_only_title_bar())
                 })
                 .children(self.render_update_banner(cx))
-                .child(div().flex_1().min_h_0().child(self.login.clone()))
+                .child(div().flex_1().min_h_0().child(if crate::ede_component::is_component() {
+                    // #EDE-227: no login of its own: the way to the shell's Connect.
+                    Self::render_component_signed_out(cx)
+                } else {
+                    self.login.clone().into_any_element()
+                }))
                 .into_any_element(),
         };
 
@@ -1505,7 +1533,41 @@ impl Shell {
     /// [`Self::render_update_banner`] — but as a mandatory, non-dismissible
     /// gate. When no install plan is available (staging, dev, an assetless
     /// release) it degrades to a browser "Download update" link.
+    /// #EDE-227: a window of eDE's component while no account is synced:
+    /// the shell's Connect is the one sign-in.
+    fn render_component_signed_out(cx: &mut gpui::Context<Self>) -> AnyElement {
+        let signing_in = matches!(Store::global(cx).session(cx), SessionPhase::SigningIn);
+        let state = crate::controls::empty_state(Icon::new(registry::UI_SIGN_IN), "Not connected", None, cx);
+        let state = if signing_in {
+            state.child(crate::feedback::Spinner::new().icon(registry::UI_LOADING))
+        } else {
+            state.child(crate::controls::empty_state_actions().child(
+                Button::new("component-connect").primary().label("Connect Exponential").on_click(|_: &ClickEvent, _, cx| {
+                    if let Err(err) = crate::session_holder::open_connect() {
+                        crate::action_error::failed_action("open", "Connect Exponential", Some(err.to_string()), cx);
+                    }
+                }),
+            ))
+        };
+        div().size_full().flex().items_center().justify_center().child(state).into_any_element()
+    }
+
     fn render_update_required(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // #EDE-227: eDE's component updates with the desktop's package.
+        if crate::ede_component::is_component() {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(crate::controls::empty_state(
+                    Icon::new(registry::UI_UPDATE),
+                    "Update Exponential Desktop",
+                    Some("This version of Exponential Desktop is too old for the server. Update the exponential-desktop package.".into()),
+                    cx,
+                ))
+                .into_any_element();
+        }
         let (info, phase) = UpdateState::global_ref(cx)
             .map(|model| {
                 let state = model.read(cx);

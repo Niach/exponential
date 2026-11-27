@@ -324,6 +324,8 @@ struct DeepLinkScroll: ViewModifier {
 /// opens `ChatWaitingSheet`. Not drawn when nothing waits.
 struct ChatWaitingButton: View {
     let count: Int
+    /// #EXP-2183 COLLAPSE: the icon alone (the count stays the label).
+    var compact = false
     let action: () -> Void
 
     var body: some View {
@@ -334,9 +336,11 @@ struct ChatWaitingButton: View {
                     size: CGFloat(Chats.Shell.ChatHeader.glyph), weight: .medium
                 )
                 .foregroundStyle(WaitingCardTint.color(.question))
-                Text("\(count)")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                if !compact {
+                    Text("\(count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
             .padding(.horizontal, 6)
             .frame(height: CGFloat(Chats.Shell.ChatHeader.button))

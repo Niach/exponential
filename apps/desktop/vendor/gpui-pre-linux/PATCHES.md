@@ -164,10 +164,27 @@ popups, and every capture of the person's output showed it.
 - **Tests:** the compositor's headless `space_view` test names popups the
   same way; the built shell's list is black in a capture on eDE.
 
+## An activation token handed in (#EDE-227)
+
+Each is marked `Exponential patch (#EDE-227)` in the source.
+
+- **`src/linux/handed_activation.rs` (new):** `hand_activation_token(token)`
+  keeps one xdg-activation token (a newer one replaces it, one older than
+  30 s is dropped); `take_handed_activation_token` takes it once.
+- **`src/linux/wayland/window.rs`:** `PlatformWindow::activate` passes a
+  handed token to `xdg_activation_v1.activate` for its surface instead of
+  requesting a token of its own. Upstream can only ask for one, which a
+  compositor honours only with a recent input serial of the same client:
+  Exponential Desktop's shell mints a launch token for the person's press
+  and sends it with the link over the app's session bus, so the window the
+  link lands in comes to the front.
+- **`src/linux.rs`, `src/gpui_linux.rs`:** declare the module and export
+  `hand_activation_token` (`ui::session_bus` calls it).
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard`
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard handed_activation`
 from `apps/desktop` (the input shape and clipboard round-trip tests start a
 private Xvfb and are skipped without one).

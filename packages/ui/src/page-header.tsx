@@ -1,10 +1,10 @@
 import type { ReactNode } from "react"
-import { CHATS_COPY, CHATS_SHELL, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
+import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
 
 import { cn } from "./cn"
 import { Badge } from "./badge"
 import { DETAIL_EDGE_TOP_CLASS } from "./detail-chrome"
-import { FabButton } from "./fab-chrome"
+import { HeaderAction } from "./header-action"
 import { conceptIcon } from "./icons.generated"
 
 // #EXP-1384 (fixture `chats.json` `shell.header`, owner 2026-10-24): THE
@@ -45,7 +45,6 @@ export function PageHeader({
   onInbox?: () => void
   className?: string
 }) {
-  const circle = CHATS_SHELL.header.circle
   return (
     <div
       data-testid={CHATS_TEST_IDS.pageHeader}
@@ -56,31 +55,18 @@ export function PageHeader({
       <h1 className="min-w-0 flex-1 truncate text-[34px] font-bold leading-tight tracking-tight">
         {title}
       </h1>
-      <FabButton
-        aria-label="Search"
-        data-testid={CHATS_TEST_IDS.searchButton}
-        emphasis="primary"
-        style={{ width: circle, height: circle }}
-        onClick={onSearch}
-      >
-        <SearchIcon className="size-5" />
-      </FabButton>
-      <FabButton
-        aria-label={CHATS_COPY.inbox}
-        data-testid={CHATS_TEST_IDS.inboxButton}
-        emphasis="primary"
-        className="relative"
-        style={{ width: circle, height: circle }}
-        onClick={onInbox}
-      >
-        <InboxIcon className="size-5" />
+      <HeaderAction aria-label="Search" data-testid={CHATS_TEST_IDS.searchButton} onClick={onSearch}>
+        <SearchIcon />
+      </HeaderAction>
+      <HeaderAction aria-label={CHATS_COPY.inbox} data-testid={CHATS_TEST_IDS.inboxButton} className="relative" onClick={onInbox}>
+        <InboxIcon />
         <Badge
           count={inboxCount}
           tone="muted"
           data-slot="inbox-badge"
           className="absolute -right-0.5 -top-0.5"
         />
-      </FabButton>
+      </HeaderAction>
       {trailing}
     </div>
   )

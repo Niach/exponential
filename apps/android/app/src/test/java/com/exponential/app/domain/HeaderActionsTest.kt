@@ -3,6 +3,8 @@ package com.exponential.app.domain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.float
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,6 +50,31 @@ class HeaderActionsTest {
                 val list = (forms.jsonObject.getValue(form) as? kotlinx.serialization.json.JsonArray) ?: continue
                 assertEquals("$page $form", strings(list), HeaderActions.order(strings(list)))
             }
+        }
+    }
+
+    @Test
+    fun `collapse cases replay`() {
+        val collapse = fixture.getValue("collapse").jsonObject
+        assertEquals(collapse.getValue("titleMinShare").jsonPrimitive.double, HeaderActions.TITLE_MIN_SHARE, 0.0)
+        assertEquals(strings(collapse.getValue("order")), HeaderActions.COLLAPSE_ORDER)
+        val cases = fixture.getValue("collapseCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val chips = case.getValue("chips").jsonArray.map { chip ->
+                val c = chip.jsonObject
+                HeaderActions.CollapseChip(c.getValue("action").jsonPrimitive.content, c.getValue("full").jsonPrimitive.float, c.getValue("compact").jsonPrimitive.float)
+            }
+            assertEquals(
+                case["name"].toString(),
+                strings(case.getValue("expected")),
+                HeaderActions.collapse(
+                    case.getValue("bar").jsonPrimitive.float,
+                    case.getValue("title").jsonPrimitive.float,
+                    case.getValue("fixed").jsonPrimitive.float,
+                    chips,
+                ),
+            )
         }
     }
 }

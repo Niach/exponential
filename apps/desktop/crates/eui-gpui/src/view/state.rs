@@ -52,6 +52,9 @@ pub(crate) struct NodeCache {
     pub hover_styled: Vec<bool>,
     /// #EDE-65: a Box with an `on.hover` (it fires on entering).
     pub hover_fires: Vec<bool>,
+    /// A Box with an `on.auxPress` / `on.scroll` (the other mouse buttons,
+    /// the wheel: eDE's tray items, Cinnamon's click semantics).
+    pub pointer_fires: Vec<(bool, bool)>,
     /// Macro roots by slot (sparse).
     pub macros: HashMap<u32, MacroRoot>,
 }
@@ -148,6 +151,7 @@ impl NodeCache {
         self.ids.resize(len, SharedString::default());
         self.hover_styled.resize(len, false);
         self.hover_fires.resize(len, false);
+        self.pointer_fires.resize(len, (false, false));
     }
 
     /// Store a node in its slot; the slot's previous node (a tombstone for
@@ -171,6 +175,8 @@ impl NodeCache {
         let layout = surface.layout_node(n.index);
         self.hover_styled[i] = !n.removed && surface.hover_styled(n.index);
         self.hover_fires[i] = !n.removed && n.component == "Box" && n.part.is_none() && layout.and_then(|l| l.on.as_ref()).is_some_and(|o| o.contains_key("hover"));
+        let on = layout.and_then(|l| l.on.as_ref()).filter(|_| !n.removed && n.component == "Box" && n.part.is_none());
+        self.pointer_fires[i] = (on.is_some_and(|o| o.contains_key("auxPress")), on.is_some_and(|o| o.contains_key("scroll")));
         let root = layout.filter(|l| l.owner.is_none() && !n.removed).and_then(|l| l.part_query.as_ref()).filter(|q| q.part == "root" && matches!(q.component.as_str(), "Card" | "Group" | "Alert"));
         match root {
             Some(q) => {

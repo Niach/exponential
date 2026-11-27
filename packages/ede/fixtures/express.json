@@ -88,6 +88,9 @@
       "name",
       "scale"
     ],
+    "ede_panel_menu": [
+      "value"
+    ],
     "ede_pin": [
       "app"
     ],
@@ -113,6 +116,7 @@
       "action",
       "name"
     ],
+    "ede_show_desktop": [],
     "ede_space": [
       "session",
       "size"
@@ -143,6 +147,12 @@
       "direction"
     ],
     "ede_tray": [
+      "refresh",
+      "service"
+    ],
+    "ede_tray_input": [
+      "button",
+      "direction",
       "service"
     ],
     "ede_tray_menu": [

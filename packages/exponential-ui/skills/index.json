@@ -47,6 +47,12 @@
         "references/lottie.md",
         "references/spec.md"
       ]
+    },
+    {
+      "name": "exponential-workflow",
+      "description": "Work in Exponential the way its sessions do: the noun tools and their _write twins, a coding session from issue to pull request, the session tree and wake-ups (never poll), ending and reporting, showing results and asking through one card, and the same UI on every platform. Use when acting on Exponential issues, sessions or pull requests over MCP.",
+      "bytes": 3825,
+      "files": []
     }
   ]
 }

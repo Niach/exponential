@@ -29,6 +29,17 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
     ("QT_QPA_PLATFORM", "wayland;xcb"),
     ("ELECTRON_OZONE_PLATFORM_HINT", "auto"),
     ("_JAVA_AWT_WM_NONREPARENTING", "1"),
+    // Chromium and Electron (Signal, VS Code, Brave) pick their password
+    // store from the desktop's name: an unknown XDG_CURRENT_DESKTOP gets
+    // `basic_text`, no Secret Service, and Signal refuses a database whose
+    // key the Cinnamon login stored in `gnome_libsecret`. Their last fallback
+    // is this variable (what gnome-session still sets), so they use the
+    // login keyring gnome-keyring keeps (PAM unlocks it at login,
+    // exponential-keyring.service joins it), without claiming GNOME in
+    // XDG_CURRENT_DESKTOP (autostart OnlyShowIn and portals.conf read that).
+    // Flameshot reads it too: without it, it refuses to capture on Wayland;
+    // with it, it takes the portal path.
+    ("GNOME_DESKTOP_SESSION_ID", "this-is-deprecated"),
 ];
 
 /// What systemd and D-Bus activation need to know once the compositor runs.
@@ -39,12 +50,23 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
 /// the polkit agent, the portal and the services daemon (P13) itself; their
 /// units are conditioned off by it (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`).
 pub const EXPORTED_ENV: &[&str] =
-    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
+    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "GNOME_DESKTOP_SESSION_ID", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
+
+/// xdg-desktop-portal reads `XDG_CURRENT_DESKTOP` (and so which
+/// `<desktop>-portals.conf` routes Screenshot/ScreenCast to us) once, when it
+/// starts. With lingering, the user manager outlives a logout: the frontend
+/// a Cinnamon login started (`X-Cinnamon`, routed to xapp) would answer this
+/// session and never ask our backend (Flameshot: "No such interface
+/// org.freedesktop.impl.portal.Screenshot"). `--ready` restarts the running
+/// ones after the environment update; the session's end stops them so the
+/// next desktop starts its own.
+pub const PORTAL_UNITS: &[&str] = &["xdg-desktop-portal.service", "xdg-desktop-portal-gtk.service"];
 
 /// The units the compositor starts the programs of itself when
 /// `[session] helpers = "compositor"` (#EDE-172 P4): installed, and
 /// conditioned off by `EDE_HELPERS_SPAWNED`.
-pub const HELPER_UNITS: &[&str] = &["systemd/exponential-shell.service", "systemd/exponential-polkit-agent.service", "portal/xdg-desktop-portal-exponential.service", "systemd/exponential-services.service"];
+/// #EDE-227: the device unit too (the compositor starts the component).
+pub const HELPER_UNITS: &[&str] = &["systemd/exponential-shell.service", "systemd/exponential-polkit-agent.service", "portal/xdg-desktop-portal-exponential.service", "systemd/exponential-services.service", "systemd/exponential-device.service"];
 
 /// A crash this soon after start counts toward safe mode.
 pub const QUICK_CRASH: Duration = Duration::from_secs(60);
@@ -152,6 +174,12 @@ pub enum DeviceStart {
     App(Vec<String>),
     /// Neither is installed.
     Nothing,
+}
+
+/// #EDE-227: eDE's component beside `exe` (`exponential-session` in
+/// /usr/bin), when the package ships it.
+pub fn component_next_to(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    exe.parent().map(|dir| dir.join("exponential-app")).filter(|path| path.is_file())
 }
 
 /// What tells the Exponential app it runs as the session's device: it
@@ -547,6 +575,18 @@ mod tests {
         assert_eq!(desktop_exec("[Desktop Entry]\nExec=app %i --name %c\n").unwrap(), vec!["app", "--name"]);
     }
 
+    /// #EDE-227: the package's component beside exponential-session is the device.
+    #[test]
+    fn the_component_beside_the_session_is_the_device() {
+        let dir = std::env::temp_dir().join(format!("ede-component-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = dir.join("exponential-session");
+        assert_eq!(component_next_to(&me), None, "none shipped");
+        std::fs::write(dir.join("exponential-app"), b"").unwrap();
+        assert_eq!(component_next_to(&me), Some(dir.join("exponential-app")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn launcher_entries_are_looked_up_in_the_xdg_data_dirs() {
         let dirs = application_dirs();
@@ -573,6 +613,9 @@ mod tests {
             }
         }
         assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "Exponential");
+        // Chromium/Electron's keyring pick: a set GNOME_DESKTOP_SESSION_ID means
+        // gnome-libsecret; it reaches the device, autostart and D-Bus-activated apps.
+        assert!(SESSION_ENV.iter().any(|(k, v)| *k == "GNOME_DESKTOP_SESSION_ID" && !v.is_empty()) && EXPORTED_ENV.contains(&"GNOME_DESKTOP_SESSION_ID"));
         // #EDE-2: the shell runs under the supervisor, and only once the
         // compositor's display reached systemd (`exponential-session --ready`).
         let shell = std::fs::read_to_string(root.join("systemd/exponential-shell.service")).unwrap();
@@ -580,7 +623,7 @@ mod tests {
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE") && EXPORTED_ENV.contains(&"XAUTHORITY"));
         let deb = [root.join("stage.sh"), root.join("pack-deb.sh")].iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<String>();
-        for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme"] {
+        for bin in ["exponential-compositor", "exponential-session", "exponential-ui", "exponential-shell", "exponential-sealed", "exponential-services", "exponential-theme", "exponential-app"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/exponential-desktop/ui/"), "the factory documents ship");

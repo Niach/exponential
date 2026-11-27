@@ -74,13 +74,21 @@ describe(`classifying a built-in call`, () => {
     )
   })
 
-  it(`one row per tools/call in a batch, matched by id; other methods are not calls`, () => {
-    const body = [call(1, `exponential_issues`, { op: `get` }), { jsonrpc: `2.0`, id: 2, method: `tools/list` }, call(3, `exponential_show`)]
+  it(`one row per request in a batch, matched by id; #NEW-147: every method, a notification never`, () => {
+    const body = [
+      call(1, `exponential_issues`, { op: `get` }),
+      { jsonrpc: `2.0`, id: 2, method: `tools/list` },
+      call(3, `exponential_show`),
+      { jsonrpc: `2.0`, id: 4, method: `tasks/get`, params: { taskId: `tsk_x` } },
+      { jsonrpc: `2.0`, method: `notifications/initialized` },
+    ]
     expect(toolCallsOf(body).map((c) => c.tool)).toEqual([`exponential_issues`, `exponential_show`])
-    const rows = auditRows(caller, body, [toolError(3, `boom`), ok(1)], 5)
-    expect(rows.map((r) => [r.tool, r.status])).toEqual([
-      [`exponential_issues`, `ok`],
-      [`exponential_show`, `failed`],
+    const rows = auditRows(caller, body, [toolError(3, `boom`), ok(1), ok(2), { jsonrpc: `2.0`, id: 4, error: { code: -32602, message: `x` } }], 5)
+    expect(rows.map((r) => [r.method, r.tool, r.status])).toEqual([
+      [`tools/call`, `exponential_issues`, `ok`],
+      [`tools/list`, `tools/list`, `ok`],
+      [`tools/call`, `exponential_show`, `failed`],
+      [`tasks/get`, `tasks/get`, `failed`],
     ])
     expect(JSON.stringify(rows)).not.toContain(`boom`)
     expect(JSON.stringify(rows)).not.toContain(`"get"`)

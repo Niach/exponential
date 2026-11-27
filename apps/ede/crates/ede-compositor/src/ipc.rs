@@ -465,6 +465,10 @@ impl Ede {
             }
         }
         self.ipc.shortcuts.drop_client(id);
+        // Its pick has no one to answer: the person's screen is theirs again.
+        if self.screen_pick.as_ref().is_some_and(|p| p.conn == id) {
+            self.pick_cancel();
+        }
         if let Some(desk) = self.desk_of_scope(&scope) {
             self.release_driven(desk, id);
             self.release_input(desk, id);
@@ -762,6 +766,13 @@ impl Ede {
                 self.minimize_window(&w);
                 json(serde_json::Value::Null)
             }
+            Request::ToggleDesktop => {
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                self.toggle_desktop();
+                json(serde_json::Value::Null)
+            }
             Request::RestoreWindow { window } => {
                 let w = self.any_window_by_id(&window)?;
                 if self.is_locked() {
@@ -818,6 +829,15 @@ impl Ede {
                 let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false, notice: None };
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
+            }
+            Request::PickRegion { mode } => {
+                // The person's own hand: never an agent's grant (a run's),
+                // computer use ([`Ede::ipc_computer_use`]) or a space.
+                if grant.run_id.is_some() || desk != DeskId::PERSON {
+                    return Err(fail(ErrorCode::Forbidden, "only the person picks a part of their screen"));
+                }
+                self.pick_region_start(id, call_id, mode)?;
+                Ok(None)
             }
             Request::Input { event, bindings } => {
                 self.ipc_input(id, desk, &grant, event, bindings, now)?;
@@ -1100,6 +1120,8 @@ impl Ede {
         let refused = match request {
             Request::Lock | Request::Logout | Request::Unlock | Request::SetOutput { .. } | Request::ReloadConfig | Request::LaunchToken => true,
             Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => true,
+            // The person picks with their own hand, not the app.
+            Request::PickRegion { .. } => true,
             // #EDE-172 (P13): the services are the shell's buttons.
             Request::OpenServices { .. } => true,
             Request::Input { bindings, .. } => *bindings,

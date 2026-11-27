@@ -56,6 +56,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[cfg(target_os = "linux")]
 pub mod intake;
 pub mod process;
+pub mod shot;
 
 /// The hello's version, which both sides must speak. An additive change (an
 /// op, a field, a capability, an error code, a message type, a membership)
@@ -79,6 +80,9 @@ pub mod events {
     pub const WINDOW_RESTORED: &str = "window.restored";
     /// A key the shell answers (#EDE-12): `{"name": "switcher.next" | "menu.toggle" | "volume.up" | …}`.
     pub const HOTKEY: &str = "hotkey";
+    /// The keyboard layout changed (#EDE-243, Super+Space): `{"index": 1,
+    /// "layouts": ["English (US)", "German"]}`, for the keyboard applet.
+    pub const KEYBOARD_LAYOUT: &str = "keyboard.layout";
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
@@ -148,6 +152,10 @@ pub enum Request {
     /// brings it back.
     MinimizeWindow { window: WindowId },
     RestoreWindow { window: WindowId },
+    /// Show the desktop (#EDE-245, Muffin's `toggle_desktop`): every window
+    /// of the active workspace to the taskbar, the next one brings them
+    /// back. The panel's corner bar; Super+D in the compositor.
+    ToggleDesktop,
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
     /// black. `since` = the `serial` of the last capture: when nothing was
@@ -158,6 +166,16 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         since: Option<u64>,
     },
+    /// The person picks a part of their screen (Cinnamon's area
+    /// screenshot, the Screenshot portal's `interactive` mode, the portal's
+    /// PickColor): a crosshair, a rubber band dragged with the left button
+    /// (`area`; a click without a drag = the window under the pointer, on
+    /// bare desktop the output) or one click (`point`). The reply waits
+    /// for them: [`PickedRegion`], `null` = they cancelled (Escape, the
+    /// right button). Only for the person's desk (never an agent's grant or
+    /// space), never while locked; one pick at a time (`conflict`). The
+    /// band is drawn on their monitors only, never into a capture.
+    PickRegion { mode: PickMode },
     /// Drive the person's seat. Protected surfaces and the lock refuse it.
     /// `bindings` = the key goes through the compositor's bindings and
     /// hotkeys as a person's would (the root grant only: exponential-ctl in a test
@@ -637,9 +655,9 @@ impl Request {
             Request::OpenWayland => None,
             // #EDE-172 (P13): what the connection holds, the arm checks.
             Request::OpenServices { .. } => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
-            Request::Capture { .. } => Some(Capability::Capture),
+            Request::Capture { .. } | Request::PickRegion { .. } => Some(Capability::Capture),
             Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
                 Some(Capability::InputPerson)
@@ -662,8 +680,8 @@ impl Request {
     pub fn anonymous(&self) -> bool {
         match self {
             Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
-            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } => false,
-            Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
+            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop => false,
+            Request::Capture { .. } | Request::PickRegion { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
             Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText | Request::LaunchToken => false,
@@ -683,8 +701,10 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
             Request::Input { bindings, .. } => !bindings,
-            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ToggleDesktop | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
+            // The person's own hand on their own screen: never a space's.
+            Request::PickRegion { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
             Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } | Request::OpenWayland | Request::OpenServices { .. } => false,
         }
@@ -718,6 +738,31 @@ pub enum InputEvent {
     /// then key, release = key then modifiers); `not_found` when no key
     /// makes it. ePilot's keys and typed characters (#EDE-23).
     Keysym { keysym: u32, pressed: bool },
+}
+
+/// What [`Request::PickRegion`] asks the person for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PickMode {
+    /// A rectangle (a drag), or a window / an output (a click).
+    Area,
+    /// One pixel (a click): the colour picker's.
+    Point,
+}
+
+/// A [`Request::PickRegion`] answer, in global LOGICAL layout coordinates
+/// (the space of [`OutputInfo`]'s and [`WindowInfo`]'s `x`/`y`/`width`/
+/// `height`): within the outputs' bounds, and it may span several outputs.
+/// `window` = the person clicked that window (`area`): the rectangle is its
+/// frame, the compositor's title bar included.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PickedRegion {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -1089,6 +1134,12 @@ pub struct Client {
 #[cfg(unix)]
 pub const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long [`Client::pick_region`] waits: the person takes as long as they
+/// take, so not [`CALL_TIMEOUT`]; a day stands in for "for good" (a
+/// compositor that never answers still frees the caller some day).
+#[cfg(unix)]
+pub const PICK_WAIT: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 #[cfg(unix)]
 impl Client {
     /// Connects to `socket` and says hello with `token`.
@@ -1418,6 +1469,17 @@ impl Client {
         Ok(Some(Capture { info, pixels }))
     }
 
+    /// [`Request::PickRegion`]: blocks until the person picked (`Some`) or
+    /// cancelled (`None`), up to [`PICK_WAIT`] instead of the call timeout;
+    /// the connection's later calls wait as before.
+    pub fn pick_region(&mut self, mode: PickMode) -> Result<Option<PickedRegion>, Error> {
+        let kept = self.call_timeout;
+        self.call_timeout = PICK_WAIT;
+        let picked = self.call_as(Request::PickRegion { mode });
+        self.call_timeout = kept;
+        picked
+    }
+
     pub fn bind_shortcuts(&mut self, owner: &str, shortcuts: Vec<ShortcutSpec>) -> Result<Vec<BoundShortcut>, Error> {
         self.call_as(Request::BindShortcuts { owner: owner.into(), shortcuts })
     }
@@ -1478,6 +1540,10 @@ impl Client {
 
     pub fn restore(&mut self, window: WindowId) -> Result<(), Error> {
         self.call(Request::RestoreWindow { window }).map(|_| ())
+    }
+
+    pub fn toggle_desktop(&mut self) -> Result<(), Error> {
+        self.call(Request::ToggleDesktop).map(|_| ())
     }
 
     pub fn lock(&mut self) -> Result<(), Error> {
@@ -1641,6 +1707,7 @@ mod tests {
     #[test]
     fn every_op_names_its_capability() {
         assert_eq!(Request::Capture { target: CaptureTarget::Output { name: "x".into() }, since: None }.capability(), Some(Capability::Capture));
+        assert_eq!(Request::PickRegion { mode: PickMode::Area }.capability(), Some(Capability::Capture), "what a capture of the pick needs");
         assert_eq!(Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] }.capability(), Some(Capability::Ui));
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
@@ -1847,6 +1914,52 @@ mod tests {
         assert_eq!(serde_json::to_value(Launched { pid: 7 }).unwrap(), serde_json::json!({"pid": 7}));
     }
 
+    /// `pick_region`, its modes and its answer on the wire; `null` = cancelled.
+    #[test]
+    fn pick_region_is_flat_json_and_round_trips() {
+        for (mode, name) in [(PickMode::Area, "area"), (PickMode::Point, "point")] {
+            let call = Call { id: 4, request: Request::PickRegion { mode } };
+            let json = serde_json::json!({"id": 4, "op": "pick_region", "mode": name});
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let window = Some(PickedRegion { x: -1280, y: 0, width: 640, height: 512, window: Some(WindowId::new("w3").unwrap()) });
+        let wire = serde_json::json!({"x": -1280, "y": 0, "width": 640, "height": 512, "window": "w3"});
+        assert_eq!(serde_json::to_value(&window).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Option<PickedRegion>>(wire).unwrap(), window);
+        let band = PickedRegion { x: 10, y: 20, width: 1, height: 1, window: None };
+        assert_eq!(serde_json::to_value(&band).unwrap(), serde_json::json!({"x": 10, "y": 20, "width": 1, "height": 1}), "no window: absent");
+        assert_eq!(serde_json::from_value::<Option<PickedRegion>>(serde_json::Value::Null).unwrap(), None, "cancelled");
+        assert!(!Request::PickRegion { mode: PickMode::Area }.anonymous());
+        assert!(!Request::PickRegion { mode: PickMode::Area }.in_space());
+    }
+
+    /// The pick waits for the person, past the call timeout, and the
+    /// connection's next call waits as usual again.
+    #[cfg(unix)]
+    #[test]
+    fn a_pick_waits_past_the_call_timeout() {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        std::thread::spawn(move || {
+            let frame = read_frame(&mut theirs).unwrap();
+            let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![], unknown_capabilities: vec![] };
+            write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: call["id"].as_u64().unwrap(), result: serde_json::to_value(hello).unwrap() }).unwrap()).unwrap();
+            let frame = read_frame(&mut theirs).unwrap();
+            let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+            assert_eq!(call["op"], "pick_region");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let picked = PickedRegion { x: 1, y: 2, width: 3, height: 4, window: None };
+            write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: call["id"].as_u64().unwrap(), result: serde_json::to_value(picked).unwrap() }).unwrap()).unwrap();
+            let _ = read_frame(&mut theirs);
+        });
+        let mut client = Client::over(ours, Token::new("0".repeat(64)).unwrap()).unwrap();
+        client.set_call_timeout(std::time::Duration::from_millis(100));
+        let picked = client.pick_region(PickMode::Area).expect("waits for the person");
+        assert_eq!(picked, Some(PickedRegion { x: 1, y: 2, width: 3, height: 4, window: None }));
+        assert_eq!(client.call_timeout, std::time::Duration::from_millis(100), "the call timeout is back");
+    }
+
     /// #EDE-127: `space_of_process` and its answer on the wire; `null` is the person's.
     #[test]
     fn space_of_process_is_flat_json_and_round_trips() {
@@ -2050,9 +2163,11 @@ mod tests {
             (Request::MoveWindow { window: w(), x: 0, y: 0 }, false),
             (Request::MinimizeWindow { window: w() }, false),
             (Request::RestoreWindow { window: w() }, false),
+            (Request::ToggleDesktop, false),
             (Request::Capture { target: CaptureTarget::Output { name: "space-1".into() }, since: None }, true),
             (Request::Capture { target: CaptureTarget::Space { space: space() }, since: Some(3) }, true),
             (Request::Capture { target: CaptureTarget::Window { window: w() }, since: None }, false),
+            (Request::PickRegion { mode: PickMode::Area }, false),
             (Request::Input { event: key.clone(), bindings: false }, true),
             (Request::Input { event: key, bindings: true }, false),
             (Request::PointerPosition, true),
@@ -2093,7 +2208,7 @@ mod tests {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 42, "one row per variant at least");
+        assert_eq!(seen.len(), 44, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
@@ -2118,7 +2233,9 @@ mod tests {
             Request::MoveWindow { .. } => "move_window",
             Request::MinimizeWindow { .. } => "minimize_window",
             Request::RestoreWindow { .. } => "restore_window",
+            Request::ToggleDesktop => "toggle_desktop",
             Request::Capture { .. } => "capture",
+            Request::PickRegion { .. } => "pick_region",
             Request::Input { .. } => "input",
             Request::PointerPosition => "pointer_position",
             Request::HoldInput => "hold_input",
@@ -2394,7 +2511,9 @@ mod tests {
             Request::MoveWindow { window: w(), x: 0, y: 0 },
             Request::MinimizeWindow { window: w() },
             Request::RestoreWindow { window: w() },
+            Request::ToggleDesktop,
             Request::Capture { target: CaptureTarget::Output { name: "o".into() }, since: None },
+            Request::PickRegion { mode: PickMode::Point },
             Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false },
             Request::PointerPosition,
             Request::HoldInput,
@@ -2437,7 +2556,7 @@ mod tests {
             assert!(!request.anonymous(), "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 42, "every op has a row");
+        assert_eq!(seen.len(), 44, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

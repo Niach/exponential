@@ -21,6 +21,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,8 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,45 +43,16 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ChatMenuItem
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.HeaderEdgeChrome
+import com.exponential.app.ui.components.HeaderFold
+import com.exponential.app.ui.components.LocalHeaderFold
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
-
-/**
- * #EXP-1688 (chats.json `shell.chatHeader`, web `MobileDetailHeader` +
- * `PhoneHeaderTitle`): the ghost button the chat header's back, telephone and
- * `…` all wear: no fill, no hairline, the secondary glyph (the filled circle
- * is the top-level page header's). The tap target stays the platform minimum.
- */
-@Composable
-fun ChatHeaderButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    /** #EXP-1878: the disabled look (the dimmed glyph) on a control that
-     *  still takes its press (a tap says why it is off). */
-    dimmed: Boolean = false,
-) {
-    CircleIconButton(
-        icon,
-        contentDescription,
-        onClick = onClick,
-        modifier = modifier,
-        tint = if (dimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary) else null,
-        enabled = enabled,
-        borderless = true,
-        size = Chats.Shell.ChatHeader.BUTTON.dp,
-        glyphSize = Chats.Shell.ChatHeader.GLYPH.dp,
-    )
-}
 
 /**
  * Session 58cb32df (chats.json TRANSCRIPT, phones): THE chat header — back ·
@@ -84,8 +60,8 @@ fun ChatHeaderButton(
  * chat's Merge pill ([action]) · NEW-69: the telephone ([call], an agent chat
  * only, left of `…`) · the `…` menu (the chat's own entries,
  * `chatMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
- * divider). #EXP-1688: one leading row, nothing centred, a ghost back
- * (`shell.chatHeader`), THE header circles trailing (header-actions.json). #FEED-239: no gear (settings = a `…` entry); THE
+ * divider). #EXP-1688: one leading row, nothing centred; #EXP-2168: THE
+ * round back leading, THE header circles trailing (header-actions.json). #FEED-239: no gear (settings = a `…` entry); THE
  * session screen's tabs ([SessionScreenTabs]) ride under it ([tabs]) on the
  * same band.
  */
@@ -124,7 +100,23 @@ fun ChatHeader(
      *  right after the title ([ChatMarks]); empty = none. */
     marks: List<String> = emptyList(),
 ) {
+    // #EXP-2183 (header-actions.json COLLAPSE): the title keeps its share of
+    // a narrow bar; the Merge pill, then the waiting chip, fold to the glyph.
+    val fold = remember { HeaderFold() }
+    val titleStyle = MaterialTheme.typography.titleMedium.copy(
+        fontSize = Chats.Shell.ChatHeader.TITLE.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.sp,
+    )
+    val measurer = rememberTextMeasurer()
+    val titleIntrinsic = remember(title, titleStyle) {
+        measurer.measure(title, titleStyle, maxLines = 1, softWrap = false).size.width.toFloat()
+    }
+    SideEffect { fold.titleIntrinsic = titleIntrinsic }
+    LaunchedEffect(fold) { fold.follow() }
     HeaderEdgeChrome {
+        CompositionLocalProvider(LocalHeaderFold provides fold) {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding()
             // Landscape: clear of the camera cutout and a side navigation bar, like the transcript.
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).testTag("chat-header")) {
@@ -133,30 +125,27 @@ fun ChatHeader(
                     .fillMaxWidth()
                     // A large font scale grows the row with its two lines.
                     .heightIn(min = Chats.Shell.ChatHeader.ROW.dp)
+                    .onSizeChanged { fold.bar = it.width.toFloat() }
                     .padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val gap = Chats.Shell.ChatHeader.GAP.dp
                 val actionGap = com.exponential.app.domain.HeaderActions.GAP.dp
                 if (onBack != null) {
-                    ChatHeaderButton(ExpIcons.uiBack, "Back", onClick = onBack)
-                    Spacer(Modifier.width(gap))
+                    // #EXP-2168: THE round back (header-actions.json `leading`).
+                    Spacer(Modifier.width(8.dp))
+                    com.exponential.app.ui.components.PageHeaderBack(onClick = onBack)
+                    Spacer(Modifier.width(actionGap))
                 } else {
                     // A tab's root (the Assistant's): the disc on the page's 16dp edge.
                     Spacer(Modifier.width(8.dp))
                 }
                 lead()
                 Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).onSizeChanged { fold.titleSpace = it.width.toFloat() }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = Chats.Shell.ChatHeader.TITLE.sp,
-                            lineHeight = 22.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.sp,
-                        ),
+                        style = titleStyle,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -186,7 +175,7 @@ fun ChatHeader(
                     }
                 }
                 if (waiting != null) {
-                    Spacer(Modifier.width(gap))
+                    Spacer(Modifier.width(actionGap))
                     waiting()
                 }
                 // Draws its own leading gap (nothing while there is no action).
@@ -214,6 +203,7 @@ fun ChatHeader(
                 }
             }
             tabs?.invoke()
+        }
         }
     }
 }

@@ -17,7 +17,7 @@ import { isAssistant, triggerSummary, type AgentTriggerLike } from "@exp/domain-
 import { SIDEBAR_MENU_COPY } from "@exp/domain-contract/sidebar-menus"
 import { sessionScreen, sessionScreenKind, sessionScreenSubtitle } from "@exp/domain-contract/session-screen"
 import { SessionComposer } from "@/components/session-composer"
-import { HEADER_ACTION_CLASS, HeaderAction } from "@/components/team/mobile-detail-header"
+import { HeaderAction } from "@/components/team/mobile-detail-header"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import {
   ChatScreen,
@@ -169,7 +169,6 @@ export function AgentChannel({
         onCall={() =>
           void voiceCall.call.start(agent.id, callAvailability.device, callAvailability.language, callAvailability.fallback)
         }
-        className={HEADER_ACTION_CLASS}
       />
       {sends && (
         <HeaderAction

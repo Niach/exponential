@@ -116,6 +116,10 @@ pub struct Ede {
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
+    /// #EDE-246: the pointer against the hot corners.
+    pub corners: crate::hot_corners::HotCorners,
+    /// The windows Show desktop sent to the taskbar ([`Ede::toggle_desktop`]).
+    pub desktop_shown: Vec<Window>,
     /// wp-fractional-scale + wp-viewporter: HiDPI at 1.5× and the like.
     pub fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub viewporter_state: smithay::wayland::viewporter::ViewporterState,
@@ -163,6 +167,12 @@ pub struct Ede {
     /// #EDE-172 (P13): the services daemon the compositor runs, by its
     /// intake ([`crate::services`]).
     pub services: crate::services::Services,
+    /// ext-image-copy-capture + wlr-screencopy for the person's own
+    /// unsandboxed tools ([`crate::screencopy`]).
+    pub screencopy: crate::screencopy::Screencopy,
+    /// The person picking a part of their screen (`pick_region`,
+    /// [`crate::screen_pick`]); one at a time.
+    pub screen_pick: Option<crate::screen_pick::Pick>,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -305,6 +315,8 @@ impl Ede {
             input_methods: crate::InputMethods::system(),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
+            corners: Default::default(),
+            desktop_shown: Vec::new(),
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
@@ -321,6 +333,8 @@ impl Ede {
             config_path: None,
             helpers,
             services: Default::default(),
+            screencopy: crate::screencopy::Screencopy::new(&dh),
+            screen_pick: None,
         }
     }
 
@@ -1030,6 +1044,8 @@ fn tile_edges(tile: Tile) -> Vec<xdg_toplevel::State> {
         Tile::Maximized => vec![],
         Tile::Left => vec![TiledLeft, TiledTop, TiledBottom],
         Tile::Right => vec![TiledRight, TiledTop, TiledBottom],
+        Tile::Top => vec![TiledTop, TiledLeft, TiledRight],
+        Tile::Bottom => vec![TiledBottom, TiledLeft, TiledRight],
         Tile::TopLeft => vec![TiledLeft, TiledTop],
         Tile::TopRight => vec![TiledRight, TiledTop],
         Tile::BottomLeft => vec![TiledLeft, TiledBottom],

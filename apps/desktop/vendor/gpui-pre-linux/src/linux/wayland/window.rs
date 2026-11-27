@@ -1878,6 +1878,14 @@ impl PlatformWindow for WaylandWindow {
 
     fn activate(&self) {
         let state = self.borrow();
+        // Exponential patch (#EDE-227): a token handed in from outside (eDE's
+        // shell, over the app's session bus) activates this window as is.
+        if let Some(activation) = &state.globals.activation {
+            if let Some(token) = crate::linux::take_handed_activation_token() {
+                activation.activate(token, &state.surface);
+                return;
+            }
+        }
         if let (Some(activation), Some(app_id)) = (&state.globals.activation, state.app_id.clone())
         {
             let token = activation.get_activation_token(

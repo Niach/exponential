@@ -163,6 +163,29 @@ fn an_update_reaches_untouched_documents_and_spares_edited_ones() {
     assert_eq!(log(&dir)[0], "Edit panel.express");
 }
 
+/// #EDE-235: a factory theme.json arrives like a document, follows the
+/// package while untouched, stays the person's once edited, and the factory
+/// reset puts it back.
+#[test]
+fn the_factory_theme_arrives_follows_updates_and_resets() {
+    let (_tmp, dir, factory) = setup();
+    let theme = |id: &str| format!(r##"{{"$schema": "https://ui.exponential.at/schemas/theme/v1.json", "id": "{id}", "name": "{id}", "extends": "exponential", "modes": {{"dark": {{"color": {{"background": "#0f0807"}}}}}}}}"##);
+    fs::write(factory.join("theme.json"), theme("factory-1")).unwrap();
+    let (ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+    assert_eq!(ui.theme().id, "factory-1");
+    assert_eq!(ui.factory_names().unwrap(), ["panel"], "the apply machine keeps to the documents");
+    assert!(log(&dir).contains(&"Factory theme".to_string()), "{:?}", log(&dir));
+    fs::write(factory.join("theme.json"), theme("factory-2")).unwrap();
+    let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+    assert_eq!(ui.theme().id, "factory-2", "an untouched copy follows the package");
+    ui.write_theme(&serde_json::from_str(&theme("mine")).unwrap(), "Edit theme.json").unwrap();
+    fs::write(factory.join("theme.json"), theme("factory-3")).unwrap();
+    let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+    assert_eq!(ui.theme().id, "mine", "an edited copy stays theirs");
+    ui.reset_to_factory().unwrap();
+    assert_eq!(ui.theme().id, "factory-3");
+}
+
 #[test]
 fn a_drawn_edit_stays() {
     let (_tmp, dir, factory) = setup();

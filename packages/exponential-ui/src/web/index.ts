@@ -72,6 +72,9 @@ export { treeKeyTarget } from "./tree-keys"
 // #EXP-1629: the KeyRecorder field's DOM capture (React + Solid Box).
 export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMousePayload, isKeyRecorderField } from "./key-recorder"
 export type { KeyRecorderPayload } from "./key-recorder"
+// #EDE-247: the Box's `auxPress` + `scroll` in the DOM (React + Solid Box).
+export { attachBoxPointer, wheelSteps, WHEEL_PIXEL_STEP, WHEEL_LINES_PER_NOTCH } from "./box-pointer"
+export type { BoxAuxButton, BoxScrollDirection, WheelAccumulator } from "./box-pointer"
 export { isPickerPick, isPickerPopover } from "./picker"
 // #EDE-65 lane M: Embed's sandboxed host plugin + box (React + Solid).
 export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"

@@ -8,6 +8,7 @@ pub mod actions;
 pub mod audit;
 pub mod exposes;
 pub mod hub;
+pub mod hub_client;
 pub mod upstream;
 pub mod vault;
 
@@ -32,6 +33,8 @@ pub mod fixture {
     fixture!(audit, "../../../../../../packages/emcp/fixtures/audit.json");
     fixture!(vault, "../../../../../../packages/emcp/fixtures/vault.json");
     fixture!(hub, "../../../../../../packages/emcp/fixtures/hub.json");
+    fixture!(hub_client, "../../../../../../packages/emcp/fixtures/hub-client.json");
+    fixture!(skills, "../../../../../../packages/emcp/fixtures/skills.json");
     fixture!(upstream, "../../../../../../packages/emcp/fixtures/upstream.json");
     fixture!(app_actions, "../../../../../../packages/domain-contract/fixtures/app-actions.json");
 }

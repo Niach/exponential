@@ -1,7 +1,7 @@
 import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
 import { currentSpace } from "@/lib/spaces/context"
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { McpServer } from "@modelcontextprotocol/server"
 import { registerExponentialTools } from "./tools"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
@@ -12,6 +12,11 @@ import { mentionIssues, mentionQuery } from "./mentions"
 import { compactViewResult, isViewListOp } from "./view-results"
 import { guardDestructiveCall } from "./delete-guard"
 import { DELETE_DESCRIPTION_LINE, destructiveKey } from "@exp/emcp/deletes"
+import { NO_CLIENT, withEmcpContext, type EmcpContext } from "./request-context"
+import { elicitBeforeCall, urlElicitAfterCall } from "./elicit"
+import { fileArgumentShape, routeFileArgument } from "./files"
+import { HOST_CONFIRMS_META } from "@exp/mcp-apps/genui-result"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -221,12 +226,13 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `repositories`,
     label: `repositories`,
     group: `team`,
-    blurb: `A team's repositories: list, create (connect one the team's GitHub App can see), credentials (a git remote + short-lived token), configure_ci (Exponential's own CI on or off).`,
+    blurb: `A team's repositories: list, create (connect a GitHub one, or provider exponential = hosted), credentials (a git remote + short-lived token), configure_ci (Exponential's own CI on or off), restore (a hosted repository from its backup).`,
     ops: {
       list: `repositories_list`,
       create: `repositories_add`,
       credentials: `repositories_credentials`,
       configure_ci: `repositories_configure_ci`,
+      restore: `repositories_restore`,
     },
   },
   {
@@ -648,8 +654,13 @@ export function registerNounTools(
   request: Request,
   access: McpAccess,
   sessionId: string | null = null,
-  gates: McpToolGates = ALL_MCP_TOOL_GATES
+  gates: McpToolGates = ALL_MCP_TOOL_GATES,
+  context: EmcpContext = { client: NO_CLIENT, principal: { userId: user.id, grant: `member` } }
 ): Map<string, LegacyTool> {
+  // #NEW-144: every handler's `extra` carries ctx.client, ctx.principal and
+  // the wire call (request-context.ts).
+  const ctxOf = (extra: unknown, tool: string, args: Record<string, unknown>) =>
+    withEmcpContext(extra, { ...context, call: context.call ?? { tool, args } })
   const legacy = collectLegacyTools(user, request, access, sessionId, gates)
   // The worst-case surface, so every op's parameters are described for
   // every caller (descriptions never depend on the gates).
@@ -675,10 +686,21 @@ export function registerNounTools(
         annotations: { ...(shape.def.annotations ?? {}), title: spec.label, ...VERB_ANNOTATIONS[spec.name] },
         ...(spec.alwaysLoad ? { _meta: { ...(shape.def._meta ?? {}), ...ALWAYS_LOAD_META } } : {}),
       }
+      const wire = `${PREFIX}${spec.name}`
       const handler: LegacyHandler = tool
-        ? tool.handler
+        ? async (args, sdkExtra) => {
+            const extra = ctxOf(sdkExtra, wire, args)
+            // #NEW-147 (elicitation.json): the stop confirm and the start's
+            // team and device picks, for an external host that declared them.
+            const gate = await elicitBeforeCall(extra, { tool: wire, args, userId: user.id, access, external: sessionId === null })
+            if (gate.kind === `answer`) return gate.result as ToolResult
+            const result = await tool.handler(gate.args, extra)
+            const teamId = typeof gate.args.teamId === `string` ? gate.args.teamId : null
+            const url = await urlElicitAfterCall(extra, result, { userId: user.id, external: sessionId === null, data: gate.data, teamId })
+            return (url ?? result) as ToolResult
+          }
         : async () => err(new Error(`${spec.name} only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`))
-      server.registerTool(`${PREFIX}${spec.name}`, def as never, handler as never)
+      server.registerTool(wire, def as never, handler as never)
       continue
     }
     const allOps = Object.keys(spec.ops ?? {})
@@ -718,11 +740,14 @@ export function registerNounTools(
           description: nounDescription(spec, legacy, everything, { ops: half.ops, twin: twin?.name, read: half.read }),
           // The op enum's own refusal names a moved op's new home (the SDK
           // validates before the handler runs).
-          inputSchema: z.object({ op: openOp ? opSchema.optional() : opSchema }).passthrough(),
+          // #NEW-149: with MCP_FILES_EXTENSION on, a half whose op takes a
+          // file argument declares it (`x-mcp-file`, files.json).
+          inputSchema: z.object({ op: openOp ? opSchema.optional() : opSchema, ...fileArgumentShape(half.name, half.ops) }).passthrough(),
           annotations: half.annotations,
           ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
         } as never,
-        (async (args: Record<string, unknown>, extra: unknown) => {
+        (async (args: Record<string, unknown>, sdkExtra: unknown) => {
+          const extra = ctxOf(sdkExtra, half.name, args)
           const { op = openOp, ...rest } = args
           const query = openOp && args.op === undefined ? mentionQuery(rest) : null
           if (query !== null) return mentionIssues(legacy, query, extra)
@@ -730,15 +755,38 @@ export function registerNounTools(
           const tool = routes.get(String(op))
           if (tool === undefined) return err(new Error(unknownOp(spec, String(op), half.ops, twinRef)))
           if (tool === null) return err(new Error(unavailable(spec, String(op))))
+          // #NEW-149 (files.json): a file argument becomes the op's inline or
+          // signed shape, or answers on its own (a refused file, upload_required's retry checks).
+          const fileRoute = await routeFileArgument(extra, {
+            tool: half.name,
+            op: String(op),
+            args: rest,
+            userId: user.id,
+            origin: process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin,
+          })
+          if (fileRoute?.kind === `result`) return fileRoute.result
+          const callArgs = fileRoute?.kind === `args` ? fileRoute.args : rest
           const schema = tool.def.inputSchema ?? z.strictObject({})
-          const parsed = schema.safeParse(coerceScalars(rest, kinds.get(String(op)) ?? new Map()))
+          const parsed = schema.safeParse(coerceScalars(callArgs, kinds.get(String(op)) ?? new Map()))
           if (!parsed.success) {
             const issues = parsed.error.issues
               .map((issue) => `${issue.path.join(`.`) || `(root)`}: ${issue.message}`)
               .join(`; `)
             return err(new Error(`Invalid arguments for ${spec.name}.${String(op)}: ${issues}`))
           }
-          const data = parsed.data as Record<string, unknown>
+          const parsedData = parsed.data as Record<string, unknown>
+          // #NEW-147 (elicitation.json): a destructive op asks its confirm
+          // first (an external host that declared form elicitation); a
+          // declined or cancelled one runs nothing and never counts in the burst.
+          const gate = await elicitBeforeCall(extra, {
+            tool: half.name,
+            args: { op: String(op), ...parsedData },
+            userId: user.id,
+            access,
+            external: sessionId === null,
+          })
+          if (gate.kind === `answer`) return gate.result
+          const { op: _op, ...data } = gate.args
           // #EXP-1798: one explicit id, within the burst (delete-guard.ts).
           const refused = guardDestructiveCall({
             noun: spec.name,
@@ -750,7 +798,19 @@ export function registerNounTools(
             access,
           })
           if (refused) return err(new Error(refused))
-          const result = await tool.handler(data, extra)
+          const handled = await tool.handler(data, extra)
+          // #NEW-147: a failure a person fixes on a page (billing, the GitHub App) asks in URL mode.
+          const teamId = typeof data.teamId === `string` ? data.teamId : null
+          const url = await urlElicitAfterCall(extra, handled, { userId: user.id, external: sessionId === null, data: gate.data, teamId })
+          if (url) return url
+          if (fileRoute?.kind === `args` && fileRoute.after) return fileRoute.after(handled)
+          // #NEW-149: an app read for a host that declared form elicitation tells
+          // the genUI view the server confirms its deletes and stops (elicit.ts),
+          // so the view skips its own confirm (packages/mcp-apps genui/result.ts).
+          const result =
+            sessionId === null && spec.name === `apps` && String(op) === `get` && !handled.isError && extra.client.era === `modern` && extra.client.elicitation.form
+              ? { ...handled, _meta: { ...((handled as { _meta?: Record<string, unknown> })._meta ?? {}), [HOST_CONFIRMS_META]: true } }
+              : handled
           // #VAPP-292: outside a session a view list op answers the model with
           // a summary and the view with the rows (view-results.ts).
           return sessionId === null && isViewListOp(spec.name, String(op))

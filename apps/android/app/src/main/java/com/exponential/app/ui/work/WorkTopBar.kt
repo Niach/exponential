@@ -36,7 +36,7 @@ import com.exponential.app.domain.HeaderActions
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.PageHeaderBack
 import com.exponential.app.ui.components.TopBarTitleStyle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
@@ -111,10 +111,10 @@ fun WorkTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
             .heightIn(min = HeaderActions.CIRCLE.dp),
     ) {
-        TopBarBackButton(onClick = onBack)
+        PageHeaderBack(onClick = onBack)
         // The title slot's type = [TopBarTitleStyle] (web `MobileDetailHeader`);
         // a [titleContent] inherits it too. Left, never centred.
         Box(Modifier.weight(1f)) { ProvideTextStyle(TopBarTitleStyle) {

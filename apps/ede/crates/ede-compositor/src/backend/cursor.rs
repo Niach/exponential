@@ -1,5 +1,7 @@
 //! The pointer image when no client sets one: the xcursor theme's `default`
-//! (`$XCURSOR_THEME`, `$XCURSOR_SIZE`), else a built-in arrow. Adapted from
+//! (`$XCURSOR_THEME`, `$XCURSOR_SIZE`), else a built-in arrow; a named one
+//! the compositor shows itself (the screen pick's crosshair) from the same
+//! theme, else that arrow. Adapted from
 //! smithay's anvil (MIT, Copyright (c) 2017 Victor Berger and Smithay
 //! contributors); `resources/cursor.rgba` is anvil's fallback arrow.
 
@@ -15,6 +17,9 @@ static FALLBACK: &[u8] = include_bytes!("../../resources/cursor.rgba");
 pub struct Cursor {
     icons: Vec<Image>,
     size: u32,
+    theme: String,
+    /// The named icons looked up so far (`None` = the theme has none).
+    named: std::collections::HashMap<&'static str, Option<Vec<Image>>>,
 }
 
 impl Cursor {
@@ -30,7 +35,26 @@ impl Cursor {
                 tracing::warn!("xcursor theme {theme:?} has no default cursor; using the built-in arrow");
                 vec![Image { size: 32, width: 64, height: 64, xhot: 1, yhot: 1, delay: 1, pixels_rgba: FALLBACK.to_vec(), pixels_argb: vec![] }]
             });
-        Self { icons, size }
+        Self { icons, size, theme, named: Default::default() }
+    }
+
+    /// [`Cursor::image`] of the theme's icon for `icon` (its CSS name, then
+    /// its alternatives), the default arrow when it has none.
+    pub fn named_image(&mut self, icon: smithay::input::pointer::CursorIcon, buffer_scale: i32, time: Duration) -> Image {
+        if icon == smithay::input::pointer::CursorIcon::Default {
+            return self.image(buffer_scale, time);
+        }
+        let theme = &self.theme;
+        let icons = self.named.entry(icon.name()).or_insert_with(|| {
+            let theme = CursorTheme::load(theme);
+            std::iter::once(icon.name())
+                .chain(icon.alt_names().iter().copied())
+                .find_map(|name| theme.load_icon(name).and_then(|path| std::fs::read(path).ok()).and_then(|data| parse_xcursor(&data)).filter(|icons| !icons.is_empty()))
+        });
+        match icons {
+            Some(icons) => frame(icons, self.size, buffer_scale, time),
+            None => self.image(buffer_scale, time),
+        }
     }
 
     /// The frame to show at `time` (themes may animate) on an output whose
@@ -38,21 +62,7 @@ impl Cursor {
     /// `$XCURSOR_SIZE` times that, so a 200% output gets the 48 px image,
     /// not the 24 px one stretched.
     pub fn image(&self, buffer_scale: i32, time: Duration) -> Image {
-        let want = self.size as i32 * buffer_scale;
-        let nearest = self.icons.iter().min_by_key(|i| (want - i.size as i32).abs()).unwrap();
-        let frames: Vec<&Image> = self.icons.iter().filter(|i| i.width == nearest.width && i.height == nearest.height).collect();
-        let total: u32 = frames.iter().map(|i| i.delay).sum();
-        if total == 0 {
-            return frames[0].clone();
-        }
-        let mut ms = time.as_millis() as u32 % total;
-        for f in &frames {
-            if ms < f.delay {
-                return (*f).clone();
-            }
-            ms -= f.delay;
-        }
-        frames[0].clone()
+        frame(&self.icons, self.size, buffer_scale, time)
     }
 
     /// The buffer scale `image` is uploaded at: how many times
@@ -61,4 +71,24 @@ impl Cursor {
     pub fn buffer_scale(&self, image: &Image) -> i32 {
         ((image.size as f64 / self.size.max(1) as f64).round() as i32).max(1)
     }
+}
+
+/// The frame of `icons` (one icon's images, every size) for `buffer_scale`
+/// times `size` at `time`.
+fn frame(icons: &[Image], size: u32, buffer_scale: i32, time: Duration) -> Image {
+    let want = size as i32 * buffer_scale;
+    let nearest = icons.iter().min_by_key(|i| (want - i.size as i32).abs()).unwrap();
+    let frames: Vec<&Image> = icons.iter().filter(|i| i.width == nearest.width && i.height == nearest.height).collect();
+    let total: u32 = frames.iter().map(|i| i.delay).sum();
+    if total == 0 {
+        return frames[0].clone();
+    }
+    let mut ms = time.as_millis() as u32 % total;
+    for f in &frames {
+        if ms < f.delay {
+            return (*f).clone();
+        }
+        ms -= f.delay;
+    }
+    frames[0].clone()
 }

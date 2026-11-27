@@ -428,3 +428,143 @@ Integrations board, filed from EXP-1214 on 2026-10-07.
   - INT-13 Verification matrix (needs a person's accounts)
   - INT-14 CIMD on the authorization server
   - INT-15 One bundle per view
+
+## 10. MCP 2026-07-28
+
+Spike and protocol base of #NEW-144 (part of #NEW-143), 2026-11-26. Specs:
+[2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28),
+[MRTR](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr),
+[Claude Code for server authors](https://code.claude.com/docs/en/mcp). The
+contract is `packages/emcp/fixtures/protocol.json` (its `$comment` is the
+spec; the spec's own examples are its goldens).
+
+### What changed in the protocol
+
+- No handshake. Every request carries `params._meta`
+  `io.modelcontextprotocol/protocolVersion`, `.../clientInfo` and
+  `.../clientCapabilities`; `server/discover` answers `supportedVersions`,
+  `capabilities` (with an `extensions` map), `instructions`, `ttlMs`,
+  `cacheScope` and `_meta[.../serverInfo]`. `initialize`, `ping`, the GET
+  stream, `resources/subscribe` (now `subscriptions/listen`),
+  `tasks/list`/`tasks/result` and `elicitationId` are gone from the new era.
+- Server-to-client requests (elicitation, sampling, roots) only ride MRTR:
+  `tools/call`, `prompts/get` and `resources/read` may answer
+  `resultType: "input_required"` with `inputRequests` (keyed) and/or an
+  opaque `requestState`; the client retries the same call (a new JSON-RPC id)
+  with `inputResponses` and the state echoed. Only for capabilities the
+  request declared (else `-32021`).
+- Error codes: `-32020` header mismatch, `-32021` missing client capability,
+  `-32022` unsupported version (`data.supported`).
+- Tasks are an extension (`io.modelcontextprotocol/tasks`): a call answers
+  `resultType: "task"`, the client polls `tasks/get`, answers
+  `input_required` through `tasks/update {taskId, inputResponses}`,
+  `tasks/cancel` is cooperative.
+
+### TS SDK 2.x on the gate (done here)
+
+`@modelcontextprotocol/sdk` 1.32 → the split 2.x packages
+`@modelcontextprotocol/server` + `/client` 2.4.0 (Apache-2.0, where 2.2 was MIT; the
+licence inventory and NOTICES follow). `lib/emcp/gate.ts` `handleMcpPost`
+routes each POST by the SDK's own `isLegacyRequest`: a 2025 request
+(`initialize` and every later call of a 2025-06-18 / 2025-11-25 client) goes
+through the stateless `WebStandardStreamableHTTPServerTransport` as before
+(JSON, no session id); a 2026-07-28 request goes through
+`createMcpHandler(() => server, {legacy: "reject", responseMode: "json"})`,
+which answers `server/discover`, checks the envelope and headers, stamps
+`resultType` and `serverInfo`. Still one per-request `McpServer` from one
+factory for both eras, so the surface cannot drift. Measured:
+
+- `tools/list` of all 41 wire tools: identical between the eras; the real
+  bytes went from 35,369 (SDK 1.32) to 33,934 (SDK 2.4): 2.x drops
+  `execution: {taskSupport: "forbidden"}` and names draft 2020-12 in
+  `$schema`. `context-budget.ts` measures its own mirror, unchanged.
+- A modern `subscriptions/listen` is refused (`-32601`): a stream on a
+  per-request server would close with the request. `/api/mcp/apps` keeps its
+  2025 GET stream.
+- The SDK's legacy shim (fulfilling `input_required` toward a 2025 client by
+  pushing real server→client requests) is off: the stateless JSON transport
+  has no channel for it, and `askInput` never asks a 2025 client.
+
+### The protocol base (done here)
+
+- `ctx.client`: the gate reads the body once (`clientContextOf`,
+  `@exp/emcp/protocol`) and every handler gets era, version, clientInfo, the
+  raw capabilities, the `extensions` map and the derived flags
+  (`elicitation.form|url`, `sampling`, `roots`, `tasks`, `ui`), beside
+  `ctx.principal` (member + credential: `oauth:<clientId>`, `key:<keyId>`,
+  `member`) and `ctx.call` (the wire tool and its arguments).
+- `lib/emcp/extensions.ts`: THE map the server declares (today
+  `openai/mentions`); tasks, skills and files enter with their handlers.
+- `lib/emcp/mrtr.ts`: `askInput(ctx, {inputRequests, data})` builds the
+  `input_required` answer with an AES-256-GCM sealed state (HKDF of
+  BETTER_AUTH_SECRET) bound to member, credential, method, tool, a SHA-256
+  digest of the canonical arguments and a 10-minute TTL; null for a 2025
+  client or an undeclared capability. The server's `requestState.verify`
+  hook opens, checks and spends the state ONCE before any handler runs
+  (`-32602 Invalid or expired requestState`, never the reason);
+  `redeemInput(ctx)` hands the handler its data and the answers. Spent ids
+  live in the web process (one process serves every round; a restart
+  forgets spent ids still inside their TTL).
+
+### rmcp (decides #NEW-148)
+
+`apps/desktop/crates/emcp` pins `rmcp = "3.8"` (lock: 3.8.0); crates.io has
+3.11.0 (2026-11-17).
+
+| | 3.8.0 (pinned) | 3.11.0 |
+|---|---|---|
+| `ProtocolVersion::V_2026_07_28` (LATEST), `server/discover` | yes | yes |
+| `InputRequiredResult` (`inputRequests`, `requestState`) | yes (`model/mrtr.rs`) | yes, + `request_state` on the tool context |
+| signed requestState helpers | feature `request-state` (off in our build) | same |
+| tasks (`tasks/get|update|cancel`, `CreateTaskResult`, task manager) | yes | yes |
+| elicitation form + url | yes; server builder behind feature `elicitation` (off) | same |
+| skills (`skills/list`, `skills/get`, SEP-2640) | **no** | yes since 3.9.0 (+ a directory loader, feature `skills-fs`) |
+
+The hub can speak 2026-07-28 MRTR, tasks and elicitation on the pinned 3.8
+with the `elicitation` (and, if it seals its own state, `request-state`)
+features; serving or proxying skills needs a bump to ≥ 3.9 (3.11 today).
+
+### Claude Code 2.1.332 as we launch it
+
+Measured with a throwaway HTTP server and our exact argv (`-p`, stream-json
+both ways, `--permission-prompt-tool stdio`, `--settings` carrying an
+`Elicitation` hook with matcher = the server name):
+
+- It negotiates with `server/discover` (headers `MCP-Protocol-Version:
+  2026-07-28`, `Mcp-Method`, user agent `claude-code/2.1.332 (sdk-cli)`),
+  never `initialize`. `server/discover` and `tools/list` declare
+  `{roots: {listChanged}, elicitation: {form, url}, extensions:
+  {io.modelcontextprotocol/tasks}}`; **`tools/call` declares no tasks
+  extension** (plus `claudecode/toolUseId` and a `progressToken` in `_meta`).
+- **Plain question (MRTR):** works. The first call's `input_required` ran the
+  `Elicitation` hook (input: `mcp_server_name`, `message`, `mode`,
+  `requested_schema`; no request key, no tool_use_id); its `accept` + content
+  went back on the retry ~10 ms later as
+  `inputResponses: {q1: {action, content}}` with the `requestState` echoed.
+  `ElicitationResult` does not run when a hook answered. Nothing
+  elicitation-related reaches stream-json stdout (no control_request).
+- **Task question:** never happens under our launch. With tasks undeclared on
+  `tools/call` a task answer fails the call (`Unsupported result type 'task'
+  for tools/call`), no `tasks/*` is ever sent. The 2.1.332 binary gates MCP
+  tasks on the `cli` entrypoint (we run as `sdk-cli`) behind a remote flag
+  (`tengu_glowing_lark`); `CLAUDE_CODE_DISABLE_MCP_TASKS` turns it off. The
+  docs agree: in `-p` / SDK runs a task question is cancelled without running
+  `Elicitation` hooks.
+- So for our own sessions: answer questions with plain MRTR (the
+  `Elicitation` hook in our `--settings` can bridge them to the card, keyed by
+  server + message + schema since the hook gets no request key), and give a
+  task only when the request declares the extension.
+
+### Codex app-server `mcpServer/elicitation/request` (0.156.1)
+
+From `codex app-server generate-ts` (`v2/McpServerElicitationRequestParams.ts`):
+params are flat, `{threadId, turnId: string | null, serverName}` plus, by
+`mode`: `form` `{_meta, message, requestedSchema: McpElicitationSchema}`
+(2025-11-25's restricted object schema), `openai/form` / `openaiForm`
+`{_meta, message, requestedSchema}` (opt-in), or `url` `{_meta, message, url,
+elicitationId}`. The response is `{action: "accept" | "decline" | "cancel",
+content: JsonValue | null, _meta: JsonValue | null}`. Today
+`crates/eagent/src/engine/adapters/codex.rs` answers every one with
+`{action: "cancel"}`; the plumbing to route it to an ACP
+`CreateElicitationRequest` (and the card) already exists for
+`item/tool/requestUserInput`.

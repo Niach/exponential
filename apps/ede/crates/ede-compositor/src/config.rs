@@ -41,6 +41,8 @@ pub struct Config {
     pub control: Control,
     /// `[display]`: scaling across outputs (#EDE-250).
     pub display: Display,
+    /// `[hot_corners]` (#EDE-246): Cinnamon's, all off by default.
+    pub hot_corners: HotCorners,
 }
 
 /// `[display]` (#EDE-250): how scaling reaches what is not a native
@@ -65,6 +67,31 @@ pub struct Display {
 impl Default for Display {
     fn default() -> Self {
         Self { fractional_scaling: true, xwayland_native_scaling: true, auto_scale: true }
+    }
+}
+
+/// `[hot_corners]`: `layout` is Cinnamon's `hotcorner-layout`, the corners
+/// top-left, top-right, bottom-left, bottom-right as `action:enabled:delay`
+/// (`expo`, `scale`, `desktop` or a command); `fullscreen` is
+/// `hotcorner-fullscreen`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HotCorners {
+    pub layout: Vec<String>,
+    pub fullscreen: bool,
+}
+
+impl Default for HotCorners {
+    fn default() -> Self {
+        Self { layout: ["expo:false:0", "scale:false:0", "scale:false:0", "desktop:false:0"].map(String::from).to_vec(), fullscreen: false }
+    }
+}
+
+impl HotCorners {
+    /// Corner `i`; a layout without exactly four entries has none, as
+    /// Cinnamon refuses it.
+    pub fn corner(&self, i: usize) -> Option<crate::hot_corners::Corner> {
+        (self.layout.len() == 4).then(|| self.layout.get(i).and_then(|c| crate::hot_corners::Corner::parse(c))).flatten()
     }
 }
 
@@ -288,6 +315,7 @@ impl Default for Config {
             session: Session::default(),
             control: Control::default(),
             display: Display::default(),
+            hot_corners: HotCorners::default(),
         }
     }
 }

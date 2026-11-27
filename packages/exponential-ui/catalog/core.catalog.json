@@ -1652,7 +1652,9 @@
       "events": [
         "press",
         "toggle",
-        "hover"
+        "hover",
+        "auxPress",
+        "scroll"
       ],
       "example": {
         "style": {
@@ -3767,6 +3769,7 @@
             "shape": "menuItem"
           },
           "required": true,
+          "bindable": true,
           "description": "In order."
         },
         "side": {

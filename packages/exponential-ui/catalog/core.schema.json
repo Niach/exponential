@@ -50,7 +50,9 @@
             "events": [
               "press",
               "toggle",
-              "hover"
+              "hover",
+              "auxPress",
+              "scroll"
             ]
           }
         }
@@ -7221,10 +7223,20 @@
           "description": "Default trigger's icon."
         },
         "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/menuItem"
-          },
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/menuItem"
+              }
+            },
+            {
+              "$ref": "common_types.json#/$defs/DataBinding"
+            },
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            }
+          ],
           "description": "In order."
         },
         "side": {
@@ -29262,6 +29274,12 @@
           "$ref": "#/$defs/EuiAction"
         },
         "hover": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "auxPress": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "scroll": {
           "$ref": "#/$defs/EuiAction"
         }
       },

@@ -1,0 +1,13 @@
+# Exponential Desktop's factory removable-drives applet (#EDE-245, Cinnamon's removable-drives@cinnamon.org):
+# the taskbar's drives button, shown only while a removable drive is mounted, opens it as a popup. One row
+# per mounted filesystem of a removable or ejectable drive (/services/disks/removable: a USB stick, an SD
+# card, a disc): a press opens it in the file manager (ede_launch xdg-open), its eject button unmounts it
+# and ejects (else powers off) the drive (ede_service eject on the disks domain).
+surface("applet-drives", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_drives", placement: "top-end", size: {width: 320, height: 200}}, functions: ["ede_service", "ede_launch"]}})
+$/services/disks/removable = []
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[drives_title, drives, drive, no_drives])
+drives_title = Text(text="Removable drives", variant="label")
+drives = List(gap="none", divided=true, children=_template($/services/disks/removable, drive, key="volume"))
+drive = Row(title=$name, subtitle=$mountPoint, icon="hard-drive", density="compact", pressable=true, slots={trailing: "drive_eject"}, on={press: ede_launch(command=concat(values=["xdg-open ", $uri]))})
+drive_eject = Button(label="Eject", icon="upload", variant="ghost", size="icon", on={press: ede_service(action="eject", args={volume: $volume}, domain="disks")})
+no_drives = Text(text="No removable drive", variant="muted", visible=eq(a=len(value=$/services/disks/removable), b=0))

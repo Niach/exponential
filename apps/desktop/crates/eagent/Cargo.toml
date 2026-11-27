@@ -41,6 +41,8 @@ agent-client-protocol = { workspace = true }
 # notification pumps, the child-exit race) and their fresh session ids.
 tokio = { workspace = true }
 uuid = { workspace = true }
+# #NEW-146: the elicitation card's URL review (WHATWG parsing, like the TS `new URL`).
+url = "2.5"
 
 [features]
 # VAPP-264: the `LocalModel` provider (an in-process model behind the
