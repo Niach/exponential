@@ -149,7 +149,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_ci_external"]
         )
     }
 
@@ -220,7 +221,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_ci_external"]
         )
     }
 
@@ -763,7 +765,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_ci_external"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -882,7 +885,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces"]
+             "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
+             "v116_ci_external"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1977,13 +1981,15 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "ci_runs"),
             ["id", "team_id", "repository_id", "number", "name", "sha", "ref", "trigger",
              "pull_request_id", "state", "error", "rerun_of", "created_by_user_id",
-             "started_at", "completed_at", "created_at", "updated_at"]
+             "started_at", "completed_at", "created_at", "updated_at",
+             "provider", "external_id", "external_url", "external_attempt", "external_access"]
         )
         XCTAssertEqual(
             try columnNames(pool, "ci_jobs"),
             ["id", "team_id", "run_id", "key", "check", "position", "runs_on", "needs", "matrix",
              "timeout_min", "status", "conclusion", "reason", "runner_device_id", "steps",
-             "log_key", "log_bytes", "queued_at", "started_at", "completed_at", "created_at", "updated_at"]
+             "log_key", "log_bytes", "queued_at", "started_at", "completed_at", "created_at", "updated_at",
+             "provider", "external_id", "external_url"]
         )
         XCTAssertTrue(try columnNames(pool, "devices").contains("runner"))
         // #EXP-1832: the sidebar-layout allowlist, column for column.
@@ -4136,6 +4142,64 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.groupChatId }, "g-1")
+    }
+
+    // #EXP-2172: v116 adds the GitHub columns to `ci_runs` / `ci_jobs`,
+    // resetting ONLY the ci-runs and ci-jobs cursors; an old row reads as
+    // ours, a GitHub wire row round-trips.
+    func testCiExternalColumnsAdded() throws {
+        let pool = try makePool("exp2172-ci-external")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v115_device_member_spaces")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "ci_runs" ("id", "team_id", "number", "created_at", "updated_at")
+                VALUES ('r1', 't', 12, 'x', 'x')
+                """)
+            for shape in ["ci-runs", "ci-jobs", "devices"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "ci_runs").contains("external_url"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v116_ci_external"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["ci-jobs", "ci-runs"])
+            let old = try XCTUnwrap(try CiRunEntity.fetchOne(db, key: "r1"))
+            XCTAssertEqual(old.provider, "exponential")
+            XCTAssertNil(old.externalUrl)
+        }
+        let run = try JSONDecoder().decode(CiRunEntity.self, from: Data("""
+            {"id":"g1","team_id":"t","repository_id":"repo","number":"1207","name":"build-ios","sha":"abc",
+             "trigger":"tag","state":"pending","provider":"github","external_id":"99","external_url":"https://github.com/a/b/actions/runs/99",
+             "external_attempt":"2","external_access":"write","created_at":"x","updated_at":"x"}
+            """.utf8))
+        let job = try JSONDecoder().decode(CiJobEntity.self, from: Data("""
+            {"id":"gj1","team_id":"t","run_id":"g1","check":"build","provider":"github","external_id":"5",
+             "external_url":"https://github.com/a/b/actions/runs/99/job/5","created_at":"x","updated_at":"x"}
+            """.utf8))
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in
+            try run.save(db)
+            try job.save(db)
+        }
+        let stored = try XCTUnwrap(try pool.read { db in try CiRunEntity.fetchOne(db, key: "g1") })
+        XCTAssertEqual(stored.provider, "github")
+        XCTAssertEqual(stored.externalAttempt, 2)
+        XCTAssertEqual(stored.run.externalAccess, "write")
+        XCTAssertEqual(stored.run.externalUrl, "https://github.com/a/b/actions/runs/99")
+        let storedJob = try XCTUnwrap(try pool.read { db in try CiJobEntity.fetchOne(db, key: "gj1") })
+        XCTAssertEqual(storedJob.provider, "github")
+        XCTAssertEqual(storedJob.externalId, "5")
     }
 
     // #EXP-2161: v115 adds `devices.assistant_team_ids`, `space_host_id` and

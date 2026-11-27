@@ -13,7 +13,11 @@ public enum CiRunView {
     public enum Events {
         public static let select = "ci-select-job"
         public static let rerun = "ci-rerun"
+        public static let rerunAll = "ci-rerun-all"
         public static let cancel = "ci-cancel"
+        public static let fix = "ci-fix"
+        public static let openExternal = "ci-open-external"
+        public static let breadcrumb = "ci-breadcrumb"
     }
 
     /// Events the runner section fires.
@@ -29,7 +33,7 @@ public enum CiRunView {
     public static let runnerLabelsPath = "/labels"
 
     /// Which button's call is in flight.
-    public enum Busy: String, Sendable { case rerun, cancel }
+    public enum Busy: String, Sendable { case rerun, rerunAll, cancel }
 
     private static func iconTone(_ tone: PrChecks.Tone) -> String {
         switch tone {
@@ -105,7 +109,8 @@ public enum CiRunView {
     }
 
     /// The run page (ci-run.json LAYOUT). `log` = the SELECTED job's log text
-    /// as read so far (nil = not read yet).
+    /// as read so far (nil = not read yet); `repository` = its full name (nil
+    /// while its row has not synced); `pullRequestNumber` = the run's PR.
     public static func ciRunTree(
         run: CiRun.Run,
         jobs: [CiRun.Job],
@@ -113,16 +118,40 @@ public enum CiRunView {
         log: String?,
         now: Date,
         phone: Bool,
-        busy: Busy? = nil
+        busy: Busy? = nil,
+        repository: String? = nil,
+        pullRequestNumber: Int? = nil
     ) -> CardJSON {
         let ids = CiRun.TestIds.self
         let tiles = CiRun.tiles(run, jobs: jobs, now: now)
-        let actions = CiRun.actions(state: run.state, error: run.error)
-        var children: [CardJSON] = [
-            stack("ci-run-title", "vertical", "xs", "stretch", [
-                node("ci-run-heading", "Heading", props: ["text": .string(CiRun.Copy.title(run.number)), "level": .string("h2")]),
-                node("ci-run-name", "Text", props: ["text": .string(run.name), "variant": .string("muted")]),
+        let actions = CiRun.actions(run)
+        let title = CiRun.Copy.title(run.number)
+        var head: [CardJSON] = []
+        // #EXP-2172: wide, the way back to the CI page and the repository.
+        if !phone {
+            var items: [CardJSON] = [.object(["label": .string(CiRun.Copy.breadcrumbRoot), "value": .string("ci")])]
+            if let repository { items.append(.object(["label": .string(repository), "value": .string("repository")])) }
+            items.append(.object(["label": .string(title), "value": .string("run")]))
+            head.append(node(ids.breadcrumb, "Breadcrumb", props: ["items": .array(items)], extra: on("select", Events.breadcrumb)))
+        }
+        var badges: [CardJSON] = [
+            node("ci-run-heading", "Heading", props: ["text": .string(title), "level": .string("h2")]),
+            node(ids.source, "Badge", props: [
+                "text": .string(CiRun.Copy.sources[CiRun.source(run.provider)] ?? ""), "variant": .string("secondary"),
             ]),
+        ]
+        if let pullRequestNumber {
+            badges.append(node("ci-run-pull-request", "Badge", props: [
+                "text": .string(CiRun.Copy.pullRequest.replacingOccurrences(of: "{number}", with: String(pullRequestNumber))),
+                "variant": .string("outline"),
+            ]))
+        }
+        head.append(stack("ci-run-heading-row", "horizontal", "sm", "center", badges))
+        head.append(node("ci-run-name", "Text", props: [
+            "text": .string(run.ref.map { "\(run.name) · \($0)" } ?? run.name), "variant": .string("muted"),
+        ]))
+        var children: [CardJSON] = [
+            stack("ci-run-title", "vertical", "xs", "stretch", head),
             node(
                 ids.tiles, "Grid",
                 props: ["columns": .number(phone ? 2 : 4), "gap": .string("md")],
@@ -135,27 +164,36 @@ public enum CiRunView {
                 }
             ),
         ]
-        if actions.rerunFailed || actions.cancel {
-            var buttons: [CardJSON] = []
-            if actions.rerunFailed {
-                buttons.append(node(ids.rerun, "Button", props: [
-                    "label": .string(CiRun.Copy.rerunFailed),
-                    "loading": .bool(busy == .rerun),
-                    "disabled": .bool(busy != nil),
-                ], extra: on("press", Events.rerun)))
-            }
-            if actions.cancel {
-                // ci-run.json: variant destructive-outline (the catalog's
-                // `destructive`; it has no outline twin).
-                buttons.append(node(ids.cancel, "Button", props: [
-                    "label": .string(CiRun.Copy.cancel),
-                    "variant": .string("destructive"),
-                    "loading": .bool(busy == .cancel),
-                    "disabled": .bool(busy != nil),
-                ], extra: on("press", Events.cancel)))
-            }
-            children.append(stack("ci-run-actions", "horizontal", "sm", "center", buttons))
+        func button(_ id: String, _ label: String, _ event: String, _ key: Busy?, _ extra: [String: CardJSON] = [:]) -> CardJSON {
+            var props: [String: CardJSON] = ["label": .string(label)]
+            for (k, v) in extra { props[k] = v }
+            if let key { props["loading"] = .bool(busy == key) }
+            props["disabled"] = .bool(busy != nil)
+            return node(id, "Button", props: props, extra: on("press", event))
         }
+        var buttons: [CardJSON] = []
+        if actions.rerunFailed { buttons.append(button(ids.rerun, CiRun.Copy.rerunFailed, Events.rerun, .rerun)) }
+        if actions.rerunAll {
+            buttons.append(button(
+                ids.rerunAll, CiRun.Copy.rerunAll, Events.rerunAll, .rerunAll,
+                actions.rerunFailed ? ["variant": .string("outline")] : [:]
+            ))
+        }
+        // ci-run.json: variant destructive-outline (the catalog's
+        // `destructive`; it has no outline twin).
+        if actions.cancel {
+            buttons.append(button(ids.cancel, CiRun.Copy.cancel, Events.cancel, .cancel, ["variant": .string("destructive")]))
+        }
+        if actions.fix {
+            buttons.append(button(ids.fix, CiRun.Copy.fix, Events.fix, nil, ["variant": .string("outline"), "icon": .string("bot")]))
+        }
+        if actions.openExternal {
+            buttons.append(button(
+                ids.openExternal, CiRun.Copy.openExternal, Events.openExternal, nil,
+                ["variant": .string("outline"), "icon": .string("github")]
+            ))
+        }
+        if !buttons.isEmpty { children.append(node("ci-run-actions", "Toolbar", children: buttons)) }
         if let error = run.error {
             children.append(node("ci-run-error", "Alert", props: [
                 "type": .string("error"), "title": .string(CiRun.Copy.pipelineError), "message": .string(error),

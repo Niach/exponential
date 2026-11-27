@@ -60,7 +60,11 @@ func ciRunModel(_ raw: [String: Any]) throws -> CiRun.Run {
         error: ciString(raw["error"]),
         sha: try XCTUnwrap(ciString(raw["sha"])),
         startedAt: ciString(raw["startedAt"]),
-        completedAt: ciString(raw["completedAt"])
+        completedAt: ciString(raw["completedAt"]),
+        ref: ciString(raw["ref"]),
+        provider: ciString(raw["provider"]) ?? "exponential",
+        externalUrl: ciString(raw["externalUrl"]),
+        externalAccess: ciString(raw["externalAccess"])
     )
 }
 
@@ -89,6 +93,17 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(copy["log"] as? String, CiRun.Copy.log)
         XCTAssertEqual(copy["rerunFailed"] as? String, CiRun.Copy.rerunFailed)
         XCTAssertEqual(copy["cancel"] as? String, CiRun.Copy.cancel)
+        XCTAssertEqual(copy["rerunAll"] as? String, CiRun.Copy.rerunAll)
+        XCTAssertEqual(copy["fix"] as? String, CiRun.Copy.fix)
+        XCTAssertEqual(copy["openExternal"] as? String, CiRun.Copy.openExternal)
+        XCTAssertEqual(copy["breadcrumbRoot"] as? String, CiRun.Copy.breadcrumbRoot)
+        XCTAssertEqual(copy["pullRequest"] as? String, CiRun.Copy.pullRequest)
+        XCTAssertEqual(copy["sources"] as? [String: String], CiRun.Copy.sources)
+        XCTAssertEqual(copy["fixPrompt"] as? [String: String], [
+            "head": CiRun.Copy.fixPromptHead, "job": CiRun.Copy.fixPromptJob,
+            "read": CiRun.Copy.fixPromptRead, "tail": CiRun.Copy.fixPromptTail,
+        ])
+        XCTAssertEqual(fixture["fixLogLines"] as? Int, CiRun.fixLogLines)
         XCTAssertEqual(copy["emptyLog"] as? String, CiRun.Copy.emptyLog)
         XCTAssertEqual(copy["failedJobs"] as? String, CiRun.Copy.failedJobs)
         XCTAssertEqual(copy["pipelineError"] as? String, CiRun.Copy.pipelineError)
@@ -105,6 +120,8 @@ final class CiRunTests: XCTestCase {
         XCTAssertEqual(ids, [
             "page": CiRun.TestIds.page, "tiles": CiRun.TestIds.tiles, "jobRow": CiRun.TestIds.jobRow,
             "steps": CiRun.TestIds.steps, "log": CiRun.TestIds.log, "rerun": CiRun.TestIds.rerun, "cancel": CiRun.TestIds.cancel,
+            "rerunAll": CiRun.TestIds.rerunAll, "fix": CiRun.TestIds.fix, "openExternal": CiRun.TestIds.openExternal,
+            "breadcrumb": CiRun.TestIds.breadcrumb, "source": CiRun.TestIds.source,
         ])
     }
 
@@ -168,14 +185,41 @@ final class CiRunTests: XCTestCase {
 
     func testActions() throws {
         for item in try cases("ci-run.json", "actions") {
-            let actions = CiRun.actions(state: try XCTUnwrap(ciString(item["state"])), error: ciString(item["error"]))
-            XCTAssertEqual(["rerunFailed": actions.rerunFailed, "cancel": actions.cancel] as NSDictionary, item["expected"] as? NSDictionary, "\(item["name"] ?? "")")
+            let actions = CiRun.actions(
+                state: try XCTUnwrap(ciString(item["state"])), error: ciString(item["error"]),
+                provider: ciString(item["provider"]), externalAccess: ciString(item["externalAccess"]),
+                externalUrl: ciString(item["externalUrl"])
+            )
+            XCTAssertEqual([
+                "rerunFailed": actions.rerunFailed, "rerunAll": actions.rerunAll, "cancel": actions.cancel,
+                "fix": actions.fix, "openExternal": actions.openExternal,
+            ] as NSDictionary, item["expected"] as? NSDictionary, "\(item["name"] ?? "")")
+        }
+    }
+
+    func testFixPrompt() throws {
+        for item in try cases("ci-run.json", "fixPrompt") {
+            let input = try XCTUnwrap(item["input"] as? [String: Any])
+            let run = try XCTUnwrap(input["run"] as? [String: Any])
+            let prompt = CiRun.fixPrompt(
+                run: CiRun.Run(
+                    id: try XCTUnwrap(ciString(run["id"])), number: try XCTUnwrap(run["number"] as? Int),
+                    name: try XCTUnwrap(ciString(run["name"])), state: "failure", error: nil,
+                    sha: try XCTUnwrap(ciString(run["sha"])), startedAt: nil, completedAt: nil, ref: ciString(run["ref"])
+                ),
+                repository: try XCTUnwrap(ciString(input["repository"])),
+                job: ciString(input["job"]),
+                log: ciString(input["log"])
+            )
+            XCTAssertEqual(prompt, ciString(item["expected"]), "\(item["name"] ?? "")")
         }
     }
 
     func testSpecimenMatchesTheFixture() throws {
         let specimen = try XCTUnwrap(try ciFixture("ci-run.json")["specimen"] as? [String: Any])
         XCTAssertEqual(try ciRunModel(try XCTUnwrap(specimen["run"] as? [String: Any])), CiRun.specimenRun)
+        XCTAssertEqual(ciString(specimen["repository"]), CiRun.specimenRepository)
+        XCTAssertEqual(specimen["pullRequestNumber"] as? Int, CiRun.specimenPullRequestNumber)
         XCTAssertEqual(try XCTUnwrap(specimen["jobs"] as? [[String: Any]]).map(ciJob), CiRun.specimenJobs)
         XCTAssertEqual(ciString(specimen["selected"]), CiRun.specimenSelected)
         XCTAssertEqual(ciString(specimen["log"]), CiRun.specimenLog)
@@ -363,7 +407,9 @@ final class CiRunViewTests: XCTestCase {
                 log: ciString(item["log"]),
                 now: try ciDate(item["now"]),
                 phone: try XCTUnwrap(item["phone"] as? Bool),
-                busy: ciString(item["busy"]).flatMap(CiRunView.Busy.init(rawValue:))
+                busy: ciString(item["busy"]).flatMap(CiRunView.Busy.init(rawValue:)),
+                repository: ciString(model["repository"]),
+                pullRequestNumber: model["pullRequestNumber"] as? Int
             )
             let expected = try XCTUnwrap(CardJSON(any: item["tree"]))
             XCTAssertNil(diff(expected, tree), item["name"] as? String ?? "")

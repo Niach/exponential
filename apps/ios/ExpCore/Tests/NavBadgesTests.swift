@@ -133,8 +133,21 @@ final class NavBadgesTests: XCTestCase {
         let ids = try cases("destinations").filter { $0["badge"] as? Bool == true }.compactMap { $0["id"] as? String }
         XCTAssertEqual(ids, [
             "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab", "chats", "chat-row",
-            "inbox", "drafts", "app-icon",
+            "inbox", "drafts", "ci", "app-icon",
         ])
+    }
+
+    // #EXP-2172: the CI destination's badge is ci-page.json `ciBadge`.
+    func testCiDestinationIsCiPageBadge() throws {
+        let row = try XCTUnwrap(try cases("destinations").first { $0["id"] as? String == "ci" })
+        XCTAssertEqual(row["counts"] as? String, "ciBadge")
+        XCTAssertEqual(row["tone"] as? String, "ciBadge")
+        for c in try XCTUnwrap(try ciFixture("ci-page.json")["badgeCases"] as? [[String: Any]]) {
+            var raw = try XCTUnwrap(c["input"] as? [String: Any])
+            raw["now"] = ""
+            let got = NavBadges.ciBadge(try ciPageInput(raw))
+            XCTAssertEqual(["count": got.count, "tone": got.tone.rawValue] as NSDictionary, c["expected"] as? NSDictionary, c["name"] as? String ?? "")
+        }
     }
 
     func testTeamMarkLeadCases() throws {

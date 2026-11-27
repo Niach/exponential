@@ -1707,6 +1707,15 @@
         "sha256": "079a887d89c9638b07731aebf4d0c3e9ba1edeb91bc5dbb925b0376ee0b3dcd1"
       }
     },
+    "ci": {
+      "ios": {
+        "file": "shots/ci/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 60448,
+        "sha256": "2a3a44d3a93ebc2465d0ad169db6d2266303462571f7683ad4413b2a4008bfaa"
+      }
+    },
     "ci-run": {
       "android": {
         "file": "shots/ci-run/android.webp",
@@ -1726,8 +1735,8 @@
         "file": "shots/ci-run/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 51754,
-        "sha256": "a40c913ec8bf8ffd0c7c5d350889618d3eba885d2054eeb27ff986b9d2934206"
+        "bytes": 58308,
+        "sha256": "8d2318fc4a5d1c321a3051e4fe036161925a65952b2dc155cd3f3720055e115e"
       },
       "web": {
         "file": "shots/ci-run/web.webp",

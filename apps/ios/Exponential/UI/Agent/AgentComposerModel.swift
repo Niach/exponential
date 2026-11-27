@@ -73,6 +73,8 @@ final class AgentComposerModel {
     /// EXP-615/739: a free request's repository — the team's FIRST one (a
     /// phone never picks it, EXP-993); `""` = none (a scratch dir).
     var chatRepoId = ""
+    /// #EXP-2172: the seed's repository (Fix with an agent).
+    private var seededRepoId: String?
     /// The explicitly picked machine (nil = the seed's / the default one).
     private(set) var deviceId: String?
     var sending = false
@@ -170,6 +172,11 @@ final class AgentComposerModel {
         if let deviceId = seed.deviceId {
             preferredDeviceId = deviceId
         }
+        // #EXP-2172: a seeded repository wins once the team's list holds it.
+        if let repositoryId = seed.repositoryId {
+            seededRepoId = repositoryId
+            if repos.contains(where: { $0.id == repositoryId }) { chatRepoId = repositoryId }
+        }
         if let text = seed.text, !text.isEmpty, draftText.isEmpty {
             draftText = text
             seededDraft = text
@@ -231,9 +238,7 @@ final class AgentComposerModel {
         // EXP-993: a phone never picks a free request's repository — the
         // team's FIRST repository is the anchor (a team with none runs in
         // the agent's scratch dir).
-        if chatRepoId.isEmpty, let first = repos.first {
-            chatRepoId = first.id
-        }
+        chatRepoId = AgentComposerSeed.chatRepo(seeded: seededRepoId, current: chatRepoId, repoIds: repos.map(\.id))
         await loadMentionMembers(teamId: teamId)
     }
 

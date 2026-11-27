@@ -10,6 +10,8 @@ import SwiftUI
 /// pages the phone already has; only the arrangement is the iPad's.
 enum SidebarItem: Hashable {
     case agent, needsYou, chats, devices, drafts, settings
+    /// #EXP-2172 (ci-page.json): THE CI page, the root row after Devices.
+    case ci
     case agentChannel(String)
     case app(String)
     case board(String)
@@ -22,7 +24,7 @@ enum SidebarItem: Hashable {
         case .agent, .needsYou, .chats, .chat, .drafts: .chats
         case .agentChannel: .chats
         case .app, .board: .teams
-        case .devices, .settings: .settings
+        case .devices, .ci, .settings: .settings
         }
     }
 
@@ -229,6 +231,8 @@ struct TabletSidebar: View {
     @Environment(\.toaster) private var toaster
     @State private var now = Date()
     @State private var addDevice = false
+    /// #EXP-2172 (nav-badges.json `ci`): the CI row's badge.
+    @State private var ciBadge = NavBadges.Value.none
 
     var body: some View {
         ZStack {
@@ -275,6 +279,11 @@ struct TabletSidebar: View {
                 now = Date()
             }
         }
+        .task(id: accountId) {
+            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+            let values = CiPage.badgeObservation(viewerId: deps.auth.userId ?? "").values(in: pool)
+            do { for try await next in values { ciBadge = next } } catch {}
+        }
         .background {
             Color.clear.sheet(isPresented: $addDevice) { AddDeviceSheet(accountId: accountId) }
         }
@@ -303,6 +312,7 @@ struct TabletSidebar: View {
             glyph(AppIcons.navChats)
         }
         row(.devices, title: Chats.Copy.Headers.devices) { glyph(AppIcons.navDevices) }
+        row(.ci, title: CiPage.Copy.title, badge: ciBadge) { glyph(AppIcons.navCi) }
         if draftCount > 0 || selection == .drafts {
             row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
@@ -371,6 +381,7 @@ struct TabletSidebar: View {
         case .chats: .chats
         case .drafts: .drafts
         case .devices: .devices
+        case .ci: .ci
         case .agentChannel: .assistant
         case .settings, .app, .board, .chat: nil
         }
@@ -442,6 +453,7 @@ struct TabletSidebar: View {
         case let .board(id): "sidebar-board-\(id)"
         case .needsYou: "sidebar-needs-you"
         case .devices: "sidebar-devices"
+        case .ci: "sidebar-ci"
         case .drafts: "sidebar-drafts"
         case .settings: Chats.TestIds.tabSettings
         case let .agentChannel(id): lists.assistant?.agentId == id ? Chats.TestIds.tabAssistant : "sidebar-agent-\(id)"

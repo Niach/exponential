@@ -36,6 +36,9 @@ enum AppRoute: Hashable {
     /// check's `details_url`, `/t/<team>/ci/<runId>?job=`); `job` = the
     /// requested job (nil = the default one).
     case ciRun(accountId: String, runId: String, job: String? = nil)
+    /// #EXP-2172 (ci-page.json, view `ci`): THE CI page across every member
+    /// team (the phones' More › CI, the iPad sidebar's CI row, a `/ci` link).
+    case ci(accountId: String)
     /// The Inbox page (EXP-1373: pushed from a root page's inbox circle,
     /// notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -1337,6 +1340,7 @@ extension MainNavigator {
         case let .agent(_, seed) where seed == .empty: .agent
         case .needsYou: .needsYou
         case .devices: .devices
+        case .ci: .ci
         case let .board(_, id): .board(id)
         default: nil
         }
@@ -1377,7 +1381,7 @@ extension MainNavigator {
             return AnyView(SettingsTabView().environment(\.accountId, accountId))
         case let .board(boardId):
             return AnyView(BoardPageView(boardId: boardId).id(boardId).environment(\.accountId, accountId))
-        case .agent, .devices, .agentChannel, .app, .chat:
+        case .agent, .devices, .ci, .agentChannel, .app, .chat:
             return nil
         }
     }
@@ -1390,6 +1394,8 @@ extension MainNavigator {
             return AnyView(AgentPageView(seed: .empty).environment(\.accountId, accountId))
         case .devices:
             return AnyView(AgentsView().environment(\.accountId, accountId))
+        case .ci:
+            return AnyView(CiPageScreen().environment(\.accountId, accountId))
         case let .agentChannel(agentId):
             return AnyView(AgentChatRoute(agentId: agentId).id(agentId).environment(\.accountId, accountId))
         case let .app(appId):
@@ -1440,6 +1446,9 @@ extension MainNavigator {
         case let .ciRun(accountId, runId, job):
             CiRunScreen(runId: runId, requestedJob: job)
                 .id(runId)
+                .environment(\.accountId, accountId)
+        case let .ci(accountId):
+            CiPageScreen()
                 .environment(\.accountId, accountId)
         case .myWork:
             InboxPage()

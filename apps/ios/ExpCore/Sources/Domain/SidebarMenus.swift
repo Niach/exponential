@@ -33,7 +33,7 @@ public enum SidebarMenus {
     public enum Kind: String, Sendable, CaseIterable {
         case assistant, home
         case needsYou = "needs-you"
-        case chats, drafts, devices, device, teams, team, folder, board, app, agent, session
+        case chats, drafts, devices, ci, device, teams, team, folder, board, app, agent, session
     }
 
     public enum NewKind: String, Sendable, CaseIterable { case session, agent, app, board }
@@ -163,6 +163,14 @@ public enum SidebarMenus {
         .devices: [
             [],
             [.init(action: .addDevice)],
+            [],
+            [],
+            [],
+        ],
+        // #EXP-2172: the CI root row (phones: Open alone = no menu).
+        .ci: [
+            [.init(action: .open), .init(action: .openNewTab)],
+            [],
             [],
             [],
             [],
