@@ -125,6 +125,10 @@ object Routes {
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
     /** #EXP-1616 (repo-page.json): one repository's page; `tab` = repoTab. */
     const val REPO_PATTERN = "team/{teamId}/repo/{repositoryId}?tab={tab}"
+
+    /** #EXP-2171 (repo-page.json NEW › REPOSITORY): New › Repository (owners). */
+    const val NEW_REPOSITORY_PATTERN = "team/{teamId}/new-repository"
+    fun newRepository(teamId: String): String = "team/$teamId/new-repository"
     fun repo(teamId: String, repositoryId: String, tab: String? = null): String =
         "team/$teamId/repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
 
@@ -146,6 +150,10 @@ object Routes {
         val json = kotlinx.serialization.json.JsonObject(params.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
         return "app-run/$appId?screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
     }
+
+    /** #EXP-2172 (ci-page.json, view `ci`): THE CI page, one destination
+     *  across every member team (web `/ci`); the phones' More menu opens it. */
+    const val CI = "ci"
 
     /** #EXP-1804 (ci-run.json): THE run page of our own CI; `job` = the job
      *  it opens on (absent = the rule's pick, `CiRun.defaultJob`). */

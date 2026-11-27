@@ -449,7 +449,10 @@ public enum Prompts {
     public enum RemoveRepository {
         public static let entry = destructive(
             "remove-repository",
-            texts: ["title": "Remove {fullName} from this team?"],
+            texts: [
+                "title": "Remove {fullName} from this team?",
+                "body": "Its pull requests and runs go with it. Boards that use it as their default repository keep none.",
+            ],
             params: ["fullName"], answer: "remove", label: "Remove"
         )
         public static func copy(fullName: String) -> PromptCopy {

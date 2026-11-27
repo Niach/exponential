@@ -20,6 +20,7 @@ import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } 
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
+import { Route as AppCiRouteImport } from './routes/_app/ci'
 import { Route as AppDraftsRouteImport } from './routes/_app/drafts'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
@@ -101,6 +102,7 @@ import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompt
 import { Route as ApiShapesPullRequestChecksRouteImport } from './routes/api/shapes/pull-request-checks'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
 import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
+import { Route as ApiShapesRepositoriesRouteImport } from './routes/api/shapes/repositories'
 import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
 import { Route as ApiShapesSessionReadsRouteImport } from './routes/api/shapes/session-reads'
 import { Route as ApiShapesSessionsRouteImport } from './routes/api/shapes/sessions'
@@ -155,6 +157,7 @@ import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamS
 import { Route as TTeamSlugNewAgentRouteImport } from './routes/t/$teamSlug/new/agent'
 import { Route as TTeamSlugNewAppRouteImport } from './routes/t/$teamSlug/new/app'
 import { Route as TTeamSlugNewBoardRouteImport } from './routes/t/$teamSlug/new/board'
+import { Route as TTeamSlugNewRepositoryRouteImport } from './routes/t/$teamSlug/new/repository'
 import { Route as TTeamSlugReposNameRouteImport } from './routes/t/$teamSlug/repos/$name'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
@@ -250,6 +253,11 @@ const AppAssistantRoute = AppAssistantRouteImport.update({
 const AppChatsRoute = AppChatsRouteImport.update({
   id: '/chats',
   path: '/chats',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCiRoute = AppCiRouteImport.update({
+  id: '/ci',
+  path: '/ci',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDraftsRoute = AppDraftsRouteImport.update({
@@ -669,6 +677,11 @@ const ApiShapesPullRequestsRoute = ApiShapesPullRequestsRouteImport.update({
   path: '/api/shapes/pull-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesRepositoriesRoute = ApiShapesRepositoriesRouteImport.update({
+  id: '/api/shapes/repositories',
+  path: '/api/shapes/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesSessionIssuesRoute = ApiShapesSessionIssuesRouteImport.update({
   id: '/api/shapes/session-issues',
   path: '/api/shapes/session-issues',
@@ -950,6 +963,11 @@ const TTeamSlugNewBoardRoute = TTeamSlugNewBoardRouteImport.update({
   path: '/new/board',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugNewRepositoryRoute = TTeamSlugNewRepositoryRouteImport.update({
+  id: '/new/repository',
+  path: '/new/repository',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugReposNameRoute = TTeamSlugReposNameRouteImport.update({
   id: '/repos/$name',
   path: '/repos/$name',
@@ -1189,6 +1207,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
+  '/ci': typeof AppCiRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
@@ -1264,6 +1283,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1316,6 +1336,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1371,6 +1392,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
+  '/ci': typeof AppCiRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
@@ -1445,6 +1467,7 @@ export interface FileRoutesByTo {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1497,6 +1520,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1558,6 +1582,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_app/assistant': typeof AppAssistantRoute
   '/_app/chats': typeof AppChatsRoute
+  '/_app/ci': typeof AppCiRoute
   '/_app/drafts': typeof AppDraftsRoute
   '/_app/home': typeof AppHomeRoute
   '/_app/inbox': typeof AppInboxRoute
@@ -1633,6 +1658,7 @@ export interface FileRoutesById {
   '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/repositories': typeof ApiShapesRepositoriesRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
@@ -1685,6 +1711,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/new/agent': typeof TTeamSlugNewAgentRoute
   '/t/$teamSlug/new/app': typeof TTeamSlugNewAppRoute
   '/t/$teamSlug/new/board': typeof TTeamSlugNewBoardRoute
+  '/t/$teamSlug/new/repository': typeof TTeamSlugNewRepositoryRoute
   '/t/$teamSlug/repos/$name': typeof TTeamSlugReposNameRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1745,6 +1772,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/assistant'
     | '/chats'
+    | '/ci'
     | '/drafts'
     | '/home'
     | '/inbox'
@@ -1820,6 +1848,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -1872,6 +1901,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1927,6 +1957,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/assistant'
     | '/chats'
+    | '/ci'
     | '/drafts'
     | '/home'
     | '/inbox'
@@ -2001,6 +2032,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -2053,6 +2085,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2113,6 +2146,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/_app/assistant'
     | '/_app/chats'
+    | '/_app/ci'
     | '/_app/drafts'
     | '/_app/home'
     | '/_app/inbox'
@@ -2188,6 +2222,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
+    | '/api/shapes/repositories'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
@@ -2240,6 +2275,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/new/agent'
     | '/t/$teamSlug/new/app'
     | '/t/$teamSlug/new/board'
+    | '/t/$teamSlug/new/repository'
     | '/t/$teamSlug/repos/$name'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -2353,6 +2389,7 @@ export interface RootRouteChildren {
   ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
   ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
+  ApiShapesRepositoriesRoute: typeof ApiShapesRepositoriesRoute
   ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
   ApiShapesSessionReadsRoute: typeof ApiShapesSessionReadsRoute
   ApiShapesSessionsRoute: typeof ApiShapesSessionsRoute
@@ -2466,6 +2503,13 @@ declare module '@tanstack/react-router' {
       path: '/chats'
       fullPath: '/chats'
       preLoaderRoute: typeof AppChatsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ci': {
+      id: '/_app/ci'
+      path: '/ci'
+      fullPath: '/ci'
+      preLoaderRoute: typeof AppCiRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/drafts': {
@@ -3035,6 +3079,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesPullRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/repositories': {
+      id: '/api/shapes/repositories'
+      path: '/api/shapes/repositories'
+      fullPath: '/api/shapes/repositories'
+      preLoaderRoute: typeof ApiShapesRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/session-issues': {
       id: '/api/shapes/session-issues'
       path: '/api/shapes/session-issues'
@@ -3413,6 +3464,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugNewBoardRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/new/repository': {
+      id: '/t/$teamSlug/new/repository'
+      path: '/new/repository'
+      fullPath: '/t/$teamSlug/new/repository'
+      preLoaderRoute: typeof TTeamSlugNewRepositoryRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/repos/$name': {
       id: '/t/$teamSlug/repos/$name'
       path: '/repos/$name'
@@ -3712,6 +3770,7 @@ interface AppRouteChildren {
   AppSettingsRouteRoute: typeof AppSettingsRouteRouteWithChildren
   AppAssistantRoute: typeof AppAssistantRoute
   AppChatsRoute: typeof AppChatsRoute
+  AppCiRoute: typeof AppCiRoute
   AppDraftsRoute: typeof AppDraftsRoute
   AppHomeRoute: typeof AppHomeRoute
   AppInboxRoute: typeof AppInboxRoute
@@ -3726,6 +3785,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRouteRoute: AppSettingsRouteRouteWithChildren,
   AppAssistantRoute: AppAssistantRoute,
   AppChatsRoute: AppChatsRoute,
+  AppCiRoute: AppCiRoute,
   AppDraftsRoute: AppDraftsRoute,
   AppHomeRoute: AppHomeRoute,
   AppInboxRoute: AppInboxRoute,
@@ -3887,6 +3947,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugNewAgentRoute: typeof TTeamSlugNewAgentRoute
   TTeamSlugNewAppRoute: typeof TTeamSlugNewAppRoute
   TTeamSlugNewBoardRoute: typeof TTeamSlugNewBoardRoute
+  TTeamSlugNewRepositoryRoute: typeof TTeamSlugNewRepositoryRoute
   TTeamSlugReposNameRoute: typeof TTeamSlugReposNameRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
@@ -3915,6 +3976,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugNewAgentRoute: TTeamSlugNewAgentRoute,
   TTeamSlugNewAppRoute: TTeamSlugNewAppRoute,
   TTeamSlugNewBoardRoute: TTeamSlugNewBoardRoute,
+  TTeamSlugNewRepositoryRoute: TTeamSlugNewRepositoryRoute,
   TTeamSlugReposNameRoute: TTeamSlugReposNameRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,
@@ -4004,6 +4066,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
   ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
+  ApiShapesRepositoriesRoute: ApiShapesRepositoriesRoute,
   ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
   ApiShapesSessionReadsRoute: ApiShapesSessionReadsRoute,
   ApiShapesSessionsRoute: ApiShapesSessionsRoute,

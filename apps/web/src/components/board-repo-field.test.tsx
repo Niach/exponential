@@ -74,7 +74,7 @@ function renderField(repositoryId: string | null) {
   )
 }
 
-const trigger = () => screen.getByRole(`button`, { name: `Repository` })
+const trigger = () => screen.getByRole(`button`, { name: `Default repository` })
 
 describe(`BoardRepoField (FEED-32)`, () => {
   beforeEach(() => {

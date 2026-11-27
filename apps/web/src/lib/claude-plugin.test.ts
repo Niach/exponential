@@ -130,7 +130,8 @@ describe(`Claude plugin bundle`, () => {
       `exponential_sessions_send`,
       `exponential_show`,
     ])
-    expect(known.size).toBe(41)
+    // = MCP_WIRE_TOOLS (lib/emcp/context-budget.ts; #FEED-295: + transfers).
+    expect(known.size).toBe(43)
     const skill = readFileSync(join(PLUGIN, `skills`, `exponential`, `SKILL.md`), `utf8`)
     const named = new Set(skill.match(/\bexponential_[a-z_]+/g) ?? [])
     expect(named.size).toBeGreaterThan(10)

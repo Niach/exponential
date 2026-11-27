@@ -25,6 +25,35 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-27-ci-page`,
+    date: `2026-11-27`,
+    title: `CI: our runs and GitHub Actions in one place`,
+    summary: `A CI row under Devices (on phones: More › CI) lists every run across your teams, ours and GitHub Actions alike, by commit and by day, with the merge train and the runners beside them.`,
+    body: `- **One list**: runs from Exponential's CI and from GitHub Actions side by side, titled by their commit and grouped into In progress, Today and earlier days; filter by Running, Failed or Mine, by repository and by source.
+- **The CI row's badge**: it counts your runs that failed until they run green again; while yours run, it shows them muted.
+- **Merge train and Runners tabs**: what waits to land, and each runner with its labels, busy slots and queue.
+- **Run page**: the commit, branch, pull request and runner at a glance, one button to re-run what failed (or cancel while it runs), the first error line of a failed job, and Fix with an agent, which opens a chat on that repository with the failing job named.`,
+  },
+  {
+    id: `2026-11-27-device-file-transfers`,
+    date: `2026-11-27`,
+    title: `Copy files between your own machines`,
+    summary: `Agents copy a file or folder of any size from one of your machines to another over P2P, resumable and checksummed, with no prompt.`,
+    body: `- **Machine to machine**: a session sends a file or folder between two of your own computers running the app or the CLI daemon, end-to-end encrypted, without passing through Exponential's servers or a size limit.
+- **Picks up where it stopped**: a dropped connection or a restart continues the copy, and every file's checksum is verified when it lands.
+- **Your machines only**: another person's machine is always refused; keys, credentials and Exponential's own data are never sent, and a copy never overwrites what is already there.`,
+  },
+  {
+    id: `2026-11-27-repositories-in-navigation`,
+    date: `2026-11-27`,
+    title: `Repositories in the sidebar`,
+    summary: `Your team's repositories now sit in the sidebar and on the Teams tab beside boards, agents and apps, with their checks at a glance.`,
+    body: `- **A row per repository**: each one shows whether its checks pass, opens its page, and moves into folders like any other row. Its menu starts a chat in it, opens its pull requests or runs, and copies its clone URL.
+- **New › Repository**: owners create one hosted on Exponential, or link one from GitHub, on one page.
+- **A board names a default repository**: a chat on an issue uses the repository of the issue's open pull request, then the board's default, then the team's only repository. Pull requests may link issues from any board of the team, and removing a repository just clears that default.
+- **More on phones**: the last tab opens Devices and Settings.`,
+  },
+  {
     id: `2026-11-27-ci-runner-in-the-app`,
     date: `2026-11-27`,
     title: `The desktop app runs your CI on Linux`,

@@ -98,4 +98,8 @@ object NavBadges {
     /** [count] things, attention when one of them needs the viewer. */
     fun badge(count: Int, attention: Boolean): Badge =
         if (count <= 0) NONE else Badge(count, if (attention) Tone.Attention else Tone.Muted)
+
+    /** #EXP-2172 destination `ci` (the sidebar's root row after Devices, the
+     *  phones' More menu entry) = ci-page.json `ciBadge` ([CiPage.badge]). */
+    fun ciBadge(input: CiPage.Input): Badge = CiPage.badge(input)
 }

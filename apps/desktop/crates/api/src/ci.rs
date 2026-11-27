@@ -309,6 +309,9 @@ pub fn repo_settings(trpc: &TrpcClient, repository_id: &str) -> Result<RepoCiSet
 #[serde(rename_all = "camelCase")]
 pub struct RepoCiConfigInput {
     pub repository_id: String,
+    /// #EXP-2171: New › Repository's Run CI (`enabled: true`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_checks: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

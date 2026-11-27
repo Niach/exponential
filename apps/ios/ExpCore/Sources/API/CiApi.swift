@@ -117,6 +117,8 @@ private struct CiRepoInput: Encodable {
 /// Nil keys drop off the wire: only the given keys change.
 private struct CiSetRepoConfigInput: Encodable {
     let repositoryId: String
+    /// #EXP-2171: New › Repository's Run CI switch.
+    var enabled: Bool? = nil
     let requiredChecks: [String]?
     let githubStatuses: Bool?
     let actionsRunners: Bool?
@@ -146,15 +148,16 @@ public final class CiApi: Sendable {
         try await trpc.query(accountId: accountId, path: "ci.log", input: CiLogInput(jobId: jobId, offset: offset))
     }
 
-    /// `ci.rerun{runId, failedOnly: true}`: the new run's id (the page opens it).
-    public func rerunFailed(accountId: String, runId: String) async throws -> String {
+    /// `ci.rerun{runId, failedOnly}`: the run the page opens (ours: a new
+    /// run; #EXP-2172 a GitHub run: the same run, a new attempt).
+    public func rerun(accountId: String, runId: String, failedOnly: Bool) async throws -> String {
         let result: CiRerunResult = try await trpc.mutation(
-            accountId: accountId, path: "ci.rerun", input: CiRerunInput(runId: runId, failedOnly: true)
+            accountId: accountId, path: "ci.rerun", input: CiRerunInput(runId: runId, failedOnly: failedOnly)
         )
         return result.runId
     }
 
-    /// `ci.cancel{runId}`.
+    /// `ci.cancel{runId}` (ours or, #EXP-2172, a GitHub run).
     public func cancel(accountId: String, runId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "ci.cancel", input: CiRunIdInput(runId: runId))
     }
@@ -182,6 +185,7 @@ public final class CiApi: Sendable {
     public func setRepoConfig(
         accountId: String,
         repositoryId: String,
+        enabled: Bool? = nil,
         requiredChecks: [String]? = nil,
         githubStatuses: Bool? = nil,
         actionsRunners: Bool? = nil,
@@ -190,7 +194,7 @@ public final class CiApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "ci.setRepoConfig",
             input: CiSetRepoConfigInput(
-                repositoryId: repositoryId, requiredChecks: requiredChecks,
+                repositoryId: repositoryId, enabled: enabled, requiredChecks: requiredChecks,
                 githubStatuses: githubStatuses, actionsRunners: actionsRunners,
                 pullRequestSecrets: pullRequestSecrets
             )

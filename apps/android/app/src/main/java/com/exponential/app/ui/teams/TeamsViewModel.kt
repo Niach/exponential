@@ -13,6 +13,8 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.MultiAccountTeamRepository
+import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.RepositoryEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -25,9 +27,11 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SidebarFolders
 import com.exponential.app.domain.SidebarMenus
 import com.exponential.app.domain.NavBadges
+import com.exponential.app.domain.RepoPage
 import com.exponential.app.domain.SidebarTree
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.repo.toRepoPr
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
@@ -63,6 +67,10 @@ sealed interface TeamTarget {
         override val name: String get() = app.name
     }
     data class Session(val session: SessionEntity, override val name: String) : TeamTarget
+    /** #EXP-2171: [checks] = repo-page.json `repoChecksRollup` over its live PRs. */
+    data class Repository(val repository: RepositoryEntity, val checks: String?) : TeamTarget {
+        override val name: String get() = repository.name
+    }
 }
 
 /** One row of the Teams tab; [target] null = a team or a folder. */
@@ -196,9 +204,21 @@ class TeamsViewModel @Inject constructor(
         val apps: List<AppEntity>,
         val sessions: List<SessionEntity>,
         val titles: Map<String, String>,
+        val repositories: List<TeamTarget.Repository> = emptyList(),
     )
 
-    private val targets: Flow<Targets> = combine(
+    /** #EXP-2171: the synced repositories, each with its checks rollup. */
+    private val repositories: Flow<List<TeamTarget.Repository>> = combine(
+        scoped(emptyList<RepositoryEntity>()) { it.repositoryDao().observeAll() },
+        scoped(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() },
+    ) { repos, prs ->
+        val byRepo = prs.groupBy { it.repositoryId }
+        repos.map { repo ->
+            TeamTarget.Repository(repo, RepoPage.repoChecksRollup(byRepo[repo.id].orEmpty().map { it.toRepoPr() }))
+        }
+    }.distinctUntilChanged()
+
+    private val baseTargets: Flow<Targets> = combine(
         scoped(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
         scoped(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
         scoped(emptyList<AppEntity>()) { it.appDao().observeAll() },
@@ -210,6 +230,8 @@ class TeamsViewModel @Inject constructor(
         Targets(boards.filter { it.deletedAt == null }, agents.filter { it.id !in owned }, apps, sessions, names)
     }
 
+    private val targets: Flow<Targets> = combine(baseTargets, repositories) { t, repos -> t.copy(repositories = repos) }
+
     private val editing = MutableStateFlow<String?>(null)
 
     private val local = combine(store.openFlags, editing, ownedTeamIdsFlow(dbFlow, auth.userId), ::Triple)
@@ -218,11 +240,15 @@ class TeamsViewModel @Inject constructor(
         val boards = t.boards.groupBy { it.teamId }
         val agents = t.agents.groupBy { it.teamId }
         val apps = t.apps.groupBy { it.teamId }
+        val repos = t.repositories.groupBy { it.repository.teamId }
         val trees = g.mine.map { team ->
             val entries = layouts[team.id].orEmpty()
             val items = SidebarTree.teamItems(
                 teamId = team.id,
                 boards = boards[team.id].orEmpty().map { SidebarTree.Sortable(it.id, it.sortOrder) },
+                repositories = repos[team.id].orEmpty().map {
+                    SidebarTree.Repo(it.repository.id, it.repository.sortOrder, it.repository.fullName)
+                },
                 agents = agents[team.id].orEmpty().map { SidebarTree.Sortable(it.id, it.sortOrder, it.role) },
                 apps = apps[team.id].orEmpty().map { SidebarTree.Named(it.id, it.name) },
                 sessions = t.sessions.map { SidebarTree.SessionLike(it.id, it.teamId, it.parentId) },
@@ -242,6 +268,7 @@ class TeamsViewModel @Inject constructor(
         val agentById = t.agents.associateBy { it.id }
         val appById = t.apps.associateBy { it.id }
         val sessionById = t.sessions.associateBy { it.id }
+        val repoById = t.repositories.associateBy { it.repository.id }
         val pure = SidebarTree.phoneTreeRows(trees)
         fun resolve(row: SidebarTree.PhoneTreeRow) = TeamTreeRow(
             row = row,
@@ -250,6 +277,7 @@ class TeamsViewModel @Inject constructor(
                     SidebarTree.Kind.Board.wire -> boardById[row.id]?.let { TeamTarget.Board(it) }
                     SidebarTree.Kind.Agent.wire -> agentById[row.id]?.let { TeamTarget.Agent(it) }
                     SidebarTree.Kind.App.wire -> appById[row.id]?.let { TeamTarget.App(it) }
+                    SidebarTree.Kind.Repository.wire -> repoById[row.id]
                     SidebarTree.Kind.Session.wire -> sessionById[row.id]?.let { TeamTarget.Session(it, t.titles[it.id].orEmpty()) }
                     else -> null
                 },
@@ -440,5 +468,10 @@ class TeamsViewModel @Inject constructor(
             is TeamTarget.Session -> WebLinks.sessionUrl(base, row.team.slug, target.session.id)
             else -> null
         }
+    }
+
+    /** #EXP-2171 Copy clone URL (sidebar-tree.json `repositoryRow.cloneUrl`). */
+    fun cloneUrl(row: TeamTreeRow): String? = (row.target as? TeamTarget.Repository)?.repository?.let {
+        SidebarTree.repositoryCloneUrl(it.provider, it.fullName)
     }
 }

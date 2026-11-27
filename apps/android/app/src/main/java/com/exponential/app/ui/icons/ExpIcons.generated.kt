@@ -9637,6 +9637,7 @@ public object ExpIcons {
         "nav-boards" -> `folder-kanban`
         "nav-changelog" -> `megaphone`
         "nav-chats" -> `list-tree`
+        "nav-ci" -> `workflow`
         "nav-computer" -> `computer`
         "nav-create-issue" -> `square-pen`
         "nav-devices" -> `monitor`
@@ -10057,6 +10058,8 @@ public object ExpIcons {
     public val navChangelog: ImageVector get() = `megaphone`
     /** Concept `nav-chats`. */
     public val navChats: ImageVector get() = `list-tree`
+    /** Concept `nav-ci`. */
+    public val navCi: ImageVector get() = `workflow`
     /** Concept `nav-computer`. */
     public val navComputer: ImageVector get() = `computer`
     /** Concept `nav-create-issue`. */

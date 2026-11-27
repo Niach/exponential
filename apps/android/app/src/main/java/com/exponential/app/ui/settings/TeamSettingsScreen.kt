@@ -961,8 +961,8 @@ private fun RepositoryRow(
                 CircleIconButton(
                     ExpIcons.uiDelete,
                     contentDescription = "Remove repository",
+                    // #EXP-2171: removing no longer refuses (boards keep none).
                     onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) },
-                    enabled = !inUse,
                     glyphSize = 16.dp,
                     borderless = true,
                     size = 32.dp,
@@ -1584,7 +1584,7 @@ private fun BoardRepositorySheet(
         }
     }
 
-    GlassSheet(title = "Repository", onDismiss = onDismiss) {
+    GlassSheet(title = "Default repository", onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

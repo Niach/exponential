@@ -103,6 +103,7 @@ import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.LocalOverlayToaster
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.PhoneDock
+import com.exponential.app.ui.components.PhoneMoreMenu
 import com.exponential.app.ui.components.PhoneNewMenu
 import com.exponential.app.ui.components.ToastHost
 import com.exponential.app.ui.components.aboveDock
@@ -668,8 +669,13 @@ private fun AuthenticatedNav(
         else -> newIssueBoardId
     }
     var newOpen by remember { mutableStateOf(false) }
-    // Leaving the page (or the bar hiding) closes the popup.
-    LaunchedEffect(backStackEntry?.id, barShown) { newOpen = false }
+    // #EXP-2171 (chats.json `shell.moreMenu`): the More tab's menu.
+    var moreOpen by remember { mutableStateOf(false) }
+    // Leaving the page (or the bar hiding) closes the popups.
+    LaunchedEffect(backStackEntry?.id, barShown) {
+        newOpen = false
+        moreOpen = false
+    }
     // The page header's circles (`shell.header.buttons`), the same on every
     // page: search pushes the phone search, the inbox the inbox page.
     val pageHeaderActions = PageHeaderActions(
@@ -787,6 +793,12 @@ private fun AuthenticatedNav(
                     navController.navigate(section?.let { Routes.teamSettings(teamId, it) } ?: Routes.teamSettingsRoot(teamId))
                 },
                 onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
+                // #EXP-2171: the repository rows and New › Repository.
+                onOpenRepository = { teamId, id, tab -> navController.navigate(Routes.repo(teamId, id, tab)) },
+                onNewRepoChat = { teamId, id ->
+                    navController.navigateDeepLink(agentRoute(AgentComposerSeed(teamId = teamId, repositoryId = id)))
+                },
+                onNewRepository = { teamId -> navController.navigate(Routes.newRepository(teamId)) },
                 chats = chatsVm,
                 viewModel = teamsVm,
             )
@@ -1347,6 +1359,27 @@ private fun AuthenticatedNav(
                 onOpenRun = { id ->
                     navController.navigate(Routes.ciRun(id)) { popUpTo(Routes.CI_RUN_PATTERN) { inclusive = true } }
                 },
+                // #EXP-2172: Fix with an agent = the new-chat composer, seeded.
+                onFix = { seed -> navController.navigateDeepLink(agentRoute(seed)) },
+            )
+        }
+        // #EXP-2172 (ci-page.json): THE CI page across every team: a run
+        // opens its run page, a train row its PR's chat (else the PR on
+        // GitHub), a runner its device page.
+        composable(Routes.CI) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            com.exponential.app.ui.ci.CiPageScreen(
+                onBack = { navController.popBackStack() },
+                onOpen = { target ->
+                    when (target) {
+                        is com.exponential.app.ui.ci.CiPageTarget.Run -> navController.navigate(Routes.ciRun(target.runId))
+                        is com.exponential.app.ui.ci.CiPageTarget.PullRequest -> when {
+                            target.rootSessionId != null -> navController.navigate(Routes.chat(target.rootSessionId))
+                            target.url.isNotEmpty() -> runCatching { uriHandler.openUri(target.url) }
+                        }
+                        is com.exponential.app.ui.ci.CiPageTarget.Runner -> navController.navigate(Routes.deviceSettings(target.deviceRowId))
+                    }
+                },
             )
         }
         // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads
@@ -1366,6 +1399,18 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 // #EXP-1617 (repo-ci.json): a run row opens THE run page.
                 onOpenRun = { runId -> navController.navigate(Routes.ciRun(runId)) },
+            )
+        }
+        composable(Routes.NEW_REPOSITORY_PATTERN) {
+            com.exponential.app.ui.repo.NewRepositoryScreen(
+                onBack = { navController.popBackStack() },
+                // A created repository REPLACES this page with its own.
+                onCreated = { teamId, id ->
+                    val newId = navController.currentBackStackEntry?.destination?.id
+                    navController.navigate(Routes.repo(teamId, id)) {
+                        if (newId != null) popUpTo(newId) { inclusive = true }
+                    }
+                },
             )
         }
         composable(Routes.MCP_ACTIVITY_PATTERN) {
@@ -1439,6 +1484,20 @@ private fun AuthenticatedNav(
 
     // After the NavHost, so the popup's back wins over the NavHost's pop.
     BackHandler(enabled = newOpen) { newOpen = false }
+    BackHandler(enabled = moreOpen) { moreOpen = false }
+    AnimatedVisibility(
+        visible = moreOpen && barShown,
+        enter = fadeIn(Motion.standard(reduceMotion)),
+        exit = fadeOut(Motion.standard(reduceMotion)),
+    ) {
+        PhoneMoreMenu(
+            onPick = { item ->
+                moreOpen = false
+                guarded { navController.openMoreItem(item, tabSwitch) }
+            },
+            onDismiss = { moreOpen = false },
+        )
+    }
     AnimatedVisibility(
         visible = newOpen && barShown,
         enter = fadeIn(Motion.standard(reduceMotion)),
@@ -1471,12 +1530,18 @@ private fun AuthenticatedNav(
         PhoneDock(
             selected = lit.value,
             newOpen = newOpen,
+            moreOpen = moreOpen,
             badges = dockBadges(chatsVm, teamsVm, assistant, chatsBadge),
             onSelect = { tab ->
                 if (tab == "new") {
+                    moreOpen = false
                     newOpen = !newOpen
+                } else if (tab == "more") {
+                    newOpen = false
+                    moreOpen = !moreOpen
                 } else {
                     newOpen = false
+                    moreOpen = false
                     // EXP-1210: every tab SWITCHES to a sibling root (a re-tap
                     // pops back to it).
                     navController.selectTab(tab, tabSwitch)
@@ -1507,7 +1572,32 @@ private fun dockBadges(
         "chats" to chatsBadge,
         "teams" to teamsBadge,
         "assistant" to (rows[ref?.sessionId] ?: NavBadges.NONE),
+        // #EXP-2171 nav-badges.json `more`: the sum of its items' badges
+        // (`shell.moreMenu.badges`, by destination; none of today's counts).
+        "more" to moreBadge(emptyMap()),
     )
+}
+
+/** The More cell's badge: [destinations]' badges summed over its rows. */
+private fun moreBadge(destinations: Map<String, NavBadges.Badge>): NavBadges.Badge =
+    NavBadges.sumBadges(
+        com.exponential.app.domain.Chats.Shell.MoreMenu.ITEMS.mapNotNull { item ->
+            com.exponential.app.domain.Chats.Shell.MoreMenu.BADGES[item]?.let(destinations::get)
+        },
+    )
+
+/**
+ * #EXP-2171 a More menu row: its page riding the More tab (the Settings tab
+ * root of old): Settings = that root, Devices = the devices list on it.
+ */
+private fun NavHostController.openMoreItem(item: String, marker: TabSwitchMarker) {
+    when (item) {
+        "settings" -> selectTab(MainTabs.SETTINGS, marker, restore = false)
+        "devices" -> {
+            selectTab(MainTabs.SETTINGS, marker, restore = false)
+            navigate(Routes.DEVICES) { launchSingleTop = true }
+        }
+    }
 }
 
 /** A page the docked bar stands on, its content kept above the bar. */

@@ -397,6 +397,9 @@ struct CreateInput<'a> {
     default_branch: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mirror_url: Option<&'a str>,
+    /// #EXP-2171: New › Repository's optional description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
 }
 
 /// `repositories.create` — mutation (owner-gated). The server's refusal
@@ -407,8 +410,9 @@ pub fn create(
     name: &str,
     default_branch: Option<&str>,
     mirror_url: Option<&str>,
+    description: Option<&str>,
 ) -> Result<AddedRepository, ApiError> {
-    trpc.mutation("repositories.create", &CreateInput { team_id, name, default_branch, mirror_url })
+    trpc.mutation("repositories.create", &CreateInput { team_id, name, default_branch, mirror_url, description })
 }
 
 /// One bundle backup of an eCode repo (`repositories.settings`).

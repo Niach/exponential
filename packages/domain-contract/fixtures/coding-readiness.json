@@ -842,6 +842,69 @@
         "summary": "1 of 3 set up. Fix the rest here.",
         "caption": null
       }
+    },
+    {
+      "name": "#EXP-2171: the board names no default but the team has a repository: repository met",
+      "input": {
+        "isMember": true,
+        "remoteStartEnabled": true,
+        "teamName": "Acme",
+        "boardName": "App",
+        "nowMs": 1790000000000,
+        "boardRepository": null,
+        "github": {
+          "connected": true,
+          "label": "acme-inc"
+        },
+        "devices": [
+          {
+            "label": "MacBook Pro",
+            "own": true,
+            "online": false,
+            "lastSeenAtMs": 1789992800000
+          }
+        ],
+        "teamRepositoryCount": 1
+      },
+      "expected": {
+        "visible": true,
+        "loading": false,
+        "ready": false,
+        "metCount": 2,
+        "total": 3,
+        "steps": [
+          {
+            "key": "github",
+            "state": "met",
+            "title": "GitHub connected",
+            "body": null,
+            "detail": "acme-inc",
+            "fixes": []
+          },
+          {
+            "key": "repository",
+            "state": "met",
+            "title": "Repository connected",
+            "body": null,
+            "detail": null,
+            "fixes": []
+          },
+          {
+            "key": "device",
+            "state": "current",
+            "title": "A device online",
+            "body": "None of your devices, or the ones shared with Acme, is online. Your MacBook Pro was last seen 2 h ago.",
+            "detail": null,
+            "fixes": [
+              "open_devices",
+              "get_desktop_app",
+              "set_up_server"
+            ]
+          }
+        ],
+        "summary": "2 of 3 set up. One step left.",
+        "caption": "No device online"
+      }
     }
   ],
   "picker": [
@@ -1076,5 +1139,137 @@
         }
       ]
     }
-  ]
+  ],
+  "chatRepo": {
+    "$comment": "#EXP-2171 (owner decision 2026-11-26: a board names a DEFAULT repository, never THE repository). chatRepository(input) = the repository a chat starts on: the composer's explicit `pick`, else the repository of the chat's first issue's own live (open or draft) PR (`livePrRepositoryIds`, newest first: the first), else that issue's board default (`boardRepositoryId`), else the team's ONLY repository, else null (no repository: the composer asks, a mixed selection of issues whose repositories differ asks for one). A candidate that is not one of `teamRepositoryIds` (removed, archived, another team's) is skipped. The server applies it when a start ON ISSUES names no repository (sessions/send.ts, over the first issue); a start without issues keeps the caller's pick (each composer's default for a plain chat is unchanged; a repository row's New chat in this repository seeds that repository). Web, desktop, iOS and Android replay it for the composer's repository chip on issues. READINESS: `teamRepositoryCount` > 0 meets the repository step even when the board names no default (the team has somewhere to code); absent = 0.",
+    "cases": [
+      {
+        "name": "the pick wins",
+        "input": {
+          "pick": "r-b",
+          "issue": {
+            "livePrRepositoryIds": [
+              "r-c"
+            ],
+            "boardRepositoryId": "r-a"
+          },
+          "teamRepositoryIds": [
+            "r-a",
+            "r-b",
+            "r-c"
+          ]
+        },
+        "expected": "r-b"
+      },
+      {
+        "name": "the issue's live PR repository beats the board default",
+        "input": {
+          "pick": null,
+          "issue": {
+            "livePrRepositoryIds": [
+              "r-c",
+              "r-b"
+            ],
+            "boardRepositoryId": "r-a"
+          },
+          "teamRepositoryIds": [
+            "r-a",
+            "r-b",
+            "r-c"
+          ]
+        },
+        "expected": "r-c"
+      },
+      {
+        "name": "no live PR: the board default",
+        "input": {
+          "pick": null,
+          "issue": {
+            "livePrRepositoryIds": [],
+            "boardRepositoryId": "r-a"
+          },
+          "teamRepositoryIds": [
+            "r-a",
+            "r-b"
+          ]
+        },
+        "expected": "r-a"
+      },
+      {
+        "name": "no default: the team's only repository",
+        "input": {
+          "pick": null,
+          "issue": {
+            "livePrRepositoryIds": [],
+            "boardRepositoryId": null
+          },
+          "teamRepositoryIds": [
+            "r-a"
+          ]
+        },
+        "expected": "r-a"
+      },
+      {
+        "name": "no default, two repositories: none (the composer asks)",
+        "input": {
+          "pick": null,
+          "issue": {
+            "livePrRepositoryIds": [],
+            "boardRepositoryId": null
+          },
+          "teamRepositoryIds": [
+            "r-a",
+            "r-b"
+          ]
+        },
+        "expected": null
+      },
+      {
+        "name": "a chat without issues: the team's only repository",
+        "input": {
+          "pick": null,
+          "issue": null,
+          "teamRepositoryIds": [
+            "r-a"
+          ]
+        },
+        "expected": "r-a"
+      },
+      {
+        "name": "a removed default is skipped",
+        "input": {
+          "pick": null,
+          "issue": {
+            "livePrRepositoryIds": [],
+            "boardRepositoryId": "r-gone"
+          },
+          "teamRepositoryIds": [
+            "r-a"
+          ]
+        },
+        "expected": "r-a"
+      },
+      {
+        "name": "a pick of another team is skipped",
+        "input": {
+          "pick": "r-x",
+          "issue": null,
+          "teamRepositoryIds": [
+            "r-a",
+            "r-b"
+          ]
+        },
+        "expected": null
+      },
+      {
+        "name": "no repository at all",
+        "input": {
+          "pick": null,
+          "issue": null,
+          "teamRepositoryIds": []
+        },
+        "expected": null
+      }
+    ]
+  }
 }

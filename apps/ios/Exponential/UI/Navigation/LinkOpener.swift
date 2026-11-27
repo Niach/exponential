@@ -289,6 +289,11 @@ enum LinkOpener {
     }
 
     private static func resolve(_ link: AppLink, card: String?, accountId: String, deps: AppDependencies) async -> Resolution {
+        // #EXP-2172 (ci-page.json): `/ci` = THE CI page, across every team.
+        if case let .app(path) = link, CiPage.isPagePath(path) {
+            let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: false)
+            return Resolution(outcome: outcome, landing: LinkLanding(accountId: accountId, destination: .push(.ci(accountId: accountId), over: nil)))
+        }
         guard let slug = link.teamSlug else {
             // No team to be a member of (`/admin`, the root): a web page.
             let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: true)
@@ -388,7 +393,7 @@ enum LinkOpener {
             // EXP-1373: the Inbox is a page pushed over the Chats tab.
             return Target(teamId: teamId, destination: .push(.myWork, over: .chats))
         case .devices:
-            return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
+            return Target(teamId: teamId, destination: .tab(.devices))
         case let .settings(_, section):
             if section.isEmpty {
                 return Target(teamId: teamId, destination: .push(.teamSettings(accountId: accountId, teamId: teamId), over: .teams))
@@ -399,7 +404,7 @@ enum LinkOpener {
                 return Target(teamId: teamId, destination: .push(.assistantSettings(accountId: accountId), over: .settings))
             }
             if section == "devices" {
-                return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
+                return Target(teamId: teamId, destination: .tab(.devices))
             }
             // A category with no phone page (billing, statuses…) is web-only.
             guard let page = TeamSettingsSection(rawValue: section) else {
