@@ -3583,6 +3583,90 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_code_block_case_6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_code_block_case_6_label",
+                "component": "Text",
+                "props": {
+                  "text": "anchors · selection L9-L11",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_code_block_anchors",
+                "component": "CodeBlock",
+                "props": {
+                  "title": "src/train.ts",
+                  "language": "ts",
+                  "code": "import { runChecks } from \"./checks\"\nimport type { Pull } from \"./types\"\n/** The merge train: one batch of green pulls, bisected on a red run. */\nexport interface Batch {\n  pulls: Pull[]\n  base: string\n}\n\nexport function compose(pulls: Pull[], max = 4): Batch[] {\n  const batches: Batch[] = []\n  for (let i = 0; i < pulls.length; i += max) batches.push({ pulls: pulls.slice(i, i + max), base: \"main\" })\n  return batches\n}\n\nexport async function bisect(batch: Batch): Promise<Pull[]> {\n  if (batch.pulls.length <= 1) return batch.pulls\n  const half = Math.ceil(batch.pulls.length / 2)\n  const left = { ...batch, pulls: batch.pulls.slice(0, half) }\n  const green = await runChecks(left)\n  return green ? bisect({ ...batch, pulls: batch.pulls.slice(half) }) : bisect(left)\n}",
+                  "anchors": true,
+                  "selection": "L9-L11"
+                },
+                "on": {
+                  "select": {
+                    "event": {
+                      "name": "anchor"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_code_block_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_code_block_case_7_label",
+                "component": "Text",
+                "props": {
+                  "text": "gutter · blame",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7_code_block_blame",
+                "component": "CodeBlock",
+                "props": {
+                  "title": "src/train.ts",
+                  "language": "ts",
+                  "code": "import { runChecks } from \"./checks\"\nimport type { Pull } from \"./types\"\n/** The merge train: one batch of green pulls, bisected on a red run. */\nexport interface Batch {\n  pulls: Pull[]\n  base: string\n}\n\nexport function compose(pulls: Pull[], max = 4): Batch[] {\n  const batches: Batch[] = []\n  for (let i = 0; i < pulls.length; i += max) batches.push({ pulls: pulls.slice(i, i + max), base: \"main\" })\n  return batches\n}\n\nexport async function bisect(batch: Batch): Promise<Pull[]> {\n  if (batch.pulls.length <= 1) return batch.pulls\n  const half = Math.ceil(batch.pulls.length / 2)\n  const left = { ...batch, pulls: batch.pulls.slice(0, half) }\n  const green = await runChecks(left)\n  return green ? bisect({ ...batch, pulls: batch.pulls.slice(half) }) : bisect(left)\n}",
+                  "lineNumbers": true,
+                  "gutter": "blame",
+                  "blame": [
+                    {
+                      "start": 1,
+                      "author": "Ada Lovelace",
+                      "age": "3 weeks ago"
+                    },
+                    {
+                      "start": 9,
+                      "author": "Grace Hopper",
+                      "age": "2 days ago"
+                    },
+                    {
+                      "start": 15,
+                      "author": "Ada Lovelace",
+                      "age": "5 hours ago"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       }
@@ -11413,6 +11497,451 @@
                   "delta": "+8 %",
                   "tone": "success",
                   "pressable": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-log-view",
+      "component": "LogView",
+      "title": "LogView",
+      "node": {
+        "id": "specimen_log_view",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_log_view_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_log_view_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "a failed job · timestamps · search",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_job_log",
+                "component": "LogView",
+                "props": {
+                  "lines": [
+                    "2026-11-27T09:14:01.1007919Z ##[group]Set up job",
+                    "2026-11-27T09:14:03.1023757Z Current runner version: '2.329.0'",
+                    "2026-11-27T09:14:05.1039595Z Runner name: 'runner-3'",
+                    "2026-11-27T09:14:07.1055433Z Operating system: Ubuntu 26.04 LTS",
+                    "2026-11-27T09:14:09.1071271Z ##[endgroup]",
+                    "2026-11-27T09:14:11.1087109Z ##[group]Checkout",
+                    "2026-11-27T09:14:13.1102947Z Syncing repository: acme/shop",
+                    "2026-11-27T09:14:15.1118785Z HEAD is now at 4f2c9e1 Cache the cart totals",
+                    "2026-11-27T09:14:17.1134623Z ##[endgroup]",
+                    "2026-11-27T09:14:19.1150461Z ##[group]Install",
+                    "2026-11-27T09:14:21.1166299Z $ bun install --frozen-lockfile",
+                    "2026-11-27T09:14:23.1182137Z \u001b[2mResolved 1204 packages in 812ms\u001b[0m",
+                    "2026-11-27T09:14:25.1197975Z \u001b[32m+\u001b[0m 1204 packages installed [2.41s]",
+                    "2026-11-27T09:14:27.1213813Z ##[endgroup]",
+                    "2026-11-27T09:14:29.1229651Z ##[group]Unit tests",
+                    "2026-11-27T09:14:31.1245489Z $ bun test",
+                    "2026-11-27T09:14:33.1261327Z src/cart.test.ts:",
+                    "2026-11-27T09:14:35.1277165Z \u001b[32m(pass)\u001b[0m cart > adds an item [0.4ms]",
+                    "2026-11-27T09:14:37.1293003Z \u001b[32m(pass)\u001b[0m cart > sums the totals [0.2ms]",
+                    "2026-11-27T09:14:39.1308841Z src/store.test.ts:",
+                    "2026-11-27T09:14:41.1324679Z \u001b[32m(pass)\u001b[0m store > put [0.2ms]",
+                    "2026-11-27T09:14:43.1340517Z \u001b[31m(fail)\u001b[0m store > get returns the cached row [1.2ms]",
+                    "2026-11-27T09:14:45.1356355Z   expect(received).toEqual(expected)",
+                    "2026-11-27T09:14:47.1372193Z   \u001b[32m- Expected  - 1\u001b[0m",
+                    "2026-11-27T09:14:49.1388031Z   \u001b[31m+ Received  + 1\u001b[0m",
+                    "2026-11-27T09:14:51.1403869Z     Object {",
+                    "2026-11-27T09:14:53.1419707Z   \u001b[32m-   \"qty\": 2,\u001b[0m",
+                    "2026-11-27T09:14:55.1435545Z   \u001b[31m+   \"qty\": 1,\u001b[0m",
+                    "2026-11-27T09:14:57.1451383Z     }",
+                    "2026-11-27T09:14:59.1467221Z       at src/store.test.ts:42:18",
+                    "2026-11-27T09:15:01.1483059Z \u001b[32m(pass)\u001b[0m store > evicts after 60s [0.3ms]",
+                    "2026-11-27T09:15:03.1498897Z ",
+                    "2026-11-27T09:15:05.1514735Z  4 pass",
+                    "2026-11-27T09:15:07.1530573Z  1 fail",
+                    "2026-11-27T09:15:09.1546411Z Ran 5 tests across 2 files. [182ms]",
+                    "2026-11-27T09:15:11.1562249Z ##[error]Process completed with exit code 1.",
+                    "2026-11-27T09:15:13.1578087Z ##[endgroup]",
+                    "2026-11-27T09:15:15.1593925Z ##[group]Post Checkout",
+                    "2026-11-27T09:15:17.1609763Z Cleaning up orphan processes",
+                    "2026-11-27T09:15:19.1625601Z ##[endgroup]"
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "2s"
+                    },
+                    {
+                      "status": "passed",
+                      "duration": "1s"
+                    },
+                    {
+                      "status": "passed",
+                      "duration": "3s"
+                    },
+                    {
+                      "status": "failed",
+                      "duration": "41s"
+                    },
+                    {
+                      "status": "passed",
+                      "duration": "0s"
+                    }
+                  ],
+                  "open": [
+                    3
+                  ],
+                  "query": "store",
+                  "timestamps": true,
+                  "follow": false,
+                  "maxLines": 18
+                },
+                "slots": {
+                  "annotations": {
+                    "id": "c0_job_log_failure",
+                    "component": "Alert",
+                    "props": {
+                      "type": "error",
+                      "title": "1 test failed",
+                      "message": "store > get returns the cached row (src/store.test.ts:42)"
+                    }
+                  }
+                },
+                "on": {
+                  "select": {
+                    "event": {
+                      "name": "anchor"
+                    }
+                  },
+                  "toggle": {
+                    "event": {
+                      "name": "fold"
+                    }
+                  },
+                  "search": {
+                    "event": {
+                      "name": "find"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_log_view_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_log_view_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "running · follow",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_live_log",
+                "component": "LogView",
+                "props": {
+                  "lines": [
+                    "##[group]Set up job",
+                    "Runner name: 'runner-1'",
+                    "##[endgroup]",
+                    "##[group]Install",
+                    "$ bun install --frozen-lockfile",
+                    "\u001b[2mResolved 1204 packages in 790ms\u001b[0m",
+                    "##[endgroup]",
+                    "##[group]Build",
+                    "$ bun run build",
+                    "vite v7.2.1 building for production...",
+                    "\u001b[32m✓\u001b[0m 1873 modules transformed.",
+                    "rendering chunks (12)...",
+                    "dist/assets/index-4f2c9e1.js   412.80 kB │ gzip: 131.02 kB",
+                    "dist/assets/cart-9a1b7d3.js     38.12 kB │ gzip:  11.40 kB",
+                    "computing gzip size (14)..."
+                  ],
+                  "sections": [
+                    {
+                      "status": "passed",
+                      "duration": "1s"
+                    },
+                    {
+                      "status": "passed",
+                      "duration": "4s"
+                    }
+                  ],
+                  "follow": true,
+                  "maxLines": 8
+                },
+                "on": {
+                  "select": {
+                    "event": {
+                      "name": "anchor"
+                    }
+                  },
+                  "toggle": {
+                    "event": {
+                      "name": "fold"
+                    }
+                  },
+                  "search": {
+                    "event": {
+                      "name": "find"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-job-graph",
+      "component": "JobGraph",
+      "title": "JobGraph",
+      "node": {
+        "id": "specimen_job_graph",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_job_graph_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_job_graph_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "stages · a matrix · test selected",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_pipeline",
+                "component": "JobGraph",
+                "props": {
+                  "jobs": [
+                    {
+                      "id": "lint",
+                      "name": "lint",
+                      "stage": "build",
+                      "status": "passed",
+                      "duration": "38s"
+                    },
+                    {
+                      "id": "build",
+                      "name": "build",
+                      "stage": "build",
+                      "status": "passed",
+                      "duration": "1m 12s"
+                    },
+                    {
+                      "id": "test_1",
+                      "name": "test (linux, 22)",
+                      "stage": "test",
+                      "matrix": "test",
+                      "status": "passed",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "test_2",
+                      "name": "test (linux, 24)",
+                      "stage": "test",
+                      "matrix": "test",
+                      "status": "passed",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "test_3",
+                      "name": "test (macos, 22)",
+                      "stage": "test",
+                      "matrix": "test",
+                      "status": "failed",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "test_4",
+                      "name": "test (macos, 24)",
+                      "stage": "test",
+                      "matrix": "test",
+                      "status": "passed",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "test_5",
+                      "name": "test (windows, 24)",
+                      "stage": "test",
+                      "matrix": "test",
+                      "status": "running",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "e2e",
+                      "name": "e2e",
+                      "stage": "test",
+                      "status": "running",
+                      "duration": "2m 4s",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "deploy",
+                      "name": "deploy",
+                      "stage": "deploy",
+                      "status": "queued",
+                      "needs": [
+                        "test",
+                        "e2e"
+                      ]
+                    },
+                    {
+                      "id": "docs",
+                      "name": "docs",
+                      "stage": "deploy",
+                      "status": "skipped",
+                      "needs": [
+                        "lint"
+                      ]
+                    }
+                  ],
+                  "value": "test"
+                },
+                "on": {
+                  "select": {
+                    "event": {
+                      "name": "open_job"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_job_graph_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_job_graph_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "needs only",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_needs_graph",
+                "component": "JobGraph",
+                "props": {
+                  "jobs": [
+                    {
+                      "id": "checkout",
+                      "name": "checkout",
+                      "status": "passed",
+                      "duration": "4s"
+                    },
+                    {
+                      "id": "build",
+                      "name": "build",
+                      "status": "passed",
+                      "duration": "1m 2s",
+                      "needs": [
+                        "checkout"
+                      ]
+                    },
+                    {
+                      "id": "lint",
+                      "name": "lint",
+                      "status": "passed",
+                      "duration": "21s",
+                      "needs": [
+                        "checkout"
+                      ]
+                    },
+                    {
+                      "id": "test",
+                      "name": "test",
+                      "status": "failed",
+                      "duration": "48s",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "package",
+                      "name": "package",
+                      "status": "passed",
+                      "duration": "33s",
+                      "needs": [
+                        "build"
+                      ]
+                    },
+                    {
+                      "id": "publish",
+                      "name": "publish",
+                      "status": "cancelled",
+                      "needs": [
+                        "test",
+                        "package",
+                        "lint"
+                      ]
+                    }
+                  ]
+                },
+                "on": {
+                  "select": {
+                    "event": {
+                      "name": "open_job"
+                    }
+                  }
                 }
               }
             ]

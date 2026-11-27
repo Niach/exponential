@@ -219,3 +219,9 @@ export type { EmbedCard } from "./embed"
 // #EXP-1629: a Menu item's side preview (interactions-round1.json `menuPreview`).
 export { MENU_PREVIEW_CLOSE_MS, MENU_PREVIEW_IDLE, MENU_PREVIEW_OFFSET, MENU_PREVIEW_OPEN_MS, menuPreviewId, menuPreviewInput, menuPreviewTick, menuPreviewWanted } from "./menu-preview"
 export type { MenuPreviewInput, MenuPreviewState } from "./menu-preview"
+// #EXP-2204 (docs/ci-components-contract.md): THE CI status table, the line
+// anchors, the log model (LogView/LogLines), CodeBlock blame and the JobGraph layout.
+export { CI_STATUSES, CI_STATUS_SPIN_MS, CI_STATUS_TABLE, blameBlocks, ciStatusEntry, ciStatusOf, extendLineAnchor, formatLineAnchor, logModel, logOpenDefault, logReveal, logRows, logSearch, parseLineAnchor, stripAnsi } from "./ci-log"
+export type { BlameLine, CiStatus, CiStatusEntry, LineRange, LogLine, LogMatch, LogModel, LogRow, LogSection, LogSectionMeta } from "./ci-log"
+export { JOB_GRAPH, jobGraphLayout, jobGraphUpstream } from "./job-graph"
+export type { JobGraphEdge, JobGraphGeometry, JobGraphJob, JobGraphLayout, JobGraphNode } from "./job-graph"

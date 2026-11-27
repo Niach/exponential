@@ -422,6 +422,18 @@
     "countBadgeTone": [
       "attention",
       "muted"
+    ],
+    "ciStatus": [
+      "passed",
+      "failed",
+      "running",
+      "queued",
+      "cancelled",
+      "skipped"
+    ],
+    "codeBlockGutter": [
+      "numbers",
+      "blame"
     ]
   },
   "defs": {
@@ -956,6 +968,51 @@
         "tone": {
           "type": "enum",
           "enum": "tone"
+        }
+      }
+    },
+    "jobGraphJob": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "status": {
+          "type": "enum",
+          "enum": "ciStatus"
+        },
+        "duration": {
+          "type": "string"
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matrix": {
+          "type": "string"
+        }
+      }
+    },
+    "blameEntry": {
+      "properties": {
+        "start": {
+          "type": "number",
+          "required": true
+        },
+        "author": {
+          "type": "string",
+          "required": true
+        },
+        "age": {
+          "type": "string"
         }
       }
     }
@@ -2085,8 +2142,32 @@
           "type": "enum",
           "enum": "codeBlockSize",
           "default": "default"
+        },
+        "anchors": {
+          "type": "boolean",
+          "default": false
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true
+        },
+        "gutter": {
+          "type": "enum",
+          "enum": "codeBlockGutter",
+          "default": "numbers"
+        },
+        "blame": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "blameEntry"
+          },
+          "bindable": true
         }
-      }
+      },
+      "events": [
+        "select"
+      ]
     },
     "Kbd": {
       "kind": "macro",
@@ -3708,6 +3789,92 @@
         "press"
       ]
     },
+    "LogView": {
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "slots": [
+        "annotations"
+      ],
+      "props": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true
+        },
+        "open": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        },
+        "query": {
+          "type": "string",
+          "bindable": true
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true
+        },
+        "follow": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true
+        },
+        "timestamps": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "maxLines": {
+          "type": "number",
+          "default": 24
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "search",
+        "follow",
+        "timestamps"
+      ]
+    },
+    "JobGraph": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "jobGraphJob"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
     "Button": {
       "kind": "native",
       "group": "action",
@@ -5105,6 +5272,66 @@
           }
         }
       }
+    },
+    "LogLines": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "hidden": true,
+      "props": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true
+        },
+        "open": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        },
+        "query": {
+          "type": "string",
+          "bindable": true
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true
+        },
+        "follow": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true
+        },
+        "timestamps": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "maxLines": {
+          "type": "number",
+          "default": 24
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "search",
+        "follow",
+        "timestamps"
+      ]
     },
     "Unknown": {
       "kind": "native",

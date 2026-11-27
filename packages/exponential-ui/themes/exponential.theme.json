@@ -2179,6 +2179,15 @@
         }
       ]
     },
+    "LogLines": {
+      "body": [
+        {
+          "style": {
+            "backgroundColor": "$color.muted"
+          }
+        }
+      ]
+    },
     "Table": {
       "row": [
         {

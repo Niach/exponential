@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus. Round 8 (docs/round-8-contract.md): Canvas (a static vector drawing in Motion's shapes plus native `text`, always UPRIGHT: a text op takes only the translation and the uniform scale √|det| of fit × its transform, never a rotation or skew, so it looks the same on gpui; drawn through eui-motion's display list on every renderer; `pointer` press/move/leave in drawing units), Checkbox `indeterminate` (a dash, aria-checked mixed; a press checks it), Progress `valueText` + `detail`, Stepper `collapse` (`stepperCollapse`: never | auto | always; `auto` collapses below the `sm` breakpoint of the Stepper's own box through the new `@container` style condition). Round 9 (docs/round-9-contract.md, A2UI 1.0): `instructions` = the catalog rules as Markdown (the 1.0 catalog file's `instructions`); prop type `componentId` = a component id reference (Label.for, Popover.anchor, Menu.anchor); prop type `dynamic` = a binding or a call only, never a literal (a check's `condition`); optional component `parents: [names]` = the 1.0 `allowedParents` (`Surface` = only as root; none set); a function `returns` may be `validationResult` (the validators).",
+  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here. EXP-1259 (the UI batch) adds the low-level feedback and search pieces the app settled on: `SearchList`, Spinner `xs`, Button `pendingLabel`, Skeleton rows, Tabs `closable`/`addable`, searchable Menu submenus. Round 8 (docs/round-8-contract.md): Canvas (a static vector drawing in Motion's shapes plus native `text`, always UPRIGHT: a text op takes only the translation and the uniform scale √|det| of fit × its transform, never a rotation or skew, so it looks the same on gpui; drawn through eui-motion's display list on every renderer; `pointer` press/move/leave in drawing units), Checkbox `indeterminate` (a dash, aria-checked mixed; a press checks it), Progress `valueText` + `detail`, Stepper `collapse` (`stepperCollapse`: never | auto | always; `auto` collapses below the `sm` breakpoint of the Stepper's own box through the new `@container` style condition). Round 9 (docs/round-9-contract.md, A2UI 1.0): `instructions` = the catalog rules as Markdown (the 1.0 catalog file's `instructions`); prop type `componentId` = a component id reference (Label.for, Popover.anchor, Menu.anchor); prop type `dynamic` = a binding or a call only, never a literal (a check's `condition`); optional component `parents: [names]` = the 1.0 `allowedParents` (`Surface` = only as root; none set); a function `returns` may be `validationResult` (the validators). #EXP-2204 (docs/ci-components-contract.md): the CI pieces: the `ciStatus` enum (ONE status table: style.json `ciStatus` + the theme's `when: {status}` recipes), LogView (a data macro: the `annotations` slot over the hidden native LogLines, the folding `##[group]` log with search and line anchors), JobGraph (a native: stage columns, needs on hover, a matrix as one node, a list below `md`) and CodeBlock `anchors`, `selection`, `gutter` (`codeBlockGutter`: numbers | blame) + `blame` and its `select` event; the rules are src/ci-log.ts and src/job-graph.ts (fixtures/ci-log.json, job-graph.json).",
   "id": "https://ui.exponential.at/catalogs/core/v1",
   "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
   "name": "Exponential UI core",
@@ -424,6 +424,18 @@
     "countBadgeTone": [
       "attention",
       "muted"
+    ],
+    "ciStatus": [
+      "passed",
+      "failed",
+      "running",
+      "queued",
+      "cancelled",
+      "skipped"
+    ],
+    "codeBlockGutter": [
+      "numbers",
+      "blame"
     ]
   },
   "defs": {
@@ -1097,6 +1109,63 @@
           "description": "Arc tone."
         }
       }
+    },
+    "jobGraphJob": {
+      "description": "One JobGraph job.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Reported by `select`; `needs` name it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Node text (default: the id)."
+        },
+        "stage": {
+          "type": "string",
+          "description": "Stage column title."
+        },
+        "status": {
+          "type": "enum",
+          "enum": "ciStatus",
+          "description": "Job status (default: queued)."
+        },
+        "duration": {
+          "type": "string",
+          "description": "Shown duration (`1m 12s`)."
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Upstream job ids."
+        },
+        "matrix": {
+          "type": "string",
+          "description": "Matrix key: jobs sharing it draw as one node (`3/5`)."
+        }
+      }
+    },
+    "blameEntry": {
+      "description": "One CodeBlock blame block.",
+      "properties": {
+        "start": {
+          "type": "number",
+          "required": true,
+          "description": "First line of the block (1-based)."
+        },
+        "author": {
+          "type": "string",
+          "required": true,
+          "description": "Commit author."
+        },
+        "age": {
+          "type": "string",
+          "description": "Muted age (`3d`)."
+        }
+      }
     }
   },
   "functions": {
@@ -1638,7 +1707,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Container laid out by its style. `hover` = pointer enter.",
+      "description": "Container laid out by its style; `hover` on enter.",
       "props": {
         "style": {
           "type": "style",
@@ -1670,7 +1739,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Flex: children in one direction with a gap.",
+      "description": "Children in one direction, with a gap.",
       "props": {
         "direction": {
           "type": "enum",
@@ -1723,7 +1792,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Equal columns of cards or tiles.",
+      "description": "Equal columns of tiles.",
       "props": {
         "columns": {
           "type": "number",
@@ -1753,7 +1822,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Bordered card for grouped content, not page headers.",
+      "description": "Bordered group of content (not a header).",
       "props": {
         "title": {
           "type": "string",
@@ -1791,7 +1860,7 @@
       "group": "layout",
       "lite": true,
       "children": "one",
-      "description": "Window frame: a three-dot bar (`title`) over one child.",
+      "description": "Frame: three-dot bar (`title`) over one child.",
       "props": {
         "title": {
           "type": "string",
@@ -1854,7 +1923,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups rows by this field; `section` slot = header."
+          "description": "Groups rows by it; `section` slot = header."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -1864,12 +1933,12 @@
         "reorderable": {
           "type": "boolean",
           "default": false,
-          "description": "Rows drag to reorder; fires `move` {id, before|after|into}."
+          "description": "Drag to reorder; fires `move` {id, before|after|into}."
         },
         "maxDepth": {
           "type": "number",
           "default": 1,
-          "description": "With `reorderable`: nesting levels; items carry `depth`, `group`."
+          "description": "`reorderable` nesting levels (items' `depth`, `group`)."
         },
         "style": {
           "type": "style",
@@ -1941,7 +2010,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Scroll region of bounded height or width.",
+      "description": "Bounded scroll region.",
       "props": {
         "direction": {
           "type": "enum",
@@ -2019,7 +2088,7 @@
       "slots": [
         "list"
       ],
-      "description": "List (`list` slot) + detail (children); phones show one, detail with back.",
+      "description": "List (`list` slot) + detail (children); phones show one with back.",
       "props": {
         "open": {
           "type": "boolean",
@@ -2086,7 +2155,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Screen: AppBar row over a padded scrolling body.",
+      "description": "Screen: AppBar over a padded scrolling body.",
       "props": {
         "title": {
           "type": "string",
@@ -2126,7 +2195,7 @@
       "slots": [
         "trailing"
       ],
-      "description": "One row of controls, bottom-aligned, wraps on phones; `trailing` = end action.",
+      "description": "Control row, bottom-aligned, wraps on phones; `trailing` = end action.",
       "props": {
         "gap": {
           "type": "enum",
@@ -2148,7 +2217,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Band header over hairline-divided rows; no title = rows only.",
+      "description": "Band header over hairline-divided rows (title optional).",
       "props": {
         "title": {
           "type": "string",
@@ -2172,7 +2241,7 @@
         "collapsible": {
           "type": "boolean",
           "default": false,
-          "description": "Header folds the rows (chevron, press)."
+          "description": "Header folds the rows."
         },
         "open": {
           "type": "boolean",
@@ -2189,7 +2258,7 @@
         "tree": {
           "type": "boolean",
           "default": false,
-          "description": "Rows are a tree: `Row.depth` indents, draws guides."
+          "description": "Tree rows: `Row.depth` indents + guides."
         },
         "loading": {
           "type": "boolean",
@@ -2350,7 +2419,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "GitHub-flavoured markdown prose.",
+      "description": "GitHub-flavoured markdown.",
       "props": {
         "text": {
           "type": "markdown",
@@ -2426,7 +2495,7 @@
         "wrap": {
           "type": "boolean",
           "default": false,
-          "description": "Wraps long lines (else side-scrolls)."
+          "description": "Wraps long lines."
         },
         "copyable": {
           "type": "boolean",
@@ -2447,7 +2516,7 @@
         "follow": {
           "type": "boolean",
           "default": false,
-          "description": "Sticks to the bottom as it grows."
+          "description": "Sticks to the end as it grows."
         },
         "variant": {
           "type": "enum",
@@ -2461,13 +2530,41 @@
           "enum": "codeBlockSize",
           "default": "default",
           "description": "sm = compact."
+        },
+        "anchors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Linkable line numbers."
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true,
+          "description": "Anchor `L6-L9`."
+        },
+        "gutter": {
+          "type": "enum",
+          "enum": "codeBlockGutter",
+          "default": "numbers",
+          "description": "blame = author column."
+        },
+        "blame": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "blameEntry"
+          },
+          "bindable": true,
+          "description": "By start line."
         }
       },
       "example": {
         "code": "const answer = 42 // the answer",
         "language": "ts",
         "lineNumbers": true
-      }
+      },
+      "events": [
+        "select"
+      ]
     },
     "Kbd": {
       "kind": "macro",
@@ -2543,7 +2640,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Picture from a URL, else a placeholder box.",
+      "description": "URL picture, else a placeholder.",
       "props": {
         "src": {
           "type": "url",
@@ -2609,7 +2706,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
+      "description": "Picture that zooms (pinch, ⌘-wheel, double-tap), pans.",
       "props": {
         "src": {
           "type": "url",
@@ -2674,7 +2771,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "One Lucide icon (shared registry).",
+      "description": "One Lucide icon.",
       "props": {
         "name": {
           "type": "icon",
@@ -2709,7 +2806,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Poster, then the platform player with controls.",
+      "description": "Poster, then the platform player.",
       "props": {
         "src": {
           "type": "url",
@@ -2785,7 +2882,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "Round user picture, else initials on a stable hue.",
+      "description": "User picture, else initials on a stable hue.",
       "props": {
         "name": {
           "type": "string",
@@ -2855,7 +2952,7 @@
       "group": "media",
       "lite": false,
       "children": "many",
-      "description": "Horizontal pager, a page per child.",
+      "description": "Pager, a page per child.",
       "props": {
         "page": {
           "type": "number",
@@ -2944,7 +3041,7 @@
       "group": "navigation",
       "lite": true,
       "children": "many",
-      "description": "Tab navigation; child i is tab i's panel.",
+      "description": "Tabs; child i is tab i's panel.",
       "props": {
         "tabs": {
           "type": "array",
@@ -3014,7 +3111,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "ONE row or column of segments (also a bottom bar or rail).",
+      "description": "Row or column of segments (also a bottom bar, rail).",
       "props": {
         "items": {
           "type": "array",
@@ -3124,7 +3221,7 @@
       "group": "navigation",
       "lite": true,
       "children": "many",
-      "description": "Disclosure: a title row folds its children.",
+      "description": "A title row folding its children.",
       "props": {
         "title": {
           "type": "string",
@@ -3155,7 +3252,7 @@
       "group": "list",
       "lite": true,
       "children": "many",
-      "description": "TraceItem column (an agent's steps).",
+      "description": "TraceItem column (agent steps).",
       "props": {
         "size": {
           "type": "enum",
@@ -3173,7 +3270,7 @@
       "group": "list",
       "lite": true,
       "children": "many",
-      "description": "One step: icon, title, muted detail; expands to its children.",
+      "description": "Step: icon, title, muted detail; expands to children.",
       "props": {
         "title": {
           "type": "string",
@@ -3228,7 +3325,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "Plan card: steps to approve, then progress and Stop.",
+      "description": "Steps to approve, then progress and Stop.",
       "props": {
         "title": {
           "type": "string",
@@ -3306,7 +3403,7 @@
       "group": "navigation",
       "lite": false,
       "children": "none",
-      "description": "Previous, next, current page of a total.",
+      "description": "Prev, next, page of a total.",
       "props": {
         "totalPages": {
           "type": "number",
@@ -3333,7 +3430,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Path to the current page; all but the last fire `select`.",
+      "description": "Path to this page; all but the last fire `select`.",
       "props": {
         "items": {
           "type": "array",
@@ -3370,7 +3467,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Anchor rows under a caption, one active; press fires `select {id}`.",
+      "description": "Anchor rows under a caption, one active; fires `select {id}`.",
       "props": {
         "items": {
           "type": "array",
@@ -3420,7 +3517,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Wizard progress: numbered steps, done ones ticked.",
+      "description": "Wizard: numbered steps, done ones ticked.",
       "props": {
         "steps": {
           "type": "array",
@@ -3474,7 +3571,7 @@
         "trigger",
         "footer"
       ],
-      "description": "Centred modal, opened by its trigger slot or bound `open`.",
+      "description": "Centred modal; `trigger` slot or bound `open`.",
       "props": {
         "title": {
           "type": "string",
@@ -3515,7 +3612,7 @@
         "trigger",
         "footer"
       ],
-      "description": "Panel sliding from an edge (bottom sheet on phones).",
+      "description": "Edge panel (bottom sheet on phones).",
       "props": {
         "title": {
           "type": "string",
@@ -3566,7 +3663,7 @@
       "slots": [
         "footer"
       ],
-      "description": "Floating one-row card; children open in a bottom sheet, footer pinned.",
+      "description": "Floating one-row card; children open a bottom sheet, footer pinned.",
       "props": {
         "label": {
           "type": "string",
@@ -3680,7 +3777,7 @@
       "slots": [
         "trigger"
       ],
-      "description": "Small panel anchored to its trigger.",
+      "description": "Panel anchored to its trigger.",
       "props": {
         "open": {
           "type": "boolean",
@@ -3702,7 +3799,7 @@
         },
         "anchor": {
           "type": "componentId",
-          "description": "Open-at node it toggles; a text field = typeahead (keeps focus)."
+          "description": "Node it opens at; a text field = typeahead (keeps focus)."
         },
         "openOn": {
           "type": "enum",
@@ -3728,7 +3825,7 @@
       "group": "overlay",
       "lite": false,
       "children": "many",
-      "description": "Hint on hovering or long-pressing its children.",
+      "description": "Hint on hover or long-press of its children.",
       "props": {
         "content": {
           "type": "string",
@@ -3826,7 +3923,7 @@
       "group": "overlay",
       "lite": false,
       "children": "none",
-      "description": "Transient notice; one per notice with `open` bound.",
+      "description": "One transient notice; bind `open`.",
       "props": {
         "title": {
           "type": "string",
@@ -3946,7 +4043,7 @@
       "slots": [
         "leading"
       ],
-      "description": "Small token: a pill (filter, label, state) or an entity rect.",
+      "description": "Token: a pill (filter, label, state) or entity rect.",
       "props": {
         "label": {
           "type": "string",
@@ -3974,7 +4071,7 @@
         },
         "dot": {
           "type": "color",
-          "description": "Dot before the text (label chip)."
+          "description": "Leading dot (label chip)."
         },
         "icon": {
           "type": "icon",
@@ -3982,7 +4079,7 @@
         },
         "image": {
           "type": "url",
-          "description": "Round picture, not the icon."
+          "description": "Round picture (no icon)."
         },
         "detail": {
           "type": "string",
@@ -4014,7 +4111,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Empty screen (`page`: disc, title, sentence, action) or list line (`list`).",
+      "description": "Empty `page` (disc, title, sentence, action) or `list` line.",
       "props": {
         "icon": {
           "type": "icon",
@@ -4104,7 +4201,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Usage bar: coloured segments against a max.",
+      "description": "Usage bar: coloured segments of a max.",
       "props": {
         "segments": {
           "type": "array",
@@ -4158,7 +4255,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Progress ring for a fraction, icon-sized.",
+      "description": "Icon-sized progress ring.",
       "props": {
         "value": {
           "type": "number",
@@ -4206,7 +4303,7 @@
       "group": "feedback",
       "lite": false,
       "children": "none",
-      "description": "Indeterminate activity indicator.",
+      "description": "Indeterminate activity.",
       "props": {
         "size": {
           "type": "enum",
@@ -4266,7 +4363,7 @@
       "group": "feedback",
       "lite": false,
       "children": "one",
-      "description": "Live voice level: three waves around an optional child.",
+      "description": "Voice level: three waves around an optional child.",
       "props": {
         "activity": {
           "type": "enum",
@@ -4323,7 +4420,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
+      "description": "Count capsule on a nav entry or row; ≤ 0 hides.",
       "props": {
         "count": {
           "type": "number",
@@ -4353,7 +4450,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Voice call screen: wave, avatar, name, status, buttons.",
+      "description": "Call screen: wave, avatar, name, status, buttons.",
       "props": {
         "name": {
           "type": "string",
@@ -4444,7 +4541,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "Typed columns, sortable, selectable, windowed; `slot` columns hold components.",
+      "description": "Typed, sortable, selectable, windowed; `slot` columns hold components.",
       "props": {
         "columns": {
           "type": "array",
@@ -4462,7 +4559,7 @@
           },
           "required": true,
           "bindable": true,
-          "description": "One object per row, by column key."
+          "description": "Objects keyed by column."
         },
         "rowKey": {
           "type": "string",
@@ -4675,7 +4772,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "Tiny inline trend line, no axes or legend.",
+      "description": "Tiny trend line, no axes or legend.",
       "props": {
         "values": {
           "type": "array",
@@ -4771,12 +4868,164 @@
         ]
       }
     },
+    "LogView": {
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "slots": [
+        "annotations"
+      ],
+      "description": "CI log: steps fold; search, line links.",
+      "props": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Raw log lines (timestamps, ANSI and `##[group]` markers kept)."
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true,
+          "description": "{status, duration} per step."
+        },
+        "open": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Open step indexes (default: failed, running)."
+        },
+        "query": {
+          "type": "string",
+          "bindable": true,
+          "description": "Search text."
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true,
+          "description": "Anchor `L6-L9`."
+        },
+        "follow": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true,
+          "description": "Sticks to the end."
+        },
+        "timestamps": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Line times."
+        },
+        "maxLines": {
+          "type": "number",
+          "default": 24,
+          "description": "Height in lines."
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "search",
+        "follow",
+        "timestamps"
+      ],
+      "example": {
+        "lines": [
+          "##[group]Install",
+          "$ bun install",
+          "Resolved 1204 packages",
+          "##[endgroup]",
+          "##[group]Test",
+          "\u001b[31m(fail)\u001b[0m store > get",
+          "##[error]1 test failed",
+          "##[endgroup]"
+        ],
+        "sections": [
+          {
+            "status": "passed",
+            "duration": "12s"
+          },
+          {
+            "status": "failed",
+            "duration": "41s"
+          }
+        ],
+        "maxLines": 8
+      }
+    },
+    "JobGraph": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "description": "CI jobs by stage; hover shows needs.",
+      "props": {
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "jobGraphJob"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Run's jobs."
+        },
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "Selected job id."
+        }
+      },
+      "events": [
+        "select"
+      ],
+      "example": {
+        "jobs": [
+          {
+            "id": "build",
+            "name": "build",
+            "stage": "build",
+            "status": "passed",
+            "duration": "1m 2s"
+          },
+          {
+            "id": "test",
+            "name": "test",
+            "stage": "test",
+            "status": "failed",
+            "duration": "41s",
+            "needs": [
+              "build"
+            ]
+          },
+          {
+            "id": "deploy",
+            "name": "deploy",
+            "stage": "deploy",
+            "status": "skipped",
+            "needs": [
+              "test"
+            ]
+          }
+        ],
+        "value": "test"
+      }
+    },
     "Button": {
       "kind": "native",
       "group": "action",
       "lite": true,
       "children": "one",
-      "description": "Press target: label + optional icon, or one custom child.",
+      "description": "Press target: label + icon, or one custom child.",
       "props": {
         "label": {
           "type": "string",
@@ -4864,7 +5113,7 @@
       "group": "action",
       "lite": true,
       "children": "none",
-      "description": "Inline link opening a URL or firing `press`.",
+      "description": "Inline link: a URL or `press`.",
       "props": {
         "label": {
           "type": "string",
@@ -4895,7 +5144,7 @@
       "group": "action",
       "lite": false,
       "children": "none",
-      "description": "Two-state button that stays pressed.",
+      "description": "Button that stays pressed.",
       "props": {
         "label": {
           "type": "string",
@@ -4942,7 +5191,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Collects fields by `name`; fires `submit` once all checks pass.",
+      "description": "Collects fields by `name`; `submit` once checks pass.",
       "props": {
         "name": {
           "type": "string",
@@ -4998,7 +5247,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "End-aligned buttons: children, Cancel, then THE submit (the one primary).",
+      "description": "End-aligned buttons: children, Cancel, then THE (primary) submit.",
       "props": {
         "submit": {
           "type": "string",
@@ -5030,7 +5279,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Settings line: label (+ description), then the control (children).",
+      "description": "Settings line: label (+ description), then the control child.",
       "props": {
         "label": {
           "type": "string",
@@ -5047,7 +5296,7 @@
           "type": "enum",
           "enum": "collapseBelow",
           "default": "sm",
-          "description": "Below this, control under the label."
+          "description": "Below it, the control stacks."
         }
       },
       "example": {
@@ -5246,7 +5495,7 @@
         },
         "precision": {
           "type": "number",
-          "description": "Decimals shown; default the step's."
+          "description": "Decimals (default: the step's)."
         },
         "unit": {
           "type": "string",
@@ -5348,7 +5597,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Radio group choosing one value.",
+      "description": "Radio group: one value.",
       "props": {
         "label": {
           "type": "string",
@@ -5654,7 +5903,7 @@
             "shape": "option"
           },
           "bindable": true,
-          "description": "Inline, or a path the host refills on `search`; omit with `source`."
+          "description": "Inline, or a path refilled on `search`; omit with `source`."
         },
         "source": {
           "type": "string",
@@ -5698,7 +5947,7 @@
         "triggerIcon": {
           "type": "boolean",
           "default": false,
-          "description": "`row`: chosen option's `icon` before the value."
+          "description": "`row`: the chosen `icon` before the value."
         },
         "align": {
           "type": "enum",
@@ -5765,7 +6014,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Search field over rows: typing filters, arrows move, Enter picks.",
+      "description": "Search over rows: typing filters, arrows move, Enter picks.",
       "props": {
         "items": {
           "type": "array",
@@ -5904,7 +6153,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Shortcut field: press records (`start`), blur `stop`s; keys fire `key`; host sets `value`.",
+      "description": "Shortcut field: press `start`s, blur `stop`s, keys fire `key`; host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -5960,7 +6209,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Icon field: a square with the pick opens an icon grid.",
+      "description": "Icon field: its square opens an icon grid.",
       "props": {
         "value": {
           "type": "string",
@@ -6009,7 +6258,7 @@
       "group": "input",
       "lite": false,
       "children": "one",
-      "description": "Colour field: a swatch (or the child) opens the palette.",
+      "description": "Colour field: a swatch (or child) opens the palette.",
       "props": {
         "value": {
           "type": "string",
@@ -6053,7 +6302,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Calendar date field (ISO yyyy-mm-dd).",
+      "description": "Date field (ISO yyyy-mm-dd).",
       "props": {
         "label": {
           "type": "string",
@@ -6171,7 +6420,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Time field (`HH:mm`): a list every `step` minutes, or typed.",
+      "description": "Time field (`HH:mm`): typed, or a list every `step` min.",
       "props": {
         "label": {
           "type": "string",
@@ -6283,7 +6532,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "QR viewfinder; the host camera fires `scanned {value}`.",
+      "description": "QR viewfinder; host camera fires `scanned {value}`.",
       "props": {
         "hint": {
           "type": "string",
@@ -6328,7 +6577,7 @@
         "trailing",
         "above"
       ],
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; slots join the controls.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -6432,7 +6681,7 @@
           "enum": "rowChevron",
           "default": "none",
           "bindable": true,
-          "description": "Trailing disclosure or picker glyph."
+          "description": "Trailing disclosure glyph."
         },
         "selected": {
           "type": "boolean",
@@ -6477,7 +6726,7 @@
           "type": "object",
           "shape": "highlight",
           "bindable": true,
-          "description": "Marks a search term in title and subtitle."
+          "description": "Marks a search term (title, subtitle)."
         }
       },
       "events": [
@@ -6495,7 +6744,7 @@
       "group": "list",
       "lite": true,
       "children": "none",
-      "description": "File-style tree: branches fold, leaves select, lazy branches load; WAI-ARIA keys.",
+      "description": "File tree: branches fold, leaves select, lazy ones load; WAI-ARIA keys.",
       "props": {
         "items": {
           "type": "array",
@@ -6568,7 +6817,7 @@
         "attachment",
         "avatar"
       ],
-      "description": "Chat bubble, in (left, after an avatar) or out (right, before one).",
+      "description": "Chat bubble: in (left, after an avatar) or out (right).",
       "props": {
         "text": {
           "type": "markdown",
@@ -6667,6 +6916,81 @@
         "elbowAt": 0,
         "tee": true,
         "passThrough": []
+      }
+    },
+    "LogLines": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "hidden": true,
+      "description": "LogView's toolbar over the windowed log; never authored directly.",
+      "props": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "Raw log lines (timestamps, ANSI and `##[group]` markers kept)."
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true,
+          "description": "{status, duration} per step."
+        },
+        "open": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Open step indexes (default: failed, running)."
+        },
+        "query": {
+          "type": "string",
+          "bindable": true,
+          "description": "Search text."
+        },
+        "selection": {
+          "type": "string",
+          "bindable": true,
+          "description": "Anchor `L6-L9`."
+        },
+        "follow": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true,
+          "description": "Sticks to the end."
+        },
+        "timestamps": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Line times."
+        },
+        "maxLines": {
+          "type": "number",
+          "default": 24,
+          "description": "Height in lines."
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "search",
+        "follow",
+        "timestamps"
+      ],
+      "example": {
+        "lines": [
+          "$ bun test",
+          "\u001b[32m(pass)\u001b[0m store > put"
+        ]
       }
     },
     "Unknown": {
@@ -7047,7 +7371,7 @@
       "group": "layout",
       "lite": false,
       "children": "none",
-      "description": "Sandboxed nested surface; its events fire `action` {name, context}.",
+      "description": "Sandboxed nested surface; events fire `action` {name, context}.",
       "props": {
         "surface": {
           "type": "object",
@@ -7087,7 +7411,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records as bars in lanes; phones: dots + the day's agenda.",
+      "description": "Records as bars in lanes; phones: dots + day agenda.",
       "events": [
         "select",
         "open"
@@ -7095,7 +7419,7 @@
       "props": {
         "source": {
           "type": "string",
-          "description": "Where a records `by` binding lands (reads `month` or `week`)."
+          "description": "Where a records `by` binding lands (`month`, `week`)."
         },
         "view": {
           "type": "enum",
@@ -7132,7 +7456,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records over time: bars in week, month or quarter columns.",
+      "description": "Records as bars in week, month or quarter columns.",
       "events": [
         "open"
       ],
@@ -7353,7 +7677,7 @@
         "editable": {
           "type": "boolean",
           "default": true,
-          "description": "Rows open the form; Edit and Delete show."
+          "description": "Rows open the form; Edit, Delete show."
         },
         "title": {
           "type": "string",
@@ -7640,7 +7964,7 @@
       "slots": [
         "trailing"
       ],
-      "description": "Site top bar: brand, links (one current) firing `select`, trailing slot.",
+      "description": "Site bar: brand, links (one current) firing `select`, trailing slot.",
       "props": {
         "title": {
           "type": "string",
@@ -7693,7 +8017,7 @@
       "group": "layout",
       "lite": false,
       "children": "many",
-      "description": "Page foot: children (columns), links firing `select`, fine print.",
+      "description": "Page foot: columns (children), `select` links, fine print.",
       "props": {
         "items": {
           "type": "array",
@@ -7735,7 +8059,7 @@
       "group": "layout",
       "lite": false,
       "children": "many",
-      "description": "Page-top band: eyebrow, big title, lead, children (buttons) in a row.",
+      "description": "Top band: eyebrow, big title, lead, buttons (children) in a row.",
       "props": {
         "title": {
           "type": "string",
@@ -7771,7 +8095,7 @@
       "group": "media",
       "lite": false,
       "children": "many",
-      "description": "Card: picture on top, title, subtitle, meta, children.",
+      "description": "Picture card: title, subtitle, meta, children.",
       "props": {
         "src": {
           "type": "url",
@@ -7827,7 +8151,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Week strip: day tiles, one selected; fires `change {value}`.",
+      "description": "Week of day tiles, one selected; fires `change {value}`.",
       "props": {
         "days": {
           "type": "array",

@@ -6261,6 +6261,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": "$opacity.secondary"
               }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
             }
           ],
           "token": [
@@ -6381,6 +6390,642 @@
                 "color": "$color.destructive",
                 "fontWeight": "$type.weight.regular",
                 "fontStyle": "normal"
+              }
+            }
+          ],
+          "blame": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderColor": "$color.border",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAuthor": [
+            {
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "LogLines": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "toolbar": [
+            {
+              "style": {
+                "height": "$control.input",
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "height": "$control.input",
+                "paddingHorizontal": "$spacing.md",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "boxShadow": "$shadow.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "prev": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "next": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "follow": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "timestamps": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "body": [
+            {
+              "style": {
+                "borderRadius": "$radius.lg",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.sm",
+                "lineHeight": 22.75,
+                "paddingVertical": "$spacing.sm"
+              }
+            }
+          ],
+          "section": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "fontFamily": "$type.family.sans",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "sectionIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionTitle": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionMeta": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "line": [
+            {
+              "style": {
+                "lineHeight": 22.75,
+                "paddingHorizontal": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "gutter": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground",
+                "opacity": "$opacity.secondary"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "code": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "token": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "kind": "success"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "kind": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "kind": "error"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "kind": "comment"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "match": [
+            {
+              "style": {
+                "backgroundColor": "$color.match",
+                "borderRadius": 2
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.matchCurrent"
+              }
+            }
+          ]
+        },
+        "JobGraph": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "stage": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "node": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "highlight"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "name": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "meta": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "edge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -16689,6 +17334,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": "$opacity.secondary"
               }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
             }
           ],
           "token": [
@@ -16809,6 +17463,647 @@
                 "color": "$color.destructive",
                 "fontWeight": "$type.weight.regular",
                 "fontStyle": "normal"
+              }
+            }
+          ],
+          "blame": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderColor": "$color.border",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAuthor": [
+            {
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "LogLines": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "toolbar": [
+            {
+              "style": {
+                "height": "$control.input",
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "height": "$control.input",
+                "paddingHorizontal": "$spacing.md",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "boxShadow": "$shadow.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "prev": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "next": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "follow": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "timestamps": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "body": [
+            {
+              "style": {
+                "borderRadius": "$radius.lg",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.sm",
+                "lineHeight": 22.75,
+                "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "section": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "fontFamily": "$type.family.sans",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "sectionIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionTitle": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionMeta": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "line": [
+            {
+              "style": {
+                "lineHeight": 22.75,
+                "paddingHorizontal": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "gutter": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground",
+                "opacity": "$opacity.secondary"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "code": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "token": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "kind": "success"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "kind": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "kind": "error"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "kind": "comment"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "match": [
+            {
+              "style": {
+                "backgroundColor": "$color.match",
+                "borderRadius": 2
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.matchCurrent"
+              }
+            }
+          ]
+        },
+        "JobGraph": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "stage": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "node": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "highlight"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "name": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "meta": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "edge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -26507,6 +27802,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": "$opacity.secondary"
               }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
             }
           ],
           "token": [
@@ -26636,6 +27940,642 @@
               "style": {
                 "color": "$color.primary",
                 "fontWeight": "$type.weight.bold"
+              }
+            }
+          ],
+          "blame": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderColor": "$color.border",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAuthor": [
+            {
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "LogLines": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "toolbar": [
+            {
+              "style": {
+                "height": "$control.input",
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "height": "$control.input",
+                "paddingHorizontal": "$spacing.md",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "boxShadow": "$shadow.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "prev": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "next": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "follow": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "timestamps": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "body": [
+            {
+              "style": {
+                "borderRadius": "$radius.lg",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.sm",
+                "lineHeight": 22.75,
+                "paddingVertical": "$spacing.sm"
+              }
+            }
+          ],
+          "section": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "fontFamily": "$type.family.sans",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "sectionIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionTitle": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionMeta": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "line": [
+            {
+              "style": {
+                "lineHeight": 22.75,
+                "paddingHorizontal": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "gutter": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground",
+                "opacity": "$opacity.secondary"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "code": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "token": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "kind": "success"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "kind": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "kind": "error"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "kind": "comment"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "match": [
+            {
+              "style": {
+                "backgroundColor": "$color.match",
+                "borderRadius": 2
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.matchCurrent"
+              }
+            }
+          ]
+        },
+        "JobGraph": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "stage": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "node": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "highlight"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "name": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "meta": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "edge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -37039,6 +38979,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": "$opacity.secondary"
               }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
             }
           ],
           "token": [
@@ -37159,6 +39108,647 @@
                 "color": "$color.destructive",
                 "fontWeight": "$type.weight.regular",
                 "fontStyle": "normal"
+              }
+            }
+          ],
+          "blame": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderColor": "$color.border",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAuthor": [
+            {
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ],
+          "blameAge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "fontSize": "$type.size.xs"
+              }
+            }
+          ]
+        },
+        "LogLines": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "toolbar": [
+            {
+              "style": {
+                "height": "$control.input",
+                "gap": "$spacing.sm"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "height": "$control.input",
+                "paddingHorizontal": "$spacing.md",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "boxShadow": "$shadow.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "prev": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "next": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.md",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "follow": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "timestamps": [
+            {
+              "style": {
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "style": {
+                "height": "$control.buttonSm",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.md",
+                "fontSize": "$type.size.sm",
+                "fontWeight": "$type.weight.medium",
+                "fontFamily": "$type.family.sans",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "boxShadow": "$shadow.sm"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "body": [
+            {
+              "style": {
+                "borderRadius": "$radius.lg",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "#00000000",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.sm",
+                "lineHeight": 22.75,
+                "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "section": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "fontFamily": "$type.family.sans",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "sectionIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionTitle": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "sectionMeta": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "line": [
+            {
+              "style": {
+                "lineHeight": 22.75,
+                "paddingHorizontal": "$spacing.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "gutter": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground",
+                "opacity": "$opacity.secondary"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": "$opacity.primary"
+              }
+            }
+          ],
+          "time": [
+            {
+              "style": {
+                "paddingHorizontal": "$spacing.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "code": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "token": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "kind": "success"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "kind": "warning"
+              },
+              "style": {
+                "color": "$color.warning"
+              }
+            },
+            {
+              "when": {
+                "kind": "error"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "kind": "comment"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "match": [
+            {
+              "style": {
+                "backgroundColor": "$color.match",
+                "borderRadius": 2
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.matchCurrent"
+              }
+            }
+          ]
+        },
+        "JobGraph": {
+          "root": [
+            {
+              "style": {
+                "gap": "$spacing.sm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "stage": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "node": [
+            {
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "highlight"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "status": "passed"
+              },
+              "style": {
+                "color": "$color.success"
+              }
+            },
+            {
+              "when": {
+                "status": "failed"
+              },
+              "style": {
+                "color": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "status": "running"
+              },
+              "style": {
+                "color": "$color.info"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "queued",
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "name": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium",
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "status": [
+                  "cancelled",
+                  "skipped"
+                ]
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "meta": [
+            {
+              "style": {
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "edge": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
               }
             }
           ]

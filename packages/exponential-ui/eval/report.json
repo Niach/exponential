@@ -451,6 +451,8 @@
       "CountBadge",
       "CallSurface",
       "Sparkline",
+      "LogView",
+      "JobGraph",
       "Toggle",
       "SettingsRow",
       "NumberField",

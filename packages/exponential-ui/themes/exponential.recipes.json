@@ -56,6 +56,7 @@
     "DateRangePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "Toast": { "root": [ { "style": { "backgroundColor": "$color.popover", "borderColor": "$color.border", "borderRadius": "$radius.xl" } } ] },
     "CodeBlock": { "root": [ { "style": { "backgroundColor": "$color.muted" } } ] },
+    "LogLines": { "body": [ { "style": { "backgroundColor": "$color.muted" } } ] },
     "Table": { "row": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "striped": true }, "style": { "backgroundColor": "$color.card" } } ] },
     "FileUpload": { "dropzone": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } }, { "when": { "state": "dragover" }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } } ] },
     "Sidebar": { "sidebar": [ { "style": { "backgroundColor": "$color.card" } } ] },
