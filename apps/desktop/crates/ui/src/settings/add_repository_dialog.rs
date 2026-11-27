@@ -91,7 +91,7 @@ pub(super) fn open(
     let height = (window.viewport_size().height * 0.85).min(px(480.));
     let spec = DialogSpec::new(copy::PICKER_TITLE, size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| AddRepositoryDialogView::new(team_id, owner, pane, window, cx));
+        let view = cx.new(|cx| AddRepositoryDialogView::new(team_id, owner, pane, false, window, cx));
         let busy = view.clone();
         DialogContent::new(view)
             // The search input stays pinned while only the list scrolls.
@@ -115,6 +115,14 @@ pub struct AddRepositoryDialogView {
     ecode_branch: String,
     ecode_mirror: bool,
     ecode_mirror_url: String,
+    /// #EXP-2171 New › Repository (the page): the description, Run CI.
+    ecode_description: String,
+    ecode_run_ci: bool,
+    /// #EXP-2171: hosted as the New › Repository PAGE (repo-page.json NEW ›
+    /// REPOSITORY), not the Settings › Repositories dialog: Host on
+    /// Exponential first and preselected, a created or linked repository
+    /// opens its page.
+    page: bool,
     creating: bool,
     /// The pane to refetch once a repo is connected.
     pane: WeakEntity<RepositoriesPane>,
@@ -166,6 +174,7 @@ impl AddRepositoryDialogView {
         team_id: String,
         owner: bool,
         pane: WeakEntity<RepositoriesPane>,
+        page: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -176,7 +185,7 @@ impl AddRepositoryDialogView {
         let binding = cx.new(|_| {
             let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["kind", "ecode_branch", "ecode_mirror", "create", "cancel", "edit", "focus_search", "clear", "lookup", "pick", "fix", "refresh", "recheck", "retry", "open"] {
+            for name in ["kind", "ecode_branch", "ecode_mirror", "ecode_run_ci", "create", "cancel", "edit", "focus_search", "clear", "lookup", "pick", "fix", "refresh", "recheck", "retry", "open"] {
                 let me = me.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = |key: &str| event.context.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
@@ -195,10 +204,12 @@ impl AddRepositoryDialogView {
         });
         let chrome = Chrome::of(cx);
         let plugin = Rc::new(super::doc::ide_plugin());
-        let view = mount_with("add-repository", document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
+        let view = mount_with("add-repository", document(&Ink::of(cx), &chrome, page), &binding, plugin, true, window, cx);
         // The content owns the window's height: the rows scroll, the rest
-        // stays (`DialogContent::self_scrolling`).
-        view.update(cx, |view, cx| view.set_fill_height(true, cx));
+        // stays (`DialogContent::self_scrolling`). The page scrolls whole.
+        if !page {
+            view.update(cx, |view, cx| view.set_fill_height(true, cx));
+        }
         let subscriptions = vec![
             // Whether the search holds the focus: its box's stroke follows
             // it (the document fires no `focus` event).
@@ -257,11 +268,14 @@ impl AddRepositoryDialogView {
         let mut this = Self {
             team_id,
             owner,
-            kind: "github".into(),
+            kind: if page { "ecode".into() } else { "github".into() },
             ecode_name: String::new(),
             ecode_branch: "main".into(),
             ecode_mirror: false,
             ecode_mirror_url: String::new(),
+            ecode_description: String::new(),
+            ecode_run_ci: true,
+            page,
             creating: false,
             pane,
             query: String::new(),
@@ -288,7 +302,12 @@ impl AddRepositoryDialogView {
 
     #[cfg(test)]
     pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        Self::new("t".into(), true, WeakEntity::new_invalid(), window, cx)
+        Self::new("t".into(), true, WeakEntity::new_invalid(), false, window, cx)
+    }
+
+    /// #EXP-2171: New › Repository as a page (owners; `new_item_page`).
+    pub(crate) fn page(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(team_id, true, WeakEntity::new_invalid(), true, window, cx)
     }
 
     /// #EXP-1616: the Exponential form, filled.
@@ -328,9 +347,12 @@ impl AddRepositoryDialogView {
             }
             "edit" if field == "ecode_name" => self.ecode_name = value.unwrap_or_default(),
             "edit" if field == "ecode_mirror_url" => self.ecode_mirror_url = value.unwrap_or_default(),
+            "edit" if field == "ecode_description" => self.ecode_description = value.unwrap_or_default(),
+            "ecode_run_ci" => self.ecode_run_ci = value.as_deref() == Some("true"),
             "ecode_branch" => self.ecode_branch = value.unwrap_or_else(|| "main".into()),
             "ecode_mirror" => self.ecode_mirror = value.as_deref() == Some("true"),
             "create" => self.create(window, cx),
+            "cancel" if self.page => crate::navigation::navigate(window, cx, crate::navigation::Screen::Home),
             "cancel" => native_dialog::close_dialog_window(window, cx),
             "edit" if field == "query" => self.query = value.unwrap_or_default(),
             // Typing clears a previous lookup failure (web parity).
@@ -566,6 +588,11 @@ impl AddRepositoryDialogView {
                 })
                 .await;
             let _ = this.update_in(window, |this, window, cx| match result {
+                // #EXP-2171: a linked repository opens its page.
+                Ok(added) if this.page => {
+                    this.adding = false;
+                    crate::shell_regions::open_repository(&added.repository.id, None, window, cx);
+                }
                 Ok(_) => {
                     // `repositories.list` is a server read — the pane only
                     // shows the new row after a refetch.
@@ -631,13 +658,30 @@ impl AddRepositoryDialogView {
         let team_id = self.team_id.clone();
         let branch = self.ecode_branch.clone();
         let mirror = self.ecode_mirror.then(|| self.ecode_mirror_url.trim().to_string()).filter(|url| !url.is_empty());
+        let description = self.page.then(|| self.ecode_description.trim().to_string()).filter(|text| !text.is_empty());
+        // #EXP-2171: Run CI (the page; on by default) = `ci.setRepoConfig
+        // {enabled: true}` once the repository exists.
+        let run_ci = self.page && self.ecode_run_ci;
         let pane = self.pane.clone();
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::repositories::create(&trpc, &team_id, &name, Some(&branch), mirror.as_deref()) })
+                .spawn(async move {
+                    let created = api::repositories::create(&trpc, &team_id, &name, Some(&branch), mirror.as_deref(), description.as_deref())?;
+                    if run_ci {
+                        let input = api::ci::RepoCiConfigInput { repository_id: created.repository.id.clone(), enabled: Some(true), ..Default::default() };
+                        if let Err(err) = api::ci::set_repo_config(&trpc, &input) {
+                            log::warn!("[ui] ci.setRepoConfig(enabled) after create failed: {err}");
+                        }
+                    }
+                    Ok::<_, api::ApiError>(created)
+                })
                 .await;
             let _ = this.update_in(window, |this, window, cx| match result {
+                Ok(created) if this.page => {
+                    this.creating = false;
+                    crate::shell_regions::open_repository(&created.repository.id, None, window, cx);
+                }
                 Ok(_) => native_dialog::close_then(window, cx, move |_, cx| {
                     let _ = pane.update(cx, |pane, cx| pane.refresh(cx));
                 }),
@@ -698,7 +742,7 @@ impl AddRepositoryDialogView {
 
         let lookup_valid = is_repo_full_name(self.lookup.trim());
         let ecode = self.owner && self.kind == "ecode";
-        json!({
+        let mut projection = json!({
             "kinds": self.owner,
             "kind": if ecode { "ecode" } else { "github" },
             "isGithub": !ecode,
@@ -739,7 +783,11 @@ impl AddRepositoryDialogView {
             "lookupError": self.lookup_error.clone().map(|e| e.to_string()).unwrap_or_default(),
             "planLimited": self.plan_limited.is_some(),
             "planMessage": self.plan_limited.clone().map(|m| m.to_string()).unwrap_or_default(),
-        })
+        });
+        // #EXP-2171 the page's fields (apart: the macro's recursion limit).
+        projection["ecodeDescription"] = json!(self.ecode_description);
+        projection["ecodeRunCi"] = json!(self.ecode_run_ci);
+        projection
     }
 
     /// The search shows (a ready list holding at least one repo).
@@ -778,6 +826,9 @@ impl Render for AddRepositoryDialogView {
                     this.want_focus = false;
                 }
             });
+        }
+        if self.page {
+            return div().w_full().min_w_0().child(self.view.clone());
         }
         // The window owns the height: the document fills it.
         let surface = self.view.clone();
@@ -984,7 +1035,7 @@ fn footer(ink: &Ink, chrome: &Chrome) -> Value {
 }
 
 /// The dialog's tree (`gap_3`): one child per state, the plan notice last.
-fn document(ink: &Ink, chrome: &Chrome) -> Value {
+fn document(ink: &Ink, chrome: &Chrome, page: bool) -> Value {
     let sm = |id: &str, text: &str, visible: Value| shown(ink.text(id, json!(text), SM, &ink.muted), visible);
     let mut not_configured = state_box(ink, chrome, "not_configured", json!(copy::PICKER_NOT_CONFIGURED));
     not_configured["visible"] = path("/pane/notConfigured");
@@ -1017,7 +1068,8 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
         plan,
     ];
     let github = json!({"id": "github", "component": "Box", "visible": path("/pane/isGithub"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children});
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": "100%", "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(), github, ecode_form()]})
+    let height = if page { Value::Null } else { json!("100%") };
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": height, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(page), github, ecode_form(page)]})
 }
 
 /// #EXP-1616: a repo name of `[A-Za-z0-9._-]` (repo-page.json `copy.add.name`).
@@ -1026,32 +1078,51 @@ fn valid_ecode_name(name: &str) -> bool {
 }
 
 /// #EXP-1616: the provider pick (owners): `ChoiceTiles` GitHub | Exponential.
-fn kinds() -> Value {
-    let copy = &domain::repo_page::REPO_PAGE.copy.add;
+/// #EXP-2171: on the New › Repository page Host on Exponential comes first
+/// (preselected), each tile with its hint (repo-page.json `copy.new`).
+fn kinds(page: bool) -> Value {
+    let copy = &domain::repo_page::REPO_PAGE.copy;
+    let options = if page {
+        json!([{"label": copy.new.hosted, "value": "ecode", "description": copy.new.hosted_hint}, {"label": copy.new.github, "value": "github", "description": copy.new.github_hint}])
+    } else {
+        json!([{"label": copy.add.github, "value": "github"}, {"label": copy.add.ecode, "value": "ecode"}])
+    };
     json!({"id": "kinds", "component": "ChoiceTiles", "visible": path("/pane/kinds"),
-        "props": {"name": "kind", "value": path("/pane/kind"), "columns": 2, "options": [{"label": copy.github, "value": "github"}, {"label": copy.ecode, "value": "ecode"}]},
+        "props": {"name": "kind", "value": path("/pane/kind"), "columns": 2, "options": options},
         "on": {"change": {"event": {"name": "kind"}}}})
 }
 
 /// #EXP-1616: the Exponential form: name, default branch, the mirror switch
 /// revealing its URL, Cancel / Create.
-fn ecode_form() -> Value {
-    let copy = &domain::repo_page::REPO_PAGE.copy.add;
+fn ecode_form(page: bool) -> Value {
+    let all = &domain::repo_page::REPO_PAGE.copy;
+    let copy = &all.add;
     let branches: Vec<Value> = ["main", "master", "develop"].iter().map(|branch| json!({"label": branch, "value": branch})).collect();
+    let mut fields = vec![json!({"id": "ecode_name", "component": "Input", "props": {"label": copy.name, "name": "name", "placeholder": "my-repo", "value": path("/pane/ecodeName")},
+        "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_name"}}}}})];
+    // #EXP-2171 the page: Description (optional) after the name.
+    if page {
+        fields.push(json!({"id": "ecode_description", "component": "Input", "props": {"label": all.new.description, "name": "description", "value": path("/pane/ecodeDescription")},
+            "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_description"}}}}}));
+    }
+    fields.push(json!({"id": "ecode_branch", "component": "Select", "props": {"label": copy.default_branch, "name": "defaultBranch", "value": path("/pane/ecodeBranch"), "options": branches},
+        "on": {"change": {"event": {"name": "ecode_branch"}}}}));
+    // #EXP-2171 the page: Run CI (on by default).
+    if page {
+        fields.push(json!({"id": "ecode_ci_row", "component": "SettingsRow", "props": {"label": all.new.run_ci, "stackBelow": "never"}, "children": [
+            {"id": "ecode_ci", "component": "Switch", "props": {"label": "", "name": "runCi", "checked": path("/pane/ecodeRunCi")}, "on": {"change": {"event": {"name": "ecode_run_ci"}}}},
+        ]}));
+    }
+    fields.push(json!({"id": "ecode_mirror_row", "component": "SettingsRow", "props": {"label": copy.mirror, "stackBelow": "never"}, "children": [
+        {"id": "ecode_mirror", "component": "Switch", "props": {"label": "", "name": "mirror", "checked": path("/pane/ecodeMirror")}, "on": {"change": {"event": {"name": "ecode_mirror"}}}},
+    ]}));
+    fields.push(json!({"id": "ecode_mirror_url", "component": "Input", "visible": path("/pane/ecodeMirror"), "props": {"label": copy.mirror_url, "name": "mirrorUrl", "placeholder": "https://github.com/acme/repo.git", "value": path("/pane/ecodeMirrorUrl")},
+        "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_mirror_url"}}}}}));
+    let submit = if page { &all.new.create } else { &copy.create };
+    fields.push(json!({"id": "ecode_actions", "component": "FormActions", "props": {"submit": submit, "cancel": true}, "on": {"cancel": {"event": {"name": "cancel"}}}}));
     json!({"id": "ecode", "component": "Form", "visible": path("/pane/isEcode"), "props": {"name": "ecode", "busy": path("/pane/ecodeBusy")},
         "on": {"submit": {"event": {"name": "create"}}},
-        "children": [{"id": "ecode_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": [
-            {"id": "ecode_name", "component": "Input", "props": {"label": copy.name, "name": "name", "placeholder": "my-repo", "value": path("/pane/ecodeName")},
-                "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_name"}}}}},
-            {"id": "ecode_branch", "component": "Select", "props": {"label": copy.default_branch, "name": "defaultBranch", "value": path("/pane/ecodeBranch"), "options": branches},
-                "on": {"change": {"event": {"name": "ecode_branch"}}}},
-            {"id": "ecode_mirror_row", "component": "SettingsRow", "props": {"label": copy.mirror, "stackBelow": "never"}, "children": [
-                {"id": "ecode_mirror", "component": "Switch", "props": {"label": "", "name": "mirror", "checked": path("/pane/ecodeMirror")}, "on": {"change": {"event": {"name": "ecode_mirror"}}}},
-            ]},
-            {"id": "ecode_mirror_url", "component": "Input", "visible": path("/pane/ecodeMirror"), "props": {"label": copy.mirror_url, "name": "mirrorUrl", "placeholder": "https://github.com/acme/repo.git", "value": path("/pane/ecodeMirrorUrl")},
-                "on": {"change": {"event": {"name": "edit", "context": {"field": "ecode_mirror_url"}}}}},
-            {"id": "ecode_actions", "component": "FormActions", "props": {"submit": copy.create, "cancel": true}, "on": {"cancel": {"event": {"name": "cancel"}}}},
-        ]}]})
+        "children": [{"id": "ecode_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": fields}]})
 }
 
 #[cfg(test)]
@@ -1076,11 +1147,14 @@ mod tests {
             ghost_hover: "#ffffff0d".into(),
             skeleton: "#a1a1aa2e".into(),
         };
-        let tree = document(&ink, &chrome);
-        let bound = super::super::doc::bound_values(&tree);
-        let mut surface = eui_core::surface::Surface::new("settings-add-repository", Default::default());
-        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
-        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
-        assert!(issues.is_empty(), "{issues:?}");
+        // #EXP-2171: the dialog and the New › Repository page.
+        for page in [false, true] {
+            let tree = document(&ink, &chrome, page);
+            let bound = super::super::doc::bound_values(&tree);
+            let mut surface = eui_core::surface::Surface::new("settings-add-repository", Default::default());
+            let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+            let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+            assert!(issues.is_empty(), "{issues:?}");
+        }
     }
 }

@@ -85,6 +85,7 @@ fn new_item_word(kind: NewItemKind) -> &'static str {
         NewItemKind::Board => "board",
         NewItemKind::Agent => "agent",
         NewItemKind::App => "app",
+        NewItemKind::Repository => "repository",
     }
 }
 

@@ -42,6 +42,8 @@ pub enum NewItemKind {
     Board,
     Agent,
     App,
+    /// #EXP-2171: New › Repository (repo-page.json NEW › REPOSITORY).
+    Repository,
 }
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -496,6 +498,9 @@ pub(crate) struct ChatSeed {
     pub(crate) text: Option<String>,
     /// #EXP-2027: a team menu's New › Session: the composer's Teams pick.
     pub(crate) team_id: Option<String>,
+    /// #EXP-2171: a repository row's New chat in this repository: the
+    /// composer's repository pick (coding-readiness.json `chatRepo`).
+    pub(crate) repository_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -968,7 +973,7 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("device:") {
                 return Some(Screen::Device { device_id: id.to_string() });
             }
-            for (prefix, kind) in [("new-board:", NewItemKind::Board), ("new-agent:", NewItemKind::Agent), ("new-app:", NewItemKind::App)] {
+            for (prefix, kind) in [("new-board:", NewItemKind::Board), ("new-agent:", NewItemKind::Agent), ("new-app:", NewItemKind::App), ("new-repository:", NewItemKind::Repository)] {
                 if let Some(team_id) = spec.strip_prefix(prefix) {
                     return Some(Screen::NewItem { team_id: team_id.to_string(), kind });
                 }
@@ -1441,6 +1446,12 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
 /// composer with that team as its Teams pick.
 pub fn open_home_in_team(window: &mut Window, cx: &mut App, team_id: String) {
     navigate_to_chat(window, cx, ChatSeed { team_id: Some(team_id), ..Default::default() });
+}
+
+/// #EXP-2171: New chat in this repository: Home's composer in the
+/// repository's team with it picked.
+pub(crate) fn open_home_with_repository(window: &mut Window, cx: &mut App, team_id: String, repository_id: String) {
+    navigate_to_chat(window, cx, ChatSeed { team_id: Some(team_id), repository_id: Some(repository_id), ..Default::default() });
 }
 
 pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {

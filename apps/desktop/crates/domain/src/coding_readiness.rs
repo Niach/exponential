@@ -85,6 +85,11 @@ pub struct CodingReadinessInput {
     /// The board's repository full name (`owner/name`), `None` = none. A
     /// board with a `repository_id` whose row has not resolved yet passes `""`.
     pub board_repository: Option<String>,
+    /// #EXP-2171: the team's repositories (the synced shape). The board's
+    /// repository is a DEFAULT: a team with one can code on any issue.
+    /// Absent = 0.
+    #[serde(default)]
+    pub team_repository_count: usize,
     /// Asked only while the board has no repository: does the team have a
     /// GitHub installation or repository? `None` = still loading.
     pub github: Option<ReadinessGithub>,
@@ -263,7 +268,7 @@ pub fn coding_readiness(input: &CodingReadinessInput) -> CodingReadiness {
     use ReadinessStepKey as K;
     use ReadinessStepState as S;
 
-    let has_repository = input.board_repository.is_some();
+    let has_repository = input.board_repository.is_some() || input.team_repository_count > 0;
     let visible = input.is_member && input.remote_start_enabled != Some(false);
     let loading = input.remote_start_enabled.is_none()
         || input.devices.is_none()
@@ -414,6 +419,46 @@ pub fn coding_readiness(input: &CodingReadinessInput) -> CodingReadiness {
     }
 }
 
+// ── #EXP-2171: a chat's repository (fixture `chatRepo`) ────────────────
+
+/// The chat's first issue: its live (open | draft) PRs' repositories,
+/// newest PR first, and its board's default repository.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRepoIssue {
+    pub live_pr_repository_ids: Vec<String>,
+    pub board_repository_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRepoInput {
+    /// The composer's explicit pick, else `None`.
+    pub pick: Option<String>,
+    /// `None` = a chat without issues.
+    pub issue: Option<ChatRepoIssue>,
+    /// The team's (unarchived) repositories.
+    pub team_repository_ids: Vec<String>,
+}
+
+/// The repository a chat starts on: the pick, else the issue's newest live
+/// PR's repository, else its board's default, else the team's only
+/// repository, else none. A candidate the team no longer has is skipped.
+pub fn chat_repository(input: &ChatRepoInput) -> Option<String> {
+    let team = &input.team_repository_ids;
+    let issue = input.issue.as_ref();
+    [
+        input.pick.as_deref(),
+        issue.and_then(|issue| issue.live_pr_repository_ids.first()).map(String::as_str),
+        issue.and_then(|issue| issue.board_repository_id.as_deref()),
+        (team.len() == 1).then(|| team[0].as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|id| team.iter().any(|t| t == id))
+    .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,6 +537,22 @@ mod tests {
         for case in &cases {
             let actual = serde_json::to_value(coding_readiness(&case.input)).unwrap();
             assert_eq!(actual, case.expected, "case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn chat_repo_cases() {
+        #[derive(Deserialize)]
+        struct ChatRepoCase {
+            name: String,
+            input: ChatRepoInput,
+            expected: Option<String>,
+        }
+        let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+        let cases: Vec<ChatRepoCase> = serde_json::from_value(fixture["chatRepo"]["cases"].clone()).unwrap();
+        assert!(!cases.is_empty());
+        for case in &cases {
+            assert_eq!(chat_repository(&case.input), case.expected, "case: {}", case.name);
         }
     }
 

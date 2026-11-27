@@ -102,6 +102,18 @@ pub struct RepoPage {
 
 const PATH: &str = "/pane";
 
+/// #EXP-2171: a sidebar repository menu's Pull requests / Runs / Settings:
+/// the tab the repository's page opens on next (taken once by the page).
+#[derive(Default)]
+struct RepoTabRequest(Option<(String, &'static str)>);
+
+impl gpui::Global for RepoTabRequest {}
+
+/// Open repository `id`'s page on `tab` (repo-page.json `repoTab`).
+pub(crate) fn request_tab(id: &str, tab: &str, cx: &mut App) {
+    cx.set_global(RepoTabRequest(Some((id.to_string(), domain::repo_page::repo_tab(Some(tab))))));
+}
+
 impl RepoPage {
     pub fn new(nav: Entity<Navigation>, key: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
@@ -121,7 +133,7 @@ impl RepoPage {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(
                 PATH,
-                json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false,
+                json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false, "removeOpen": false,
                     "required": [], "githubStatuses": false, "actionsRunners": false,
                     "secretOpen": false, "secretName": "", "secretValue": "", "secretInvalid": false, "deleteOpen": false, "deleteName": ""}),
                 |state: &Value, _| state.clone(),
@@ -130,6 +142,7 @@ impl RepoPage {
             for name in [
                 "back", "retry", "tab", "pr", "copy", "branch", "restore", "restore_confirm", "restore_cancel", "mirror_edit", "mirror_save", "mirror_toggle",
                 "run", "required", "ci_switch", "secret_add", "secret_edit", "secret_save", "secret_cancel", "secret_dialog", "secret_delete", "delete_confirm", "delete_cancel",
+                "remove", "remove_confirm", "remove_cancel",
             ] {
                 let page = page.clone();
                 binding.on_action(name, move |_, event, cx| {
@@ -288,6 +301,9 @@ impl RepoPage {
         let (Some(team_id), Some(trpc)) = (screen_team_id(&self.nav, cx), queries::trpc_client(cx)) else { return };
         self.started = true;
         let key = self.key.clone();
+        // #EXP-2171 (repo-page.json): a slug resolves ONLY against the synced
+        // rows' `slug`, never the name's last segment.
+        let slug_id = Store::try_global(cx).and_then(|store| store.collections().repositories.read(cx).iter().find(|row| row.team_id == team_id && row.slug.as_deref() == Some(key.as_str())).map(|row| row.id.clone()));
         cx.spawn(async move |this, cx| {
             let fetched = cx
                 .background_executor()
@@ -296,7 +312,7 @@ impl RepoPage {
                         rows.into_iter()
                             .find(|row| match key.strip_prefix(BY_NAME) {
                                 Some(name) => row.full_name.ends_with(&format!("/{name}")),
-                                None => row.id == key,
+                                None => row.id == key || slug_id.as_deref() == Some(row.id.as_str()),
                             })
                             .ok_or_else(|| "This repository is gone.".to_string())
                     });
@@ -325,6 +341,16 @@ impl RepoPage {
             });
         })
         .detach();
+    }
+
+    /// #EXP-2171: a sidebar menu's tab for this repository, taken once.
+    fn take_tab_request(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some((id, tab)) = cx.try_global::<RepoTabRequest>().and_then(|request| request.0.clone()) else { return };
+        if id != self.key && self.repo().is_none_or(|repo| repo.id != id) {
+            return;
+        }
+        cx.set_global(RepoTabRequest(None));
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| state["tab"] = json!(tab), cx));
     }
 
     /// Re-read the branches and settings after a write.
@@ -394,6 +420,24 @@ impl RepoPage {
                 }, cx));
             }
             "restore_cancel" => self.binding.update(cx, |binding, cx| binding.update_state(|state| state["restoreOpen"] = json!(false), cx)),
+            // #EXP-2171: Remove (its managers) behind prompts.json
+            // `remove-repository`; the boards defaulting to it keep none.
+            "remove" => self.binding.update(cx, |binding, cx| binding.update_state(|state| state["removeOpen"] = json!(true), cx)),
+            "remove_cancel" => self.binding.update(cx, |binding, cx| binding.update_state(|state| state["removeOpen"] = json!(false), cx)),
+            "remove_confirm" => {
+                self.binding.update(cx, |binding, cx| binding.update_state(|state| state["removeOpen"] = json!(false), cx));
+                let (Some(repo), Some(trpc)) = (self.repo().cloned(), queries::trpc_client(cx)) else { return };
+                let handle = window.window_handle();
+                cx.spawn(async move |_, cx| {
+                    let id = repo.id.clone();
+                    let result = cx.background_executor().spawn(async move { api::repositories::remove(&trpc, &id) }).await;
+                    let _ = handle.update(cx, |_, window, cx| match result {
+                        Ok(_) => crate::sidebar::select_settings_section(window, cx, SettingsSection::Repositories),
+                        Err(err) => crate::action_error::failed_action_err("remove", &repo.full_name, &err, cx),
+                    });
+                })
+                .detach();
+            }
             "restore_confirm" => {
                 let backup = self.binding.read(cx).state()["restoreId"].as_str().unwrap_or_default().to_string();
                 self.binding.update(cx, |binding, cx| binding.update_state(|state| state["restoreOpen"] = json!(false), cx));
@@ -563,6 +607,7 @@ impl RepoPage {
             Some(Ok(repo)) => repo,
         };
         let copy = &REPO_PAGE.copy;
+        let remove = domain::prompts::remove_repository(&repo.full_name);
         let ecode = repo.provider() == "ecode";
         let owner = self.owner(cx);
         let rows = self.pull_rows(&repo.id, cx);
@@ -645,6 +690,7 @@ impl RepoPage {
             "branchNames": names,
             "cloneUrl": self.clone_url(),
             "backups": backups,
+            "removePrompt": {"title": remove.title, "body": remove.body, "confirm": remove.action("remove").label},
         })
     }
 }
@@ -667,6 +713,7 @@ impl Render for RepoPage {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "RepoPage").entered();
         self.ensure_loaded(cx);
+        self.take_tab_request(cx);
         let data = self.data(cx);
         if self.built.as_ref() != Some(&data) {
             let tree: eui_core::NestedNode = serde_json::from_value(document(&Ink::of(cx), &data)).expect("the repo page parses");
@@ -886,6 +933,9 @@ fn secret_dialog() -> Value {
             ]}]}]})
 }
 
+/// The Settings tab's remove row (Settings › Repositories' own words).
+const REMOVE_LABEL: &str = "Remove repository";
+
 /// A `SettingsRow` over `children`.
 fn setting(id: &str, label: &str, children: Vec<Value>) -> Value {
     json!({"id": id, "component": "SettingsRow", "props": {"label": label}, "children": children})
@@ -934,6 +984,12 @@ fn settings_tab(data: &Value) -> Value {
             "on": {"change": {"event": {"name": "mirror_edit"}}, "submit": {"event": {"name": "mirror_save"}}}})]));
     }
     rows.push(ci_section(data));
+    // #EXP-2171: removing the repository (its sharer or a team owner) asks
+    // first (prompts.json `remove-repository`).
+    if data["manager"].as_bool() == Some(true) {
+        rows.push(setting("set_remove", REMOVE_LABEL, vec![json!({"id": "set_remove_button", "component": "Button", "props": {"label": data["removePrompt"]["confirm"], "variant": "destructive", "size": "sm"},
+            "on": {"press": {"event": {"name": "remove"}}}})]));
+    }
     column("settings", rows)
 }
 
@@ -966,7 +1022,10 @@ fn document(ink: &Ink, data: &Value) -> Value {
     let delete = json!({"id": "secret_delete_alert", "component": "AlertDialog",
         "props": {"open": {"@path": "/pane/deleteOpen"}, "title": repo_ci::copy("ci.secrets.deleteTitle"), "confirmLabel": repo_ci::copy("ci.secrets.deleteConfirm"), "cancelLabel": repo_ci::copy("ci.secrets.cancel"), "destructive": true},
         "on": {"confirm": {"event": {"name": "delete_confirm"}}, "cancel": {"event": {"name": "delete_cancel"}}}});
-    root(vec![bar, tabs, restore, delete, secret_dialog()])
+    let remove = json!({"id": "remove_alert", "component": "AlertDialog",
+        "props": {"open": {"@path": "/pane/removeOpen"}, "title": data["removePrompt"]["title"], "description": data["removePrompt"]["body"], "confirmLabel": data["removePrompt"]["confirm"], "destructive": true},
+        "on": {"confirm": {"event": {"name": "remove_confirm"}}, "cancel": {"event": {"name": "remove_cancel"}}}});
+    root(vec![bar, tabs, restore, delete, remove, secret_dialog()])
 }
 
 #[cfg(test)]
@@ -984,7 +1043,8 @@ mod tests {
             "runs": [{"id": "r12", "glyph": "ci-running", "tone": "neutral", "statusLabel": "Running", "run": "#12 ci", "commit": "ccccccc", "ref": "feat/x", "trigger": "Pull request", "duration": "5m 0s", "started": "2026-11-13T10:25:00.000Z"},
                      {"id": "r13", "glyph": "ci-queued", "tone": "neutral", "statusLabel": "Queued", "run": "#13 ci", "commit": "ddddddd", "ref": "main", "trigger": "Merge train", "duration": "", "started": null}],
             "pipelines": [{"name": "ci", "state": "pending"}, {"name": "nightly", "state": "failure"}],
-            "ci": {"suggestions": [{"label": "lint", "value": "lint"}], "secrets": [{"name": "NPM_TOKEN", "updated": "2026-11-12T09:00:00.000Z"}]}})
+            "ci": {"suggestions": [{"label": "lint", "value": "lint"}], "secrets": [{"name": "NPM_TOKEN", "updated": "2026-11-12T09:00:00.000Z"}]},
+            "removePrompt": {"title": "Remove acme/web from this team?", "body": "Its pull requests and runs go with it.", "confirm": "Remove"}})
     }
 
     #[test]

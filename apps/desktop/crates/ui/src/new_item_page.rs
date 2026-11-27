@@ -21,6 +21,7 @@ pub(crate) fn new_item_title(kind: NewItemKind) -> &'static str {
         NewItemKind::Board => "New board",
         NewItemKind::Agent => "New agent",
         NewItemKind::App => "New app",
+        NewItemKind::Repository => &domain::repo_page::REPO_PAGE.copy.new.title,
     }
 }
 
@@ -29,6 +30,9 @@ enum Body {
     Board(Entity<CreateBoardDialogView>),
     Agent(Entity<crate::settings::new_agent::NewAgentPane>),
     App,
+    /// #EXP-2171: the Settings › Repositories Add form as the page (Host on
+    /// Exponential first).
+    Repository(Entity<crate::settings::add_repository_dialog::AddRepositoryDialogView>),
 }
 
 pub(crate) struct NewItemPage {
@@ -71,6 +75,7 @@ impl NewItemPage {
             }
             NewItemKind::Agent => Body::Agent(cx.new(|cx| crate::settings::new_agent::NewAgentPane::new(team_id, window, cx))),
             NewItemKind::App => Body::App,
+            NewItemKind::Repository => Body::Repository(cx.new(|cx| crate::settings::add_repository_dialog::AddRepositoryDialogView::page(team_id, window, cx))),
         };
         self.scroll.set_offset(gpui::Point::default());
         cx.notify();
@@ -111,6 +116,7 @@ impl Render for NewItemPage {
             Body::Board(form) => Some(form.clone().into_any_element()),
             Body::Agent(pane) => Some(pane.clone().into_any_element()),
             Body::App => Some(self.app_rows(&team_id, cx)),
+            Body::Repository(form) => Some(form.clone().into_any_element()),
             Body::None => None,
         };
         // The settings detail column's head (settings/shell.rs

@@ -39,6 +39,22 @@ pub struct AddCopy {
     pub create: String,
 }
 
+/// #EXP-2171 NEW › REPOSITORY (`copy.new`): the creation page.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRepositoryCopy {
+    pub title: String,
+    pub hosted: String,
+    pub hosted_hint: String,
+    pub github: String,
+    pub github_hint: String,
+    pub description: String,
+    pub run_ci: String,
+    pub create: String,
+    pub link: String,
+    pub connect_github: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct EmptyCopy {
     pub empty: String,
@@ -95,6 +111,7 @@ impl ChecksCopy {
 pub struct RepoPageCopy {
     pub provider: ProviderCopy,
     pub add: AddCopy,
+    pub new: NewRepositoryCopy,
     pub pulls: EmptyCopy,
     pub runs: EmptyCopy,
     pub branches: BranchesCopy,
@@ -328,6 +345,7 @@ mod tests {
         let ids: Vec<&str> = REPO_PAGE.tabs.iter().map(|tab| tab.id.as_str()).collect();
         assert_eq!(ids, ["pulls", "runs", "branches", "settings"]);
         assert_eq!(REPO_PAGE.copy.provider.label("ecode"), "Exponential");
+        assert_eq!(REPO_PAGE.copy.new.title, "New repository");
         assert_eq!(REPO_PAGE.copy.checks.of("failure").map(|chip| chip.tone.as_str()), Some("red"));
         assert!(REPO_PAGE.copy.checks.of("none").is_none());
     }

@@ -1335,6 +1335,7 @@ impl StartCodingControl {
             board_name: board.name.clone(),
             board_slug: board.slug.clone().unwrap_or_default(),
             repository_id: board.repository_id.clone(),
+            team_repository_count: Store::global(cx).collections().repositories_in_team(&board.team_id, cx).len(),
         })
     }
 
