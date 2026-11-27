@@ -84,6 +84,7 @@ const DEFAULTS: VoiceSettings = {
   desktopAudioApps: [],
   meetingStartedAt: null,
   meetingAutoStopHours: 4,
+  wakeAgentIds: [],
 }
 let stored: VoiceSettings = { ...DEFAULTS }
 const renderCard = (settings: Partial<VoiceSettings> = {}, devices: VoiceDeviceRow[] = DEVICES) => {

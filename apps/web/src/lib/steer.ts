@@ -95,6 +95,10 @@ export type SteerTicketSeed =
       callId: string
       agentId: string
       deviceId: string
+      /** EXP-1859: `turn` = a one-turn call (a wake phrase heard); absent = a call. */
+      mode?: `call` | `turn`
+      /** EXP-1859: a turn call's wake phrase. */
+      phrase?: string
     }
   | { kind: `call_host`; userId: string; callId: string; deviceId: string }
   // #EXP-1525: a viewer's sealed relay tunnel to the host device of one
@@ -129,6 +133,8 @@ export function buildSteerTicketClaims(
         deviceId: seed.deviceId,
         // The voice device is always the member's own desktop.
         deviceOwnerId: seed.userId,
+        // EXP-1859: only a turn call names its mode and phrase.
+        ...(seed.mode === `turn` ? { mode: seed.mode, ...(seed.phrase ? { phrase: seed.phrase } : {}) } : {}),
       }
     case `call_host`:
       return { ...base, team: ``, role: `call_host`, callId: seed.callId, deviceId: seed.deviceId }

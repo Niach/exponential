@@ -867,11 +867,42 @@ pub struct AgentVoiceLimits {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentVoiceSpec {
-    /// `language`, `clip`, `transcript`, `wake-phrase`.
+    /// `language`, `clip`, `transcript`, `wake-phrase`, `wake-word` (the
+    /// last on a TEAM agent's page only, #EXP-1859).
     pub rows: Vec<String>,
     pub copy: AgentVoiceCopy,
     pub clip_upload: AgentVoiceClipUpload,
     pub limits: AgentVoiceLimits,
+    /// #EXP-1859: `voice.wake` minus its cases.
+    pub wake: AgentWakeSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWakeErrors {
+    pub wake_too_short: String,
+    /// `{agent}` = the agent it sounds like.
+    pub wake_clash: String,
+    pub wake_cap: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWakeCopy {
+    /// The `wake-word` row's label.
+    pub wake_word: String,
+    pub errors: AgentWakeErrors,
+}
+
+/// `voice.wake` (#EXP-1859, wake phrases per agent).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWakeSpec {
+    /// At most this many phrases listen at once (the voice agent's included).
+    pub max_listeners: usize,
+    /// `user_voice_settings.wake_agent_ids` holds at most this many ids.
+    pub max_ids: usize,
+    pub copy: AgentWakeCopy,
 }
 
 /// `voice` off the fixture.
@@ -1002,6 +1033,270 @@ pub fn agent_voice_clip_refusal(filename: &str, content_type: &str, len: u64) ->
         return Some(AGENT_VOICE.copy.errors.clip_size.clone());
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1859 (phase d of #EXP-1847): WAKE PHRASES PER AGENT (`voice.wake`;
+// TS `wakePhraseOf`, `wakeClash`, `wakeListeners`, `wakeRow`, `wakeToggle`,
+// `wakePhraseClash`). The member's voice device listens for the voice agent's
+// phrase plus those of the team agents the member switched on.
+// ---------------------------------------------------------------------------
+
+/// talk-listen.json `match.constants.maxEditRatio`: the matcher's tolerance,
+/// so two phrases within it clash.
+pub const WAKE_MAX_EDIT_RATIO: f32 = 0.25;
+
+/// One agent as `wake_listeners` reads it (an `agents` row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WakeAgent<'a> {
+    pub id: &'a str,
+    pub role: Option<&'a str>,
+    pub name: &'a str,
+    pub voice: &'a AgentVoice,
+}
+
+impl<'a> WakeAgent<'a> {
+    pub fn of(row: &'a crate::rows::AgentDefRow) -> Self {
+        Self { id: &row.id, role: Some(row.role.as_str()), name: row.name.as_deref().unwrap_or(""), voice: &row.voice }
+    }
+
+    /// A TEAM agent (role agent or coordinator); an Assistant never listens
+    /// through `wakeAgentIds`.
+    pub fn is_team_agent(&self) -> bool {
+        !is_assistant_role(self.role)
+    }
+}
+
+/// The member's voice settings the wake rules read (voice.get).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WakeSettings<'a> {
+    pub voice_device_id: Option<&'a str>,
+    /// The voice agent (the Assistant).
+    pub agent_id: Option<&'a str>,
+    pub wake_word: bool,
+    pub wake_agent_ids: &'a [String],
+    pub member: MemberVoice<'a>,
+}
+
+/// One phrase the voice device listens for (talk-listen.json `wake.multi`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WakeListener {
+    pub agent_id: String,
+    pub phrase: String,
+    pub language: String,
+}
+
+/// The `wake-word` row (`wakeRow`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WakeRow {
+    pub on: bool,
+    /// Inline under the row: why an agent that is on does not listen.
+    pub error: Option<String>,
+}
+
+/// Why `wake_toggle` refuses a switch-on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WakeRefusal {
+    /// Not a team agent of the member's teams (tRPC NOT_FOUND).
+    NotFound,
+    /// tRPC BAD_REQUEST with this copy (`copy.errors`).
+    Invalid(String),
+}
+
+/// `wakeToggle`'s answer: the settings after the flip (unchanged when refused).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WakeToggle {
+    pub wake_word: bool,
+    pub wake_agent_ids: Vec<String>,
+    pub error: Option<WakeRefusal>,
+}
+
+/// Lowercase ASCII for the accents the speech model writes (etalk-engine
+/// `wake.rs` `fold`, the same table).
+fn wake_fold(ch: char, out: &mut String) {
+    let folded = match ch {
+        'ä' | 'á' | 'à' | 'â' | 'å' => "a",
+        'ö' | 'ó' | 'ò' | 'ô' => "o",
+        'ü' | 'ú' | 'ù' | 'û' => "u",
+        'é' | 'è' | 'ê' | 'ë' => "e",
+        'í' | 'ì' | 'î' | 'ï' => "i",
+        'ç' => "c",
+        'ñ' => "n",
+        'ß' => "ss",
+        _ => {
+            out.push(ch);
+            return;
+        }
+    };
+    out.push_str(folded);
+}
+
+/// A phrase's letters: talk-listen.json `wake.words` joined without spaces
+/// (letters and digits, lower case, accents folded).
+fn wake_letters(phrase: &str) -> Vec<char> {
+    let mut out = String::new();
+    for ch in phrase.chars().filter(|ch| ch.is_alphanumeric()) {
+        for lower in ch.to_lowercase() {
+            wake_fold(lower, &mut out);
+        }
+    }
+    out.chars().collect()
+}
+
+fn wake_levenshtein(a: &[char], b: &[char]) -> usize {
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
+            diagonal = above;
+        }
+    }
+    row[b.len()]
+}
+
+/// voice.json `wakePhraseError` for a non-empty phrase: too few letters.
+fn wake_too_short(phrase: &str) -> bool {
+    phrase.chars().filter(|ch| ch.is_alphabetic()).count() < AGENT_VOICE.limits.wake_phrase_min_letters
+}
+
+/// TS `wakeClash` (`clashCases`): alike enough for the matcher to take one
+/// for the other, or one starting with the other.
+pub fn wake_clash(a: &str, b: &str) -> bool {
+    let (a, b) = (wake_letters(a), wake_letters(b));
+    let (short, long) = if b.len() < a.len() { (b, a) } else { (a, b) };
+    let allowed = (short.len() as f32 * WAKE_MAX_EDIT_RATIO).floor() as usize;
+    let whole = wake_levenshtein(&short, &long);
+    let head = wake_levenshtein(&short, &long[..short.len()]);
+    whole.min(head) <= allowed
+}
+
+/// TS `wakePhraseOf`: the agent's resolved wake phrase (`agentVoiceOf`),
+/// else `Hey {name}`.
+pub fn wake_phrase_of(agent: &WakeAgent<'_>, member: &MemberVoice<'_>) -> String {
+    let resolved = agent_voice_of(agent.role, agent.name, agent.voice, member);
+    match resolved.wake_phrase.trim() {
+        "" => agent_wake_phrase_placeholder(agent.name),
+        phrase => phrase.to_string(),
+    }
+}
+
+/// TS `wakeListeners` (`listenersCases`): the phrases the voice device
+/// listens for, the voice agent's first, at most `maxListeners`. A voice agent
+/// missing from `agents` or with a too-short stored phrase listens for nothing
+/// (as the single wake word before: etalk `wake_phrase`); the list goes on.
+pub fn wake_listeners(settings: &WakeSettings<'_>, agents: &[WakeAgent<'_>]) -> Vec<WakeListener> {
+    let (Some(_), Some(voice_agent_id), true) = (settings.voice_device_id, settings.agent_id, settings.wake_word) else {
+        return Vec::new();
+    };
+    let max = AGENT_VOICE.wake.max_listeners;
+    let listener = |agent: &WakeAgent<'_>| WakeListener {
+        agent_id: agent.id.to_string(),
+        phrase: wake_phrase_of(agent, &settings.member),
+        language: agent_voice_of(agent.role, agent.name, agent.voice, &settings.member).language,
+    };
+    let mut listeners: Vec<WakeListener> = Vec::new();
+    if let Some(voice_agent) = agents.iter().find(|agent| agent.id == voice_agent_id) {
+        let first = listener(voice_agent);
+        if !wake_too_short(&first.phrase) {
+            listeners.push(first);
+        }
+    }
+    for id in settings.wake_agent_ids {
+        if listeners.len() >= max {
+            break;
+        }
+        if id == voice_agent_id || listeners.iter().any(|listed| &listed.agent_id == id) {
+            continue;
+        }
+        let Some(agent) = agents.iter().find(|agent| agent.id == id).filter(|agent| agent.is_team_agent()) else {
+            continue;
+        };
+        let next = listener(agent);
+        if wake_too_short(&next.phrase) || listeners.iter().any(|listed| wake_clash(&listed.phrase, &next.phrase)) {
+            continue;
+        }
+        listeners.push(next);
+    }
+    listeners
+}
+
+fn wake_clash_copy(agent_id: &str, agents: &[WakeAgent<'_>]) -> String {
+    let name = agents.iter().find(|agent| agent.id == agent_id).map(|agent| agent.name).unwrap_or("");
+    AGENT_VOICE.wake.copy.errors.wake_clash.replace("{agent}", name)
+}
+
+/// Why `agent` does not listen beside `listeners`: its phrase is too short,
+/// it clashes with one of them, or they are full. `None` = it would listen.
+fn wake_refusal(agent: &WakeAgent<'_>, listeners: &[WakeListener], settings: &WakeSettings<'_>, agents: &[WakeAgent<'_>]) -> Option<String> {
+    let phrase = wake_phrase_of(agent, &settings.member);
+    let errors = &AGENT_VOICE.wake.copy.errors;
+    if wake_too_short(&phrase) {
+        return Some(errors.wake_too_short.clone());
+    }
+    if let Some(clash) = listeners.iter().find(|listed| listed.agent_id != agent.id && wake_clash(&listed.phrase, &phrase)) {
+        return Some(wake_clash_copy(&clash.agent_id, agents));
+    }
+    (listeners.len() >= AGENT_VOICE.wake.max_listeners).then(|| errors.wake_cap.clone())
+}
+
+/// TS `wakeRow` (`rowCases`): the `wake-word` row of `agent_id`'s page.
+pub fn wake_row(settings: &WakeSettings<'_>, agents: &[WakeAgent<'_>], agent_id: &str) -> WakeRow {
+    let Some(index) = settings.wake_agent_ids.iter().position(|id| id == agent_id).filter(|_| settings.wake_word) else {
+        return WakeRow { on: false, error: None };
+    };
+    let listening = wake_listeners(settings, agents).iter().any(|listener| listener.agent_id == agent_id);
+    let agent = agents.iter().find(|agent| agent.id == agent_id);
+    let error = match agent {
+        Some(agent) if !listening && settings.voice_device_id.is_some() && settings.agent_id.is_some() => {
+            let before = WakeSettings { wake_agent_ids: &settings.wake_agent_ids[..index], ..*settings };
+            wake_refusal(agent, &wake_listeners(&before, agents), settings, agents)
+        }
+        _ => None,
+    };
+    WakeRow { on: true, error }
+}
+
+/// TS `wakeToggle` (`toggleCases`): a flip of the `wake-word` row, as the
+/// server applies it. Off = the id leaves; on = refused (unchanged) or the id
+/// appended once and Wake word on.
+pub fn wake_toggle(settings: &WakeSettings<'_>, agents: &[WakeAgent<'_>], agent_id: &str, on: bool) -> WakeToggle {
+    let unchanged = |error: WakeRefusal| WakeToggle { wake_word: settings.wake_word, wake_agent_ids: settings.wake_agent_ids.to_vec(), error: Some(error) };
+    if !on {
+        let wake_agent_ids = settings.wake_agent_ids.iter().filter(|id| *id != agent_id).cloned().collect();
+        return WakeToggle { wake_word: settings.wake_word, wake_agent_ids, error: None };
+    }
+    let Some(agent) = agents.iter().find(|agent| agent.id == agent_id).filter(|agent| agent.is_team_agent()) else {
+        return unchanged(WakeRefusal::NotFound);
+    };
+    let others: Vec<String> = settings.wake_agent_ids.iter().filter(|id| *id != agent_id).cloned().collect();
+    let as_if = WakeSettings { wake_word: true, wake_agent_ids: &others, ..*settings };
+    let listeners = wake_listeners(&as_if, agents);
+    // The voice agent itself already listens: nothing to refuse.
+    if !listeners.iter().any(|listener| listener.agent_id == agent_id) {
+        if let Some(error) = wake_refusal(agent, &listeners, settings, agents) {
+            return unchanged(WakeRefusal::Invalid(error));
+        }
+    }
+    let mut wake_agent_ids = settings.wake_agent_ids.to_vec();
+    if !wake_agent_ids.iter().any(|id| id == agent_id) {
+        wake_agent_ids.push(agent_id.to_string());
+    }
+    WakeToggle { wake_word: true, wake_agent_ids, error: None }
+}
+
+/// TS `wakePhraseClash` (`phraseClashCases`): the name of the first other
+/// TEAM agent of `agents` (the same team's, the caller's filter) whose phrase
+/// clashes with `phrase`, else `None`. Assistants never count.
+pub fn wake_phrase_clash(phrase: &str, agent_id: &str, agents: &[WakeAgent<'_>]) -> Option<String> {
+    let member = MemberVoice::default();
+    agents
+        .iter()
+        .filter(|agent| agent.id != agent_id && agent.is_team_agent())
+        .find(|agent| wake_clash(&wake_phrase_of(agent, &member), phrase))
+        .map(|agent| agent.name.to_string())
 }
 
 #[cfg(test)]
@@ -1425,7 +1720,7 @@ mod tests {
     fn voice_of_cases_match_the_fixture() {
         let fixture = fixture();
         let block = &fixture["voice"];
-        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase"]);
+        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase", "wake-word"]);
         assert_eq!(AGENT_VOICE.copy.label, block["copy"]["label"].as_str().unwrap());
         assert_eq!(AGENT_VOICE.limits.wake_phrase, 64);
         assert_eq!(AGENT_VOICE.clip_upload.max_bytes, 5 * 1024 * 1024);
@@ -1488,6 +1783,147 @@ mod tests {
         let row: crate::rows::AgentDefRow =
             serde_json::from_value(serde_json::json!({ "id": "a", "role": null })).unwrap();
         assert_eq!(row.role, "agent");
+    }
+
+    // #EXP-1859: `voice.wake`.
+    struct WakeFixture {
+        voices: Vec<(String, Option<String>, String, AgentVoice)>,
+        settings: Value,
+    }
+
+    impl WakeFixture {
+        fn load() -> Self {
+            let block = fixture()["voice"]["wake"].clone();
+            let voices = block["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    (
+                        agent["id"].as_str().unwrap().to_string(),
+                        agent["role"].as_str().map(str::to_string),
+                        agent["name"].as_str().unwrap().to_string(),
+                        AgentVoice::from_value(Some(&agent["voice"])),
+                    )
+                })
+                .collect();
+            Self { voices, settings: block["settings"].clone() }
+        }
+
+        fn agents(&self) -> Vec<WakeAgent<'_>> {
+            self.voices.iter().map(|(id, role, name, voice)| WakeAgent { id, role: role.as_deref(), name, voice }).collect()
+        }
+
+        /// `voice.wake.settings` with the case's keys over it.
+        fn merged(&self, case: &Value) -> Value {
+            let mut merged = self.settings.clone();
+            for (key, value) in case["settings"].as_object().unwrap() {
+                merged[key] = value.clone();
+            }
+            merged
+        }
+    }
+
+    fn wake_settings<'a>(merged: &'a Value, ids: &'a [String]) -> WakeSettings<'a> {
+        let text = |key: &str| merged[key].as_str().unwrap_or("");
+        WakeSettings {
+            voice_device_id: merged["voiceDeviceId"].as_str(),
+            agent_id: merged["agentId"].as_str(),
+            wake_word: merged["wakeWord"].as_bool().unwrap(),
+            wake_agent_ids: ids,
+            member: MemberVoice { language: text("language"), voice_file: text("voiceFile"), voice_transcript: text("voiceTranscript"), wake_phrase: text("wakePhrase") },
+        }
+    }
+
+    fn ids_of(value: &Value) -> Vec<String> {
+        value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn wake_spec_reads_the_fixture() {
+        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase", "wake-word"]);
+        assert_eq!(AGENT_VOICE.wake.max_listeners, 5);
+        assert_eq!(AGENT_VOICE.wake.max_ids, 32);
+        assert_eq!(AGENT_VOICE.wake.copy.wake_word, "Wake word");
+        let talk: Value = serde_json::from_str(include_str!("../../../../../packages/etalk/fixtures/talk-listen.json")).unwrap();
+        let ratio = talk["wake"]["constants"]["maxEditRatio"].as_f64().expect("talk-listen.json wake.constants.maxEditRatio");
+        assert_eq!(WAKE_MAX_EDIT_RATIO as f64, ratio);
+    }
+
+    #[test]
+    fn wake_clash_cases_match_the_fixture() {
+        for case in fixture()["voice"]["wake"]["clashCases"].as_array().unwrap() {
+            let (a, b) = (case["a"].as_str().unwrap(), case["b"].as_str().unwrap());
+            assert_eq!(wake_clash(a, b), case["clash"].as_bool().unwrap(), "{a} / {b}");
+            assert_eq!(wake_clash(b, a), case["clash"].as_bool().unwrap(), "{b} / {a}");
+        }
+    }
+
+    #[test]
+    fn wake_listeners_cases_match_the_fixture() {
+        let wake = WakeFixture::load();
+        let agents = wake.agents();
+        for case in fixture()["voice"]["wake"]["listenersCases"].as_array().unwrap() {
+            let merged = wake.merged(case);
+            let ids = ids_of(&merged["wakeAgentIds"]);
+            let got: Vec<Value> = wake_listeners(&wake_settings(&merged, &ids), &agents)
+                .into_iter()
+                .map(|listener| serde_json::json!({"agentId": listener.agent_id, "phrase": listener.phrase, "language": listener.language}))
+                .collect();
+            assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn wake_row_cases_match_the_fixture() {
+        let wake = WakeFixture::load();
+        let agents = wake.agents();
+        for case in fixture()["voice"]["wake"]["rowCases"].as_array().unwrap() {
+            let merged = wake.merged(case);
+            let ids = ids_of(&merged["wakeAgentIds"]);
+            let got = wake_row(&wake_settings(&merged, &ids), &agents, case["agentId"].as_str().unwrap());
+            assert_eq!(got.on, case["expected"]["on"].as_bool().unwrap(), "{}", case["name"]);
+            assert_eq!(got.error.as_deref(), case["expected"]["error"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn wake_toggle_cases_match_the_fixture() {
+        let wake = WakeFixture::load();
+        let agents = wake.agents();
+        for case in fixture()["voice"]["wake"]["toggleCases"].as_array().unwrap() {
+            let merged = wake.merged(case);
+            let ids = ids_of(&merged["wakeAgentIds"]);
+            let got = wake_toggle(&wake_settings(&merged, &ids), &agents, case["agentId"].as_str().unwrap(), case["on"].as_bool().unwrap());
+            let expected = &case["expected"];
+            assert_eq!(got.wake_word, expected["wakeWord"].as_bool().unwrap(), "{}", case["name"]);
+            assert_eq!(got.wake_agent_ids, ids_of(&expected["wakeAgentIds"]), "{}", case["name"]);
+            let error = got.error.map(|error| match error {
+                WakeRefusal::Invalid(text) => text,
+                WakeRefusal::NotFound => "NOT_FOUND".into(),
+            });
+            assert_eq!(error.as_deref(), expected["error"].as_str(), "{}", case["name"]);
+        }
+        // Not a team agent of the member's teams: NOT_FOUND, unchanged.
+        let merged = wake.settings.clone();
+        let ids = ids_of(&merged["wakeAgentIds"]);
+        for id in ["a-gone", "a-maja"] {
+            let got = wake_toggle(&wake_settings(&merged, &ids), &agents, id, true);
+            assert_eq!(got.error, Some(WakeRefusal::NotFound), "{id}");
+            assert!(got.wake_agent_ids.is_empty());
+        }
+    }
+
+    #[test]
+    fn wake_phrase_clash_cases_match_the_fixture() {
+        let wake = WakeFixture::load();
+        let agents = wake.agents();
+        for case in fixture()["voice"]["wake"]["phraseClashCases"].as_array().unwrap() {
+            let ids = ids_of(&case["agents"]);
+            let team: Vec<WakeAgent<'_>> = ids.iter().map(|id| *agents.iter().find(|agent| agent.id == id).unwrap()).collect();
+            let got = wake_phrase_clash(case["phrase"].as_str().unwrap(), case["agentId"].as_str().unwrap(), &team);
+            assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
     }
 
 }

@@ -69,7 +69,8 @@ public struct AgentVoicePatch: Encodable, Equatable, Sendable {
 extension AgentSettings {
     /// Fixture `voice`: the Voice section every agent's page carries.
     public enum VoiceRows {
-        public static let rows = ["language", "clip", "transcript", "wake-phrase"]
+        /// #EXP-1859: `wake-word` on a TEAM agent's page only (`Wake.rowId`).
+        public static let rows = ["language", "clip", "transcript", "wake-phrase", "wake-word"]
 
         public enum Copy {
             public static let label = "Voice"

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use domain::agent_settings::AGENT_SETTINGS;
 
 use super::agent_detail::field_label;
-use super::doc::{faded, hex, not, path, Ink, SM, VALUE_ALPHA, XS};
+use super::doc::{and, faded, hex, not, path, Ink, SM, VALUE_ALPHA, XS};
 
 /// The colours the agent documents need beyond [`Ink`].
 pub(super) struct Chrome {
@@ -151,7 +151,7 @@ pub(super) fn field_error(ink: &Ink, chrome: &Chrome, id: &str, text: Value, sho
 /// uploads, a set clip trails its Remove), Transcript and Wake phrase (THE
 /// input rows, saved on blur / Enter; members read them). The wake phrase's
 /// placeholder names the agent (`wake_placeholder`); its error follows the
-/// group, inline.
+/// group, inline. #EXP-1859: then a team agent's Wake word switch.
 pub(super) fn voice_rows(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> Vec<Value> {
     use domain::agent_settings::AGENT_VOICE;
     let copy = &AGENT_VOICE.copy;
@@ -168,6 +168,14 @@ pub(super) fn voice_rows(ink: &Ink, chrome: &Chrome, wake_placeholder: &str) -> 
         rows.extend(divided(ink, input));
         let read = value_row(ink, &format!("{id}_read"), path("/pane/member"), label, path(&format!("/pane/voice/{name}/shown")), path(&format!("/pane/voice/{name}/empty")));
         rows.extend(divided(ink, read));
+    }
+    // #EXP-1859 (`voice.wake`, row `wake-word`): THE Switch row of the
+    // Assistant's Wake word (voice_prefs), on a TEAM agent's page only; every
+    // member flips it (the member's own setting); its detail while it listens.
+    rows.push(ink.divider("voice_wake_word_divider", path("/pane/agentPage")));
+    for mut row in super::voice_prefs::switch_rows(ink, "voice_wake_word", &AGENT_VOICE.wake.copy.wake_word, "/pane/voice/wakeWord", "voiceWakeWord") {
+        row["visible"] = and(path("/pane/agentPage"), row["visible"].take());
+        rows.push(row);
     }
     rows
 }

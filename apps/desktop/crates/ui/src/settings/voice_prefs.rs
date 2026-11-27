@@ -136,6 +136,19 @@ fn remote_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> 
     Some(if online && settings.agent_id.is_some() { reported.unwrap_or(detail) } else { detail })
 }
 
+/// #EXP-1859: the Wake word row's detail (voice.json WAKE DETAIL) as the
+/// Assistant's row reads it: here from the worker, elsewhere from the voice
+/// device's doctor. A team agent's Wake word row shows it while it listens.
+pub(super) fn wake_word_detail(settings: &VoiceSettings, cx: &App) -> Option<String> {
+    let (devices, _) = voice_choices(cx);
+    let device_name = label_of(&devices, Some(settings.voice_device_id.as_deref()?), &VOICE.copy.ellipsis);
+    if is_voice_device(settings, cx) {
+        etalk_gpui::push_to_talk::own_wake_detail(settings, &device_name, cx)
+    } else {
+        remote_wake_detail(settings, &device_name, cx)
+    }
+}
+
 /// S-3: this desktop IS the voice device.
 pub(crate) fn is_voice_device(settings: &VoiceSettings, cx: &App) -> bool {
     #[cfg(test)]
@@ -472,7 +485,8 @@ fn picker_rows(id: &str, visible: Value, label: &str, base: &str, action: &str, 
 
 /// A switch row (`glass_toggle_row`), once per hint variant and per
 /// `<base>/disabled` (a Switch's `disabled` is not bindable).
-fn switch_rows(ink: &Ink, id: &str, label: &str, base: &str, action: &str) -> Vec<Value> {
+/// #EXP-1859: also a team agent's Wake word row on its page (`agent_doc`).
+pub(super) fn switch_rows(ink: &Ink, id: &str, label: &str, base: &str, action: &str) -> Vec<Value> {
     let mut rows = Vec::new();
     for disabled in [false, true] {
         for hint in [false, true] {

@@ -104,6 +104,11 @@ public enum VoiceCall {
         public static let minRingMs = 3_000
         /// EXP-1423: up to this much more, drawn once per call by the host.
         public static let ringJitterMs = 6_000
+        /// EXP-1859: a wake turn's dial falls back to the local turn when it
+        /// has not connected within this (desktop only).
+        public static let turnDialMs = 2_000
+        /// EXP-1859: a turn call hangs up when no reply started within this.
+        public static let turnReplyWaitMs = 60_000
         /// EXP-1423: the ring tone's cadence (`callRingToneOn`): on, then off.
         public static let ringToneMs = 2_000
         public static let ringGapMs = 4_000

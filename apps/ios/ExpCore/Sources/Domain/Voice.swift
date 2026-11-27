@@ -115,6 +115,9 @@ public enum Voice {
         public var pttShortcut: String
         public var wakeWord: Bool
         public var wakePhrase: String
+        /// #EXP-1859 (agent-settings.json `voice.wake`): the team agents the
+        /// member switched on for the voice device, in order.
+        public var wakeAgentIds: [String]
         /// #NEW-73: one of `languages`.
         public var language: String
         /// A reference WAV's path ON the voice device; empty = the built-in voice.
@@ -140,6 +143,7 @@ public enum Voice {
             pttShortcut: String = "",
             wakeWord: Bool = false,
             wakePhrase: String = "",
+            wakeAgentIds: [String] = [],
             language: String = "en",
             voiceFile: String = "",
             voiceTranscript: String = "",
@@ -153,6 +157,7 @@ public enum Voice {
             self.pttShortcut = pttShortcut
             self.wakeWord = wakeWord
             self.wakePhrase = wakePhrase
+            self.wakeAgentIds = wakeAgentIds
             self.language = language
             self.voiceFile = voiceFile
             self.voiceTranscript = voiceTranscript
@@ -163,7 +168,7 @@ public enum Voice {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case voiceDeviceId, agentId, pttShortcut, wakeWord, wakePhrase
+            case voiceDeviceId, agentId, pttShortcut, wakeWord, wakePhrase, wakeAgentIds
             case language, voiceFile, voiceTranscript, desktopAudio, desktopAudioApps, meetingStartedAt
             case meetingAutoStopHours
         }
@@ -178,6 +183,8 @@ public enum Voice {
             pttShortcut = try c.decodeIfPresent(String.self, forKey: .pttShortcut) ?? d.pttShortcut
             wakeWord = try c.decodeIfPresent(Bool.self, forKey: .wakeWord) ?? d.wakeWord
             wakePhrase = try c.decodeIfPresent(String.self, forKey: .wakePhrase) ?? d.wakePhrase
+            // #EXP-1859: an older server sends none.
+            wakeAgentIds = ((try? c.decodeIfPresent([String].self, forKey: .wakeAgentIds)) ?? nil) ?? d.wakeAgentIds
             language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
             voiceFile = try c.decodeIfPresent(String.self, forKey: .voiceFile) ?? d.voiceFile
             voiceTranscript = try c.decodeIfPresent(String.self, forKey: .voiceTranscript) ?? d.voiceTranscript

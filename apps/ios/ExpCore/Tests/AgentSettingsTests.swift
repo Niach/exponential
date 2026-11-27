@@ -733,4 +733,142 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(AgentVoice.parse(text), voice)
         XCTAssertEqual(String(data: try JSONEncoder().encode(AgentVoice()), encoding: .utf8), "{}")
     }
+
+    // MARK: - #EXP-1859 wake phrases per agent (`voice.wake`)
+
+    private func wakeFixture() throws -> [String: Any] {
+        let voice = try XCTUnwrap(try fixture()["voice"] as? [String: Any])
+        return try XCTUnwrap(voice["wake"] as? [String: Any])
+    }
+
+    private func wakeAgents(_ wake: [String: Any]) throws -> [AgentSettings.WakeAgent] {
+        try XCTUnwrap(wake["agents"] as? [[String: Any]]).map { agent in
+            let raw = try JSONSerialization.data(withJSONObject: agent["voice"] ?? [:])
+            return AgentSettings.WakeAgent(
+                id: try XCTUnwrap(agent["id"] as? String),
+                role: try XCTUnwrap(agent["role"] as? String),
+                name: try XCTUnwrap(agent["name"] as? String),
+                voice: AgentVoice.parse(String(data: raw, encoding: .utf8))
+            )
+        }
+    }
+
+    /// The fixture's base `settings` with a case's overrides (an explicit
+    /// null clears).
+    private func wakeSettings(_ wake: [String: Any], _ overrides: [String: Any]?) throws -> Voice.Settings {
+        var merged = try XCTUnwrap(wake["settings"] as? [String: Any])
+        for (key, value) in overrides ?? [:] { merged[key] = value }
+        func text(_ key: String) -> String? { merged[key] as? String }
+        return Voice.Settings(
+            voiceDeviceId: text("voiceDeviceId"),
+            agentId: text("agentId"),
+            wakeWord: merged["wakeWord"] as? Bool ?? false,
+            wakePhrase: text("wakePhrase") ?? "",
+            wakeAgentIds: merged["wakeAgentIds"] as? [String] ?? [],
+            language: text("language") ?? "en",
+            voiceFile: text("voiceFile") ?? "",
+            voiceTranscript: text("voiceTranscript") ?? ""
+        )
+    }
+
+    func testWakeCopyAndConstantsMatchTheFixture() throws {
+        let wake = try wakeFixture()
+        typealias W = AgentSettings.Wake
+        XCTAssertEqual(wake["maxListeners"] as? Int, W.maxListeners)
+        XCTAssertEqual(wake["maxIds"] as? Int, W.maxIds)
+        let copy = try XCTUnwrap(wake["copy"] as? [String: Any])
+        XCTAssertEqual(copy["wakeWord"] as? String, W.Copy.wakeWord)
+        XCTAssertEqual(W.Copy.wakeWord, Voice.Copy.wakeWord)
+        let errors = try XCTUnwrap(copy["errors"] as? [String: String])
+        XCTAssertEqual(errors["wakeTooShort"], W.Copy.Errors.wakeTooShort)
+        XCTAssertEqual(errors["wakeClash"], W.Copy.Errors.wakeClash)
+        XCTAssertEqual(errors["wakeCap"], W.Copy.Errors.wakeCap)
+        XCTAssertTrue(AgentSettings.VoiceRows.rows.contains(W.rowId))
+        // talk-listen.json: the matcher's ratio and the worker's cap.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/etalk/fixtures/talk-listen.json")
+        let talk = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let talkWake = try XCTUnwrap(talk["wake"] as? [String: Any])
+        let constants = try XCTUnwrap(talkWake["constants"] as? [String: Any])
+        XCTAssertEqual(constants["maxEditRatio"] as? Double, W.maxEditRatio)
+        let multi = try XCTUnwrap(talkWake["multi"] as? [String: Any])
+        XCTAssertEqual((multi["constants"] as? [String: Any])?["maxListeners"] as? Int, W.maxListeners)
+    }
+
+    func testWakeClashReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try wakeFixture()["clashCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let a = try XCTUnwrap(entry["a"] as? String)
+            let b = try XCTUnwrap(entry["b"] as? String)
+            XCTAssertEqual(AgentSettings.wakeClash(a, b), entry["clash"] as? Bool, "\(a) / \(b)")
+        }
+    }
+
+    func testWakeListenersReplaysEveryCase() throws {
+        let wake = try wakeFixture()
+        let agents = try wakeAgents(wake)
+        let cases = try XCTUnwrap(wake["listenersCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? ""
+            let settings = try wakeSettings(wake, entry["settings"] as? [String: Any])
+            let expected = try XCTUnwrap(entry["expected"] as? [[String: String]], name).map {
+                AgentSettings.WakeListener(agentId: $0["agentId"] ?? "", phrase: $0["phrase"] ?? "", language: $0["language"] ?? "")
+            }
+            XCTAssertEqual(AgentSettings.wakeListeners(settings, agents: agents), expected, name)
+        }
+    }
+
+    func testWakeRowReplaysEveryCase() throws {
+        let wake = try wakeFixture()
+        let agents = try wakeAgents(wake)
+        let cases = try XCTUnwrap(wake["rowCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? ""
+            let settings = try wakeSettings(wake, entry["settings"] as? [String: Any])
+            let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
+            XCTAssertEqual(
+                AgentSettings.wakeRow(settings, agents: agents, agentId: try XCTUnwrap(entry["agentId"] as? String)),
+                AgentSettings.WakeRowState(on: try XCTUnwrap(expected["on"] as? Bool), error: expected["error"] as? String),
+                name
+            )
+        }
+    }
+
+    func testWakeToggleReplaysEveryCase() throws {
+        let wake = try wakeFixture()
+        let agents = try wakeAgents(wake)
+        let cases = try XCTUnwrap(wake["toggleCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for entry in cases {
+            let name = entry["name"] as? String ?? ""
+            let settings = try wakeSettings(wake, entry["settings"] as? [String: Any])
+            let expected = try XCTUnwrap(entry["expected"] as? [String: Any], name)
+            XCTAssertEqual(
+                AgentSettings.wakeToggle(
+                    settings,
+                    agents: agents,
+                    agentId: try XCTUnwrap(entry["agentId"] as? String),
+                    on: try XCTUnwrap(entry["on"] as? Bool)
+                ),
+                AgentSettings.WakeToggleResult(
+                    wakeWord: try XCTUnwrap(expected["wakeWord"] as? Bool, name),
+                    wakeAgentIds: try XCTUnwrap(expected["wakeAgentIds"] as? [String], name),
+                    error: expected["error"] as? String
+                ),
+                name
+            )
+        }
+    }
+
+    func testVoiceSettingsDecodeWakeAgentIds() throws {
+        let old = try JSONDecoder().decode(Voice.Settings.self, from: Data(#"{"wakeWord":true}"#.utf8))
+        XCTAssertEqual(old.wakeAgentIds, [])
+        let new = try JSONDecoder().decode(Voice.Settings.self, from: Data(#"{"wakeAgentIds":["a-1","a-2"]}"#.utf8))
+        XCTAssertEqual(new.wakeAgentIds, ["a-1", "a-2"])
+    }
 }

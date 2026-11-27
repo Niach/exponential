@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,6 +14,13 @@ import UniformTypeIdentifiers
 // is `agents.update {voice}` (a cleared key = null), the synced row answers.
 // The Assistant draws its member rows (push to talk, wake word, meetings)
 // below it, unchanged.
+//
+// #EXP-1859 (`voice.wake`): a TEAM agent's group ends with the member's
+// Wake word (THE Switch row of the Assistant's Wake word; every member
+// flips it, whatever `canEdit`): on = `wakeRow(...).on`, its error inline
+// under the group, the Assistant row's `wakeDetail` while it listens. A
+// flip is `voice.wakeAgent` through `wakeToggle` (optimistic; a refusal
+// keeps the switch as it was and shows its copy inline).
 struct AgentVoiceSection: View {
     let agentId: String
     let agentName: String
@@ -23,6 +31,9 @@ struct AgentVoiceSection: View {
     let member: Voice.Settings?
     /// A team agent's owners, the Assistant's member.
     let canEdit: Bool
+    /// #EXP-1859: the member's voice settings after a Wake word flip (the
+    /// host's copy is the truth the row reads).
+    var onMember: (Voice.Settings) -> Void = { _ in }
 
     private typealias Copy = AgentSettings.VoiceRows.Copy
 
@@ -40,6 +51,16 @@ struct AgentVoiceSection: View {
     @State private var languagePending: String?
     @State private var clipBusy = false
     @State private var fileImporter = false
+    /// #EXP-1859: the synced agents + devices the Wake word row reads.
+    @State private var wakeAgents: [AgentSettings.WakeAgent] = []
+    @State private var devices: [DeviceEntity] = []
+    /// A refused flip's copy, until the next flip.
+    @State private var wakeRefusal: String?
+    /// Last flip wins: only the newest `voice.wakeAgent` settles or reverts.
+    @State private var wakeSeq = 0
+
+    /// The Wake word row: a team agent's page only.
+    private var teamAgent: Bool { role != DomainContract.agentRoleAssistant }
 
     private var resolved: AgentSettings.ResolvedVoice {
         AgentSettings.agentVoiceOf(role: role, voice: voice, member: member ?? Voice.defaults)
@@ -51,18 +72,23 @@ struct AgentVoiceSection: View {
             clipRow
             inputRow(.transcript)
             inputRow(.wakePhrase)
+            if teamAgent { wakeWordRow }
         } header: {
             GlassSectionHeader(Copy.label)
         } footer: {
-            if let wakePhraseError {
-                Text(wakePhraseError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("agent-voice-wake-phrase-error")
+            if wakePhraseError != nil || wakeError != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let wakePhraseError {
+                        errorLine(wakePhraseError, id: "agent-voice-wake-phrase-error")
+                    }
+                    if let wakeError {
+                        errorLine(wakeError, id: "agent-voice-wake-word-error")
+                    }
+                }
             }
         }
         .listRowBackground(glassFormRowFill)
+        .task(id: teamAgent) { if teamAgent { await observeWake() } }
         .onAppear { reseed(.transcript); reseed(.wakePhrase) }
         // The synced row is the truth once the field is left.
         .onChange(of: resolved) { _, _ in
@@ -70,6 +96,102 @@ struct AgentVoiceSection: View {
             if focused != .wakePhrase { reseed(.wakePhrase) }
             languagePending = nil
         }
+    }
+
+    /// THE invalid-input line (FEED-79, 13pt rose) under the group.
+    private func errorLine(_ text: String, id: String) -> some View {
+        Text(text)
+            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+            .foregroundStyle(DesignTokens.Semantic.red)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier(id)
+    }
+
+    // MARK: - Wake word (#EXP-1859)
+
+    private var wakeState: AgentSettings.WakeRowState? {
+        member.map { AgentSettings.wakeRow($0, agents: wakeAgents, agentId: agentId) }
+    }
+
+    private var wakeError: String? {
+        guard teamAgent else { return nil }
+        return wakeRefusal ?? wakeState?.error
+    }
+
+    /// The Assistant row's detail while this agent listens.
+    private var wakeDetail: String? {
+        guard let member, wakeState?.on == true,
+              AgentSettings.wakeListeners(member, agents: wakeAgents).contains(where: { $0.agentId == agentId })
+        else { return nil }
+        return VoiceSettingsModel.wakeDetail(
+            member, devices: devices, armed: member.voiceDeviceId != nil && member.agentId != nil
+        )
+    }
+
+    private var wakeWordRow: some View {
+        GlassToggleRow(
+            AgentSettings.Wake.Copy.wakeWord,
+            description: wakeDetail,
+            isOn: Binding(get: { wakeState?.on ?? false }, set: { flipWake($0) })
+        )
+        .disabled(member == nil)
+        .accessibilityIdentifier("agent-voice-wake-word")
+    }
+
+    /// `wakeToggle` first (its refusal shows inline, nothing is sent), then
+    /// `voice.wakeAgent` with the result applied at once; the server's
+    /// settings settle it, a refusal reverts (BAD_REQUEST / NOT_FOUND
+    /// inline, anything else THE failed-action toast).
+    private func flipWake(_ on: Bool) {
+        guard let previous = member else { return }
+        let result = AgentSettings.wakeToggle(previous, agents: wakeAgents, agentId: agentId, on: on)
+        if let error = result.error {
+            wakeRefusal = error
+            return
+        }
+        wakeRefusal = nil
+        var next = previous
+        next.wakeWord = result.wakeWord
+        next.wakeAgentIds = result.wakeAgentIds
+        guard next != previous else { return }
+        onMember(next)
+        wakeSeq += 1
+        let seq = wakeSeq
+        let accountId = accountId
+        let agentId = agentId
+        Task {
+            do {
+                let stored = try await deps.voiceApi.wakeAgent(accountId: accountId, agentId: agentId, on: on)
+                if seq == wakeSeq { onMember(stored) }
+            } catch {
+                guard seq == wakeSeq else { return }
+                onMember(previous)
+                if error.trpcErrorCode == "BAD_REQUEST" || error.trpcErrorCode == "NOT_FOUND" {
+                    wakeRefusal = error.trpcUserMessage
+                } else {
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "save", thing: "the wake word"),
+                        description: error.trpcUserMessage
+                    )
+                }
+            }
+        }
+    }
+
+    /// The agents of the member's teams + the devices, as synced.
+    private func observeWake() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            (try AgentDefinitionEntity.fetchAll(db), try DeviceEntity.fetchAll(db))
+        }
+        do {
+            for try await (agents, nextDevices) in observation.values(in: pool) {
+                wakeAgents = agents.map {
+                    AgentSettings.WakeAgent(id: $0.id, role: $0.role, name: $0.name, voice: $0.voice)
+                }
+                devices = nextDevices
+            }
+        } catch {}
     }
 
     // MARK: - Language

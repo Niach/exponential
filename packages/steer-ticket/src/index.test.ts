@@ -97,6 +97,25 @@ describe(`steer tickets`, () => {
     }
   })
 
+  // EXP-1859: a turn call's caller ticket carries its mode and phrase.
+  test(`round-trips a turn caller ticket's mode and phrase`, () => {
+    const turn = claims({
+      role: `caller`,
+      team: ``,
+      callId: `call-2`,
+      agentId: `agent-1`,
+      deviceId: `dev-1`,
+      mode: `turn`,
+      phrase: `Hey Studio`,
+    })
+    const result = verifySteerTicket(signSteerTicket(turn, SECRET), SECRET)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.claims.mode).toBe(`turn`)
+      expect(result.claims.phrase).toBe(`Hey Studio`)
+    }
+  })
+
   test(`rejects malformed tokens`, () => {
     for (const bad of [``, `abc`, `.`, `a.`, `.b`, `not-base64!.sig`]) {
       const result = verifySteerTicket(bad, SECRET)

@@ -308,6 +308,8 @@ object Voice {
         @SerialName("meetingStartedAt") val meetingStartedAt: String? = null,
         /** #FEED-163: a meeting stops after this many hours (`Meeting.AutoStop.HOURS_VALUES`). */
         @SerialName("meetingAutoStopHours") val meetingAutoStopHours: Int = Meeting.AutoStop.DEFAULT_HOURS,
+        /** #EXP-1859: the team agents switched on to listen (`AgentWake`; absent from an older server = none). */
+        @SerialName("wakeAgentIds") val wakeAgentIds: List<String> = emptyList(),
     )
 
     /** The row a member without one reads (`defaults`). */
