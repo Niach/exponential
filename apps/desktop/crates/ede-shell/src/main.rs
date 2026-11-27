@@ -39,10 +39,12 @@
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
 //! `ede_tray {service, refresh?}`, `ede_tray_menu {service, id}`, `ede_panel_menu {value}`
 //! (#EDE-252: the start button's and the clock's context menus), `ede_open_document
-//! {name, page?}` (#EDE-214: Settings on `page`; open popups close),
+//! {name, page?}` (#EDE-214: Settings on `page`, #EDE-273 `~/settings/<page>`; open popups close),
 //! `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
-//! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
+//! {page, key, value}` (#EDE-47: the pages `/pages` feeds), `ede_settings_nav
+//! {action, module?, query?, target?}` (#EDE-273: System Settings' grid,
+//! search and modules, `system_settings.rs`), and the
 //! shell model's: `ede_pin {app}` / `ede_unpin {app}`,
 //! `ede_taskbar {app}` (Mint's click), `ede_taskbar_scroll {app, direction}`,
 //! `ede_previews {app|null}` (the hover previews), `ede_start_menu {open?,
@@ -105,6 +107,7 @@ mod inbox;
 mod off_loop;
 mod settings;
 mod settings_pages;
+mod system_settings;
 mod share;
 mod sealed;
 mod spaces;
@@ -449,6 +452,8 @@ struct Shell {
     /// open): the same change again (the zone picker's close re-fires the
     /// zone it just picked) waits for that one instead of asking twice.
     time_changes: Vec<settings_pages::TimeChange>,
+    /// #EDE-273: System Settings' place (the grid or a module, the search).
+    settings_nav: system_settings::Nav,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -642,6 +647,10 @@ impl HostPlugin for Host {
                                 engine::open_window(&engine, &app, cx);
                             }
                         });
+                    } else if app.trim_end_matches(".desktop") == system_settings::APP_ID {
+                        // #EDE-273: System Settings is the shell's own window.
+                        let s = self.shell.clone();
+                        cx.defer(move |cx| settings_show(&s, cx));
                     } else if app.trim_end_matches(".desktop") == HISTORY_APP {
                         // The shell's own Version history (#EDE-53): a document, not a process.
                         let s = self.shell.clone();
@@ -813,6 +822,7 @@ impl HostPlugin for Host {
                             dispatch(&shell, ShellEvent::StartMenuClose, cx);
                             match page.as_deref() {
                                 Some(page) if doc == "settings" => settings_open_page(&shell, page, cx),
+                                None if doc == "settings" => settings_show(&shell, cx),
                                 _ => {
                                     open_on_demand(&shell, &doc, cx);
                                     refresh(&shell, cx);
@@ -822,6 +832,12 @@ impl HostPlugin for Host {
                             close(&shell, &doc, cx);
                         }
                     });
+                }
+            }
+            // #EDE-273: System Settings' navigation (a tile, back, the search, Enter).
+            "ede_settings_nav" => {
+                if let Some(event) = system_settings::event_of(args) {
+                    cx.defer(move |cx| settings_step(&shell, event, false, cx));
                 }
             }
             "ede_service" => {
@@ -1024,7 +1040,7 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     }
                     Some("share") => {
-                        settings_open_page(&shell, "local-general", cx);
+                        settings_open_page(&shell, "this-device", cx);
                         share_start(&shell, cx);
                     }
                     Some(other) => tracing::warn!(action = other, "unknown switcher action"),
@@ -1247,6 +1263,7 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
         apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()], wm_class: None, steam_app: None },
+        apps::App { id: format!("{}.desktop", system_settings::APP_ID), name: "System Settings".into(), comment: "Control Center".into(), exec: String::new(), exec_url: None, icon: None, keywords: "preferences settings control center".into(), categories: vec!["Settings".into(), "System".into()], wm_class: None, steam_app: None },
         apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()], wm_class: None, steam_app: None },
     ]
 }
@@ -1294,17 +1311,57 @@ fn overlays_refresh(shell: &SharedShell) {
 }
 
 /// Launches the desktop entry `app` (its id, with or without `.desktop`).
-/// Opens the Settings window on `page` (the document owns `/settings`
-/// again right after: the feed hands it the page once).
+/// #EDE-273: `~/settings/<module>` (a bare id or an old page id too): the
+/// start menu's search, an applet's link, the panel menu. The window opens
+/// on that module (a Mint tool's module launches the tool instead).
 fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
-    // #EDE-214: with the page's group of the nav open.
-    let state = settings_pages::state_for(page);
-    shell.borrow_mut().feed.set("/settings", state);
     close(shell, "start-menu", cx);
     dispatch(shell, ShellEvent::StartMenuClose, cx);
-    open_on_demand(shell, "settings", cx);
+    settings_step(shell, uicore_model::settings::SettingsEvent::Link { target: page.to_string() }, true, cx);
+}
+
+/// #EDE-273: System Settings comes up where it was (the grid on its first
+/// open, and after it was closed); a single instance: an open one comes to
+/// the front.
+fn settings_show(shell: &SharedShell, cx: &mut App) {
+    settings_reap(shell);
+    if shell.borrow().surfaces.activate(system_settings::DOCUMENT, cx) {
+        return;
+    }
+    settings_feed(shell);
+    open_on_demand(shell, system_settings::DOCUMENT, cx);
+    let title = shell.borrow().settings_nav.feed()["title"].as_str().unwrap_or_default().to_string();
+    shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &title, cx);
     refresh(shell, cx);
-    shell.borrow_mut().feed.remove("/settings");
+}
+
+/// A settings window the person closed from its frame starts on the grid next time.
+fn settings_reap(shell: &SharedShell) {
+    let closed = shell.borrow_mut().surfaces.reap_closed();
+    if closed.iter().any(|n| n == system_settings::DOCUMENT) {
+        shell.borrow_mut().settings_nav.reset();
+    }
+}
+
+fn settings_feed(shell: &SharedShell) {
+    let feed = shell.borrow().settings_nav.feed();
+    shell.borrow_mut().feed.set("/settings", feed);
+}
+
+/// #EDE-273: one step of the window (a tile, back, the search, Enter, a
+/// link): a Mint tool launches; `show` = the window comes up (a link).
+fn settings_step(shell: &SharedShell, event: uicore_model::settings::SettingsEvent, show: bool, cx: &mut App) {
+    settings_reap(shell);
+    let next = shell.borrow_mut().settings_nav.step(&event);
+    if let Some(command) = next.launch.as_deref() {
+        person_launch(shell, command);
+    }
+    settings_feed(shell);
+    if show && next.launch.is_none() {
+        settings_show(shell, cx);
+    }
+    shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &next.title, cx);
+    refresh(shell, cx);
 }
 
 /// #VAPP-273: the apps on the Engine for the current switcher entry: a
@@ -1714,6 +1771,16 @@ fn pinned_as(app: &str, standalone: &[String]) -> String {
 
 /// The Exponential app's ids: one IDE per person, a hand-off target.
 const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"];
+
+/// #EDE-273: a taskbar button's launch: the shell's own System Settings
+/// opens its window, any other app launches.
+fn launch_or_own(shell: &SharedShell, app: &str, cx: &mut App) {
+    if app.trim_end_matches(".desktop") == system_settings::APP_ID {
+        settings_show(shell, cx);
+    } else {
+        launch_app(shell, app);
+    }
+}
 
 /// #EDE-64: the sidebar hands off to the Exponential app (Inbox, New issue,
 /// Needs you, Chats): its window comes forward when one is up, a burst of
@@ -2259,7 +2326,7 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
                 }
                 (false, SurfaceHeader::Layer { on_demand: false, .. }) => open_layer(shell, &doc, cx),
                 // An on-demand surface (the switcher, the OSD) waits for its hotkey, a popup for its anchor.
-                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) => {
+                (false, SurfaceHeader::Layer { on_demand: true, .. }) | (false, SurfaceHeader::Popup { .. }) | (false, SurfaceHeader::Window { .. }) => {
                     if let Some(line) = loaded_frame(false, &doc) {
                         println!("{line}");
                     }
@@ -2293,7 +2360,7 @@ fn shell_theme(base: &eui_core::theme::ResolvedTheme) -> std::sync::Arc<eui_core
 /// proves the edit (one that breaks once opened crashes the shell, and
 /// three crashes revert it). An open or opening surface reports its frame.
 fn loaded_frame(open: bool, doc: &Document) -> Option<String> {
-    let closed = !open && matches!(doc.surface, SurfaceHeader::Layer { on_demand: true, .. } | SurfaceHeader::Popup { .. });
+    let closed = !open && matches!(doc.surface, SurfaceHeader::Layer { on_demand: true, .. } | SurfaceHeader::Popup { .. } | SurfaceHeader::Window { .. });
     closed.then(|| FrameLine::line_for_digest(&doc.name, &doc.digest))
 }
 
@@ -2436,7 +2503,7 @@ fn relaid(doc: &Document, header: SurfaceHeader) -> Option<Document> {
 fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
     let press = uicore_model::taskbar_press(&shell.borrow().model, app);
     match press {
-        TaskbarPress::Launch => launch_app(shell, app),
+        TaskbarPress::Launch => launch_or_own(shell, app, cx),
         TaskbarPress::Focus { id } => {
             if let Ok(id) = ede_protocol::WindowId::new(&id) {
                 with_ede(shell, |ede| ede.focus(id));
@@ -3054,7 +3121,7 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
     }
     let doc = document(&shell.borrow(), name);
     match doc {
-        Some(doc) if matches!(doc.surface, SurfaceHeader::Layer { .. }) => open_layer(shell, &doc, cx),
+        Some(doc) if matches!(doc.surface, SurfaceHeader::Layer { .. } | SurfaceHeader::Window { .. }) => open_layer(shell, &doc, cx),
         _ => tracing::warn!(document = name, "no such layer document"),
     }
 }
@@ -3186,9 +3253,8 @@ fn taskbar_hotkey(shell: &SharedShell, index: usize, launch: bool, cx: &mut App)
         Some(id) => {
             with_ede(shell, |ede| ede.focus(id));
         }
-        None => launch_app(shell, &app),
+        None => launch_or_own(shell, &app, cx),
     }
-    let _ = cx;
 }
 
 /// Expo / Scale (#EDE-49): an on-demand overlay document with every
@@ -3334,7 +3400,9 @@ fn spaces_list_open(s: &Shell) -> bool {
 fn spaces_pause(s: &Shell) -> spaces::Pause {
     let opened = |name: &str| s.surfaces.is_open(name).then(|| s.layers_opened.get(name).copied().unwrap_or(0));
     let view = opened(spaces::VIEW).unwrap_or(u64::MAX);
-    let view_covered = ["settings"].iter().any(|n| opened(n).is_some_and(|at| at > view));
+    // #EDE-273: Settings is a normal window now, under every layer: nothing covers the view.
+    let view_covered = false;
+    let _ = (opened(spaces::VIEW), view);
     spaces::Pause { locked: s.locked, fullscreen: spaces::fullscreen_over(&s.windows, s.model.workspaces.active, s.first_output), view_covered }
 }
 
@@ -3927,11 +3995,8 @@ fn tray_press(shell: &SharedShell, service: &str) {
 /// #EDE-252: a row of the start button's or the clock's context menu.
 fn panel_menu(shell: &SharedShell, value: &str, cx: &mut App) {
     match value {
-        "settings" => {
-            open_on_demand(shell, "settings", cx);
-            refresh(shell, cx);
-        }
-        "datetime" => settings_open_page(shell, "datetime", cx),
+        "settings" => settings_show(shell, cx),
+        "datetime" => settings_open_page(shell, "date-and-time", cx),
         "history" => {
             history_refresh(shell);
             open_on_demand(shell, "history", cx);
@@ -4312,9 +4377,6 @@ fn main() {
         feed.set("/osd", json!({"icon": "media-volume-up", "level": 0, "label": ""}));
         feed.set("/config", settings::config_json());
         feed.set("/pages", settings_pages::pages_json());
-        if let Some(state) = settings_pages::demo_state() {
-            feed.set("/settings", state);
-        }
         feed.set("/user", settings::user_json());
         feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
         feed.set("/needsYou", json!({"count": 0, "rows": []}));
@@ -4492,6 +4554,14 @@ fn main() {
             issue_hits: Vec::new(),
             issue_search: 0,
             menu_selection: start_menu::Selection::default(),
+            settings_nav: {
+                let mut nav = system_settings::Nav::probe(demo);
+                // The goldens: `EDE_SHELL_SETTINGS_PAGE=<module>` opens on that module.
+                if let Some(module) = settings_pages::demo_module() {
+                    nav.step(&uicore_model::settings::SettingsEvent::Link { target: module });
+                }
+                nav
+            },
             time_changes: Vec::new(),
             _watcher: watcher,
         }));
@@ -4499,6 +4569,18 @@ fn main() {
         {
             let s = shell.clone();
             cx.intercept_keystrokes(move |event, window, cx| {
+                // #EDE-273: Alt+Left in System Settings = its back button.
+                let m = &event.keystroke.modifiers;
+                let held = window.modifiers();
+                if system_settings::is_back_key(&event.keystroke.key, m.alt || held.alt, m.control || m.shift || m.platform) {
+                    let in_settings = s.borrow().surfaces.region(system_settings::DOCUMENT).is_some_and(|r| gpui::AnyWindowHandle::from(r.handle) == window.window_handle());
+                    if in_settings {
+                        let s = s.clone();
+                        cx.defer(move |cx| settings_step(&s, uicore_model::settings::SettingsEvent::Back, false, cx));
+                        cx.stop_propagation();
+                        return;
+                    }
+                }
                 let Some(step) = start_menu::key_of(&event.keystroke.key, event.keystroke.modifiers.modified()) else { return };
                 if start_menu_step(&s, window.window_handle(), step, cx) {
                     cx.stop_propagation();
@@ -4784,6 +4866,8 @@ fn main() {
             if name == "switcher" {
                 switcher_step(&shell, ShellEvent::AltTabNext, cx);
                 switcher_show(&shell, cx);
+            } else if name == system_settings::DOCUMENT {
+                settings_show(&shell, cx);
             } else {
                 open_on_demand(&shell, &name, cx);
             }
@@ -5429,20 +5513,18 @@ mod layer_sizes {
         assert_eq!(press(json!({"action": "allow:"})), None);
     }
 
-    /// #EDE-65: Settings open into the sidebar like the IDE's: over the
-    /// rail and the ground, standing on the taskbar, the nav as wide as the
-    /// IDE's settings column.
+    /// #EDE-273: System Settings is one normal window of the shell
+    /// (cinnamon-settings): eDE's frame, its own taskbar entry under the
+    /// start menu's System Settings, the grid's header and body filling it.
     #[test]
-    fn settings_take_the_sidebar_and_the_ground() {
+    fn settings_is_one_window() {
         let settings = factory("settings");
-        for out in [(1280, 720), (1920, 1080)] {
-            assert_eq!(size(&layer_header(&settings, out)), (Some(out.0), Some(out.1 - 48), -1), "{out:?}");
-        }
-        let SurfaceHeader::Layer { margin, on_demand, .. } = &settings.surface else { panic!("a layer") };
-        assert_eq!((margin.bottom, *on_demand), (shell_layout().taskbar_height, true));
+        let SurfaceHeader::Window { window, functions } = &settings.surface else { panic!("a window") };
+        assert_eq!((window.title.as_str(), window.app_id.as_str(), window.size.width, window.size.height), ("System Settings", crate::system_settings::APP_ID, 1040, 700));
+        assert!(functions.iter().any(|f| f == "ede_settings_nav"));
+        assert!(builtin_apps(true).iter().any(|a| a.id == format!("{}.desktop", crate::system_settings::APP_ID)), "the start menu's entry names the window");
         let doc: Value = uicore_docs::doc("settings").unwrap().json();
-        let nav = &doc["root"]["children"][0];
-        assert_eq!((nav["component"].as_str(), nav["props"]["width"].as_u64()), (Some("Sidebar"), Some(shell_layout().settings_width as u64)));
+        assert_eq!(doc["root"]["style"]["width"], "100%", "the document follows the window's size");
     }
 
     /// The taskbar opens before the sidebar: its exclusive zone takes the
@@ -5663,13 +5745,14 @@ mod start_menu_document {
     #[test]
     fn the_tray_popups_settings_links_name_their_page() {
         let settings = uicore_docs::doc("settings").expect("settings").json().to_string();
-        for (applet, id, page) in [("applet-sound", "sound_settings", "sound"), ("applet-network", "network_settings", "network"), ("applet-battery", "power_settings", "power"), ("applet-bluetooth", "bluetooth_settings", "bluetooth"), ("applet-calendar", "datetime_settings", "datetime")] {
+        for (applet, id, page) in [("applet-sound", "sound_settings", "sound"), ("applet-network", "network_settings", "network"), ("applet-battery", "power_settings", "power-management"), ("applet-bluetooth", "bluetooth_settings", "bluetooth"), ("applet-calendar", "datetime_settings", "date-and-time")] {
             let doc: Value = uicore_docs::doc(applet).expect(applet).json();
             let (f, args) = call(node(&doc["root"], id).expect(id));
             assert_eq!((f, args["name"].as_str(), args["page"].as_str()), ("ede_open_document", Some("settings"), Some(page)), "{applet}");
-            assert!(settings.contains(&format!("\"value\":\"{page}\"")), "{page} is a Settings page");
-            let state = crate::settings_pages::state_for(page);
-            assert_eq!((state["page"].as_str(), state["deviceOpen"].as_bool()), (Some(page), Some(true)), "{page}");
+            let mut nav = crate::system_settings::Nav::default();
+            let module = nav.step(&uicore_model::settings::SettingsEvent::Link { target: page.into() }).state.module;
+            assert!(!module.is_empty(), "{page} lands on a module");
+            assert!(settings.contains(&format!("\"b\":\"{module}\"")), "{module} is a module of the window");
         }
     }
 

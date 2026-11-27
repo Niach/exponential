@@ -1,5 +1,5 @@
 {
-  "$comment": "EDE-8 (eDE M0, 2026-11-05): THE SURFACE HEADER AND THE TIER C RULES. Every shell document (a person's ~/.config/exponential-desktop/ui/<name>.express, the factory copy in /usr/share/exponential-desktop/ui; Express since #EDE-216, express.json says where each part lives in the file; these rules apply to its JSON form) is a genUI document ({catalogId?, root | components, data?}) plus a `surface` object that tells ede-shell how the document sits on the screen. normalizeSurface(header) fills the defaults and returns the header, or the issues that refuse it; one issue refuses the whole document (apply.json). A LAYER surface: `layer` background|bottom|top|overlay (default top; the wlr-layer-shell layer); `anchor` = the screen edges it sticks to, a list of top|bottom|left|right (default none = centred; each edge at most once); `size` = {width?, height?} in logical px, whole and positive, and an axis stretched between two opposite anchors (left+right, top+bottom) needs none while any other axis MUST have one; `exclusiveZone` = the px other windows keep clear along the anchored edge, 0 = none (default), positive only with at least one anchored edge; `margin` = {top, right, bottom, left} px (default 0, never negative); `keyboard` none|on-demand|exclusive (default none; `exclusive` only on the top and overlay layers, as the protocol says). `onDemand` true|false (default false): a layer surface the shell opens only when asked (a hotkey, a host function: the Alt+Tab switcher, the OSD) and closes again, never at start; a popup is on demand by nature and carries no such key. A POPUP surface: `popup` = {parent: the document name it belongs to, anchor: a component id in the parent, placement bottom-start|bottom-end|top-start|top-end|left-start|right-start (default bottom-start), size: {width, height} REQUIRED} drawn as an xdg_popup of the parent's surface (gpui WindowKind::AnchoredPopup), so a menu can leave the parent's box; a popup header carries no layer, anchor, exclusiveZone, margin, keyboard or onDemand. `functions` = the host functions this document may call (default none). Unknown keys are refused. TIER C RULES (documentIssues(document)): a document grants no privileges, so a shell document (1) must be an object with `surface` and exactly one of `root` (a nested tree) or `components` (A2UI's flat list), plus only $schema, $comment, catalogId, data; (2) never holds a password field: an Input whose `type` prop (under `props` in the nested form, at the top level in the flat form) is `password` is refused by its id (a sealed Tier B surface asks for passwords); (3) may only call the host functions in surface.functions: an on.<event>.functionCall whose call is not listed is refused by its id; (4) uses ids once. These checks are structural and pure; eui-core's reducer (unknown components, props, styles, tokens, limits) runs after them in the Rust runtime and the same issue rule applies.",
+  "$comment": "EDE-8 (eDE M0, 2026-11-05): THE SURFACE HEADER AND THE TIER C RULES. Every shell document (a person's ~/.config/exponential-desktop/ui/<name>.express, the factory copy in /usr/share/exponential-desktop/ui; Express since #EDE-216, express.json says where each part lives in the file; these rules apply to its JSON form) is a genUI document ({catalogId?, root | components, data?}) plus a `surface` object that tells ede-shell how the document sits on the screen. normalizeSurface(header) fills the defaults and returns the header, or the issues that refuse it; one issue refuses the whole document (apply.json). A LAYER surface: `layer` background|bottom|top|overlay (default top; the wlr-layer-shell layer); `anchor` = the screen edges it sticks to, a list of top|bottom|left|right (default none = centred; each edge at most once); `size` = {width?, height?} in logical px, whole and positive, and an axis stretched between two opposite anchors (left+right, top+bottom) needs none while any other axis MUST have one; `exclusiveZone` = the px other windows keep clear along the anchored edge, 0 = none (default), positive only with at least one anchored edge; `margin` = {top, right, bottom, left} px (default 0, never negative); `keyboard` none|on-demand|exclusive (default none; `exclusive` only on the top and overlay layers, as the protocol says). `onDemand` true|false (default false): a layer surface the shell opens only when asked (a hotkey, a host function: the Alt+Tab switcher, the OSD) and closes again, never at start; a popup is on demand by nature and carries no such key. A POPUP surface: `popup` = {parent: the document name it belongs to, anchor: a component id in the parent, placement bottom-start|bottom-end|top-start|top-end|left-start|right-start (default bottom-start), size: {width, height} REQUIRED} drawn as an xdg_popup of the parent's surface (gpui WindowKind::AnchoredPopup), so a menu can leave the parent's box; a popup header carries no layer, anchor, exclusiveZone, margin, keyboard or onDemand. #EDE-273 (System Settings, #EDE-241): A WINDOW surface: `window` = {title: the toplevel's title (non-empty), appId: its app id (letters, digits, `.`, `-`, `_`; the desktop entry the taskbar finds it by), size: {width, height} REQUIRED, its first size in logical px} drawn as a NORMAL toplevel of the shell (gpui WindowKind::Normal: the compositor's own frame, a taskbar entry, moved and resized like any window, the keyboard when focused), opened only when asked like an onDemand layer and never twice (asked again, the open one comes to the front); a window header carries no layer, anchor, exclusiveZone, margin, keyboard, onDemand or popup. `functions` = the host functions this document may call (default none). Unknown keys are refused. TIER C RULES (documentIssues(document)): a document grants no privileges, so a shell document (1) must be an object with `surface` and exactly one of `root` (a nested tree) or `components` (A2UI's flat list), plus only $schema, $comment, catalogId, data; (2) never holds a password field: an Input whose `type` prop (under `props` in the nested form, at the top level in the flat form) is `password` is refused by its id (a sealed Tier B surface asks for passwords); (3) may only call the host functions in surface.functions: an on.<event>.functionCall whose call is not listed is refused by its id; (4) uses ids once. These checks are structural and pure; eui-core's reducer (unknown components, props, styles, tokens, limits) runs after them in the Rust runtime and the same issue rule applies.",
   "version": 1,
   "layers": [
     "background",
@@ -357,7 +357,7 @@
         "issues": [
           {
             "path": "surface.zIndex",
-            "message": "unknown key; known: layer|anchor|size|exclusiveZone|margin|keyboard|onDemand|popup|functions"
+            "message": "unknown key; known: layer|anchor|size|exclusiveZone|margin|keyboard|onDemand|popup|window|functions"
           }
         ]
       }
@@ -611,6 +611,103 @@
           {
             "path": "surface.onDemand",
             "message": "expected true or false"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a window: System Settings as a normal toplevel with its app id and first size",
+      "input": {
+        "window": {
+          "title": "System Settings",
+          "appId": "at.exponential.settings",
+          "size": {
+            "width": 1040,
+            "height": 700
+          }
+        },
+        "functions": [
+          "ede_settings"
+        ]
+      },
+      "expected": {
+        "header": {
+          "kind": "window",
+          "window": {
+            "title": "System Settings",
+            "appId": "at.exponential.settings",
+            "size": {
+              "width": 1040,
+              "height": 700
+            }
+          },
+          "functions": [
+            "ede_settings"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a window refuses layer keys",
+      "input": {
+        "window": {
+          "title": "System Settings",
+          "appId": "at.exponential.settings",
+          "size": {
+            "width": 1040,
+            "height": 700
+          }
+        },
+        "layer": "top",
+        "onDemand": true
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.layer",
+            "message": "a window surface has no layer, anchor, exclusiveZone, margin, keyboard, onDemand or popup"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a window needs a title, an app id and its size",
+      "input": {
+        "window": {
+          "title": "",
+          "appId": "at exponential",
+          "size": {
+            "width": 1040
+          }
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.window.title",
+            "message": "expected the window's title"
+          },
+          {
+            "path": "surface.window.appId",
+            "message": "expected an app id (letters, digits, ., - and _)"
+          },
+          {
+            "path": "surface.window.size",
+            "message": "expected {width, height} in positive whole px"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a window is an object",
+      "input": {
+        "window": "settings"
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.window",
+            "message": "expected an object {title, appId, size}"
           }
         ]
       }

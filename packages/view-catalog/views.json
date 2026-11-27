@@ -9353,8 +9353,8 @@
     {
       "id": "ede-settings",
       "group": "ede",
-      "title": "Exponential Desktop · settings",
-      "blurb": "The factory settings (apps/ede/ui/settings.express, #EDE-47): #EDE-65: open into the sidebar like the IDE's: the settings nav where the rail is (272 px, the IDE's settings column: This device with Display, Sound, Network, Bluetooth, Power, Themes, Keyboard, Mouse & Touchpad, Date & Time, Users, Notifications, Workspaces, Windows, Startup apps, Default apps and the folded Coding group; Personal; Team headed by the shell's switcher) and the page on the ground's rounded panel, above the taskbar, bound to ede-services' snapshots, the compositor's outputs, compositor.toml and the shell's own /pages (sample data in the golden); the Display page open.",
+      "title": "Exponential Desktop · System Settings",
+      "blurb": "System Settings (apps/ede/ui/settings.express, #EDE-273 / #EDE-241): Mint's cinnamon-settings as ONE normal window of the shell (eDE's frame, its own taskbar entry): the search in the header, then the category grid, Appearance, Preferences, Hardware, Exponential and Administration, each module an icon tile (a later module's name muted); the catalogue and the search are uicore's system-settings.json.",
       "order": 8,
       "ede": {
         "size": "1280x720",
@@ -9372,10 +9372,10 @@
       }
     },
     {
-      "id": "ede-settings-team",
+      "id": "ede-settings-module",
       "group": "ede",
-      "title": "Exponential Desktop · settings, Team",
-      "blurb": "Settings' Team group (apps/ede/ui/settings.express): the shell's desktop/team switcher heads it with its sections open as a Popover (a hosted xdg_popup of the settings surface; #EDE-56: the Local desktops, then one section per connected account with its teams), the Local desktop's General page beside it (the name, Share as a team…); the IDE's Team, Boards, Agents and Apps groups appear for a team entry.",
+      "title": "Exponential Desktop · System Settings, a module",
+      "blurb": "A System Settings module (apps/ede/ui/settings.express, #EDE-273): Sound open in the same window, the back button (Alt+Left too) and the module's name in the header, a centred column of framed groups (Output with the volume, mute and the devices; Input; Applications) bound to ede-services' sound snapshot (sample data in the golden).",
       "order": 19,
       "ede": {
         "size": "1280x720",
@@ -9383,7 +9383,7 @@
           "settings"
         ],
         "env": {
-          "EDE_SHELL_SETTINGS_PAGE": "local-general,switcher"
+          "EDE_SHELL_SETTINGS_PAGE": "sound"
         },
         "settleMs": 2500
       },
@@ -9483,7 +9483,7 @@
       "id": "ede-settings-share",
       "group": "ede",
       "title": "Exponential Desktop · Share as a team",
-      "blurb": "Settings › General of a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
+      "blurb": "System Settings › This Device of a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57, #EDE-273): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
       "order": 21,
       "ede": {
         "size": "1280x720",
@@ -9491,7 +9491,7 @@
           "settings"
         ],
         "env": {
-          "EDE_SHELL_SETTINGS_PAGE": "local-general",
+          "EDE_SHELL_SETTINGS_PAGE": "this-device",
           "EDE_SHELL_SHARE": "picking"
         },
         "settleMs": 2500

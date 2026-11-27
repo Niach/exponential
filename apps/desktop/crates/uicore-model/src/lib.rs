@@ -14,6 +14,7 @@ pub mod chats;
 pub mod ide;
 pub mod layout;
 pub mod session_area;
+pub mod settings;
 pub mod spaces;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

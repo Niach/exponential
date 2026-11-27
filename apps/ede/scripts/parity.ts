@@ -34,7 +34,7 @@ const REGIONS: Region[] = [
   { name: `The bottom-left corner: start, chat, new issue`, ide: { view: `agent-home`, crop: [0, 1040, 272 * IDE, 86] }, ede: { view: `ede-panel`, crop: [0, 672, 160, 48] } },
   { name: `The work tabs band (IDE) vs Mint's taskbar (eDE, by decision)`, ide: { view: `agent-home`, crop: [340, 0, 1460, 55] }, ede: { view: `ede-panel`, crop: [0, 672, 1280, 48] } },
   { name: `Alt-Tab: the IDE has none; eDE's switcher`, ide: { view: `agent-home`, crop: [340, 0, 1460, 1126] }, ede: { view: `ede-switcher`, crop: [255, 278, 770, 206] } },
-  { name: `Settings navigation`, ide: { view: `settings-general`, crop: [0, 0, 400, 1126] }, ede: { view: `ede-settings`, crop: [160, 60, 960, 640] } },
+  { name: `Settings navigation`, ide: { view: `settings-general`, crop: [0, 0, 400, 1126] }, ede: { view: `ede-settings`, crop: [120, 0, 1040, 672] } },
 ]
 
 const ROW_H = 220
