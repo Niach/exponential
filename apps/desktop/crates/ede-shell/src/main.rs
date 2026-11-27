@@ -3290,7 +3290,10 @@ fn spaces_changed(shell: &SharedShell, cx: &mut App) {
     }
     cu_control_sync(shell);
     spaces_feed(shell);
-    // The last space ended: the list closes with its button.
+    // The last space ended: the list (and #EDE-266's tray popup) closes with its button.
+    if none && shell.borrow().surfaces.is_open(spaces::TRAY) {
+        close(shell, spaces::TRAY, cx);
+    }
     if none {
         let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
         uicore_gpui::dismiss_hosted(hosted, cx);
