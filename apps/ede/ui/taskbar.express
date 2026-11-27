@@ -78,7 +78,7 @@ start = Button(label="Start", icon="brand-exponential", variant="ghost", size="i
 chat = Button(label="Chat", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
 new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
 buttons = Stack(direction="horizontal", gap="xs", align="center", children=_template($/shell/taskbar/buttons, group, key="app"))
-group = Menu(items=$menu, side="top", align="start", openOn="contextmenu", children=[previews], on={select: ede_taskbar_menu(app=$app, value=$value)})
+group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: ede_taskbar_menu(app=$app, value=$value)})
 previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {app: $app})})
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
 preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})

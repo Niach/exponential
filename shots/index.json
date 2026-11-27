@@ -2118,8 +2118,8 @@
         "file": "shots/ede-agent-spaces/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 10392,
-        "sha256": "54afdd8bb1c100745972367c9c4e017b7235a47a1fe48ff82dab0fc5b0a9d91a"
+        "bytes": 10460,
+        "sha256": "c70eef7db8adc042f3ee078e8c8e66f8810fcbee6dd37d2f2fdde2f271e378fe"
       }
     },
     "ede-applet-battery": {
@@ -2127,8 +2127,8 @@
         "file": "shots/ede-applet-battery/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 9880,
-        "sha256": "f45c89e92f847ce2084ca25e15848531afdeafa7714150230e21f492ac3bcb79"
+        "bytes": 9946,
+        "sha256": "2440141446acfd0429baac4d241dcbf22096f7cea10c833d915f60de6bf9f5d3"
       }
     },
     "ede-applet-bluetooth": {
@@ -2136,8 +2136,8 @@
         "file": "shots/ede-applet-bluetooth/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11936,
-        "sha256": "e40550d005165ef790e24284efb04b058ca3523700beefd07c6c7b768b0f6f5b"
+        "bytes": 11990,
+        "sha256": "b82223f01d30762eb4a967c8ac3050f250b7487bae77e4510d796fbb55876a73"
       }
     },
     "ede-applet-calendar": {
@@ -2145,8 +2145,8 @@
         "file": "shots/ede-applet-calendar/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14778,
-        "sha256": "f271caf6097906be34f8290254bb7ec93b6edc6187a55bd50ab66498af29f325"
+        "bytes": 14848,
+        "sha256": "53e4bee833c8bfea86d40ea8fa4ca909e58dbb31b8c0fe711ae5634825e54bba"
       }
     },
     "ede-applet-drives": {
@@ -2154,8 +2154,8 @@
         "file": "shots/ede-applet-drives/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 8062,
-        "sha256": "5e5b37050d3f241e930b781716bca6b7294628a09728b597f7bf82296c2e647f"
+        "bytes": 8106,
+        "sha256": "3486a6abb8096a1518e67f159270fe5777b619d24d8f1ae8f7c11f6d7fcd68cf"
       }
     },
     "ede-applet-keyboard": {
@@ -2163,8 +2163,8 @@
         "file": "shots/ede-applet-keyboard/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7174,
-        "sha256": "16afeeb51292cee3ce53eb71b820baa45ffe8b4dfa3b4b34089db9cbc9fa6a8f"
+        "bytes": 7616,
+        "sha256": "e365371d2db09fc15c1a15097b88a25a67dd2f21b8813b095f009c019b69078e"
       }
     },
     "ede-applet-network": {
@@ -2172,8 +2172,8 @@
         "file": "shots/ede-applet-network/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 12980,
-        "sha256": "736e9f0d46758672c9bf7a04a2fc658aad3beb6c1d17a3bfffbaa239c1d7e2e4"
+        "bytes": 13054,
+        "sha256": "19e5d6bc0588d6d380169850692fe60e0ae33a6ce2b01430df1d5022970f3b95"
       }
     },
     "ede-applet-printers": {
@@ -2181,8 +2181,8 @@
         "file": "shots/ede-applet-printers/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 10080,
-        "sha256": "82b7fca8721356764d531160b2a78cb4c6b68cd9262bcdea3644ce9456be60a8"
+        "bytes": 10154,
+        "sha256": "4a76873543daf64654cf1fa2dbd01590c039cdadf02b036b60e4f2728763931e"
       }
     },
     "ede-applet-sound": {
@@ -2190,8 +2190,8 @@
         "file": "shots/ede-applet-sound/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14436,
-        "sha256": "ac45013ced6e11eab99a586ec262803a37c4a91ac23c5671a4a05a51511d8728"
+        "bytes": 14556,
+        "sha256": "b26860dba415f3b9765be6c99ce3d589129aae536d6e06bb00e53129880ef40f"
       }
     },
     "ede-chat": {
@@ -2199,8 +2199,8 @@
         "file": "shots/ede-chat/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 23546,
-        "sha256": "f394d81d3d248859f494666e0ae9f682e84044f9dd3fc6778ae31cc293836655"
+        "bytes": 23564,
+        "sha256": "3ec56e5443c8fc25a9b758387a0bc99d833b20682b4185023248260885cf8c73"
       }
     },
     "ede-connect": {
@@ -2208,8 +2208,8 @@
         "file": "shots/ede-connect/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11772,
-        "sha256": "5ef5b4595adff8aa388e776f87907502deb3b035d830789b2dddeeee733afbca"
+        "bytes": 11910,
+        "sha256": "92e8afecebdcf26419d4ca94daffde9711c0945bebe8dcde2fc8b8d79f9f6a57"
       }
     },
     "ede-expo": {
@@ -2217,8 +2217,8 @@
         "file": "shots/ede-expo/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11280,
-        "sha256": "23cd50621021b98babebe55f93d8150c290671811c094d6eaa15795915389faa"
+        "bytes": 11336,
+        "sha256": "203b7f35476f664aa658d7a5332c6c24d52552ba58b8abfc178d075176a41d73"
       }
     },
     "ede-history": {
@@ -2226,8 +2226,8 @@
         "file": "shots/ede-history/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 13740,
-        "sha256": "29c32afd9cc64267ea75bc15589ef0cad556f7c81945e619152b83a28aa692bc"
+        "bytes": 13772,
+        "sha256": "dd5ae8a9d1c7dbeb81cd6978136e53185c51759085253c10f1d356d45ea9a942"
       }
     },
     "ede-needs-you": {
@@ -2235,8 +2235,8 @@
         "file": "shots/ede-needs-you/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11272,
-        "sha256": "f694907a34bd0fdfa503ab89d4a704ff7eb1f6dccd93a0b451e3e3b708610c0d"
+        "bytes": 11358,
+        "sha256": "4197918f887bd049af4b69d2dfba582b066c12b164312a0825f18b8d8130b580"
       }
     },
     "ede-notification-center": {
@@ -2244,8 +2244,8 @@
         "file": "shots/ede-notification-center/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 16714,
-        "sha256": "fe7d415fbfde7c4f0e37c4b80642574ce6314b690b617592debcba5235980116"
+        "bytes": 16784,
+        "sha256": "d8df795c4369d639f806ff0f095348603208cc2f9d4c44832ee6c456355be06e"
       }
     },
     "ede-notifications": {
@@ -2253,8 +2253,8 @@
         "file": "shots/ede-notifications/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 15018,
-        "sha256": "8ca6262377f8f1eb42790c8503c5e2e9ca0374437d1ddae236c3bca768010990"
+        "bytes": 15122,
+        "sha256": "d320db70f8da5fbd0fc5901b4b280c7cd848cf5bdcceb80a5584713cb61d3843"
       }
     },
     "ede-osd": {
@@ -2262,8 +2262,8 @@
         "file": "shots/ede-osd/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 6634,
-        "sha256": "a4622c18b6ceecfa0015dc52414421368114f5e63d965f9d3003ffd8ec5563c9"
+        "bytes": 6686,
+        "sha256": "93df0517dace6df80f2f405fad7eb81054b6cdfd0a066648ca6635c5108b3d45"
       }
     },
     "ede-panel": {
@@ -2271,8 +2271,8 @@
         "file": "shots/ede-panel/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 5804,
-        "sha256": "b02d1eb7dc82ea8d5989876a9a876a279b95bd9225c10ea964d525fc19857be4"
+        "bytes": 5866,
+        "sha256": "f2ca6b2ce710b39b612a527c53dc3bf435e8e3578f96d86ddaa257a6dc728727"
       }
     },
     "ede-panel-menu": {
@@ -2280,8 +2280,8 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 20686,
-        "sha256": "e4d8357681ed4ea5b8fc33c1a8f52c1eb41a5eafdd1d723dd3c023c693facdba"
+        "bytes": 20694,
+        "sha256": "7ccd2b227021e632a1de8cbefc79be0f1c3ad7ff92ed8dffb3e6fc46e204bad7"
       }
     },
     "ede-scale": {
@@ -2289,8 +2289,8 @@
         "file": "shots/ede-scale/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 9596,
-        "sha256": "0abaf272436125b57e26634883f74069b2a466758c6e8d5f3a291169e1d85163"
+        "bytes": 9626,
+        "sha256": "61dfc0a73d30413a12775930a69edfde0098c6d697a13294ad1aa96d89a9076a"
       }
     },
     "ede-settings": {
@@ -2298,8 +2298,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21188,
-        "sha256": "f5ff972e583b215c6f9d9d55c8121b013f014217c8281dfe509f5e2eeea86af2"
+        "bytes": 21338,
+        "sha256": "b7a380212eed80bf546cb7d504c8b84ffa1711f6d06e8e269ce5d648d0bbb8a7"
       }
     },
     "ede-settings-share": {
@@ -2307,8 +2307,8 @@
         "file": "shots/ede-settings-share/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14212,
-        "sha256": "03680734a422b92c6ad5102c6c10862ed28fe10dabde0cf62badab368aef25a2"
+        "bytes": 14270,
+        "sha256": "2baa047de6a9d7bcb49241355d78158fef54f76981f3823667a5fbeed72a7248"
       }
     },
     "ede-settings-team": {
@@ -2316,8 +2316,8 @@
         "file": "shots/ede-settings-team/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 14382,
-        "sha256": "0974d15de793ec3655b7d53b0b87dbe71ba5be639a0e253c8373cb6f55e3e886"
+        "bytes": 14430,
+        "sha256": "7134bba4e016c79870f1898c34e51fe69677b4a8f0082a31d2a9b098c2b1e9cf"
       }
     },
     "ede-space-view": {
@@ -2325,8 +2325,8 @@
         "file": "shots/ede-space-view/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 7872,
-        "sha256": "060119b9a2d2891639396078ba825caeef62df7d0f39c2b31ad40a153601275a"
+        "bytes": 7940,
+        "sha256": "4e3940d16b587b026f26a6fe8684090d8128b399231dedd8bef2a03337772551"
       }
     },
     "ede-switcher": {
@@ -2334,8 +2334,8 @@
         "file": "shots/ede-switcher/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 8066,
-        "sha256": "70ff338745310cef6a511f20951a594cfe330e041f6565075db3e2e84f4f5a5b"
+        "bytes": 8124,
+        "sha256": "a7880c49e9479c9bcfe9e1e5dc7cdc0c413fdb08a87b3e8a3af45edd5a85648b"
       }
     },
     "ede-window-menu": {
@@ -2343,8 +2343,8 @@
         "file": "shots/ede-window-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 11578,
-        "sha256": "878b29bc8f58549fbc241f05d7c9aee43208e43c854785a0e733e9c735aeff94"
+        "bytes": 10626,
+        "sha256": "e9db4c6f84b27fe490e3bd42cdf1e7daa40a2b0127f1768323f43d6e6d655e79"
       }
     },
     "elicitation-card": {

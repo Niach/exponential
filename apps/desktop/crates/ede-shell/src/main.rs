@@ -79,6 +79,7 @@
 //! `EDE_SHELL_DEMO_KEYBOARD=1|open` two keyboard layouts (#EDE-253: the
 //! keyboard applet, `open` with its menu open); the demo's window menu
 //! (`--open window-menu`) is the Terminal's.
+//! `EDE_SHELL_DEMO_TASKBAR_MENU=<app>` that taskbar group's menu open (#EDE-254).
 //! `EDE_SHELL_DEMO_SPACES=list|view` three sample agent spaces, their list
 //! open or the first one's view pinned (#EXP-2024).
 
@@ -2023,6 +2024,9 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
             b["count"] = json!(b["windows"].as_array().map_or(0, Vec::len));
             b["notifications"] = json!(app_notifications(shell, &app));
             b["menu"] = json!(uicore_model::taskbar_menu(&shell.model, &app, &taskbar_menu_context(shell, &app)));
+            if demo() && std::env::var("EDE_SHELL_DEMO_TASKBAR_MENU").is_ok_and(|open| open == app) {
+                b["menuOpen"] = json!(true);
+            }
         }
     }
     value["chats"] = chats::chats_json(&shell.chats);
