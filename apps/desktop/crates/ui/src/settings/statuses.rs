@@ -1141,7 +1141,7 @@ impl DeleteStatusContent {
         let accent = hex(theme.accent);
         // Web `space-y-3` under whatever leads the list (the column's own
         // gap is `gap_2`).
-        let list_top = if self.pr_pin_notice.is_some() || count_line.is_some() { f32::from(theme.font_size) * 0.25 } else { 0. };
+        let list_top = if self.pr_pin_notice.is_some() || count_line.is_some() { theme::REM_PX * 0.25 } else { 0. };
         let targets: Vec<Value> = self
             .candidates
             .iter()

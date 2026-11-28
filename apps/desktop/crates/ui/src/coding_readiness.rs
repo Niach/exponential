@@ -769,7 +769,7 @@ fn render_picker(
     let mut list = v_flex()
         .mt_2()
         .w_full()
-        .rounded(px(8.))
+        .rounded(px(theme::tokens::radius::SM))
         .border_1()
         .border_color(theme.border)
         .bg(theme.popover)

@@ -170,6 +170,12 @@ pub struct Theme {
     pub font_family: SharedString,
     /// The base font size for the application, default is 16px.
     pub font_size: Pixels,
+    /// Exponential patch (#EDE-278): the window's rem, when it is not the
+    /// base font size. `None` (the default) keeps upstream's rem =
+    /// `font_size`; `Some` lets an app run web-sized rem metrics (16px:
+    /// `gap_2` = 8px, `text_sm` = 14px) under a smaller body text.
+    #[serde(default)]
+    pub rem_size: Option<Pixels>,
     /// The monospace font family for the application.
     ///
     /// Defaults to:
@@ -775,6 +781,7 @@ impl From<&ThemeColor> for Theme {
             transparent: Hsla::transparent_black(),
             font_family: ".SystemUIFont".into(),
             font_size: px(16.),
+            rem_size: None,
             mono_font_family: mono_font::default_mono_font_family(),
             mono_font_size: px(13.),
             radius: px(6.),

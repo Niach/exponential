@@ -68,6 +68,7 @@ pub mod tokens {
     include!("tokens.generated.rs");
 }
 
+pub mod genui;
 pub mod motion;
 pub mod terminal;
 
@@ -83,6 +84,15 @@ use tokens as t;
 /// (`typography::size::SM`; tokens.json `type.baseSize` is the web's 16px
 /// root, not the component base).
 pub const FONT_SIZE_PX: f32 = t::typography::size::SM;
+
+/// #EDE-278 — the window's rem: the web's 16px root (genUI
+/// `$type.size.base`), NOT the body text. gpui's rem helpers (`gap_2`,
+/// `px_3`, `text_xs`, `rounded_md`) and gpui-component's controls are
+/// Tailwind/shadcn's rem multiples; at the old rem = [`FONT_SIZE_PX`] every
+/// one painted 12.5% under the web's pixel (`gap_2` 7px, `text_xs` 10.5px,
+/// `text_sm` 12.25px). Body text stays [`FONT_SIZE_PX`] (the vendored Root
+/// sizes it from `theme.font_size`, PATCHES.md #EDE-278).
+pub const REM_PX: f32 = t::typography::BASE_SIZE;
 
 /// EXP-877 — Anthropic's brand orange, the ONE place the tab strip's Claude
 /// group mark is tinted. NOT a design token: the token file is the product's
@@ -130,24 +140,28 @@ pub fn exponential_dark() -> ThemeColor {
     let active_darken = 0.2;
     let hover_opacity = 0.9;
 
-    let bg = t::BACKGROUND.to_hsla();
-    let fg = t::FOREGROUND.to_hsla();
-    let border = t::BORDER.to_hsla(); // white @ 10% — matches web `--border`
+    // #EDE-278: every field genUI's theme names is READ from it
+    // (`genui::color`), the one palette eui-gpui paints surfaces with; the
+    // design-token twins are pinned byte-equal in `genui::tests`.
+    let g = genui::color;
+    let bg = g("background");
+    let fg = g("foreground");
+    let border = g("border"); // white @ 10% — matches web `--border`
     // white @ 15% — the web `--input` token. It stays the GHOST BUTTON
     // formula's base below; the input FIELD chrome no longer reads it
     // (EXP-698 — see `c.input`).
-    let input = t::INPUT.to_hsla();
-    let primary = t::PRIMARY.to_hsla();
-    let primary_foreground = t::PRIMARY_FOREGROUND.to_hsla();
+    let input = g("input");
+    let primary = g("primary");
+    let primary_foreground = g("primaryForeground");
     let secondary = t::SECONDARY.to_hsla();
     let accent = t::ACCENT.to_hsla();
-    let muted_foreground = t::MUTED_FOREGROUND.to_hsla();
-    let danger = t::DESTRUCTIVE.to_hsla();
+    let muted_foreground = g("mutedForeground");
+    let danger = g("destructive");
     let card = t::CARD.to_hsla(); // web card surface — see doc note above
-    let green = t::GREEN.to_hsla();
+    let green = g("success");
     let red = t::RED.to_hsla();
-    let blue = t::BLUE.to_hsla();
-    let yellow = t::YELLOW.to_hsla();
+    let blue = g("info");
+    let yellow = g("warning");
 
     // ---- Core surfaces (direct 1:1 token fields) ----------------------------
     c.background = bg;
@@ -186,7 +200,7 @@ pub fn exponential_dark() -> ThemeColor {
     // EXP-594: the indigo brand accent is retired — focus rings return to the
     // neutral RING token (web `--ring` parity; it also drives the scrollbar
     // thumb below).
-    c.ring = t::RING.to_hsla();
+    c.ring = g("ring");
     c.muted = t::MUTED.to_hsla();
     c.muted_foreground = muted_foreground;
     // EXP-811: `accent` is what gpui-component paints EVERY menu item hover
@@ -195,8 +209,8 @@ pub fn exponential_dark() -> ThemeColor {
     // `#262626`, which over the `#252525` opaque popover is invisible — so on
     // the desktop the accent IS the glass active fill: the one hover/selected
     // wash every list row, tab and chip already wears.
-    c.accent = t::glass::FILL_ACTIVE.to_hsla();
-    c.accent_foreground = t::ACCENT_FOREGROUND.to_hsla();
+    c.accent = g("accent");
+    c.accent_foreground = g("accentForeground");
     // EXP-697: popovers and dropdown menus wear the mobile GLASS MENU fill —
     // the card glass tint composited over the opaque popover surface, i.e.
     // white 6% over #171717 == #252525. Android spells the same value
@@ -205,8 +219,9 @@ pub fn exponential_dark() -> ThemeColor {
     // is computed here from the same two tokens rather than hard-coded.
     // Opaque on purpose: gpui has no in-scene backdrop blur, so a translucent
     // menu would show the list scrolling underneath it.
-    c.popover = t::POPOVER.to_hsla().blend(t::glass::FILL_CARD.to_hsla());
-    c.popover_foreground = t::POPOVER_FOREGROUND.to_hsla();
+    // #EDE-278: genUI's `$color.popover` IS that composite (#252525).
+    c.popover = g("popover");
+    c.popover_foreground = g("popoverForeground");
 
     // ---- Primary / secondary (+ derived hover/active) -----------------------
     c.primary = primary;
@@ -222,7 +237,7 @@ pub fn exponential_dark() -> ThemeColor {
     c.sidebar = t::SIDEBAR.to_hsla();
     c.sidebar_foreground = t::SIDEBAR_FOREGROUND.to_hsla();
     // EXP-811: same story for gpui-component's own SidebarMenu items.
-    c.sidebar_accent = t::glass::FILL_ACTIVE.to_hsla();
+    c.sidebar_accent = c.accent;
     // web --sidebar-accent-foreground == --accent-foreground in the zinc theme
     c.sidebar_accent_foreground = t::ACCENT_FOREGROUND.to_hsla();
     c.sidebar_border = t::SIDEBAR_BORDER.to_hsla();
@@ -239,10 +254,15 @@ pub fn exponential_dark() -> ThemeColor {
     c.button_primary_foreground = primary_foreground;
     c.button_primary_hover = c.primary_hover;
     c.button_primary_active = c.primary_active;
-    c.button_secondary = secondary;
-    c.button_secondary_foreground = c.secondary_foreground;
-    c.button_secondary_hover = c.secondary_hover;
-    c.button_secondary_active = c.secondary_active;
+    // #EDE-278: THE secondary button = genUI's `secondary` recipe — the glass
+    // card fill (`$color.secondary`), hover/pressed on `$color.accent` like
+    // its outline twin — not the opaque `#262626` web-shadcn chip. `secondary`
+    // itself stays opaque: it is what solid fills (avatars, skeleton rings)
+    // paint under content.
+    c.button_secondary = g("secondary");
+    c.button_secondary_foreground = g("secondaryForeground");
+    c.button_secondary_hover = c.accent;
+    c.button_secondary_active = c.accent;
 
     // ---- Danger (web `--destructive`; white text like web destructive btn) --
     c.danger = danger;
@@ -360,9 +380,13 @@ pub fn exponential_dark() -> ThemeColor {
     // Links are BODY TEXT — full foreground white (the component underlines
     // them, which carries the affordance); hover brightens to pure white and
     // the pressed state dims, so the three states stay distinct.
-    c.link = fg;
-    c.link_hover = gpui::white();
-    c.link_active = fg.opacity(0.8);
+    //
+    // #EDE-278: links wear genUI's `$color.link` (web `--link`, the markdown
+    // and editor link ink on every other platform), not body white.
+    let link = g("link");
+    c.link = link;
+    c.link_hover = link.lighten(0.1);
+    c.link_active = link.opacity(0.8);
     c.progress_bar = primary;
     // web skeleton is `bg-accent` (@exp/ui skeleton.tsx) — the opaque
     // web token, not the glass accent above: a skeleton is a placeholder
@@ -385,12 +409,12 @@ pub fn exponential_dark() -> ThemeColor {
     c.switch = t::MUTED.to_hsla().lighten(0.15);
     c.switch_thumb = bg;
 
-    // ---- Charts (no web analogue; component's blue ladder, token-locked) ----
-    c.chart_1 = blue.lighten(0.4);
-    c.chart_2 = blue.lighten(0.2);
-    c.chart_3 = blue;
-    c.chart_4 = blue.darken(0.2);
-    c.chart_5 = blue.darken(0.4);
+    // ---- Charts — genUI's `$color.chart1..5` (web `--chart-*`, #EDE-278) ----
+    c.chart_1 = g("chart1");
+    c.chart_2 = g("chart2");
+    c.chart_3 = g("chart3");
+    c.chart_4 = g("chart4");
+    c.chart_5 = g("chart5");
     c.chart_bullish = green;
     c.chart_bearish = red;
 
@@ -434,18 +458,21 @@ pub fn apply_exponential_dark(cx: &mut App) {
     // always resolvable. Mono stays the component's platform default (web's
     // mono stack is ui-monospace/system too); the TERMINAL grid uses its own
     // bundled JetBrains Mono family (`terminal::FONT_FAMILY`, §6.9).
-    theme.font_family = "Inter".into();
+    theme.font_family = genui::family("sans").into();
     // Compact density (§4.4): base font one notch under web's 14px text-sm;
     // radius from the generated token scale — EXP-269 glass ladder: general
     // controls take the mobile row radius (MD = 10), Dialog/Notification
     // chrome the section radius (LG = 12).
-    theme.font_size = px(FONT_SIZE_PX);
-    theme.radius = px(t::radius::MD);
-    theme.radius_lg = px(t::radius::LG);
+    // #EDE-278: rem, body text and radii are genUI's `$type.size.base`,
+    // `$type.size.sm`, `$radius.md` / `$radius.lg`.
+    theme.font_size = px(genui::number_type_size("sm"));
+    theme.rem_size = Some(px(genui::number_type_size("base")));
+    theme.radius = px(genui::number("radius", "md"));
+    theme.radius_lg = px(genui::number("radius", "lg"));
     // Inline code/mono runs match the terminal's bundled JetBrains Mono
     // (EXP-269 — beats the platform-default mono for glass-dark contrast; the
     // TTFs are embedded by the app shell alongside Inter).
-    theme.mono_font_family = terminal::FONT_FAMILY.into();
+    theme.mono_font_family = genui::family("mono").into();
     // window.refresh() on the next frame / first window open picks up the new
     // palette — no live window exists at bootstrap time.
 }
@@ -666,11 +693,7 @@ mod tests {
         assert_hsla_eq(c.danger, tokens::DESTRUCTIVE.to_hsla(), "danger");
         // EXP-697: the glass menu fill — white 6% over #171717 == #252525,
         // opaque, byte-equal to Android's `GlassTokens.OpaqueCardFill`.
-        assert_hsla_eq(
-            c.popover,
-            tokens::POPOVER.to_hsla().blend(tokens::glass::FILL_CARD.to_hsla()),
-            "popover",
-        );
+        assert_hsla_eq(c.popover, genui::color("popover"), "popover");
         let popover = gpui::Rgba::from(c.popover);
         assert!(approx(popover.a, 1.0), "popover must stay opaque");
         assert_eq!(
@@ -700,6 +723,41 @@ mod tests {
         assert_hsla_eq(c.accent, tokens::glass::FILL_ACTIVE.to_hsla(), "accent");
         assert_hsla_eq(c.sidebar_accent, tokens::glass::FILL_ACTIVE.to_hsla(), "sidebar_accent");
         assert_hsla_eq(c.skeleton, tokens::ACCENT.to_hsla(), "skeleton keeps the opaque token");
+    }
+
+    /// #EDE-278: the chrome's genUI-named fields are the genUI theme's, and
+    /// the window runs the web's 16px rem under 14px body text.
+    #[test]
+    fn genui_named_fields_come_from_the_genui_theme() {
+        let c = exponential_dark();
+        for (field, name) in [
+            (c.background, "background"),
+            (c.foreground, "foreground"),
+            (c.border, "border"),
+            (c.ring, "ring"),
+            (c.primary, "primary"),
+            (c.primary_foreground, "primaryForeground"),
+            (c.muted_foreground, "mutedForeground"),
+            (c.accent, "accent"),
+            (c.accent_foreground, "accentForeground"),
+            (c.popover, "popover"),
+            (c.popover_foreground, "popoverForeground"),
+            (c.danger, "destructive"),
+            (c.success, "success"),
+            (c.warning, "warning"),
+            (c.info, "info"),
+            (c.link, "link"),
+            (c.button_secondary, "secondary"),
+            (c.chart_1, "chart1"),
+            (c.chart_2, "chart2"),
+            (c.chart_3, "chart3"),
+            (c.chart_4, "chart4"),
+            (c.chart_5, "chart5"),
+        ] {
+            assert_hsla_eq(field, genui::color(name), name);
+        }
+        assert_eq!(REM_PX, 16.);
+        assert_eq!(FONT_SIZE_PX, 14.);
     }
 
     #[test]
@@ -748,11 +806,11 @@ mod tests {
             "input must have left the web --input alpha behind: {:?}",
             c.input
         );
-        // EXP-594: ring is the neutral token (web --ring parity), links are
-        // foreground body text (underline carries the affordance), selection
-        // is the white-alpha glass wash.
+        // EXP-594: ring is the neutral token (web --ring parity), selection
+        // is the white-alpha glass wash. #EDE-278: links wear genUI's
+        // `$color.link` (web `--link`), the ink eui-gpui's markdown paints.
         assert_hsla_eq(c.ring, tokens::RING.to_hsla(), "ring");
-        assert_hsla_eq(c.link, tokens::FOREGROUND.to_hsla(), "link");
+        assert_hsla_eq(c.link, genui::color("link"), "link");
         assert_hsla_eq(c.selection, tokens::PRIMARY.to_hsla().opacity(0.25), "selection");
         // primary deliberately stays near-white (web/mobile primary button).
         assert_hsla_eq(c.primary, tokens::PRIMARY.to_hsla(), "primary");

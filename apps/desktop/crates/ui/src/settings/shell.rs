@@ -210,7 +210,7 @@ impl NavPaint {
     pub(crate) fn of(cx: &App) -> Self {
         let theme = cx.theme();
         Self {
-            rem: f32::from(theme.font_size),
+            rem: theme::REM_PX,
             ink: hex(theme.sidebar_foreground),
             muted: hex(theme.muted_foreground),
             foreground: hex(theme.foreground),

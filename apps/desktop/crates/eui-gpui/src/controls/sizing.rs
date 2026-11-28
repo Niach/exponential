@@ -1,7 +1,7 @@
 //! Web-parity control metrics (EXP-525) — the shadcn sizing layer.
 //!
-//! gpui-component sizes its controls in rem off the host's root font size
-//! (14px in the IDE since EXP-723), which still lands every button/input
+//! gpui-component sizes its controls in rem off the host's window rem
+//! (the web's 16px in the IDE since #EDE-278), which still lands some buttons/inputs
 //! under the web's shadcn boxes (web Button default h-9/px-4, sm h-8/px-3,
 //! xs h-6/px-2, all on the theme radius since EXP-1176 — a text button is a
 //! rounded rectangle, the capsule is the pill recipe's; inputs h-9). These

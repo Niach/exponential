@@ -1,8 +1,9 @@
 //! Web-parity control metrics (EXP-525) — the shadcn sizing layer.
 //!
-//! gpui-component sizes its controls in rem off this app's root font size
-//! ([`theme::FONT_SIZE_PX`], 14px since EXP-723), which still lands every
-//! button/input under the web's shadcn boxes (web Button
+//! gpui-component sizes its controls in rem off the window rem
+//! ([`theme::REM_PX`], the web's 16px root since #EDE-278; 14px from EXP-723
+//! until then), which still lands some buttons/inputs under the web's shadcn
+//! boxes (web Button
 //! default h-9/px-4, sm h-8/px-3, xs h-6/px-2, all on the theme radius since
 //! EXP-1176 — a text button is a rounded rectangle, the capsule is the pill
 //! recipe's; inputs h-9). These helpers are pure `Styled` refinements — gpui-component
@@ -1305,7 +1306,8 @@ pub(crate) fn with_pointer_layer(menu: impl IntoElement) -> Div {
 struct MenuRem(AnyElement);
 
 /// EXP-1557: lay `child` out at the web's 16px root, the [`MenuRem`] scope
-/// for a whole page — the settings detail column, whose `text_sm` rows,
+/// for a whole page (#EDE-278: the window rem IS 16px now, so the scope only
+/// pins it) — the settings detail column, whose `text_sm` rows,
 /// rem gaps and gpui-component controls read ~12% small at the IDE's 14px
 /// rem next to the web's same page.
 pub(crate) fn web_rem(child: impl IntoElement) -> impl IntoElement {

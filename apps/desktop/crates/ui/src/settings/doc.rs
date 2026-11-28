@@ -105,7 +105,7 @@ impl Ink {
         let chrome = crate::controls::ide_chrome();
         let theme = cx.theme();
         Self {
-            rem: f32::from(theme.font_size),
+            rem: theme::REM_PX,
             foreground: hex(theme.foreground),
             hint: hex(theme.foreground),
             value: hex(theme.foreground),

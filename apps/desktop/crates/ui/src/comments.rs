@@ -982,7 +982,7 @@ pub(crate) fn chat_comment_card(props: ChatCommentProps, cx: &gpui::App) -> gpui
     // (`MarkdownView` `.chat`: `gap_2` = 0.5 rem) sits between paragraphs,
     // so a body with a paragraph break adds it: line 3's glyphs stay inside
     // the clamp and only their lower part fades (the shot cut them).
-    let clamp_h = chat_comment_clamp_height(&props.body, line, f32::from(cx.theme().font_size));
+    let clamp_h = chat_comment_clamp_height(&props.body, line, theme::REM_PX);
     let body = div()
         .relative()
         .w_full()
