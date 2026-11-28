@@ -841,8 +841,8 @@ impl Render for OnboardingView {
                 )
                 .child(
                     div()
-                        .text_size(px(24.))
-                        .line_height(px(32.))
+                        .text_size(px(theme::tokens::typography::size::XL2))
+                        .line_height(px(theme::tokens::typography::line_height::XL2))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 );

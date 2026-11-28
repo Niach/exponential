@@ -715,7 +715,8 @@ impl WindowState {
 impl gpui_base::RootPlugin for WindowState {
     fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dismiss_removed_tooltip(window, cx);
-        window.set_rem_size(cx.theme().font_size);
+        // Exponential patch (#EDE-278): the theme's own rem when it sets one.
+        window.set_rem_size(cx.theme().rem_size.unwrap_or(cx.theme().font_size));
         TextSelection::activate_scope(self.active_text_selection_scope(), window, cx);
     }
 
@@ -724,6 +725,9 @@ impl gpui_base::RootPlugin for WindowState {
         surface.style().refine(
             &gpui::StyleRefinement::default()
                 .font_family(cx.theme().font_family.clone())
+                // Exponential patch (#EDE-278): body text = the base font
+                // size, not 1rem (the same thing unless `rem_size` is set).
+                .text_size(cx.theme().font_size)
                 .bg(cx.theme().tokens.background)
                 .text_color(cx.theme().foreground),
         );

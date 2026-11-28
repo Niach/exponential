@@ -94,7 +94,7 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     theme.fonts.ui_family = app.font_family.to_string();
     theme.fonts.mono_family = app.mono_font_family.to_string();
 
-    apply_typography(&mut theme, f32::from(app.font_size).max(1.0));
+    apply_typography(&mut theme, f32::from(app.rem_size.unwrap_or(app.font_size)).max(1.0));
 
     // EXP-885: the vendored crate owns its own copy of the chip geometry (it
     // is standalone and cannot import ours), so this is the one place the two
@@ -114,9 +114,9 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
 }
 
 /// Web-parity type scale (`.tiptap-content` in `apps/web/src/styles.css`),
-/// expressed against the app's rem — which gpui-component pins to
-/// `theme.font_size`, i.e. [`theme::FONT_SIZE_PX`] rather than web's 16px
-/// root. The vendored defaults are absolute pixels tuned for a
+/// expressed against the app's rem — the window rem gpui-component sets
+/// (`theme.rem_size`, [`theme::REM_PX`] = the web's 16px root since
+/// #EDE-278). The vendored defaults are absolute pixels tuned for a
 /// full-window 17px editor; left alone they render the description half again
 /// larger than every other surface in the app.
 fn apply_typography(theme: &mut MarkdownEditorTheme, rem: f32) {

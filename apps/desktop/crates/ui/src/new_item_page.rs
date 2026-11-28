@@ -124,7 +124,7 @@ impl Render for NewItemPage {
         let column = v_flex()
             .min_w_0()
             .gap(px(24.))
-            .child(div().text_size(px(24.)).font_weight(gpui::FontWeight::BOLD).child(SharedString::from(new_item_title(kind))))
+            .child(div().text_size(px(theme::tokens::typography::size::XL2)).font_weight(gpui::FontWeight::BOLD).child(SharedString::from(new_item_title(kind))))
             .child(div().h(px(1.)).flex_shrink_0().w_full().bg(crate::settings::row_stroke(cx)))
             .children(body);
         crate::scroll_pane::page_scaffold_with("new-item-scroll", &self.scroll, column, 896., window, cx).into_any_element()

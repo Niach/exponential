@@ -11,3 +11,7 @@ publish = false
 # Mirrors how gpui-component's own crates/ui declares gpui (plain, no features).
 gpui.workspace = true
 gpui-component.workspace = true
+# #EDE-278: the genUI theme (`exponential`, resolved, embedded) is where the
+# IDE's palette, radii and type scale come from (`src/genui.rs`). Pure Rust,
+# no screen deps: the reducer crate every painter already links.
+eui-core = { path = "../eui-core", default-features = false, features = ["builtin-themes"] }
