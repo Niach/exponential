@@ -1776,7 +1776,7 @@
       "id": "repo-runs",
       "group": "settings",
       "title": "Repository runs",
-      "blurb": "The repo page's Runs tab (#EXP-2169, ci-page-view.json `repositoryId` cases): that repository's runs exactly as on the CI page, in day Sections (In progress, Today, Yesterday) of run rows; a run opens its run page.",
+      "blurb": "The repo page's Runs tab (#EXP-2214, ci-page-view.json `repositoryId` cases): the CI page's Merge queue, Pull requests and Releases for that repository, switched by a Segmented control; a row opens its run page or pull request.",
       "order": 32,
       "web": {
         "route": "/t/$teamSlug/repos/engine?tab=runs",
@@ -6493,7 +6493,7 @@
       "id": "ci",
       "group": "reviews",
       "title": "CI",
-      "blurb": "THE CI page (#EXP-2172, ci-page.json; #EXP-2169 one look): one root row after Devices across every team; the device page's heading on wide screens, the app's segmented switcher (Runs, Merge train, Runners with counts), one row of pickers (status, repository, source) and the runner chip, then the runs in day Sections.",
+      "blurb": "THE CI page (#EXP-2172, ci-page.json; #EXP-2214): one root row after Devices across every team; four tabs in the app's segmented switcher, Merge queue first (what is being tested on which commit and how long it has left, Up next, Not ready yet, Sent back with Open log, Landed), Pull requests (one row per PR, its runs folded under it), Releases (tags, manual, scheduled and default-branch runs) and Runners.",
       "order": 10,
       "web": {
         "route": "/home?dev=ci",
@@ -6538,7 +6538,7 @@
       "id": "ci-run",
       "group": "reviews",
       "title": "CI run",
-      "blurb": "One CI run (#EXP-1617, ci-run.json), the page every check's Details link opens: the run's title and a muted line (no breadcrumb, like an issue), the chip strip and Re-run failed / Fix with an agent, the jobs beside the selected job's steps and its live log.",
+      "blurb": "One CI run (#EXP-1617, ci-run.json), the page every check's Details link opens: the run's title and a muted line (no breadcrumb, like an issue), the chip strip and Re-run failed / Fix with an agent, the jobs beside the selected job's steps and its live log; #EXP-2214: a kind badge leads the chips, and a merge queue run lists What happened to each pull request it tested.",
       "order": 8,
       "web": {
         "route": "/home?dev=ci-run",
