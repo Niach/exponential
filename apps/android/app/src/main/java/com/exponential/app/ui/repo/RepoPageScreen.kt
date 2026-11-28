@@ -134,6 +134,7 @@ internal fun ChecksDot(state: String) {
 fun RepoPageScreen(
     onBack: () -> Unit,
     onOpenRun: (String) -> Unit = {},
+    onOpen: (com.exponential.app.ui.ci.CiPageTarget) -> Unit = { if (it is com.exponential.app.ui.ci.CiPageTarget.Run) onOpenRun(it.runId) },
     viewModel: RepoPageViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -144,6 +145,7 @@ fun RepoPageScreen(
     val ciRuns by viewModel.ciRuns.collectAsStateWithLifecycle()
     val ciJobs by viewModel.ciJobs.collectAsStateWithLifecycle()
     val ciPageInput by viewModel.ciPageInput.collectAsStateWithLifecycle()
+    val runsTab by viewModel.runsTab.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     var tab by rememberSaveable { mutableStateOf(viewModel.initialTab) }
     val repo = state.repo
@@ -183,15 +185,20 @@ fun RepoPageScreen(
                 tab == RepoPage.TAB_PULLS -> PullsTab(prs)
                 tab == RepoPage.TAB_RUNS -> {
                     val input = ciPageInput
-                    // A pending run's duration ticks.
-                    val now = rememberTickingNow(input?.runs?.any { it.repositoryId == repo.id && it.state == "pending" } == true)
+                    // A pending run's duration (and a live queue run's progress) ticks.
+                    val now = rememberTickingNow(
+                        input?.runs?.any { it.repositoryId == repo.id && it.state == "pending" } == true ||
+                            input?.trains?.any { it.repositoryId == repo.id && it.finishedAt == null } == true,
+                    )
                     if (input == null) {
                         SkeletonRows(rowHeight = 52.dp)
                     } else {
                         val clocked = remember(input, now) {
                             input.copy(now = Instant.ofEpochMilli(now).toString(), utcOffsetMinutes = utcOffsetMinutes(now))
                         }
-                        RepoRunsTab(clocked, repo.id, onOpenRun)
+                        RepoRunsTab(clocked, repo.id, runsTab) { name, context, payload ->
+                            viewModel.onRunsEvent(name, context, payload)?.let(onOpen)
+                        }
                     }
                 }
                 tab == RepoPage.TAB_BRANCHES -> BranchesTab(repo, state.branches, prs)

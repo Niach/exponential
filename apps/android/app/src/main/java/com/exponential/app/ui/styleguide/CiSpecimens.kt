@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.RepoCiConfig
 import com.exponential.app.data.api.RepoCiSecret
 import com.exponential.app.data.api.RepoCiSettings
+import com.exponential.app.domain.CiPage
 import com.exponential.app.domain.CiPageSpecimen
 import com.exponential.app.domain.CiPageView
 import com.exponential.app.domain.CiRun
@@ -33,7 +34,7 @@ import com.exponential.app.ui.repo.RepoCiSection
 import com.exponential.app.ui.repo.RepoRunsTab
 import com.exponential.app.ui.theme.AppBackground
 
-// #EXP-1617 / #EXP-1804: the two CI specimens the styleguide lane shoots
+// #EXP-1617 / #EXP-1804: the CI specimens the styleguide lane shoots
 // (no server), the same genUI trees web's `?dev=ci-run` / `?dev=runner-settings`
 // paint: THE run page over ci-run.json `specimen` (shot sg_ci-run) and the
 // device's CI runner section over runner-settings.json `specimen` +
@@ -69,11 +70,12 @@ fun CiRunSpecimenScreen() {
 
 const val CiPageSpecimenTestId = "ci-page-specimen"
 
-/** #EXP-2172 (ci-page.json `scenario`, shot sg_ci): THE CI page's Runs tab as
- *  a phone draws it; the tabs and filters work in place. */
+/** #EXP-2172 (ci-page.json `scenario`, shot sg_ci): THE CI page as a phone
+ *  draws it, #EXP-2214 on [tab] (the Merge queue first); the tabs and
+ *  filters work in place. */
 @Composable
-fun CiPageSpecimenScreen() {
-    var state by remember { mutableStateOf(CiPageView.State()) }
+fun CiPageSpecimenScreen(tab: String = CiPage.TAB_ORDER.first()) {
+    var state by remember { mutableStateOf(CiPageView.State(tab = tab)) }
     AppBackground {
         Box(Modifier.fillMaxSize().testTag(CiPageSpecimenTestId)) {
             CiPageContent(
@@ -88,7 +90,6 @@ fun CiPageSpecimenScreen() {
                         CiPageView.Events.RUNNERS -> state.copy(tab = "runners")
                         CiPageView.Events.STATUS -> if (value != null) state.copy(filter = state.filter.copy(status = value)) else state
                         CiPageView.Events.REPOSITORY -> state.copy(filter = state.filter.copy(repositoryId = pick))
-                        CiPageView.Events.SOURCE -> state.copy(filter = state.filter.copy(source = pick))
                         else -> state
                     }
                 },
@@ -129,10 +130,12 @@ const val RepoRunsSpecimenTestId = "repo-runs-specimen"
 const val RepoCiSpecimenTestId = "repo-ci-specimen"
 
 /** #EXP-1617 / #EXP-2169 (ci-page-view.json `repositoryId` cases, shot
- *  sg_repo-runs): the repo page's Runs tab = THE CI page's run Sections of
- *  `acme/engine` over ci-page.json `scenario`, as a phone draws it. */
+ *  sg_repo-runs): the repo page's Runs tab = #EXP-2214 THE CI page's Merge
+ *  queue · Pull requests · Releases of `acme/engine` over ci-page.json
+ *  `scenario`, as a phone draws it (its switch works in place). */
 @Composable
 fun RepoRunsSpecimenScreen() {
+    var tab by remember { mutableStateOf(CiPageView.REPO_TABS.first()) }
     AppBackground {
         Box(
             Modifier
@@ -142,7 +145,10 @@ fun RepoRunsSpecimenScreen() {
                 .padding(16.dp)
                 .testTag(RepoRunsSpecimenTestId),
         ) {
-            RepoRunsTab(CiPageSpecimen.INPUT, "repo-engine", onOpenRun = {})
+            RepoRunsTab(CiPageSpecimen.INPUT, "repo-engine", tab) { name, _, payload ->
+                val value = (payload?.get("value") as? JsonPrimitive)?.contentOrNull
+                if (name == CiPageView.Events.TAB && value in CiPageView.REPO_TABS) tab = value!!
+            }
         }
     }
 }

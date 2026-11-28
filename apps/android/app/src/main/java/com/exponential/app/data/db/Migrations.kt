@@ -576,3 +576,37 @@ val MIGRATION_136_137: Migration = object : Migration(136, 137) {
         )
     }
 }
+
+/**
+ * v138 (#EXP-2214, ci-page.json MERGE QUEUE TAB): `ci_runs.merge_train_id`
+ * and the `merge_trains` + `merge_train_events` tables (index names = the
+ * ones Room derives from the entities' `@Index`). Only the ci_runs shape
+ * refetches (its rows re-arrive carrying the column); the new shapes start
+ * fresh.
+ */
+val MIGRATION_137_138: Migration = object : Migration(137, 138) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `ci_runs` ADD COLUMN `merge_train_id` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `merge_trains` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`repository_id` TEXT NOT NULL, `base` TEXT NOT NULL, `base_sha` TEXT, `units` TEXT, `state` TEXT NOT NULL, " +
+                "`attempt` INTEGER DEFAULT 0, `bisect_of` TEXT, `pending` TEXT, `untested` INTEGER NOT NULL DEFAULT 0, " +
+                "`tested_sha` TEXT, `finished_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_merge_trains_team_id` ON `merge_trains` (`team_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_merge_trains_repository_id` ON `merge_trains` (`repository_id`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `merge_train_events` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`repository_id` TEXT NOT NULL, `pull_request_id` TEXT NOT NULL, `merge_train_id` TEXT, `kind` TEXT NOT NULL, " +
+                "`base` TEXT NOT NULL, `attempt` INTEGER DEFAULT 0, `reason` TEXT, `checks` TEXT, `ci_job_id` TEXT, " +
+                "`job_url` TEXT, `files` TEXT, `sha` TEXT, `by_user_id` TEXT, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_merge_train_events_team_id` ON `merge_train_events` (`team_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_merge_train_events_repository_id` ON `merge_train_events` (`repository_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_merge_train_events_merge_train_id` ON `merge_train_events` (`merge_train_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'ci_runs'",
+        )
+    }
+}

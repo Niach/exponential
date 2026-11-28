@@ -35,6 +35,8 @@ import androidx.room.TypeConverters
         PullRequestCheckEntity::class,
         CiRunEntity::class,
         CiJobEntity::class,
+        MergeTrainEntity::class,
+        MergeTrainEventEntity::class,
         SessionReadEntity::class,
         AgentDefinitionEntity::class,
         EventEntity::class,
@@ -129,7 +131,10 @@ import androidx.room.TypeConverters
     // v137 (#EXP-2172): ci_runs provider / external_* / title and ci_jobs
     //      provider / external_* (GitHub Actions runs beside ours), explicit
     //      [MIGRATION_136_137]; only the ci_runs and ci_jobs shapes refetch.
-    version = 137,
+    // v138 (#EXP-2214): ci_runs.merge_train_id + the merge_trains and
+    //      merge_train_events tables (the CI page's Merge queue), explicit
+    //      [MIGRATION_137_138]; only the ci_runs shape refetches.
+    version = 138,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -163,6 +168,8 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun pullRequestCheckDao(): PullRequestCheckDao
     abstract fun ciRunDao(): CiRunDao
     abstract fun ciJobDao(): CiJobDao
+    abstract fun mergeTrainDao(): MergeTrainDao
+    abstract fun mergeTrainEventDao(): MergeTrainEventDao
     abstract fun sessionReadDao(): SessionReadDao
     abstract fun agentDefinitionDao(): AgentDefinitionDao
     abstract fun eventDao(): EventDao

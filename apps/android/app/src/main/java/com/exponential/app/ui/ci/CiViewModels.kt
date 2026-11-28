@@ -11,10 +11,19 @@ import com.exponential.app.data.db.CiJobEntity
 import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.MergeTrainEntity
+import com.exponential.app.data.db.MergeTrainEventEntity
 import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.RepositoryEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.ci.toPageJob
+import com.exponential.app.data.ci.toPagePr
+import com.exponential.app.data.ci.toPageRepo
+import com.exponential.app.data.ci.toPageRun
+import com.exponential.app.data.ci.toPageTrain
+import com.exponential.app.data.ci.toPageTrainEvent
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.CiPage
 import com.exponential.app.domain.CiRun
@@ -124,6 +133,43 @@ class CiRunViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
     ) { id, users -> users.firstOrNull { it.id == id }?.let { it.name?.takeIf(String::isNotBlank) ?: it.email } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-2214 (ci-page.json `ciRunContext`): why the run exists: its kind,
+     *  a merge queue run's batch title and What happened to each of its PRs
+     *  (its train, the train's history, the repository's PRs). */
+    private val allPrs: StateFlow<List<PullRequestEntity>> =
+        dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val context: StateFlow<CiPage.RunContext?> = run.flatMapLatest { row ->
+        if (row == null) {
+            flowOf(null)
+        } else {
+            val trainId = row.mergeTrainId?.takeIf { it.isNotEmpty() }
+            combine(
+                dbFlow.scopedQuery(emptyList<RepositoryEntity>()) { it.repositoryDao().observeAll() },
+                allPrs,
+                if (trainId == null) flowOf(emptyList<MergeTrainEntity>()) else dbFlow.scopedQuery(emptyList<MergeTrainEntity>()) { it.mergeTrainDao().observeById(trainId) },
+                if (trainId == null) flowOf(emptyList<MergeTrainEventEntity>()) else dbFlow.scopedQuery(emptyList<MergeTrainEventEntity>()) { it.mergeTrainEventDao().observeByTrain(trainId) },
+                dbFlow.scopedQuery(emptyList<CiJobEntity>()) { it.ciJobDao().observeByRun(row.id) },
+            ) { repos, prs, trains, events, jobs ->
+                CiPage.runContext(
+                    row.toPageRun(),
+                    CiPage.Input(
+                        repos = repos.map { it.toPageRepo() },
+                        pullRequests = prs.filter { it.repositoryId == row.repositoryId || it.id == row.pullRequestId }.map { it.toPagePr() },
+                        trains = trains.map { it.toPageTrain() },
+                        trainEvents = events.map { it.toPageTrainEvent() },
+                        jobs = jobs.map { it.toPageJob() },
+                    ),
+                )
+            }
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-2214: a What happened row's pull request: its chat (root session) or its URL. */
+    fun pullRequestTarget(id: String): CiPageTarget.PullRequest? =
+        allPrs.value.firstOrNull { it.id == id }?.let { CiPageTarget.PullRequest(it.rootSessionId, it.url) }
 
     /** #EXP-2172 (phones): drilled into the selected job (its Card alone). */
     private val _jobOpen = MutableStateFlow(false)

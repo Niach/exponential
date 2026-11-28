@@ -196,7 +196,7 @@ object Prompts {
             mapOf(
                 "title" to "Merge PR #{number} now?",
                 "titleStack" to "Merge the stack now?",
-                "body" to "It skips the merge train's tests.",
+                "body" to "It skips the merge queue's tests.",
             ),
             listOf("number"),
             "merge",

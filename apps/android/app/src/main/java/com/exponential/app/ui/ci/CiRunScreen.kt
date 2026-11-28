@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.CiPage
 import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.CiRunView
 import com.exponential.app.ui.components.ClaimedFailedActionToast
@@ -39,6 +40,7 @@ fun CiRunScreen(
     onBack: () -> Unit,
     onOpenRun: (runId: String) -> Unit,
     onFix: (AgentComposerSeed) -> Unit = {},
+    onOpenPullRequest: (CiPageTarget.PullRequest) -> Unit = {},
     viewModel: CiRunViewModel = hiltViewModel(),
 ) {
     val run by viewModel.run.collectAsStateWithLifecycle()
@@ -51,6 +53,7 @@ fun CiRunScreen(
     val pullRequest by viewModel.pullRequest.collectAsStateWithLifecycle()
     val author by viewModel.author.collectAsStateWithLifecycle()
     val jobOpen by viewModel.jobOpen.collectAsStateWithLifecycle()
+    val context by viewModel.context.collectAsStateWithLifecycle()
     // Phones drill into a job; Back returns to the run first.
     BackHandler(enabled = jobOpen) { viewModel.closeJob() }
     val uriHandler = LocalUriHandler.current
@@ -69,7 +72,9 @@ fun CiRunScreen(
         pullRequest = pullRequest,
         author = author,
         jobOpen = jobOpen,
+        context = context,
         onSelectJob = viewModel::openJob,
+        onOpenPullRequest = { id -> viewModel.pullRequestTarget(id)?.let(onOpenPullRequest) },
         onRerunFailed = viewModel::rerunFailed,
         onRerunAll = viewModel::rerunAll,
         onCancel = viewModel::cancel,
@@ -100,6 +105,8 @@ fun CiRunPage(
     onRerunAll: () -> Unit = {},
     onFix: () -> Unit = {},
     onOpenExternal: () -> Unit = {},
+    context: CiPage.RunContext? = null,
+    onOpenPullRequest: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // #EXP-2169 ("one look"): the pushed page's frame (the repo page's, the
@@ -122,10 +129,10 @@ fun CiRunPage(
             Column(Modifier.padding(padding)) { SkeletonRows(rows = 4) }
             return@PinnedScaffold
         }
-        val tree = remember(run, jobs, selectedJobId, log, nowMs, busy, repository, pullRequest, author, jobOpen) {
+        val tree = remember(run, jobs, selectedJobId, log, nowMs, busy, repository, pullRequest, author, jobOpen, context) {
             CiRunView.ciRunTree(
                 run, jobs, selectedJobId, log, nowMs, phone = true, busy = busy,
-                repository = repository, pullRequest = pullRequest, author = author, jobOpen = jobOpen,
+                repository = repository, pullRequest = pullRequest, author = author, jobOpen = jobOpen, context = context,
             )
         }
         Column(
@@ -152,6 +159,8 @@ fun CiRunPage(
                     CiRunView.Events.CANCEL -> onCancel()
                     CiRunView.Events.FIX -> onFix()
                     CiRunView.Events.OPEN_EXTERNAL -> onOpenExternal()
+                    // #EXP-2214: a What happened row opens its pull request.
+                    CiRunView.Events.OPEN_PR -> (context?.get("pr") as? JsonPrimitive)?.contentOrNull?.let(onOpenPullRequest)
                 }
             }
         }

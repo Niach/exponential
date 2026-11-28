@@ -29,6 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.ui.ci.ciQueueCommand
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -94,6 +97,7 @@ class RepoPageViewModel @Inject constructor(
     private val api: RepositoriesApi,
     private val ciApi: CiApi,
     ciPageSource: com.exponential.app.data.ci.CiPageSource,
+    private val pullRequestsApi: com.exponential.app.data.api.PullRequestsApi,
 ) : ViewModel() {
 
     val repositoryId: String = savedStateHandle.get<String>("repositoryId").orEmpty()
@@ -131,11 +135,34 @@ class RepoPageViewModel @Inject constructor(
 
     /** #EXP-2169 ("one look", ci-page-view.json `repositoryId` cases): THE CI
      *  page's data for the Runs tab ([CiPageView.ciRepoRunsTree] scopes it to
-     *  this repository; its name = the repo's full name). Null until read. */
+     *  this repository; #EXP-2214 its name and default branch from the
+     *  repositories shape, else the repo's full name). Null until read. */
     val ciPageInput: StateFlow<com.exponential.app.domain.CiPage.Input?> by lazy {
         combine(ciPageSource.input, _state.map { it.repo?.fullName }.distinctUntilChanged()) { input, name ->
-            input.copy(repos = listOf(com.exponential.app.domain.CiPage.Repo(repositoryId, name ?: "")))
+            if (input.repos.any { it.id == repositoryId }) input
+            else input.copy(repos = input.repos + com.exponential.app.domain.CiPage.Repo(repositoryId, name ?: ""))
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }
+
+    /** #EXP-2214: the Runs tab's own switch (Merge queue first). */
+    private val _runsTab = MutableStateFlow(com.exponential.app.domain.CiPageView.REPO_TABS.first())
+    val runsTab: StateFlow<String> = _runsTab
+
+    private val prRows: StateFlow<List<com.exponential.app.data.db.PullRequestEntity>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PullRequestEntity>()) { it.pullRequestDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** A Runs tab event: its switch, the queue's controls (a failure toasts),
+     *  else what it opens. */
+    fun onRunsEvent(name: String, context: kotlinx.serialization.json.JsonObject?, payload: kotlinx.serialization.json.JsonObject?): com.exponential.app.ui.ci.CiPageTarget? {
+        val value = (payload?.get("value") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+        when (name) {
+            com.exponential.app.domain.CiPageView.Events.TAB -> if (value in com.exponential.app.domain.CiPageView.REPO_TABS) _runsTab.value = value!!
+            com.exponential.app.domain.CiPageView.Events.QUEUE_MENU, com.exponential.app.domain.CiPageView.Events.RESUME ->
+                viewModelScope.ciQueueCommand(name, context, payload, auth.activeAccountId.value, pullRequestsApi) { _failure.value = it }
+            else -> return com.exponential.app.ui.ci.ciOpenTarget(name, context, payload, prRows.value)
+        }
+        return null
     }
 
     /** Owners own the default branch, the backups' Restore and the mirror. */

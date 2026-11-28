@@ -26,7 +26,7 @@ object RepoCi {
             "push" to "Push",
             "pull_request" to "Pull request",
             "tag" to "Tag",
-            "merge_train" to "Merge train",
+            "merge_train" to "Merge queue",
             "manual" to "Manual",
         )
 
@@ -34,7 +34,7 @@ object RepoCi {
             const val SECTION = "CI"
             const val NO_PIPELINE = "No runs yet. Add .exponential/ci.json to run CI here."
             const val REQUIRED_LABEL = "Required checks"
-            const val REQUIRED_DESCRIPTION = "Checks that must pass before the merge train lands a pull request."
+            const val REQUIRED_DESCRIPTION = "Checks that must pass before the merge queue lands a pull request."
             const val REQUIRED_PLACEHOLDER = "Check name"
         }
 

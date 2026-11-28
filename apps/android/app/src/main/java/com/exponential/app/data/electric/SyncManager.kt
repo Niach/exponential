@@ -38,6 +38,8 @@ import com.exponential.app.data.db.ComposerDraftEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestCheckEntity
 import com.exponential.app.data.db.CiJobEntity
+import com.exponential.app.data.db.MergeTrainEntity
+import com.exponential.app.data.db.MergeTrainEventEntity
 import com.exponential.app.data.db.CiRunEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
@@ -439,6 +441,8 @@ class SyncManager @Inject constructor(
         val pullRequestCheckDao = db.pullRequestCheckDao()
         val ciRunDao = db.ciRunDao()
         val ciJobDao = db.ciJobDao()
+        val mergeTrainDao = db.mergeTrainDao()
+        val mergeTrainEventDao = db.mergeTrainEventDao()
         val sessionReadDao = db.sessionReadDao()
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
@@ -729,6 +733,27 @@ class SyncManager @Inject constructor(
                 onInsert = { ciJobDao.upsert(it) },
                 onDelete = { ciJobDao.deleteById(it.id) },
                 onRefetch = { ciJobDao.clear() },
+            ),
+            // #EXP-2214 (ci-page.json MERGE QUEUE TAB): the merge queue's runs
+            // and history, member-only by team. Optional: a server without
+            // the shapes 404s here alone.
+            launchShape(
+                shape = "merge_trains", path = "/api/shapes/merge-trains", tableName = "merge_trains",
+                serializer = MergeTrainEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("merge_trains", optional = true),
+                onInsert = { mergeTrainDao.upsert(it) },
+                onDelete = { mergeTrainDao.deleteById(it.id) },
+                onRefetch = { mergeTrainDao.clear() },
+            ),
+            launchShape(
+                shape = "merge_train_events", path = "/api/shapes/merge-train-events", tableName = "merge_train_events",
+                serializer = MergeTrainEventEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("merge_train_events", optional = true),
+                onInsert = { mergeTrainEventDao.upsert(it) },
+                onDelete = { mergeTrainEventDao.deleteById(it.id) },
+                onRefetch = { mergeTrainEventDao.clear() },
             ),
             // EXP-1323: the viewer's read marks — static per user.
             launchShape(
