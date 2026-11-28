@@ -417,6 +417,9 @@ interface CallerSession {
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
+/** What `session_self {op: "quiet"}` answers: the turn is over. */
+export const QUIET_RESULT = `Turn ended quietly. Do not call more tools or write text.`
+
 function noSessionMessage(tool: string, param?: string): string {
   return `No session: ${tool} ${param ? `needs ${param} outside` : `only works inside`} a session started by the Exponential launcher (missing X-Exp-Session-Id).`
 }
@@ -2908,7 +2911,10 @@ export function registerExponentialTools(
   // event). The desktop lists `exponential_session_self` in Claude Code's
   // CLAUDE_CODE_TERMINAL_MCP_TOOLS, so a turn that called it may end with no
   // text: no "[Your previous response had no visible output…]" nudge, no
-  // filler reply. It writes nothing.
+  // filler reply, and its PostToolUse hook ends the turn right after this
+  // result. It writes nothing. The answer says the turn is OVER: a bare
+  // `{"ok": true}` read as "carry on" (quiet again, or the JSON echoed back
+  // as the reply).
   if (gates.inSession) {
     server.registerTool(
       `exponential_sessions_quiet`,
@@ -2918,7 +2924,7 @@ export function registerExponentialTools(
       },
       async () => {
         if (!sessionId) return err(new Error(noSessionMessage(`exponential_sessions_quiet`)))
-        return ok({ ok: true })
+        return { content: [{ type: `text` as const, text: QUIET_RESULT }] }
       }
     )
   }

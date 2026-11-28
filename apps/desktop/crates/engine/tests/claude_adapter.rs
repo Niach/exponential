@@ -1474,59 +1474,100 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
     assert_eq!(interrupt["request"]["cancel_queued"], serde_json::json!(true));
 }
 
-/// #EXP-1828 regression (FEED-240): a team agent answered a routine event
-/// with `quiet`, got re-woken without a new message, and answered `quiet`
-/// again, 17 times. The fourth `quiet` in a row since the prompt
-/// (`QUIET_LOOP`) interrupts the turn itself: it settles as an ordinary end
-/// (no Stop banner), and the interrupt keeps whatever the CLI holds queued.
+/// #EXP-1828 regression (FEED-240, and Danny's "the harness wakes you up
+/// until you talk"): a team agent answered a tick with `quiet`, took the
+/// bare `{"ok": true}` as "carry on" and said `quiet` again and again, until
+/// the device's loop guard interrupted it (the CLI words that as "the user
+/// doesn't want to proceed"), a device note landed as the member's message
+/// and the CLI's "no visible output" nudge got a filler reply. Quiet now
+/// ends the turn in code: the `PostToolUse` hook answers the first `quiet`
+/// with `continue: false` and the CLI stops right after its result. The
+/// fixture's model keeps calling `quiet` (then gets nudged into filler) if
+/// the hook lets it go on (`after-answer1.jsonl`); the stopped branch
+/// (`after-stop1.jsonl`) is the real CLI 2.1.308's, captured 2026-11-28:
+/// `terminal_reason: hook_stopped`.
 #[tokio::test]
-async fn a_quiet_loop_without_a_new_message_ends_the_turn() {
+async fn quiet_ends_the_turn_after_its_result_with_no_loop_nudge_or_interrupt() {
     let _session = one_session_at_a_time();
     let work = workdir("quiet-loop");
-    let adapter = ClaudeAgent::new(spec("quiet-loop", &work.0, false)).expect("the adapter builds");
-    let stop_reason = Client
-        .v1()
-        .name("exp746-test-client")
-        .on_receive_notification(
-            async move |_notification: SessionNotification, _cx| Ok(()),
-            on_receive_notification!(),
-        )
-        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
-            cx.send_request(
-                InitializeRequest::new(ProtocolVersion::V1)
-                    .client_capabilities(engine::client_capabilities()),
-            )
-            .block_task()
-            .await?;
-            let session = cx
-                .send_request(NewSessionRequest::new(std::env::temp_dir()))
-                .block_task()
-                .await?;
-            // The fixture's turn carries no `result`: only the adapter's own
-            // interrupt ends it.
-            let response = cx
-                .send_request(PromptRequest::new(
-                    session.session_id.clone(),
-                    vec![ContentBlock::Text(TextContent::new("Dismissed: the ask card."))],
-                ))
-                .block_task()
-                .await?;
-            Ok::<_, Error>(response.stop_reason)
-        })
-        .await
-        .expect("the connection runs cleanly");
-    assert_eq!(stop_reason, StopReason::EndTurn);
-    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
-        .expect("the fake logged stdin")
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect();
-    let interrupts: Vec<&Value> = stdin
+    let run = drive(
+        "quiet-loop",
+        &work.0,
+        "Schedule `*/30 * * * *` fired.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let hook_answers: Vec<&Value> = run
+        .stdin
         .iter()
-        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .filter(|line| {
+            line["type"] == serde_json::json!("control_response")
+                && line["response"]["request_id"] == serde_json::json!("hook-1")
+        })
         .collect();
-    assert_eq!(interrupts.len(), 1, "one interrupt for the repeated quiet");
-    assert_eq!(interrupts[0]["request"]["cancel_queued"], serde_json::json!(false));
+    assert_eq!(hook_answers.len(), 1, "the quiet hook is answered once: {:?}", run.stdin);
+    assert_eq!(hook_answers[0]["response"]["response"]["continue"], serde_json::json!(false));
+    let interrupts =
+        run.stdin.iter().filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt")).count();
+    assert_eq!(interrupts, 0, "the device never interrupts a quiet turn");
+    let shape = run.shape();
+    let quiet_calls = shape.iter().filter(|row| row.starts_with("tool:")).count();
+    assert_eq!(quiet_calls, 1, "one quiet, no loop: {shape:?}");
+    assert!(!shape.iter().any(|row| row.starts_with("agent:")), "no text at all: {shape:?}");
+    assert!(!shape.iter().any(|row| row.starts_with("user:")), "no injected line: {shape:?}");
+}
+
+/// Any other tool's `PostToolUse` lets the turn go on.
+#[tokio::test]
+async fn another_tools_hook_lets_the_turn_continue() {
+    let _session = one_session_at_a_time();
+    let work = workdir("hook-other");
+    let scenario = work.0.join("scenario");
+    std::fs::create_dir_all(&scenario).expect("the scenario dir");
+    let fixture = Path::new(FIXTURES).join("quiet-loop");
+    let swap = |name: &str| {
+        let text = std::fs::read_to_string(fixture.join(name)).expect("the fixture");
+        std::fs::write(scenario.join(name), text.replace(r#""tool_input":{"op":"quiet"}"#, r#""tool_input":{"op":"suggest"}"#))
+            .expect("the copy");
+    };
+    swap("turn1.jsonl");
+    swap("after-stop1.jsonl");
+    swap("after-answer1.jsonl");
+    std::fs::copy(Path::new(FIXTURES).join("initialize.jsonl"), work.0.join("initialize.jsonl"))
+        .expect("the initialize answer");
+    let run = drive_at(&scenario, &work.0, "Schedule `*/30 * * * *` fired.", false, reject_all(), cancel_elicitations()).await;
+    let answer = run
+        .stdin
+        .iter()
+        .find(|line| line["response"]["request_id"] == serde_json::json!("hook-1"))
+        .expect("the hook was answered");
+    assert_eq!(answer["response"]["response"]["continue"], serde_json::json!(true));
+}
+
+/// Claude Code nudges a turn that ended with no text ("[Your previous
+/// response had no visible output. Please continue and produce a
+/// user-visible response.]"). On a team agent's tick silence IS the answer:
+/// the filler the nudge forces ("Nothing new since the last update.") never
+/// reaches the chat. A person's own message keeps whatever follows.
+#[tokio::test]
+async fn the_nudged_filler_of_a_tick_stays_off_the_chat() {
+    let _session = one_session_at_a_time();
+    let work = workdir("tick-nudge");
+    let run = drive("tick-nudge", &work.0, "Schedule `*/30 * * * *` fired.", false, reject_all(), cancel_elicitations()).await;
+    let shape = run.shape();
+    assert!(!shape.iter().any(|row| row.starts_with("agent:")), "no filler on a tick: {shape:?}");
+    assert!(!shape.iter().any(|row| row.contains("no visible output")), "the nudge is no row: {shape:?}");
+
+    let person = workdir("tick-nudge-person");
+    let run = drive("tick-nudge", &person.0, "How is the build going?", false, reject_all(), cancel_elicitations()).await;
+    assert!(
+        run.shape().iter().any(|row| row == "agent:Nothing new since the last update."),
+        "a person's turn keeps its reply: {:?}",
+        run.shape()
+    );
 }
 
 /// #FEED-274 regression, measured on a worker moved to another device

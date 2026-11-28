@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-28-quiet-check-ins`,
+    date: `2026-11-28`,
+    title: `Quiet check-ins stay quiet`,
+    summary: `A team agent's check-in with nothing new now ends right away: no repeated tries, no note in your name and no filler reply in the chat.`,
+    body: `- **Quiet ends the turn**: when an agent has nothing to say, its turn stops right there, every time.
+- **No filler**: a scheduled or event check-in is never pushed into a reply like "Nothing new since the last update."
+- **No notes in your name**: a note the device hands the agent is no longer shown as your own message.
+- **No echoed results**: a reply that only repeats what a tool returned is not posted.`,
+  },
+  {
     id: `2026-11-27-desktop-cli-0-14-187-ede-0-2-41`,
     date: `2026-11-27`,
     title: `Linux AppImage on older distros, and a fresh Exponential Desktop`,
