@@ -27,6 +27,10 @@ use crate::paint::parts::{part_visual, px_prop, spacing, theme_color};
 use crate::paint::PaintStyle;
 use crate::text;
 
+/// #PERF-16: how far past a windowed List's viewport a row still builds
+/// (an overflowing shadow or focus ring of the row at the edge).
+const LIST_CULL_MARGIN: f32 = 16.0;
+
 /// #EXP-2045: how soon a host's popup window draws again while something in
 /// the surface moves (its enter, a hover's transition).
 const HOSTED_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
@@ -690,10 +694,22 @@ impl SurfaceView {
         let mut members = Vec::new();
         let pins = n.children.iter().any(|c| self.sticky.contains_key(c));
         let window_band = self.code_block_window(index, n);
+        let cull = self.list_cull_band(index);
+        let keep = if cull.is_some() { self.cull_keepers(index) } else { Vec::new() };
         for &c in &n.children {
             let Some(child) = self.cache.node(c) else { continue };
             if child.hidden || child.layer != layer {
                 continue;
+            }
+            // #PERF-16: a windowed List that scrolls itself builds only the
+            // rows its viewport (± a shadow margin) shows; the core's
+            // overscan rows stay laid out, unbuilt.
+            if let Some((lo, hi, horizontal)) = cull {
+                let f = self.frames.get(c as usize).copied().unwrap_or_default();
+                let (a, b) = if horizontal { (f.x, f.x + f.w) } else { (f.y, f.y + f.h) };
+                if (b < lo || a > hi) && !self.sticky.contains_key(&c) && !keep.contains(&c) {
+                    continue;
+                }
             }
             // #EXP-2204 §6: a self-scrolling CodeBlock past `windowThreshold`
             // lines builds only the lines in view ± `windowOverscan`.
@@ -717,6 +733,39 @@ impl SurfaceView {
         }
         if !members.is_empty() {
             out.push(super::pinned::PinnedStack::new(members).into_any_element());
+        }
+        out
+    }
+
+    /// #PERF-16: the band (surface space, unscrolled, on the list's axis)
+    /// a windowed List that scrolls itself builds its rows in: its viewport
+    /// ± `LIST_CULL_MARGIN` (`None` = build every row).
+    fn list_cull_band(&self, index: u32) -> Option<(f32, f32, bool)> {
+        let l = self.lists.get(&index).filter(|l| l.windowed)?;
+        let s = self.scrolls.get(&index)?;
+        let f = self.frames.get(index as usize).copied().unwrap_or_default();
+        // Children paint at `offset - end slack` (an end-anchored List).
+        let slack = if l.horizontal { 0.0 } else { self.end_slack(index) };
+        let (start, size, offset) = if l.horizontal { (f.x, f.w, s.offset_x) } else { (f.y - slack, f.h, s.offset_y) };
+        let lo = start + offset - LIST_CULL_MARGIN;
+        Some((lo, lo + size + 2.0 * LIST_CULL_MARGIN, l.horizontal))
+    }
+
+    /// The children of `index` a cull never drops: the one holding the
+    /// focused node, a dragged row's.
+    fn cull_keepers(&self, index: u32) -> Vec<u32> {
+        let mut out = Vec::new();
+        let starts = self.focused.into_iter().chain(self.list_paint.iter().map(|p| p.row));
+        for start in starts {
+            let mut at = Some(start);
+            while let Some(i) = at {
+                let Some(n) = self.cache.node(i) else { break };
+                if n.parent == Some(index) {
+                    out.push(i);
+                    break;
+                }
+                at = n.parent;
+            }
         }
         out
     }
