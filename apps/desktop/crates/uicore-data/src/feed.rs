@@ -92,6 +92,8 @@ pub fn shell_feed(state: &ShellState, apps: &[StartMenuApp], favourites: &[Strin
             "hover": state.taskbar.hover,
             "previews": state.taskbar.previews,
             "menu": state.taskbar.menu,
+            // #EDE-276: Panel › Group windows by application.
+            "grouped": state.taskbar.grouped,
             "buttons": taskbar_buttons(state),
         },
         "startMenu": {

@@ -58,6 +58,7 @@ $/share/account = ""
 $/share/name = ""
 $/sharing = {state: "idle", accounts: [], summary: "", progress: 0, label: "", teamName: "", error: ""}
 $/shell/switcher/current = {kind: "local", id: "local", name: "Local"}
+$/shell/taskbar/grouped = true
 $/shell/workspaces/rows = []
 $/signOut/open = false
 $/user/login = ""
@@ -220,7 +221,8 @@ panel_autohide = Row(title="Auto-hide", value="Off", style={paddingLeft: "$spaci
 panel_windows = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm"}, children=[panel_windows_t, panel_windows_f])
 panel_windows_t = Text(text="Window list", variant="title")
 panel_windows_f = Box(style={display: "flex", flexDirection: "column", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg", backgroundColor: "$color.background", overflow: "hidden"}, children=[panel_group])
-panel_group = Row(title="Group windows by application", value="On", style={paddingLeft: "$spacing.md", paddingRight: "$spacing.md", minHeight: 52})
+panel_group = SettingsRow(label="Group windows by application", stackBelow="never", style={paddingLeft: "$spacing.md", paddingRight: "$spacing.md", minHeight: 52}, children=[panel_group_c])
+panel_group_c = Switch(label="", name="grouped", checked=$/shell/taskbar/grouped, on={change: ede_settings(key="grouped", page="panel", value=$/shell/taskbar/grouped)})
 panel_sessions = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm"}, children=[panel_sessions_t, panel_sessions_f])
 panel_sessions_t = Text(text="Session area", variant="title")
 panel_sessions_f = Box(style={display: "flex", flexDirection: "column", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg", backgroundColor: "$color.background", overflow: "hidden"}, children=[panel_session_area])

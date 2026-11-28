@@ -46,6 +46,29 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-28-ede-taskbar-ungrouped",
+    date: "2026-11-28",
+    title: "One taskbar button per window, if you like",
+    summary: "Exponential Desktop: System Settings › Panel can turn off \"Group windows by application\" to give every window its own taskbar button, a raised window stops flashing at once, and hovering an app with no windows shows no empty preview.",
+    body: r##"- **Group windows by application**: switch it off in System Settings › Panel and each window gets its own button, next to its app's other windows; a pinned app without a window keeps its launcher. The choice is remembered.
+- **Flashing stops when you answer**: when one of an app's windows comes to the front, its taskbar button stops flashing, as in Cinnamon.
+- **No empty previews**: hovering an app whose windows are not open (yet) shows no blank thumbnail box."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_392: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-28-readable-computer-use-steps",
+    date: "2026-11-28",
+    title: "Readable computer-use steps",
+    summary: "A computer-use session's steps now read as words everywhere you see them: \"Taking screenshot\", \"Typed\", \"Clicked\" instead of tool names like mcp__computer__type.",
+    body: r##"- **Readable steps**: screenshots, clicks, typing, keys, scrolling, dragging, windows, the clipboard and app launches each read as a short caption, in the tense the step is in.
+- **Everywhere**: the computer-use tray, the session area and the transcript on the web, desktop, iPhone and Android read the same words."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_391: ChangelogEntry = ChangelogEntry {
     id: "2026-11-28-desktop-cli-0-14-188",
     date: "2026-11-28",
     title: "Quiet check-ins on your machines, and the same ⌘ everywhere",

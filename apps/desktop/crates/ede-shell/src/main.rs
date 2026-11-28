@@ -319,6 +319,25 @@ impl Notifications {
 /// What the hosted-popups hook reports: a document's hosted layers.
 type HostedReport = (String, Vec<Layer>);
 
+/// #EDE-257: grouped-window-list's hover menu opens only over a button
+/// with windows (menus.js HoverMenuController.open: a pinned app without
+/// one shows no thumbnails): a `previews.<key>` Popover of a windowless
+/// button is never put up (after a holder restart, a hover before its
+/// windows were back showed an empty box). Its windows arriving while the
+/// pointer stays lay it out again, and the next report opens it.
+fn without_windowless_previews(model: &uicore_model::ShellState, layers: Vec<Layer>) -> Vec<Layer> {
+    layers
+        .into_iter()
+        .filter(|l| !(l.hosted && l.kind == "Popover" && l.owner.strip_prefix("previews.").is_some_and(|key| uicore_model::button_windows(model, &instance_key(key)).1.is_empty())))
+        .collect()
+}
+
+/// A template instance's key from its id segment (eui-core's
+/// `instance_segment`: `.` as `~1`, `~` as `~0`).
+fn instance_key(segment: &str) -> String {
+    segment.replace("~1", ".").replace("~0", "~")
+}
+
 /// The last of each surface's hosted-popup reports, in arrival order of
 /// those last ones.
 /// #EDE-252: the hover previews (`previews…` Popovers) open while a Menu
@@ -376,8 +395,8 @@ struct Shell {
     first_output: Option<(i32, i32, i32, i32)>,
     /// #EDE-250: a Display page change waiting for Keep.
     display_confirm: display_confirm::Confirm,
-    /// #EDE-255: since when each urgent group asks for attention (its
-    /// button flashes, shell.json's urgentLit), and a flash tick runs.
+    /// #EDE-255: since when each urgent button (by its key) asks for
+    /// attention (it flashes, shell.json's urgentLit), and a flash tick runs.
     urgent_since: HashMap<String, Instant>,
     flash_ticking: bool,
     /// #EDE-225: every person output's x, y, width, height: the switcher
@@ -586,8 +605,8 @@ impl HostPlugin for Host {
         // #EDE-254: a group button's middle button (Box auxPress {button}):
         // grouped-window-list's default closes the last focused window.
         if event.name == "ede_taskbar_input" && allowed(&self.shell.borrow(), &event.surface_id, "ede_taskbar_input") {
-            if let (Some(app), Some("middle")) = (event.context["app"].as_str(), event.context["button"].as_str()) {
-                let close = uicore_model::taskbar_middle(&self.shell.borrow().model, app);
+            if let (Some(key), Some("middle")) = (button_key(&event.context), event.context["button"].as_str()) {
+                let close = uicore_model::taskbar_middle(&self.shell.borrow().model, key);
                 if let Some(uicore_model::TaskbarMiddle::Close { id }) = close {
                     if let Ok(id) = ede_protocol::WindowId::new(&id) {
                         with_ede(&self.shell, |ede| ede.close_window(id));
@@ -600,7 +619,7 @@ impl HostPlugin for Host {
         // a context, never a function's args, and a close ends the thumbnails.
         if event.name == "ede_previews" && allowed(&self.shell.borrow(), &event.surface_id, "ede_previews") {
             let shell = self.shell.clone();
-            let app = event.context["app"].as_str().map(String::from);
+            let app = button_key(&event.context).map(String::from);
             let open = event.context["open"].as_bool().unwrap_or(app.is_some());
             cx.defer(move |cx| previews_changed(&shell, app, open, cx));
             return;
@@ -932,12 +951,12 @@ impl HostPlugin for Host {
                 }
             }
             "ede_taskbar" => {
-                if let Some(app) = args.get("app").and_then(Value::as_str).map(String::from) {
-                    cx.defer(move |cx| taskbar_press(&shell, &app, cx));
+                if let Some(key) = button_key(args).map(String::from) {
+                    cx.defer(move |cx| taskbar_press(&shell, &key, cx));
                 }
             }
             "ede_taskbar_scroll" => {
-                let (app, direction) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("direction").and_then(Value::as_str).map(String::from));
+                let (app, direction) = (button_key(args).map(String::from), args.get("direction").and_then(Value::as_str).map(String::from));
                 if let (Some(app), Some(direction)) = (app, direction) {
                     let direction = if direction == "up" { uicore_model::ScrollDirection::Up } else { uicore_model::ScrollDirection::Down };
                     if let Some(TaskbarPress::Focus { id }) = uicore_model::taskbar_scroll(&self.shell.borrow().model, &app, direction) {
@@ -989,11 +1008,22 @@ impl HostPlugin for Host {
                 // A hover Popover's change as a function (a document from before
                 // #EDE-75; since #EDE-264 its `open {@path: open}` arrives from the
                 // change's payload): the event in `on_action` is the factory's.
-                let app = args.get("app").and_then(Value::as_str).map(String::from);
+                let app = button_key(args).map(String::from);
                 let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
                 cx.defer(move |cx| previews_changed(&shell, app, open, cx));
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
+            // #EDE-276: Panel › Group windows by application (grouped-window-list's
+            // group-apps), kept in the shell's own file like the pins.
+            "ede_settings" if args.get("page").and_then(Value::as_str) == Some("panel") && args.get("key").and_then(Value::as_str) == Some("grouped") => {
+                if let Some(grouped) = args.get("value").and_then(Value::as_bool) {
+                    cx.defer(move |cx| {
+                        dispatch(&shell, ShellEvent::TaskbarGrouped { grouped }, cx);
+                        settings::persist_shell(json!({"grouped": grouped}));
+                        urgent_flash(&shell, cx);
+                    });
+                }
+            }
             "ede_settings" => match settings_pages::handle(args) {
                 Ok(settings_pages::Handled::Applied { reload }) => {
                     if reload {
@@ -1109,7 +1139,7 @@ impl HostPlugin for Host {
                 if let Some(app) = app {
                     cx.defer(move |cx| {
                         let pinned = shell.borrow().model.taskbar.pinned.clone();
-                        dispatch(&shell, ShellEvent::TaskbarMove { app, before, after }, cx);
+                        dispatch(&shell, ShellEvent::TaskbarMove { key: app, before, after }, cx);
                         if shell.borrow().model.taskbar.pinned != pinned {
                             pins_persist(&shell);
                         }
@@ -1117,8 +1147,10 @@ impl HostPlugin for Host {
                 }
             }
             "ede_taskbar_menu" => {
-                let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
-                if let (Some(app), Some(value)) = (app, value) {
+                let (key, value) = (button_key(args).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
+                if let (Some(key), Some(value)) = (key, value) {
+                    // #EDE-276: the pin row pins the button's app.
+                    let app = uicore_model::button_windows(&self.shell.borrow().model, &key).0;
                     cx.defer(move |cx| match value.as_str() {
                         // #EDE-252: the menu's "Pinned to the taskbar" checkbox toggles.
                         "pin" if shell.borrow().model.taskbar.pinned.contains(&app) => {
@@ -1133,7 +1165,7 @@ impl HostPlugin for Host {
                             dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
                             pins_persist(&shell);
                         }
-                        other => taskbar_menu_pick(&shell, &app, other, cx),
+                        other => taskbar_menu_pick(&shell, &key, other, cx),
                     });
                 }
             }
@@ -1973,18 +2005,20 @@ fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
     if let Some(buttons) = value["taskbar"]["buttons"].as_array_mut() {
         for b in buttons {
             let app = b["app"].as_str().unwrap_or_default().to_string();
+            // #EDE-276: the button's key (its app while grouped, its window ungrouped).
+            let key = b["key"].as_str().unwrap_or_default().to_string();
             b["name"] = json!(app_name(shell, &app));
             b["icon"] = json!(app_icon(shell, &app));
             // #EDE-254: grouped-window-list's badges: the window count on a
             // group of two or more, the app's notification count.
             b["count"] = json!(b["windows"].as_array().map_or(0, Vec::len));
             b["notifications"] = json!(app_notifications(shell, &app));
-            b["menu"] = json!(uicore_model::taskbar_menu(&shell.model, &app, &taskbar_menu_context(shell, &app)));
+            b["menu"] = json!(uicore_model::taskbar_menu(&shell.model, &key, &taskbar_menu_context(shell, &app)));
             // #EDE-255: the demands-attention highlight, flashing first
             // (the goldens: lit for good).
-            let since = shell.urgent_since.get(&app);
+            let since = shell.urgent_since.get(&key);
             b["urgentLit"] = json!(since.is_some_and(|t| demo() || uicore_model::urgent_lit(t.elapsed().as_millis() as u64)));
-            if demo() && std::env::var("EDE_SHELL_DEMO_TASKBAR_MENU").is_ok_and(|open| open == app) {
+            if demo() && std::env::var("EDE_SHELL_DEMO_TASKBAR_MENU").is_ok_and(|open| open == key) {
                 b["menuOpen"] = json!(true);
             }
         }
@@ -2445,11 +2479,11 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
 fn urgent_flash(shell: &SharedShell, cx: &mut App) {
     let flashing = {
         let mut s = shell.borrow_mut();
-        let urgent: Vec<String> = uicore_model::taskbar_buttons(&s.model).into_iter().filter(|b| b.urgent).map(|b| b.app).collect();
-        s.urgent_since.retain(|app, _| urgent.contains(app));
+        let urgent: Vec<String> = uicore_model::taskbar_buttons(&s.model).into_iter().filter(|b| b.urgent).map(|b| b.key).collect();
+        s.urgent_since.retain(|key, _| urgent.contains(key));
         let now = Instant::now();
-        for app in urgent {
-            s.urgent_since.entry(app).or_insert(now);
+        for key in urgent {
+            s.urgent_since.entry(key).or_insert(now);
         }
         let flash_for = Duration::from_millis(5 * uicore_model::TASKBAR_FLASH_MS);
         let flashing = !demo() && s.urgent_since.values().any(|t| t.elapsed() < flash_for);
@@ -2489,7 +2523,7 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
         for e in uicore_data::workspace_events(&s.model, &workspaces) {
             s.model = reduce(&s.model, &e);
         }
-        for e in uicore_data::window_events(&s.model, &list) {
+        for e in uicore_data::window_events(&s.model, &s.windows, &list) {
             s.model = reduce(&s.model, &e);
         }
         let active = s.model.workspaces.active;
@@ -2550,10 +2584,13 @@ fn relaid(doc: &Document, header: SurfaceHeader) -> Option<Document> {
 
 /// Mint's click on a taskbar button: launch, or toggle the group's last
 /// focused window (#EDE-254; previews show on hover only).
-fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
-    let press = uicore_model::taskbar_press(&shell.borrow().model, app);
+fn taskbar_press(shell: &SharedShell, key: &str, cx: &mut App) {
+    let (press, app) = {
+        let s = shell.borrow();
+        (uicore_model::taskbar_press(&s.model, key), uicore_model::button_windows(&s.model, key).0)
+    };
     match press {
-        TaskbarPress::Launch => launch_or_own(shell, app, cx),
+        TaskbarPress::Launch => launch_or_own(shell, &app, cx),
         TaskbarPress::Focus { id } => {
             if let Ok(id) = ede_protocol::WindowId::new(&id) {
                 with_ede(shell, |ede| ede.focus(id));
@@ -2569,13 +2606,14 @@ fn taskbar_press(shell: &SharedShell, app: &str, cx: &mut App) {
 
 /// #EDE-254: a row of a group's menu (`uicore_model::taskbar_menu`'s values)
 /// on the group's last focused window, or the whole group.
-fn taskbar_menu_pick(shell: &SharedShell, app: &str, value: &str, cx: &mut App) {
-    let (last, group) = {
+fn taskbar_menu_pick(shell: &SharedShell, key: &str, value: &str, cx: &mut App) {
+    let (last, group, app) = {
         let s = shell.borrow();
-        let last = uicore_model::last_focused(&s.model, app).map(|w| w.id.clone());
-        let group: Vec<String> = s.model.windows.iter().filter(|w| w.app == app && w.workspace == s.model.workspaces.active).map(|w| w.id.clone()).collect();
-        (last, group)
+        let last = uicore_model::last_focused(&s.model, key).map(|w| w.id.clone());
+        let (app, windows) = uicore_model::button_windows(&s.model, key);
+        (last, windows.iter().map(|w| w.id.clone()).collect::<Vec<String>>(), app)
     };
+    let app = app.as_str();
     let id = |s: &str| ede_protocol::WindowId::new(s).ok();
     let last_id = last.as_deref().and_then(id);
     match value {
@@ -2671,7 +2709,7 @@ fn moved_into(from: (i32, i32, i32, i32), to: (i32, i32, i32, i32), w: (i32, i32
 /// The hover previews of a group: `/previews` lists its windows with live
 /// thumbnails while `app` is set.
 fn previews_set(shell: &SharedShell, app: Option<String>, cx: &mut App) {
-    dispatch(shell, ShellEvent::TaskbarPreviews { app }, cx);
+    dispatch(shell, ShellEvent::TaskbarPreviews { key: app }, cx);
     previews_refresh(shell);
     thumbnails_retarget(shell);
     refresh(shell, cx);
@@ -2711,14 +2749,14 @@ fn previews_refresh(shell: &SharedShell) {
 /// window wears its page's concept icon (`concept`, from the holder), any
 /// other window its app's icon.
 fn previews_feed(model: &ShellState, holder: &holder_windows::HolderWindows, icon: impl Fn(&str) -> String, thumbnail: impl Fn(&str) -> String) -> Value {
-    let Some(app) = model.taskbar.previews.clone() else {
+    let Some(key) = model.taskbar.previews.clone() else {
         return json!({"app": null, "windows": []});
     };
+    // #EDE-276: the button's windows (ungrouped, its one window).
+    let (app, shown) = uicore_model::button_windows(model, &key);
     let app_icon = icon(&app);
-    let windows: Vec<Value> = model
-        .windows
-        .iter()
-        .filter(|w| w.app == app && w.workspace == model.workspaces.active)
+    let windows: Vec<Value> = shown
+        .into_iter()
         .map(|w| {
             let page = holder.page(&w.app, &w.title);
             json!({
@@ -2735,7 +2773,7 @@ fn previews_feed(model: &ShellState, holder: &holder_windows::HolderWindows, ico
             })
         })
         .collect();
-    json!({"app": app, "windows": windows})
+    json!({"app": key, "windows": windows})
 }
 
 /// #EDE-239: Super+A and the taskbar's Assistant: the Assistant is ONE
@@ -3290,7 +3328,7 @@ fn taskbar_hotkey(shell: &SharedShell, index: usize, launch: bool, cx: &mut App)
         let next = if launch || button.windows.is_empty() {
             None
         } else if button.focused {
-            match uicore_model::taskbar_scroll(&s.model, &button.app, uicore_model::ScrollDirection::Down) {
+            match uicore_model::taskbar_scroll(&s.model, &button.key, uicore_model::ScrollDirection::Down) {
                 Some(TaskbarPress::Focus { id }) => Some(id),
                 _ => None,
             }
@@ -3425,8 +3463,8 @@ fn thumbnail_windows(s: &Shell) -> Vec<String> {
         s.model.windows.iter().map(|w| w.id.clone()).collect()
     } else if s.model.alt_tab.shown {
         uicore_model::alt_tab_order(&s.model)
-    } else if let Some(app) = s.model.taskbar.previews.as_deref() {
-        s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
+    } else if let Some(key) = s.model.taskbar.previews.as_deref() {
+        uicore_model::button_windows(&s.model, key).1.into_iter().map(|w| w.id.clone()).collect()
     } else {
         Vec::new()
     }
@@ -4119,6 +4157,13 @@ fn keyboard_pick(shell: &SharedShell, value: &str, cx: &mut App) {
     }
 }
 
+/// #EDE-276: the taskbar button an event or call names: its `key` (the
+/// factory taskbar's), else `app` (a document from before #EDE-276; while
+/// grouped the key is the app).
+fn button_key(args: &Value) -> Option<&str> {
+    args.get("key").or_else(|| args.get("app")).and_then(Value::as_str)
+}
+
 /// The taskbar's pins, kept in the shell's own file.
 fn pins_persist(shell: &SharedShell) {
     let pinned = shell.borrow().model.taskbar.pinned.clone();
@@ -4482,6 +4527,9 @@ fn main() {
         for app in saved.get("pinned").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             model = reduce(&model, &ShellEvent::TaskbarPin { app: pinned_as(app, &standalone) });
         }
+        // #EDE-276: Group windows by application (on unless the file says off; the demo: EDE_SHELL_DEMO_UNGROUPED).
+        let grouped = if demo { std::env::var_os("EDE_SHELL_DEMO_UNGROUPED").is_none() } else { saved.get("grouped").and_then(Value::as_bool).unwrap_or(true) };
+        model = reduce(&model, &ShellEvent::TaskbarGrouped { grouped });
         // The switcher: the Local desktops and the accounts' teams, the
         // index's current desktop selected.
         let entries = workspaces.entries();
@@ -4776,6 +4824,7 @@ fn main() {
                 // reports itself empty, then again once its data is in; the
                 // window opens at the second size instead of the first.
                 for (document, layers) in latest_reports(hosted_rx.try_iter()) {
+                    let layers = without_windowless_previews(&s.borrow().model, layers);
                     cx.update(|cx| s.borrow_mut().surfaces.sync_hosted(&document, &layers, cx));
                     // #EDE-252: a menu opening closes the hover previews (Cinnamon's
                     // right click hides the thumbnails); with the shell free (#EDE-75).
@@ -5637,6 +5686,22 @@ mod previews {
         assert_eq!(previews_feed(&ShellState::default(), &holder, |_| String::new(), |_| String::new())["windows"], serde_json::json!([]));
     }
 
+    /// #EDE-276: ungrouped, a window's button previews that window alone.
+    #[test]
+    fn an_ungrouped_buttons_previews_are_its_one_window() {
+        use uicore_model::{reduce, ShellEvent, ShellState, ShellWindow};
+        let window = |id: &str| ShellWindow { id: id.into(), app: "nemo".into(), title: format!("Files {id}"), focused: false, workspace: 0, minimized: false, urgent: false };
+        let mut model = ShellState::default();
+        model.windows = vec![window("w1"), window("w2")];
+        model = reduce(&model, &ShellEvent::TaskbarGrouped { grouped: false });
+        model = reduce(&model, &ShellEvent::TaskbarPreviews { key: Some("w2".into()) });
+        let feed = previews_feed(&model, &Default::default(), |app| format!("icon:{app}"), |id| format!("thumb:{id}"));
+        let windows = feed["windows"].as_array().unwrap();
+        assert_eq!(windows.iter().map(|w| w["id"].as_str().unwrap()).collect::<Vec<_>>(), ["w2"]);
+        assert_eq!(windows[0]["icon"], "icon:nemo");
+        assert_eq!(feed["app"], "w2", "the button's key");
+    }
+
     /// #EDE-252: a menu of the taskbar opening closes the hover previews.
     #[test]
     fn a_menu_closes_the_hover_previews() {
@@ -5644,6 +5709,20 @@ mod previews {
         let previews = layer("Popover", "previews.nemo");
         assert!(previews_under_a_menu(&[previews.clone()]).is_empty(), "previews alone stay");
         assert_eq!(previews_under_a_menu(&[previews, layer("Menu", "group.nemo"), layer("Popover", "agent_spaces")]), vec!["previews.nemo".to_string()]);
+    }
+
+    /// #EDE-257: a windowless button's hover shows no empty thumbnail box;
+    /// once its windows are back it does.
+    #[test]
+    fn a_windowless_buttons_previews_never_open_empty() {
+        use uicore_model::{reduce, ShellEvent, ShellState};
+        let layer = |kind: &str, owner: &str| -> eui_core::surface::Layer { serde_json::from_value(serde_json::json!({"layer": 1, "kind": kind, "owner": owner, "root": 0, "hosted": true, "position": "top", "class": "overlay", "frames": []})).unwrap() };
+        let owners = |layers: Vec<eui_core::surface::Layer>| layers.into_iter().map(|l| l.owner).collect::<Vec<_>>();
+        let mut model = reduce(&ShellState::default(), &ShellEvent::TaskbarPin { app: "at.exponential".into() });
+        let report = || vec![layer("Popover", "previews.at~1exponential"), layer("Menu", "group.nemo")];
+        assert_eq!(owners(super::without_windowless_previews(&model, report())), ["group.nemo"], "the holder restarting: no windows yet");
+        model = reduce(&model, &ShellEvent::WindowOpened { id: "w1".into(), app: "at.exponential".into(), title: "Home".into(), workspace: 0 });
+        assert_eq!(owners(super::without_windowless_previews(&model, report())), ["previews.at~1exponential", "group.nemo"]);
     }
 
     /// #EDE-89: a press on Start while a preview is open: the compositor's

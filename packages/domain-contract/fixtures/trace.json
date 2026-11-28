@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1324: THE Trace, shadcn's Trace (radix-nova) as ONE look x4. Web = the @exp/ui primitive (`Trace`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`); desktop gpui, iOS ExpUI and Android Compose rebuild it pixel-exact from `geometry` (px = pt = dp). A LINE = [icon][gap][title][gap][description] in ONE row of `lineHeight`: icon box `icon` square (glyph fills it, muted-foreground), title truncates with an ellipsis (muted-foreground; hover/pressed foreground when the line is interactive), description shrink-free muted-foreground at `descriptionAlpha` with tabular figures. status `running` paints the TITLE with the design-tokens `motion.shimmer` (never the icon; reduce motion = plain text); `error` paints icon + title + description in destructive (rose); `pending` paints the whole line at `pendingOpacity`. A COLLAPSIBLE line appends, `chevronGap` after the line, the `trace-chevron` glyph in an `icon` box, rotated 90deg (pointing down) while open, rotating over motion `standard`; the whole row is the toggle. Its CONTENT sits `contentTop` below the row and `contentBottom` above whatever follows, as a column whose left rail is a `railWidth` hairline (the border colour) at x = `railInset` (= icon/2 - 1, centred under the icon), the children inset `contentInset` from the row's left edge and `contentTrailing` from its right; text inside defaults to the line font in muted-foreground. Lines stacked in ONE `Trace` sit `lineGap` apart. Sizes: `default` (the styleguide/eUI default, text-sm) and `sm` (the session transcript + issue activity: the transcript tool scale). Tool OUTPUT inside a tool line's content = the CodeBlock primitive at size sm with the `Output` title and the copy action (`execute` output: language `ansi`, the Terminal pattern; a failed call: the destructive variant); a subagent line's duration paints as the outline Badge after the title instead of muted text. `cases` lock the pure models in src/trace.ts (`traceTool`, `traceReasoning`, `traceSubagent`, `parseTestResults` + `traceFailedTests`); mirrors compare the WHOLE expected object.",
+  "$comment": "EXP-1324: THE Trace, shadcn's Trace (radix-nova) as ONE look x4. Web = the @exp/ui primitive (`Trace`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`); desktop gpui, iOS ExpUI and Android Compose rebuild it pixel-exact from `geometry` (px = pt = dp). A LINE = [icon][gap][title][gap][description] in ONE row of `lineHeight`: icon box `icon` square (glyph fills it, muted-foreground), title truncates with an ellipsis (muted-foreground; hover/pressed foreground when the line is interactive), description shrink-free muted-foreground at `descriptionAlpha` with tabular figures. status `running` paints the TITLE with the design-tokens `motion.shimmer` (never the icon; reduce motion = plain text); `error` paints icon + title + description in destructive (rose); `pending` paints the whole line at `pendingOpacity`. A COLLAPSIBLE line appends, `chevronGap` after the line, the `trace-chevron` glyph in an `icon` box, rotated 90deg (pointing down) while open, rotating over motion `standard`; the whole row is the toggle. Its CONTENT sits `contentTop` below the row and `contentBottom` above whatever follows, as a column whose left rail is a `railWidth` hairline (the border colour) at x = `railInset` (= icon/2 - 1, centred under the icon), the children inset `contentInset` from the row's left edge and `contentTrailing` from its right; text inside defaults to the line font in muted-foreground. Lines stacked in ONE `Trace` sit `lineGap` apart. Sizes: `default` (the styleguide/eUI default, text-sm) and `sm` (the session transcript + issue activity: the transcript tool scale). Tool OUTPUT inside a tool line's content = the CodeBlock primitive at size sm with the `Output` title and the copy action (`execute` output: language `ansi`, the Terminal pattern; a failed call: the destructive variant); a subagent line's duration paints as the outline Badge after the title instead of muted text. `cases` lock the pure models in src/trace.ts (`traceTool`, `traceReasoning`, `traceSubagent`, `parseTestResults` + `traceFailedTests`); mirrors compare the WHOLE expected object. EDE-271: a computer-server tool (contract `computerToolDisplay`: EXACTLY its prefix `mcp__computer__` + a row, trimmed) reads its contract caption whatever its kind: progressive while running, done once settled or failed, the `tool` icon, the detail as the description; another server's same-named tool stays raw.",
   "geometry": {
     "default": {
       "fontSize": 14,
@@ -333,6 +333,102 @@
         "expected": {
           "icon": "trace-tool",
           "title": "Tool",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "EDE-271: a running computer screenshot reads its caption",
+        "input": {
+          "toolKind": "other",
+          "name": "mcp__computer__screenshot",
+          "detail": null,
+          "settled": false,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Taking screenshot",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "EDE-271: a settled computer type keeps its detail",
+        "input": {
+          "toolKind": "other",
+          "name": "mcp__computer__type",
+          "detail": "hello",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Typed",
+          "description": "hello",
+          "status": null
+        }
+      },
+      {
+        "name": "EDE-271: a failed computer click keeps its past tense",
+        "input": {
+          "toolKind": "other",
+          "name": "  mcp__computer__left_click ",
+          "detail": null,
+          "settled": true,
+          "failed": true
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Clicked",
+          "description": null,
+          "status": "error"
+        }
+      },
+      {
+        "name": "EDE-271: a computer row wins over the kind's verbs",
+        "input": {
+          "toolKind": "read",
+          "name": "mcp__computer__read_clipboard",
+          "detail": null,
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Read clipboard",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "EDE-271: another server's type stays raw",
+        "input": {
+          "toolKind": "other",
+          "name": "mcp__other__type",
+          "detail": null,
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "mcp__other__type",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "EDE-271: a bare type stays raw",
+        "input": {
+          "toolKind": "other",
+          "name": "type",
+          "detail": null,
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "type",
           "description": null,
           "status": null
         }

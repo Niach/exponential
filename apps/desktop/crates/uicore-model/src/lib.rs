@@ -95,12 +95,22 @@ pub struct Workspaces {
     pub count: usize,
 }
 
+/// `hover`, `previews` and `menu` name a button by its key
+/// ([`TaskbarButton::key`]: its app while grouped).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Taskbar {
     pub pinned: Vec<String>,
     pub hover: Option<String>,
     pub previews: Option<String>,
     pub menu: Option<String>,
+    /// #EDE-276: grouped-window-list's group-apps (absent while true, the
+    /// default); false = one button per window.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub grouped: bool,
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,7 +160,7 @@ impl Default for ShellState {
             windows: Vec::new(),
             mru: Vec::new(),
             workspaces: Workspaces { active: 0, count: 1 },
-            taskbar: Taskbar { pinned: Vec::new(), hover: None, previews: None, menu: None },
+            taskbar: Taskbar { pinned: Vec::new(), hover: None, previews: None, menu: None, grouped: true },
             start_menu: StartMenu { open: false, query: String::new(), category: String::new() },
             alt_tab: AltTab::closed(),
         }
@@ -205,20 +215,23 @@ pub enum ShellEvent {
     /// #EDE-255: a button dragged before or after another (the List's `move`).
     #[serde(rename = "taskbar.move")]
     TaskbarMove {
-        app: String,
+        key: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         before: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<String>,
     },
     #[serde(rename = "taskbar.hover")]
-    TaskbarHover { app: String },
+    TaskbarHover { key: String },
     #[serde(rename = "taskbar.unhover")]
     TaskbarUnhover,
     #[serde(rename = "taskbar.previews")]
-    TaskbarPreviews { app: Option<String> },
+    TaskbarPreviews { key: Option<String> },
     #[serde(rename = "taskbar.menu")]
-    TaskbarMenu { app: Option<String> },
+    TaskbarMenu { key: Option<String> },
+    /// #EDE-276: System Settings › Panel › Group windows by application.
+    #[serde(rename = "taskbar.grouped")]
+    TaskbarGrouped { grouped: bool },
     #[serde(rename = "startMenu.toggle")]
     StartMenuToggle,
     #[serde(rename = "startMenu.open")]
@@ -251,9 +264,38 @@ pub enum ShellEvent {
 }
 
 /// #EDE-255: grouped-window-list's drag (applet.js handleDragOver /
-/// moveLauncher): pinned and unpinned buttons stay apart; a pinned one
-/// moves in the pin order, a running one moves its windows as one block.
-fn move_button(s: &mut ShellState, app: &str, before: Option<&str>, after: Option<&str>) {
+/// moveLauncher): keys name buttons; #EDE-276: a window's button dragged
+/// onto another of its app (ungrouped) moves that window in `windows`,
+/// any other pair moves by apps ([`move_app`]).
+fn move_button(s: &mut ShellState, key: &str, before: Option<&str>, after: Option<&str>) {
+    let Some(target) = before.or(after) else { return };
+    if target == key {
+        return;
+    }
+    let buttons = taskbar_buttons(s);
+    let (Some(src), Some(dst)) = (buttons.iter().find(|b| b.key == key), buttons.iter().find(|b| b.key == target)) else { return };
+    if !s.taskbar.grouped && src.app == dst.app {
+        if src.windows.is_empty() || dst.windows.is_empty() {
+            return;
+        }
+        let Some(moved) = s.windows.iter().find(|w| w.id == src.key).cloned() else { return };
+        let mut rest: Vec<ShellWindow> = s.windows.iter().filter(|w| w.id != moved.id).cloned().collect();
+        let i = rest.iter().position(|w| w.id == dst.key).unwrap_or(rest.len());
+        rest.insert(if before.is_some() { i } else { i + 1 }, moved);
+        s.windows = rest;
+        return;
+    }
+    let (app, to) = (src.app.clone(), dst.app.clone());
+    if before.is_some() {
+        move_app(s, &app, Some(&to), None);
+    } else {
+        move_app(s, &app, None, Some(&to));
+    }
+}
+
+/// Pinned and unpinned buttons stay apart; a pinned app moves in the pin
+/// order, a running one moves its windows as one block.
+fn move_app(s: &mut ShellState, app: &str, before: Option<&str>, after: Option<&str>) {
     let Some(target) = before.or(after) else { return };
     if target == app {
         return;
@@ -284,13 +326,16 @@ fn closed_start_menu() -> StartMenu {
 }
 
 fn focus(s: &mut ShellState, id: &str) {
-    if !s.windows.iter().any(|w| w.id == id) {
-        return;
-    }
+    let Some((app, workspace)) = s.windows.iter().find(|w| w.id == id).map(|w| (w.app.clone(), w.workspace)) else { return };
+    // #EDE-277: grouped-window-list's onFocusChange: a focus in a group
+    // ends the group's call for attention; ungrouped, only its own.
+    let grouped = s.taskbar.grouped;
     for w in &mut s.windows {
         w.focused = w.id == id;
         if w.focused {
             w.minimized = false;
+        }
+        if w.focused || (grouped && w.app == app && w.workspace == workspace) {
             w.urgent = false;
         }
     }
@@ -345,7 +390,8 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
             if let Some(gone) = s.windows.iter().find(|w| &w.id == id).cloned() {
                 s.windows.retain(|w| &w.id != id);
                 s.mru.retain(|m| m != id);
-                if s.taskbar.previews.as_deref() == Some(gone.app.as_str()) && !s.windows.iter().any(|w| w.app == gone.app) {
+                let app_gone = s.taskbar.previews.as_deref() == Some(gone.app.as_str()) && !s.windows.iter().any(|w| w.app == gone.app);
+                if app_gone || (!s.taskbar.grouped && s.taskbar.previews.as_deref() == Some(gone.id.as_str())) {
                     s.taskbar.previews = None;
                 }
                 clamp_alt_tab(&mut s);
@@ -406,21 +452,31 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
             }
         }
         ShellEvent::TaskbarUnpin { app } => s.taskbar.pinned.retain(|a| a != app),
-        ShellEvent::TaskbarMove { app, before, after } => move_button(&mut s, app, before.as_deref(), after.as_deref()),
-        ShellEvent::TaskbarHover { app } => s.taskbar.hover = Some(app.clone()),
+        ShellEvent::TaskbarMove { key, before, after } => move_button(&mut s, key, before.as_deref(), after.as_deref()),
+        ShellEvent::TaskbarHover { key } => s.taskbar.hover = Some(key.clone()),
         ShellEvent::TaskbarUnhover => s.taskbar.hover = None,
-        ShellEvent::TaskbarPreviews { app } => {
-            s.taskbar.previews = app.clone();
+        ShellEvent::TaskbarPreviews { key } => {
+            s.taskbar.previews = key.clone();
             if s.taskbar.previews.is_some() {
                 s.taskbar.menu = None;
                 s.start_menu = closed_start_menu();
             }
         }
-        ShellEvent::TaskbarMenu { app } => {
-            s.taskbar.menu = app.clone();
+        ShellEvent::TaskbarMenu { key } => {
+            s.taskbar.menu = key.clone();
             if s.taskbar.menu.is_some() {
                 s.taskbar.previews = None;
                 s.start_menu = closed_start_menu();
+            }
+        }
+        // #EDE-276: the list is built again (Cinnamon's
+        // refreshAllWorkspaces): its popups close.
+        ShellEvent::TaskbarGrouped { grouped } => {
+            if *grouped != s.taskbar.grouped {
+                s.taskbar.grouped = *grouped;
+                s.taskbar.hover = None;
+                s.taskbar.previews = None;
+                s.taskbar.menu = None;
             }
         }
         ShellEvent::StartMenuToggle => {
@@ -475,6 +531,10 @@ pub fn reduce(given: &ShellState, event: &ShellEvent) -> ShellState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskbarButton {
+    /// #EDE-276: what names the button (its template key, the taskbar
+    /// events' and selectors' key): the app while grouped; ungrouped, its
+    /// window's id (a pinned app without a window: the app).
+    pub key: String,
     pub app: String,
     pub pinned: bool,
     pub windows: Vec<String>,
@@ -492,7 +552,9 @@ fn on_active(state: &ShellState) -> Vec<&ShellWindow> {
 
 /// Mint's grouped window list: pinned apps first in pin order, then the
 /// running unpinned apps in the order their first window appeared; the
-/// active workspace only.
+/// active workspace only. #EDE-276: ungrouped (group-apps off), each group
+/// becomes one button per window in its order (a pinned app without a
+/// window keeps its launcher).
 pub fn taskbar_buttons(state: &ShellState) -> Vec<TaskbarButton> {
     let active = on_active(state);
     let mut apps: Vec<String> = state.taskbar.pinned.clone();
@@ -501,20 +563,37 @@ pub fn taskbar_buttons(state: &ShellState) -> Vec<TaskbarButton> {
             apps.push(w.app.clone());
         }
     }
-    apps.into_iter()
-        .map(|app| {
-            let ws: Vec<&&ShellWindow> = active.iter().filter(|w| w.app == app).collect();
-            TaskbarButton {
-                pinned: state.taskbar.pinned.contains(&app),
-                windows: ws.iter().map(|w| w.id.clone()).collect(),
-                focused: ws.iter().any(|w| w.focused),
-                minimized: !ws.is_empty() && ws.iter().all(|w| w.minimized),
-                running: !ws.is_empty(),
-                urgent: ws.iter().any(|w| w.urgent),
-                app,
+    let button = |key: &str, app: &str, ws: &[&ShellWindow]| TaskbarButton {
+        key: key.to_string(),
+        app: app.to_string(),
+        pinned: state.taskbar.pinned.iter().any(|p| p == app),
+        windows: ws.iter().map(|w| w.id.clone()).collect(),
+        focused: ws.iter().any(|w| w.focused),
+        minimized: !ws.is_empty() && ws.iter().all(|w| w.minimized),
+        running: !ws.is_empty(),
+        urgent: ws.iter().any(|w| w.urgent),
+    };
+    apps.iter()
+        .flat_map(|app| {
+            let ws: Vec<&ShellWindow> = active.iter().copied().filter(|w| &w.app == app).collect();
+            if state.taskbar.grouped || ws.is_empty() {
+                vec![button(app, app, &ws)]
+            } else {
+                ws.iter().map(|w| button(&w.id, app, &[*w])).collect()
             }
         })
         .collect()
+}
+
+/// #EDE-276: the app and the windows a button acts on: its own (an
+/// ungrouped window's button: that window), else, for a key no button
+/// carries, the app's on the active workspace.
+pub fn button_windows<'a>(state: &'a ShellState, key: &str) -> (String, Vec<&'a ShellWindow>) {
+    let active = on_active(state);
+    match taskbar_buttons(state).into_iter().find(|b| b.key == key) {
+        Some(b) => (b.app, active.into_iter().filter(|w| b.windows.contains(&w.id)).collect()),
+        None => (key.to_string(), active.into_iter().filter(|w| w.app == key).collect()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -529,8 +608,8 @@ pub enum TaskbarPress {
 /// active-workspace windows the one earliest in the mru, else the first.
 /// #EDE-255: an urgent one first (Cinnamon makes the window that demands
 /// attention the group's lastFocused, so a click answers it).
-pub fn last_focused<'a>(state: &'a ShellState, app: &str) -> Option<&'a ShellWindow> {
-    let ws: Vec<&ShellWindow> = on_active(state).into_iter().filter(|w| w.app == app).collect();
+pub fn last_focused<'a>(state: &'a ShellState, key: &str) -> Option<&'a ShellWindow> {
+    let ws = button_windows(state, key).1;
     let mru = |ws: &[&'a ShellWindow]| state.mru.iter().find_map(|id| ws.iter().find(|w| &w.id == id).copied()).or(ws.first().copied());
     let urgent: Vec<&ShellWindow> = ws.iter().copied().filter(|w| w.urgent).collect();
     mru(&urgent).or_else(|| mru(&ws))
@@ -549,8 +628,8 @@ pub fn urgent_lit(ms: u64) -> bool {
 /// Mint's click on a button (grouped-window-list's left-click-action 2):
 /// launch, else toggle the group's last focused window (minimize it while
 /// it has the focus, focus it otherwise). Previews show on hover only.
-pub fn taskbar_press(state: &ShellState, app: &str) -> TaskbarPress {
-    match last_focused(state, app) {
+pub fn taskbar_press(state: &ShellState, key: &str) -> TaskbarPress {
+    match last_focused(state, key) {
         None => TaskbarPress::Launch,
         Some(w) if w.focused && !w.minimized => TaskbarPress::Minimize { id: w.id.clone() },
         Some(w) => TaskbarPress::Focus { id: w.id.clone() },
@@ -565,8 +644,8 @@ pub enum TaskbarMiddle {
 
 /// #EDE-254: the middle button (middle-click-action 3): the group's last
 /// focused window closes; `None` without a window.
-pub fn taskbar_middle(state: &ShellState, app: &str) -> Option<TaskbarMiddle> {
-    last_focused(state, app).map(|w| TaskbarMiddle::Close { id: w.id.clone() })
+pub fn taskbar_middle(state: &ShellState, key: &str) -> Option<TaskbarMiddle> {
+    last_focused(state, key).map(|w| TaskbarMiddle::Close { id: w.id.clone() })
 }
 
 /// One row of a genUI Menu's `items` (a separator, a submenu, a checkbox
@@ -664,9 +743,10 @@ pub const TASKBAR_RECENT_MAX: usize = 10;
 
 /// #EDE-254: a group's right-click menu, grouped-window-list's menus.js in
 /// its order (shell.json's `$comment`).
-pub fn taskbar_menu(state: &ShellState, app: &str, context: &TaskbarMenuContext) -> Vec<MenuRow> {
-    let count = on_active(state).into_iter().filter(|w| w.app == app).count();
-    let w = last_focused(state, app);
+pub fn taskbar_menu(state: &ShellState, key: &str, context: &TaskbarMenuContext) -> Vec<MenuRow> {
+    let (app, ws) = button_windows(state, key);
+    let (app, count) = (app.as_str(), ws.len());
+    let w = last_focused(state, key);
     let facts = w.and_then(|w| context.windows.get(&w.id)).cloned().unwrap_or_default();
     let mut rows = Vec::new();
     if let Some(w) = w {
@@ -735,8 +815,8 @@ pub fn taskbar_menu(state: &ShellState, app: &str, context: &TaskbarMenuContext)
 /// Mint's scroll on a button: cycles the group's windows from the focused
 /// one (down = next, up = previous, wrapping); none focused = the first
 /// (down) or the last (up); no window = `None`.
-pub fn taskbar_scroll(state: &ShellState, app: &str, direction: ScrollDirection) -> Option<TaskbarPress> {
-    let ws: Vec<&ShellWindow> = on_active(state).into_iter().filter(|w| w.app == app).collect();
+pub fn taskbar_scroll(state: &ShellState, key: &str, direction: ScrollDirection) -> Option<TaskbarPress> {
+    let ws = button_windows(state, key).1;
     if ws.is_empty() {
         return None;
     }

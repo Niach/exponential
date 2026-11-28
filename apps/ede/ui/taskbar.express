@@ -4,7 +4,8 @@
 # start-menu.express anchored here), the Assistant button (the Exponential app's Assistant window, ede_chat) and the new-issue button right of it
 # (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one
 # icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running
-# ones), a dot under a running app, a wider one under the focused app, dimmed when every window is
+# ones; #EDE-276: with Panel's Group windows by application off, one button per window in its app's
+# place, each keyed by its window: /shell/taskbar/buttons/*/key, the key every taskbar event carries), a dot under a running app, a wider one under the focused app, dimmed when every window is
 # minimized; #EDE-255: the buttons are a horizontal reorderable List: a button dragged onto another moves there
 # (ede_taskbar_move, shell.json's taskbar.move: pinned and unpinned buttons stay apart, the pin order is kept); a click does what Mint's does (#EDE-254, grouped-window-list's defaults; ede_taskbar:
 # launch, else focus the group's last focused window, or minimize it while it has the focus), the
@@ -96,9 +97,9 @@ start_menu = Menu(items=[{label: "Settings", value: "settings", icon: "nav-setti
 start = Button(label="Start", icon="brand-exponential", variant="ghost", size="icon", on={press: ede_start_menu(toggle=true)}, style={width: 40, height: 40})
 chat = Button(label="Assistant", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
 new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
-buttons = List(direction="horizontal", gap="xs", reorderable=true, children=_template($/shell/taskbar/buttons, group, key="app"), on={move: Event("ede_taskbar_move")})
-group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {app: $app})})
-previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {app: $app})})
+buttons = List(direction="horizontal", gap="xs", reorderable=true, children=_template($/shell/taskbar/buttons, group, key="key"), on={move: Event("ede_taskbar_move")})
+group = Menu(items=$menu, open=$menuOpen, side="top", align="start", openOn="contextmenu", children=[previews], on={select: Event("ede_taskbar_menu", {key: $key})})
+previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {key: $key})})
 previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
 preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})
 preview_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
@@ -108,7 +109,7 @@ preview_app_icon = Image(src=$icon, alt=$title, fit="contain", width=16, height=
 preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
 preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
 preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")
-button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, urgent_bg, button_icon, button_icon_dim, running_focused, running, not_running, window_count, notification_count], on={press: ede_taskbar(app=$app), auxPress: Event("ede_taskbar_input", {app: $app})})
+button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, urgent_bg, button_icon, button_icon_dim, running_focused, running, not_running, window_count, notification_count], on={press: ede_taskbar(key=$key), auxPress: Event("ede_taskbar_input", {key: $key})})
 focus_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
 urgent_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.destructive", opacity: 0.8}, visible=cond(if=$urgentLit, then=true, else=false))
 button_icon = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", visible=not(value=cond(if=$minimized, then=true, else=false)))

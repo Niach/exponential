@@ -54,15 +54,15 @@ fn every_selector_case_replays() {
             let got = match selector.as_str() {
                 "taskbarButtons" => json!(taskbar_buttons(&state)),
                 "switcherSections" => json!(switcher_sections(&state)),
-                "taskbarPress" => json!(taskbar_press(&state, case["args"]["app"].as_str().unwrap())),
+                "taskbarPress" => json!(taskbar_press(&state, case["args"]["key"].as_str().unwrap())),
                 "taskbarScroll" => {
                     let direction: ScrollDirection = serde_json::from_value(case["args"]["direction"].clone()).unwrap();
-                    json!(taskbar_scroll(&state, case["args"]["app"].as_str().unwrap(), direction))
+                    json!(taskbar_scroll(&state, case["args"]["key"].as_str().unwrap(), direction))
                 }
-                "taskbarMiddle" => json!(taskbar_middle(&state, case["args"]["app"].as_str().unwrap())),
+                "taskbarMiddle" => json!(taskbar_middle(&state, case["args"]["key"].as_str().unwrap())),
                 "taskbarMenu" => {
                     let context: TaskbarMenuContext = serde_json::from_value(case["args"].get("context").cloned().unwrap_or(json!({}))).unwrap();
-                    json!(taskbar_menu(&state, case["args"]["app"].as_str().unwrap(), &context))
+                    json!(taskbar_menu(&state, case["args"]["key"].as_str().unwrap(), &context))
                 }
                 "urgentLit" => json!(urgent_lit(case["args"]["ms"].as_u64().unwrap())),
                 "workspaceBadges" => json!(workspace_badges(&state)),

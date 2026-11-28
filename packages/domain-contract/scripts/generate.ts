@@ -180,6 +180,11 @@ interface Contract {
   mcpCatalog: {
     servers: { id: string; name: string; url: string; mark: string }[]
   }
+  // EDE-271: the computer server's tools as trace captions (exact prefix).
+  computerToolDisplay: {
+    prefix: string
+    tools: { name: string; progressive: string; done: string }[]
+  }
   expToolDisplay: {
     prefix: string
     resultKinds: string[]
@@ -396,6 +401,11 @@ const expToolSubjectKeys = expTools.map((t) => t.subjectKey)
 const expToolPreviewNames = contract.expToolPreview.tools.map((t) => t.name)
 const expToolPreviewRefs = contract.expToolPreview.tools.map((t) => t.refs)
 const expToolResults = expTools.map((t) => t.result)
+// EDE-271: parallel arrays, computer tool row → progressive / done caption.
+const computerTools = contract.computerToolDisplay.tools
+const computerToolNames = computerTools.map((t) => t.name)
+const computerToolProgressive = computerTools.map((t) => t.progressive)
+const computerToolDone = computerTools.map((t) => t.done)
 // EXP-1657: the tool GROUPS (Settings › MCP lists one band per group ×4) and
 // each row's group id: the group of the tool the row belongs to (the verb
 // by its own name, a noun's op by `<noun>_`, the longest tool name wins so
@@ -577,6 +587,10 @@ ${swiftStringArray("mcpCatalogIds", mcpCatalogIds)}
 ${swiftStringArray("mcpCatalogNames", mcpCatalogNames)}
 ${swiftStringArray("mcpCatalogUrls", mcpCatalogUrls)}
 ${swiftStringArray("mcpCatalogMarks", mcpCatalogMarks)}
+    public static let computerToolPrefix: String = "${contract.computerToolDisplay.prefix}"
+${swiftStringArray("computerToolNames", computerToolNames)}
+${swiftStringArray("computerToolProgressive", computerToolProgressive)}
+${swiftStringArray("computerToolDone", computerToolDone)}
     public static let expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${swiftStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${swiftStringArray("expToolNames", expToolNames)}
@@ -755,6 +769,10 @@ ${kotlinStringArray("mcpCatalogIds", mcpCatalogIds)}
 ${kotlinStringArray("mcpCatalogNames", mcpCatalogNames)}
 ${kotlinStringArray("mcpCatalogUrls", mcpCatalogUrls)}
 ${kotlinStringArray("mcpCatalogMarks", mcpCatalogMarks)}
+    const val computerToolPrefix: String = "${contract.computerToolDisplay.prefix}"
+${kotlinStringArray("computerToolNames", computerToolNames)}
+${kotlinStringArray("computerToolProgressive", computerToolProgressive)}
+${kotlinStringArray("computerToolDone", computerToolDone)}
     const val expToolPrefix: String = "${contract.expToolDisplay.prefix}"
 ${kotlinStringArray("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${kotlinStringArray("expToolNames", expToolNames)}
@@ -935,6 +953,10 @@ ${rustStrSlice("mcpCatalogIds", mcpCatalogIds)}
 ${rustStrSlice("mcpCatalogNames", mcpCatalogNames)}
 ${rustStrSlice("mcpCatalogUrls", mcpCatalogUrls)}
 ${rustStrSlice("mcpCatalogMarks", mcpCatalogMarks)}
+pub const COMPUTER_TOOL_PREFIX: &str = "${contract.computerToolDisplay.prefix}";
+${rustStrSlice("computerToolNames", computerToolNames)}
+${rustStrSlice("computerToolProgressive", computerToolProgressive)}
+${rustStrSlice("computerToolDone", computerToolDone)}
 pub const EXP_TOOL_PREFIX: &str = "${contract.expToolDisplay.prefix}";
 ${rustStrSlice("expToolResultKinds", contract.expToolDisplay.resultKinds)}
 ${rustStrSlice("expToolNames", expToolNames)}

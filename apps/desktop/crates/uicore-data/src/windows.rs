@@ -7,11 +7,14 @@
 use ede_protocol::{WindowInfo, WorkspaceInfo};
 use uicore_model::{ShellEvent, ShellState};
 
-/// The events that take `model` from `prev` to `next` (protected windows
-/// are not shell windows, nor an agent space's (#EDE-91): they never
-/// appear), in an order the reducer accepts: closed, opened, then the
-/// changed ones, then the focus.
-pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent> {
+/// The events that take `model` to the compositor's `next` list (protected
+/// windows are not shell windows, nor an agent space's (#EDE-91): they
+/// never appear), in an order the reducer accepts: closed, opened, then the
+/// changed ones, then the focus. `prev` = the list before `next`: #EDE-277,
+/// urgency is Muffin's signal, `window.urgent` goes out only when the
+/// compositor's flag CHANGES (a group's focus ends the shell's flash while a
+/// sibling window still carries the flag, as grouped-window-list does).
+pub fn window_events(model: &ShellState, prev: &[WindowInfo], next: &[WindowInfo]) -> Vec<ShellEvent> {
     let next: Vec<&WindowInfo> = next.iter().filter(|w| !w.protected && w.is_persons()).collect();
     let mut out = Vec::new();
     for w in &model.windows {
@@ -40,7 +43,8 @@ pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent>
                 if w.minimized != minimized(n) {
                     out.push(if minimized(n) { ShellEvent::WindowMinimized { id: id.clone() } } else { ShellEvent::WindowRestored { id: id.clone() } });
                 }
-                if w.urgent != n.urgent {
+                let was = prev.iter().find(|p| p.id == n.id).map_or(w.urgent, |p| p.urgent);
+                if was != n.urgent {
                     out.push(ShellEvent::WindowUrgent { id: id.clone(), urgent: n.urgent });
                 }
             }
@@ -92,7 +96,7 @@ mod tests {
     fn a_fresh_list_opens_every_window_and_focuses_the_focused_one() {
         let model = ShellState::default();
         let list = vec![info("w1", "firefox", "Firefox", false, 0), info("w2", "terminal", "Terminal", true, 0)];
-        let events = window_events(&model, &list);
+        let events = window_events(&model, &[], &list);
         assert_eq!(events.len(), 3);
         let after = apply(&model, &events);
         assert_eq!(after.windows.len(), 2);
@@ -102,10 +106,10 @@ mod tests {
 
     #[test]
     fn the_difference_closes_retitles_moves_and_refocuses() {
-        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[info("w1", "firefox", "A", true, 0), info("w2", "terminal", "T", false, 0)]));
+        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[], &[info("w1", "firefox", "A", true, 0), info("w2", "terminal", "T", false, 0)]));
         let model = reduce(&model, &ShellEvent::WorkspaceCount { count: 2 });
         let next = vec![info("w2", "terminal", "T2", true, 1)];
-        let events = window_events(&model, &next);
+        let events = window_events(&model, &[], &next);
         assert!(matches!(events[0], ShellEvent::WindowClosed { ref id } if id == "w1"));
         assert!(events.iter().any(|e| matches!(e, ShellEvent::WindowTitled { title, .. } if title == "T2")));
         assert!(events.iter().any(|e| matches!(e, ShellEvent::WindowMoved { workspace: 1, .. })));
@@ -114,7 +118,7 @@ mod tests {
         assert_eq!(after.windows.len(), 1);
         assert_eq!(after.windows[0].workspace, 1);
         // Nothing changed: no events.
-        assert!(window_events(&after, &next).is_empty());
+        assert!(window_events(&after, &next, &next).is_empty());
     }
 
     /// #EDE-91: a window in an agent space is not the person's: the shell never shows it.
@@ -123,7 +127,7 @@ mod tests {
         let mut agents = info("w2", "firefox", "Agent", true, 0);
         agents.space = Some(ede_protocol::SpaceId::new("sp1").unwrap());
         let model = ShellState::default();
-        let after = apply(&model, &window_events(&model, &[info("w1", "terminal", "T", false, 0), agents]));
+        let after = apply(&model, &window_events(&model, &[], &[info("w1", "terminal", "T", false, 0), agents]));
         assert_eq!(after.windows.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w1"]);
         assert!(after.mru.iter().all(|id| id != "w2"), "its focus is not the person's");
     }
@@ -131,15 +135,42 @@ mod tests {
     /// #EDE-255: the compositor's `urgent` reaches the model; the focus ends it.
     #[test]
     fn urgency_follows_the_compositor() {
-        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[info("w1", "firefox", "A", true, 0), info("w2", "terminal", "T", false, 0)]));
+        let first = vec![info("w1", "firefox", "A", true, 0), info("w2", "terminal", "T", false, 0)];
+        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[], &first));
         let mut calling = info("w2", "terminal", "T", false, 0);
         calling.urgent = true;
         let next = vec![info("w1", "firefox", "A", true, 0), calling];
-        let after = apply(&model, &window_events(&model, &next));
+        let after = apply(&model, &window_events(&model, &first, &next));
         assert!(after.windows[1].urgent);
-        assert!(window_events(&after, &next).is_empty());
-        let answered = apply(&after, &window_events(&after, &[info("w1", "firefox", "A", false, 0), info("w2", "terminal", "T", true, 0)]));
+        assert!(window_events(&after, &next, &next).is_empty());
+        let answered = apply(&after, &window_events(&after, &next, &[info("w1", "firefox", "A", false, 0), info("w2", "terminal", "T", true, 0)]));
         assert!(!answered.windows[1].urgent);
+    }
+
+    /// #EDE-277: the holder's settings window comes forward while its main
+    /// window still carries the compositor's flag: the group's focus ended
+    /// the flash, and the next list (the flag unchanged) does not start it
+    /// again; a new call (the flag set again after it was cleared) does.
+    #[test]
+    fn a_groups_focus_ends_its_flash_while_a_sibling_keeps_the_flag() {
+        let mut main = info("w1", "exponential", "Home", false, 0);
+        main.urgent = true;
+        let first = vec![info("w0", "terminal", "T", true, 0), main.clone()];
+        let model = apply(&ShellState::default(), &window_events(&ShellState::default(), &[], &first));
+        assert!(model.windows[1].urgent);
+        let next = vec![info("w0", "terminal", "T", false, 0), main.clone(), info("w2", "exponential", "Settings", true, 0)];
+        let after = apply(&model, &window_events(&model, &first, &next));
+        assert!(!after.windows[1].urgent, "the group's focus answered the call");
+        assert!(!uicore_model::taskbar_buttons(&after).iter().any(|b| b.urgent));
+        let again = vec![info("w0", "terminal", "T", true, 0), main.clone(), info("w2", "exponential", "Settings", false, 0)];
+        let still = apply(&after, &window_events(&after, &next, &again));
+        assert!(!still.windows[1].urgent, "an unchanged flag is no new call");
+        let mut quiet = main.clone();
+        quiet.urgent = false;
+        let cleared = vec![info("w0", "terminal", "T", true, 0), quiet, info("w2", "exponential", "Settings", false, 0)];
+        let model = apply(&still, &window_events(&still, &again, &cleared));
+        let calls = apply(&model, &window_events(&model, &cleared, &again));
+        assert!(calls.windows[1].urgent, "a new call flashes again");
     }
 
     #[test]

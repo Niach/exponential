@@ -6,6 +6,7 @@
 // Android `domain/Trace.kt` mirror it and replay the fixture's cases.
 
 import fixture from "../fixtures/trace.json" with { type: "json" }
+import contract from "../contract.json" with { type: "json" }
 import { workDurationLong } from "./work-card"
 
 export type TraceStatus = `running` | `error` | `pending`
@@ -52,6 +53,24 @@ const VERBS = fixture.tool.verbs as Record<string, VerbPair>
  *  ("Ran bun test", "Reading README.md"); a blank detail takes the kind's
  *  `blank` object ("Ran a command"). `other`/unknown kinds keep the tool's
  *  own name as the title and the detail as the description. */
+/** EDE-271: a computer-server tool's contract caption (`computerToolDisplay`)
+ *  — progressive while it runs, done once settled — or null for any other
+ *  name. The match is EXACT (`mcp__computer__` + a row, trimmed), so another
+ *  server's `click` or `type` stays raw. Mirrored ×4 (desktop
+ *  `steer::computer_tool_caption`, iOS `ExpToolDisplay.computerCaption`,
+ *  Android `ExpToolDisplay.computerCaption`). */
+export function computerToolCaption(
+  name: string | null | undefined,
+  settled: boolean
+): string | null {
+  const trimmed = (name ?? ``).trim()
+  const { prefix, tools } = contract.computerToolDisplay
+  if (!trimmed.startsWith(prefix)) return null
+  const row = tools.find((tool) => tool.name === trimmed.slice(prefix.length))
+  if (!row) return null
+  return settled ? row.done : row.progressive
+}
+
 export function traceTool(input: TraceToolInput): TraceLineModel {
   const status: TraceStatus | null = input.failed
     ? `error`
@@ -60,6 +79,16 @@ export function traceTool(input: TraceToolInput): TraceLineModel {
       : `running`
   const verbs = VERBS[input.toolKind]
   const detail = clean(input.detail)
+  // EDE-271: a computer tool reads its caption whatever its kind.
+  const computer = computerToolCaption(input.name, input.settled || input.failed)
+  if (computer) {
+    return {
+      icon: TRACE_ICONS.tool,
+      title: computer,
+      description: detail || null,
+      status,
+    }
+  }
   if (!verbs) {
     return {
       icon: TRACE_ICONS.tool,

@@ -45,7 +45,7 @@ describe(`shell.json reduce`, () => {
       `switcher.pick`, `switcher.set`,
       `window.opened`, `window.closed`, `window.focused`, `window.titled`, `window.minimized`, `window.restored`, `window.moved`,
       `workspace.switched`, `workspace.count`,
-      `taskbar.pin`, `taskbar.unpin`, `taskbar.hover`, `taskbar.unhover`, `taskbar.previews`, `taskbar.menu`,
+      `taskbar.pin`, `taskbar.unpin`, `taskbar.move`, `taskbar.hover`, `taskbar.unhover`, `taskbar.previews`, `taskbar.menu`, `taskbar.grouped`, `window.urgent`,
       `startMenu.toggle`, `startMenu.open`, `startMenu.close`, `startMenu.query`, `startMenu.category`,
       `altTab.next`, `altTab.prev`, `altTab.commit`, `altTab.cancel`,
     ]) expect(kinds.has(kind), kind).toBe(true)
@@ -66,10 +66,10 @@ const favourites = fixture.favourites as string[]
 
 describe(`shell.json selectors`, () => {
   for (const c of fixture.selectors.taskbarButtons) test(c.name, () => expect(taskbarButtons(given(c.state))).toEqual(c.expected))
-  for (const c of fixture.selectors.taskbarPress) test(c.name, () => expect(taskbarPress(given(c.state), c.args.app)).toEqual(c.expected as ReturnType<typeof taskbarPress>))
-  for (const c of fixture.selectors.taskbarScroll) test(c.name, () => expect(taskbarScroll(given(c.state), c.args.app, c.args.direction as `up` | `down`)).toEqual(c.expected as ReturnType<typeof taskbarScroll>))
-  for (const c of fixture.selectors.taskbarMiddle) test(c.name, () => expect(taskbarMiddle(given(c.state), c.args.app)).toEqual(c.expected as ReturnType<typeof taskbarMiddle>))
-  for (const c of fixture.selectors.taskbarMenu) test(c.name, () => expect(taskbarMenu(given(c.state), c.args.app, (c.args as { context?: TaskbarMenuContext }).context)).toEqual(c.expected as ReturnType<typeof taskbarMenu>))
+  for (const c of fixture.selectors.taskbarPress) test(c.name, () => expect(taskbarPress(given(c.state), c.args.key)).toEqual(c.expected as ReturnType<typeof taskbarPress>))
+  for (const c of fixture.selectors.taskbarScroll) test(c.name, () => expect(taskbarScroll(given(c.state), c.args.key, c.args.direction as `up` | `down`)).toEqual(c.expected as ReturnType<typeof taskbarScroll>))
+  for (const c of fixture.selectors.taskbarMiddle) test(c.name, () => expect(taskbarMiddle(given(c.state), c.args.key)).toEqual(c.expected as ReturnType<typeof taskbarMiddle>))
+  for (const c of fixture.selectors.taskbarMenu) test(c.name, () => expect(taskbarMenu(given(c.state), c.args.key, (c.args as { context?: TaskbarMenuContext }).context)).toEqual(c.expected as ReturnType<typeof taskbarMenu>))
   for (const c of fixture.selectors.urgentLit) test(c.name, () => expect(urgentLit(c.args.ms)).toBe(c.expected))
   for (const c of fixture.selectors.workspaceBadges) test(c.name, () => expect(workspaceBadges(given(c.state))).toEqual(c.expected))
   for (const c of fixture.selectors.switcherSections) test(c.name, () => expect(switcherSections(given(c.state as never))).toEqual(c.expected as ReturnType<typeof switcherSections>))

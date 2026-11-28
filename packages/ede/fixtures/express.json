@@ -161,14 +161,17 @@
       "kind"
     ],
     "ede_taskbar": [
-      "app"
+      "app",
+      "key"
     ],
     "ede_taskbar_input": [
       "app",
-      "button"
+      "button",
+      "key"
     ],
     "ede_taskbar_menu": [
       "app",
+      "key",
       "value"
     ],
     "ede_taskbar_move": [
@@ -178,7 +181,8 @@
     ],
     "ede_taskbar_scroll": [
       "app",
-      "direction"
+      "direction",
+      "key"
     ],
     "ede_tray": [
       "refresh",
