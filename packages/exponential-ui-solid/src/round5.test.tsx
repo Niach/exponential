@@ -231,7 +231,7 @@ describe(`Segmented orientation + count`, () => {
 it(`the serif family is the ui-serif keyword with its fallback`, () => {
   const { container } = render(() => <ExponentialSurface root={tree({ id: `t`, component: `Text`, props: { text: `Serif` }, style: { fontFamily: `$type.family.serif` } } as NestedNode)} theme="neutral" id="sf" />)
   const css = [...container.querySelectorAll(`style`)].map((s) => s.textContent).join(`\n`)
-  expect(css).toContain(`ui-serif, Georgia, serif`)
+  expect(css).toContain(`ui-serif, "Inter Symbols", Georgia, serif`)
   expect(css).not.toContain(`"ui-serif"`)
 })
 
