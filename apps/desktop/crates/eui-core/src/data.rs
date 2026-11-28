@@ -236,6 +236,9 @@ pub struct ResolveContext<'a> {
     pub route: Option<&'a dyn Fn(RoutedCall) -> RouteAnswer>,
     /// Round 9 §6.8: a failed evaluation (the host sends it).
     pub on_error: Option<&'a dyn Fn(&Failure)>,
+    /// #PERF-15: every data pointer read goes here (the build's binding
+    /// dependents: a data write rebuilds only their subtrees).
+    pub reads: Option<&'a std::cell::RefCell<Vec<String>>>,
 }
 
 /// Round 9 §6.4: where a call is evaluated.
@@ -289,7 +292,7 @@ const INVALID_FUNCTION_CALL: &str = "INVALID_FUNCTION_CALL";
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
-        ResolveContext { data, scope, strings: None, overlay: None, item: None, event: None, view: None, formatter: None, now: None, index: None, catalog_id: None, available: None, position: Position::Reactive, route: None, on_error: None }
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, event: None, view: None, formatter: None, now: None, index: None, catalog_id: None, available: None, position: Position::Reactive, route: None, on_error: None, reads: None }
     }
 
     /// The surface's default catalog and the router's available set (§5.5).
@@ -372,6 +375,11 @@ impl<'a> ResolveContext<'a> {
         self.read(&absolute_path(path, self.scope))
     }
 
+    /// #PERF-15: record every pointer read into `reads`.
+    pub fn with_reads(self, reads: &'a std::cell::RefCell<Vec<String>>) -> ResolveContext<'a> {
+        ResolveContext { reads: Some(reads), ..self }
+    }
+
     pub fn with_strings(self, strings: &'a StringTable) -> ResolveContext<'a> {
         ResolveContext { strings: Some(strings), ..self }
     }
@@ -383,6 +391,9 @@ impl<'a> ResolveContext<'a> {
     /// The value at an absolute pointer (through the overlay when it names
     /// the overlay's prefix).
     pub fn read(&self, pointer: &str) -> Option<&'a Value> {
+        if let Some(reads) = self.reads {
+            reads.borrow_mut().push(pointer.to_string());
+        }
         if let Some((prefix, value)) = self.overlay {
             if let Some(rest) = pointer.strip_prefix(prefix) {
                 if rest.is_empty() || rest.starts_with('/') {

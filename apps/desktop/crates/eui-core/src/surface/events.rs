@@ -343,8 +343,7 @@ impl Surface {
         if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
             return vec![];
         }
-        self.data_version += 1;
-        self.needs_build = true;
+        self.data_written(&path);
         vec![OutEvent::DataChanged { path, value }]
     }
 
@@ -395,10 +394,9 @@ impl Surface {
         }
         if let Some((path, value)) = outcome.written {
             self.data = outcome.data;
-            self.data_version += 1;
             // #VAPP-288: an action's `set` is a programmatic write.
             self.write_epoch += 1;
-            self.needs_build = true;
+            self.data_written(&path);
             out.push(OutEvent::DataChanged { path, value });
         }
         // Round 9 §6.8: the function runs first, then the event.
@@ -971,8 +969,7 @@ impl Surface {
                 if let Some(binding) = item.and_then(|i| i.get("checked")).filter(|b| is_binding(b)) {
                     let p = absolute_path(binding["@path"].as_str().unwrap_or(""), &self.scope_of(owner_id));
                     if set_pointer(&mut self.data, &p, Some(Value::Bool(checked))).is_ok() {
-                        self.data_version += 1;
-                        self.needs_build = true;
+                        self.data_written(&p);
                         out.push(OutEvent::DataChanged { path: p, value: Value::Bool(checked) });
                     }
                 }
