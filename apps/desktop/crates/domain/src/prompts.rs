@@ -258,7 +258,7 @@ pub const MERGE_NOW_PR: Spec = Spec {
     copy: &[
         ("title", "Merge PR #{number} now?"),
         ("titleStack", "Merge the stack now?"),
-        ("body", "It skips the merge train's tests."),
+        ("body", "It skips the merge queue's tests."),
     ],
     params: &["number"],
     actions: confirm!(destructive "merge", "Merge"),

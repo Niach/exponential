@@ -7,9 +7,11 @@
 //! - Pull requests: `Section{tree}` of `repo_pr_tree` rows over the synced
 //!   `pull_requests` (`Row{depth, identifier, title, subtitle}`, the checks
 //!   `Chip{dot}` and the merge-train pill as its trailing meta);
-//! - Runs (#EXP-2169, ci-page-view.json `repositoryId` cases): THE CI page's
-//!   day Sections and run rows of this repository (`ci_page::repo_runs_tree`
-//!   over the CI page's data), a row opens the CI run page;
+//! - Runs (#EXP-2169 / #EXP-2214, ci-page-view.json `repositoryId` cases):
+//!   a `Segmented` of the CI page's first three tabs (Merge queue · Pull
+//!   requests · Releases, bound at `/pane/runsTab`) over that panel of this
+//!   repository (`ci_page::repo_runs_tree` over the CI page's data); a row
+//!   opens the CI run page, Open log the run page on its job;
 //! - Branches: `repo_branches` rows (`repositories.branches` for eCode,
 //!   `repositories.listBranches` names for GitHub);
 //! - Settings: `SettingsRow`s (provider, default branch, clone URL,
@@ -126,6 +128,9 @@ impl RepoPage {
             subscriptions.push(cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.ci_runs, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.ci_jobs, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.repositories, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.merge_trains, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.merge_train_events, |_, _, cx| cx.notify()));
         }
         let page = cx.weak_entity();
         let handle = window.window_handle();
@@ -139,7 +144,8 @@ impl RepoPage {
                 PATH,
                 json!({"tab": tab, "mirrorUrl": "", "mirrorEnabled": false, "restoreOpen": false, "removeOpen": false,
                     "required": [], "githubStatuses": false, "actionsRunners": false, "pullRequestSecrets": false,
-                    "secretOpen": false, "secretName": "", "secretValue": "", "secretInvalid": false, "deleteOpen": false, "deleteName": ""}),
+                    "secretOpen": false, "secretName": "", "secretValue": "", "secretInvalid": false, "deleteOpen": false, "deleteName": "",
+                    "runsTab": "train"}),
                 |state: &Value, _| state.clone(),
             );
             binding.set_toasts(Rc::new(IdeToasts));
@@ -158,6 +164,25 @@ impl RepoPage {
                         let _ = handle.update(cx, |_, window, cx| {
                             let _ = page.update(cx, |page, cx| page.action(name, &key, &payload, window, cx));
                         });
+                    });
+                    None
+                });
+            }
+            // #EXP-2214: the Runs tab's CI events (the inner tab, Open log,
+            // the queue's Merge now / Hold / Resume) carry their whole context.
+            for name in [
+                crate::ci_page::EVENT_TAB,
+                crate::ci_page::EVENT_OPEN_JOB,
+                crate::ci_page::EVENT_OPEN_URL,
+                crate::ci_page::EVENT_OPEN_PR,
+                crate::ci_page::EVENT_QUEUE_MENU,
+                crate::ci_page::EVENT_RESUME,
+            ] {
+                let page = page.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let (event, page) = (event.clone(), page.clone());
+                    cx.defer(move |cx| {
+                        let _ = page.update(cx, |page, cx| page.ci_event(&event, cx));
                     });
                     None
                 });
@@ -283,12 +308,19 @@ impl RepoPage {
     /// the synced rows (a pinned page: its own runs and jobs), `repos` =
     /// this repository alone.
     fn ci_input(&self, repo: &RepoRow, runs: &[CiRunRow], jobs: &[CiJobRow], cx: &App) -> domain::ci_page::CiPageInput {
-        let repos = vec![domain::ci_page::CiPageRepo { id: repo.id.clone(), full_name: repo.full_name.clone() }];
+        let own = domain::ci_page::CiPageRepo { id: repo.id.clone(), full_name: repo.full_name.clone(), default_branch: None };
         if !self.pinned() {
+            // #EXP-2214: the synced repositories (the default branch decides
+            // a release run), this one at least.
+            let mut repos = crate::ci_page::page_repos(cx);
+            if !repos.iter().any(|known| known.id == repo.id) {
+                repos.push(own.clone());
+            }
             if let Some(input) = crate::ci_page::synced_input(repos.clone(), cx) {
                 return input;
             }
         }
+        let repos = vec![own];
         let now_ms = self.now_ms();
         let now = chrono::DateTime::from_timestamp_millis(now_ms).unwrap_or_default().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         domain::ci_page::CiPageInput {
@@ -514,6 +546,30 @@ impl RepoPage {
         }
     }
 
+    /// #EXP-2214: the Runs tab's CI events (web `RepoRunsTab`): `ci-tab`
+    /// moves the inner tab, a PR opens on the forge, the rest are the CI
+    /// page's own ([`crate::ci_page::on_shared_action`]).
+    fn ci_event(&mut self, event: &eui_gpui::host::ActionEvent, cx: &mut gpui::Context<Self>) {
+        if event.name == crate::ci_page::EVENT_TAB {
+            if let Some(tab) = crate::ci_page::event_value(event).filter(|tab| ["train", "prs", "releases"].contains(&tab.as_str())) {
+                self.binding.update(cx, |binding, cx| binding.update_state(|state| state["runsTab"] = json!(tab), cx));
+            }
+            return;
+        }
+        if self.pinned() {
+            return;
+        }
+        if event.name == crate::ci_page::EVENT_OPEN_PR {
+            let pr = event.context["pr"].as_str().unwrap_or_default();
+            let url = Store::try_global(cx).and_then(|store| store.collections().pull_requests.read(cx).get(pr).and_then(|pr| pr.url.clone()));
+            if let Some(url) = url {
+                super::open_url(cx, url);
+            }
+            return;
+        }
+        crate::ci_page::on_shared_action(event, cx);
+    }
+
     /// #EXP-1617: the Runs tab and the CI section's events.
     fn ci_action(&mut self, name: &str, key: &str, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
@@ -698,7 +754,8 @@ impl RepoPage {
             })
             .collect();
         let (runs, jobs) = self.ci_rows(&repo.id, cx);
-        let runs_tree = crate::ci_page::repo_runs_tree(&self.ci_input(repo, &runs, &jobs, cx), &repo.id, false);
+        let runs_tab = self.binding.read(cx).state()["runsTab"].as_str().and_then(domain::ci_page::CiTab::parse).unwrap_or_default();
+        let runs_tree = crate::ci_page::repo_runs_tree(&self.ci_input(repo, &runs, &jobs, cx), &repo.id, runs_tab, false);
         let pipelines: Vec<Value> = repo_ci::pipeline_rows(&runs).into_iter().map(|row| json!({"name": row.name, "state": row.state})).collect();
         let ci = match &self.fetched.ci {
             None => Value::Null,
@@ -870,8 +927,9 @@ fn branches_tab(data: &Value) -> Value {
     column("branches", vec![json!({"id": "branches_list", "component": "Section", "children": rows})])
 }
 
-/// #EXP-2169 the Runs tab: the CI page's day Sections of this repository's
-/// runs (`ci_page::repo_runs_tree`, ci-page-view.json), or its EmptyState.
+/// #EXP-2169 / #EXP-2214 the Runs tab: the CI page's Merge queue · Pull
+/// requests · Releases of this repository (`ci_page::repo_runs_tree`,
+/// ci-page-view.json).
 fn runs_tab(data: &Value) -> Value {
     column("runs", vec![data["runsTree"].clone()])
 }
@@ -1059,7 +1117,7 @@ mod tests {
             "defaultBranch": "main", "branchNames": ["main"], "cloneUrl": "exp://acme/web",
             "backups": [{"key": "b1", "title": "2026-11-12 10:00", "subtitle": "3 refs · 4 KB"}],
             "manager": true, "switches": ["githubStatuses", "actionsRunners", "pullRequestSecrets"],
-            "runsTree": crate::ci_page::repo_runs_tree(&domain::ci_page::scenario(), "repo-engine", false),
+            "runsTree": crate::ci_page::repo_runs_tree(&domain::ci_page::scenario(), "repo-engine", domain::ci_page::CiTab::Train, false),
             "pipelines": [{"name": "ci", "state": "pending"}, {"name": "nightly", "state": "failure"}],
             "ci": {"suggestions": [{"label": "lint", "value": "lint"}], "secrets": [{"name": "NPM_TOKEN", "updated": "2026-11-12T09:00:00.000Z"}]},
             "removePrompt": {"title": "Remove acme/web from this team?", "body": "Its pull requests and runs go with it.", "confirm": "Remove"}})
@@ -1073,7 +1131,7 @@ mod tests {
         bare["branches"] = json!([]);
         bare["backups"] = json!([]);
         bare["ecode"] = json!(false);
-        bare["runsTree"] = crate::ci_page::repo_runs_tree(&domain::ci_page::CiPageInput::default(), "repo-engine", false);
+        bare["runsTree"] = crate::ci_page::repo_runs_tree(&domain::ci_page::CiPageInput::default(), "repo-engine", domain::ci_page::CiTab::Train, false);
         bare["pipelines"] = json!([]);
         bare["ci"] = json!({"suggestions": [], "secrets": []});
         bare["manager"] = json!(false);

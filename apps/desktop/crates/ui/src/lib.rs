@@ -347,6 +347,8 @@ mod accessible_names;
 #[cfg(test)]
 mod picker_bench;
 #[cfg(test)]
+mod ci_bench;
+#[cfg(test)]
 mod composer_bench;
 
 pub use actions::*;

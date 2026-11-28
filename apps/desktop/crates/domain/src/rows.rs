@@ -1787,10 +1787,88 @@ pub struct CiRunRow {
     /// `read` | `write`: whether the installation accepted Actions: write.
     #[serde(default)]
     pub external_access: Option<String>,
+    /// #EXP-2214: the merge queue run it tests (`merge_trains.id`).
+    #[serde(default)]
+    pub merge_train_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// #EXP-2214 `merge_trains` shape row (ci-page.json MERGE QUEUE TAB): one
+/// merge queue run: what is tested on which base commit. `units` = jsonb
+/// PR ids per unit, `pending` = the bisect halves still to test. `heads`,
+/// `run_ref`, `conflicts` and `error` stay server-only.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MergeTrainRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub repository_id: String,
+    #[serde(default)]
+    pub base: String,
+    #[serde(default)]
+    pub base_sha: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub units: Option<serde_json::Value>,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub attempt: Option<i64>,
+    #[serde(default)]
+    pub bisect_of: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub pending: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub untested: Option<bool>,
+    #[serde(default)]
+    pub tested_sha: Option<String>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// #EXP-2214 `merge_train_events` shape row: the merge queue's history
+/// (Landed, Sent back): `kind` = landed | failing | conflict | held |
+/// requeued | merge_now | resumed; `checks` / `files` = jsonb string lists.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MergeTrainEventRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub repository_id: String,
+    #[serde(default)]
+    pub pull_request_id: String,
+    #[serde(default)]
+    pub merge_train_id: Option<String>,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub base: String,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub attempt: Option<i64>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub checks: Option<serde_json::Value>,
+    #[serde(default)]
+    pub ci_job_id: Option<String>,
+    #[serde(default)]
+    pub job_url: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub files: Option<serde_json::Value>,
+    #[serde(default)]
+    pub sha: Option<String>,
+    #[serde(default)]
+    pub by_user_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
 }
 
 /// #EXP-1617 `ci_jobs` shape row: one planned check of a run. `status` /
