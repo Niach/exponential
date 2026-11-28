@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -476,7 +475,7 @@ internal fun ImageSourceText(cx: LeafContext, source: ImageSource) {
         ImageSource.Load -> Unit
         is ImageSource.Link -> Box(Modifier.fillMaxSize()) {
             val color = cx.part("Markdown", "link").color ?: cx.themeColor("primary") ?: cx.ink
-            BasicText(
+            ShapedText(
                 source.text,
                 modifier = Modifier
                     .semantics { this.role = Role.Button }
@@ -487,7 +486,7 @@ internal fun ImageSourceText(cx: LeafContext, source: ImageSource) {
             )
         }
         is ImageSource.Text -> if (source.text.isNotEmpty()) {
-            BasicText(
+            ShapedText(
                 source.text,
                 modifier = Modifier.fillMaxSize(),
                 style = cx.composeTextStyle(color = cx.themeColor("mutedForeground") ?: cx.ink),
@@ -617,7 +616,7 @@ internal fun VideoView(
             if (playback.loading) SpinnerView(20f, Color.White) else GlyphView(Glyph.Play, 20f, Color.White)
         }
         durationMs?.let { ms ->
-            BasicText(
+            ShapedText(
                 DateModel.formatDuration(ms),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -744,7 +743,7 @@ internal fun AudioView(
                         if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(4.dp).background(mutedFg, CircleShape))
                     }
                 }
-                BasicText(
+                ShapedText(
                     "$elapsed / ${length?.let { DateModel.formatDuration(it.toDouble()) } ?: "0:00"}",
                     style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = mutedFg),
                     maxLines = 1,
@@ -824,7 +823,7 @@ internal fun RingLeaf(cx: LeafContext) {
         }
         val text = cx.props.str("label")
         if (text.isNotEmpty()) {
-            BasicText(
+            ShapedText(
                 text,
                 modifier = Modifier.align(Alignment.Center).wrapContentSize(unbounded = true),
                 style = cx.composeTextStyle(ts = ResolvedTextStyle(label.px("fontSize") ?: 12f, 400, label.px("lineHeight") ?: 16f, label.fontFamily), color = label.color ?: cx.ink),

@@ -1095,65 +1095,58 @@ pub const SILENT_TURN_REMINDER_ENV: &str = "CLAUDE_CODE_SILENT_TURN_REMINDER";
 /// #EXP-1828: whether a main-thread assistant frame calls
 /// `exponential_session_self {op: "quiet"}`: the agent's "nothing to say,
 /// this turn is over".
-/// #FEED-246: does this assistant message do real work (a tool call other
-/// than the terminal ones, `session_self` and `show`), which re-arms the
-/// [`QuietGuard`]? A card or a suggestion is still the agent's answer, not
-/// work, so a loop of card + quiet stays a loop.
-pub fn calls_work(blocks: &[Value]) -> bool {
-    blocks.iter().any(|block| {
-        block.get("type").and_then(Value::as_str) == Some("tool_use")
-            && block.get("name").and_then(Value::as_str).is_some_and(|name| !TERMINAL_MCP_TOOLS.contains(&name))
-    })
-}
-
 pub fn calls_quiet(blocks: &[Value]) -> bool {
     blocks.iter().any(|block| {
         block.get("type").and_then(Value::as_str) == Some("tool_use")
-            && block.get("name").and_then(Value::as_str) == Some(TERMINAL_MCP_TOOLS[0])
-            && block.get("input").and_then(|input| input.get("op")).and_then(Value::as_str)
-                == Some("quiet")
+            && is_quiet_call(
+                block.get("name").and_then(Value::as_str).unwrap_or_default(),
+                block.get("input").unwrap_or(&Value::Null),
+            )
     })
 }
 
-/// #EXP-1828: the guard against a turn that keeps going after `quiet` with
-/// no new inbound message. `quiet` ends the agent's answer; a SECOND one
-/// with nothing in between means something other than a person (a harness
-/// nudge) re-woke it, and the turn is stopped instead of looping. A prompt
-/// (a real message) re-arms it, and so does real work (#FEED-246): a worker
-/// says `quiet` after a step, keeps working (a tool call) and says it
-/// again; interrupting THAT cut live runs mid-work ("I've stopped as you
-/// asked") on every device.
-/// #FEED-274: the `quiet` calls in a row (no prompt, no work between them)
-/// that make a loop the [`QuietGuard`] interrupts. The FEED-240 loop ran 17.
-pub const QUIET_LOOP: u32 = 4;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct QuietGuard {
-    quiet_calls: u32,
+/// #EXP-1828: is this tool call `exponential_session_self {op: "quiet"}`?
+pub fn is_quiet_call(name: &str, input: &Value) -> bool {
+    name == TERMINAL_MCP_TOOLS[0]
+        && input.get("op").and_then(Value::as_str) == Some("quiet")
 }
 
-impl QuietGuard {
-    /// A real inbound message: the agent may go quiet once more.
-    pub fn on_prompt(&mut self) {
-        self.quiet_calls = 0;
-    }
+/// Quiet ends the turn in code, not by the model's memory: the
+/// `PostToolUse` hook answers a main-lane `quiet` with `continue: false`, so
+/// the CLI stops right after that tool result. No further model call, so no
+/// second `quiet`, no "[Your previous response had no visible output…]"
+/// nudge, no filler reply, and no device interrupt (which the CLI words to
+/// the model as the user rejecting its tool call).
+pub fn quiet_hook_response() -> Value {
+    json!({ "continue": false, "stopReason": QUIET_STOP_REASON, "suppressOutput": true })
+}
 
-    /// #FEED-246: the agent did real work (a tool call other than `quiet`):
-    /// a later `quiet` is an answer again, not a loop.
-    pub fn on_work(&mut self) {
-        self.quiet_calls = 0;
-    }
+/// The `stopReason` of [`quiet_hook_response`].
+pub const QUIET_STOP_REASON: &str = "Turn ended quietly.";
 
-    /// A `quiet` call; `true` = the [`QUIET_LOOP`]th in a row with no prompt
-    /// and no work in between, so the running turn must be interrupted.
-    /// #FEED-274: a model that says `quiet` twice in a row (measured on a
-    /// moved worker) is no loop: the CLI ends that turn by itself, and an
-    /// interrupt there reads to the model as "the user doesn't want to
-    /// proceed … STOP" and it answered "I've stopped as you asked".
-    pub fn on_quiet(&mut self) -> bool {
-        self.quiet_calls = self.quiet_calls.saturating_add(1);
-        self.quiet_calls >= QUIET_LOOP
+/// The opening of Claude Code's nudge after a turn that ended with no text
+/// (`[Your previous response had no visible output. Please continue and
+/// produce a user-visible response.]`, a synthetic user entry).
+pub const NO_VISIBLE_OUTPUT_NUDGE: &str = "[Your previous response had no visible output.";
+
+/// A team agent's schedule or event tick, as the server words it
+/// (`chat_store::text::system_firing`), in any paragraph (a host note may
+/// lead it): silence is a legitimate answer.
+pub fn is_tick_prompt(text: &str) -> bool {
+    text.split("\n\n").any(is_firing)
+}
+
+fn is_firing(text: &str) -> bool {
+    let text = text.trim_start();
+    let named = |prefix: &str| {
+        let rest = text.strip_prefix(prefix)?;
+        let end = rest.find(['`', '\n'])?;
+        (end > 0 && rest[end..].starts_with('`')).then(|| &rest[end + 1..])
+    };
+    if named("Schedule `").is_some_and(|rest| rest.split('\n').next().is_some_and(|line| line.contains(" fired"))) {
+        return true;
     }
+    named("Event `").is_some_and(|rest| rest.starts_with(" (from "))
 }
 
 // ---------------------------------------------------------------------------
@@ -1902,46 +1895,26 @@ mod tests {
         assert!(calls_quiet(&[text.clone(), quiet]));
         assert!(!calls_quiet(&[suggest, show, text]));
         assert!(!calls_quiet(&[]));
-        // #FEED-246: any non-terminal tool call is work; text, quiet, a
-        // suggestion or a card are not.
-        let quiet = json!({ "type": "tool_use", "id": "t1", "name": "mcp__exponential__exponential_session_self", "input": { "op": "quiet" } });
-        let suggest = json!({ "type": "tool_use", "id": "t2", "name": "mcp__exponential__exponential_session_self", "input": { "op": "suggest" } });
-        let show = json!({ "type": "tool_use", "id": "t3", "name": "mcp__exponential__exponential_show", "input": {} });
-        let bash = json!({ "type": "tool_use", "id": "t4", "name": "Bash", "input": { "command": "ls" } });
-        let send = json!({ "type": "tool_use", "id": "t5", "name": "mcp__exponential__exponential_pr_write", "input": { "op": "open" } });
-        assert!(calls_work(&[bash, quiet.clone()]));
-        assert!(calls_work(&[send]));
-        assert!(!calls_work(&[quiet, suggest, show, json!({ "type": "text", "text": "x" })]));
-        assert!(!calls_work(&[]));
     }
 
-    /// #EXP-1828 regression: the FEED-240 loop. A routine event, the agent
-    /// answers quiet; re-wakes with no new message (the reminder, a
-    /// continuation) and quiet again and again stop the turn; every further
-    /// one too. The next real message re-arms the quiet answers.
-    /// #FEED-274: a double (or triple) quiet is no loop: never a stop.
+    /// Quiet ends the turn: the hook's answer stops the CLI after the result.
     #[test]
-    fn a_quiet_loop_without_a_new_message_stops_the_turn() {
-        let mut guard = QuietGuard::default();
-        guard.on_prompt();
-        assert!(!guard.on_quiet(), "the first quiet is the answer");
-        assert!(!guard.on_quiet(), "a second one in a row is no loop yet");
-        assert!(!guard.on_quiet());
-        assert!(guard.on_quiet(), "the fourth in a row is the loop");
-        assert!(guard.on_quiet());
-        guard.on_prompt();
-        assert!(!guard.on_quiet(), "a new message gets its own quiet answer");
-        // #FEED-246: work between quiets is no loop.
-        guard.on_work();
-        assert!(!guard.on_quiet(), "a quiet after real work is an answer");
-        assert!(!guard.on_quiet());
-        assert!(!guard.on_quiet());
-        assert!(guard.on_quiet(), "and a bare run after it is the loop again");
-        // Back-to-back routine events, each answered quiet: never a stop.
-        for _ in 0..17 {
-            guard.on_prompt();
-            assert!(!guard.on_quiet());
-        }
+    fn the_quiet_hook_answer_stops_the_turn() {
+        let answer = quiet_hook_response();
+        assert_eq!(answer["continue"], json!(false));
+        assert_eq!(answer["stopReason"], json!(QUIET_STOP_REASON));
+    }
+
+    /// A schedule or event firing is a tick; a person's words are not.
+    #[test]
+    fn a_tick_prompt_is_a_schedule_or_event_firing() {
+        assert!(is_tick_prompt("Schedule `*/30 * * * *` fired."));
+        assert!(is_tick_prompt("Schedule `daily` (Mon 9:00) fired.\nCheck the board."));
+        assert!(is_tick_prompt("Event `issue.created` (from #EXP-12): a new issue"));
+        assert!(!is_tick_prompt("Schedule `x` later"));
+        assert!(!is_tick_prompt("Event `x` happened"));
+        assert!(!is_tick_prompt("What fired the schedule?"));
+        assert!(is_tick_prompt("Note from Exponential: hi.\n\nSchedule `0 * * * *` fired."));
     }
 
     /// #FEED-230: every claude child pins the CLI's `fable` alias to 5.2,

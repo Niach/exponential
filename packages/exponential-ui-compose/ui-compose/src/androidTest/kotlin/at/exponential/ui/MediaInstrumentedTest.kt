@@ -62,6 +62,7 @@ class MediaInstrumentedTest {
         val fallback = TextShaper(
             TextMeasurer(createFontFamilyResolver(context), Density(density, 1f), LayoutDirection.Ltr),
             density,
+            context,
         ) { null }
         val m = SurfaceModel(
             id = "media",

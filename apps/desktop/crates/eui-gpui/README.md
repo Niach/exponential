@@ -195,6 +195,9 @@ view.update(cx, |v, cx| {
   (`ui-monospace`, `system-ui`, `sans-serif`) resolve the same way. Every
   font carries a glyph fallback chain (Noto, PingFang, Segoe, the emoji
   fonts). `fontStyle: italic` and the weights 300–800 reach the font.
+  The bundled `Inter Symbols` (key symbols such as ⌘, SIL OFL 1.1, see
+  NOTICE) heads that chain and registers itself with every text system the
+  SDK touches (`symbol_fonts::register_symbol_fonts`, no host setup).
 - **Icons.** gpui-component's icon SVGs must be in the app's `AssetSource`
   (the IDE's `Assets` falls back to `gpui_component_assets`).
 - **Host** (`HostPlugin`, every method defaulted):

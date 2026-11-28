@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -183,7 +182,7 @@ internal fun QrCodeLeaf(cx: LeafContext) {
             if (label.isNotEmpty()) {
                 val ts = qrLabelStyle(cx.model, props)
                 val ink = cx.part("QrCode", "label", props).color ?: cx.ink
-                BasicText(cx.shown(label), Modifier.fillMaxWidth(), style = cx.composeTextStyle(ts = ts, color = ink, align = TextAlign.Center))
+                ShapedText(cx.shown(label), Modifier.fillMaxWidth(), style = cx.composeTextStyle(ts = ts, color = ink, align = TextAlign.Center))
             }
         }
     }
@@ -325,14 +324,14 @@ internal fun QrScannerLeaf(cx: LeafContext) {
                         verticalArrangement = Arrangement.spacedBy(cx.spacing("xs").dp, Alignment.CenterVertically),
                     ) {
                         IconView(Round5Style.PLACEHOLDER_ICON, Round5Style.PLACEHOLDER_ICON_SIZE, muted, model)
-                        BasicText(unavailable, style = cx.composeTextStyle(ts = cts, color = caption.color ?: muted, align = TextAlign.Center))
+                        ShapedText(unavailable, style = cx.composeTextStyle(ts = cts, color = caption.color ?: muted, align = TextAlign.Center))
                     }
                 }
             }
             if (hint.isNotEmpty()) {
                 val hp = cx.part("QrScanner", "hint", props)
                 val hts = ResolvedTextStyle(hp.px("fontSize") ?: 14f, 400, hp.px("lineHeight") ?: 20f, hp.fontFamily)
-                BasicText(cx.shown(hint), Modifier.fillMaxWidth(), style = cx.composeTextStyle(ts = hts, color = hp.color ?: cx.ink, align = TextAlign.Center))
+                ShapedText(cx.shown(hint), Modifier.fillMaxWidth(), style = cx.composeTextStyle(ts = hts, color = hp.color ?: cx.ink, align = TextAlign.Center))
             }
         }
     }

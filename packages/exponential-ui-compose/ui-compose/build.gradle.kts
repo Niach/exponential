@@ -211,11 +211,40 @@ val benchScenarios = tasks.register<BenchScenarios>("exponentialUiBenchScenarios
     output.set(layout.buildDirectory.dir("generated/benchScenarios"))
 }
 
+/**
+ * The bundled `Inter Symbols` faces (`src/main/res/font/inter_symbols_*.ttf`,
+ * a subset of Inter, SIL OFL 1.1) ship their licence: `OFL-Inter.txt` as the
+ * Java resource `META-INF/OFL-Inter.txt` of the AAR's classes.jar.
+ */
+abstract class LicenceResources : DefaultTask() {
+    @get:InputFile
+    abstract val source: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val from = source.get().asFile
+        val dir = output.get().asFile
+        dir.deleteRecursively()
+        val metaInf = File(dir, "META-INF")
+        metaInf.mkdirs()
+        from.copyTo(File(metaInf, from.name))
+    }
+}
+
+val licenceResources = tasks.register<LicenceResources>("interSymbolsLicence") {
+    source.set(file("OFL-Inter.txt"))
+    output.set(layout.buildDirectory.dir("generated/licenceResources"))
+}
+
 androidComponents {
     // AGP 9's built-in Kotlin compiles `sources.kotlin` (Kotlin files under
     // `sources.java` are no longer picked up).
     onVariants { variant ->
         variant.sources.kotlin?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output)
+        variant.sources.resources?.addGeneratedSourceDirectory(licenceResources, LicenceResources::output)
         variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(benchScenarios, BenchScenarios::output)
     }
 }
@@ -264,6 +293,13 @@ publishing {
             pom {
                 name.set("Exponential UI Compose")
                 description.set("The Jetpack Compose renderer of the Exponential UI SDK: paints A2UI surfaces at the frames the Rust core computes, with the host runtime (transports, policy, sources).")
+                licenses {
+                    license {
+                        name.set("OFL-1.1")
+                        url.set("https://openfontlicense.org")
+                        comments.set("The bundled Inter Symbols faces (res/font/inter_symbols_*.ttf, a subset of Inter); META-INF/OFL-Inter.txt")
+                    }
+                }
             }
         }
     }

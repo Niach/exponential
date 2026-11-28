@@ -31,6 +31,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::extension::ExtensionPainter;
 use crate::host::HostPlugin;
+use crate::symbol_fonts::INTER_SYMBOLS_FAMILY;
 use crate::paint::markdown::{self, Inline, MdStyles, MdText, TextSpec};
 use crate::paint::parts::{control, default_family, mono_family, part_props, px_prop, spacing};
 use crate::text;
@@ -38,7 +39,9 @@ use crate::text;
 /// The base of the identity the core keys its memo on.
 const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
-/// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
+/// Glyph fallbacks (CJK, emoji, symbols) after a sans family. The bundled
+/// `Inter Symbols` (key symbols, [`crate::symbol_fonts`]) comes FIRST, right
+/// after the theme family, as on every renderer.
 ///
 /// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system
 /// (vendor/gpui-pre-wgpu) shapes every cluster with emoji presentation in the
@@ -47,6 +50,7 @@ const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 /// here once removed it from the font database.
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub(crate) const SANS_FALLBACKS: &[&str] = &[
+    INTER_SYMBOLS_FAMILY,
     ".SystemUIFont",
     "Noto Sans",
     "Noto Sans CJK SC",
@@ -62,6 +66,7 @@ pub(crate) const SANS_FALLBACKS: &[&str] = &[
 ];
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub(crate) const SANS_FALLBACKS: &[&str] = &[
+    INTER_SYMBOLS_FAMILY,
     ".SystemUIFont",
     "Noto Sans",
     "Noto Sans CJK SC",
@@ -120,6 +125,7 @@ pub(crate) struct Fonts {
 
 impl Fonts {
     pub fn new(host: Rc<dyn HostPlugin>, theme: Option<&ResolvedTheme>, text_system: Arc<TextSystem>) -> Fonts {
+        crate::symbol_fonts::register_symbol_fonts(&text_system);
         let mut f = Fonts {
             host,
             text_system,
@@ -128,8 +134,8 @@ impl Fonts {
             wraps: RefCell::new(HashMap::new()),
             default: SharedString::default(),
             mono: SharedString::default(),
-            sans_fallbacks: FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect()),
-            mono_fallbacks: FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect()),
+            sans_fallbacks: sans_chain(),
+            mono_fallbacks: mono_chain(),
             epoch: Cell::new(0),
         };
         f.set_theme(theme);
@@ -263,6 +269,7 @@ impl Fonts {
 /// builds its fallback cascade (milliseconds each); a host calls this on a
 /// background thread so a surface's first frame finds them loaded.
 pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font> {
+    crate::symbol_fonts::register(text_system, None);
     let loads = |family: &SharedString| {
         family.starts_with('.') || {
             let id = text_system.resolve_font(&plain_font(family.clone(), 400, false, None));
@@ -271,8 +278,7 @@ pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font
     };
     let mono = MONO_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"));
     let sans = SharedString::from(default_family.to_string());
-    let sans_fallbacks = FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect());
-    let mono_fallbacks = FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect());
+    let (sans_fallbacks, mono_fallbacks) = (sans_chain(), mono_chain());
     let mut fonts = Vec::new();
     for (family, fallbacks) in [(sans, sans_fallbacks), (mono, mono_fallbacks)] {
         for weight in [400, 500, 600, 700] {
@@ -286,9 +292,34 @@ pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font
     fonts
 }
 
-/// A font of `family` at `weight` (italic when asked).
+/// A font of `family` at `weight`, with the glyph fallback chain its kind
+/// gets (mono or sans).
 pub fn make_font(family: SharedString, weight: u16) -> Font {
-    plain_font(family, weight, false, None)
+    let chain = chain_for(&family);
+    plain_font(family, weight, false, Some(chain))
+}
+
+/// The sans glyph fallback chain: `Inter Symbols`, then [`SANS_FALLBACKS`].
+pub(crate) fn sans_chain() -> FontFallbacks {
+    static CHAIN: std::sync::OnceLock<FontFallbacks> = std::sync::OnceLock::new();
+    CHAIN.get_or_init(|| FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect())).clone()
+}
+
+/// The mono glyph fallback chain: `Inter Symbols` first, then the mono
+/// families, then the rest of the sans chain.
+pub(crate) fn mono_chain() -> FontFallbacks {
+    static CHAIN: std::sync::OnceLock<FontFallbacks> = std::sync::OnceLock::new();
+    CHAIN
+        .get_or_init(|| {
+            let rest = SANS_FALLBACKS.iter().filter(|f| **f != INTER_SYMBOLS_FAMILY);
+            FontFallbacks::from_fonts(std::iter::once(&INTER_SYMBOLS_FAMILY).chain(MONO_CANDIDATES.iter()).chain(rest).map(|s| s.to_string()).collect())
+        })
+        .clone()
+}
+
+/// The chain a family gets: mono for a monospace name, else sans.
+pub(crate) fn chain_for(family: &str) -> FontFallbacks {
+    if looks_mono(family) { mono_chain() } else { sans_chain() }
 }
 
 fn plain_font(family: SharedString, weight: u16, italic: bool, fallbacks: Option<FontFallbacks>) -> Font {

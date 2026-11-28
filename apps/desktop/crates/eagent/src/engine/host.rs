@@ -432,6 +432,11 @@ pub enum EngineCommand {
     /// EXP-1896: a line the HOST steers by itself (the API-error retry): a
     /// [`Self::Steer`] nobody typed.
     HostSteer(String),
+    /// A note the HOST hands the agent (the device interrupted its turn):
+    /// it starts a turn, but it is nobody's message, so it never becomes a
+    /// `user_message` row (one rendered as the member's own bubble, with
+    /// their avatar). Mid-turn it leads the next input instead.
+    HostNote(String),
     /// EXP-1292: a question/plan card answered IN the Conversation, mapped
     /// onto the open ask ([`Mapper::card_answer`]).
     AnswerCard {
@@ -1313,7 +1318,7 @@ impl SessionCtx {
         };
         if let (Some(note), Some(commands)) = (note, self.queue_commands.get()) {
             log::info!("engine: session {} is told its turn was interrupted by the device", self.session_id);
-            let _ = commands.send(EngineCommand::HostSteer(note));
+            let _ = commands.send(EngineCommand::HostNote(note));
         }
     }
 
@@ -2703,6 +2708,18 @@ fn handle_command(
             None,
             PromptAuthor::Other,
         ),
+        EngineCommand::HostNote(note) => {
+            if ctx.compaction_open() || ctx.holds_prompts() || !ctx.turn_signal.is_idle() {
+                let mut held = ctx.turn_note.lock().unwrap_or_else(|err| err.into_inner());
+                *held = Some(match held.take() {
+                    Some(older) => format!("{older}\n\n{note}"),
+                    None => note,
+                });
+            } else {
+                let prompt = LocalizedPrompt { blocks: text_blocks(&note), announce: String::new(), fresh: false };
+                start_turn(cx, ctx, session_id, TurnPrompt::Ready(prompt), turns, None, PromptAuthor::Other);
+            }
+        }
         // EXP-861: a Stop drops what the person queued as well as the turn
         // (the `cancel_queued` semantics, now for the host's own queue); the
         // stall watchdog's interrupt keeps it — those messages are what it
@@ -3336,6 +3353,13 @@ fn start_turn(
         (blocks, _) => blocks,
     };
     match (&pending, &ready_blocks) {
+        // A host note (`EngineCommand::HostNote`): no row, and the agent's
+        // replay of it is swallowed.
+        (None, Some(blocks)) if announce.trim().is_empty() => {
+            let mut out = MapOut::default();
+            ctx.with_mapper(|mapper| mapper.on_host_prompt(&blocks_text(blocks), &mut out));
+            ctx.dispatch(out);
+        }
         // EXP-1098: the agent's replay may carry the LOCALIZED text (an
         // image prompt's `Image #N: <path>` manifest) rather than the
         // announce — both spellings retire the one echo, so the row stays

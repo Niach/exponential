@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Inter Symbols` after every theme family (the core's shared web recipes: font stacks + the inlined `@font-face` rules), so ⌘ and the other key symbols draw in the same face on every platform.
 - Select option `section` (#EXP-2161): the unsectioned options first, then each section's run under its `sectionHeading` part (`role=presentation`, never an option; `selectSectionGap` under a row), both popups.
 - Text `runs` + `dropCap` (genUI round 4): styled spans (weights, tones, marks, policed links) and a floated first letter.
 - Box backgrounds (genUI round 4): a node with `backgroundImage` loads its picture like an Image (`useBackgroundImage`) and sets `--xui-bgi` (the placeholder until it decoded); the node sheet paints the layers.

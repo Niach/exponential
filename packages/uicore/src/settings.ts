@@ -4,7 +4,7 @@
 
 import fixture from "../fixtures/system-settings.json" with { type: "json" }
 
-export type SettingsKind = `module` | `later` | `launch`
+export type SettingsKind = `module` | `later` | `launch` | `page`
 
 export interface SettingsModule {
   id: string
@@ -14,7 +14,11 @@ export interface SettingsModule {
   keywords: string
   kind: SettingsKind
   command?: string
+  /** #EDE-275: the holder page a `page` module opens (a window key or a `~/` link). */
+  page?: string
   opens?: string
+  /** #EDE-274: the module's stack switcher (its pages, in order). */
+  tabs?: { value: string; label: string }[]
 }
 
 export interface SettingsTile {
@@ -35,13 +39,15 @@ export interface SettingsCategory {
 export interface SettingsState {
   module: string
   query: string
+  tab: string
 }
 
-export type SettingsEvent = { kind: `open`; id: string } | { kind: `back` } | { kind: `query`; text: string } | { kind: `submit` } | { kind: `link`; target: string } | { kind: string }
+export type SettingsEvent = { kind: `open`; id: string } | { kind: `back` } | { kind: `query`; text: string } | { kind: `submit` } | { kind: `link`; target: string } | { kind: `tab`; value: string } | { kind: string }
 
 export interface SettingsNavigation {
   state: SettingsState
   launch: string | null
+  page: string | null
   title: string
 }
 
@@ -58,7 +64,7 @@ export function settingsGrid(query: string, installed: string[]): SettingsCatego
   return SETTINGS_CATEGORIES.map((c) => ({
     id: c.id,
     title: c.title,
-    modules: SETTINGS_MODULES.filter((m) => m.category === c.id && (q === `` || matches(m, q))).map((m) => ({ id: m.id, name: m.name, icon: m.icon, kind: m.kind, later: m.kind === `later`, installed: m.kind === `launch` ? installed.includes(m.id) : true })),
+    modules: SETTINGS_MODULES.filter((m) => m.category === c.id && (q === `` || matches(m, q))).map((m) => ({ id: m.id, name: m.name, icon: m.icon, kind: m.kind, later: m.kind === `later`, installed: m.kind === `launch` || m.kind === `page` ? installed.includes(m.id) : true })),
   })).filter((c) => c.modules.length > 0)
 }
 
@@ -69,14 +75,17 @@ function resolve(id: string): SettingsModule | undefined {
   return m?.opens ? SETTINGS_MODULES.find((x) => x.id === m.opens) : m
 }
 
-const result = (state: SettingsState, launch: string | null = null): SettingsNavigation => ({ state, launch, title: titleOf(state.module) })
+const result = (state: SettingsState, launch: string | null = null, page: string | null = null): SettingsNavigation => ({ state, launch, page, title: titleOf(state.module) })
 
 function open(state: SettingsState, id: string, installed: string[]): SettingsNavigation {
   const m = resolve(id)
   if (!m) return result(state)
   if (m.kind === `launch` && installed.includes(m.id)) return result(state, m.command ?? null)
-  return result({ module: m.id, query: state.query })
+  if (m.kind === `page` && installed.includes(m.id)) return result(state, null, m.page ?? null)
+  return result({ module: m.id, query: state.query, tab: firstTab(m) })
 }
+
+const firstTab = (m: SettingsModule): string => m.tabs?.[0]?.value ?? ``
 
 /** One navigation step of the window. */
 export function settingsNavigate(state: SettingsState, event: SettingsEvent, installed: string[]): SettingsNavigation {
@@ -85,24 +94,35 @@ export function settingsNavigate(state: SettingsState, event: SettingsEvent, ins
     case `open`:
       return open(s, (event as { id: string }).id, installed)
     case `back`:
-      return result({ ...s, module: `` })
+      return result({ ...s, module: ``, tab: `` })
     case `query`:
       return result(s.module ? s : { ...s, query: (event as { text: string }).text })
     case `submit`: {
       if (s.module || !s.query.trim()) return result(s)
-      const first = settingsGrid(s.query, installed)[0]?.modules[0]
-      return first ? open(s, first.id, installed) : result(s)
+      // Enter opens the best match (a name starting with the query, then a
+      // name holding it, then a keyword hit); ties keep the grid's order.
+      const q = s.query.trim().toLowerCase()
+      const rank = (t: SettingsTile): number => (t.name.toLowerCase().startsWith(q) ? 0 : t.name.toLowerCase().includes(q) ? 1 : 2)
+      const tiles = settingsGrid(s.query, installed).flatMap((c) => c.modules)
+      const best = tiles.reduce<SettingsTile | undefined>((b, t) => (b === undefined || rank(t) < rank(b) ? t : b), undefined)
+      return best ? open(s, best.id, installed) : result(s)
     }
     case `link`: {
       let t = (event as { target: string }).target
       if (t.startsWith(`~/settings`)) t = t.slice(`~/settings`.length)
       t = t.replace(/^\/+|\/+$/g, ``)
       t = SETTINGS_ALIASES[t] ?? t
-      const grid = { module: ``, query: `` }
+      const grid = { module: ``, query: ``, tab: `` }
       const m = t ? resolve(t) : undefined
       if (!m) return result(grid)
       if (m.kind === `launch` && installed.includes(m.id)) return result(grid, m.command ?? null)
-      return result({ module: m.id, query: `` })
+      if (m.kind === `page` && installed.includes(m.id)) return result(grid, null, m.page ?? null)
+      return result({ module: m.id, query: ``, tab: firstTab(m) })
+    }
+    case `tab`: {
+      const value = (event as { value: string }).value
+      const m = SETTINGS_MODULES.find((x) => x.id === s.module)
+      return result(m?.tabs?.some((t) => t.value === value) ? { ...s, tab: value } : s)
     }
     default:
       return result(s)

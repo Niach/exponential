@@ -52,7 +52,7 @@ val noShaper: () -> TextShaper = { error("the shaper is never called under fixed
 fun robolectricShaper(fonts: FontResolver = FontResolver { null }, density: Float = 1f): TextShaper {
     val context = RuntimeEnvironment.getApplication()
     val measurer = TextMeasurer(createFontFamilyResolver(context), Density(density, 1f), LayoutDirection.Ltr)
-    return TextShaper(measurer, density, fonts)
+    return TextShaper(measurer, density, context, fonts)
 }
 
 /**

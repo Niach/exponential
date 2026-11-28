@@ -58,7 +58,7 @@ pub fn spec_of(ts: &TextStyle) -> TextSpec {
 
 /// The cap's font (the Text's family, the run's weight) and size.
 pub fn cap_font(family: SharedString, cap: &TextRun, ts: &TextStyle, lines: u32) -> (Font, f32) {
-    let font = Font { family, features: Default::default(), fallbacks: None, weight: FontWeight(cap.font_weight().unwrap_or(ts.font_weight) as f32), style: FontStyle::Normal };
+    let font = Font { fallbacks: Some(crate::measure::chain_for(&family)), family, features: Default::default(), weight: FontWeight(cap.font_weight().unwrap_or(ts.font_weight) as f32), style: FontStyle::Normal };
     (font, drop_cap_size(ts.font_size, ts.line_height, lines))
 }
 

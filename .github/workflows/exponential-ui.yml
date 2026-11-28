@@ -524,7 +524,9 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test -scheme ExponentialUI-Package -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
-            -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO | tail -40
+            -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/ios-test.log" 2>&1 \
+            || { grep -E "error: |> budget|no budget|not in the baseline|^## .*(size [1-9]|position [1-9]|wrap [1-9])" "$RUNNER_TEMP/ios-test.log" | head -200; tail -40 "$RUNNER_TEMP/ios-test.log"; exit 1; }
+          tail -40 "$RUNNER_TEMP/ios-test.log"
       - name: Build the KitchenSink example (Simulator)
         working-directory: packages/exponential-ui-swift/Example
         run: |

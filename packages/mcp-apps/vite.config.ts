@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite"
 import viteReact from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 import { pruneUtilities } from "./src/build/css"
-import { MCP_APP_MAX_BYTES, leanJson, packedText } from "./src/build/lean"
+import { MCP_APP_MAX_BYTES, leanInterSymbols, leanJson, packedText } from "./src/build/lean"
 
 // EXP-1183 — the MCP Apps views ship as self-contained HTML documents: an
 // MCP Apps host (OpenClaw, Claude, ChatGPT…) reads one as a `ui://` resource
@@ -92,7 +92,7 @@ function escape(value: string): string {
 }
 
 export default defineConfig({
-  plugins: [leanMotionWasm(), ...leanJson(), viteReact(), tailwindcss(), inlineIntoHtml()],
+  plugins: [leanMotionWasm(), leanInterSymbols(), ...leanJson(), viteReact(), tailwindcss(), inlineIntoHtml()],
   base: `./`,
   build: {
     outDir: OUT_DIR,

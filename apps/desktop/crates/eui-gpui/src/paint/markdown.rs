@@ -2113,7 +2113,7 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
         let font = Font {
             family: if span.code { mono.clone() } else { family.clone() },
             features: Default::default(),
-            fallbacks: None,
+            fallbacks: Some(if span.code { crate::measure::mono_chain() } else { crate::measure::chain_for(family) }),
             weight: FontWeight(span.weight.unwrap_or(if span.bold { weight.max(600) } else { weight }) as f32),
             style: if span.italic { FontStyle::Italic } else { FontStyle::Normal },
         };
@@ -2538,8 +2538,8 @@ fn inline_code(id: SharedString, chip: &InlineChip, href: Option<String>, (x, to
     let code = &p.styles.inline_code;
     let type_ = code.spec(spec, None);
     let color = if href.is_some() { colors.link } else { colors.ink };
-    let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(type_.weight as f32), style: FontStyle::Normal };
-    let body = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
+    let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: Some(crate::measure::mono_chain()), weight: FontWeight(type_.weight as f32), style: FontStyle::Normal };
+    let body = Font { family: p.family.clone(), features: Default::default(), fallbacks: Some(crate::measure::chain_for(&p.family)), weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
     let (ascent, descent, baseline) = p.text_system.as_ref().map_or((type_.size, type_.size * 0.25, spec.line_height * 0.75), |ts| {
         let (mono, base) = (ts.resolve_font(&font), ts.resolve_font(&body));
         // As a line lays out: half-leading + ascent (`descent` reads negative here).
@@ -2600,7 +2600,7 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
         look.border = [w; 4];
     }
     let color = own.label.or(p.chip_label).unwrap_or(ink);
-    let font = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(m.caption.weight as f32), style: FontStyle::Normal };
+    let font = Font { family: p.family.clone(), features: Default::default(), fallbacks: Some(crate::measure::chain_for(&p.family)), weight: FontWeight(m.caption.weight as f32), style: FontStyle::Normal };
     let label_font = font.clone();
     let label: SharedString = chip.label.clone().into();
     let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: None, strikethrough: None }]);
@@ -2626,7 +2626,7 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
         let spec = m.ident_spec(p.styles.code.family.clone());
         let ident_color = own.ident.unwrap_or(color);
         let family = spec.family.clone().map(SharedString::from).unwrap_or_else(|| p.mono.clone());
-        let ident_font = Font { family, features: Default::default(), fallbacks: None, weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
+        let ident_font = Font { fallbacks: Some(crate::measure::chain_for(&family)), family, features: Default::default(), weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
         // Both lines sit centred in the chip; the ident moves by the gap
         // between the two fonts' baselines so it shares the title's.
         let shift = p.text_system.as_ref().map_or(0.0, |ts| baseline_shift(ts, (&label_font, m.caption.size, m.caption.line_height), (&ident_font, spec.size, spec.line_height)));
@@ -2815,7 +2815,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 .into_any_element(),
             BlockKind::CodeBlock => {
                 let text: SharedString = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default().into();
-                let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(s.code.weight as f32), style: FontStyle::Normal };
+                let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: Some(crate::measure::mono_chain()), weight: FontWeight(s.code.weight as f32), style: FontStyle::Normal };
                 let runs = code_block_runs(&text, b.lang.as_deref(), &font, p.colors.ink, &*p.code_token);
                 let runs = if text.is_empty() { Vec::new() } else { p.fallback(&text, runs) };
                 placed

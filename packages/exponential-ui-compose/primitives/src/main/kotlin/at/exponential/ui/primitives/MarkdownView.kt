@@ -183,6 +183,13 @@ fun interface MarkdownCodeHighlighter {
 fun interface MarkdownFontResolver {
     /** The family for [name] (null name = the default face). */
     fun family(name: String?, mono: Boolean): FontFamily?
+
+    /**
+     * The painted [text] in [style] with the host's per-glyph fallback
+     * spans (the SDK painter: `Inter Symbols` for the key symbols a face
+     * lacks, as its measurer shapes them). Default: [text] unchanged.
+     */
+    fun fallback(text: AnnotatedString, style: TextStyle): AnnotatedString = text
 }
 
 /**
@@ -229,6 +236,24 @@ class MarkdownComposeText(
         marks: List<HighlightMark> = emptyList(),
         tones: Map<String, Color> = emptyMap(),
         markFill: Color = Color.Unspecified,
+    ): AnnotatedString = fonts.fallback(runs(inlines, spec, ink, link, codeBackground, boldFloor, onLink, code, highlight, marks, tones, markFill), style(spec))
+
+    /** A chip's [label] (or ident) in its painted [style], with the resolver's fallback spans. */
+    fun label(label: String, style: TextStyle): AnnotatedString = fonts.fallback(AnnotatedString(label), style)
+
+    private fun runs(
+        inlines: List<MarkdownInline>,
+        spec: MarkdownTextSpec,
+        ink: Color,
+        link: Color,
+        codeBackground: Color?,
+        boldFloor: Int?,
+        onLink: ((String) -> Unit)?,
+        code: MarkdownCodeStyle?,
+        highlight: MarkdownHighlight?,
+        marks: List<HighlightMark>,
+        tones: Map<String, Color>,
+        markFill: Color,
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
         var chips = 0
@@ -894,7 +919,7 @@ private fun markdownChipContent(
         val look = colors.chipLooks[chip.kind]
         val ink = (look?.ink ?: Color.Unspecified).takeOrElse { colors.chipInk.takeOrElse { colors.ink } }
         out[markdownChipId(n++)] = InlineTextContent(Placeholder(w.sp, h.sp, PlaceholderVerticalAlign.Center)) {
-            MarkdownChipView(chip, k, colors, look, shaper.style(k.label, ink), shaper.style(k.identSpec, (look?.identInk ?: Color.Unspecified).takeOrElse { ink }), icon) { if (href != null) open(href) }
+            MarkdownChipView(chip, k, colors, look, shaper.style(k.label, ink), shaper.style(k.identSpec, (look?.identInk ?: Color.Unspecified).takeOrElse { ink }), shaper, icon) { if (href != null) open(href) }
         }
     }
     return out
@@ -908,6 +933,7 @@ private fun MarkdownChipView(
     look: MarkdownChipLook?,
     label: TextStyle,
     identStyle: TextStyle,
+    shaper: MarkdownComposeText,
     icon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
     onPress: () -> Unit,
 ) {
@@ -935,10 +961,10 @@ private fun MarkdownChipView(
         Row {
             val ident = chip.shownIdent
             if (ident != null) {
-                BasicText(ident, Modifier.alignByBaseline(), style = identStyle, maxLines = 1, softWrap = false)
+                BasicText(shaper.label(ident, identStyle), Modifier.alignByBaseline(), style = identStyle, maxLines = 1, softWrap = false)
                 Box(Modifier.width(chips.gap.dp))
             }
-            BasicText(chip.label, Modifier.alignByBaseline(), style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            BasicText(shaper.label(chip.label, label), Modifier.alignByBaseline(), style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         }
     }
 }

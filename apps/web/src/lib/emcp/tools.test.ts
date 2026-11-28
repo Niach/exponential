@@ -1543,9 +1543,10 @@ describe(`exponential_sessions_quiet (FEED-227)`, () => {
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
   })
 
-  it(`answers ok and writes nothing (the turn then ends with no text)`, async () => {
+  it(`says the turn is over, never a bare ok (read as "carry on"), and writes nothing`, async () => {
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_quiet`)!({})
-    expect(parseOk(result)).toEqual({ ok: true })
+    expect(result.isError).toBeUndefined()
+    expect(result.content[0].text).toBe(`Turn ended quietly. Do not call more tools or write text.`)
   })
 })
 

@@ -71,6 +71,7 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
         val fallback = TextShaper(
             TextMeasurer(createFontFamilyResolver(context), Density(density, 1f), LayoutDirection.Ltr),
             density,
+            context,
         ) { null }
         model = SurfaceModel(
             id = if (options.bench > 0) "bench" else specimenId ?: "kitchen-sink",

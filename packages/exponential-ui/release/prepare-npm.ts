@@ -26,7 +26,7 @@ const SPECS: Spec[] = [
   {
     dir: `packages/exponential-ui`,
     out: `ui`,
-    files: [`dist`, `catalog`, `fixtures`, `themes`, `docs`, `vendor`, `generated`, `conformance`, `README.md`],
+    files: [`dist`, `catalog`, `fixtures`, `themes`, `docs`, `vendor`, `generated`, `conformance`, `fonts`, `README.md`],
     exports: {
       ".": { types: `./dist/types/src/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
       "./prompt": { types: `./dist/types/src/entries/prompt.d.ts`, import: `./dist/entries/prompt.js`, default: `./dist/entries/prompt.js` },
@@ -45,6 +45,8 @@ const SPECS: Spec[] = [
       "./themes/*": `./themes/*`,
       "./generated/*": `./generated/*`,
       "./conformance/*": `./conformance/*`,
+      // Inter Symbols (the key-symbol fallback, inlined in the theme sheet too) + its OFL.
+      "./fonts/*": `./fonts/*`,
       "./package.json": `./package.json`,
     },
   },

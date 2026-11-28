@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -250,7 +249,15 @@ internal fun ChartLeaf(cx: LeafContext) {
                     val measurer = shaper.measurer
                     fun label(text: String, x: Float, y: Float, w: Float, align: TextAlign, color: Color = axisColor) {
                         if (text.isEmpty() || w <= 0f) return
-                        val layout = measurer.measure(text, axisStyle.copy(color = color, textAlign = align), overflow = TextOverflow.Ellipsis, softWrap = false, maxLines = 1, constraints = Constraints.fixedWidth(max(1, (w * d).toInt())))
+                        val style = axisStyle.copy(color = color, textAlign = align)
+                        val constraints = Constraints.fixedWidth(max(1, (w * d).toInt()))
+                        // The Inter Symbols runs the label was measured with (`shaper.maxContent`).
+                        val symbols = shaper.symbols(text, style)
+                        val layout = if (symbols != null) {
+                            measurer.measure(symbols, style, overflow = TextOverflow.Ellipsis, softWrap = false, maxLines = 1, constraints = constraints)
+                        } else {
+                            measurer.measure(text, style, overflow = TextOverflow.Ellipsis, softWrap = false, maxLines = 1, constraints = constraints)
+                        }
                         drawText(layout, topLeft = at(x, y))
                     }
                     if (chart.showAxes) {
@@ -354,7 +361,7 @@ private fun ChartTooltip(cx: LeafContext, chart: ChartModel, h: Int, colors: Lis
         for ((text, color) in lines) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).background(color, RoundedCornerShape(2.dp)))
-                BasicText(text, style = cx.composeTextStyle(ts = ts, color = fg), maxLines = 1, softWrap = false)
+                ShapedText(text, style = cx.composeTextStyle(ts = ts, color = fg), maxLines = 1, softWrap = false)
             }
         }
     }

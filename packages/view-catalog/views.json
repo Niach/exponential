@@ -81,10 +81,6 @@
   ],
   "excludedRoutes": [
     {
-      "route": "/t/$teamSlug/new/repository",
-      "reason": "#EXP-2171's New › Repository page landed without a view (its pictures ride #3652); a `new-repository` view with shots per platform is a follow-up."
-    },
-    {
       "route": "/ci",
       "reason": "#EXP-2172: live runs on every client; the `ci` view shoots ci-page.json's scenario (`?dev=ci`) so ×5 show the same state."
     },
@@ -9483,7 +9479,7 @@
       "id": "ede-settings-share",
       "group": "ede",
       "title": "Exponential Desktop · Share as a team",
-      "blurb": "System Settings › This Device of a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57, #EDE-273): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
+      "blurb": "System Settings › Share Desktop, a Local desktop sharing it (apps/ede/ui/settings.express, #EDE-57, #EDE-273): the team name, the account when there are several, what goes up (issues, comments, sessions, files); the upload runs through the team import API and the desktop becomes that team, its file archived for 30 days.",
       "order": 21,
       "ede": {
         "size": "1280x720",
@@ -9491,7 +9487,7 @@
           "settings"
         ],
         "env": {
-          "EDE_SHELL_SETTINGS_PAGE": "this-device",
+          "EDE_SHELL_SETTINGS_PAGE": "share-desktop",
           "EDE_SHELL_SHARE": "picking"
         },
         "settleMs": 2500
@@ -10023,6 +10019,41 @@
           "value": "new-board:$team"
         },
         "anchorDelayMs": 800
+      }
+    },
+    {
+      "id": "new-repository",
+      "group": "coding",
+      "title": "New repository",
+      "blurb": "#EXP-2171 (repo-page.json NEW › REPOSITORY): the team menu's New › Repository as a page: Host on Exponential (first, preselected) | Link from GitHub tiles, then the hosted form (name, description, default branch, Run CI, mirror) and Create repository.",
+      "order": 92,
+      "web": {
+        "route": "/t/$teamSlug/new/repository",
+        "anchor": {
+          "testId": "new-repository-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "new-repository:$team"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "sg_new-repository",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_new-repository",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "The live walk opens the Teams tab's Acme row + (THE New list) › Repository; shot sg_new-repository.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest."
       }
     },
     {

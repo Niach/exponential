@@ -14,7 +14,8 @@
 #   user message                -> the next turn's frames (turn1, turn2, …)
 #   control_response            -> the frames recorded AFTER that answer
 #                                  (the n-th: `after-answer<n>.jsonl` when
-#                                  the scenario has one)
+#                                  the scenario has one; `after-stop<n>.jsonl`
+#                                  when the answer said `continue: false`)
 #
 # Env:
 #   EXP_FAKE_CLAUDE_DIR    the scenario directory (required)
@@ -131,7 +132,13 @@ while IFS= read -r line; do
             answers=$((answers + 1))
             # A scenario with several calls answers each in turn
             # (`after-answer<n>.jsonl`), else every answer replays one file.
-            if [ -f "$dir/after-answer$answers.jsonl" ]; then
+            # A hook answered `continue: false` stops the turn: the CLI
+            # plays what it records after a stopped hook
+            # (`after-stop<n>.jsonl`) when the scenario has one.
+            if [ -f "$dir/after-stop$answers.jsonl" ] && \
+                printf '%s' "$line" | grep -q '"continue":false'; then
+                play "$dir/after-stop$answers.jsonl"
+            elif [ -f "$dir/after-answer$answers.jsonl" ]; then
                 play "$dir/after-answer$answers.jsonl"
             else
                 replay "$dir/after-answer.jsonl"

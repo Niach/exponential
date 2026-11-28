@@ -803,12 +803,12 @@ describe(`notice sections`, () => {
       expect(fonts).toContain(`SIL OPEN FONT LICENSE Version 1.1`)
     }
     // #EXP-1629: the apps all ship JetBrains Mono (the theme's mono family).
-    // The web app links Inter from Google Fonts at runtime and distributes no
-    // Inter binary, so it must not claim Inter's OFL.
+    // genUI's renderers bundle Inter Symbols (an Inter subset, the key-symbol
+    // fallback), so every app carries Inter's OFL too.
     for (const client of [`desktop`, `web`, `ios`, `android`] as const) {
       expect(section(notices[client], `Bundled fonts`), client).toContain(`JetBrains Mono`)
+      expect(section(notices[client], `Bundled fonts`), client).toContain(`The Inter Project Authors`)
     }
-    expect(section(notices.web, `Bundled fonts`)).not.toContain(`The Inter Project Authors`)
   })
 
   it(`every client attributes Lucide`, () => {

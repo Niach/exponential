@@ -18,6 +18,8 @@ pub enum SettingsKind {
     Module,
     Later,
     Launch,
+    /// #EDE-275: the holder's own settings page, opened as its window.
+    Page,
 }
 
 /// One module of the catalogue.
@@ -31,8 +33,21 @@ pub struct SettingsModule {
     pub kind: SettingsKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    /// #EDE-275: the holder page a `page` module opens (a window key or a `~/` link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opens: Option<String>,
+    /// #EDE-274: the module's stack switcher (its pages, in order).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<SettingsTab>,
+}
+
+/// One page of a module's stack switcher.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsTab {
+    pub value: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +103,9 @@ pub struct SettingsCategory {
 pub struct SettingsState {
     pub module: String,
     pub query: String,
+    /// #EDE-274: the open module's page of its stack (`` without one).
+    #[serde(default)]
+    pub tab: String,
 }
 
 /// What the window was asked.
@@ -99,6 +117,8 @@ pub enum SettingsEvent {
     Query { text: String },
     Submit,
     Link { target: String },
+    /// #EDE-274: the stack switcher.
+    Tab { value: String },
     #[serde(other)]
     Other,
 }
@@ -108,6 +128,7 @@ pub enum SettingsEvent {
 pub struct SettingsNavigation {
     pub state: SettingsState,
     pub launch: Option<String>,
+    pub page: Option<String>,
     pub title: String,
 }
 
@@ -134,7 +155,7 @@ pub fn settings_grid(query: &str, installed: &[String]) -> Vec<SettingsCategory>
                     icon: m.icon.clone(),
                     kind: m.kind,
                     later: m.kind == SettingsKind::Later,
-                    installed: m.kind != SettingsKind::Launch || installed.contains(&m.id),
+                    installed: !matches!(m.kind, SettingsKind::Launch | SettingsKind::Page) || installed.contains(&m.id),
                 })
                 .collect(),
         })
@@ -156,7 +177,11 @@ fn resolve(id: &str) -> Option<&'static SettingsModule> {
 
 fn result(state: SettingsState, launch: Option<String>) -> SettingsNavigation {
     let title = module(&state.module).map(|m| m.name.clone()).unwrap_or_else(|| settings_title().to_string());
-    SettingsNavigation { state, launch, title }
+    SettingsNavigation { state, launch, page: None, title }
+}
+
+fn page_result(state: SettingsState, page: Option<String>) -> SettingsNavigation {
+    SettingsNavigation { page, ..result(state, None) }
 }
 
 fn open(state: SettingsState, id: &str, installed: &[String]) -> SettingsNavigation {
@@ -164,7 +189,14 @@ fn open(state: SettingsState, id: &str, installed: &[String]) -> SettingsNavigat
     if m.kind == SettingsKind::Launch && installed.contains(&m.id) {
         return result(state, m.command.clone());
     }
-    result(SettingsState { module: m.id.clone(), query: state.query }, None)
+    if m.kind == SettingsKind::Page && installed.contains(&m.id) {
+        return page_result(state, m.page.clone());
+    }
+    result(SettingsState { module: m.id.clone(), query: state.query, tab: first_tab(m) }, None)
+}
+
+fn first_tab(m: &SettingsModule) -> String {
+    m.tabs.first().map(|t| t.value.clone()).unwrap_or_default()
 }
 
 /// One navigation step of the window.
@@ -172,7 +204,7 @@ pub fn settings_navigate(state: &SettingsState, event: &SettingsEvent, installed
     let s = state.clone();
     match event {
         SettingsEvent::Open { id } => open(s, id, installed),
-        SettingsEvent::Back => result(SettingsState { module: String::new(), ..s }, None),
+        SettingsEvent::Back => result(SettingsState { module: String::new(), tab: String::new(), ..s }, None),
         SettingsEvent::Query { text } => {
             if s.module.is_empty() {
                 result(SettingsState { query: text.clone(), ..s }, None)
@@ -184,8 +216,22 @@ pub fn settings_navigate(state: &SettingsState, event: &SettingsEvent, installed
             if !s.module.is_empty() || s.query.trim().is_empty() {
                 return result(s, None);
             }
-            match settings_grid(&s.query, installed).first().and_then(|c| c.modules.first()).map(|t| t.id.clone()) {
-                Some(first) => open(s, &first, installed),
+            // Enter opens the best match (a name starting with the query,
+            // then a name holding it, then a keyword hit); ties keep the grid's order.
+            let q = s.query.trim().to_lowercase();
+            let rank = |t: &SettingsTile| {
+                let n = t.name.to_lowercase();
+                if n.starts_with(&q) {
+                    0
+                } else if n.contains(&q) {
+                    1
+                } else {
+                    2
+                }
+            };
+            let tiles: Vec<SettingsTile> = settings_grid(&s.query, installed).into_iter().flat_map(|c| c.modules).collect();
+            match tiles.iter().enumerate().min_by_key(|(i, t)| (rank(t), *i)).map(|(_, t)| t.id.clone()) {
+                Some(best) => open(s, &best, installed),
                 None => result(s, None),
             }
         }
@@ -197,8 +243,15 @@ pub fn settings_navigate(state: &SettingsState, event: &SettingsEvent, installed
             if m.kind == SettingsKind::Launch && installed.contains(&m.id) {
                 return result(grid, m.command.clone());
             }
-            result(SettingsState { module: m.id.clone(), query: String::new() }, None)
+            if m.kind == SettingsKind::Page && installed.contains(&m.id) {
+                return page_result(grid, m.page.clone());
+            }
+            result(SettingsState { module: m.id.clone(), query: String::new(), tab: first_tab(m) }, None)
         }
+        SettingsEvent::Tab { value } => match module(&s.module) {
+            Some(m) if m.tabs.iter().any(|t| &t.value == value) => result(SettingsState { tab: value.clone(), ..s }, None),
+            _ => result(s, None),
+        },
         SettingsEvent::Other => result(s, None),
     }
 }

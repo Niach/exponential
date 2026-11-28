@@ -24,12 +24,13 @@ pub struct Nav {
 }
 
 impl Nav {
-    /// The launch modules whose command is on `PATH` (the goldens: all of them).
+    /// The launch modules whose command is on `PATH` (the goldens: none, so
+    /// a capture never starts a tool of the machine it runs on).
     pub fn probe(demo: bool) -> Self {
         let installed = settings_modules()
             .iter()
             .filter(|m| m.kind == SettingsKind::Launch)
-            .filter(|m| demo || m.command.as_deref().and_then(|c| c.split_whitespace().next()).is_some_and(on_path))
+            .filter(|m| !demo && m.command.as_deref().and_then(|c| c.split_whitespace().next()).is_some_and(on_path))
             .map(|m| m.id.clone())
             .collect();
         Self { state: SettingsState::default(), installed }
@@ -40,6 +41,17 @@ impl Nav {
         let next = settings_navigate(&self.state, event, &self.installed);
         self.state = next.state.clone();
         next
+    }
+
+    /// #EDE-275: the holder can open its pages (an account is signed in):
+    /// the Exponential category's modules open the holder's windows, else
+    /// their page in the window says Connect Exponential.
+    pub fn set_holder(&mut self, signed_in: bool) {
+        let pages: Vec<String> = settings_modules().iter().filter(|m| m.kind == SettingsKind::Page).map(|m| m.id.clone()).collect();
+        self.installed.retain(|id| !pages.contains(id));
+        if signed_in {
+            self.installed.extend(pages);
+        }
     }
 
     /// The window starts again on the grid (it was closed).
@@ -56,6 +68,7 @@ impl Nav {
             SettingsKind::Module => "module",
             SettingsKind::Later => "later",
             SettingsKind::Launch => "missing",
+            SettingsKind::Page => "signedOut",
         });
         let mut grid = serde_json::Map::new();
         for c in ["appearance", "preferences", "hardware", "exponential", "administration"] {
@@ -68,6 +81,7 @@ impl Nav {
         json!({
             "module": self.state.module,
             "query": self.state.query,
+            "tab": self.state.tab,
             "title": nav.title,
             "inModule": !self.state.module.is_empty(),
             "kind": kind.unwrap_or(""),
@@ -82,7 +96,7 @@ fn on_path(bin: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
 }
 
-/// `ede_settings_nav {action: open|back|query|submit|link, module?, query?, target?}`.
+/// `ede_settings_nav {action: open|back|query|submit|link|tab, module?, query?, target?, tab?}`.
 pub fn event_of(args: &Value) -> Option<SettingsEvent> {
     let text = |k: &str| args.get(k).and_then(Value::as_str).map(String::from);
     Some(match args.get("action").and_then(Value::as_str)? {
@@ -91,8 +105,19 @@ pub fn event_of(args: &Value) -> Option<SettingsEvent> {
         "query" => SettingsEvent::Query { text: text("query").unwrap_or_default() },
         "submit" => SettingsEvent::Submit,
         "link" => SettingsEvent::Link { target: text("target").unwrap_or_default() },
+        "tab" => SettingsEvent::Tab { value: text("tab")? },
         _ => return None,
     })
+}
+
+/// #EDE-275: a holder page as the bus asks for it: an in-app link
+/// (`~/settings/…`) is `open {link}`, a window key (`device:`) `page {key}`.
+pub fn holder_request(page: &str, token: Option<String>) -> api::bus::Request {
+    if page.starts_with("~/") {
+        api::bus::Request::Open { link: Some(page.to_string()), activation_token: token }
+    } else {
+        api::bus::Request::Page { key: page.to_string(), activation_token: token }
+    }
 }
 
 /// Alt+Left in the window: back, as cinnamon-settings' back button.
@@ -120,6 +145,14 @@ mod tests {
         nav.step(&SettingsEvent::Open { id: "firewall".into() });
         assert_eq!(nav.feed()["kind"], "missing", "a launch module without its tool");
         assert_eq!(nav.feed()["command"], "gufw");
+        nav.set_holder(false);
+        nav.step(&SettingsEvent::Open { id: "agents".into() });
+        assert_eq!(nav.feed()["kind"], "signedOut", "signed out: Connect Exponential in the window");
+        nav.set_holder(true);
+        let opened = nav.step(&SettingsEvent::Link { target: "~/settings/account".into() });
+        assert_eq!((opened.page.as_deref(), nav.feed()["inModule"].as_bool()), (Some("~/settings/account"), Some(false)), "signed in: the holder's window, the grid here");
+        nav.set_holder(false);
+        assert!(!nav.installed.iter().any(|id| id == "account"));
     }
 
     #[test]
@@ -127,7 +160,10 @@ mod tests {
         assert_eq!(event_of(&json!({"action": "open", "module": "sound"})), Some(SettingsEvent::Open { id: "sound".into() }));
         assert_eq!(event_of(&json!({"action": "query", "query": "blu"})), Some(SettingsEvent::Query { text: "blu".into() }));
         assert_eq!(event_of(&json!({"action": "open"})), None);
+        assert_eq!(event_of(&json!({"action": "tab", "tab": "input"})), Some(SettingsEvent::Tab { value: "input".into() }));
         assert_eq!(event_of(&json!({"action": "nope"})), None);
+        assert_eq!(holder_request("~/settings/voice", None), api::bus::Request::Open { link: Some("~/settings/voice".into()), activation_token: None });
+        assert_eq!(holder_request("device:", Some("t".into())), api::bus::Request::Page { key: "device:".into(), activation_token: Some("t".into()) });
         assert!(is_back_key("left", true, false));
         assert!(!is_back_key("left", false, false));
         assert!(!is_back_key("left", true, true));

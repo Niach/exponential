@@ -1,0 +1,183 @@
+{
+  "$comment": "The ONE glyph list of `Inter Symbols`, the key-symbol fallback every eUI renderer puts right after the theme family (`\"Geist\", \"Inter Symbols\", ui-sans-serif, …`), ahead of any OS fallback: Geist and Nunito have no ⌘, so without it each OS substituted its own face and a KbdGroup \"⌘S\" measured differently per platform. `build.py` subsets the desktop's Inter (apps/desktop/assets/fonts, SIL OFL 1.1, no Reserved Font Name) to exactly these codepoints (plus `carried`) at each weight, renames the family, and writes every copy listed in `outputs` (woff2 for the web recipes, ttf for SwiftUI, Compose and gpui); `outputs` records each file's sha256 and `codepointsHash` the list it was built from. `src/web/inter-symbols.test.ts` fails when a copy, a renderer's family name or face list, or the list itself drifts from this file. Rebuild after editing: `uvx --from 'fonttools[woff]==4.69.1' python -I packages/exponential-ui/fonts/build.py`.",
+  "family": "Inter Symbols",
+  "source": "apps/desktop/assets/fonts",
+  "codepoints": [
+    {
+      "cp": "U+2318",
+      "char": "⌘",
+      "name": "command"
+    },
+    {
+      "cp": "U+2325",
+      "char": "⌥",
+      "name": "option"
+    },
+    {
+      "cp": "U+21E7",
+      "char": "⇧",
+      "name": "shift"
+    },
+    {
+      "cp": "U+2303",
+      "char": "⌃",
+      "name": "control"
+    },
+    {
+      "cp": "U+21EA",
+      "char": "⇪",
+      "name": "caps lock"
+    },
+    {
+      "cp": "U+21A9",
+      "char": "↩",
+      "name": "return"
+    },
+    {
+      "cp": "U+23CE",
+      "char": "⏎",
+      "name": "return symbol"
+    },
+    {
+      "cp": "U+21B5",
+      "char": "↵",
+      "name": "enter"
+    },
+    {
+      "cp": "U+2305",
+      "char": "⌅",
+      "name": "enter (keypad)"
+    },
+    {
+      "cp": "U+232B",
+      "char": "⌫",
+      "name": "delete"
+    },
+    {
+      "cp": "U+2326",
+      "char": "⌦",
+      "name": "forward delete"
+    },
+    {
+      "cp": "U+238B",
+      "char": "⎋",
+      "name": "escape"
+    },
+    {
+      "cp": "U+21E5",
+      "char": "⇥",
+      "name": "tab"
+    },
+    {
+      "cp": "U+21E4",
+      "char": "⇤",
+      "name": "back tab"
+    },
+    {
+      "cp": "U+2423",
+      "char": "␣",
+      "name": "space"
+    },
+    {
+      "cp": "U+23CF",
+      "char": "⏏",
+      "name": "eject"
+    },
+    {
+      "cp": "U+2190",
+      "char": "←",
+      "name": "left"
+    },
+    {
+      "cp": "U+2191",
+      "char": "↑",
+      "name": "up"
+    },
+    {
+      "cp": "U+2192",
+      "char": "→",
+      "name": "right"
+    },
+    {
+      "cp": "U+2193",
+      "char": "↓",
+      "name": "down"
+    },
+    {
+      "cp": "U+21DE",
+      "char": "⇞",
+      "name": "page up"
+    },
+    {
+      "cp": "U+21DF",
+      "char": "⇟",
+      "name": "page down"
+    },
+    {
+      "cp": "U+2196",
+      "char": "↖",
+      "name": "home"
+    },
+    {
+      "cp": "U+2198",
+      "char": "↘",
+      "name": "end"
+    }
+  ],
+  "carried": [
+    {
+      "cp": "U+006D",
+      "char": "m",
+      "why": "gpui loads no face without an `m` glyph (macOS and Linux), so the subset carries one; it is outside every unicode-range and symbol list, so no renderer ever draws it"
+    }
+  ],
+  "faces": [
+    {
+      "weight": 400,
+      "style": "Regular",
+      "from": "Inter-Regular.ttf"
+    },
+    {
+      "weight": 500,
+      "style": "Medium",
+      "from": "Inter-Medium.ttf"
+    },
+    {
+      "weight": 600,
+      "style": "SemiBold",
+      "from": "Inter-SemiBold.ttf"
+    },
+    {
+      "weight": 700,
+      "style": "Bold",
+      "from": "Inter-Bold.ttf"
+    }
+  ],
+  "codepointsHash": "aaa79e589295a7ce212ac8dfa6619866e0e17ecd3ef9893ce0a0c14df216aef6",
+  "outputs": {
+    "apps/desktop/crates/eui-gpui/assets/fonts/InterSymbols-Bold.ttf": "d01922afe5f46292cf607c0f4dce312cb89614eaf3a917e4a5be49e3b88ab7ff",
+    "apps/desktop/crates/eui-gpui/assets/fonts/InterSymbols-Medium.ttf": "9f5d5dcc68a41004ed800884f93ac7d22cccb60a06238bccca368a00cae752bb",
+    "apps/desktop/crates/eui-gpui/assets/fonts/InterSymbols-Regular.ttf": "c629aefeb446fbfa7d080d4ec394595e417d9b64c4b57f09b1d7e0f102443b97",
+    "apps/desktop/crates/eui-gpui/assets/fonts/InterSymbols-SemiBold.ttf": "dfc335e1d94dfba1a477e63794c89285920374e0c293119ab46cc9a7931f676a",
+    "apps/desktop/crates/eui-gpui/assets/fonts/OFL-Inter.txt": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+    "packages/exponential-ui-compose/ui-compose/OFL-Inter.txt": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+    "packages/exponential-ui-compose/ui-compose/src/main/res/font/inter_symbols_bold.ttf": "d01922afe5f46292cf607c0f4dce312cb89614eaf3a917e4a5be49e3b88ab7ff",
+    "packages/exponential-ui-compose/ui-compose/src/main/res/font/inter_symbols_medium.ttf": "9f5d5dcc68a41004ed800884f93ac7d22cccb60a06238bccca368a00cae752bb",
+    "packages/exponential-ui-compose/ui-compose/src/main/res/font/inter_symbols_regular.ttf": "c629aefeb446fbfa7d080d4ec394595e417d9b64c4b57f09b1d7e0f102443b97",
+    "packages/exponential-ui-compose/ui-compose/src/main/res/font/inter_symbols_semibold.ttf": "dfc335e1d94dfba1a477e63794c89285920374e0c293119ab46cc9a7931f676a",
+    "packages/exponential-ui-swift/Sources/ExponentialUI/Resources/Fonts/InterSymbols-Bold.ttf": "d01922afe5f46292cf607c0f4dce312cb89614eaf3a917e4a5be49e3b88ab7ff",
+    "packages/exponential-ui-swift/Sources/ExponentialUI/Resources/Fonts/InterSymbols-Medium.ttf": "9f5d5dcc68a41004ed800884f93ac7d22cccb60a06238bccca368a00cae752bb",
+    "packages/exponential-ui-swift/Sources/ExponentialUI/Resources/Fonts/InterSymbols-Regular.ttf": "c629aefeb446fbfa7d080d4ec394595e417d9b64c4b57f09b1d7e0f102443b97",
+    "packages/exponential-ui-swift/Sources/ExponentialUI/Resources/Fonts/InterSymbols-SemiBold.ttf": "dfc335e1d94dfba1a477e63794c89285920374e0c293119ab46cc9a7931f676a",
+    "packages/exponential-ui-swift/Sources/ExponentialUI/Resources/Fonts/OFL-Inter.txt": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+    "packages/exponential-ui/fonts/InterSymbols-Bold.ttf": "d01922afe5f46292cf607c0f4dce312cb89614eaf3a917e4a5be49e3b88ab7ff",
+    "packages/exponential-ui/fonts/InterSymbols-Bold.woff2": "6aeedac9405acbd98fa7272044eba61b671f6a5c5a75cbfb8c83a226a0104204",
+    "packages/exponential-ui/fonts/InterSymbols-Medium.ttf": "9f5d5dcc68a41004ed800884f93ac7d22cccb60a06238bccca368a00cae752bb",
+    "packages/exponential-ui/fonts/InterSymbols-Medium.woff2": "e97e86cc40d9be089f8838a198b5e2eecbdeaf5b3434578bfe90c49880843da8",
+    "packages/exponential-ui/fonts/InterSymbols-Regular.ttf": "c629aefeb446fbfa7d080d4ec394595e417d9b64c4b57f09b1d7e0f102443b97",
+    "packages/exponential-ui/fonts/InterSymbols-Regular.woff2": "31f825f503ecfd559923f86e9dc313c920be50089af71c9f65e79efdeb8317af",
+    "packages/exponential-ui/fonts/InterSymbols-SemiBold.ttf": "dfc335e1d94dfba1a477e63794c89285920374e0c293119ab46cc9a7931f676a",
+    "packages/exponential-ui/fonts/InterSymbols-SemiBold.woff2": "9cf803127b47d383d1fe7ea72ded939db365f22c1bf39e0cff8cdab60f84a78d",
+    "packages/exponential-ui/src/web/inter-symbols.generated.ts": "5b780a38f711b26620429bf1b80c07406d3c95e71ff6f6809e8e552e148f9b83"
+  }
+}

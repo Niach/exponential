@@ -8,10 +8,17 @@
 //! face of the fallback chain that covers it: base and mark share one font
 //! and its mark positioning. A cluster no face covers keeps the run's font
 //! (the platform's own fallback, as before). Single-character clusters are
-//! left to the platform: there is nothing to attach.
+//! left to the platform (there is nothing to attach), except a key symbol
+//! the run's face lacks and the bundled `Inter Symbols` has
+//! ([`crate::symbol_fonts`]): it shapes in that face, the one right after
+//! the theme family on every renderer. gpui hands the chain to CoreText as
+//! a cascade of family NAMES, and an embedded face is no system font, so
+//! the cascade alone would never reach it on macOS.
 
 use gpui::{px, Font, FontFallbacks, FontId, TextRun, TextSystem};
 use unicode_segmentation::UnicodeSegmentation;
+
+use crate::symbol_fonts::INTER_SYMBOLS_FAMILY;
 
 /// Characters a face never needs a glyph for: joiners, variation
 /// selectors, tags and the bidi controls.
@@ -42,6 +49,18 @@ fn pick(ts: &TextSystem, font: &Font, chain: &FontFallbacks, cluster: &str) -> O
     })
 }
 
+/// The `Inter Symbols` face for a single-character cluster it covers and
+/// the run's face does not; `None` = the run's own (or the platform's).
+fn symbol(ts: &TextSystem, font: &Font, cluster: &str) -> Option<Font> {
+    if cluster.is_ascii() || font.family.as_ref() == INTER_SYMBOLS_FAMILY {
+        return None;
+    }
+    let family = gpui::SharedString::from(INTER_SYMBOLS_FAMILY);
+    let id = ts.resolve_font(&bare(font, Some(&family)));
+    let loaded = ts.get_font_for_id(id).is_some_and(|f| f.family == family);
+    (loaded && covers(ts, id, cluster) && !covers(ts, ts.resolve_font(&bare(font, None)), cluster)).then(|| Font { family, ..font.clone() })
+}
+
 /// `runs` over `text`, cut so every multi-character cluster the run's face
 /// cannot shape whole gets the first fallback face that can. `chain` is the
 /// fallback list for runs whose font carries none.
@@ -62,7 +81,7 @@ pub fn cluster_runs(ts: &TextSystem, text: &str, runs: &[TextRun], chain: &FontF
         let (mut start, mut current): (usize, Option<Font>) = (0, None);
         for (i, cluster) in seg.grapheme_indices(true) {
             let multi = cluster.chars().filter(|c| !ignorable(*c)).nth(1).is_some();
-            let face = if multi { pick(ts, &run.font, chain, cluster) } else { None };
+            let face = if multi { pick(ts, &run.font, chain, cluster) } else { symbol(ts, &run.font, cluster) };
             if face != current {
                 if i > start {
                     out.push(TextRun { len: i - start, font: current.clone().unwrap_or_else(|| run.font.clone()), ..run.clone() });
@@ -80,6 +99,5 @@ pub fn cluster_runs(ts: &TextSystem, text: &str, runs: &[TextRun], chain: &FontF
 /// The sans chain ([`crate::measure`]'s) for runs built without one
 /// (markdown spans, code tokens).
 pub fn default_chain() -> FontFallbacks {
-    static CHAIN: std::sync::OnceLock<FontFallbacks> = std::sync::OnceLock::new();
-    CHAIN.get_or_init(|| FontFallbacks::from_fonts(crate::measure::SANS_FALLBACKS.iter().map(|s| s.to_string()).collect())).clone()
+    crate::measure::sans_chain()
 }

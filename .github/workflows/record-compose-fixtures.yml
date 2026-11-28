@@ -99,6 +99,8 @@ name: record-compose-fixtures
 # (the specimen's Branch row; `InteractionTest.selectTrailingAndOpen`).
 # VAPP-301 (2026-11-23): re-recorded for the built-in icons (a host without an
 # icon registry draws the Lucide glyph, an unknown name `circle-dashed`).
+# Inter Symbols (2026-11-28, #3682): re-recorded for the key-symbol fallback
+# face (`Kbd.png`: ⌘ from Inter Symbols; the real-font ratchet improves).
 on:
   workflow_dispatch: {}
   push:

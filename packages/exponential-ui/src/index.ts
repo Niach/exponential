@@ -191,6 +191,7 @@ export {
 export type { ThemeOptions, GlyphGradient } from "./theme"
 export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, orangeTheme, builtinTheme, builtinThemes, themeOrDefault } from "./themes"
 export { styleToCss, styleAttribute, gradientCss } from "./css"
+export { INTER_SYMBOLS_FAMILY } from "./inter-symbols"
 export { pictureRect, radialRadius, radialT } from "./background"
 export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
 export type { ThemeImport } from "./builder"

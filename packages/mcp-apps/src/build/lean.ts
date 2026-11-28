@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { gzipSync } from "node:zlib"
 import { parseAst, type Plugin } from "vite"
+import interSymbols from "../../../exponential-ui/fonts/inter-symbols.json" with { type: "json" }
 
 // #NEW-140 — what keeps a view's document small. The build's half only
 // (vite.config.ts); nothing here runs in a view.
@@ -119,4 +120,29 @@ export function leanJson(): Plugin[] {
       transform: (code, id) => (/\/packages\/[^?]*\.[jt]sx?$/.test(id) ? { code: namespaceJsonImports(code), map: null } : null),
     },
   ]
+}
+
+/** genUI's `Inter Symbols` faces (packages/exponential-ui/src/web/inter-symbols.generated.ts)
+ *  as the app's own `/fonts/` files instead of four inlined woff2 data URLs,
+ *  which put genui.html over its budget. The files in apps/web/public/fonts are
+ *  byte-equal to packages/exponential-ui/fonts (lean.test.ts); the server points
+ *  `/fonts/` at the app's origin, which serves them with CORS, like JetBrains
+ *  Mono (apps/web/src/lib/emcp/apps.ts `mcpAppHtml`). */
+export function interSymbolsAsFiles(code: string): string {
+  return code.replace(/font-weight:(\d+);src:url\(data:font\/woff2;base64,[A-Za-z0-9+/=]+\)/g, (_, weight: string) => {
+    const face = INTER_SYMBOLS_FACES.find((f) => f.weight === Number(weight))
+    if (!face) throw new Error(`Inter Symbols: no face for weight ${weight} in packages/exponential-ui/fonts/inter-symbols.json`)
+    return `font-weight:${weight};src:url(/fonts/${interSymbolsFile(face.style)})`
+  })
+}
+
+export const INTER_SYMBOLS_FACES: readonly { weight: number; style: string }[] = interSymbols.faces
+
+export const interSymbolsFile = (style: string): string => `InterSymbols-${style}.woff2`
+
+export function leanInterSymbols(): Plugin {
+  return {
+    name: `exp-mcp-apps-inter-symbols`,
+    transform: (code, id) => (id.endsWith(`/packages/exponential-ui/src/web/inter-symbols.generated.ts`) ? { code: interSymbolsAsFiles(code), map: null } : null),
+  }
 }

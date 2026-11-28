@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -266,7 +265,7 @@ fun OwnedTextField(
                     else -> Alignment.CenterStart
                 }) {
                     if (value.text.isEmpty() && placeholder.isNotEmpty()) {
-                        BasicText(
+                        ShapedText(
                             placeholder,
                             style = textStyle.copy(color = placeholderColor),
                             maxLines = if (multiline) Int.MAX_VALUE else 1,

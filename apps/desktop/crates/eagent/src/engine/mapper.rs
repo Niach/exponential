@@ -393,6 +393,10 @@ pub struct Mapper {
     /// `exponential_session_self {op: "quiet"}` (nothing to say): prose
     /// after it is filler ("No text."), never the turn's reply.
     quiet_answered: bool,
+    /// What the turn's tool calls returned (their text content, the newest
+    /// [`TOOL_OUTPUTS_MAX`]): a reply that only repeats one (`{"ok": true}`
+    /// echoed back) is no reply.
+    tool_outputs: std::collections::VecDeque<String>,
     /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
     /// a turn that ends with nothing said replies the error instead.
     turn_error: Option<String>,
@@ -698,6 +702,7 @@ impl Mapper {
             turn_reply_id: None,
             turn_texts: Vec::new(),
             quiet_answered: false,
+            tool_outputs: std::collections::VecDeque::new(),
             turn_error: None,
             turn_output: false,
             turn_stop: None,
@@ -1457,7 +1462,12 @@ impl Mapper {
         // filler the model wrote after it ("No text.", measured): it reached
         // the parent as the child's reply and woke it on every quiet turn.
         let quiet = std::mem::take(&mut self.quiet_answered);
-        if self.turn_live && !quiet && !is_empty_reply(&reply) {
+        let tool_outputs = std::mem::take(&mut self.tool_outputs);
+        let echo = tool_outputs.iter().any(|output| echoes_tool_output(&reply, output));
+        if echo {
+            log::info!("engine: the turn's reply only echoes a tool result; no chat message");
+        }
+        if self.turn_live && !quiet && !echo && !is_empty_reply(&reply) {
             out.replies.push(Reply::text(self.clean_marked(
                 reply.trim(),
                 REPLY_BODY_MAX,
@@ -2464,6 +2474,14 @@ impl Mapper {
         emit(out, ActivityEvent::user_message(text), None);
     }
 
+    /// A prompt the HOST hands the agent (a device note): published as
+    /// nothing, the agent's replay of it swallowed. Never a `user_message`
+    /// row, which every client draws as the member's own bubble.
+    pub fn on_host_prompt(&mut self, agent_text: &str, out: &mut MapOut) {
+        self.flush_all(out);
+        self.arm_echo(agent_text);
+    }
+
     /// EXP-1098: [`Mapper::on_prompt`] for a prompt whose AGENT text differs
     /// from the announced one (image embeds localized into an
     /// `Image #N: <path>` manifest). The row is the announce — the person's
@@ -2859,6 +2877,17 @@ impl Mapper {
                 .map(|location| location.path.clone())
                 .collect(),
         });
+        // A command's or a file's output the person may well ask to see
+        // verbatim; a tool's own answer (`{"ok": true}`) they never do.
+        if let Some(content) = content.as_ref().filter(|_| !matches!(kind, ToolKind::Execute | ToolKind::Read)) {
+            let text = content_text(content);
+            if !text.trim().is_empty() && text.len() <= TOOL_OUTPUT_ECHO_MAX {
+                self.tool_outputs.push_back(text);
+                while self.tool_outputs.len() > TOOL_OUTPUTS_MAX {
+                    self.tool_outputs.pop_front();
+                }
+            }
+        }
         let diff = match content {
             Some(content) => self.tool_content(&id, kind, content, raw_output.as_ref(), out),
             None => None,
@@ -4583,6 +4612,36 @@ fn exp_tool_title(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>)
 /// #FEED-294: a reply that says nothing: blank text (#FEED-256), or only
 /// `<br>` line breaks among blanks (measured: a quiet turn's "<br>" reached
 /// the parent as the child's message, seven times in two hours).
+/// The tool results a turn keeps for [`echoes_tool_output`].
+const TOOL_OUTPUTS_MAX: usize = 8;
+/// A longer tool result is no short echo worth comparing.
+const TOOL_OUTPUT_ECHO_MAX: usize = 4096;
+
+/// Is `reply` only `output` written back (the model echoing a tool result
+/// as its final text, `{"ok": true}`)? Equal once trimmed and out of a code
+/// fence, or the same JSON value.
+fn echoes_tool_output(reply: &str, output: &str) -> bool {
+    fn unfenced(text: &str) -> &str {
+        let text = text.trim();
+        let Some(body) = text.strip_prefix("```").and_then(|rest| rest.strip_suffix("```")) else {
+            return text;
+        };
+        // The fence's language tag ends at its first newline.
+        body.split_once('\n').map_or(body, |(tag, rest)| if tag.contains(char::is_whitespace) { body } else { rest }).trim()
+    }
+    let (reply, output) = (unfenced(reply), unfenced(output));
+    if reply.is_empty() {
+        return false;
+    }
+    if reply == output {
+        return true;
+    }
+    match (serde_json::from_str::<Value>(reply), serde_json::from_str::<Value>(output)) {
+        (Ok(reply), Ok(output)) => reply == output && (reply.is_object() || reply.is_array()),
+        _ => false,
+    }
+}
+
 fn is_empty_reply(reply: &str) -> bool {
     let mut rest = reply;
     let mut text = String::with_capacity(reply.len());
@@ -7465,6 +7524,90 @@ mod conversation_tests {
         say(&mut mapper, "PR #12 is open.", "m-4", &mut out);
         mapper.on_stop(StopReason::EndTurn, &mut out);
         assert_eq!(texts(&out.replies), vec!["PR #12 is open.".to_string()]);
+    }
+
+    fn tool_result(mapper: &mut Mapper, id: &str, title: &str, text: &str, out: &mut MapOut) {
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(ToolCall::new(ToolCallId::new(id), title).kind(ToolKind::Other))),
+            out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                ToolCallId::new(id),
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(TextContent::new(text)))]),
+            ))),
+            out,
+        );
+    }
+
+    #[test]
+    fn a_reply_that_only_echoes_a_tool_result_is_no_reply() {
+        // Measured on the Assistant chat: a tool answered `{"ok": true}` and
+        // the model wrote it back as its final text, a chat bubble.
+        for echo in ["{\"ok\": true}", "{\"ok\":true}", "```json\n{\n  \"ok\": true\n}\n```"] {
+            let mut mapper = live();
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            tool_result(&mut mapper, "tc-1", "mcp__exponential__exponential_issues_write", "{\n  \"ok\": true\n}", &mut out);
+            say(&mut mapper, echo, "m-1", &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert!(texts(&out.replies).is_empty(), "{echo:?}: {:?}", out.replies);
+        }
+        // Real words about the result are the reply; a stale result from an
+        // earlier turn echoes nothing.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        tool_result(&mut mapper, "tc-2", "mcp__exponential__exponential_issues_write", "{\"ok\": true}", &mut out);
+        say(&mut mapper, "Filed #EXP-12.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["Filed #EXP-12.".to_string()]);
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "{\"ok\": true}", "m-3", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies).len(), 1, "{:?}", out.replies);
+        // A command's output is no echo: a person may ask to see it.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(ToolCall::new(ToolCallId::new("tc-3"), "cat VERSION").kind(ToolKind::Execute))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                ToolCallId::new("tc-3"),
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(TextContent::new("0.14.187")))]),
+            ))),
+            &mut out,
+        );
+        say(&mut mapper, "0.14.187", "m-4", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["0.14.187".to_string()]);
+    }
+
+    #[test]
+    fn a_host_prompt_is_no_users_message_and_its_replay_is_swallowed() {
+        // A device note the host hands the agent is nobody's message: every
+        // client drew a `user_message` as the member's own bubble.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.on_host_prompt("Note from Exponential: this device interrupted your last step.", &mut out);
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(
+            "Note from Exponential: this device interrupted your last step.",
+        )));
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(chunk)), &mut out);
+        mapper.flush_all(&mut out);
+        assert!(
+            !out.wire.iter().any(|event| matches!(event, ActivityEvent::UserMessage { .. })),
+            "{:?}",
+            out.wire
+        );
     }
 
     #[test]

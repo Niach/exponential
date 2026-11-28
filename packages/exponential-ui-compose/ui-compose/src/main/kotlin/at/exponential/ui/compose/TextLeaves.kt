@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.getValue
@@ -57,7 +56,6 @@ import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.model.press
 import at.exponential.ui.paint.MarkdownPainter
 import at.exponential.ui.primitives.MarkdownColors
-import at.exponential.ui.primitives.MarkdownFontResolver
 import at.exponential.ui.primitives.MarkdownImageAlt
 import at.exponential.ui.primitives.MarkdownView
 import androidx.compose.foundation.clickable
@@ -67,7 +65,7 @@ import kotlin.math.max
 /** A one-line label in the leaf's text style, ellipsized (tabs, triggers, items, buttons). */
 @Composable
 internal fun LeafLine(cx: LeafContext, text: String, modifier: Modifier = Modifier, color: androidx.compose.ui.graphics.Color = cx.ink, ts: ResolvedTextStyle = cx.textStyle, align: TextAlign? = null) {
-    BasicText(
+    ShapedText(
         cx.shown(text),
         modifier = modifier.textSlack(textBias(align, cx.rtl)),
         style = cx.composeTextStyle(ts = ts, color = color, align = align),
@@ -159,14 +157,21 @@ internal fun TextLeaf(cx: LeafContext) {
     val shown = cx.shown(text).let { full ->
         if (!middle) full else androidx.compose.runtime.remember(full, style, cx.inner.width, density) {
             val cache = HashMap<String, Double>()
-            at.exponential.ui.measure.middleTruncateWidth(full, cx.inner.width.toDouble()) { ch -> cache.getOrPut(ch) { measurer.measure(ch, style, softWrap = false, maxLines = 1).size.width / density.toDouble() } }
+            val shaper = cx.model.textShaper()
+            at.exponential.ui.measure.middleTruncateWidth(full, cx.inner.width.toDouble()) { ch ->
+                cache.getOrPut(ch) {
+                    val symbols = shaper.symbols(ch, style)
+                    val r = if (symbols != null) measurer.measure(symbols, style, softWrap = false, maxLines = 1) else measurer.measure(ch, style, softWrap = false, maxLines = 1)
+                    r.size.width / density.toDouble()
+                }
+            }
         }
     }
     // #EDE-95: the search marks behind the shown text (a cut text = none).
     val marked = highlightedText(cx, text, shown)
     val fills = highlightFills(marked, style)
     InnerBox(cx) {
-        BasicText(
+        ShapedText(
             marked,
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize().then(fills.modifier),
             style = style.let { if (shimmer != null) it.copy(brush = shimmer) else it },
@@ -212,7 +217,7 @@ internal fun RichTextLeaf(cx: LeafContext, spans: at.exponential.ui.measure.Rich
     val inlines = remember(spans) { at.exponential.ui.paint.RichText.inlines(spans.runs) { model.href(it) } }
     val shaper = model.textShaper()
     val md = remember(shaper, theme) { at.exponential.ui.measure.MarkdownShaper(shaper, theme?.monoFamily) }
-    val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }
+    val fonts = remember(shaper) { markdownFonts(shaper) }
     val cap = spans.cap
     val capSize = if (cap != null) at.exponential.ui.measure.TextRuns.dropCapSize(ts.fontSize, ts.lineHeight, spans.lines) else 0f
     val capTs = cap?.let { ts.copy(fontSize = capSize, lineHeight = spans.lines * ts.lineHeight, fontWeight = it.fontWeight ?: ts.fontWeight) }
@@ -239,10 +244,10 @@ internal fun RichTextLeaf(cx: LeafContext, spans: at.exponential.ui.measure.Rich
                 )
                 val measurer = androidx.compose.ui.text.rememberTextMeasurer()
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
-                val laid = remember(cap.text, natural, density) { measurer.measure(cap.text, natural, softWrap = false, maxLines = 1) }
+                val laid = remember(cap.text, natural, density) { measurer.measure(shaper.symbols(AnnotatedString(cap.text), natural), natural, softWrap = false, maxLines = 1) }
                 val top = (spans.lines * ts.lineHeight - laid.size.height / density) / 2f
                 Box(Modifier.absoluteOffset(x.dp, top.dp).wrapContentSize(unbounded = true)) {
-                    BasicText(cap.text, style = natural, softWrap = false, maxLines = 1)
+                    ShapedText(cap.text, style = natural, softWrap = false, maxLines = 1)
                 }
             }
             for (piece in flow.pieces) {
@@ -362,7 +367,7 @@ private fun LinkedTextLeaf(cx: LeafContext, segments: List<TextLinkSegment>, ali
     val style = cx.composeTextStyle(align = align)
     val fills = highlightFills(annotated, style)
     InnerBox(cx) {
-        BasicText(
+        ShapedText(
             annotated,
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize().then(fills.modifier),
             style = style,
@@ -494,7 +499,7 @@ internal fun TextCellLeaf(cx: LeafContext) {
     val text = cx.props.shownText("text")
     if (text.isEmpty()) return
     InnerBox(cx, Alignment.CenterStart) {
-        BasicText(
+        ShapedText(
             cx.shown(text),
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxWidth(),
             style = cx.composeTextStyle(align = align),
@@ -599,7 +604,7 @@ internal fun CodeLineLeaf(cx: LeafContext) {
     InnerBox(cx) {
         // Visible overflow: an italic token's slant (a comment's last glyph)
         // overhangs its advance; BasicText's default Clip would cut it.
-        BasicText(text, modifier = Modifier.textSlack(textBias(null, cx.rtl)).fillMaxSize(), style = cx.composeTextStyle(), softWrap = cx.node.lines != 1, maxLines = cx.node.lines ?: Int.MAX_VALUE, overflow = TextOverflow.Visible)
+        ShapedText(text, modifier = Modifier.textSlack(textBias(null, cx.rtl)).fillMaxSize(), style = cx.composeTextStyle(), softWrap = cx.node.lines != 1, maxLines = cx.node.lines ?: Int.MAX_VALUE, overflow = TextOverflow.Visible)
     }
 }
 
@@ -622,7 +627,7 @@ internal fun LinkLeaf(cx: LeafContext) {
     val index = cx.index
     val denied = href.isNotEmpty() && remember(href, model.host) { model.href(href) == null }
     InnerBox(cx, Alignment.Center) {
-        BasicText(
+        ShapedText(
             cx.shown(label),
             modifier = Modifier.textSlack(0f).pointerInput(index) { detectTapGestures { model.press(index) } },
             style = if (denied) cx.composeTextStyle() else cx.composeTextStyle().copy(textDecoration = TextDecoration.Underline),
@@ -639,7 +644,7 @@ internal fun LinkLeaf(cx: LeafContext) {
 @Composable
 internal fun CountBadgeLeaf(cx: LeafContext) {
     InnerBox(cx, Alignment.Center) {
-        BasicText(cx.props.shownText("text"), modifier = Modifier.textSlack(0f), style = cx.composeTextStyle(), softWrap = false, maxLines = 1)
+        ShapedText(cx.props.shownText("text"), modifier = Modifier.textSlack(0f), style = cx.composeTextStyle(), softWrap = false, maxLines = 1)
     }
 }
 
@@ -650,7 +655,7 @@ internal fun UnknownLeaf(cx: LeafContext) {
     val color = label.color ?: cx.themeColor("destructive") ?: cx.ink
     val ts = ResolvedTextStyle(label.px("fontSize") ?: 12f, 400, label.px("lineHeight") ?: 16f, label.fontFamily)
     InnerBox(cx) {
-        BasicText(
+        ShapedText(
             "${cx.string("unknownComponent")} ${cx.props.str("component").ifEmpty { cx.node.component }}",
             modifier = Modifier.fillMaxSize(),
             style = cx.composeTextStyle(ts = ts, color = color),
@@ -723,7 +728,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         chipLooks = theme?.let { MarkdownPainter.chipLooks(it, model.mode, props + ("density" to JsonValue.Str(if (options.chat) "chat" else "document"))) } ?: emptyMap(),
     )
     val shaper = model.textShaper()
-    val fonts = remember(shaper) { MarkdownFontResolver { name, mono -> if (mono) shaper.family(name ?: "ui-monospace") else shaper.family(name) } }
+    val fonts = remember(shaper) { markdownFonts(shaper) }
     InnerBox(cx) {
         MarkdownView(
             text = text,
@@ -842,7 +847,7 @@ private fun MarkdownAttachmentView(
             val ts = MarkdownPainter.audioTitle(model.effectiveTheme, model.mode, cx.textStyle, model.textScale)
             val color = cx.part("AudioPlayer", "track", emptyMap()).color ?: cx.ink
             AudioView(cx, src = href, title = attachmentName, durationMs = null, rowHeight = styles.audioRow) {
-                BasicText(it, style = cx.composeTextStyle(ts = ts, color = color), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                ShapedText(it, style = cx.composeTextStyle(ts = ts, color = color), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
         else -> {
@@ -866,7 +871,7 @@ private fun MarkdownAttachmentView(
             ) {
                 val iconSize = cx.control("iconSm", 16f)
                 IconView("ui-file", iconSize, icon.color ?: cx.ink, model, rtl = cx.rtl)
-                BasicText(attachmentName, style = cx.composeTextStyle(ts = ts, color = name.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                ShapedText(attachmentName, style = cx.composeTextStyle(ts = ts, color = name.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
     }

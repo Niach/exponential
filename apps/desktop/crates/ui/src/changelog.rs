@@ -46,6 +46,32 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-28-quiet-check-ins",
+    date: "2026-11-28",
+    title: "Quiet check-ins stay quiet",
+    summary: "A team agent's check-in with nothing new now ends right away: no repeated tries, no note in your name and no filler reply in the chat.",
+    body: r##"- **Quiet ends the turn**: when an agent has nothing to say, its turn stops right there, every time.
+- **No filler**: a scheduled or event check-in is never pushed into a reply like "Nothing new since the last update."
+- **No notes in your name**: a note the device hands the agent is no longer shown as your own message.
+- **No echoed results**: a reply that only repeats what a tool returned is not posted."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_388: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-27-desktop-cli-0-14-187-ede-0-2-41",
+    date: "2026-11-27",
+    title: "Linux AppImage on older distros, and a fresh Exponential Desktop",
+    summary: "Desktop and CLI 0.14.187 and Exponential Desktop 0.2.41: the AppImage runs on Ubuntu 22.04 and other older Linux systems, and eDE gets the Voice and computer-use tray items, Cinnamon's taskbar and System Settings.",
+    body: r##"- **The AppImage on older Linux**: it is built on Ubuntu 22.04 now, so it starts on systems with glibc 2.35 or newer.
+- **No black window on older graphics drivers**: on Mesa older than 24 without a GPU, the app draws with OpenGL instead of Vulkan.
+- **Exponential Desktop 0.2.41**: a Voice tray item to call your Assistant, a computer-use tray item to watch, pause or take over, taskbar buttons you can drag, and System Settings in one window with a category grid and search.
+- **CI and repositories look like the rest of the app**: the same header, switcher, rows and pickers as your boards and devices."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_387: ChangelogEntry = ChangelogEntry {
     id: "2026-11-27-ci-repo-one-look",
     date: "2026-11-27",
     title: "CI and repositories look like the rest of the app",

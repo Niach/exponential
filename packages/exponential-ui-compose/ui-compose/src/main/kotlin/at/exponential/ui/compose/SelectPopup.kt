@@ -18,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -414,7 +413,7 @@ internal fun SelectPopup(cx: LeafContext) {
             }
             if (options.isEmpty() && !loading) {
                 val empty = cx.part("Select", "empty")
-                BasicText(
+                ShapedText(
                     owner["emptyText"]?.displayText ?: cx.string("noResults"),
                     (empty.px("padding") ?: cx.spacing("sm")).let { p -> Modifier.fillMaxWidth().padding(horizontal = (empty.px("paddingHorizontal") ?: p).dp, vertical = (empty.px("paddingVertical") ?: p).dp) },
                     // #EXP-1765: the recipe's `textAlign` (a pill's centred).
@@ -470,7 +469,7 @@ private fun SelectSearch(cx: LeafContext, query: String, hint: String, pill: Boo
             modifier = Modifier.weight(1f).focusRequester(focus),
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) BasicText(hint, style = ts.copy(color = muted), maxLines = 1)
+                    if (query.isEmpty()) ShapedText(hint, style = ts.copy(color = muted), maxLines = 1)
                     inner()
                 }
             },
@@ -536,19 +535,19 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             val dp = cx.part("Select", "itemDescription", states)
             val dts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = dp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = dp.style.lineHeight ?: cx.textStyle.lineHeight), color = dp.color ?: cx.themeColor("mutedForeground") ?: ink)
             Column(Modifier.weight(1f)) {
-                BasicText(o.text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                BasicText(o.description, style = dts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ShapedText(o.text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ShapedText(o.description, style = dts, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        } else if (o.trailing == null) BasicText(o.text, Modifier.weight(1f), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        } else if (o.trailing == null) ShapedText(o.text, Modifier.weight(1f), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
         else Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(selectTrailingGap(s.gap).dp), verticalAlignment = Alignment.CenterVertically) {
             // The trailing: its own muted run in the surface's sans type.
-            BasicText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BasicText(o.trailing, style = cx.composeTextStyle(ts = base.copy(fontSize = sans.fontSize, lineHeight = sans.lineHeight, fontFamily = null), color = cx.themeColor("mutedForeground") ?: ink), maxLines = 1, softWrap = false)
+            ShapedText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            ShapedText(o.trailing, style = cx.composeTextStyle(ts = base.copy(fontSize = sans.fontSize, lineHeight = sans.lineHeight, fontFamily = null), color = cx.themeColor("mutedForeground") ?: ink), maxLines = 1, softWrap = false)
         }
         // #EXP-1629: web's picker hint: a small muted run at the row's end.
         o.hint?.let { hint ->
             val hp = cx.part("Select", "itemHint", states)
-            BasicText(hint, style = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = hp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = hp.style.lineHeight ?: cx.textStyle.lineHeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: ink), maxLines = 1)
+            ShapedText(hint, style = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = hp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = hp.style.lineHeight ?: cx.textStyle.lineHeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: ink), maxLines = 1)
         }
         // #EXP-1778: a `button` menu row holds the check on the chosen row only.
         if (chosen || !checkOnChosenOnly) Box(Modifier.size(checkSize.dp)) {
@@ -567,7 +566,7 @@ private fun SelectSectionHeading(cx: LeafContext, text: String, afterRow: Boolea
     val hp = cx.part("Select", "sectionHeading")
     val s = hp.style
     val ts = cx.composeTextStyle(ts = base.copy(fontSize = s.fontSize ?: base.fontSize, lineHeight = s.lineHeight ?: base.lineHeight, fontWeight = s.fontWeight ?: base.fontWeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: popupInk)
-    BasicText(
+    ShapedText(
         text,
         Modifier
             .fillMaxWidth()

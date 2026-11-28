@@ -2155,8 +2155,8 @@
         "file": "shots/ede-agent-spaces/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 18038,
-        "sha256": "dfe1cadbc05f351fb081d72c6e5dc0208264b1d1f91b48773be73f93d31ab9d0"
+        "bytes": 18680,
+        "sha256": "c2b7c0b9591fd3256c522140d1dea78e2b055d195a83e0a1c2d47887e88767b0"
       }
     },
     "ede-applet-battery": {
@@ -2326,8 +2326,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 27784,
-        "sha256": "961fce28b6d1961c99f9f87a69667c9b8287e788830585c6cd90d79603bb7254"
+        "bytes": 28778,
+        "sha256": "6c1942556a295b31fe4412dfcea1417c9de27afb47919f4a3d72819745db5ec5"
       }
     },
     "ede-settings-module": {
@@ -2335,8 +2335,8 @@
         "file": "shots/ede-settings-module/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 18018,
-        "sha256": "9a5941af7525635ba7ae9cc2aaa54bcac34a5085b6a8183188e49255dc8d9889"
+        "bytes": 13240,
+        "sha256": "f008f02d44ba33811db81d0e212399542fc64c2b2e128d5c73b2958e916b6d30"
       }
     },
     "ede-settings-share": {
@@ -2344,8 +2344,8 @@
         "file": "shots/ede-settings-share/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 22716,
-        "sha256": "183c4e696fa11c56e4796e9f8e380bd9f4501962adb6c46a7713457e8487ff79"
+        "bytes": 16098,
+        "sha256": "74b44ae251c21596b79ae3a8f7329aaf04e90c97aa06fe2c19925e98974080d3"
       }
     },
     "ede-space-view": {
@@ -6266,6 +6266,43 @@
         "height": 1200,
         "bytes": 37884,
         "sha256": "439c95b62b8d285fddacf4d4918956a14929becb6e2131546bf46b1ec3a9f2c8"
+      }
+    },
+    "new-repository": {
+      "android": {
+        "file": "shots/new-repository/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 23028,
+        "sha256": "1ff6d26d339bd230cc2817bc784ce80965c6a824a7063df76996c50da8f0b947"
+      },
+      "desktop": {
+        "file": "shots/new-repository/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 43590,
+        "sha256": "9121adc33057ca559bdfb74a962586e5324cf9077c93f9e23e07f6681e029a29"
+      },
+      "ios": {
+        "file": "shots/new-repository/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 23826,
+        "sha256": "c03477e51b304bff216b063f3c7233772249d151be29ff5821f89e3424a36e89"
+      },
+      "web": {
+        "file": "shots/new-repository/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 45280,
+        "sha256": "95e5b0495e413564bb5a004ea8c49b347516407a25938255429ace68afea2810"
+      },
+      "web-mobile": {
+        "file": "shots/new-repository/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 21058,
+        "sha256": "087445a6c8887e1cd73ef7ce3b5729ed9479c2cd85f85f7dd2e98feb5d64c802"
       }
     },
     "new-tab-menu": {
