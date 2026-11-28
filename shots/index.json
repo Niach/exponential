@@ -6294,15 +6294,15 @@
         "file": "shots/new-repository/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 44496,
-        "sha256": "962116f8806526a246840f8403f769c55b1738404326f467a0d70d14e18bff4b"
+        "bytes": 45146,
+        "sha256": "35cbd07b9b979c8936bb38870b02ef50f4048a199237e09ab3a2d33a34f12a3e"
       },
       "web-mobile": {
         "file": "shots/new-repository/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20756,
-        "sha256": "d3a15435a1a97207882ba91594cbeb20b53a180eb7544d2f1fe469d5b40bcc25"
+        "bytes": 21030,
+        "sha256": "fa5f83b0a295e2597c67fdc1ca418d3608f15fd6fd90a01044fb06ecced4a991"
       }
     },
     "new-tab-menu": {
