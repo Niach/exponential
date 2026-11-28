@@ -250,16 +250,20 @@ internal fun repoCiSectionTree(
     return node(ids.CI, "Section", { put("title", RepoCi.Copy.Ci.SECTION) }, children)
 }
 
-/** RUNS (#EXP-2169 "one look", ci-page-view.json `repositoryId` cases): THE
- *  CI page's runs of this repository, its day Sections and rows
- *  ([CiPageView.ciRepoRunsTree]); none = the tree's EmptyState. [input] =
- *  the CI page's data (now + clock offset set). A row opens its run page. */
+/** RUNS (#EXP-2169 "one look", ci-page-view.json `repositoryId` cases):
+ *  #EXP-2214 the CI page's Merge queue · Pull requests · Releases for this
+ *  repository, its own Segmented inside the tree ([CiPageView.ciRepoRunsTree]).
+ *  [input] = the CI page's data (now + clock offset set); every event goes
+ *  to [onEvent]. */
 @Composable
-internal fun RepoRunsTab(input: CiPage.Input, repositoryId: String, onOpenRun: (String) -> Unit) {
-    val tree = remember(input, repositoryId) { CiPageView.ciRepoRunsTree(input, repositoryId, phone = true) }
-    CiSurface(surfaceId = "repo-runs-$repositoryId", tree = tree, modifier = Modifier.fillMaxWidth().testTag(RepoCi.TestIds.RUNS)) { name, context, _ ->
-        if (name == CiPageView.Events.OPEN_RUN) (context?.get("run") as? JsonPrimitive)?.contentOrNull?.let(onOpenRun)
-    }
+internal fun RepoRunsTab(
+    input: CiPage.Input,
+    repositoryId: String,
+    tab: String,
+    onEvent: (name: String, context: JsonObject?, payload: JsonObject?) -> Unit,
+) {
+    val tree = remember(input, repositoryId, tab) { CiPageView.ciRepoRunsTree(input, repositoryId, tab, phone = true) }
+    CiSurface(surfaceId = "repo-runs-$repositoryId-$tab", tree = tree, modifier = Modifier.fillMaxWidth().testTag(RepoCi.TestIds.RUNS), onAction = onEvent)
 }
 
 /**

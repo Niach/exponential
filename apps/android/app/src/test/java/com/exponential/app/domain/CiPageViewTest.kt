@@ -18,7 +18,8 @@ import org.junit.Test
 /**
  * #EXP-2172: [CiPageView] builds the SAME genUI trees as web
  * `apps/web/src/lib/ci-page-view.ts`: `fixtures/ci-page-view.json` replayed
- * node for node (ids, props, slots, events, child order).
+ * node for node (ids, props, slots, events, child order). #EXP-2214: the four
+ * tabs and the repo page's Runs tab with its Segmented.
  */
 class CiPageViewTest {
 
@@ -42,13 +43,15 @@ class CiPageViewTest {
         assertTrue(cases.any { it.containsKey("repositoryId") })
         for (case in cases) {
             val world = when (case.str("world")) {
-                "empty" -> scenario.copy(runs = emptyList(), jobs = emptyList(), pullRequests = emptyList(), runners = emptyList())
+                "empty" -> scenario.copy(runs = emptyList(), jobs = emptyList(), pullRequests = emptyList(), runners = emptyList(), trains = emptyList(), trainEvents = emptyList())
                 else -> scenario
             }
-            // A `repositoryId` case is the repo page's Runs tab (#EXP-2169).
+            // A `repositoryId` case is the repo page's Runs tab (#EXP-2169;
+            // #EXP-2214: with its own `tab`).
             if (case.containsKey("repositoryId") && case["repositoryId"] !is JsonNull) {
                 val phone = case.getValue("phone").jsonPrimitive.boolean
-                assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(CiPageView.ciRepoRunsTree(world, case.str("repositoryId")!!, phone)))
+                val tree = CiPageView.ciRepoRunsTree(world, case.str("repositoryId")!!, case.str("tab") ?: "train", phone)
+                assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(tree))
                 continue
             }
             val f = case.getValue("filter").jsonObject

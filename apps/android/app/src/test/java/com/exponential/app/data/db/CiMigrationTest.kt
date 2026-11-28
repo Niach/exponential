@@ -1,6 +1,9 @@
 package com.exponential.app.data.db
 
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.exponential.app.data.ci.toPageRun
+import com.exponential.app.data.ci.toPageTrain
+import com.exponential.app.data.ci.toPageTrainEvent
 import com.exponential.app.domain.CiRun
 import com.exponential.app.domain.RunnerSettings
 import java.lang.reflect.Proxy
@@ -124,5 +127,50 @@ class CiMigrationTest {
         assertEquals("write", row.externalAccess)
         val ours = json.decodeFromString(CiRunEntity.serializer(), """{"id": "r1", "state": "pending"}""")
         assertEquals("exponential", ours.provider)
+    }
+
+    @Test
+    fun `v138 adds merge_train_id and the merge queue tables, and refetches only ci_runs`() {
+        assertEquals(137, MIGRATION_137_138.startVersion)
+        assertEquals(138, MIGRATION_137_138.endVersion)
+        val statements = mutableListOf<String>()
+        MIGRATION_137_138.migrate(recording(statements))
+        assertEquals("ALTER TABLE `ci_runs` ADD COLUMN `merge_train_id` TEXT", statements.first())
+        assertTrue(statements.any { it.startsWith("CREATE TABLE IF NOT EXISTS `merge_trains`") })
+        assertTrue(statements.any { it.startsWith("CREATE TABLE IF NOT EXISTS `merge_train_events`") })
+        for (index in listOf(
+            "index_merge_trains_team_id", "index_merge_trains_repository_id", "index_merge_train_events_team_id",
+            "index_merge_train_events_repository_id", "index_merge_train_events_merge_train_id",
+        )) {
+            assertTrue(index, statements.any { it.contains("`$index`") })
+        }
+        val refetches = statements.filter { it.contains("electric_offsets") }
+        assertEquals(1, refetches.size)
+        assertTrue(refetches.single().endsWith("WHERE `shape` = 'ci_runs'"))
+    }
+
+    @Test
+    fun `merge queue rows decode with their jsonb columns into the CI page's inputs`() {
+        val train = json.decodeFromString(
+            MergeTrainEntity.serializer(),
+            """{"id": "t1", "team_id": "team", "repository_id": "repo", "base": "main", "base_sha": "3db841e", "units": [["pr-1"], ["pr-2", "pr-3"]],
+             "state": "testing", "attempt": "1", "bisect_of": null, "pending": [[["pr-4"]]], "untested": "false", "tested_sha": null,
+             "finished_at": null, "created_at": "2026-11-27 10:28:00+00", "updated_at": "2026-11-27 10:28:00+00"}""",
+        )
+        val page = train.toPageTrain()
+        assertEquals(listOf(listOf("pr-1"), listOf("pr-2", "pr-3")), page.units)
+        assertEquals(listOf(listOf(listOf("pr-4"))), page.pending)
+        assertEquals(1, page.attempt)
+        val event = json.decodeFromString(
+            MergeTrainEventEntity.serializer(),
+            """{"id": "e1", "team_id": "team", "repository_id": "repo", "pull_request_id": "pr-1", "merge_train_id": "t1", "kind": "failing",
+             "base": "main", "attempt": "2", "reason": null, "checks": ["test (linux)"], "ci_job_id": "j1", "job_url": null,
+             "files": [], "sha": null, "by_user_id": null, "created_at": "2026-11-27 10:28:00+00"}""",
+        ).toPageTrainEvent()
+        assertEquals(listOf("test (linux)"), event.checks)
+        assertEquals(emptyList<String>(), event.files)
+        assertEquals(2, event.attempt)
+        val run = json.decodeFromString(CiRunEntity.serializer(), """{"id": "r91", "state": "pending", "merge_train_id": "t1"}""")
+        assertEquals("t1", run.toPageRun().mergeTrainId)
     }
 }

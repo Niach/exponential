@@ -1354,6 +1354,7 @@ private fun AuthenticatedNav(
         ) {
             // #EXP-1804 (ci-run.json): THE run page of our own CI; Re-run
             // failed opens the new run in its place.
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             com.exponential.app.ui.ci.CiRunScreen(
                 onBack = { navController.popBackStack() },
                 onOpenRun = { id ->
@@ -1361,6 +1362,8 @@ private fun AuthenticatedNav(
                 },
                 // #EXP-2172: Fix with an agent = the new-chat composer, seeded.
                 onFix = { seed -> navController.navigateDeepLink(agentRoute(seed)) },
+                // #EXP-2214: a What happened row opens its pull request.
+                onOpenPullRequest = { target -> navController.openCiTarget(target, uriHandler) },
             )
         }
         // #EXP-2172 (ci-page.json): THE CI page across every team: a run
@@ -1370,16 +1373,7 @@ private fun AuthenticatedNav(
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             com.exponential.app.ui.ci.CiPageScreen(
                 onBack = { navController.popBackStack() },
-                onOpen = { target ->
-                    when (target) {
-                        is com.exponential.app.ui.ci.CiPageTarget.Run -> navController.navigate(Routes.ciRun(target.runId))
-                        is com.exponential.app.ui.ci.CiPageTarget.PullRequest -> when {
-                            target.rootSessionId != null -> navController.navigate(Routes.chat(target.rootSessionId))
-                            target.url.isNotEmpty() -> runCatching { uriHandler.openUri(target.url) }
-                        }
-                        is com.exponential.app.ui.ci.CiPageTarget.Runner -> navController.navigate(Routes.deviceSettings(target.deviceRowId))
-                    }
-                },
+                onOpen = { target -> navController.openCiTarget(target, uriHandler) },
             )
         }
         // #EXP-1616 (repo-page.json): the repo page; the ViewModel reads
@@ -1395,10 +1389,12 @@ private fun AuthenticatedNav(
                 },
             ),
         ) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             com.exponential.app.ui.repo.RepoPageScreen(
                 onBack = { navController.popBackStack() },
-                // #EXP-1617 (repo-ci.json): a run row opens THE run page.
-                onOpenRun = { runId -> navController.navigate(Routes.ciRun(runId)) },
+                // #EXP-1617 (repo-ci.json): a run row opens THE run page;
+                // #EXP-2214 the Runs tab's queue opens logs and pull requests too.
+                onOpen = { target -> navController.openCiTarget(target, uriHandler) },
             )
         }
         composable(Routes.NEW_REPOSITORY_PATTERN) {
@@ -1849,5 +1845,21 @@ private fun androidx.navigation.NavHostController.replaceWith(route: String) {
     val here = currentBackStackEntry?.destination?.id
     navigate(route) {
         if (here != null) popUpTo(here) { inclusive = true }
+    }
+}
+
+/** #EXP-2172 / #EXP-2214: what a CI tree's press opens: a run (our job's log =
+ *  its run page with `?job=`), a forge's job page, a PR's chat (else the PR on
+ *  GitHub), a runner's device page. */
+private fun NavHostController.openCiTarget(target: com.exponential.app.ui.ci.CiPageTarget, uriHandler: androidx.compose.ui.platform.UriHandler) {
+    when (target) {
+        is com.exponential.app.ui.ci.CiPageTarget.Run -> navigate(Routes.ciRun(target.runId))
+        is com.exponential.app.ui.ci.CiPageTarget.Job -> navigate(Routes.ciRun(target.runId, target.jobId))
+        is com.exponential.app.ui.ci.CiPageTarget.Url -> runCatching { uriHandler.openUri(target.url) }
+        is com.exponential.app.ui.ci.CiPageTarget.PullRequest -> when {
+            target.rootSessionId != null -> navigate(Routes.chat(target.rootSessionId))
+            target.url.isNotEmpty() -> runCatching { uriHandler.openUri(target.url) }
+        }
+        is com.exponential.app.ui.ci.CiPageTarget.Runner -> navigate(Routes.deviceSettings(target.deviceRowId))
     }
 }

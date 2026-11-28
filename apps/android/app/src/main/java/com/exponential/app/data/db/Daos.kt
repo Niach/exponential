@@ -1088,6 +1088,44 @@ interface CiRunDao {
     suspend fun clear()
 }
 
+// #EXP-2214 (ci-page.json MERGE QUEUE TAB): the merge queue's runs.
+@Dao
+interface MergeTrainDao {
+    @Query("SELECT * FROM merge_trains")
+    fun observeAll(): Flow<List<MergeTrainEntity>>
+
+    @Query("SELECT * FROM merge_trains WHERE id = :id")
+    fun observeById(id: String): Flow<List<MergeTrainEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: MergeTrainEntity)
+
+    @Query("DELETE FROM merge_trains WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM merge_trains")
+    suspend fun clear()
+}
+
+// #EXP-2214: the merge queue's history (Landed, Sent back, What happened).
+@Dao
+interface MergeTrainEventDao {
+    @Query("SELECT * FROM merge_train_events")
+    fun observeAll(): Flow<List<MergeTrainEventEntity>>
+
+    @Query("SELECT * FROM merge_train_events WHERE merge_train_id = :trainId")
+    fun observeByTrain(trainId: String): Flow<List<MergeTrainEventEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: MergeTrainEventEntity)
+
+    @Query("DELETE FROM merge_train_events WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM merge_train_events")
+    suspend fun clear()
+}
+
 // #EXP-1617 / #EXP-1804: the jobs of every run (the run page, a runner's
 // recent jobs).
 @Dao

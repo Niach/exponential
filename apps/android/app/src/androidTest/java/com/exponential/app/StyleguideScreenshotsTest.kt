@@ -282,7 +282,7 @@ class StyleguideScreenshotsTest {
             "sg_pr-checks",
             // #EXP-1804: THE CI run page + a device's CI runner section.
             "sg_ci-run", "sg_runner-settings",
-            // #EXP-2172: THE CI page (Runs tab over ci-page.json `scenario`).
+            // #EXP-2172: THE CI page (#EXP-2214 Merge queue tab over ci-page.json `scenario`).
             "sg_ci",
             // #EXP-1617: the repo page's Runs tab + its CI settings section.
             "sg_repo-runs", "sg_repo-ci",
@@ -2027,13 +2027,14 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_ci-run")
         show(RunnerSettingsSpecimenTestId) { RunnerSettingsSpecimenScreen() }
         flow.screenshot("sg_runner-settings")
-        // --- sg_ci (#EXP-2172, ci-page.json): THE CI page's Runs tab over the
-        // fixture's `scenario`, the genUI tree web builds (CiPageView).
+        // --- sg_ci (#EXP-2172, ci-page.json): THE CI page over the fixture's
+        // `scenario` (#EXP-2214: its Merge queue tab, the one it opens on),
+        // the genUI tree web builds (CiPageView).
         show(CiPageSpecimenTestId) { CiPageSpecimenScreen() }
         flow.screenshot("sg_ci")
 
         // --- sg_repo-runs · sg_repo-ci (#EXP-1617, repo-ci.json): the repo
-        // page's Runs tab (#EXP-2169: the CI page's run Sections of acme/engine,
+        // page's Runs tab (#EXP-2214: the CI page's Merge queue of acme/engine,
         // ci-page-view.json `repositoryId` cases) and the Settings tab's
         // CI section of a GitHub repo over the same runs (RepoCi specimen).
         show(RepoRunsSpecimenTestId) { RepoRunsSpecimenScreen() }

@@ -1304,8 +1304,68 @@ data class CiRunEntity(
     // #EXP-2172 redesign ([MIGRATION_136_137]): what the run is about (the
     // commit / PR line); null = the pipeline's name stands in.
     val title: String? = null,
+    // #EXP-2214 ([MIGRATION_137_138]): the merge queue run this CI run tests
+    // (trigger merge_train); null for every other run.
+    @ColumnInfo(name = "merge_train_id") @SerialName("merge_train_id") @JsonNames("mergeTrainId") val mergeTrainId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-2214 (ci-page.json MERGE QUEUE TAB, [MIGRATION_137_138]): one merge
+// queue run, member-only by team: what is tested (`units` = PR ids per unit,
+// jsonb kept as JSON text), on which base commit, the attempt and the bisect
+// halves still to go (`pending`, JSON text). heads, run_ref, conflicts and
+// error stay server-only behind the shape's allowlist.
+@Entity(
+    tableName = "merge_trains",
+    indices = [Index("team_id"), Index("repository_id")],
+)
+@Serializable
+data class MergeTrainEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String = "",
+    val base: String = "",
+    @ColumnInfo(name = "base_sha") @SerialName("base_sha") @JsonNames("baseSha") val baseSha: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val units: String? = null,
+    // dispatching | composing | testing | green | landed | red | conflict | cancelled | error
+    val state: String = "",
+    @ColumnInfo(defaultValue = "0") @Serializable(with = PgIntSerializer::class) val attempt: Int? = null,
+    @ColumnInfo(name = "bisect_of") @SerialName("bisect_of") @JsonNames("bisectOf") val bisectOf: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val pending: String? = null,
+    @ColumnInfo(defaultValue = "0") val untested: PgBool = false,
+    @ColumnInfo(name = "tested_sha") @SerialName("tested_sha") @JsonNames("testedSha") val testedSha: String? = null,
+    @ColumnInfo(name = "finished_at") @SerialName("finished_at") @JsonNames("finishedAt") val finishedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-2214 ([MIGRATION_137_138]): the merge queue's history (Landed, Sent
+// back), member-only by team; written only by the server's worker. `kind` =
+// landed | failing | conflict | held | merge_now | resumed; `checks` and
+// `files` = jsonb string arrays kept as JSON text.
+@Entity(
+    tableName = "merge_train_events",
+    indices = [Index("team_id"), Index("repository_id"), Index("merge_train_id")],
+)
+@Serializable
+data class MergeTrainEventEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String = "",
+    @ColumnInfo(name = "pull_request_id") @SerialName("pull_request_id") @JsonNames("pullRequestId") val pullRequestId: String = "",
+    @ColumnInfo(name = "merge_train_id") @SerialName("merge_train_id") @JsonNames("mergeTrainId") val mergeTrainId: String? = null,
+    val kind: String = "",
+    val base: String = "",
+    @ColumnInfo(defaultValue = "0") @Serializable(with = PgIntSerializer::class) val attempt: Int? = null,
+    val reason: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val checks: String? = null,
+    @ColumnInfo(name = "ci_job_id") @SerialName("ci_job_id") @JsonNames("ciJobId") val ciJobId: String? = null,
+    @ColumnInfo(name = "job_url") @SerialName("job_url") @JsonNames("jobUrl") val jobUrl: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val files: String? = null,
+    val sha: String? = null,
+    @ColumnInfo(name = "by_user_id") @SerialName("by_user_id") @JsonNames("byUserId") val byUserId: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
 )
 
 // #EXP-1617 / #EXP-1804: one planned check of a CI run. The server-only

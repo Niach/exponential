@@ -70,6 +70,18 @@ class CiRunViewTest {
         createdAt = o.str("createdAt") ?: "",
     )
 
+    /** #EXP-2214: the model's `context` (ci-page.json `ciRunContext`). */
+    private fun context(o: JsonObject) = CiPage.RunContext(
+        kind = o.str("kind")!!,
+        badge = o.str("badge")!!,
+        title = o.str("title"),
+        caption = o.str("caption"),
+        outcome = o.getValue("outcome").jsonArray.map { e ->
+            val r = e.jsonObject
+            CiPage.RunOutcome(r.str("pullRequestId")!!, r.str("identifier")!!, r.str("title")!!, r.str("text")!!, r.str("glyph")!!, r.str("tone")!!, r.str("jobId"))
+        },
+    )
+
     private fun settings(o: JsonObject) = RunnerSettings.Settings(
         enabled = o.getValue("enabled").jsonPrimitive.boolean,
         labels = o.getValue("labels").jsonArray.map { it.jsonPrimitive.content },
@@ -110,6 +122,7 @@ class CiRunViewTest {
                 pullRequest = (model["pullRequest"] as? JsonObject)?.let { CiRun.PullRequest(it.getValue("number").jsonPrimitive.int, it.str("base")!!) },
                 author = model.str("author"),
                 jobOpen = (case["jobOpen"] as? JsonPrimitive)?.content == "true",
+                context = (model["context"] as? JsonObject)?.let(::context),
             )
             assertEquals(case.str("name"), normalize(case.getValue("tree")), normalize(actual))
         }

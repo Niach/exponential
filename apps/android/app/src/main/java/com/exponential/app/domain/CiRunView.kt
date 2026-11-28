@@ -31,6 +31,8 @@ object CiRunView {
         const val FIX = "ci-fix"
         const val OPEN_EXTERNAL = "ci-open-external"
         const val MENU = "ci-run-menu"
+        /** #EXP-2214: a What happened row opens its pull request. */
+        const val OPEN_PR = "ci-open-pr"
     }
 
     /** Events the runner section fires. */
@@ -150,6 +152,9 @@ object CiRunView {
         )
     }
 
+    /** The run's title: its own, else (#EXP-2214) a merge queue run's batch, else the pipeline's name. */
+    fun ciRunTitle(run: CiRun.Run, context: CiPage.RunContext?): String = run.title ?: context?.title ?: run.name
+
     /** The phones' page header over the tree: `name #n` over the repository. */
     fun ciRunHeader(run: CiRun.Run, repository: String?): Pair<String, String?> = "${run.name} #${run.number}" to repository
 
@@ -168,6 +173,9 @@ object CiRunView {
         pullRequest: CiRun.PullRequest? = null,
         author: String? = null,
         jobOpen: Boolean = false,
+        /** #EXP-2214 (ci-page.json `ciRunContext`): its kind Badge, a merge
+         *  queue run's batch title and What happened; null = none drawn. */
+        context: CiPage.RunContext? = null,
     ): JsonObject {
         val ids = CiRun.TestIds
         val pick = selected ?: CiRun.defaultJob(jobs, null)
@@ -175,7 +183,7 @@ object CiRunView {
             return stack(ids.PAGE, "vertical", "lg", "stretch", listOf(jobCard(jobs, pick, log, nowMs, phone)))
         }
         val head = mutableListOf<JsonElement>()
-        head += node("ci-run-heading", "Heading", { put("text", run.title ?: run.name); put("level", if (phone) "h3" else "h2") })
+        head += node("ci-run-heading", "Heading", { put("text", ciRunTitle(run, context)); put("level", if (phone) "h3" else "h2") })
         if (!phone) {
             head += node("ci-run-name", "Text", {
                 call("text", "fill") {
@@ -196,7 +204,9 @@ object CiRunView {
         }
         val chips = node(
             ids.CHIPS, "Stack", { put("direction", "horizontal"); put("gap", "xs"); put("align", "center"); put("wrap", true) },
-            CiRun.chips(run, jobs, pullRequest, author, nowMs).map { chip ->
+            listOfNotNull(
+                context?.let { node("${ids.CHIPS}.kind", "Badge", { put("text", it.badge); put("variant", "outline") }) },
+            ) + CiRun.chips(run, jobs, pullRequest, author, nowMs).map { chip ->
                 node("${ids.CHIPS}.${chip.id}", "Chip", {
                     put("label", chip.label)
                     chip.icon?.let { put("icon", it) }
@@ -257,6 +267,29 @@ object CiRunView {
                 }
             },
         )
+        val outcome = context?.outcome.orEmpty()
+        if (outcome.isNotEmpty()) {
+            children += node("ci-run-outcome", "Section", {
+                put("title", CiPage.Copy.Queue.WHAT_HAPPENED)
+                context?.caption?.takeIf { it.isNotEmpty() }?.let { put("caption", it) }
+            }, outcome.map { row ->
+                val id = "ci-run-outcome.${row.pullRequestId}"
+                node(id, "Row", { put("identifier", row.identifier); put("title", row.title); put("subtitle", row.text); put("pressable", true) }) {
+                    putJsonObject("slots") {
+                        put("leading", node("$id.glyph", "Icon", { put("name", row.glyph); put("tone", row.tone); put("size", "sm") }))
+                        row.jobId?.let { jobId ->
+                            put("trailing", node("$id.log", "Button", {
+                                put("label", CiPage.Copy.Queue.OPEN_LOG)
+                                put("icon", "file-text")
+                                put("variant", "outline")
+                                put("size", "sm")
+                            }) { on("press", Events.SELECT) { put("job", jobId) } })
+                        }
+                    }
+                    on("press", Events.OPEN_PR) { put("pr", row.pullRequestId) }
+                }
+            })
+        }
         val error = run.error
         if (error != null) {
             children += node("ci-run-error", "Alert", { put("type", "error"); put("title", CiRun.Copy.PIPELINE_ERROR); put("message", error) })
