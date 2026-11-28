@@ -36,7 +36,7 @@ import XCTest
 ///   sg_share-targets · sg_share-composer · sg_composer-add-file ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
-///   sg_settings-labels · sg_settings-repositories · sg_repo (EXP-1616) · sg_onboarding-join (EXP-1558) ·
+///   sg_settings-labels · sg_settings-repositories · sg_repo (EXP-1616) · sg_new-repository (EXP-2171) · sg_onboarding-join (EXP-1558) ·
 ///   sg_app-run (VAPP-242) ·
 ///   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
 ///   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview ·
@@ -268,6 +268,22 @@ final class StyleguideScreenshots: XCTestCase {
             expect(anyElement(app, identified: "team-menu"), within: Wait.nav, "A board's hold raised no menu")
             snapshot("sg_teams-menu", settle: 1)
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        }
+        // ── sg_new-repository (#EXP-2171, repo-page.json NEW › REPOSITORY):
+        // the first team row's + (THE New list) › Repository; the page on its
+        // preselected Host on Exponential tile. Back returns to the tree.
+        if ScreenshotShots.isWanted("sg_new-repository") {
+            showTeam(app)
+            let add = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "team-new-")).firstMatch
+            expect(add, within: Wait.sync, "The tree drew no team row +")
+            add.tap()
+            let pick = app.buttons.matching(identifier: "sidebar-new-repository").firstMatch
+            expect(pick, within: Wait.nav, "The New list has no Repository")
+            pick.tap()
+            expect(anyElement(app, identified: "new-repository-page"), within: Wait.nav, "New › Repository opened no page")
+            expect(anyElement(app, identified: "new-repo-create"), within: Wait.nav, "The page drew no hosted form")
+            snapshot("sg_new-repository", settle: 2)
+            goBack(app)
         }
 
         // ── sg_app: the tree's app rows, then

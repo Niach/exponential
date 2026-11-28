@@ -6268,6 +6268,43 @@
         "sha256": "439c95b62b8d285fddacf4d4918956a14929becb6e2131546bf46b1ec3a9f2c8"
       }
     },
+    "new-repository": {
+      "android": {
+        "file": "shots/new-repository/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 23028,
+        "sha256": "1ff6d26d339bd230cc2817bc784ce80965c6a824a7063df76996c50da8f0b947"
+      },
+      "desktop": {
+        "file": "shots/new-repository/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 43590,
+        "sha256": "9121adc33057ca559bdfb74a962586e5324cf9077c93f9e23e07f6681e029a29"
+      },
+      "ios": {
+        "file": "shots/new-repository/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 23826,
+        "sha256": "c03477e51b304bff216b063f3c7233772249d151be29ff5821f89e3424a36e89"
+      },
+      "web": {
+        "file": "shots/new-repository/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 45280,
+        "sha256": "95e5b0495e413564bb5a004ea8c49b347516407a25938255429ace68afea2810"
+      },
+      "web-mobile": {
+        "file": "shots/new-repository/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 21058,
+        "sha256": "087445a6c8887e1cd73ef7ce3b5729ed9479c2cd85f85f7dd2e98feb5d64c802"
+      }
+    },
     "new-tab-menu": {
       "desktop": {
         "file": "shots/new-tab-menu/desktop.webp",
