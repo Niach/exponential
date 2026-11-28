@@ -1,20 +1,29 @@
 // #EXP-2172: write fixtures/ci-page.json's cases from the TS reference
 // (src/ci-page.ts). Run after a deliberate rule change and REVIEW the diff:
 //   bun packages/domain-contract/scripts/bless-ci-page.ts
+// #EXP-2214: the scenario (the demo team: runs of every kind, the merge
+// queue's trains and history) is authored IN the fixture (`scenario`); this
+// writes only the expectations.
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   ciBadge,
   ciDayTitle,
+  ciPrGroups,
+  ciQueue,
   ciRepoOptions,
   ciRunGroups,
+  ciRunContext,
+  ciRunKind,
   ciRunnerChip,
   ciRunnerRows,
   ciTabCounts,
-  ciTrainGroups,
+  ciTrainEta,
+  ciTypicalTrainMs,
   type CiPageInput,
   type CiPageJob,
   type CiPageRun,
+  type CiRunFilter,
 } from "../src/ci-page"
 
 const path = join(import.meta.dir, `../fixtures/ci-page.json`)
@@ -33,10 +42,13 @@ const run = (r: Partial<CiPageRun> & Pick<CiPageRun, `id` | `repositoryId` | `nu
   completedAt: null,
   createdAt: r.startedAt ?? NOW,
   title: null,
+  mergeTrainId: null,
   ...r,
 })
 const job = (runId: string, status: string, conclusion: string | null, extra: Partial<CiPageJob> = {}): CiPageJob => ({
+  id: `${runId}-${status}-${conclusion ?? `none`}`,
   runId,
+  check: `gate`,
   status,
   conclusion,
   runsOn: [],
@@ -45,64 +57,7 @@ const job = (runId: string, status: string, conclusion: string | null, extra: Pa
   ...extra,
 })
 
-/** The page's demo team: two repositories of ours, one GitHub one. */
-export const SCENARIO: CiPageInput = {
-  viewerId: ME,
-  now: NOW,
-  utcOffsetMinutes: 60,
-  users: [
-    { id: ME, name: `Mara Lind`, image: null },
-    { id: `u-other`, name: `Jonas Berg`, image: null },
-  ],
-  repos: [
-    { id: `repo-engine`, fullName: `acme/engine` },
-    { id: `repo-mobile`, fullName: `acme/mobile` },
-    { id: `repo-site`, fullName: `acme/site` },
-  ],
-  sessions: [
-    { id: `s-mine`, userId: ME },
-    { id: `s-other`, userId: `u-other` },
-  ],
-  pullRequests: [
-    { id: `pr-211`, number: 211, title: `Fix bisect on a red batch`, repositoryId: `repo-engine`, rootSessionId: `s-other`, base: `main`, mergeState: `testing`, mergePosition: null, mergeTrainId: `train-91` },
-    { id: `pr-212`, number: 212, title: `Runner labels`, repositoryId: `repo-engine`, rootSessionId: `s-other`, base: `main`, mergeState: `testing`, mergePosition: null, mergeTrainId: `train-91` },
-    { id: `pr-213`, number: 213, title: `Log tail`, repositoryId: `repo-engine`, rootSessionId: `s-mine`, base: `main`, mergeState: `testing`, mergePosition: null, mergeTrainId: `train-91` },
-    { id: `pr-214`, number: 214, title: `Reduce cold start below 400 ms`, repositoryId: `repo-engine`, rootSessionId: `s-mine`, base: `main`, mergeState: `checks`, mergePosition: null, mergeTrainId: null },
-    { id: `pr-215`, number: 215, title: `Cache the planner`, repositoryId: `repo-engine`, rootSessionId: `s-other`, base: `main`, mergeState: `queued`, mergePosition: 1, mergeTrainId: null },
-    { id: `pr-40`, number: 40, title: `Dark splash`, repositoryId: `repo-mobile`, rootSessionId: null, base: `main`, mergeState: `held`, mergePosition: null, mergeTrainId: null },
-    { id: `pr-41`, number: 41, title: `Old`, repositoryId: `repo-mobile`, rootSessionId: null, base: `main`, mergeState: `merged`, mergePosition: null, mergeTrainId: null },
-  ],
-  runs: [
-    run({ id: `r483`, title: `Repack once per push, not per ref`, repositoryId: `repo-engine`, number: 483, name: `gate`, state: `pending`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T10:26:48.000Z` }),
-    run({ id: `r91`, repositoryId: `repo-engine`, number: 91, name: `Merge train`, state: `pending`, ref: `main`, trigger: `merge_train`, startedAt: `2026-11-27T10:28:20.000Z` }),
-    run({ id: `g1207`, title: `Bump the widget to 2.4.1`, repositoryId: `repo-mobile`, number: 1207, name: `build-ios`, state: `pending`, ref: `release/2.4`, trigger: `tag`, provider: `github`, createdByUserId: ME, createdAt: `2026-11-27T10:29:00.000Z` }),
-    run({ id: `r482`, title: `Mirror prunes deleted branches`, repositoryId: `repo-engine`, number: 482, name: `gate`, state: `failure`, ref: `exp/APP-33`, trigger: `pull_request`, pullRequestId: `pr-213`, startedAt: `2026-11-27T09:59:20.000Z`, completedAt: `2026-11-27T10:12:00.000Z` }),
-    run({ id: `g1206`, title: `Offline queue survives a cold start`, repositoryId: `repo-mobile`, number: 1206, name: `test`, state: `success`, provider: `github`, startedAt: `2026-11-27T09:22:54.000Z`, completedAt: `2026-11-27T09:30:00.000Z` }),
-    run({ id: `g57`, title: `Pricing page copy`, repositoryId: `repo-site`, number: 57, name: `deploy`, state: `failure`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-26T08:27:57.000Z`, completedAt: `2026-11-26T08:30:00.000Z` }),
-    run({ id: `g58`, title: `Pricing page copy, take two`, repositoryId: `repo-site`, number: 58, name: `deploy`, state: `success`, provider: `github`, createdByUserId: ME, startedAt: `2026-11-27T08:27:57.000Z`, completedAt: `2026-11-27T08:30:00.000Z` }),
-    run({ id: `r481`, title: `Repack once per push, not per ref`, repositoryId: `repo-engine`, number: 481, name: `gate`, state: `failure`, ref: `exp/APP-32`, trigger: `pull_request`, pullRequestId: `pr-214`, startedAt: `2026-11-27T07:30:00.000Z`, completedAt: `2026-11-27T07:30:24.000Z` }),
-    run({ id: `r480`, repositoryId: `repo-gone`, number: 480, name: `nightly`, state: `success`, ref: null, trigger: `schedule`, startedAt: `2026-11-27T01:30:00.000Z`, completedAt: `2026-11-27T01:44:12.000Z` }),
-  ],
-  jobs: [
-    job(`r483`, `in_progress`, null, { runsOn: [`linux`], runnerDeviceId: `dev-mint` }),
-    job(`r483`, `queued`, null, { runsOn: [`linux`] }),
-    job(`r483`, `queued`, null, { runsOn: [`mac`] }),
-    job(`r91`, `in_progress`, null, { runsOn: [`linux`], runnerDeviceId: `dev-mint` }),
-    job(`g1207`, `queued`, null, { runsOn: [`macos-latest`], provider: `github` }),
-    job(`r482`, `completed`, `success`),
-    job(`r482`, `completed`, `failure`),
-    job(`g1206`, `completed`, `success`, { provider: `github` }),
-    job(`g57`, `completed`, `failure`, { provider: `github` }),
-    job(`g58`, `completed`, `success`, { provider: `github` }),
-    job(`r481`, `completed`, `cancelled`),
-    job(`r480`, `completed`, `success`),
-  ],
-  runners: [
-    { id: `dev-mint`, label: `mint`, platform: `linux`, labels: [`GPU`], slots: 2, lastSeenAt: `2026-11-27T10:29:40.000Z` },
-    { id: `dev-mac`, label: `Alex's MacBook Pro`, platform: `macos`, labels: [], slots: 1, lastSeenAt: `2026-11-27T10:29:55.000Z` },
-    { id: `dev-old`, label: `build-box`, platform: null, labels: [], slots: 4, lastSeenAt: `2026-11-26T22:00:00.000Z` },
-  ],
-}
+export const SCENARIO: CiPageInput = fixture.scenario
 
 const filters = [
   { name: `all`, filter: { status: `all`, repositoryId: null, source: null } },
@@ -114,7 +69,6 @@ const filters = [
   { name: `ours, failed`, filter: { status: `failed`, repositoryId: null, source: `exponential` } },
 ] as const
 
-fixture.scenario = SCENARIO
 fixture.runGroupsCases = filters.map((c) => ({ name: c.name, filter: c.filter, expected: ciRunGroups(SCENARIO, c.filter) }))
 fixture.dayTitleCases = [
   { day: `2026-11-27`, now: NOW, utcOffsetMinutes: 60 },
@@ -126,10 +80,51 @@ fixture.dayTitleCases = [
 fixture.repoOptions = ciRepoOptions(SCENARIO)
 fixture.runnerChip = ciRunnerChip(SCENARIO)
 fixture.tabCounts = ciTabCounts(SCENARIO)
-fixture.trainCases = [
-  { name: `the Runs tab: testing batches only`, queue: false, expected: ciTrainGroups(SCENARIO, false) },
-  { name: `the Merge train tab: batches, the queue, the waiting`, queue: true, expected: ciTrainGroups(SCENARIO, true) },
-]
+delete fixture.trainCases
+// #EXP-2214: what every scenario run is for, plus the edges.
+const kindRepos = [{ id: `repo-x`, fullName: `acme/x`, defaultBranch: `master` }]
+const kindRun = (r: Partial<CiPageRun>) => ({ trigger: `push`, mergeTrainId: null, ref: `master`, pullRequestId: null, repositoryId: `repo-x`, ...r })
+fixture.kindCases = [
+  ...SCENARIO.runs.map((r) => ({ name: `scenario ${r.id}`, run: { trigger: r.trigger, mergeTrainId: r.mergeTrainId, ref: r.ref, pullRequestId: r.pullRequestId, repositoryId: r.repositoryId }, repos: SCENARIO.repos })),
+  { name: `a push to the default branch (master) is a release`, run: kindRun({}), repos: kindRepos },
+  { name: `a push to main where master is the default is a branch run`, run: kindRun({ ref: `main` }), repos: kindRepos },
+  { name: `an unknown repository's default is main`, run: kindRun({ ref: `main`, repositoryId: `repo-gone` }), repos: kindRepos },
+  { name: `a push to an exp-train ref is the merge queue's (GitHub)`, run: kindRun({ ref: `exp-train/0b6c2a1e-5f1d-4d55-9d43-1b1b1b1b1b1b` }), repos: kindRepos },
+  { name: `a manual run on a branch is a release run`, run: kindRun({ trigger: `manual`, ref: `exp/APP-9` }), repos: kindRepos },
+  { name: `a push with a pull request is the PR's`, run: kindRun({ ref: `exp/APP-9`, pullRequestId: `pr-1` }), repos: kindRepos },
+  { name: `a bare commit (no ref) push is a branch run`, run: kindRun({ ref: null }), repos: kindRepos },
+].map((c) => ({ ...c, expected: ciRunKind(c.run as CiPageRun, c.repos) }))
+const all: CiRunFilter = { status: `all`, repositoryId: null, source: null }
+fixture.releaseGroupsCases = [
+  { name: `release runs: tags, manual, schedule, default-branch pushes`, filter: all },
+  { name: `release runs of one repository`, filter: { ...all, repositoryId: `repo-site` } },
+].map((c) => ({ ...c, expected: ciRunGroups(SCENARIO, c.filter, [`release`]) }))
+fixture.prGroupsCases = [
+  { name: `all`, filter: all },
+  { name: `failed`, filter: { ...all, status: `failed` } },
+  { name: `running`, filter: { ...all, status: `running` } },
+  { name: `mine`, filter: { ...all, status: `mine` } },
+  { name: `one repository`, filter: { ...all, repositoryId: `repo-mobile` } },
+].map((c) => ({ ...c, expected: ciPrGroups(SCENARIO, c.filter as CiRunFilter) }))
+fixture.queueCases = [
+  { name: `the scenario`, input: null as null | Partial<CiPageInput> },
+  { name: `an hour later: the window drops nothing yet, the run is long overdue`, input: { now: `2026-11-27T11:30:00.000Z` } },
+  { name: `three days later: only the live queue is left`, input: { now: `2026-11-30T10:30:00.000Z` } },
+  { name: `nothing at all`, input: { trains: [], trainEvents: [], pullRequests: [] } },
+].map((c) => ({ ...c, expected: ciQueue({ ...SCENARIO, ...(c.input ?? {}) }) }))
+fixture.runContextCases = [`r91`, `r90`, `r87`, `r483`, `g1207`, `r479`, `g1206`].map((id) => ({
+  run: id,
+  expected: ciRunContext(SCENARIO.runs.find((r) => r.id === id)!, SCENARIO),
+}))
+fixture.typicalTrainMs = { "repo-engine": ciTypicalTrainMs(SCENARIO, `repo-engine`), "repo-mobile": ciTypicalTrainMs(SCENARIO, `repo-mobile`) }
+fixture.etaCases = [
+  { typicalMs: null, elapsedMs: 60_000 },
+  { typicalMs: 420_000, elapsedMs: 100_000 },
+  { typicalMs: 420_000, elapsedMs: 360_000 },
+  { typicalMs: 420_000, elapsedMs: 400_000 },
+  { typicalMs: 420_000, elapsedMs: 900_000 },
+  { typicalMs: 0, elapsedMs: 10 },
+].map((c) => ({ ...c, expected: ciTrainEta(c.typicalMs, c.elapsedMs) }))
 fixture.runners = ciRunnerRows(SCENARIO)
 
 // The badge, over small worlds of its own.

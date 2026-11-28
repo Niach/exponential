@@ -6,12 +6,12 @@ import { REPO_CI_TEST_IDS, pipelineRows, requiredSuggestions } from "@exp/domain
 import type { CiPageInput } from "@exp/domain-contract/ci-page"
 import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { CiSurface } from "@/components/ci/ci-surface"
-import { useCiPageRows } from "@/hooks/use-ci-page"
+import { useCiPageRows, useCiRepos } from "@/hooks/use-ci-page"
 import { useSession } from "@/hooks/use-session"
-import { CI_PAGE_EVENTS, ciRepoRunsTree } from "@/lib/ci-page-view"
+import { CI_PAGE_EVENTS, ciRepoRunsTree, type CiRepoTab } from "@/lib/ci-page-view"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { ciJobCollection, ciRunCollection } from "@/lib/collections"
+import { ciJobCollection, ciRunCollection, pullRequestCollection } from "@/lib/collections"
 import {
   REPO_CI_EVENTS,
   REPO_CI_PATHS,
@@ -61,19 +61,54 @@ export function RepoRunsTab({ repository, teamSlug }: { repository: { id: string
   const phone = useIsMobile()
   const { data: session } = useSession()
   const rows = useCiPageRows(session?.user?.id ?? ``)
-  const repos = useMemo(() => [{ id: repository.id, fullName: repository.fullName }], [repository.id, repository.fullName])
+  const repos = useCiRepos()
+  const [tab, setTab] = useState<CiRepoTab>(`train`)
   const running = rows.runs.some((run) => run.repositoryId === repositoryId && run.state === `pending`)
   const now = useNow(running ? 1_000 : 60_000)
   const input = useMemo<CiPageInput>(
     () => ({ ...rows, repos, now: now.toISOString(), utcOffsetMinutes: -now.getTimezoneOffset() }),
     [rows, repos, now]
   )
-  const tree = useMemo(() => ciRepoRunsTree(input, repositoryId, phone), [input, repositoryId, phone])
+  const tree = useMemo(() => ciRepoRunsTree(input, repositoryId, tab, phone), [input, repositoryId, tab, phone])
   if (!rows.ready) return <SkeletonRows rowHeight={52} />
   const onAction = (event: SurfaceActionEvent) => {
-    const runId = event.context.run
-    if (event.name === CI_PAGE_EVENTS.openRun && typeof runId === `string`) {
-      void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId } })
+    const context = (key: string) => (typeof event.context[key] === `string` ? (event.context[key] as string) : null)
+    const value = typeof event.payload?.value === `string` ? event.payload.value : null
+    const runId = context(`run`)
+    switch (event.name) {
+      case CI_PAGE_EVENTS.tab:
+        if (value === `train` || value === `prs` || value === `releases`) setTab(value)
+        return
+      case CI_PAGE_EVENTS.openRun:
+        if (runId) void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId } })
+        return
+      case CI_PAGE_EVENTS.openJob: {
+        const job = context(`job`)
+        if (runId && job) void navigate({ to: `/t/$teamSlug/ci/$runId`, params: { teamSlug, runId }, search: { job } })
+        return
+      }
+      case CI_PAGE_EVENTS.openUrl: {
+        const url = context(`url`)
+        if (url) window.open(url, `_blank`, `noopener`)
+        return
+      }
+      case CI_PAGE_EVENTS.openPr: {
+        const pr = context(`pr`)
+        const row = pr ? pullRequestCollection.get(pr) : undefined
+        if (row) window.open(row.url, `_blank`, `noopener`)
+        return
+      }
+      case CI_PAGE_EVENTS.queueMenu: {
+        const pr = context(`pr`)
+        if (!pr) return
+        if (value === `merge-now`) void trpc.pullRequests.mergeNow.mutate({ pullRequestId: pr }).catch((error) => failedAction(`merge`, `the pull request now`, error))
+        if (value === `hold`) void trpc.pullRequests.hold.mutate({ pullRequestId: pr, hold: true }).catch((error) => failedAction(`hold`, `the pull request`, error))
+        return
+      }
+      case CI_PAGE_EVENTS.resume: {
+        const pr = context(`pr`)
+        if (pr) void trpc.pullRequests.hold.mutate({ pullRequestId: pr, hold: false }).catch((error) => failedAction(`resume`, `the pull request`, error))
+      }
     }
   }
   return (

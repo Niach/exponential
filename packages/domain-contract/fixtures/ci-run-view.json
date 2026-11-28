@@ -1,5 +1,5 @@
 {
- "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | rerunAll | cancel | null, `jobOpen` = a phone drilled into the selected job; #EXP-2172 (the approved redesign): the model also carries the run's title, createdAt, ref, provider, externalUrl, externalAccess, the repository's full name, the PR {number, base} and the author's name) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `kind` = the device's desktop | server, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff.",
+ "$comment": "#EXP-1804 THE CI RUN PAGE AND RUNNER SECTION AS genUI TREES, the same on every platform (ci-run.json and runner-settings.json say what; this pins HOW, node for node). `ciRun`: inputs of the run page builder (`model` {run, jobs with runnerLabel and steps}, `selected` job id, `log` = the selected job's log as read so far (null = not read), `now`, `phone`, `busy` = the button in flight: rerun | rerunAll | cancel | null, `jobOpen` = a phone drilled into the selected job; #EXP-2172 (the approved redesign): the model also carries the run's title, createdAt, ref, provider, externalUrl, externalAccess, the repository's full name, the PR {number, base} and the author's name) → `tree` (A2UI nested nodes: id, component, props, children, slots, on). `runner`: the runner section (`client`, `caps`, `kind` = the device's desktop | server, `platform`, `settings`, `owner`, `refused` = the last labels entry was refused, `recent` true = the rows of runner-settings.json recentJobs[0]) → `tree`. `after`: a control event of the section (`event` id, `payload`) on `current` settings → the `settings` to write (null = nothing to write) and `refused`. The reference is apps/web/src/lib/ci-run-view.ts (its test replays this file); desktop, iOS and Android build the same trees. Regenerate after a deliberate change with `bun apps/web/scripts/bless-ci-run-view.ts` and review the diff. #EXP-2214: the model may carry `context` (ci-page.json `ciRunContext`): its kind Badge leads the chip strip, a merge queue run's title falls back to its batch title, and its What happened Section (`ci-run-outcome`) sits under the bar; ci-open-pr {pr} opens a PR, Open log fires ci-select-job {job}.",
  "ciRun": [
   {
    "name": "specimen phone",
@@ -2583,6 +2583,1427 @@
     ]
    },
    "jobOpen": true
+  },
+  {
+   "name": "#EXP-2214 a merge queue run: its batch, What happened, Open log",
+   "model": {
+    "run": {
+     "id": "r87",
+     "number": 87,
+     "name": "gate",
+     "state": "failure",
+     "error": null,
+     "sha": "000005700000570000057000005700000570000057",
+     "startedAt": "2026-11-27T08:50:00.000Z",
+     "completedAt": "2026-11-27T08:58:00.000Z",
+     "ref": "exp-train/train-87",
+     "provider": "exponential",
+     "externalUrl": null,
+     "externalAccess": null,
+     "createdAt": "2026-11-27T08:50:00.000Z",
+     "title": null
+    },
+    "repository": "acme/engine",
+    "pullRequest": null,
+    "author": null,
+    "jobs": [
+     {
+      "id": "j87-a",
+      "check": "typecheck",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-27T08:50:10.000Z",
+      "completedAt": "2026-11-27T08:52:00.000Z",
+      "steps": []
+     },
+     {
+      "id": "j87-b",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-27T08:50:10.000Z",
+      "completedAt": "2026-11-27T08:58:00.000Z",
+      "steps": []
+     }
+    ],
+    "context": {
+     "kind": "train",
+     "badge": "Merge queue",
+     "title": "Testing #210",
+     "caption": "main",
+     "outcome": [
+      {
+       "pullRequestId": "pr-210",
+       "identifier": "#210",
+       "title": "Session tree visibility rule",
+       "text": "Sent back: failed in test (linux) · 2 of 3 tries",
+       "glyph": "ci-failed",
+       "tone": "danger",
+       "jobId": "j87-b"
+      }
+     ]
+    }
+   },
+   "phone": false,
+   "selected": "j87-b",
+   "log": "▸ Unit tests\nAssertionError: expected 'starter' to be 'shared'\n##[error]exited with code 1\n",
+   "now": "2026-11-27T10:30:00.000Z",
+   "busy": null,
+   "jobOpen": false,
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Testing #210",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": {
+          "@call": "fill",
+          "args": {
+           "template": "{workflow} · {repository}{age}",
+           "params": {
+            "workflow": "gate #87",
+            "repository": "acme/engine",
+            "age": {
+             "@call": "fill",
+             "args": {
+              "template": " · {t}",
+              "params": {
+               "t": {
+                "@call": "formatRelativeTime",
+                "args": {
+                 "value": "2026-11-27T08:50:00.000Z"
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         },
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-bar",
+      "component": "Toolbar",
+      "children": [
+       {
+        "id": "ci-run-chips",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "xs",
+         "align": "center",
+         "wrap": true
+        },
+        "children": [
+         {
+          "id": "ci-run-chips.kind",
+          "component": "Badge",
+          "props": {
+           "text": "Merge queue",
+           "variant": "outline"
+          }
+         },
+         {
+          "id": "ci-run-chips.status",
+          "component": "Chip",
+          "props": {
+           "label": "Failed",
+           "dot": "$color.destructive"
+          }
+         },
+         {
+          "id": "ci-run-chips.ref",
+          "component": "Chip",
+          "props": {
+           "label": "exp-train/train-87",
+           "icon": "git-branch"
+          }
+         },
+         {
+          "id": "ci-run-chips.sha",
+          "component": "Chip",
+          "props": {
+           "label": "0000057",
+           "icon": "hash"
+          }
+         },
+         {
+          "id": "ci-run-chips.duration",
+          "component": "Chip",
+          "props": {
+           "label": "8m 0s",
+           "icon": "clock"
+          }
+         },
+         {
+          "id": "ci-run-chips.runner",
+          "component": "Chip",
+          "props": {
+           "label": "mint",
+           "icon": "server"
+          }
+         }
+        ]
+       }
+      ],
+      "slots": {
+       "trailing": {
+        "id": "ci-run-actions",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "sm",
+         "align": "center"
+        },
+        "children": [
+         {
+          "id": "ci-run-rerun",
+          "component": "Button",
+          "props": {
+           "label": "Re-run failed",
+           "size": "sm",
+           "icon": "refresh-cw",
+           "loading": false,
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-rerun"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-fix",
+          "component": "Button",
+          "props": {
+           "label": "Fix with an agent",
+           "size": "sm",
+           "variant": "outline",
+           "icon": "bot",
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-fix"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-more",
+          "component": "Menu",
+          "props": {
+           "label": "More actions",
+           "align": "end",
+           "items": [
+            {
+             "label": "Re-run all jobs",
+             "value": "rerunAll"
+            }
+           ]
+          },
+          "on": {
+           "select": {
+            "event": {
+             "name": "ci-run-menu"
+            }
+           }
+          },
+          "children": [
+           {
+            "id": "ci-run-more.button",
+            "component": "Button",
+            "props": {
+             "icon": "ellipsis",
+             "variant": "ghost",
+             "size": "icon",
+             "label": "More actions",
+             "disabled": false
+            }
+           }
+          ]
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "ci-run-outcome",
+      "component": "Section",
+      "props": {
+       "title": "What happened",
+       "caption": "main"
+      },
+      "children": [
+       {
+        "id": "ci-run-outcome.pr-210",
+        "component": "Row",
+        "props": {
+         "identifier": "#210",
+         "title": "Session tree visibility rule",
+         "subtitle": "Sent back: failed in test (linux) · 2 of 3 tries",
+         "pressable": true
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-run-outcome.pr-210.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-failed",
+           "tone": "danger",
+           "size": "sm"
+          }
+         },
+         "trailing": {
+          "id": "ci-run-outcome.pr-210.log",
+          "component": "Button",
+          "props": {
+           "label": "Open log",
+           "icon": "file-text",
+           "variant": "outline",
+           "size": "sm"
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-select-job",
+             "context": {
+              "job": "j87-b"
+             }
+            }
+           }
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-210"
+           }
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-failure",
+      "component": "Alert",
+      "props": {
+       "type": "error",
+       "title": "Failed in test (linux)",
+       "message": "exited with code 1"
+      }
+     },
+     {
+      "id": "ci-run-jobs",
+      "component": "Box",
+      "style": {
+       "display": "grid",
+       "gridTemplateColumns": "300px minmax(0, 1fr)",
+       "gap": "$spacing.lg",
+       "alignItems": "start"
+      },
+      "children": [
+       {
+        "id": "ci-run-jobs-list",
+        "component": "Box",
+        "style": {
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-jobs-section",
+          "component": "Section",
+          "props": {
+           "title": "Jobs",
+           "caption": "1 failed · 1 passed"
+          },
+          "children": [
+           {
+            "id": "ci-run-job.j87-a",
+            "component": "Row",
+            "props": {
+             "title": "typecheck",
+             "meta": "1m 50s",
+             "selected": false,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j87-a.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j87-a"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-job.j87-b",
+            "component": "Row",
+            "props": {
+             "title": "test (linux)",
+             "meta": "7m 50s",
+             "selected": true,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j87-b.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-failed",
+               "tone": "danger",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j87-b"
+               }
+              }
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-detail",
+        "component": "Box",
+        "style": {
+         "minWidth": 0,
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-job-card.j87-b",
+          "component": "Card",
+          "props": {
+           "title": "test (linux)",
+           "description": "Failed after 7m 50s on mint"
+          },
+          "children": [
+           {
+            "id": "ci-run-log.j87-b",
+            "component": "CodeBlock",
+            "props": {
+             "code": "▸ Unit tests\nAssertionError: expected 'starter' to be 'shared'\nError: exited with code 1",
+             "title": "Log",
+             "language": "ansi",
+             "lineNumbers": true,
+             "wrap": false,
+             "copyable": true,
+             "maxLines": 32,
+             "highlight": [
+              3
+             ],
+             "follow": false
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "#EXP-2214 a merge queue run, phone",
+   "model": {
+    "run": {
+     "id": "r87",
+     "number": 87,
+     "name": "gate",
+     "state": "failure",
+     "error": null,
+     "sha": "000005700000570000057000005700000570000057",
+     "startedAt": "2026-11-27T08:50:00.000Z",
+     "completedAt": "2026-11-27T08:58:00.000Z",
+     "ref": "exp-train/train-87",
+     "provider": "exponential",
+     "externalUrl": null,
+     "externalAccess": null,
+     "createdAt": "2026-11-27T08:50:00.000Z",
+     "title": null
+    },
+    "repository": "acme/engine",
+    "pullRequest": null,
+    "author": null,
+    "jobs": [
+     {
+      "id": "j87-a",
+      "check": "typecheck",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-27T08:50:10.000Z",
+      "completedAt": "2026-11-27T08:52:00.000Z",
+      "steps": []
+     },
+     {
+      "id": "j87-b",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-27T08:50:10.000Z",
+      "completedAt": "2026-11-27T08:58:00.000Z",
+      "steps": []
+     }
+    ],
+    "context": {
+     "kind": "train",
+     "badge": "Merge queue",
+     "title": "Testing #210",
+     "caption": "main",
+     "outcome": [
+      {
+       "pullRequestId": "pr-210",
+       "identifier": "#210",
+       "title": "Session tree visibility rule",
+       "text": "Sent back: failed in test (linux) · 2 of 3 tries",
+       "glyph": "ci-failed",
+       "tone": "danger",
+       "jobId": "j87-b"
+      }
+     ]
+    }
+   },
+   "phone": true,
+   "selected": "j87-b",
+   "log": "▸ Unit tests\nAssertionError: expected 'starter' to be 'shared'\n##[error]exited with code 1\n",
+   "now": "2026-11-27T10:30:00.000Z",
+   "busy": null,
+   "jobOpen": false,
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Testing #210",
+         "level": "h3"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-bar",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "sm",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-chips",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "xs",
+         "align": "center",
+         "wrap": true
+        },
+        "children": [
+         {
+          "id": "ci-run-chips.kind",
+          "component": "Badge",
+          "props": {
+           "text": "Merge queue",
+           "variant": "outline"
+          }
+         },
+         {
+          "id": "ci-run-chips.status",
+          "component": "Chip",
+          "props": {
+           "label": "Failed",
+           "dot": "$color.destructive"
+          }
+         },
+         {
+          "id": "ci-run-chips.ref",
+          "component": "Chip",
+          "props": {
+           "label": "exp-train/train-87",
+           "icon": "git-branch"
+          }
+         },
+         {
+          "id": "ci-run-chips.sha",
+          "component": "Chip",
+          "props": {
+           "label": "0000057",
+           "icon": "hash"
+          }
+         },
+         {
+          "id": "ci-run-chips.duration",
+          "component": "Chip",
+          "props": {
+           "label": "8m 0s",
+           "icon": "clock"
+          }
+         },
+         {
+          "id": "ci-run-chips.runner",
+          "component": "Chip",
+          "props": {
+           "label": "mint",
+           "icon": "server"
+          }
+         }
+        ]
+       },
+       {
+        "id": "ci-run-actions",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "sm",
+         "align": "center"
+        },
+        "children": [
+         {
+          "id": "ci-run-rerun",
+          "component": "Button",
+          "props": {
+           "label": "Re-run failed",
+           "size": "sm",
+           "icon": "refresh-cw",
+           "loading": false,
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-rerun"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-fix",
+          "component": "Button",
+          "props": {
+           "label": "Fix with an agent",
+           "size": "sm",
+           "variant": "outline",
+           "icon": "bot",
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-fix"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-more",
+          "component": "Menu",
+          "props": {
+           "label": "More actions",
+           "align": "end",
+           "items": [
+            {
+             "label": "Re-run all jobs",
+             "value": "rerunAll"
+            }
+           ]
+          },
+          "on": {
+           "select": {
+            "event": {
+             "name": "ci-run-menu"
+            }
+           }
+          },
+          "children": [
+           {
+            "id": "ci-run-more.button",
+            "component": "Button",
+            "props": {
+             "icon": "ellipsis",
+             "variant": "ghost",
+             "size": "icon",
+             "label": "More actions",
+             "disabled": false
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "id": "ci-run-outcome",
+      "component": "Section",
+      "props": {
+       "title": "What happened",
+       "caption": "main"
+      },
+      "children": [
+       {
+        "id": "ci-run-outcome.pr-210",
+        "component": "Row",
+        "props": {
+         "identifier": "#210",
+         "title": "Session tree visibility rule",
+         "subtitle": "Sent back: failed in test (linux) · 2 of 3 tries",
+         "pressable": true
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-run-outcome.pr-210.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-failed",
+           "tone": "danger",
+           "size": "sm"
+          }
+         },
+         "trailing": {
+          "id": "ci-run-outcome.pr-210.log",
+          "component": "Button",
+          "props": {
+           "label": "Open log",
+           "icon": "file-text",
+           "variant": "outline",
+           "size": "sm"
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-select-job",
+             "context": {
+              "job": "j87-b"
+             }
+            }
+           }
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-open-pr",
+           "context": {
+            "pr": "pr-210"
+           }
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-failure",
+      "component": "Alert",
+      "props": {
+       "type": "error",
+       "title": "Failed in test (linux)",
+       "message": "exited with code 1"
+      }
+     },
+     {
+      "id": "ci-run-jobs-section",
+      "component": "Section",
+      "props": {
+       "title": "Jobs",
+       "caption": "1 failed · 1 passed"
+      },
+      "children": [
+       {
+        "id": "ci-run-job.j87-a",
+        "component": "Row",
+        "props": {
+         "title": "typecheck",
+         "meta": "1m 50s",
+         "selected": false,
+         "pressable": true,
+         "chevron": "right"
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-run-job.j87-a.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-passed",
+           "tone": "success",
+           "size": "sm"
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j87-a"
+           }
+          }
+         }
+        }
+       },
+       {
+        "id": "ci-run-job.j87-b",
+        "component": "Row",
+        "props": {
+         "title": "test (linux)",
+         "meta": "7m 50s",
+         "selected": true,
+         "pressable": true,
+         "chevron": "right"
+        },
+        "slots": {
+         "leading": {
+          "id": "ci-run-job.j87-b.glyph",
+          "component": "Icon",
+          "props": {
+           "name": "ci-failed",
+           "tone": "danger",
+           "size": "sm"
+          }
+         }
+        },
+        "on": {
+         "press": {
+          "event": {
+           "name": "ci-select-job",
+           "context": {
+            "job": "j87-b"
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "#EXP-2214 a pull request run carries its kind",
+   "model": {
+    "run": {
+     "id": "r12",
+     "number": 12,
+     "name": "ci",
+     "state": "failure",
+     "error": null,
+     "sha": "8f3c2a9d1e7b4c6a5f0e9d8c7b6a5f4e3d2c1b0a",
+     "startedAt": "2026-11-13T10:00:00.000Z",
+     "completedAt": "2026-11-13T10:12:40.000Z",
+     "ref": "exp/APP-33",
+     "provider": "exponential",
+     "externalUrl": null,
+     "externalAccess": null,
+     "createdAt": "2026-11-13T10:00:00.000Z",
+     "title": "Mirror prunes deleted branches"
+    },
+    "repository": "acme/engine",
+    "pullRequest": {
+     "number": 213,
+     "base": "main"
+    },
+    "author": "Mara Lind",
+    "jobs": [
+     {
+      "id": "j1",
+      "check": "build",
+      "position": 0,
+      "status": "completed",
+      "conclusion": "success",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:00:00.000Z",
+      "completedAt": "2026-11-13T10:04:10.000Z",
+      "steps": []
+     },
+     {
+      "id": "j2",
+      "check": "test (linux)",
+      "position": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": null,
+      "runnerLabel": "mint",
+      "startedAt": "2026-11-13T10:04:15.000Z",
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": [
+       {
+        "name": "Checkout",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564255000,
+        "completedAt": 1794564259000
+       },
+       {
+        "name": "Install",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": 1794564259000,
+        "completedAt": 1794564301000
+       },
+       {
+        "name": "Unit tests",
+        "status": "completed",
+        "conclusion": "failure",
+        "startedAt": 1794564301000,
+        "completedAt": 1794564760000
+       },
+       {
+        "name": "Upload report",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": null,
+        "completedAt": null
+       }
+      ]
+     },
+     {
+      "id": "j3",
+      "check": "deploy",
+      "position": 2,
+      "status": "completed",
+      "conclusion": "skipped",
+      "reason": "needs",
+      "runnerLabel": null,
+      "startedAt": null,
+      "completedAt": "2026-11-13T10:12:40.000Z",
+      "steps": []
+     }
+    ],
+    "context": {
+     "kind": "pull_request",
+     "badge": "Pull request #213",
+     "title": null,
+     "caption": null,
+     "outcome": []
+    }
+   },
+   "phone": false,
+   "selected": null,
+   "log": null,
+   "now": "2026-11-13T10:30:00.000Z",
+   "busy": null,
+   "jobOpen": false,
+   "tree": {
+    "id": "ci-run",
+    "component": "Stack",
+    "props": {
+     "direction": "vertical",
+     "gap": "lg",
+     "align": "stretch"
+    },
+    "children": [
+     {
+      "id": "ci-run-title",
+      "component": "Stack",
+      "props": {
+       "direction": "vertical",
+       "gap": "xs",
+       "align": "stretch"
+      },
+      "children": [
+       {
+        "id": "ci-run-heading",
+        "component": "Heading",
+        "props": {
+         "text": "Mirror prunes deleted branches",
+         "level": "h2"
+        }
+       },
+       {
+        "id": "ci-run-name",
+        "component": "Text",
+        "props": {
+         "text": {
+          "@call": "fill",
+          "args": {
+           "template": "{workflow} · {repository}{age}",
+           "params": {
+            "workflow": "ci #12",
+            "repository": "acme/engine",
+            "age": {
+             "@call": "fill",
+             "args": {
+              "template": " · {t}",
+              "params": {
+               "t": {
+                "@call": "formatRelativeTime",
+                "args": {
+                 "value": "2026-11-13T10:00:00.000Z"
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         },
+         "variant": "muted"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ci-run-bar",
+      "component": "Toolbar",
+      "children": [
+       {
+        "id": "ci-run-chips",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "xs",
+         "align": "center",
+         "wrap": true
+        },
+        "children": [
+         {
+          "id": "ci-run-chips.kind",
+          "component": "Badge",
+          "props": {
+           "text": "Pull request #213",
+           "variant": "outline"
+          }
+         },
+         {
+          "id": "ci-run-chips.status",
+          "component": "Chip",
+          "props": {
+           "label": "Failed",
+           "dot": "$color.destructive"
+          }
+         },
+         {
+          "id": "ci-run-chips.ref",
+          "component": "Chip",
+          "props": {
+           "label": "exp/APP-33 → main",
+           "icon": "git-branch"
+          }
+         },
+         {
+          "id": "ci-run-chips.sha",
+          "component": "Chip",
+          "props": {
+           "label": "8f3c2a9",
+           "icon": "hash"
+          }
+         },
+         {
+          "id": "ci-run-chips.pr",
+          "component": "Chip",
+          "props": {
+           "label": "#213",
+           "icon": "git-pull-request"
+          }
+         },
+         {
+          "id": "ci-run-chips.author",
+          "component": "Chip",
+          "props": {
+           "label": "Mara Lind",
+           "icon": "user"
+          }
+         },
+         {
+          "id": "ci-run-chips.duration",
+          "component": "Chip",
+          "props": {
+           "label": "12m 40s",
+           "icon": "clock"
+          }
+         },
+         {
+          "id": "ci-run-chips.runner",
+          "component": "Chip",
+          "props": {
+           "label": "mint",
+           "icon": "server"
+          }
+         }
+        ]
+       }
+      ],
+      "slots": {
+       "trailing": {
+        "id": "ci-run-actions",
+        "component": "Stack",
+        "props": {
+         "direction": "horizontal",
+         "gap": "sm",
+         "align": "center"
+        },
+        "children": [
+         {
+          "id": "ci-run-rerun",
+          "component": "Button",
+          "props": {
+           "label": "Re-run failed",
+           "size": "sm",
+           "icon": "refresh-cw",
+           "loading": false,
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-rerun"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-fix",
+          "component": "Button",
+          "props": {
+           "label": "Fix with an agent",
+           "size": "sm",
+           "variant": "outline",
+           "icon": "bot",
+           "disabled": false
+          },
+          "on": {
+           "press": {
+            "event": {
+             "name": "ci-fix"
+            }
+           }
+          }
+         },
+         {
+          "id": "ci-run-more",
+          "component": "Menu",
+          "props": {
+           "label": "More actions",
+           "align": "end",
+           "items": [
+            {
+             "label": "Re-run all jobs",
+             "value": "rerunAll"
+            }
+           ]
+          },
+          "on": {
+           "select": {
+            "event": {
+             "name": "ci-run-menu"
+            }
+           }
+          },
+          "children": [
+           {
+            "id": "ci-run-more.button",
+            "component": "Button",
+            "props": {
+             "icon": "ellipsis",
+             "variant": "ghost",
+             "size": "icon",
+             "label": "More actions",
+             "disabled": false
+            }
+           }
+          ]
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "ci-run-jobs",
+      "component": "Box",
+      "style": {
+       "display": "grid",
+       "gridTemplateColumns": "300px minmax(0, 1fr)",
+       "gap": "$spacing.lg",
+       "alignItems": "start"
+      },
+      "children": [
+       {
+        "id": "ci-run-jobs-list",
+        "component": "Box",
+        "style": {
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-jobs-section",
+          "component": "Section",
+          "props": {
+           "title": "Jobs",
+           "caption": "1 failed · 1 passed · 1 skipped"
+          },
+          "children": [
+           {
+            "id": "ci-run-job.j1",
+            "component": "Row",
+            "props": {
+             "title": "build",
+             "meta": "4m 10s",
+             "selected": false,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j1.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-passed",
+               "tone": "success",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j1"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-job.j2",
+            "component": "Row",
+            "props": {
+             "title": "test (linux)",
+             "meta": "8m 25s",
+             "selected": true,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j2.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-failed",
+               "tone": "danger",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j2"
+               }
+              }
+             }
+            }
+           },
+           {
+            "id": "ci-run-job.j3",
+            "component": "Row",
+            "props": {
+             "title": "deploy",
+             "subtitle": "Skipped: a job it needs did not pass",
+             "selected": false,
+             "pressable": true
+            },
+            "slots": {
+             "leading": {
+              "id": "ci-run-job.j3.glyph",
+              "component": "Icon",
+              "props": {
+               "name": "ci-skipped",
+               "tone": "neutral",
+               "size": "sm"
+              }
+             }
+            },
+            "on": {
+             "press": {
+              "event": {
+               "name": "ci-select-job",
+               "context": {
+                "job": "j3"
+               }
+              }
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "ci-run-detail",
+        "component": "Box",
+        "style": {
+         "minWidth": 0,
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "id": "ci-run-job-card.j2",
+          "component": "Card",
+          "props": {
+           "title": "test (linux)",
+           "description": "Failed after 8m 25s on mint"
+          },
+          "children": [
+           {
+            "id": "ci-run-steps.j2",
+            "component": "Trace",
+            "props": {
+             "size": "sm"
+            },
+            "children": [
+             {
+              "id": "ci-run-steps.j2.0",
+              "component": "TraceItem",
+              "props": {
+               "title": "Checkout",
+               "status": "done",
+               "description": "4s",
+               "collapsible": true,
+               "open": false
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.1",
+              "component": "TraceItem",
+              "props": {
+               "title": "Install",
+               "status": "done",
+               "description": "42s",
+               "collapsible": true,
+               "open": false
+              }
+             },
+             {
+              "id": "ci-run-steps.j2.2",
+              "component": "TraceItem",
+              "props": {
+               "title": "Unit tests",
+               "status": "error",
+               "description": "7m 39s",
+               "collapsible": true,
+               "open": true
+              },
+              "children": [
+               {
+                "id": "ci-run-log.j2",
+                "component": "Text",
+                "props": {
+                 "text": "No log yet.",
+                 "variant": "muted"
+                }
+               }
+              ]
+             },
+             {
+              "id": "ci-run-steps.j2.3",
+              "component": "TraceItem",
+              "props": {
+               "title": "Upload report",
+               "status": "skipped",
+               "collapsible": true,
+               "open": false
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
   }
  ],
  "runner": [

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react"
 import type { SurfaceActionEvent } from "@exponential_app/eui-react"
-import { CI_PAGE_COPY, CI_PAGE_TEST_IDS, ciTabCounts, type CiPageInput, type CiRunFilter, type CiSource, type CiTab } from "@exp/domain-contract/ci-page"
+import { CI_PAGE_COPY, CI_PAGE_TEST_IDS, CI_TABS, ciTabCounts, type CiPageInput, type CiRunFilter, type CiTab } from "@exp/domain-contract/ci-page"
 import pageFixture from "@exp/domain-contract/fixtures/ci-page.json"
 import { conceptIcon, SegmentedControl, useIsMobile } from "@exp/ui"
 import { CiSurface } from "@/components/ci/ci-surface"
 import { PageHeading } from "@/components/page-frame"
 import { CI_PAGE_EVENTS, ciPageTree } from "@/lib/ci-page-view"
+import { failedAction } from "@/lib/action-error"
+import { trpc } from "@/lib/trpc-client"
 
 // #EXP-2172 (fixtures/ci-page.json): THE CI page's body over its input; the
 // route (`/ci`) owns the data and the navigation, the `?dev=ci` specimen the
@@ -15,7 +17,7 @@ const CiIcon = conceptIcon(`nav-ci`)
 
 export const ALL_RUNS: CiRunFilter = { status: `all`, repositoryId: null, source: null }
 
-const TABS = new Set<CiTab>([`runs`, `train`, `runners`])
+const TABS = new Set<CiTab>(CI_TABS)
 const STATUSES = new Set<CiRunFilter[`status`]>([`all`, `running`, `failed`, `mine`])
 
 /** The value a Tabs / Segmented / Select change carries. */
@@ -31,6 +33,7 @@ export function CiPageView({
   onTab,
   onFilter,
   onOpenRun,
+  onOpenJob,
   onOpenPullRequest,
   onOpenRunner,
 }: {
@@ -40,6 +43,7 @@ export function CiPageView({
   onTab: (tab: CiTab) => void
   onFilter: (filter: CiRunFilter) => void
   onOpenRun: (runId: string) => void
+  onOpenJob: (runId: string, jobId: string) => void
   onOpenPullRequest: (pullRequestId: string) => void
   onOpenRunner: (deviceId: string) => void
 }) {
@@ -58,9 +62,31 @@ export function CiPageView({
       case CI_PAGE_EVENTS.repository:
         if (value) onFilter({ ...filter, repositoryId: value === `all` ? null : value })
         return
-      case CI_PAGE_EVENTS.source:
-        if (value) onFilter({ ...filter, source: value === `all` ? null : (value as CiSource) })
+      case CI_PAGE_EVENTS.openJob: {
+        const run = context(`run`)
+        const job = context(`job`)
+        if (run && job) onOpenJob(run, job)
         return
+      }
+      case CI_PAGE_EVENTS.openUrl: {
+        const url = context(`url`)
+        if (url) window.open(url, `_blank`, `noopener`)
+        return
+      }
+      // #EXP-2214: the queue's own controls (Merge now is owners-only: the
+      // server refuses others, the toast says why).
+      case CI_PAGE_EVENTS.queueMenu: {
+        const pr = context(`pr`)
+        if (!pr) return
+        if (value === `merge-now`) void trpc.pullRequests.mergeNow.mutate({ pullRequestId: pr }).catch((error) => failedAction(`merge`, `the pull request now`, error))
+        if (value === `hold`) void trpc.pullRequests.hold.mutate({ pullRequestId: pr, hold: true }).catch((error) => failedAction(`hold`, `the pull request`, error))
+        return
+      }
+      case CI_PAGE_EVENTS.resume: {
+        const pr = context(`pr`)
+        if (pr) void trpc.pullRequests.hold.mutate({ pullRequestId: pr, hold: false }).catch((error) => failedAction(`resume`, `the pull request`, error))
+        return
+      }
       case CI_PAGE_EVENTS.openRun: {
         const run = context(`run`)
         if (run) onOpenRun(run)
@@ -90,13 +116,13 @@ export function CiPageView({
         value={tab}
         onValueChange={(next) => TABS.has(next) && onTab(next)}
         className="w-max"
-        options={([`runs`, `train`, `runners`] as const).map((value) => {
-          const count = value === `runs` ? 0 : counts[value]
+        options={CI_TABS.map((value) => {
+          const count = counts[value]
           return {
             value,
             label: (
               <span className="flex items-center gap-1.5 whitespace-nowrap" data-tab={value}>
-                {CI_PAGE_COPY.tabs[value]}
+                {(phone ? CI_PAGE_COPY.phoneTabs : CI_PAGE_COPY.tabs)[value]}
                 {count > 0 && <span className="text-muted-foreground tabular-nums">{count}</span>}
               </span>
             ),
@@ -111,8 +137,8 @@ export function CiPageView({
 
 /** DEV-ONLY `?dev=ci`: the page over ci-page.json's `scenario`, no server. */
 export function CiPageSpecimen() {
-  const input = pageFixture.scenario as CiPageInput
-  const [tab, setTab] = useState<CiTab>(`runs`)
+  const input = pageFixture.scenario as unknown as CiPageInput
+  const [tab, setTab] = useState<CiTab>(`train`)
   const [filter, setFilter] = useState<CiRunFilter>(ALL_RUNS)
   const phone = useIsMobile()
   // The /ci route's wide chrome (#EXP-2169): the entity heading in the
@@ -127,6 +153,7 @@ export function CiPageSpecimen() {
         onTab={setTab}
         onFilter={setFilter}
         onOpenRun={() => undefined}
+        onOpenJob={() => undefined}
         onOpenPullRequest={() => undefined}
         onOpenRunner={() => undefined}
       />

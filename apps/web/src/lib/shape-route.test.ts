@@ -30,6 +30,8 @@ import { Route as pullRequestIssuesRoute } from "@/routes/api/shapes/pull-reques
 import { Route as pullRequestChecksRoute } from "@/routes/api/shapes/pull-request-checks"
 import { Route as skillsRoute } from "@/routes/api/shapes/skills"
 import { Route as ciRunsRoute } from "@/routes/api/shapes/ci-runs"
+import { Route as mergeTrainsRoute } from "@/routes/api/shapes/merge-trains"
+import { Route as mergeTrainEventsRoute } from "@/routes/api/shapes/merge-train-events"
 import { Route as repositoriesRoute } from "@/routes/api/shapes/repositories"
 import { Route as ciJobsRoute } from "@/routes/api/shapes/ci-jobs"
 
@@ -1026,6 +1028,8 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`attachments`, attachmentsRoute],
     [`ci-jobs`, ciJobsRoute],
     [`ci-runs`, ciRunsRoute],
+    [`merge-trains`, mergeTrainsRoute],
+    [`merge-train-events`, mergeTrainEventsRoute],
     [`boards`, boardsRoute],
     [`comments`, commentsRoute],
     [`device-worktrees`, deviceWorktreesRoute],

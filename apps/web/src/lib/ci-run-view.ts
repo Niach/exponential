@@ -1,5 +1,6 @@
 import type { NestedNode } from "@exponential_app/eui"
 import type { CheckTone } from "@exp/domain-contract/pr-checks"
+import { CI_PAGE_COPY, type CiRunContext } from "@exp/domain-contract/ci-page"
 import {
   CI_RUN_COPY,
   CI_RUN_LOG_MAX_LINES,
@@ -70,6 +71,10 @@ export interface CiRunModel {
   pullRequest: { number: number; base: string } | null
   /** The author's name (the users row of createdByUserId), when known. */
   author: string | null
+  /** #EXP-2214 (ci-page.json `ciRunContext`): why the run exists: its kind
+   *  (a Chip first in the strip), a merge queue run's batch title and What
+   *  happened to each of its PRs. Absent = none drawn. */
+  context?: CiRunContext | null
   jobs: Array<{
     id: string
     check: string
@@ -93,6 +98,8 @@ export const CI_RUN_EVENTS = {
   fix: `ci-fix`,
   openExternal: `ci-open-external`,
   menu: `ci-run-menu`,
+  /** #EXP-2214: a What happened row opens its pull request. */
+  openPr: `ci-open-pr`,
 } as const
 
 /** A busy action (its button spins, the others wait). */
@@ -100,7 +107,7 @@ export type CiRunBusy = `rerun` | `rerunAll` | `cancel` | null
 
 /** The run's title (ci-page.json's row rule, without the train batch). */
 export function ciRunTitle(model: CiRunModel): string {
-  return model.run.title ?? model.run.name
+  return model.run.title ?? model.context?.title ?? model.run.name
 }
 
 /** The platform header on phones: `name #n` over the repository. */
@@ -195,11 +202,14 @@ export function ciRunTree(
     id: CI_RUN_TEST_IDS.chips,
     component: `Stack`,
     props: { direction: `horizontal`, gap: `xs`, align: `center`, wrap: true },
-    children: ciRunChips({ run, jobs: model.jobs, pullRequest: model.pullRequest, author: model.author, now }).map((chip) => ({
-      id: `${CI_RUN_TEST_IDS.chips}.${chip.id}`,
-      component: `Chip`,
-      props: { label: chip.label, ...(chip.icon ? { icon: chip.icon } : {}), ...(chip.dot ? { dot: chip.dot } : {}) },
-    })),
+    children: [
+      ...(model.context ? [{ id: `${CI_RUN_TEST_IDS.chips}.kind`, component: `Badge`, props: { text: model.context.badge, variant: `outline` } } satisfies NestedNode] : []),
+      ...ciRunChips({ run, jobs: model.jobs, pullRequest: model.pullRequest, author: model.author, now }).map((chip) => ({
+        id: `${CI_RUN_TEST_IDS.chips}.${chip.id}`,
+        component: `Chip`,
+        props: { label: chip.label, ...(chip.icon ? { icon: chip.icon } : {}), ...(chip.dot ? { dot: chip.dot } : {}) },
+      })),
+    ],
   }
   const actions = ciRunActions(run)
   const button = (id: string, label: string, event: string, busy: CiRunBusy, extra: Record<string, unknown> = {}): NestedNode => ({
@@ -235,6 +245,33 @@ export function ciRunTree(
       ? { id: `ci-run-bar`, component: `Stack`, props: { direction: `vertical`, gap: `sm`, align: `stretch` }, children: [chips, ...(buttons.length > 0 ? [actionsNode] : [])] }
       : { id: `ci-run-bar`, component: `Toolbar`, children: [chips], ...(buttons.length > 0 ? { slots: { trailing: actionsNode } } : {}) },
   ]
+  const outcome = model.context?.outcome ?? []
+  if (outcome.length > 0) {
+    children.push({
+      id: `ci-run-outcome`,
+      component: `Section`,
+      props: { title: CI_PAGE_COPY.queue.whatHappened, ...(model.context?.caption ? { caption: model.context.caption } : {}) },
+      children: outcome.map((row) => ({
+        id: `ci-run-outcome.${row.pullRequestId}`,
+        component: `Row`,
+        props: { identifier: row.identifier, title: row.title, subtitle: row.text, pressable: true },
+        slots: {
+          leading: { id: `ci-run-outcome.${row.pullRequestId}.glyph`, component: `Icon`, props: { name: row.glyph, tone: row.tone, size: `sm` } },
+          ...(row.jobId
+            ? {
+                trailing: {
+                  id: `ci-run-outcome.${row.pullRequestId}.log`,
+                  component: `Button`,
+                  props: { label: CI_PAGE_COPY.queue.openLog, icon: `file-text`, variant: `outline`, size: `sm` },
+                  on: { press: { event: { name: CI_RUN_EVENTS.select, context: { job: row.jobId } } } },
+                },
+              }
+            : {}),
+        },
+        on: { press: { event: { name: CI_RUN_EVENTS.openPr, context: { pr: row.pullRequestId } } } },
+      })),
+    })
+  }
   if (run.error) {
     children.push({ id: `ci-run-error`, component: `Alert`, props: { type: `error`, title: CI_RUN_COPY.pipelineError, message: run.error } })
     return { id: CI_RUN_TEST_IDS.page, component: `Stack`, props: { direction: `vertical`, gap: `lg`, align: `stretch` }, children }

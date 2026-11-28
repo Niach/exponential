@@ -17,7 +17,7 @@
       "push": "Push",
       "pull_request": "Pull request",
       "tag": "Tag",
-      "merge_train": "Merge train",
+      "merge_train": "Merge queue",
       "manual": "Manual"
     },
     "status": {
@@ -32,7 +32,7 @@
       "noPipeline": "No runs yet. Add .exponential/ci.json to run CI here.",
       "required": {
         "label": "Required checks",
-        "description": "Checks that must pass before the merge train lands a pull request.",
+        "description": "Checks that must pass before the merge queue lands a pull request.",
         "placeholder": "Check name"
       },
       "secrets": {
@@ -185,8 +185,8 @@
           "tone": "muted",
           "commit": "ddddddd",
           "ref": "main",
-          "trigger": "Merge train",
-          "subtitle": "main · ddddddd · Merge train",
+          "trigger": "Merge queue",
+          "subtitle": "main · ddddddd · Merge queue",
           "duration": null,
           "startedAt": null
         },

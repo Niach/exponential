@@ -3470,7 +3470,7 @@ export const pullRequestChecks = pgTable(
   ]
 )
 
-// EXP-1709 (merge-train.json, SERVER-ONLY, no shape): one train run = one
+// EXP-1709 (merge-train.json): one train run = one
 // pipeline dispatch testing `units` (PR ids per unit, a stack bottom first)
 // composed on `base_sha` of `base`. `tested_sha` = the composed commit the
 // pipeline reports (null until composed); landing fast-forwards `base` to
@@ -3478,8 +3478,11 @@ export const pullRequestChecks = pgTable(
 // `bisect_of` = the red run this half was split from; `pending` = the
 // halves still to test after it; `heads` = the PR heads it composed. state: dispatching →
 // composing → testing → green → landed | red | conflict | cancelled |
-// error. `conflicts` = the pipeline's unmatched files per PR number. The
-// clients read only `pull_requests.merge_train_id` (`Testing with N`).
+// error. `conflicts` = the pipeline's unmatched files per PR number.
+// #EXP-2214 (ci-page.json MERGE QUEUE TAB): synced (shape merge-trains,
+// member-only by `team_id`) WITHOUT `heads`, `run_ref`, `conflicts` and
+// `error` (server-only): what is being tested, on which base commit, the
+// attempt and the bisect halves still to go.
 export const mergeTrains = pgTable(
   `merge_trains`,
   {
@@ -3544,6 +3547,47 @@ export const commitChecks = pgTable(
   (table) => [unique(`uniq_commit_checks_name`).on(table.repositoryId, table.sha, table.name)]
 )
 
+// #EXP-2214 (ci-page.json MERGE QUEUE TAB, synced: shape merge-train-events,
+// member-only by `team_id`): the merge queue's history, one row per PR edge
+// the worker posts (`merge-train.json` steps): `landed` (sha = the commit on
+// the base), `failing` (checks = the red required checks, ci_job_id = our
+// job or `job_url` = the forge's job, the one-click log), `conflict` (files),
+// `held` (reason = merge_hold), `merge_now` (by = who pressed it), `resumed`.
+// `attempt` = the PR's bounce count after the edge. Written only by the
+// worker; never edited.
+export const mergeTrainEvents = pgTable(
+  `merge_train_events`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    pullRequestId: uuid(`pull_request_id`)
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: `cascade` }),
+    mergeTrainId: uuid(`merge_train_id`).references(() => mergeTrains.id, { onDelete: `set null` }),
+    kind: varchar({ length: 16 }).notNull(),
+    base: varchar({ length: 255 }).notNull(),
+    attempt: integer().notNull().default(0),
+    reason: varchar({ length: 16 }),
+    checks: jsonb().$type<string[]>().notNull().default([]),
+    ciJobId: uuid(`ci_job_id`).references((): AnyPgColumn => ciJobs.id, { onDelete: `set null` }),
+    jobUrl: text(`job_url`),
+    files: jsonb().$type<string[]>().notNull().default([]),
+    sha: varchar({ length: 64 }),
+    byUserId: text(`by_user_id`).references(() => users.id, { onDelete: `set null` }),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index(`idx_merge_train_events_team`).on(table.teamId),
+    index(`idx_merge_train_events_repo`).on(table.repositoryId, table.createdAt),
+    index(`idx_merge_train_events_pr`).on(table.pullRequestId),
+  ]
+)
+
 // #EXP-1617 eCode's own CI. One run = one pipeline plan (`.exponential/ci.json`,
 // packages/ecode fixtures/pipeline.json) at one commit for one trigger; its
 // jobs are the planner's checks, scheduled by fixtures/runner.json's rules
@@ -3600,6 +3644,12 @@ export const ciRuns = pgTable(
     externalUrl: text(`external_url`),
     externalAttempt: integer(`external_attempt`),
     externalAccess: varchar(`external_access`, { length: 8 }),
+    // #EXP-2214: the merge queue run this CI run tests (trigger
+    // merge_train): our dispatch sets it, GitHub ingest reads it from the
+    // `exp-train/<id>` head branch. Null for every other run.
+    mergeTrainId: uuid(`merge_train_id`).references((): AnyPgColumn => mergeTrains.id, {
+      onDelete: `set null`,
+    }),
     // #EXP-2172 (the approved CI redesign): what the run is about, the CI
     // list's and the run page's title: the head commit's first line or the
     // pull request's title (GitHub: the run's `display_title`). Null = not
@@ -5374,6 +5424,15 @@ const ciStepStateSchema = z.object({
   completedAt: z.number().nullable(),
 })
 export const selectCiRunSchema = createSelectSchema(ciRuns)
+// #EXP-2214: the merge queue's synced projections (server-only columns omitted).
+export const selectMergeTrainSchema = createSelectSchema(mergeTrains, {
+  units: z.array(z.array(z.string())),
+  pending: z.array(z.array(z.array(z.string()))),
+}).omit({ heads: true, runRef: true, conflicts: true, error: true })
+export const selectMergeTrainEventSchema = createSelectSchema(mergeTrainEvents, {
+  checks: z.array(z.string()),
+  files: z.array(z.string()),
+})
 export const selectCiJobSchema = createSelectSchema(ciJobs, {
   runsOn: z.array(z.string()),
   needs: z.array(z.string()),
@@ -5490,6 +5549,8 @@ export type PullRequest = InferSelectModel<typeof pullRequests>
 export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
 export type PullRequestCheck = InferSelectModel<typeof pullRequestChecks>
 export type CiRun = InferSelectModel<typeof ciRuns>
+export type MergeTrain = InferSelectModel<typeof mergeTrains>
+export type MergeTrainEvent = InferSelectModel<typeof mergeTrainEvents>
 export type CiJob = InferSelectModel<typeof ciJobs>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>

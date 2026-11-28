@@ -6,7 +6,7 @@
 import { and, eq, inArray, lt } from "drizzle-orm"
 import type { TrainCheck } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
-import { commitChecks, repositories } from "@/db/schema"
+import { commitChecks, mergeTrains, repositories } from "@/db/schema"
 import type { Forge, ForgeRepo } from "@/lib/ecode/forge"
 
 export interface CommitCheckInput {
@@ -24,6 +24,29 @@ export const TRAIN_REF_PREFIX = `exp-train/`
 /** Whether a delivery's branch is a train ref (only those are kept). */
 export function isTrainBranch(branch: string | null | undefined): boolean {
   return !!branch && branch.startsWith(TRAIN_REF_PREFIX)
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** #EXP-2214: the merge queue run a train ref names (`exp-train/<id>`),
+ *  null for any other ref. */
+export function trainIdOfRef(ref: string | null | undefined): string | null {
+  if (!isTrainBranch(ref)) return null
+  const id = ref!.slice(TRAIN_REF_PREFIX.length)
+  return UUID.test(id) ? id.toLowerCase() : null
+}
+
+/** #EXP-2214: `ci_runs.merge_train_id` for a run of `ref` in `repositoryId`:
+ *  the train row its ref names when that row exists (a stale ref = null). */
+export async function linkedTrainId(repositoryId: string, ref: string | null | undefined): Promise<string | null> {
+  const id = trainIdOfRef(ref)
+  if (!id) return null
+  const [row] = await db
+    .select({ id: mergeTrains.id })
+    .from(mergeTrains)
+    .where(and(eq(mergeTrains.id, id), eq(mergeTrains.repositoryId, repositoryId)))
+    .limit(1)
+  return row?.id ?? null
 }
 
 /** Upsert one check at `sha` for every repository row of `repoFullName`

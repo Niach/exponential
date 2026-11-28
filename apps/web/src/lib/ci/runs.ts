@@ -16,6 +16,7 @@
 //   run page), so the Merge pill, the session wake-ups and the merge train
 //   read them like any provider's; optionally GitHub commit statuses too.
 
+import { linkedTrainId } from "@/lib/merge-train/commit-checks"
 import { createHash, randomBytes } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm"
@@ -303,6 +304,8 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
     ? ((await db.select({ title: pullRequests.title }).from(pullRequests).where(eq(pullRequests.id, input.pullRequestId)).limit(1))[0]?.title ?? null)
     : null
   const title = runTitle(prTitle) ?? runTitle(input.title)
+  // #EXP-2214: a merge queue run names the train it tests.
+  const mergeTrainId = await linkedTrainId(repo.id, input.ref)
   const runId = await db.transaction(async (tx) => {
     const number = await nextRunNumber(tx, repo.id)
     const [run] = await tx
@@ -316,6 +319,7 @@ async function startOneRun(repo: RepoRow, input: StartRunInput, source: Pipeline
         ref: input.ref ?? null,
         trigger: input.trigger,
         pullRequestId: input.pullRequestId ?? null,
+        mergeTrainId,
         state: errors.length > 0 ? `failure` : `pending`,
         error: errors.length > 0 ? errors.join(`\n`).slice(0, 4000) : null,
         rerunOf: input.rerunOf ?? null,
@@ -1013,6 +1017,7 @@ export async function rerunRun(args: { runId: string; failedOnly: boolean; userI
         sha: run.sha,
         ref: run.ref,
         trigger: run.trigger,
+        mergeTrainId: run.mergeTrainId,
         pullRequestId: run.pullRequestId,
         state: `pending`,
         rerunOf: run.id,

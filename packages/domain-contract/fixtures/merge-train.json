@@ -61,7 +61,7 @@
     "id": "merge-now-pr",
     "title": "Merge PR #{number} now?",
     "titleStack": "Merge the stack now?",
-    "body": "It skips the merge train's tests.",
+    "body": "It skips the merge queue's tests.",
     "variants": "titleStack when the PR sits in an open stack (it lands the whole stack, bottom first).",
     "params": [
       {

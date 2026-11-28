@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { pullRequestCollection } from "@/lib/collections"
 import type { SurfaceActionEvent } from "@exponential_app/eui-react"
 import { CI_RUN_SPECIMEN, CI_RUN_TEST_IDS, ciDefaultJob } from "@exp/domain-contract/ci-run"
 import { useIsMobile } from "@exp/ui"
@@ -62,6 +63,11 @@ export function CiRunView({
     else if (event.name === CI_RUN_EVENTS.cancel) onCancel()
     else if (event.name === CI_RUN_EVENTS.fix) onFix(selected)
     else if (event.name === CI_RUN_EVENTS.openExternal) onOpenExternal()
+    else if (event.name === CI_RUN_EVENTS.openPr) {
+      // #EXP-2214: a What happened row opens its pull request on the forge.
+      const pr = typeof event.context.pr === `string` ? pullRequestCollection.get(event.context.pr) : undefined
+      if (pr?.url) window.open(pr.url, `_blank`, `noopener`)
+    }
   }
   return (
     <div data-testid={CI_RUN_TEST_IDS.page} className="w-full min-w-0">

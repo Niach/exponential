@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-28-ci-merge-queue`,
+    date: `2026-11-28`,
+    title: `The CI page, sorted out`,
+    summary: `CI has four tabs now: Merge queue, Pull requests, Releases and Runners. The merge queue shows what is being tested, what is next, what was sent back and why, and what landed.`,
+    body: `- **Merge queue first**: what is being tested right now, on which commit of main, and about how long it has left; what is next in line; what was sent back, with Open log one click away; what landed.
+- **"Merge train" is now "Merge queue"** everywhere you see it.
+- **Pull requests**: one row per pull request with its latest result; its runs fold underneath.
+- **Releases**: tag builds, release suites, nightlies and runs on main, on their own tab.
+- **Run pages say why they ran**: a merge queue run lists each pull request it tested and what happened to it.`,
+  },
+  {
     id: `2026-11-28-quiet-check-ins`,
     date: `2026-11-28`,
     title: `Quiet check-ins stay quiet`,

@@ -22,6 +22,7 @@ import { githubErrorMessage } from "@/lib/integrations/github-error"
 import { resolveAppUserForGithubActor, type GithubActorRef } from "@/lib/integrations/github-identity"
 import { pullRequestsForCheck } from "@/lib/integrations/pr-checks"
 import { runTitle } from "@/lib/ci/runs"
+import { isTrainBranch, linkedTrainId } from "@/lib/merge-train/commit-checks"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 export const GITHUB_CI = `github`
@@ -173,7 +174,10 @@ export async function ingestWorkflowRun(args: {
       name: (run.name || `workflow`).slice(0, 64),
       sha: run.head_sha.slice(0, 64),
       ref: run.head_branch ? run.head_branch.slice(0, 255) : null,
-      trigger: triggerFromGithub(run.event),
+      // #EXP-2214: a run on a train ref is a merge queue run, whatever event
+      // started it (a push to `exp-train/<id>`), and names its train.
+      trigger: isTrainBranch(run.head_branch) ? `merge_train` : triggerFromGithub(run.event),
+      mergeTrainId: await linkedTrainId(repo.id, run.head_branch),
       pullRequestId: prs.find((pr) => pr.repositoryId === repo.id)?.id ?? null,
       state: githubRunState(status, run.conclusion),
       createdByUserId: createdBy,

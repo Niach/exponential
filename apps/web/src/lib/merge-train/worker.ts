@@ -50,7 +50,7 @@ import {
   type TrainUnit,
 } from "@exp/domain-contract/merge-train"
 import { db, pool } from "@/db/connection"
-import { ciJobs, ciRuns, mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams, users } from "@/db/schema"
+import { ciJobs, ciRuns, mergeTrainEvents, mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams, users } from "@/db/schema"
 import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import { readCommitChecks } from "@/lib/merge-train/commit-checks"
 import { confirmLanding } from "@/lib/merge-train/confirm"
@@ -116,6 +116,8 @@ export interface StepContext {
   now: Date
   files?: string[]
   failing?: Array<{ name: string; detailsUrl?: string | null }>
+  /** #EXP-2214: the commit a landing put on the base (the Landed history). */
+  landedSha?: string | null
   /** Extra columns written with the step (merge_wait, the run id, …). */
   extra?: Partial<Pick<PrRow, `mergeWait` | `mergeTrainId` | `mergeHeadSha` | `mergePosition` | `mergeNowBy` | `mergeNowRed`>>
 }
@@ -160,6 +162,7 @@ export async function stepPullRequestInTx(
     await generateTxId(tx)
     await tx.update(pullRequests).set(set).where(eq(pullRequests.id, pr.id))
   }
+  await recordTrainEvent(tx, pr, before, after, event, post, ctx)
   let assistant: string | null = null
   if (post) {
     // #FEED-293: a Merge now's merged line names who forced it and what was red.
@@ -181,6 +184,67 @@ export async function stepPullRequestInTx(
     }
   }
   return { post, assistant, state: after.state }
+}
+
+/** #EXP-2214 (ci-page.json MERGE QUEUE TAB): the queue's history row of
+ *  one PR edge: a landing, a bounce (failing: its red checks and the job to
+ *  open; conflict: its files), a hold, a Merge now, a Resume. Other edges
+ *  (readiness, requeues) write nothing. */
+async function recordTrainEvent(
+  tx: Tx,
+  pr: PrRow,
+  before: MergePr,
+  after: MergePr,
+  event: MergeEvent,
+  post: MergeOutcome | null,
+  ctx: StepContext
+): Promise<void> {
+  const kind =
+    post === `merged`
+      ? `landed`
+      : post === `failing` || post === `conflict` || post === `held`
+        ? post
+        : event.type === `merge_now`
+          ? `merge_now`
+          : event.type === `resume` && before.state === `held`
+            ? `resumed`
+            : null
+  if (!kind) return
+  const trainId = pr.mergeTrainId
+  const checks = kind === `failing` ? [...new Set((ctx.failing ?? []).map((check) => check.name))] : []
+  let ciJobId: string | null = null
+  let jobUrl: string | null = null
+  if (checks.length > 0 && trainId) {
+    // The first red check's job in a run of this train: ours by its check
+    // name, a GitHub job by its name (the check GitHub reports).
+    const jobs = await tx
+      .select({ id: ciJobs.id, check: ciJobs.check, provider: ciJobs.provider, externalUrl: ciJobs.externalUrl, conclusion: ciJobs.conclusion })
+      .from(ciJobs)
+      .innerJoin(ciRuns, eq(ciRuns.id, ciJobs.runId))
+      .where(and(eq(ciRuns.mergeTrainId, trainId), inArray(ciJobs.check, checks)))
+    const job = jobs.find((j) => j.conclusion !== null && j.conclusion !== `success`) ?? jobs[0]
+    if (job) {
+      ciJobId = job.id
+      jobUrl = job.provider === `github` ? job.externalUrl : null
+    }
+    if (!job) jobUrl = (ctx.failing ?? []).find((check) => check.detailsUrl)?.detailsUrl ?? null
+  }
+  await tx.insert(mergeTrainEvents).values({
+    teamId: pr.teamId,
+    repositoryId: pr.repositoryId,
+    pullRequestId: pr.id,
+    mergeTrainId: trainId,
+    kind,
+    base: pr.base,
+    attempt: after.attempts,
+    reason: kind === `held` ? (after.holdReason ?? null) : null,
+    checks,
+    ciJobId,
+    jobUrl,
+    files: kind === `conflict` ? (ctx.files ?? []).slice(0, 50) : [],
+    sha: kind === `landed` ? (ctx.landedSha ?? null) : null,
+    byUserId: kind === `merge_now` ? (ctx.extra?.mergeNowBy ?? null) : null,
+  })
 }
 
 async function userName(tx: Tx, userId: string): Promise<string> {
@@ -728,7 +792,7 @@ async function landPullRequests(
   for (const id of ids) {
     await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null, trainLanding: true })
     const result = await db.transaction(async (tx) => {
-      const step = await stepPullRequestInTx(tx, id, event, { base, now })
+      const step = await stepPullRequestInTx(tx, id, event, { base, now, landedSha: sha })
       const [pr] = await tx.select({ number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.id, id)).limit(1)
       return { step, number: pr?.number ?? 0, issues: await closedIssueIdentifiers(tx, id) }
     })

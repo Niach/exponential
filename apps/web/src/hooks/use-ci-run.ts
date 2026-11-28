@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { CI_RUN_LIVE_TAIL_MS } from "@exp/domain-contract/ci-run"
-import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection, userCollection } from "@/lib/collections"
+import { ciRunContext } from "@exp/domain-contract/ci-page"
+import {
+  ciJobCollection,
+  ciRunCollection,
+  deviceCollection,
+  mergeTrainCollection,
+  mergeTrainEventCollection,
+  pullRequestCollection,
+  userCollection,
+} from "@/lib/collections"
+import { toCiPageJob, toCiPagePr, toCiPageRun, toCiPageTrain, toCiPageTrainEvent, useCiRepos } from "@/hooks/use-ci-page"
 import { useTeamRepos } from "@/hooks/use-team-repos"
 import { appendLogChunk, EMPTY_LOG, type CiLogState, type CiRunModel } from "@/lib/ci-run-view"
 import { trpc } from "@/lib/trpc-client"
@@ -32,6 +42,23 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
     (query) => (prId ? query.from({ p: pullRequestCollection }).where(({ p }) => eq(p.id, prId)) : undefined),
     [prId]
   )
+  // #EXP-2214 (ci-page.json `ciRunContext`): its kind, and a merge queue
+  // run's train, the train's history and the repository's PRs.
+  const ciRepos = useCiRepos()
+  const trainId = run0?.mergeTrainId ?? null
+  const repositoryId = run0?.repositoryId ?? null
+  const { data: trains } = useLiveQuery(
+    (query) => (trainId ? query.from({ t: mergeTrainCollection }).where(({ t }) => eq(t.id, trainId)) : undefined),
+    [trainId]
+  )
+  const { data: trainEvents } = useLiveQuery(
+    (query) => (trainId ? query.from({ e: mergeTrainEventCollection }).where(({ e }) => eq(e.mergeTrainId, trainId)) : undefined),
+    [trainId]
+  )
+  const { data: repoPrs } = useLiveQuery(
+    (query) => (trainId && repositoryId ? query.from({ p: pullRequestCollection }).where(({ p }) => eq(p.repositoryId, repositoryId)) : undefined),
+    [trainId, repositoryId]
+  )
   const authorId = run0?.createdByUserId ?? null
   const { data: authors } = useLiveQuery(
     (query) => (authorId ? query.from({ u: userCollection }).where(({ u }) => eq(u.id, authorId)) : undefined),
@@ -61,6 +88,14 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
       repository: repos?.find((repo) => repo.id === run.repositoryId)?.fullName ?? null,
       pullRequest: prs?.[0] ? { number: prs[0].number, base: prs[0].base } : null,
       author: authors?.[0]?.name ?? null,
+      context: ciRunContext(toCiPageRun(run), {
+        repos: ciRepos,
+        pullRequests: [...(repoPrs ?? prs ?? [])].map(toCiPagePr),
+        trains: (trains ?? []).map(toCiPageTrain),
+        trainEvents: (trainEvents ?? []).map(toCiPageTrainEvent),
+        jobs: (jobs ?? []).map(toCiPageJob),
+        runs: [],
+      }),
       jobs: (jobs ?? []).map((job) => ({
         id: job.id,
         check: job.check,
@@ -74,7 +109,7 @@ export function useCiRun(runId: string | null | undefined): { model: CiRunModel 
         steps: job.steps ?? [],
       })),
     }
-  }, [runs, jobs, devices, repos, prs, authors])
+  }, [runs, jobs, devices, repos, prs, authors, ciRepos, trains, trainEvents, repoPrs])
   return { model, ready: Boolean(isReady) }
 }
 

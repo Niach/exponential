@@ -27,6 +27,8 @@ export const CI_RUN_COLUMNS = [
   `external_attempt`,
   `external_access`,
   `title`,
+  // #EXP-2214: the merge queue run it tests.
+  `merge_train_id`,
   `created_at`,
   `updated_at`,
 ]

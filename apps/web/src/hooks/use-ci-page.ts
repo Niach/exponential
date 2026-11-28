@@ -1,41 +1,140 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { ciBadge, type CiPageInput, type CiPageRepo } from "@exp/domain-contract/ci-page"
-import { ciJobCollection, ciRunCollection, deviceCollection, pullRequestCollection, sessionCollection, userCollection } from "@/lib/collections"
+import {
+  ciBadge,
+  type CiPageInput,
+  type CiPageJob,
+  type CiPagePr,
+  type CiPageRepo,
+  type CiPageRun,
+  type CiPageTrain,
+  type CiPageTrainEvent,
+} from "@exp/domain-contract/ci-page"
+import type { z } from "zod"
+import type {
+  selectCiJobSchema,
+  selectCiRunSchema,
+  selectMergeTrainEventSchema,
+  selectMergeTrainSchema,
+  selectPullRequestSchema,
+} from "@/db/schema"
+import {
+  ciJobCollection,
+  ciRunCollection,
+  deviceCollection,
+  mergeTrainCollection,
+  mergeTrainEventCollection,
+  pullRequestCollection,
+  repositoryCollection,
+  sessionCollection,
+  userCollection,
+} from "@/lib/collections"
 import { listedDevices } from "@/lib/steer-devices"
-import { trpc } from "@/lib/trpc-client"
 
 // #EXP-2172 (ci-page.json DATA): THE CI page's input, every member team at
 // once, all from the synced shapes (runs, jobs, pull requests, sessions,
-// devices). Repository names come from `repositories.list` per team until the
-// repositories shape (#EXP-2171) is synced.
+// devices, repositories; #EXP-2214: the merge queue's trains and history).
 
 const toIso = (value: Date | string | null | undefined): string | null =>
   value == null ? null : typeof value === `string` ? value : value.toISOString()
 
-/** `repositories.list` of every member team, one read per team. */
-export function useCiRepos(teamIds: readonly string[]): CiPageRepo[] {
-  const key = teamIds.join(`,`)
-  const [repos, setRepos] = useState<CiPageRepo[]>([])
-  useEffect(() => {
-    if (teamIds.length === 0) return
-    let active = true
-    void Promise.all(
-      teamIds.map((teamId) =>
-        trpc.repositories.list
-          .query({ teamId })
-          .then((rows) => rows.map((row) => ({ id: row.id, fullName: row.fullName })))
-          .catch(() => [] as CiPageRepo[])
-      )
-    ).then((lists) => {
-      if (active) setRepos(lists.flat())
-    })
-    return () => {
-      active = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return repos
+// The synced rows as the CI page reads them (also the run page's context).
+type Synced<S extends z.ZodTypeAny> = z.infer<S>
+
+export const toCiPageRun = (run: Synced<typeof selectCiRunSchema>): CiPageRun => ({
+  id: run.id,
+  repositoryId: run.repositoryId,
+  number: run.number,
+  name: run.name,
+  sha: run.sha,
+  ref: run.ref ?? null,
+  trigger: run.trigger,
+  state: run.state,
+  pullRequestId: run.pullRequestId ?? null,
+  createdByUserId: run.createdByUserId ?? null,
+  provider: run.provider ?? `exponential`,
+  startedAt: toIso(run.startedAt),
+  completedAt: toIso(run.completedAt),
+  createdAt: toIso(run.createdAt) ?? ``,
+  title: run.title ?? null,
+  mergeTrainId: run.mergeTrainId ?? null,
+})
+
+export const toCiPageJob = (job: Synced<typeof selectCiJobSchema>): CiPageJob => ({
+  id: job.id,
+  runId: job.runId,
+  check: job.check,
+  status: String(job.status),
+  conclusion: job.conclusion == null ? null : String(job.conclusion),
+  runsOn: job.runsOn ?? [],
+  runnerDeviceId: job.runnerDeviceId ?? null,
+  provider: job.provider ?? `exponential`,
+})
+
+export const toCiPagePr = (pr: Synced<typeof selectPullRequestSchema>): CiPagePr => ({
+  id: pr.id,
+  number: pr.number,
+  title: pr.title ?? ``,
+  repositoryId: pr.repositoryId,
+  rootSessionId: pr.rootSessionId ?? null,
+  base: pr.base,
+  state: String(pr.state),
+  mergeState: (pr.mergeState as string | null | undefined) ?? null,
+  mergeWait: pr.mergeWait ?? null,
+  mergeHold: pr.mergeHold ?? null,
+  mergeNow: pr.mergeNow ?? false,
+  mergeAttempts: pr.mergeAttempts ?? 0,
+  mergePosition: pr.mergePosition ?? null,
+  mergeTrainId: pr.mergeTrainId ?? null,
+})
+
+export const toCiPageTrain = (train: Synced<typeof selectMergeTrainSchema>): CiPageTrain => ({
+  id: train.id,
+  repositoryId: train.repositoryId,
+  base: train.base,
+  baseSha: train.baseSha ?? null,
+  units: train.units ?? [],
+  state: train.state,
+  attempt: train.attempt,
+  bisectOf: train.bisectOf ?? null,
+  pending: train.pending ?? [],
+  untested: train.untested,
+  testedSha: train.testedSha ?? null,
+  createdAt: toIso(train.createdAt) ?? ``,
+  finishedAt: toIso(train.finishedAt),
+})
+
+export const toCiPageTrainEvent = (e: Synced<typeof selectMergeTrainEventSchema>): CiPageTrainEvent => ({
+  id: e.id,
+  repositoryId: e.repositoryId,
+  pullRequestId: e.pullRequestId,
+  mergeTrainId: e.mergeTrainId ?? null,
+  kind: e.kind,
+  base: e.base,
+  attempt: e.attempt,
+  reason: e.reason ?? null,
+  checks: e.checks ?? [],
+  ciJobId: e.ciJobId ?? null,
+  jobUrl: e.jobUrl ?? null,
+  files: e.files ?? [],
+  sha: e.sha ?? null,
+  byUserId: e.byUserId ?? null,
+  createdAt: toIso(e.createdAt) ?? ``,
+})
+
+/** #EXP-2214: the synced repositories (name and default branch: a push to
+ *  it is a release run). */
+export function useCiRepos(): CiPageRepo[] {
+  const { data } = useLiveQuery((query) => query.from({ r: repositoryCollection }), [])
+  return useMemo(
+    () =>
+      (data ?? []).map((row) => ({
+        id: row.id,
+        fullName: row.fullName,
+        defaultBranch: row.defaultBranchOverride ?? row.defaultBranch ?? null,
+      })),
+    [data]
+  )
 }
 
 /** The page's input, without the clock and the repositories. */
@@ -46,46 +145,17 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
   const { data: sessions } = useLiveQuery((query) => query.from({ s: sessionCollection }), [])
   const { data: devices } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
   const { data: users } = useLiveQuery((query) => query.from({ u: userCollection }), [])
+  const { data: trains } = useLiveQuery((query) => query.from({ t: mergeTrainCollection }), [])
+  const { data: trainEvents } = useLiveQuery((query) => query.from({ e: mergeTrainEventCollection }), [])
   return useMemo(
     () => ({
       ready: Boolean(isReady),
       viewerId,
-      runs: (runs ?? []).map((run) => ({
-        id: run.id,
-        repositoryId: run.repositoryId,
-        number: run.number,
-        name: run.name,
-        sha: run.sha,
-        ref: run.ref ?? null,
-        trigger: run.trigger,
-        state: run.state,
-        pullRequestId: run.pullRequestId ?? null,
-        createdByUserId: run.createdByUserId ?? null,
-        provider: run.provider ?? `exponential`,
-        startedAt: toIso(run.startedAt),
-        completedAt: toIso(run.completedAt),
-        createdAt: toIso(run.createdAt) ?? ``,
-        title: run.title ?? null,
-      })),
-      jobs: (jobs ?? []).map((job) => ({
-        runId: job.runId,
-        status: String(job.status),
-        conclusion: job.conclusion == null ? null : String(job.conclusion),
-        runsOn: job.runsOn ?? [],
-        runnerDeviceId: job.runnerDeviceId ?? null,
-        provider: job.provider ?? `exponential`,
-      })),
-      pullRequests: (prs ?? []).map((pr) => ({
-        id: pr.id,
-        number: pr.number,
-        title: pr.title ?? ``,
-        repositoryId: pr.repositoryId,
-        rootSessionId: pr.rootSessionId ?? null,
-        base: pr.base,
-        mergeState: (pr.mergeState as string | null | undefined) ?? null,
-        mergePosition: pr.mergePosition ?? null,
-        mergeTrainId: pr.mergeTrainId ?? null,
-      })),
+      runs: (runs ?? []).map(toCiPageRun),
+      jobs: (jobs ?? []).map(toCiPageJob),
+      pullRequests: (prs ?? []).map(toCiPagePr),
+      trains: (trains ?? []).map(toCiPageTrain),
+      trainEvents: (trainEvents ?? []).map(toCiPageTrainEvent),
       users: (users ?? []).map((user) => ({ id: user.id, name: user.name, image: user.image ?? null })),
       sessions: (sessions ?? []).filter((s) => s.rootId === s.id).map((s) => ({ id: s.id, userId: s.userId })),
       runners: listedDevices(devices ?? [])
@@ -99,7 +169,7 @@ export function useCiPageRows(viewerId: string): Omit<CiPageInput, `now` | `repo
           lastSeenAt: toIso(device.lastSeenAt),
         })),
     }),
-    [isReady, viewerId, runs, jobs, prs, sessions, devices, users]
+    [isReady, viewerId, runs, jobs, prs, sessions, devices, users, trains, trainEvents]
   )
 }
 

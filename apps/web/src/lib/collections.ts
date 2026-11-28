@@ -22,6 +22,8 @@ import {
   selectPullRequestCheckSchema,
   selectCiRunSchema,
   selectCiJobSchema,
+  selectMergeTrainSchema,
+  selectMergeTrainEventSchema,
   selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
   selectCommentSchema,
@@ -477,6 +479,26 @@ export const repositoryCollection = createCollection(
     id: `repositories`,
     shapeOptions: shapeOptions(`/api/shapes/repositories`),
     schema: selectSyncedRepositorySchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #EXP-2214: the merge queue's runs (what is being tested, on which base
+// commit) and its history (Landed, Sent back): the CI page's Merge queue tab.
+export const mergeTrainCollection = createCollection(
+  electricCollectionOptions({
+    id: `merge_trains`,
+    shapeOptions: shapeOptions(`/api/shapes/merge-trains`),
+    schema: selectMergeTrainSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const mergeTrainEventCollection = createCollection(
+  electricCollectionOptions({
+    id: `merge_train_events`,
+    shapeOptions: shapeOptions(`/api/shapes/merge-train-events`),
+    schema: selectMergeTrainEventSchema,
     getKey: (item) => item.id,
   })
 )
