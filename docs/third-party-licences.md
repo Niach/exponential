@@ -733,7 +733,7 @@ beside the Inter Symbols faces:
 | where | the faces | the licence |
 |---|---|---|
 | `ui-compose` (AAR; the Android app through it) | `src/main/res/font/inter_{regular,medium,semibold,bold}.ttf` | `ui-compose/OFL-Inter.txt` (`META-INF/OFL-Inter.txt` in the AAR) |
-| `ExponentialUI` (SwiftPM; the iOS app through it) | `Sources/ExponentialUI/Resources/Fonts/Inter-{Regular,Medium,SemiBold,Bold}.ttf` | `OFL-Inter.txt` in the same resource folder |
+| `ExponentialUIPrimitives` (SwiftPM; `ExponentialUI` and the iOS app, its share extension included, through it) | `Sources/ExponentialUIPrimitives/Resources/Fonts/Inter-{Regular,Medium,SemiBold,Bold}.ttf` | a copy of `OFL-Inter.txt` in the same resource folder |
 
 The curated supplement's `Inter` entry already lists `ios` and `android`, so
 both apps' `NOTICES.txt` reproduce Inter's OFL unchanged.
