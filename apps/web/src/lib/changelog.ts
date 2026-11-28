@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-28-desktop-cli-0-14-188`,
+    date: `2026-11-28`,
+    title: `Quiet check-ins on your machines, and the same ⌘ everywhere`,
+    summary: `Desktop and CLI 0.14.188: agents on your computers and servers end a quiet check-in right away, and shortcut keys draw their symbols from one bundled font.`,
+    body: `- **Quiet check-ins stay quiet on your machines**: the desktop app and the CLI end an agent's turn as soon as it has nothing to say, with no repeated tries. See "Quiet check-ins stay quiet" below.
+- **The same key symbols everywhere**: ⌘, ⌥, ⇧ and the arrows in shortcut keys draw from one bundled font instead of whatever the system has.
+- **Everything from 0.14.187**: the AppImage on Ubuntu 22.04 and other older Linux systems.`,
+  },
+  {
     id: `2026-11-28-quiet-check-ins`,
     date: `2026-11-28`,
     title: `Quiet check-ins stay quiet`,
